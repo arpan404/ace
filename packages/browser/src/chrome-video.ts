@@ -5,6 +5,10 @@ import type { CdpConnection } from "./cdp-connection.ts";
 import { videoExtensionId, writeVideoExtension } from "./video-extension.ts";
 import { deliverVideoEvent, VideoEncoderEvent } from "./video-events.ts";
 
+const SupportedCodecs = z.array(BrowserVideoCodec);
+const OpenedStream = z.object({ streamId: z.string().min(1).max(256) });
+const LoadedExtension = z.object({ id: z.string() });
+
 /*
  * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
  * its service worker and offscreen document, and turns the document's binding calls into
@@ -34,14 +38,20 @@ const origin = `chrome-extension://${videoExtensionId}/`;
 type Connection = Pick<CdpConnection, "send" | "session">;
 
 export class ChromeVideo implements VideoHost {
+  readonly mediaKind = "tab";
   private connection: Connection;
   private targets: { keep(targetId: string): void };
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
   private ready: Promise<{ worker: BrowserCdp; document: BrowserCdp }> | undefined;
+  private workerTarget: string | undefined;
+  private documentTarget: string | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
+  /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
+  private stopping = new Set<Promise<unknown>>();
   private ids = 0;
+  private picturesHost: VideoHost | undefined;
   constructor(options: {
     connection: Connection;
     /** The browser's target router, told to leave the extension's targets attached. */
@@ -66,9 +76,9 @@ export class ChromeVideo implements VideoHost {
   }
   async supported(codecs: readonly string[], width: number, height: number): Promise<string[]> {
     const { document } = await this.extension();
-    return z
-      .array(BrowserVideoCodec)
-      .parse(await evaluate(document, "aceVideo.supported", [codecs, width, height]));
+    return SupportedCodecs.parse(
+      await evaluate(document, "aceVideo.supported", [codecs, width, height]),
+    );
   }
   async open(
     page: BrowserCdp,
@@ -76,30 +86,77 @@ export class ChromeVideo implements VideoHost {
     height: number,
     events: CaptureEvents,
   ): Promise<VideoCaptureHandle> {
-    const { worker, document } = await this.extension();
     const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
-    const { streamId } = z
-      .object({ streamId: z.string().min(1).max(256) })
-      .parse(await evaluate(worker, "aceVideo.open", [windowId]));
     const id = `capture-${++this.ids}`;
+    const document = await this.start(id, windowId, width, height);
     this.captures.set(id, events);
-    try {
-      await evaluate(document, "aceVideo.start", [id, streamId, width, height]);
-    } catch (error) {
-      this.captures.delete(id);
-      throw error;
-    }
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
     return {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
       audio: (on) => call("aceVideo.audio", [id, on]),
+      // Chunks go straight to ace-media's ingest, binary, instead of base64 over CDP.
+      ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
       close: () => {
         if (!this.captures.delete(id)) return;
-        call("aceVideo.stop", [id]);
+        const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
+        this.stopping.add(stopped);
+        // `stopped` already swallows its own failure; only clearing the set is left.
+        void stopped.finally(() => this.stopping.delete(stopped)).catch(() => {});
       },
     };
+  }
+  /**
+   * Opens capture `id` of the tab shown in `windowId` and returns the document encoding it.
+   * Each attempt takes a fresh stream id, since Chrome takes one only once. With the tab's sound
+   * first; a capture that can't take it streams its picture alone. A failed attempt can leave
+   * the tab held by a capture Chrome started but never handed over, which neither a new stream id
+   * nor a new document frees: then the extension is installed again, which ends every capture
+   * it asked for, and the tab is tried once more.
+   */
+  private async start(id: string, windowId: number, width: number, height: number) {
+    // A capture still stopping holds its tab; asking for the tab before then is refused.
+    await Promise.all(this.stopping);
+    let { worker, document } = await this.extension();
+    const attempt = async (audio: boolean) => {
+      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      await evaluate(document, "aceVideo.start", [
+        id,
+        streamId,
+        width,
+        height,
+        ...(audio ? [] : [{ audio: false }]),
+      ]);
+    };
+    try {
+      await attempt(true);
+      return document;
+    } catch {}
+    try {
+      await attempt(false);
+      return document;
+    } catch (error) {
+      if (!heldTab(error)) throw error;
+    }
+    ({ worker, document } = await this.restart());
+    await attempt(true).catch(() => attempt(false));
+    return document;
+  }
+  /** Installs the extension again and attaches to it; its captures end, so viewers reopen them. */
+  private async restart(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+    const old = { worker: this.workerTarget, document: this.documentTarget };
+    // The old targets' sessions end with them; their detach must not end the new captures.
+    this.sessions.clear();
+    for (const events of this.captures.values()) events.ended();
+    this.captures.clear();
+    await this.connection.send("Extensions.uninstall", { id: videoExtensionId });
+    const opened = this.install(old);
+    this.ready = opened.catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
+    return opened;
   }
   /**
    * Video of a tab the extension can't capture (a private browser context, ADR 0088 amended):
@@ -158,12 +215,15 @@ export class ChromeVideo implements VideoHost {
       },
     };
   }
-  /** `openPictures` as a video host of its own, for the tabs of a private context. */
+  /** `openPictures` as a video host of its own, for the tabs of a private context. One per
+   * encoder, so what is learned about it (ace-media refusing its pictures) is kept. */
   pictures(): VideoHost {
-    return {
+    this.picturesHost ??= {
+      mediaKind: "tab-pictures",
       supported: (codecs, width, height) => this.supported(codecs, width, height),
       open: (page, width, height, events) => this.openPictures(page, width, height, events),
     };
+    return this.picturesHost;
   }
   private extension(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     this.ready ??= this.load().catch((error: unknown) => {
@@ -172,25 +232,45 @@ export class ChromeVideo implements VideoHost {
     });
     return this.ready;
   }
-  private async load(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+  private load(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+    return this.install({});
+  }
+  /** Loads the unpacked extension and attaches to its worker and document, never to `not`. */
+  private async install(not: {
+    worker?: string | undefined;
+    document?: string | undefined;
+  }): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     await writeVideoExtension(this.directory);
-    const loaded = z
-      .object({ id: z.string() })
-      .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
+    const loaded = LoadedExtension.parse(
+      await this.connection.send("Extensions.loadUnpacked", { path: this.directory }),
+    );
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    const worker = await this.attach(`${origin}worker.js`);
+    // An attached target may not have run its script yet, or may be paused before it: always
+    // so on Windows, on any platform for an extension installed again over a running one (a
+    // failed load retried is one), and under load anywhere. Calling an export then throws, or
+    // never answers at all, so every load waits for the exports.
+    const attached = await this.attach(`${origin}worker.js`, not.worker);
+    this.workerTarget = attached.targetId;
+    const worker = attached.session;
+    await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
-    const document = await this.attach(`${origin}offscreen.html`);
+    const opened = await this.attach(`${origin}offscreen.html`, not.document);
+    this.documentTarget = opened.targetId;
+    const document = opened.session;
+    await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
   }
-  /** Attaches to the extension target at `url`, waiting a few seconds for it to start. */
-  private async attach(url: string): Promise<BrowserCdp> {
+  /** Attaches to the extension target at `url` (never `not`), waiting a few seconds for it. */
+  private async attach(
+    url: string,
+    not?: string,
+  ): Promise<{ session: BrowserCdp; targetId: string; sessionId: string }> {
     for (let attempt = 0; attempt < 50; attempt++) {
       const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
-      const target = targetInfos.find((info) => info.url === url);
+      const target = targetInfos.find((info) => info.url === url && info.targetId !== not);
       if (target) {
         this.targets.keep(target.targetId);
         const { sessionId } = Attached.parse(
@@ -200,8 +280,30 @@ export class ChromeVideo implements VideoHost {
           }),
         );
         this.sessions.add(sessionId);
-        return this.connection.session(sessionId);
+        return {
+          session: this.connection.session(sessionId),
+          targetId: target.targetId,
+          sessionId,
+        };
       }
+      await this.delay(100);
+    }
+    throw new Error("The video extension did not start");
+  }
+  /**
+   * An attached extension target may not have run its script yet, so calling an `aceVideo`
+   * export would throw `ReferenceError`. Waits a few seconds for `aceVideo[method]`.
+   */
+  private async untilExport(session: BrowserCdp, method: string): Promise<void> {
+    await session.send("Runtime.runIfWaitingForDebugger", {});
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const reply = Evaluated.parse(
+        await session.send("Runtime.evaluate", {
+          expression: `typeof globalThis.aceVideo?.${method} === "function"`,
+          returnByValue: true,
+        }),
+      );
+      if (!reply.exceptionDetails && reply.result?.value === true) return;
       await this.delay(100);
     }
     throw new Error("The video extension did not start");
@@ -223,6 +325,13 @@ export class ChromeVideo implements VideoHost {
       split === -1 ? undefined : new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
     deliverVideoEvent(this.captures, event.data, bytes);
   }
+}
+
+/** Chrome refused a capture because another one, maybe one it never handed over, holds the tab. */
+function heldTab(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.includes("Cannot capture a tab with an active stream")
+  );
 }
 
 /** Calls `name(...args)` in a target and returns its (awaited) value; throws what it threw. */

@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "vitest";
-import { createModelDiscovery, parseOpenCodeConnections, discoveryError } from "./index.ts";
+import { join } from "node:path";
+import {
+  ModelCatalog,
+  createModelDiscovery,
+  createModelRevisionProbe,
+  openModelStorage,
+  parseOpenCodeConnections,
+  discoveryError,
+} from "./index.ts";
 import { instance, fakeCli, workspace } from "./testing/support.ts";
 const native = (providerID: string, modelID: string) => ({
   id: `${providerID}/${modelID}`,
@@ -28,6 +36,7 @@ test("OpenCode's non-secret connection data groups local, subscriptions, API key
     { id: "opencode", connections: [{ type: "credential" }] },
     { id: "anthropic", connections: [{ type: "env" }] },
     { id: "openai", connections: [{ type: "credential", authType: "api_key" }] },
+    { id: "github", connections: [{ type: "credential", method: "oauth" }] },
     { id: "custom", connections: [{ type: "configured" }] },
     { id: "not-connected", connections: [] },
     { id: "remote-ollama", baseURL: "https://cloud.example/v1", connections: [{ type: "env" }] },
@@ -41,6 +50,7 @@ test("OpenCode's non-secret connection data groups local, subscriptions, API key
     { kind: "api_key", id: "opencode", label: "OpenCode Zen", service: "opencode_zen" },
     { kind: "api_key", id: "anthropic", label: "Anthropic" },
     { kind: "api_key", id: "openai", label: "OpenAI" },
+    { kind: "subscription", id: "github", label: "github" },
     { kind: "other", id: "custom", label: "custom" },
     { kind: "api_key", id: "remote-ollama", label: "remote-ollama" },
   ]);
@@ -340,3 +350,89 @@ test.each([
     expect(models.map((model) => model.id)).toEqual([]);
   },
 );
+
+// OpenCode 2.2.5's `auth list` for a Console login: one `opencode` row, even when it has Go.
+const consoleLogin = JSON.stringify([
+  {
+    id: "opencode",
+    name: "OpenCode Console",
+    connections: [{ type: "credential", id: "cred_1", label: "Default", method: "oauth" }],
+  },
+]);
+async function consoleCatalog(served: { metadata: string[]; ids: string[] }) {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const config = {
+    ...instance("opencode"),
+    cwd: work.path,
+    args: [await fakeCli(work.path)],
+    env: {
+      HOME: work.path,
+      FAKE_PROVIDER: "opencode",
+      FAKE_CONNECTIONS: consoleLogin,
+      FAKE_MODEL_IDS: served.ids.join("\n"),
+    },
+  };
+  let discoveries = 0;
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(work.path, "models.sqlite")),
+    instances: [config],
+    now: () => 1000,
+    deadline: () => () => {},
+    revisionProbe: createModelRevisionProbe(),
+    discover: createModelDiscovery({
+      opencode: async () => {
+        discoveries++;
+        return {
+          location: { directory: config.cwd },
+          data: served.metadata.map((id) => native(id.split("/")[0] ?? "", id.split("/")[1] ?? "")),
+        };
+      },
+    }),
+  });
+  cleanups.push(() => catalog.close());
+  await catalog.refresh();
+  return { catalog, discoveries: () => discoveries };
+}
+const listedSources = (catalog: ModelCatalog) =>
+  catalog.list().models.map((model) => [model.id, model.source?.label, model.source?.kind]);
+
+test.each([
+  [
+    "model metadata",
+    { metadata: ["opencode/muse-spark-1.3", "opencode-go/glm-5.3-flash"], ids: [] },
+  ],
+  [
+    "the model list alone",
+    { metadata: ["opencode/muse-spark-1.3"], ids: ["opencode-go/glm-5.3-flash"] },
+  ],
+])(
+  "an OpenCode Console login lists the Go models its account serves, from %s",
+  async (_from, served) => {
+    const { catalog } = await consoleCatalog(served);
+    expect(listedSources(catalog)).toEqual([
+      ["opencode/muse-spark-1.3", "OpenCode Zen", "api_key"],
+      ["opencode-go/glm-5.3-flash", "OpenCode Go", "subscription"],
+    ]);
+  },
+);
+
+test("an OpenCode Console login without Go shows no Go group", async () => {
+  const { catalog } = await consoleCatalog({
+    metadata: ["opencode/muse-spark-1.3"],
+    ids: ["opencode/muse-spark-1.3"],
+  });
+  expect(listedSources(catalog)).toEqual([["opencode/muse-spark-1.3", "OpenCode Zen", "api_key"]]);
+  expect(catalog.list().instances[0]?.sources?.map((status) => status.source.id)).toEqual([
+    "opencode",
+  ]);
+});
+
+test.each([
+  ["with Go", ["opencode/muse-spark-1.3", "opencode-go/glm-5.3-flash"]],
+  ["without Go", ["opencode/muse-spark-1.3"]],
+])("checking an unchanged Console login %s does not rediscover its models", async (_go, ids) => {
+  const { catalog, discoveries } = await consoleCatalog({ metadata: ids, ids: [] });
+  await catalog.reconcileConnections();
+  expect(discoveries()).toBe(1);
+});

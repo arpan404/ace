@@ -1,45 +1,65 @@
+import type { Stats } from "node:fs";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { constants } from "node:fs";
 import { lstat, open, rename, rm, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
+import { publishReplacement } from "./replacement.ts";
 import { SafeRoot, GitIgnore, walkWorkspace, isWorkspaceTransferTemporary } from "@ace/workspace";
 import { z } from "zod";
 import { CHUNK_SIZE, codeOf, FileError, version, checkVersion } from "./types.ts";
 import type { UploadRecord } from "./catalog.ts";
+import { chmod } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 export async function observed(
   safe: SafeRoot,
   path: string,
   signal?: AbortSignal,
+  entryLimit = 1_000_000,
 ): Promise<string | null> {
   const target = await safe.target(path);
   try {
     const info = await lstat(target.path);
     const current = version(info);
     if (!info.isDirectory()) return current;
-    const digest = createHash("sha256").update(current);
-    const ignore = await GitIgnore.create(safe);
-    for await (const entry of walkWorkspace(safe, ignore, {
-      dir: safe.path(path),
-      depth: Number.MAX_SAFE_INTEGER,
-      includeIgnored: true,
-      exclude: isWorkspaceTransferTemporary,
-      entryLimit: 1_000_000,
-      ...(signal ? { signal } : {}),
-    })) {
-      if (isWorkspaceTransferTemporary(entry.path)) continue;
-      const metadata = await safe.metadata(entry.path);
-      digest.update(entry.path);
-      digest.update("\0");
-      digest.update(version(metadata.info));
-      digest.update("\0");
-    }
-    return `tree:${digest.digest("hex")}`;
+    return await treeVersion(safe, path, info, signal, entryLimit);
   } catch (error) {
     if (codeOf(error) === "ENOENT") return null;
     throw error;
   }
+}
+
+/**
+ * The `tree:` digest of a folder: its own version, then every entry below it as `path`, NUL,
+ * version, NUL. `files-io`'s folder versions are computed the same way, so a version from either
+ * side is accepted by the other.
+ */
+export async function treeVersion(
+  safe: SafeRoot,
+  path: string,
+  info: Stats,
+  signal?: AbortSignal,
+  entryLimit = 1_000_000,
+): Promise<string> {
+  const digest = createHash("sha256").update(version(info));
+  const ignore = await GitIgnore.create(safe);
+  for await (const entry of walkWorkspace(safe, ignore, {
+    dir: safe.path(path),
+    depth: Number.MAX_SAFE_INTEGER,
+    includeIgnored: true,
+    exclude: isWorkspaceTransferTemporary,
+    entryLimit,
+    ...(signal ? { signal } : {}),
+  })) {
+    if (isWorkspaceTransferTemporary(entry.path)) continue;
+    const metadata = await safe.metadata(entry.path);
+    digest.update(entry.path);
+    digest.update("\0");
+    digest.update(version(metadata.info));
+    digest.update("\0");
+  }
+  return `tree:${digest.digest("hex")}`;
 }
 export async function checkedTarget(
   safe: SafeRoot,
@@ -128,17 +148,60 @@ export async function atomicWrite(
   const target = await checkedTarget(safe, path, expected);
   const temp = join(dirname(target.path), `.ace-upload-${id}`);
   const handle = await open(temp, "wx", 0o600);
+  const own = await handle.stat();
   try {
     await writeAll(handle, bytes, 0);
     await handle.sync();
     await checkedTarget(safe, path, expected);
     await target.verify();
     if (expected !== null) await handle.chmod(await replacementMode(target.path));
+    if (process.platform === "win32" && expected !== null) {
+      await windowsReplace(temp, target.path);
+      await target.verify();
+      return;
+    }
     if (expected === null) await exclusive.move(temp, target.path);
-    else await rename(temp, target.path);
+    else
+      await publishReplacement({
+        exclusive,
+        temp,
+        identity: `${own.dev}:${own.ino}`,
+        destination: target.path,
+        expected,
+        id,
+      });
     await target.verify();
   } finally {
     await handle.close();
-    await rm(temp, { force: true });
+    // Only this write's own file: a refused exchange may have left another program's save here.
+    const left = await lstat(temp).catch(() => undefined);
+    if (left && left.dev === own.dev && left.ino === own.ino) await rm(temp, { force: true });
+  }
+}
+
+/**
+ * Windows: rename `temp` over an existing file. Windows refuses that while the file is
+ * read-only, or while another program holds it open without delete sharing. The read-only
+ * attribute is lifted just before the rename and put back if the rename fails; the incoming
+ * file already carries the same mode, so a read-only file stays read-only. Sharing violations
+ * are retried for under a second, then reported.
+ */
+export async function windowsReplace(temp: string, destination: string): Promise<void> {
+  const before = await lstat(destination);
+  const readOnly = before.isFile() && (before.mode & 0o200) === 0;
+  if (readOnly) await chmod(destination, 0o666);
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(temp, destination);
+        return;
+      } catch (error) {
+        if (attempt >= 5 || !["EBUSY", "EPERM", "EACCES"].includes(codeOf(error))) throw error;
+        await delay(25 * 2 ** attempt);
+      }
+    }
+  } catch (error) {
+    if (readOnly) await chmod(destination, before.mode & 0o777).catch(() => {});
+    throw error;
   }
 }

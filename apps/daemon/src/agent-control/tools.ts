@@ -1,5 +1,6 @@
 import { oldestTitleInput } from "../engine/title-input.ts";
-import { provisionalTitle } from "../engine/thread-title.ts";
+import { hostCaller } from "./host-delegation.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 import {
   AgentControlOperation,
   DelegationRequest,
@@ -28,6 +29,8 @@ import {
 } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
+import { peerDeliveryHint, peerText, type MessageRoute } from "./peer-messages.ts";
+import { ownerHint, threadLineage } from "./thread-lineage.ts";
 import type { ModelLoadBudget } from "./model-load-budget.ts";
 import {
   batchDuplicateRoleProblem,
@@ -38,9 +41,7 @@ import {
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
-  {
-    op: "automation.manage" | "offshift" | "thread.handoff" | "preview.list" | "preview.close";
-  }
+  { op: "automation.manage" | "thread.handoff" | "preview.list" | "preview.close" }
 >;
 export type ThreadOwnerOperation = Extract<
   AgentControlOperation,
@@ -124,6 +125,11 @@ export interface AgentControlExtensions {
     caller: McpAttribution,
     operation: Extract<AgentControlOperation, { op: "transfer" }>,
   ): Promise<AgentControlResult>;
+  /** Data for another agent in this tree, here or on a paired machine (ADR 0182). */
+  parcels?(
+    caller: McpAttribution,
+    operation: Extract<AgentControlOperation, { op: "data.send" | "data.receive" }>,
+  ): Promise<AgentControlResult>;
   /** The person's role settings, for `delegate` tasks with runRole. */
   runRole?: RoleLookup;
 }
@@ -140,6 +146,26 @@ export interface MachinePort {
   cancel(id: ThreadId): Promise<AgentControlResult>;
   /** Follow-up work for a child there; the answer says how it arrives, as for a local child. */
   message(id: ThreadId, message: MachineMessage): Promise<AgentControlResult>;
+}
+/** A peer's words framed with who sent them (`peerText`), for the thread the route chose. */
+function peerMessage(
+  store: Store,
+  service: DelegationService,
+  caller: McpAttribution,
+  route: Extract<MessageRoute, { kind: "peer" }>,
+  text: string,
+): string {
+  const sender = store.getThread(caller.threadId);
+  // The route read it just now; a sender deleted since is refused by the send itself.
+  if (!sender) return text;
+  return peerText(
+    sender,
+    { delegated: service.journal.get(route.threadId) !== undefined },
+    text,
+    route.requested === route.threadId
+      ? undefined
+      : { thread: store.getThread(route.requested), id: route.requested },
+  );
 }
 export function createAgentControlPort(
   store: Store,
@@ -220,8 +246,12 @@ export function createAgentControlPort(
         "agent.status",
         "agent.result",
       ].includes(operation.op);
-      if (!service.authorize(caller, operation.threadId, !read))
-        return { ok: false, code: "forbidden" };
+      // A message names its own reach: owner or peer, checked with its route below.
+      if (
+        operation.op !== "thread.message" &&
+        !service.authorize(caller, operation.threadId, !read)
+      )
+        return { ok: false, code: "forbidden", ...ownerHint(service.journal, operation.threadId) };
     }
     const owned = threadOwnerOperation(operation);
     if (owned && extensions.thread) {
@@ -248,6 +278,10 @@ export function createAgentControlPort(
         const { op: _op, ...input } = operation;
         return { ok: true, data: service.catalog(caller, input) };
       }
+      case "agents.models": {
+        const { op: _op, ...input } = operation;
+        return { ok: true, data: service.models(caller, input) };
+      }
       case "agent.status":
       case "agent.result": {
         const child = childTaskView(store, service.journal, operation.threadId);
@@ -267,11 +301,17 @@ export function createAgentControlPort(
         return extensions.transfer
           ? extensions.transfer(caller, operation)
           : { ok: false, code: "unsupported" };
+      case "data.send":
+      case "data.receive":
+        return extensions.parcels
+          ? extensions.parcels(caller, operation)
+          : { ok: false, code: "unsupported" };
       case "delegate_task": {
         const startedAt = service.now();
         /** Every refusal a task can meet before anything is created, so a batch never half-starts. */
         const check = async (request: DelegationRequest) => {
-          if (request.project && !request.machine)
+          // A host thread (Spade) names a local project this way; other agents keep to theirs.
+          if (request.project && !request.machine && !hostCaller(store, caller))
             throw new AgentControlError(
               "invalid_arguments",
               "project_without_machine",
@@ -401,36 +441,51 @@ export function createAgentControlPort(
           !service.journal.isDescendant(operation.threadId, caller.threadId)
         )
           return { ok: false, code: "forbidden" };
-        // An agent's own children get it now where their provider steers; any other thread
-        // (one it started, or one of the person's) gets it once its turn ends.
-        const delivery =
-          operation.delivery ??
-          (service.journal.isDescendant(operation.threadId, caller.threadId) ? "steer" : "queue");
+        // A thread the caller owns takes any delivery; any other it can read takes a steer
+        // framed as another agent's, or its top-level thread does when it is a finished child.
+        const route = service.messageRoute(caller, operation.threadId);
+        if (route.kind === "refused") return { ok: false, code: "forbidden", hint: route.hint };
+        // Every target gets it as a steer unless its owner asks otherwise: into the running turn
+        // at the next tool boundary, or as the next message when the target isn't running.
+        const delivery = operation.delivery ?? "steer";
+        if (route.kind === "peer" && delivery !== "steer")
+          return { ok: false, code: "invalid", hint: peerDeliveryHint };
+        const threadId = route.threadId;
         const result =
           delivery === "restart"
-            ? service.restartMessage(
-                caller,
-                operation.requestId,
-                operation.threadId,
-                operation.text,
-              )
+            ? service.restartMessage(caller, operation.requestId, threadId, operation.text)
             : service.message(
                 caller,
                 operation.requestId,
-                operation.threadId,
-                operation.text,
+                threadId,
+                route.kind === "peer"
+                  ? peerMessage(store, service, caller, route, operation.text)
+                  : operation.text,
                 delivery,
               );
-        if (!result.ok) return { ok: false, code: "unavailable" };
+        if (!result.ok)
+          return {
+            ok: false,
+            code: "unavailable",
+            ...(result.detail ? { hint: result.detail } : {}),
+          };
         // Says whether the message went in now or waits, so the sender never assumes delivery.
         const reading = service.arrival(
           caller,
           operation.requestId,
-          operation.threadId,
+          threadId,
           delivery === "restart",
         );
+        // Names the thread that received it, which is the top-level one for a finished child.
         return reading.ok
-          ? { ok: true, data: { arrival: reading.arrival } }
+          ? {
+              ok: true,
+              data: {
+                arrival: reading.arrival,
+                threadId,
+                ...(route.kind === "peer" ? { as: "peer" } : {}),
+              },
+            }
           : { ok: false, code: "unavailable", hint: reading.hint };
       }
       case "wait":
@@ -443,6 +498,7 @@ export function createAgentControlPort(
           data: {
             thread: store.getThread(operation.threadId),
             metadata: service.journal.readMetadata(operation.threadId),
+            lineage: threadLineage(store, service.journal, operation.threadId),
             linkedPrs: store.getThread(operation.threadId)?.details?.linkedPrs ?? [],
             ...store.readBoundedItemPage(
               operation.threadId,
@@ -482,7 +538,11 @@ export function createAgentControlPort(
           operation.op === "agent.cancel" &&
           !service.journal.isDescendant(operation.threadId, caller.threadId)
         )
-          return { ok: false, code: "forbidden" };
+          return {
+            ok: false,
+            code: "forbidden",
+            ...ownerHint(service.journal, operation.threadId),
+          };
         const result = service.command(
           controlCommandId(caller.threadId, operation.requestId, operation.op),
           { type: "thread.interrupt", threadId: operation.threadId, cascade: true },
@@ -574,7 +634,6 @@ export function createAgentControlPort(
       case "thread.merge":
         return forks.merge(caller, operation);
       case "automation.manage":
-      case "offshift":
       case "thread.handoff":
       case "preview.list":
       case "preview.close":

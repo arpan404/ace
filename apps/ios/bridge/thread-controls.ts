@@ -1,7 +1,14 @@
 import type { ThreadReader } from "@ace/client";
-import type { CommandPayload, FollowUpBehavior, Interaction, ThreadId } from "@ace/protocol";
+import type {
+  CommandPayload,
+  FollowUpBehavior,
+  Interaction,
+  ProviderKind,
+  ThreadId,
+} from "@ace/protocol";
 import {
   followUpDelivery,
+  guestSession,
   isBusy,
   modelLabel,
   providerDisplayName,
@@ -11,6 +18,7 @@ import {
 } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { preview } from "./presentation.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 
 /*
  * The composer's decisions, made here over the SDK reader so Swift never derives them: how a
@@ -45,25 +53,45 @@ function deliveryOf(
   return followUpDelivery({ status: thread?.status, canSteer, setting, opposite });
 }
 
-export function controlsRow(reader: ThreadReader, setting: FollowUpBehavior | undefined) {
+/**
+ * `next`: a model picked here that the daemon hasn't reported yet, or that the next message
+ * continues on in a new thread; the model control names it, with its note.
+ */
+export function controlsRow(
+  reader: ThreadReader,
+  setting: FollowUpBehavior | undefined,
+  next?: { provider: ProviderKind; model: string; note: string; continues: boolean },
+) {
   const thread = reader.thread;
   const status = thread?.status;
   const delivery = deliveryOf(reader, setting, false);
   const alternate = deliveryOf(reader, setting, true);
   const selection = runsOn(thread);
   const busy = isBusy(status);
-  const provider = selection?.provider ?? thread?.provider;
+  // A guest session has no composer: its bottom is whose work it is, with Stop while it runs.
+  const guest = guestSession(thread);
+  const provider = next?.provider || selection?.provider || thread?.provider;
+  const model = next?.model || (selection?.model ? modelLabel(selection.model) : "");
   return {
     busy,
     delivery: delivery ?? null,
     alternate: alternate === delivery ? null : (alternate ?? null),
     // Stop is hidden while the agent asks a question: answering is how that turn moves on.
-    canStop: busy && !questionPending(reader) && stopFence(reader) !== undefined,
+    // A guest's calls wait as background rows, so it works while the thread only waits.
+    canStop:
+      (busy || guest?.working === true) &&
+      !questionPending(reader) &&
+      stopFence(reader) !== undefined,
     provider: provider ?? "",
     /** "Claude": the model sheet's section header. */
     providerName: provider ? providerDisplayName(provider) : "",
-    model: preview(selection?.model ? modelLabel(selection.model) : "", 128),
+    model: preview(model, 128),
     switching: thread?.switch?.state ?? "",
+    /** Why the control names something the agent doesn't run on yet: "Applies at the agent's next turn". */
+    note: next?.note ?? "",
+    /** The next message starts a new thread on that model, carrying this one's context. */
+    continues: next?.continues ?? false,
+    guest: guest ? { line: preview(guest.line, 512) } : null,
   };
 }
 
@@ -92,7 +120,8 @@ export function stopPayload(reader: ThreadReader, threadId: ThreadId): CommandPa
 /**
  * The canonical resolution for a question, or undefined when the answers don't fit what was
  * asked: every value an offered option id or, where the question allows it, the person's own
- * words; one value unless it is multiple choice. Skipping sends no answers.
+ * words; one value unless it is multiple choice. Skipping sends no answers, and is all a
+ * summarized question takes (ADR 0157).
  */
 export function answerResolution(
   interaction: Interaction | undefined,
@@ -113,5 +142,5 @@ export function answerResolution(
     resolved[question.id] = values;
   }
   for (const id of Object.keys(answers)) if (!(id in resolved)) return undefined;
-  return { kind: "question", answers: resolved };
+  return phoneAnswer(interaction, { kind: "question", answers: resolved });
 }

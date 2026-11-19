@@ -10,6 +10,26 @@ else
   ln -sf "$app/$name" "/usr/bin/$name"
 fi
 
+# The `ace` command (the daemon CLI) on PATH from install, before the app is first opened. It is
+# the same script the app writes to ~/.ace/bin/ace on launch (cli-shim.ts renderCliShim, marker
+# included), so the app treats it as its own command. An /usr/bin/ace that ace didn't write is
+# never replaced.
+cli=/usr/bin/ace
+marker='ace-cli-shim: written by the ace desktop app on launch'
+if { [ ! -e "$cli" ] && [ ! -L "$cli" ]; } || { [ -f "$cli" ] && [ ! -L "$cli" ] && grep -qF "$marker" "$cli"; }; then
+  next="$cli.ace-new"
+  if printf '#!/bin/sh\n# %s\nexec %s --disable-warning=ExperimentalWarning %s "$@"\n' \
+    "$marker" "'$app/resources/runtime/bin/node'" "'$app/resources/daemon/ace.mjs'" >"$next" \
+    && chmod 0755 "$next" && mv -f "$next" "$cli"; then
+    :
+  else
+    rm -f "$next"
+    echo "Could not install $cli; open ace once to set up the ace command"
+  fi
+else
+  echo "Leaving $cli unchanged: it is not ace's command"
+fi
+
 # Electron's setuid sandbox helper is needed only where unprivileged user namespaces are off.
 if [ -L /proc/self/ns/user ] && unshare --user true 2>/dev/null; then
   chmod 0755 "$app/chrome-sandbox" || true

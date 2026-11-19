@@ -4,9 +4,8 @@ import type { ImageLimits } from "./media.ts";
 export interface UploadLimits {
   fileBytes: number;
   messageBytes: number;
-  threadBytes: number;
+  /** Whole store, all threads: keeps attachments from filling the disk. */
   globalBytes: number;
-  threadEntries: number;
   globalEntries: number;
   uploads: number;
   queued: number;
@@ -15,9 +14,7 @@ export interface UploadLimits {
 export const defaultUploadLimits: UploadLimits = {
   fileBytes: 512 * 1024 * 1024,
   messageBytes: 1024 * 1024 * 1024,
-  threadBytes: 2 * 1024 * 1024 * 1024,
   globalBytes: 8 * 1024 * 1024 * 1024,
-  threadEntries: 256,
   globalEntries: 65_536,
   uploads: 1024,
   queued: 32,

@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "automationId": {
-      "description": "runs: only this automation's runs.",
+      "description": "runs: only this one's.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
@@ -17,14 +17,12 @@
     },
     "limit": {
       "default": 20,
-      "description": "runs: runs per page.",
       "maximum": 100,
       "minimum": 1,
       "type": "integer"
     },
     "runs": {
       "default": false,
-      "description": "Read recent runs instead of definitions.",
       "type": "boolean"
     }
   },

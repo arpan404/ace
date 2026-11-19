@@ -1,0 +1,101 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketEntrySummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "byAce": {
+      "type": "boolean"
+    },
+    "categories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "from": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "keywords": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "line": {
+      "maxLength": 300,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "previews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    },
+    "reviewed": {
+      "type": "boolean"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+    },
+    "supported": {
+      "type": "boolean"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "maxLength": 40,
+      "minLength": 1,
+      "type": "string"
+    },
+    "updated": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "verified": {
+      "type": "boolean"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    }
+  },
+  "required": [
+    "source",
+    "type",
+    "name",
+    "title",
+    "line",
+    "categories",
+    "keywords",
+    "reviewed",
+    "byAce",
+    "updated",
+    "downloads",
+    "supported"
+  ],
+  "type": "object"
+}

@@ -1,8 +1,8 @@
-import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** The daemon has no such thread: deleted, or it belongs to another daemon. */
 const missing = new Set(["not_found", "thread_not_found", "read_denied"]);
@@ -19,7 +19,7 @@ export function threadLoadFailure(error: unknown): {
   if (missing.has(code))
     return {
       title: "This thread doesn't exist",
-      description: "It may have been deleted or belong to another machine.",
+      description: "It may have been deleted, or it belongs to another machine.",
       code,
     };
   const reason = describeDaemonError(code);
@@ -30,19 +30,28 @@ export function threadLoadFailure(error: unknown): {
   };
 }
 
-/** The thread screen when its thread couldn't be opened: why and the way Home. */
+/** The thread screen when its thread couldn't be opened: why, and a new thread or Home. */
 export function ThreadLoadError(props: { error: unknown }) {
   const failure = threadLoadFailure(props.error);
+  const machine = useMachineSearch();
   return (
     <div role="alert" className="h-full">
-      <EmptyState
-        icon={WarningCircleIcon}
+      <MissingState
         title={failure.title}
         description={failure.description}
-        action={
-          <Link to="/" className={buttonVariants({ size: "sm" })}>
-            Back to Home
-          </Link>
+        actions={
+          <>
+            <Link
+              to="/new"
+              search={machine}
+              className={buttonVariants({ size: "sm", variant: "primary" })}
+            >
+              New thread
+            </Link>
+            <Link to="/" className={buttonVariants({ size: "sm" })}>
+              Back to Home
+            </Link>
+          </>
         }
       />
     </div>

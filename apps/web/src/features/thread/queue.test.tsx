@@ -420,7 +420,8 @@ test("a refused edit keeps the unsaved text and the original queued message", as
   await userEvent.type(message, "Original wording{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
   await editInComposer();
-  app.daemon.refuseCommands("queue_conflict", "queue.edit");
+  // A refusal for its own sake; a conflict means another device changed it (its own path).
+  app.daemon.refuseCommands("forbidden", "queue.edit");
   await retypeAndEnter("Unsaved revision");
   await screen.findByRole("alertdialog", { name: "Couldn't save the message" });
   await waitFor(() => expect(composerBox().textContent).toBe("Unsaved revision"));
@@ -546,7 +547,8 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
   ).toBe(18);
 });
 
-test.each([17, 33, 257])(
+// 17 edits past the first page; 257 past the daemon's 256-message window.
+test.each([17, 257])(
   "a fresh client can edit retained input %i in the composer without running earlier messages",
   async (count) => {
     const queuedCount = Math.min(count, 256);
@@ -562,13 +564,21 @@ test.each([17, 33, 257])(
     try {
       await peer.start();
       await waitFor(() => expect(peer.state).toBe("ready"));
+      // Another device queued them, straight into the daemon (one outbox round trip each would
+      // spend most of the test's time).
       for (let index = 1; index <= queuedCount; index++)
-        await peer.command({
-          type: "thread.send",
-          threadId: ThreadId.parse(threadId),
-          input: [{ type: "text", text: `Retained input ${index}` }],
-          delivery: "queue",
-        });
+        expect(
+          app.daemon.command({
+            id: CommandId.parse(`retained-${index}`),
+            deviceId: DeviceId.parse("other-device"),
+            payload: {
+              type: "thread.send",
+              threadId: ThreadId.parse(threadId),
+              input: [{ type: "text", text: `Retained input ${index}` }],
+              delivery: "queue",
+            },
+          }).ok,
+        ).toBe(true);
       if (count > 256)
         app.daemon.restoreUncertainInput(threadId, {
           id: "unconfirmed-first",
@@ -726,6 +736,7 @@ test("a delivered agent result shows who it's from, never the raw marker", async
     ]),
   );
   const card = await within(feed).findByRole("region", { name: "Delegated work finished" });
+  await userEvent.click(within(card).getByRole("button", { name: "1 subagent ran" }));
   expect(within(card).getByText("Added greet() with tests")).toBeTruthy();
   expect(within(card).getAllByRole("link").length).toBeGreaterThan(0);
   expect(within(feed).queryByText(/ace-origin/)).toBeNull();

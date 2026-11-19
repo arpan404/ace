@@ -164,6 +164,25 @@ export class SettingsFile {
   set(key: SettingsKey, value: unknown): Promise<void> {
     return this.update((source) => assign(source, key, value));
   }
+  /**
+   * Sets `key` only when the file doesn't hold it, decided on the file's latest text inside the
+   * write queue, so a value another writer saved first is never replaced. Returns whether it wrote.
+   */
+  async setIfAbsent(key: SettingsKey, value: unknown): Promise<boolean> {
+    let wrote = false;
+    await this.update((source) => {
+      if (Object.hasOwn(source.document.settings, key)) return source;
+      wrote = true;
+      return assign(source, key, value);
+    });
+    return wrote;
+  }
+  /** Several values in one write; any failure leaves the file as it was. */
+  setMany(entries: readonly { key: SettingsKey; value: unknown }[]): Promise<void> {
+    return this.update((source) =>
+      entries.reduce((document, entry) => assign(document, entry.key, entry.value), source),
+    );
+  }
   reset(keys: readonly SettingsKey[]): Promise<void> {
     return this.update((source) => resetPreferences(source, keys));
   }

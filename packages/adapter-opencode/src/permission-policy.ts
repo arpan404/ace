@@ -24,7 +24,7 @@ const reads = ["read", "glob", "grep", "list", "lsp"].map((action): OpenCodeRule
 }));
 /**
  * ace's read-only tools (context, guide, wait, tools_find, ...) read like OpenCode's own reads,
- * so Ask lets them through; every ace tool that changes something still asks. OpenCode 2.0.22
+ * so Ask lets them through; every ace tool that changes something still asks. OpenCode (2.0.22 to 2.1.4)
  * checks an MCP tool under the action `<server>_<tool>`, which for ace is `ace_<tool>`.
  */
 const aceReads = readOnlyAceTools.map((tool): OpenCodeRule => ({
@@ -77,4 +77,26 @@ export function opencodePolicy(mode: PermissionMode): OpenCodePolicy {
       // Advanced "Custom": OpenCode's own agent and the person's configured rules.
       return { agent: z.enum(["build", "plan"]).parse(mode) };
   }
+}
+
+/**
+ * A Spade bot's hidden session (ADR 0133): its read-only mode still lets these ace tools (Spade's
+ * gated bridge, ace's reads, bare names) run without asking, since nobody would see a question.
+ * OpenCode checks an ace tool under `ace_<tool>`.
+ */
+export function withSpadeBot(
+  policy: OpenCodePolicy,
+  allowAceTools: readonly string[],
+): OpenCodePolicy {
+  return {
+    ...policy,
+    rules: [
+      ...(policy.rules ?? []),
+      ...allowAceTools.map((tool): OpenCodeRule => ({
+        action: `ace_${tool}`,
+        resource: "*",
+        effect: "allow",
+      })),
+    ],
+  };
 }

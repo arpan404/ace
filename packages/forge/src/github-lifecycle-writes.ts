@@ -8,6 +8,20 @@ import { ForgeMutationOutcome } from "./mutation.ts";
 
 const text = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
+const IssueIdBody = z.object({
+  data: z.object({
+    repository: z
+      .object({
+        issue: z.looseObject({ id: text, number: z.number().int() }).nullable(),
+      })
+      .nullable(),
+  }),
+});
+const OpenPrNumbers = z.array(z.looseObject({ number: z.number().int().positive() })).max(10);
+const BranchRef = z.looseObject({ object: z.looseObject({ sha }) });
+const LinkedIssueAck = z.object({
+  data: z.record(z.string(), z.looseObject({ issue: z.looseObject({ id: text }) })),
+});
 
 /** The writes GitHub takes outside `updatePullRequest`: lock, head branch, issue links, milestone. */
 export type ExtraLifecycleAction = Extract<
@@ -63,17 +77,7 @@ export class GitHubLifecycleWrites {
       query: `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id number}}}`,
       variables: { owner, name, number },
     });
-    const parsed = z
-      .object({
-        data: z.object({
-          repository: z
-            .object({
-              issue: z.looseObject({ id: text, number: z.number().int() }).nullable(),
-            })
-            .nullable(),
-        }),
-      })
-      .safeParse(response.body);
+    const parsed = IssueIdBody.safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     const issue = parsed.data.data.repository?.issue;
     // A pull request number isn't an issue to close.
@@ -84,10 +88,7 @@ export class GitHubLifecycleWrites {
   async #openPrsOnto(branch: string, signal: AbortSignal): Promise<number[]> {
     const query = new URLSearchParams({ state: "open", base: branch, per_page: "10" });
     const response = await this.#api.request(`${this.#root}/pulls?${query}`, signal);
-    const parsed = z
-      .array(z.looseObject({ number: z.number().int().positive() }))
-      .max(10)
-      .safeParse(response.body);
+    const parsed = OpenPrNumbers.safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.map((pr) => pr.number);
   }
@@ -99,10 +100,7 @@ export class GitHubLifecycleWrites {
       per_page: "10",
     });
     const response = await this.#api.request(`${this.#root}/pulls?${query}`, signal);
-    const parsed = z
-      .array(z.looseObject({ number: z.number().int().positive() }))
-      .max(10)
-      .safeParse(response.body);
+    const parsed = OpenPrNumbers.safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.map((pr) => pr.number);
   }
@@ -113,7 +111,7 @@ export class GitHubLifecycleWrites {
         `${this.#root}/git/ref/heads/${branchPath(branch)}`,
         signal,
       );
-      const parsed = z.looseObject({ object: z.looseObject({ sha }) }).safeParse(response.body);
+      const parsed = BranchRef.safeParse(response.body);
       if (!parsed.success) throw new ForgeError("invalid_data");
       return parsed.data.object.sha;
     } catch (error) {
@@ -259,9 +257,7 @@ export class GitHubLifecycleWrites {
       dispatch,
     );
     if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
-    const parsed = z
-      .object({ data: z.record(z.string(), z.looseObject({ issue: z.looseObject({ id: text }) })) })
-      .safeParse(response.body);
+    const parsed = LinkedIssueAck.safeParse(response.body);
     if (!parsed.success || parsed.data.data[mutation]?.issue.id !== issueId)
       throw new ForgeMutationOutcome({ dispatched: true });
   }

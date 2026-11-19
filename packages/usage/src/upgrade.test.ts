@@ -90,3 +90,48 @@ it("upgrading a legacy projection clears unrebuildable observations and resumes 
     rmSync(home, { recursive: true, force: true });
   }
 });
+it("a v2 projection replays retained history from zero so skill attribution is recovered", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-usage-upgrade-"));
+  const path = join(home, "usage.sqlite");
+  const at = Date.parse("2026-10-02T12:00Z");
+  const events = [
+    {
+      seq: 1,
+      at,
+      threadId: "t",
+      payload: { type: "thread.created", workspace: "w", provider: "codex" },
+    },
+    {
+      seq: 2,
+      at,
+      threadId: "t",
+      payload: { type: "agent.created", id: "a", parent: null, model: null, provider: "codex" },
+    },
+    { seq: 3, at, threadId: "t", payload: { type: "turn.asked", agent: "a", skills: ["review"] } },
+    {
+      seq: 4,
+      at,
+      threadId: "t",
+      payload: { type: "usage.updated", agentId: "a", inputTokens: 10, outputTokens: 0 },
+    },
+  ];
+  let store = new UsageStore(path);
+  try {
+    store.ingest({ afterSeq: 0, throughSeq: 4, events });
+    store.close();
+    // What a v2 build left behind: the same rollups without their skill rows.
+    const legacy = new DatabaseSync(path);
+    legacy.exec("UPDATE usage_meta SET version=2; DELETE FROM usage_skill_daily;");
+    legacy.close();
+    store = new UsageStore(path);
+    expect(store.cursor()).toBe(0);
+    expect(store.summary(query).rows[0]?.totals.inputTokens).toBe(0);
+    store.ingest({ afterSeq: 0, throughSeq: 4, events });
+    expect(store.summary({ ...query, groupBy: ["skill"] }).rows).toMatchObject([
+      { dimensions: { skill: "review" }, totals: { inputTokens: 10 } },
+    ]);
+  } finally {
+    store.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});

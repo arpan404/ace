@@ -88,7 +88,11 @@ export function resolve(
           account: choices.account,
         });
   const efforts = model?.efforts ?? [];
-  const effort = resolveEffort(efforts, choices.effort, model?.defaultEffort);
+  // A stored effort belongs to the stored model: when the resolved model is another one
+  // (another provider, the project default, or an account that doesn't serve the stored
+  // model), start from the new model's default instead of carrying stale thinking over.
+  const stored = (saved ?? legacy)?.key === model?.key ? choices : undefined;
+  const effort = resolveEffort(efforts, stored?.effort, model?.defaultEffort);
   return {
     provider: chosen,
     model,
@@ -97,8 +101,8 @@ export function resolve(
     effort,
     speed: !model
       ? "standard"
-      : model.speeds.some((tier) => tier.speed === choices.speed)
-        ? (choices.speed ?? model.defaultSpeed)
+      : model.speeds.some((tier) => tier.speed === stored?.speed)
+        ? (stored?.speed ?? model.defaultSpeed)
         : model.defaultSpeed,
     ...(legacy ? { upgradedModel: legacy.key } : {}),
   };

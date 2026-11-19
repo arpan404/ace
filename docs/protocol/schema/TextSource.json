@@ -11,6 +11,11 @@
       "const": "utf-16le",
       "type": "string"
     },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "streamId": {
       "minLength": 1,
       "type": "string"

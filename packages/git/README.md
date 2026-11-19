@@ -1,6 +1,6 @@
 # @ace/git
 
-Local Git workspace service for the daemon. No daemon or UI dependencies. Requires Node 24+ and an installed Git 2.40+. It does not contact remotes.
+Local Git workspace service for the daemon. No daemon or UI dependencies. Requires Node 26+ and an installed Git 2.40+. It does not contact remotes.
 
 ```ts
 import { GitError, GitService } from "@ace/git";

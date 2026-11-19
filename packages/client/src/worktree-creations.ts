@@ -1,6 +1,7 @@
 import { CommandId, type WorktreeCreationProgress } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
 import { Notifications, type Selection } from "./observable.ts";
+import { onSocketMove } from "./socket-moves.ts";
 
 /*
  * The worktree a new thread is being created in, as this device sees it
@@ -20,6 +21,9 @@ export type WorktreeRefusal =
   | "settled"
   | "offline";
 
+/** What became of an action: taken, turned down, or not sent while another was on its way. */
+export type WorktreeActResult = "accepted" | WorktreeRefusal;
+
 export interface WorktreeCreationState {
   /** The newest progress the daemon reported; undefined until it has said anything. */
   progress: WorktreeCreationProgress | undefined;
@@ -27,12 +31,18 @@ export interface WorktreeCreationState {
   sending: WorktreeAction | undefined;
   /** Why the last action didn't happen. */
   refused: WorktreeRefusal | undefined;
+  /**
+   * The daemon no longer has this create (dismissed, expired, or never kept): its last
+   * progress is all there is. Cleared by any newer progress.
+   */
+  gone: boolean;
 }
 
 const nothing: WorktreeCreationState = {
   progress: undefined,
   sending: undefined,
   refused: undefined,
+  gone: false,
 };
 
 const settledStates = new Set<WorktreeCreationProgress["state"]>([
@@ -68,13 +78,20 @@ export function supersedes(
 const retained = 32;
 
 export class WorktreeCreations {
-  private client: Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+  private client: Pick<
+    ClientApi,
+    "request" | "onMessage" | "connectionState" | "connectionGeneration"
+  >;
   private states = new Map<string, WorktreeCreationState>();
+  /** Progress reports accepted per create, so an answer older than one of them is told apart. */
+  private heard = new Map<string, number>();
   private watched = new Map<string, number>();
   private notifications = new Notifications(256);
   private stops: (() => void)[] = [];
 
-  constructor(client: Pick<ClientApi, "request" | "onMessage" | "connectionState">) {
+  constructor(
+    client: Pick<ClientApi, "request" | "onMessage" | "connectionState" | "connectionGeneration">,
+  ) {
     this.client = client;
     try {
       this.stops.push(
@@ -95,6 +112,10 @@ export class WorktreeCreations {
         // Back after a drop: what happened meanwhile, for every create still on screen.
         if (now && !ready) for (const id of this.watched.keys()) this.refresh(id);
         ready = now;
+      }),
+      // Progress goes to the socket that asked; after a move to another path, ask again there.
+      onSocketMove(client, () => {
+        for (const id of this.watched.keys()) this.refresh(id);
       }),
     );
   }
@@ -119,9 +140,13 @@ export class WorktreeCreations {
     };
   }
 
-  /** Cancel, Retry or the local checkout; one at a time per create. */
-  async act(commandId: string, action: WorktreeAction): Promise<void> {
-    if (this.read(commandId).sending) return;
+  /**
+   * Cancel, Retry or the local checkout; one at a time per create. Says what became of it:
+   * `accepted` once the daemon took it, its refusal, or `busy` when another action on the
+   * same create was still on its way, so this one was never sent.
+   */
+  async act(commandId: string, action: WorktreeAction): Promise<WorktreeActResult> {
+    if (this.read(commandId).sending) return "busy";
     this.patch(commandId, { sending: action, refused: undefined });
     let refused: WorktreeRefusal | undefined;
     try {
@@ -135,7 +160,13 @@ export class WorktreeCreations {
     } catch {
       refused = "offline";
     }
-    this.patch(commandId, { sending: undefined, refused });
+    this.patch(commandId, {
+      sending: undefined,
+      refused,
+      // Taken or not found, a dismissed create is no longer the daemon's.
+      ...(refused === "not_found" || (action === "dismiss" && !refused) ? { gone: true } : {}),
+    });
+    return refused ?? "accepted";
   }
 
   close(): void {
@@ -154,11 +185,20 @@ export class WorktreeCreations {
     } catch {
       return;
     }
+    const asked = this.heard.get(commandId) ?? 0;
     this.client
       .request({ type: "worktree.creation.request", commandId: parsed, action: "get" })
       .then(
         (reply) => {
           if (reply.ok && reply.progress) this.accept(reply.progress);
+          // Back after a reconnect to find the daemon forgot it: what the phone holds is stale.
+          // Progress heard since the question was asked is newer than this answer.
+          else if (
+            !reply.ok &&
+            reply.error === "not_found" &&
+            (this.heard.get(commandId) ?? 0) === asked
+          )
+            this.patch(commandId, { gone: true });
         },
         () => {},
       );
@@ -167,7 +207,8 @@ export class WorktreeCreations {
   private accept(progress: WorktreeCreationProgress): void {
     const current = this.read(progress.commandId);
     if (!supersedes(progress, current.progress)) return;
-    this.patch(progress.commandId, { progress });
+    this.heard.set(progress.commandId, (this.heard.get(progress.commandId) ?? 0) + 1);
+    this.patch(progress.commandId, { progress, gone: false });
   }
 
   private patch(commandId: string, change: Partial<WorktreeCreationState>): void {
@@ -186,6 +227,7 @@ export class WorktreeCreations {
       if (this.watched.has(id) || state.sending) continue;
       if (state.progress && !isSettled(state.progress)) continue;
       this.states.delete(id);
+      this.heard.delete(id);
     }
   }
 }

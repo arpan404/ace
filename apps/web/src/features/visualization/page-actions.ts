@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { HtmlMode } from "@ace/protocol";
+import type { HtmlMode, HtmlStyleKit } from "@ace/protocol";
 import { visualizationUrl, visualizationWindow, type HtmlTheme } from "@ace/html";
 import { useToast } from "@/components/ui/toast.tsx";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
@@ -14,8 +14,9 @@ export function usePageActions(page: {
   title: string;
   theme: HtmlTheme;
   mode: HtmlMode;
+  kit: HtmlStyleKit | undefined;
 }) {
-  const { html, title, theme, mode } = page;
+  const { html, title, theme, mode, kit } = page;
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -25,7 +26,7 @@ export function usePageActions(page: {
   }, [copied]);
   const blobUrl = (source: string) =>
     URL.createObjectURL(
-      new Blob([visualizationWindow(source, theme, mode)], { type: "text/html" }),
+      new Blob([visualizationWindow(source, theme, mode, kit)], { type: "text/html" }),
     );
   return {
     copied,
@@ -34,7 +35,7 @@ export function usePageActions(page: {
       const desktop = desktopVisualizations();
       if (desktop) {
         void desktop
-          .open({ title, url: visualizationUrl(html, theme, mode) })
+          .open({ title, url: visualizationUrl(html, theme, mode, kit) })
           .catch(() => toast.error({ title: "Couldn't open the visualization" }));
         return;
       }

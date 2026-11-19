@@ -38,7 +38,9 @@ export function startVerify({
   });
   services.verify = verify;
   resources.own(() => verify.close(), "verify");
-  void verify.recover();
+  void verify
+    .recover()
+    .catch((error: unknown) => log.log("warn", "Verify recovery failed", logError(error)));
 }
 
 /**

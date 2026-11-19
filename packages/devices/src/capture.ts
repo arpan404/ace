@@ -1,7 +1,7 @@
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
-import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
+import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
 import { screenrecordCapture } from "./android-screenrecord.ts";
@@ -15,6 +15,7 @@ import type { DeviceClipboard } from "./clipboard.ts";
 import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
 import { nativeId } from "./commands.ts";
+import type { DeviceMedia } from "./media-paths.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -23,6 +24,12 @@ export interface DeviceCapture extends Capture {
   streamId?: string;
   configure?(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }>;
   keyframe?(): Promise<void>;
+  /**
+   * Publishes a still of the screen as it is now, when the capture is on stills (JPEG). A
+   * capture with this makes stills on demand while nobody watches or records, rather than a
+   * stream of them (`deviceStillStream`).
+   */
+  still?(): Promise<void>;
   /** Pointer input may carry fingers other than the first. */
   readonly multiTouch?: boolean;
   /** Accessibility served by the capture's own transport rather than the screen helper. */
@@ -34,7 +41,6 @@ export interface DeviceCapture extends Capture {
 }
 export async function startCapture(options: {
   device: Device;
-  scope?: ScreenAgentScope;
   streamId: string;
   fps: number;
   platform: DevicePlatform;
@@ -44,6 +50,8 @@ export async function startCapture(options: {
   publish(frame: Frame): void;
   failure(error: unknown): void;
   signal?: AbortSignal;
+  /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
+  media?: DeviceMedia;
 }): Promise<DeviceCapture> {
   const checkAbort = () => {
     if (options.signal?.aborted)
@@ -141,9 +149,8 @@ export async function startCapture(options: {
       windowId: window.windowId,
       content: true,
     };
-    const state = options.scope
-      ? await screen.start(target, options.fps, options.scope)
-      : await screen.startHumanDeviceView(target, options.fps);
+    // The device service decides who controls it, so moving threads never restarts the view.
+    const state = await screen.startHumanDeviceView(target, options.fps);
     let stopped = false;
     let terminated = false;
     let stopping: Promise<void> | undefined;

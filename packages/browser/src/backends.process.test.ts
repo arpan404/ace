@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
@@ -11,6 +12,7 @@ import {
   BrowserBackendRequest,
 } from "@ace/protocol";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
+import { TestNavigationClock } from "./navigation-test-clock.ts";
 
 const snapshot = z.object({ nodes: z.array(z.object({ ref: z.string() })) });
 it("prefers the socket desktop while a per-thread override routes another thread headlessly", async () => {
@@ -28,12 +30,17 @@ it("prefers the socket desktop while a per-thread override routes another thread
   expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/headless"]);
   expect(f.headless.opens[0]?.profileDir).toContain(f.home);
 });
-it("selects headless after desktop disconnect and rejects an explicit missing embedded backend", async () => {
+it("selects headless after desktop disconnect, says the desktop engine is gone, and rejects an explicit missing embedded backend", async () => {
   const f = await backendFixture({
     backendPreference: (options) => (options.threadId === "explicit" ? "embedded" : "auto"),
   });
+  expect((await f.open()).features).toEqual(expect.arrayContaining(["engines", "embedded-engine"]));
   await f.disconnect();
-  expect(await f.open()).toMatchObject({ backend: "headless" });
+  const after = await f.open("after");
+  expect(after).toMatchObject({ backend: "headless" });
+  // Clients read that "Desktop app only" can't open now, before moving a browser there.
+  expect(after.features).toContain("engines");
+  expect(after.features).not.toContain("embedded-engine");
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
 it("a desktop that opens a view but never draws it hands the session to ace's Chromium", async () => {
@@ -96,6 +103,41 @@ it("a desktop page moves to ace's Chromium when the desktop's screen locks and s
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/after" });
   expect(f.service.state("thread")).toMatchObject({ backend: "headless", closed: false });
   expect(states.some((state) => state.closed)).toBe(false);
+});
+it("a page that cannot move off a locked desktop is tried again less and less often", async () => {
+  const clock = new TestNavigationClock();
+  const errors: unknown[] = [];
+  const f = await backendFixture({
+    navigationClock: clock,
+    onError: (error) => errors.push(error),
+  });
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  let attempts = 0;
+  // ace's Chromium cannot take the page (its reopened address refuses connections).
+  f.headless.open = async () => {
+    attempts++;
+    throw new Error("net::ERR_CONNECTION_REFUSED");
+  };
+  const tried = (count: number) => expect.poll(() => attempts).toBe(count);
+  f.service.desktopDrawable(false);
+  await tried(1);
+  // Each wait is twice the last: 1 s, 2 s, 4 s, then 8 s.
+  for (const wait of [1_000, 2_000, 4_000, 8_000]) {
+    await setImmediate();
+    const before = attempts;
+    clock.advance(wait - 1);
+    await setImmediate();
+    expect(attempts).toBe(before);
+    clock.advance(1);
+    await tried(before + 1);
+  }
+  // A minute of failing costs a handful of tries, never one every few seconds.
+  await setImmediate();
+  clock.advance(60_000);
+  await tried(6);
+  expect(errors).toHaveLength(6);
+  // The desktop's view stays meanwhile.
+  expect(f.service.state("thread")).toMatchObject({ backend: "embedded", closed: false });
 });
 /** Locks the desktop's screen and waits for the thread's page to land in ace's Chromium. */
 async function lockAndMove(f: Awaited<ReturnType<typeof backendFixture>>, threadId = "thread") {
@@ -249,7 +291,86 @@ it("agent input waits while the person is active in the tab and proceeds once th
   expect(Date.now() - started).toBeGreaterThanOrEqual(quick.quietMs - 50);
   expect(page?.text).toBe("xyagent");
 });
-it("agent input gives up with human_active while the person never pauses", async () => {
+it("a waiting agent input says how long it waited for the person", async () => {
+  const f = await backendFixture({ collaboration: { ...quick, quietMs: 900, maxWaitMs: 5_000 } });
+  await f.open();
+  const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+    ?.ref;
+  if (!ref) throw new Error("Missing ref");
+  await f.service.input("thread", key("x"), "person");
+  const result = await f.service.execute("thread", { action: "type", ref, text: "agent" });
+  expect(result).toMatchObject({ waited: "Waited 1 s while the person used this tab." });
+});
+it.each([0, 3_000])(
+  "fill_form sums waits between fields without counting held field execution (initial wait %i ms)",
+  async (initialWait) => {
+    const clock = new TestNavigationClock();
+    const f = await backendFixture({ backendPreference: () => "headless", navigationClock: clock });
+    await f.open();
+    const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+      ?.ref;
+    const page = f.headless.pages[0];
+    if (!ref || !page) throw new Error("Missing field");
+    clock.advance(10_000);
+    await f.service.input("thread", key("x"), "person");
+    if (!initialWait) clock.advance(3_000);
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    const releaseFirst = Promise.withResolvers<void>();
+    const releaseSecond = Promise.withResolvers<void>();
+    const started: string[] = [];
+    const send = page.cdp.send;
+    page.cdp.send = async (method, params) => {
+      if (
+        method === "Runtime.callFunctionOn" &&
+        String(params?.["functionDeclaration"]).includes("execCommand('insertText'")
+      ) {
+        const args = z.array(z.object({ value: z.string() })).parse(params?.["arguments"]);
+        started.push(args[0]?.value ?? "");
+        if (started.length === 1) {
+          first.resolve();
+          await releaseFirst.promise;
+        } else if (started.length === 2) {
+          second.resolve();
+          await releaseSecond.promise;
+        }
+      }
+      return send(method, params);
+    };
+    const filling = f.service.execute("thread", {
+      action: "fill_form",
+      fields: ["a", "b", "c"].map((value) => ({ ref, value })),
+    });
+    await setImmediate();
+    if (initialWait) clock.advance(initialWait);
+    await first.promise;
+    // Time spent executing a field must not appear as time waiting for the person.
+    clock.advance(5_000);
+    await f.service.input("thread", key("y"), "person");
+    releaseFirst.resolve();
+    await setImmediate();
+    clock.advance(2_999);
+    await setImmediate();
+    expect(started).toEqual(["a"]);
+    clock.advance(1);
+    await second.promise;
+    clock.advance(4_000);
+    await f.service.input("thread", key("z"), "person");
+    releaseSecond.resolve();
+    await setImmediate();
+    clock.advance(2_999);
+    await setImmediate();
+    expect(started).toEqual(["a", "b"]);
+    clock.advance(1);
+    expect(await filling).toMatchObject({
+      filled: 3,
+      waited: `Waited ${initialWait / 1000 + 6} s while the person used this tab.`,
+    });
+    expect(started).toEqual(["a", "b", "c"]);
+    expect(page.text).toBe("xyazbc");
+  },
+);
+it("agent input gives up with person_busy while the person never pauses", async () => {
   const f = await backendFixture({ collaboration: quick });
   await f.open();
   const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
@@ -257,7 +378,7 @@ it("agent input gives up with human_active while the person never pauses", async
   if (!ref) throw new Error("Missing ref");
   await f.service.input("thread", key("z"), "person");
   const typing = f.service.execute("thread", { action: "type", ref, text: "agent" });
-  const rejected = expect(typing).rejects.toMatchObject({ code: "human_active" });
+  const rejected = expect(typing).rejects.toMatchObject({ code: "person_busy" });
   const busy = { on: true };
   const person = (async () => {
     while (busy.on) {

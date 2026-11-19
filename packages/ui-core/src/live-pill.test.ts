@@ -130,3 +130,68 @@ test("nothing live, queued or pursued: no pill", () => {
     livePill({ activity: undefined, queued: 0, goal: null, requestShown: false }),
   ).toBeUndefined();
 });
+
+test("while the strip says what holds the turn the pill keeps its counts but not the words", () => {
+  const activity = working({
+    tone: "paused",
+    label: "Paused · Codex usage limit",
+    elapsedFrom: undefined,
+  });
+  expect(
+    livePill({ activity, queued: 2, goal: undefined, requestShown: false })?.status,
+  ).toBeDefined();
+  const held = livePill({
+    activity,
+    queued: 2,
+    goal: undefined,
+    requestShown: false,
+    holdShown: true,
+  });
+  expect(held?.status).toBeUndefined();
+  expect(held?.segments.map((segment) => segment.label)).toEqual(["2 queued"]);
+  expect(
+    livePill({ activity, queued: 0, goal: undefined, requestShown: false, holdShown: true }),
+  ).toBeUndefined();
+});
+
+test("a held turn never hides work that is live, or a request", () => {
+  const pill = livePill({
+    activity: working(),
+    queued: 1,
+    goal: undefined,
+    requestShown: false,
+    holdShown: true,
+  });
+  expect(pill?.status?.live).toBe(true);
+  const asking = livePill({
+    activity: working({ tone: "needs-you", label: "Approve" }),
+    queued: 0,
+    goal: undefined,
+    requestShown: false,
+    holdShown: true,
+  });
+  expect(asking?.status?.label).toBe("Approve");
+});
+
+test("a goal's pill carries its progress, as the web's goal strip does", () => {
+  const goal = {
+    objective: "every test passes",
+    status: "active" as const,
+    tokensUsed: 182_000,
+    tokenBudget: 500_000,
+    timeUsedSeconds: 1_920,
+    checks: 3,
+  };
+  const pill = livePill({ activity: undefined, queued: 0, goal, requestShown: false });
+  expect(pill?.segments[0]).toMatchObject({
+    label: "Pursuing goal",
+    detail: "182K / 500K tokens · 32m 0s · 3 checks",
+  });
+  const fresh = livePill({
+    activity: undefined,
+    queued: 0,
+    goal: { objective: "ship", status: "active" },
+    requestShown: false,
+  });
+  expect(fresh?.segments[0]?.detail).toBeUndefined();
+});

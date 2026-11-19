@@ -1,8 +1,12 @@
-import type { FleetOperation, FleetOutcome } from "@ace/protocol";
+import { MachineCapability, type FleetOperation, type FleetOutcome } from "@ace/protocol";
+import { activeDevice } from "../devices.ts";
 import { FleetError } from "../machines/fleet-links.ts";
 import { issuePairing } from "../pairing-issue.ts";
 import { AccessError } from "../remote-auth.ts";
+import { grantsFor } from "../machines/grant-rules.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { featureOff } from "./feature-off.ts";
+import { changeScope, KeptRefusal } from "./fleet-scope.ts";
 
 const fleetCodes: Record<FleetError["code"], string> = {
   invalid: "invalid",
@@ -15,6 +19,7 @@ const fleetCodes: Record<FleetError["code"], string> = {
 /** A refusal's wire code and person-facing words; anything unexpected stays generic. */
 function failure(error: unknown): { code: string; message: string } | undefined {
   if (error instanceof FleetError) return { code: fleetCodes[error.code], message: error.message };
+  if (error instanceof KeptRefusal) return { code: error.code, message: error.message };
   if (!(error instanceof AccessError)) return undefined;
   switch (error.status) {
     case 400:
@@ -40,7 +45,10 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
     case "link":
     case "unlink": {
       if (!links)
-        throw new FleetError("refused", "Machine links aren't ready on this machine yet.");
+        throw new FleetError(
+          "refused",
+          featureOff(context.options.serviceStatus, "machines", "Machine links"),
+        );
       if (operation.op === "links") return { kind: "links", links: await links.links() };
       if (operation.op === "link") return { kind: "linked", link: await links.link(operation) };
       links.unlink(operation.hostId);
@@ -57,12 +65,16 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       // Read the setting first: the address must be current when the code is issued, since
       // remote access can change or turn off while the setting read waits.
       const app = await access.pairingApp?.();
+      // A person's link comes only from a socket that proved the person's standing on that very
+      // socket (ADR 0190); a link made any other way is an ordinary pairing.
+      const person = issuerIsPerson(context);
       // The creator grants only scopes it holds; the host credential holds every one.
       const issued = issuePairing(
         auth,
         access.pairing(),
         request,
         (scope) => context.authorize(scope),
+        person,
         app,
       );
       return { kind: "pairing", ...issued };
@@ -89,9 +101,64 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       if (!auth.revoke(operation.deviceId))
         throw new FleetError("not_found", "That device isn't paired anymore.");
       return { kind: "revoked" };
+    case "scope":
+      return changeScope({ ...context, access }, operation);
     case "revokeOthers":
       return { kind: "revoked", count: auth.revokeOthers(callerDevice(context)) };
+    case "remoteStatus":
+      // Admin only, as `GET /v1/status` is: the fleet session checked it before this runs.
+      if (!access.remoteStatus)
+        throw new FleetError("refused", "Remote access status isn't available on this machine.");
+      return { kind: "remoteStatus", status: access.remoteStatus() };
+    case "grants":
+    case "grant":
+      return grants(context, operation);
   }
+}
+
+/** Each paired device's levels here (ADR 0105); setting one applies to its next call. */
+async function grants(
+  context: SocketContext,
+  operation: Extract<FleetOperation, { op: "grants" | "grant" }>,
+): Promise<FleetOutcome> {
+  const store = context.options.machineCalls?.grants;
+  const auth = context.access?.auth;
+  if (!store || !auth)
+    throw new FleetError(
+      "refused",
+      featureOff(context.options.serviceStatus, "machines", "Linked machines"),
+    );
+  const at = auth.now();
+  // Local credentials (the desktop app, "Use my Chrome") never call as another machine.
+  const asked = operation.op === "grants" ? operation.deviceIds : undefined;
+  const devices = auth
+    .list()
+    .filter(
+      (device) =>
+        activeDevice(device, at) &&
+        !device.scopes.includes("desktop") &&
+        !device.scopes.includes("user-browser") &&
+        (asked === undefined || asked.includes(device.id)),
+    );
+  if (operation.op === "grant") {
+    if (!devices.some((device) => device.id === operation.deviceId))
+      throw new FleetError("not_found", "That machine isn't paired here anymore.");
+    store.set(operation.deviceId, operation.capability, operation.level);
+  }
+  const master = (await context.options.settings?.get("remote.agentAccess"))?.value ?? "off";
+  const chosen = store.all();
+  return {
+    kind: "grants",
+    master,
+    devices: devices.slice(0, 1000).map((device) => {
+      const own = chosen.get(device.id) ?? {};
+      return {
+        deviceId: device.id,
+        grants: grantsFor(master, own),
+        chosen: MachineCapability.options.filter((capability) => own[capability] !== undefined),
+      };
+    }),
+  };
 }
 
 /** The paired device this socket authenticated as; none for the daemon's own host credential. */
@@ -132,4 +199,14 @@ export function createFleetSession(context: SocketContext): SocketService {
       return true;
     },
   };
+}
+
+/**
+ * Whether a pairing link this socket makes carries the person's standing (ADR 0190): only when
+ * this socket proved it (a device the person paired, or a socket of an ace app signed in as the
+ * person that proved its grant). The host token alone, which any process of the person's can
+ * read, never does, however recently someone signed in.
+ */
+function issuerIsPerson(context: SocketContext): boolean {
+  return context.personProven?.() === true;
 }

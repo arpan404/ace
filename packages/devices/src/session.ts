@@ -24,6 +24,8 @@ export interface DeviceSession {
   activitySequence: number;
   /** A foldable device's posture, when ace can fold it. */
   posture?: DevicePosture;
+  /** The posture read in flight, so overlapping refreshes share one. */
+  readingPosture?: Promise<void>;
   capture?: DeviceCapture;
   streamControl?: DeviceStreamControl;
   latest?: Frame;
@@ -35,6 +37,8 @@ export interface DeviceSession {
   pendingController?: string;
   tail: Promise<void>;
   pending: number;
+  /** Separate admission limits keep waiting agents from refusing the person's input. */
+  pendingInput: { human: number; agent: number };
   generation: number;
   bindingEpoch: number;
   changingBinding: boolean;
@@ -64,6 +68,7 @@ export function createSession(
     lease: new ControllerLease(runtime.now),
     tail: Promise.resolve(),
     pending: 0,
+    pendingInput: { human: 0, agent: 0 },
     generation: 0,
     controlRevision: 0,
     bindingEpoch: 0,

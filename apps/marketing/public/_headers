@@ -1,0 +1,23 @@
+# Spade's OAuth client ID metadata document (ADR 0136). Authorization servers fetch it.
+/oauth/spade.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=3600
+  Access-Control-Allow-Origin: *
+
+# Astro's built assets carry a content hash in their names, so they never change in place.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Social cards and icons keep their names when redrawn: cache for a day.
+/og.png
+  Cache-Control: public, max-age=86400
+/og/*
+  Cache-Control: public, max-age=86400
+
+# Text for AI assistants: always the current build.
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=3600
+/llms-full.txt
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=3600

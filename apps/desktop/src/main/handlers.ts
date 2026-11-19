@@ -1,4 +1,12 @@
 import { writableFolder } from "./browser/download-folder.ts";
+import { aceClientName, namedFetch } from "@ace/client/ace-client";
+import { ACE_CLIENT_DEVELOPMENT } from "@ace/protocol/ace-client";
+import { accountSecrets } from "./account-secrets.ts";
+import { followDaemonAccount } from "./account-follow.ts";
+import { accountSync } from "./account-sync.ts";
+import { aceAccountClient } from "@ace/client/ace-account";
+import type { Toolchain } from "@ace/protocol";
+import { machineAccount } from "./machine-account.ts";
 import {
   app,
   BrowserWindow,
@@ -31,7 +39,8 @@ import { appIdentities, systemApplication, systemApplicationIcon } from "./os/ap
 import { editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
-import { detectToolchains } from "./system/toolchains.ts";
+import type { SpadeDirect } from "./spade/direct.ts";
+import { spadeHandlers } from "./spade/handlers.ts";
 import { reducedTransparency, windowState } from "./window/main-window.ts";
 
 export function appearance(): NativeAppearance {
@@ -43,6 +52,22 @@ export function appearance(): NativeAppearance {
   };
 }
 
+/**
+ * How the app names itself to ace cloud (`ace-client`, ADR 0189): its release version, or a
+ * development build when it isn't packaged.
+ */
+function desktopClient(info: AppInfo) {
+  return aceClientName("desktop", info.packaged ? info.version : ACE_CLIENT_DEVELOPMENT);
+}
+
+/** Reads which account an app session belongs to, from the account backend. */
+function accountReader(info: AppInfo) {
+  const named = namedFetch(fetch, desktopClient(info));
+  return async (origin: string, token: string): Promise<string> =>
+    (await aceAccountClient({ origin, fetch: named }).session(token, AbortSignal.timeout(10_000)))
+      .account.id;
+}
+
 /** Every `window.ace` request, already parsed by `registerHandlers`. */
 export function createHandlers(options: {
   info: AppInfo;
@@ -50,7 +75,8 @@ export function createHandlers(options: {
   settings: SettingsStore;
   background: Background;
   window(): BrowserWindow | undefined;
-  env: NodeJS.ProcessEnv;
+  /** Git, Xcode and the Android tools on this machine (system/toolchains.ts). */
+  toolchains(): Promise<Toolchain[]>;
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
   authorizeDaemon(url: string): void;
@@ -79,8 +105,21 @@ export function createHandlers(options: {
     hide(): SandboxNotice;
     restart(): void;
   };
+  /** The direct path to Spade on this computer (ADR 0123). */
+  spade: SpadeDirect;
 }): Handlers {
   const { runtime, settings, background } = options;
+  const account = accountSecrets(app.getPath("userData"));
+  const accountOf = accountReader(options.info);
+  // A daemon that starts or restarts signed out follows the app's account (never switching one
+  // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
+  // both, so an older change never lands after a newer one.
+  const daemonAccount = accountSync({
+    connection: options.connection,
+    saved: () => account.all(),
+    accountOf,
+  });
+  followDaemonAccount(runtime, daemonAccount.resume);
   const editorIcon = editorIcons(
     {
       forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
@@ -98,6 +137,16 @@ export function createHandlers(options: {
     return window;
   };
   return {
+    "account.read": (origin) => account.read(origin),
+    "account.write": async ({ origin, token }) => {
+      await account.write(origin, token);
+      // The machine follows the app's account only where that moves no one's own sign-in
+      // (`account-write.ts`); a failure here leaves the app signed in.
+      void daemonAccount.followApp(origin).catch(() => {});
+      return undefined;
+    },
+    "daemon.account": async (request) =>
+      machineAccount(await options.connection(), request, (origin) => account.read(origin)),
     "keymap.update": (bindings) => {
       options.updateKeymap?.(bindings);
       return undefined;
@@ -112,6 +161,7 @@ export function createHandlers(options: {
       return undefined;
     },
     "daemon.connection": () => options.connection(),
+    "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {
       options.authorizeDaemon(url);
       return undefined;
@@ -125,7 +175,7 @@ export function createHandlers(options: {
     "daemon.showLogs": () => options.showLogs(),
     "daemon.pause": (paused) => runtime.pause(paused),
     "onboarding.providers": () => runtime.providers(),
-    "system.toolchains": () => detectToolchains(options.env),
+    "system.toolchains": () => options.toolchains(),
     "shell.openInEditor": (request) => openInEditor(request),
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),
@@ -184,6 +234,18 @@ export function createHandlers(options: {
       return windowState(window);
     },
     "window.state": () => windowState(requireWindow()),
+    "window.capture": async ({ maxWidth, quality }) => {
+      const captured = await requireWindow().webContents.capturePage();
+      const size = captured.getSize();
+      const image = size.width > maxWidth ? captured.resize({ width: maxWidth }) : captured;
+      const { width, height } = image.getSize();
+      return {
+        mimeType: "image/jpeg" as const,
+        data: image.toJPEG(quality).toString("base64"),
+        width,
+        height,
+      };
+    },
     "theme.appearance": () => appearance(),
     "theme.setSource": (source) => {
       nativeTheme.themeSource = source;
@@ -235,6 +297,7 @@ export function createHandlers(options: {
     "updates.download": () => options.updates.download(),
     "updates.install": () => options.updates.install(),
     "updates.busy": async () => (await options.updates.busy()) ?? null,
+    "updates.setLine": (line) => options.updates.setLine(line),
     "sandbox.current": () => options.sandbox.current(),
     "sandbox.setup": () => options.sandbox.setup(),
     "sandbox.hide": () => options.sandbox.hide(),
@@ -242,5 +305,6 @@ export function createHandlers(options: {
       options.sandbox.restart();
       return undefined;
     },
+    ...spadeHandlers(options.spade),
   };
 }

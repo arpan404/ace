@@ -14,13 +14,30 @@ struct NativeTextInput: UIViewRepresentable {
     var onWrap: ((Bool) -> Void)? = nil
     /// The composer shows the text as a card right now (focused or wrapped).
     var card = false
-    /// Whether the text has the keyboard; it opens to the writing height.
+    /// Whether the text has the keyboard; it opens to the writing height unless `holdsOneLine`.
     var focused = false
+    /// The thread's capsule stays one line tall with the keyboard up and grows only as the words
+    /// wrap, as Messages does; New thread's card opens to its writing height.
+    var holdsOneLine = false
     /// The text took (true) or gave up the keyboard, with the keyboard's animation duration.
     var onFocus: ((Bool, Double) -> Void)? = nil
     var identifier = "composer.input"
     /// Takes the keyboard as soon as it shows (New thread's first message).
     var focusOnAppear = false
+    /// The words and the caret's UTF-16 offset, as typing or tapping moves them (no selection,
+    /// nothing being composed): the composer's `@` and `/` lists follow it.
+    var onCaret: ((String, Int) -> Void)? = nil
+    /// Where the caret goes after the composer changed the words itself; each value applies once.
+    var place: CaretPlacement? = nil
+    /// Images and files pasted in; nil pastes only words.
+    var pasteFiles: (([NSItemProvider]) -> Void)? = nil
+    /// A paste long enough to go as a text file (`LargePaste`); nil pastes it as words.
+    var pasteLong: ((String) -> Void)? = nil
+    /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
+    var fills = false
+    /// Shown while there are no words, drawn by the text view itself so it leaves in the same
+    /// frame as the first typed character and never sits under it.
+    var placeholder = ""
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -29,40 +46,58 @@ struct NativeTextInput: UIViewRepresentable {
         view.inputBegan = inputBegan
         view.laidOut = { [weak coordinator = context.coordinator] view in coordinator?.laidOut(view) }
         context.coordinator.observeKeyboard()
-        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
+        view.font = AceDesign.TextRole.rowTitle.uiFont(traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
-        view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.md, left: AceTheme.Spacing.none, bottom: AceTheme.Spacing.md, right: AceTheme.Spacing.none)
+        view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.row, left: AceTheme.Spacing.none, bottom: AceDesign.Space.row, right: AceTheme.Spacing.none)
         view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = true
         view.accessibilityIdentifier = identifier
         if focusOnAppear { Task { @MainActor in view.becomeFirstResponder() } }
         view.accessibilityLabel = "Steer or follow up"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.placeholder = placeholder
         return view
     }
     func updateUIView(_ view: ComposerTextView, context: Context) {
         context.coordinator.parent = self
+        view.pasteFiles = pasteFiles
+        view.pasteLong = pasteLong
         if view.text != text { view.text = text; context.coordinator.measure(view) }
+        if let place, place.id != context.coordinator.placed {
+            context.coordinator.placed = place.id
+            view.selectedRange = NSRange(location: min(place.offset, (view.text as NSString).length), length: 0)
+            context.coordinator.reportCaret(view)
+            if place.focus, !view.isFirstResponder { Task { @MainActor in view.becomeFirstResponder() } }
+        }
         view.inputBegan = inputBegan
         view.escape = escape
         view.compact = !card
-        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
+        view.font = AceDesign.TextRole.rowTitle.uiFont(traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
-        view.typingAttributes = AceTheme.inputAttributes(traits: view.traitCollection)
+        view.typingAttributes = AceDesign.inputAttributes(traits: view.traitCollection)
+        view.placeholder = placeholder
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
-        let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
+        if fills, let height = proposal.height, height.isFinite { return CGSize(width: width, height: max(height, AceDesign.Size.tap)) }
+        let line = AceDesign.TextRole.rowTitle.lineHeight(at: uiView.traitCollection.preferredContentSizeCategory)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        let fit = ComposerFit(line: line, inset: AceTheme.Spacing.md * 2, minimum: AceTheme.Dimensions.touchTarget,
-                              largeType: uiView.traitCollection.preferredContentSizeCategory.isAccessibilityCategory)
-        return CGSize(width: width, height: fit.height(content: content, focused: focused))
+        let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)
+        return CGSize(width: width, height: fit.height(content: content, focused: focused && !holdsOneLine))
     }
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     @MainActor final class Coordinator: NSObject, UITextViewDelegate {
         var parent: NativeTextInput
         init(parent: NativeTextInput) { self.parent = parent }
+        /// The last caret placement applied.
+        var placed: UUID?
+        func reportCaret(_ textView: UITextView) {
+            guard let onCaret = parent.onCaret, textView.markedTextRange == nil, textView.selectedRange.length == 0 else { return }
+            let text = textView.text ?? ""
+            let caret = textView.selectedRange.location
+            Task { @MainActor in onCaret(text, caret) }
+        }
         /// The keyboard's last animation duration; the composer grows on the same curve.
         private var keyboardDuration = 0.35
         private var observing = false
@@ -91,10 +126,12 @@ struct NativeTextInput: UIViewRepresentable {
             return true
         }
         func textViewDidChange(_ textView: UITextView) {
+            (textView as? ComposerTextView)?.showPlaceholder()
             parent.text = textView.text
             measure(textView)
             textView.invalidateIntrinsicContentSize()
             textView.scrollRangeToVisible(textView.selectedRange)
+            reportCaret(textView)
         }
         /// The width the text had on one line of the compact composer; the card switches back
         /// only once the text fits it again, so the layout never flips back and forth.
@@ -112,14 +149,39 @@ struct NativeTextInput: UIViewRepresentable {
             let text = textView.text ?? ""
             let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
             let needed = (text as NSString).size(withAttributes: [.font: font]).width
-            let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceTheme.Spacing.xs)
+            let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceDesign.Space.tight)
             if wraps != parent.wraps { Task { @MainActor in onWrap(wraps) } }
         }
-        func textViewDidChangeSelection(_ textView: UITextView) { textView.scrollRangeToVisible(textView.selectedRange) }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            textView.scrollRangeToVisible(textView.selectedRange)
+            reportCaret(textView)
+        }
     }
 }
+/// A caret position the composer asks for once, after changing the words itself.
+struct CaretPlacement: Equatable {
+    let id = UUID()
+    let offset: Int
+    /// Bring the keyboard up too: the composer was asked for (a fork opened, a message edited).
+    var focus = false
+}
+
 @MainActor final class ComposerTextView: UITextView {
     var inputBegan: () -> Void = {}
+    /// Images and files pasted into the message go along with it; words paste as words.
+    var pasteFiles: (([NSItemProvider]) -> Void)?
+    /// Words long enough to go as a text file go to it instead of into the field, as the web's do.
+    var pasteLong: ((String) -> Void)?
+    override func paste(_ sender: Any?) {
+        if let pasteFiles, ComposerIntake.pastesFiles() { pasteFiles(UIPasteboard.general.itemProviders); return }
+        // Read only inside Paste itself, which the person chose, so it never asks for permission.
+        if let pasteLong, let words = UIPasteboard.general.string, LargePaste.isLong(words) { pasteLong(words); return }
+        super.paste(sender)
+    }
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)), pasteFiles != nil, ComposerIntake.pastesFiles() { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
     /// Esc from a hardware keyboard; without one, Esc drops the keyboard.
     var escape: (() -> Void)?
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -133,6 +195,41 @@ struct NativeTextInput: UIViewRepresentable {
     var laidOut: (ComposerTextView) -> Void = { _ in }
     override func layoutSubviews() {
         super.layoutSubviews()
+        let inset = textContainerInset
+        placeholderLabel.frame = CGRect(x: inset.left, y: inset.top,
+                                        width: max(bounds.width - inset.left - inset.right, 0),
+                                        height: placeholderLabel.font.lineHeight)
         laidOut(self)
+    }
+
+    /// The words shown while the field is empty. UIKit draws it in the same pass as the typed
+    /// text, so the two never overlap and nothing fades out under a new character.
+    private let placeholderLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontForContentSizeCategory = true
+        label.isAccessibilityElement = false
+        label.isUserInteractionEnabled = false
+        return label
+    }()
+    var placeholder = "" {
+        didSet {
+            guard placeholder != oldValue || placeholderLabel.superview == nil else { return }
+            if placeholderLabel.superview == nil { addSubview(placeholderLabel) }
+            placeholderLabel.text = placeholder
+            showPlaceholder()
+        }
+    }
+    override var font: UIFont? {
+        didSet { placeholderLabel.font = font; setNeedsLayout() }
+    }
+    override var text: String! {
+        didSet { showPlaceholder() }
+    }
+    /// Hidden as soon as there are words, or while a word is being composed (marked text).
+    func showPlaceholder() {
+        placeholderLabel.textColor = UIColor(AceTheme.Colours.subtleForeground)
+        placeholderLabel.isHidden = placeholder.isEmpty || hasText || markedTextRange != nil
     }
 }

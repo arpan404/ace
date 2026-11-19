@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { commands, connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
+import { HostId, ThreadId } from "@ace/protocol";
+import { commands, connect, fixture, latest, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
  * The subagent and question rows the native transcript draws, worded as the web's: over the
@@ -64,6 +65,43 @@ test("a group of subagents leads with each provider once and rows say what each 
   expect(explorer?.meta).toBe("GPT-5.5");
   expect(explorer).toMatchObject({ detail: "Search for spawn(", detailKind: "live" });
   expect(group.entries.find((entry) => entry.title === "Tester")?.label).toBe("Done");
+});
+
+const liveGroup = () =>
+  rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+    | { live?: boolean; entries: unknown[] }
+    | undefined;
+
+test("a group stays live while any subagent works, and settles only once every one has ended", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "live", workspaceId: "ace", title: "Live", provider: "codex" });
+  fake.apply("live", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Split it up."),
+    spawn("s1", "Explore"),
+    spawn("s2", "Test"),
+    facts.subagent("codex", "explorer", "Explorer", "s1"),
+    facts.subagent("codex", "tester", "Tester", "s2"),
+    facts.turn("explorer", "spawn"),
+    facts.turn("tester", "spawn"),
+    facts.endTurn("tester"),
+  ]);
+  open(connect(fake), "live");
+  // One done, one still working: the group is live.
+  expect(
+    await until(
+      () => (liveGroup()?.entries.length === 2 ? liveGroup() : undefined),
+      "a group of two",
+    ),
+  ).toMatchObject({ live: true });
+  fake.apply("live", [facts.endTurn("explorer")]);
+  expect(
+    await until(
+      () => (liveGroup()?.live === false ? liveGroup() : undefined),
+      "the group settling",
+    ),
+  ).toMatchObject({ live: false });
 });
 
 const indent = {
@@ -188,4 +226,141 @@ test("words to a question that takes no free text go to the agent as a message",
   });
   await until(() => commands("thread.send")[0], "the message");
   expect(commands("interaction.resolve")).toHaveLength(0);
+});
+
+const delegated = (child: string, phase: "running" | "settled") => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item: `delegation-${child}`,
+  draft: {
+    type: "delegation.started" as const,
+    origin: "ace" as const,
+    childThreadId: ThreadId.parse(child),
+    provider: "codex" as const,
+    title: "Relay protocol reference",
+    role: "docs",
+    phase,
+    status:
+      phase === "settled" ? { state: "done" as const } : { state: "working" as const, agents: 1 },
+    updatedAt: phase === "settled" ? 2000 : 1000,
+    generation: 0,
+    complete: phase === "settled",
+    outcome: null,
+  },
+});
+
+test("a delegated child the thread list still shows working never reads done in its parent", async () => {
+  const fake = fixture();
+  // The child works on: the list has it as working.
+  fake.createThread({
+    id: "docs-child",
+    workspaceId: "ace",
+    title: "Relay protocol reference",
+    provider: "codex",
+  });
+  fake.apply("docs-child", [facts.rootAgent("codex"), facts.turn("root")]);
+  // The parent's own copy of the launch already says done (a stale card after a reconnect).
+  fake.createThread({ id: "docs-parent", workspaceId: "ace", title: "Docs", provider: "codex" });
+  fake.apply("docs-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    delegated("docs-child", "settled"),
+    facts.endTurn("root"),
+  ]);
+  open(connect(fake), "docs-parent");
+  const group = await until(() => {
+    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+      | (Agents & { single: boolean })
+      | undefined;
+    return agents?.token === "working" ? agents : undefined;
+  }, "the group at the list's state");
+  expect(group.title).toBe("1 subagent");
+  expect(group.single).toBe(true);
+  // Once the child ends, the group says the launch ran.
+  fake.apply("docs-child", [facts.endTurn("root")]);
+  const ended = await until(() => {
+    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+      | Agents
+      | undefined;
+    return agents?.title === "1 subagent ran" ? agents : undefined;
+  }, "the launch reads as ran");
+  expect(ended.token).not.toBe("working");
+});
+
+test("a child the list shows working but the parent's tree no longer counts is not left to the pill", async () => {
+  const fake = fixture();
+  // The delegated child works on: the list has it as working.
+  fake.createThread({
+    id: "gap-child",
+    workspaceId: "ace",
+    title: "Relay protocol reference",
+    provider: "codex",
+  });
+  fake.apply("gap-child", [facts.rootAgent("codex"), facts.turn("root")]);
+  // The parent's copy says that child is done (stale after a reconnect), while a native
+  // subagent of its own still works, so the pill names subagents.
+  fake.createThread({ id: "gap-parent", workspaceId: "ace", title: "Docs", provider: "codex" });
+  fake.apply("gap-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    delegated("gap-child", "settled"),
+    spawn("s1", "Audit reconnects"),
+    facts.subagent("codex", "auditor", "Auditor", "s1"),
+    facts.turn("auditor", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  open(connect(fake), "gap-parent");
+  type Group = { live?: boolean; counted?: boolean; entries: { title: string; state: string }[] };
+  const group = () =>
+    rows("thread.block").find((row) => row.kind === "subagents")?.agents as Group | undefined;
+  const states = () =>
+    group()
+      ?.entries.map((entry) => entry.state)
+      .join(",");
+  // Both children are live in the group, the delegated one at the list's state. The tree the
+  // pill and the Agents sheet read counts only the auditor, so the group keeps its row.
+  const stale = await until(
+    () => (states() === "working,working" ? group() : undefined),
+    "both children working",
+  );
+  expect(stale).toMatchObject({ live: true, counted: false });
+  // The pill names subagents meanwhile (the auditor), so leaving the row to it would hide the
+  // delegated child.
+  const pill = latest("thread.pill")?.pill as
+    | { covers?: { subagents: boolean } }
+    | null
+    | undefined;
+  expect(pill?.covers?.subagents).toBe(true);
+  // Once the delegated child ends, the only live child is one the tree counts.
+  fake.apply("gap-child", [facts.endTurn("root")]);
+  const counted = await until(
+    () => (group()?.entries[0]?.state !== "working" && group()?.live ? group() : undefined),
+    "the delegated child ended",
+  );
+  expect(counted.counted).toBe(true);
+});
+
+test("a child delegated to another machine names that machine and its host, to open it there", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "far-parent", workspaceId: "ace", title: "Far", provider: "codex" });
+  const launch = delegated("far-child", "running");
+  fake.apply("far-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      ...launch,
+      draft: {
+        ...launch.draft,
+        machine: { machine: "m-studio", name: "Studio", hostId: HostId.parse("studio") },
+      },
+    },
+  ]);
+  open(connect(fake), "far-parent");
+  const entry = await until(() => {
+    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+      | { entries: { threadId: string; machine: string; machineHost: string }[] }
+      | undefined;
+    return agents?.entries[0];
+  }, "the delegated child's row");
+  expect(entry).toMatchObject({ threadId: "far-child", machine: "Studio", machineHost: "studio" });
 });

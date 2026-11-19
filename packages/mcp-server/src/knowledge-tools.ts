@@ -100,13 +100,9 @@ export const knowledgeToolCatalog = [
     toolset: "ace-threads",
     riskClass: "thread-write",
     description:
-      "Remember one short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance. The person sees and edits notes.",
+      "Save one short fact about this project for every future thread, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance; the person sees and edits notes.",
     input: z.strictObject({
-      text: z
-        .string()
-        .min(1)
-        .max(maxProjectNoteLength)
-        .describe(`One fact, at most ${maxProjectNoteLength} characters.`),
+      text: z.string().min(1).max(maxProjectNoteLength).describe("One fact."),
     }),
     output: z.object({ noteId: z.string(), notes: z.number() }),
     capability: "projects",
@@ -119,7 +115,7 @@ export const knowledgeToolCatalog = [
     riskClass: "thread-write",
     description: "Remove a project note that is wrong or out of date.",
     input: z.strictObject({
-      noteId: z.string().min(1).max(64).describe("The note's id from context topic notes."),
+      noteId: z.string().min(1).max(64).describe("From context topic notes."),
     }),
     output: z.object({ retired: z.boolean() }),
     capability: "projects",

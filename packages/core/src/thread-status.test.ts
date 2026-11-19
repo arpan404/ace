@@ -15,7 +15,7 @@ describe("thread status precedence through facts", () => {
   });
 
   it.each(["starting", "working", "subagents"] as const)(
-    "%s outranks another agent's retry",
+    "status reflects %s while another agent retries",
     (kind) => {
       const h = kind === "starting" ? endedRoot() : activeRoot();
       h.see("child", "root");
@@ -38,7 +38,9 @@ describe("thread status precedence through facts", () => {
           },
         });
       }
-      expect(deriveThreadStatus(h.state).state).toBe("working");
+      if (kind === "subagents")
+        expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "upstream" });
+      else expect(deriveThreadStatus(h.state).state).toBe("working");
     },
   );
 
@@ -69,7 +71,8 @@ describe("thread status precedence through facts", () => {
   });
 
   it("background work outranks a queued input", () => {
-    const h = endedRoot();
+    const h = activeRoot();
+    h.end("root", "interrupted");
     h.background();
     h.send({ type: "queue.changed", count: 1 });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "background_task" });
@@ -128,7 +131,6 @@ describe("thread status precedence through facts", () => {
     });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
     h.background();
-    expect(deriveThreadStatus(h.state).state).toBe("waiting");
     h.send({ type: "background.ended", task: "task", status: "unknown" });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
   });

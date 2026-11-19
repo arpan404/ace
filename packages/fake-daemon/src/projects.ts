@@ -1,4 +1,5 @@
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
+import { FakeProjectRepositories } from "./project-repositories.ts";
 import { parseCloneUrl, projectIconMatches } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
@@ -9,6 +10,8 @@ import {
   ProjectInspection,
   ProjectsResult,
   WorkspaceId,
+  ProjectMarker,
+  type ProjectCheckoutFacts,
   type CommandPayload,
   type CommandResult,
   type ProjectsRequest,
@@ -16,6 +19,7 @@ import {
   WorkspaceCloneProgress,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+import { FakeIdentities } from "./project-identities.ts";
 
 type Directory = {
   favicon?: string;
@@ -24,6 +28,8 @@ type Directory = {
   modifiedAt: number;
   initialBranch: string;
   remote?: string;
+  /** Its `.ace/project.json` (ADR 0181), as the daemon would read it. */
+  marker?: ProjectMarker;
 };
 /** A folder on the fake host, for `seedFolders`. */
 export interface FolderSeed {
@@ -33,14 +39,23 @@ export interface FolderSeed {
   git?: boolean;
   /** Its `origin` fetch URL, for a repository root. */
   remote?: string;
+  /** A project marker in it (ADR 0181), e.g. one a clone carried. */
+  marker?: ProjectMarker;
   modifiedAt?: number;
 }
 /** Host filesystem fixture and registered catalog, including projects without threads. */
+/** A folder path without its trailing slashes; the root stays `/`. */
+const trimRoot = (path: string) => path.replace(/\/+$/, "") || "/";
+
 export class FakeProjects {
   private context: FakeServiceContext;
+  /** While set, `workspace.chat.create` is refused with this readable detail (tests). */
+  refuseChats: string | undefined;
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
+  /** Logical project identity (ADR 0180); `enabled` false speaks as an older daemon. */
+  readonly identities = new FakeIdentities();
   private publications = new Map<string, RepositoryPublication>();
   publication(id: string) {
     return this.publications.get(id) ?? null;
@@ -98,6 +113,8 @@ export class FakeProjects {
     }
   }
   private opened = new Map<string, number>();
+  /** Each project's repositories (ADR 0120): `ace` has a GitHub origin and a GitLab mirror. */
+  readonly repositories = new FakeProjectRepositories();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";
   /** Allowed roots, canonical, as a real daemon reports them. */
@@ -106,6 +123,12 @@ export class FakeProjects {
   private homeLink: string | undefined;
   private removed = new Set<string>();
   private retained = new Map<string, Project>();
+  /** Plain folders another machine sent here: not repositories, as the real daemon finds. */
+  private plainCopies = new Set<string>();
+  /** Whether the project is a plain folder another machine sent here. */
+  isPlainCopy(id: string): boolean {
+    return this.plainCopies.has(id);
+  }
   private directories = new Map<string, Directory>([
     ["/fake", { empty: true, git: false, modifiedAt: 1, initialBranch: "main" }],
   ]);
@@ -138,7 +161,85 @@ export class FakeProjects {
     };
   }
   private emit(message: WorkspaceChanged | WorkspaceCloneProgress): void {
-    for (const listener of this.listeners) listener(message);
+    const sent =
+      message.type === "workspace.changed" && message.workspace
+        ? { ...message, workspace: this.decorate(message.workspace) }
+        : message;
+    for (const listener of this.listeners) listener(sent);
+  }
+  /** A project as the daemon reports it: with its logical identity and when it was last used. */
+  private decorate(project: Project): Project {
+    const { identity: _identity, openedAt: _openedAt, ...plain } = project;
+    if (!this.identities.enabled) return plain;
+    const identity = this.identities.identity(project.id);
+    const openedAt = this.opened.get(project.path);
+    return {
+      ...plain,
+      ...(identity ? { identity } : {}),
+      ...(openedAt === undefined ? {} : { openedAt }),
+    };
+  }
+  /** Mark the project used now, as starting work in it does (tests). */
+  touch(id: string, at = this.context.now()): void {
+    const project = this.projects.get(id);
+    if (project) this.opened.set(project.path, at);
+  }
+  /** What a project is a checkout of, as `workspace.checkout` answers. */
+  checkout(id: string): ProjectCheckoutFacts | undefined {
+    const project = this.get(id);
+    if (!project) return undefined;
+    let top = project.path;
+    while (top !== "/" && !this.directories.get(top)?.git)
+      top = top.slice(0, top.lastIndexOf("/")) || "/";
+    const directory = this.directories.get(top);
+    if (!directory?.git) return { repository: false, remotes: [], subpath: "" };
+    return {
+      repository: true,
+      remotes: directory.remote ? [normalizeRemoteUrl(directory.remote)] : [],
+      subpath: project.path === top ? "" : project.path.slice(top.length + 1),
+    };
+  }
+  /** `workspaces.identitySuggestions`, as the daemon pages it. */
+  identitySuggestions(
+    remotes: readonly string[],
+    subpath: string,
+    after = "",
+    limit = 32,
+    identityId?: string,
+  ) {
+    this.seed();
+    if (!remotes.length && !identityId)
+      return { kind: "identitySuggestions" as const, suggestions: [], next: null };
+    const wanted = new Set(remotes);
+    const all = [...this.projects.values()]
+      .filter((project) => project.kind === undefined && project.id > after)
+      .toSorted((a, b) => (a.id < b.id ? -1 : 1));
+    const page = all.slice(0, limit);
+    const suggestions = page.flatMap((project) => {
+      const facts = this.checkout(project.id);
+      const marked =
+        identityId !== undefined && this.directories.get(project.path)?.marker?.id === identityId;
+      const shared =
+        facts && facts.subpath === subpath
+          ? facts.remotes.filter((remote) => wanted.has(remote))
+          : [];
+      if (!shared.length && !marked) return [];
+      const sameRemotes =
+        shared.length > 0 && shared.length === wanted.size && facts?.remotes.length === wanted.size;
+      return [
+        {
+          workspaceId: project.id,
+          shared,
+          sameRemotes,
+          ...(marked ? { marker: true as const } : {}),
+        },
+      ];
+    });
+    return {
+      kind: "identitySuggestions" as const,
+      suggestions,
+      next: all.length > limit ? (page.at(-1)?.id ?? null) : null,
+    };
   }
   private seed(): void {
     for (const thread of this.context.threads()) {
@@ -199,6 +300,7 @@ export class FakeProjects {
       ensure(folder.path, {
         git: folder.git ?? false,
         ...(folder.remote ? { remote: folder.remote } : {}),
+        ...(folder.marker ? { marker: folder.marker } : {}),
         ...(folder.favicon === undefined ? {} : { favicon: folder.favicon }),
         ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
       });
@@ -206,7 +308,8 @@ export class FakeProjects {
   }
   get(id: string): Project | undefined {
     this.seed();
-    return this.projects.get(id);
+    const project = this.projects.get(id);
+    return project && this.decorate(project);
   }
   isRemoved(id: string): boolean {
     return this.removed.has(id);
@@ -221,7 +324,7 @@ export class FakeProjects {
       .toSorted((a, b) => (a.id < b.id ? -1 : 1));
     return {
       kind: "workspaces" as const,
-      workspaces: projects.slice(0, limit),
+      workspaces: projects.slice(0, limit).map((project) => this.decorate(project)),
       ...(projects.length > limit ? { next: projects[limit - 1]?.id } : {}),
     };
   }
@@ -229,14 +332,17 @@ export class FakeProjects {
     const configured = this.context.projectRoots?.();
     return configured?.length ? configured : this.roots;
   }
+  /** The folder a path names, as the real daemon's realpath finds it: the home link resolved. */
+  private realpath(path: string): string {
+    const link = this.homeLink;
+    return link && (path === link || path.startsWith(`${link}/`))
+      ? this.home + path.slice(link.length)
+      : path;
+  }
   private checked(path: string): string {
     if (!path.startsWith("/") || path.split("/").includes("..") || path.includes("\0"))
       throw new Error("invalid_path");
-    const link = this.homeLink;
-    const canonical =
-      link && (path === link || path.startsWith(`${link}/`))
-        ? this.home + path.slice(link.length)
-        : path;
+    const canonical = this.realpath(path);
     if (!this.allowedRoots().some((root) => canonical === root || canonical.startsWith(`${root}/`)))
       throw new Error("outside_project_roots");
     return canonical.replace(/\/+$/, "") || "/";
@@ -250,9 +356,11 @@ export class FakeProjects {
         ([entry, value]) => value.git && (selected === entry || selected.startsWith(`${entry}/`)),
       )
       .toSorted(([a], [b]) => b.length - a.length)[0];
+    const marker = this.directories.get(selected)?.marker;
     return ProjectInspection.parse({
       path: selected,
       defaultIcon: this.directories.get(selected)?.favicon,
+      ...(marker ? { marker } : {}),
       git: root
         ? {
             root: root[0],
@@ -283,6 +391,7 @@ export class FakeProjects {
       defaultIcon: this.directories.get(path)?.favicon,
     });
     const added = !this.projects.has(id);
+    if (!existing) this.identities.created(id);
     this.projects.delete(id);
     this.projects.set(id, project);
     this.opened.set(path, this.context.now());
@@ -294,7 +403,59 @@ export class FakeProjects {
         change: added ? "added" : "updated",
         workspace: project,
       });
-    return { ok: true, workspace: project, inspection: this.inspection(path) };
+    return { ok: true, workspace: this.decorate(project), inspection: this.inspection(path) };
+  }
+  private identityCommand(
+    p: Extract<
+      ProjectCommand,
+      {
+        type:
+          | "workspace.identity.link"
+          | "workspace.identity.unlink"
+          | "workspace.identity.merge"
+          | "workspace.identity.marker.write";
+      }
+    >,
+  ): Omit<CommandResult, "commandId"> {
+    // An older daemon never answers a command it can't parse; the client asks first.
+    if (!this.identities.enabled) return { ok: false, error: "invalid_message" };
+    if (this.identities.refusing) return { ok: false, error: "project_failed" };
+    if (p.type === "workspace.identity.merge") {
+      for (const id of this.identities.merge(p.from, p.into)) this.changed(id);
+      return { ok: true };
+    }
+    const project = this.projects.get(p.workspaceId);
+    if (!project || this.removed.has(project.id)) throw new Error("workspace_not_found");
+    if (project.kind === "chat") throw new Error("chat_project");
+    if (p.type === "workspace.identity.marker.write") {
+      const directory = this.directories.get(project.path);
+      if (!directory) throw new Error("directory_unavailable");
+      this.identities.created(project.id);
+      const id = this.identities.identity(project.id)?.id ?? "";
+      if (directory.marker && directory.marker.id !== id && !p.replace)
+        return { ok: false, error: "marker_conflict" };
+      directory.marker = ProjectMarker.parse({ version: 1, id, name: project.name });
+      this.changed(project.id);
+      return { ok: true, workspace: this.decorate(project) };
+    }
+    if (p.type === "workspace.identity.unlink") this.identities.unlink(project.id);
+    if (
+      p.type === "workspace.identity.link" &&
+      !this.identities.link(project.id, p.identityId, p.viaMarker ? "marker" : "linked")
+    )
+      return { ok: true, workspace: this.decorate(project) };
+    this.changed(project.id);
+    return { ok: true, workspace: this.decorate(project) };
+  }
+  private changed(id: string): void {
+    const workspace = this.projects.get(id);
+    if (workspace && !this.removed.has(id))
+      this.emit({
+        type: "workspace.changed",
+        workspaceId: workspace.id,
+        change: "updated",
+        workspace,
+      });
   }
   /** What a transfer sends from: whether the project is a Git repository, and its origin. */
   source(id: string): { name: string; git: boolean; origin?: string } | undefined {
@@ -321,7 +482,13 @@ export class FakeProjects {
    * is one, else a new Git checkout in `parent` (or the home), named after the source with `-2`,
    * `-3`… when the folder is taken.
    */
-  receive(input: { name: string; parent?: string | undefined; origin?: string | undefined }): {
+  receive(input: {
+    name: string;
+    parent?: string | undefined;
+    origin?: string | undefined;
+    /** False for a plain folder (an archive): it lands as a folder, not a repository. */
+    git?: boolean | undefined;
+  }): {
     workspaceId: string;
     path: string;
     reused: boolean;
@@ -334,12 +501,13 @@ export class FakeProjects {
     this.makeFolders(path);
     this.directories.set(path, {
       empty: false,
-      git: true,
+      git: input.git !== false,
       initialBranch: "main",
       modifiedAt: this.context.now(),
       ...(input.origin ? { remote: input.origin } : {}),
     });
     const result = this.register(path, input.name);
+    if (input.git === false) this.plainCopies.add(result.workspace.id);
     return { workspaceId: result.workspace.id, path, reused: false };
   }
   /** `mkdir -p` on the fake host: each missing folder on the way, empty. */
@@ -370,8 +538,15 @@ export class FakeProjects {
     const p = decoded.data;
     this.seed();
     try {
+      if (
+        p.type === "workspace.identity.link" ||
+        p.type === "workspace.identity.unlink" ||
+        p.type === "workspace.identity.merge" ||
+        p.type === "workspace.identity.marker.write"
+      )
+        return this.identityCommand(p);
       if (p.type === "workspace.root.add") {
-        const path = p.path.replace(/\/+$/, "") || "/";
+        const path = this.realpath(p.path.replace(/\/+$/, "") || "/");
         if (!path.startsWith("/") || path.split("/").includes(".."))
           throw new Error("invalid_path");
         if (!this.directories.has(path) && !p.create) throw new Error("directory_missing");
@@ -379,6 +554,18 @@ export class FakeProjects {
         const configured = this.context.projectRoots?.() ?? [];
         const roots = [...new Set([...(configured.length ? configured : this.roots), path])];
         this.context.saveProjectRoots?.(roots);
+        return { ok: true };
+      }
+      if (p.type === "workspace.root.remove") {
+        if (!p.path.startsWith("/") || p.path.split("/").includes(".."))
+          throw new Error("invalid_path");
+        // Matched as typed and as the folder it names, trailing slashes aside, as the real one.
+        const targets = new Set([trimRoot(p.path), trimRoot(this.realpath(p.path))]);
+        const configured = this.context.projectRoots?.() ?? [];
+        const kept = configured.filter((root) => !targets.has(trimRoot(root)));
+        if (kept.length === configured.length) return { ok: true };
+        if (!kept.length) throw new Error("last_root");
+        this.context.saveProjectRoots?.(kept);
         return { ok: true };
       }
       if (p.type === "workspace.add") {
@@ -403,6 +590,8 @@ export class FakeProjects {
         return this.register(path, p.name, p.icon);
       }
       if (p.type === "workspace.chat.create") {
+        if (this.refuseChats !== undefined)
+          return { ok: false, error: "project_failed", detail: this.refuseChats };
         const id = this.allocateId();
         const path = `/fake/chats/${id}`;
         this.directories.set(path, {
@@ -463,6 +652,17 @@ export class FakeProjects {
           inspection: this.inspection(project.path),
         };
       }
+      if (p.type === "workspace.repositories.set") {
+        const error = this.repositories.set(project.id, p.repositories, p.expected);
+        if (error) return { ok: false, error };
+        this.emit({
+          type: "workspace.changed",
+          workspaceId: project.id,
+          change: "updated",
+          workspace: project,
+        });
+        return { ok: true, workspace: project };
+      }
       const threads = this.context
         .threads()
         .filter((t) => t.workspaceId === project.id && t.deletedAt === undefined);
@@ -497,19 +697,18 @@ export class FakeProjects {
         return { ok: true, workspace };
       }
       if (
-        !p.archiveThreads &&
+        !p.stopRunning &&
         threads.some(
           (t) => !["new", "done", "failed"].includes(t.status.state) || this.hasOwnedWork(t.id),
         )
       )
         throw new Error("workspace_threads_running");
-      if (p.archiveThreads)
-        for (const thread of threads)
-          if (thread.archivedAt === undefined)
-            this.context.update(thread.id, {
-              type: "thread.updated",
-              archivedAt: this.context.now(),
-            });
+      // Removing a project deletes its threads.
+      for (const thread of threads)
+        this.context.update(thread.id, {
+          type: "thread.client.updated",
+          changes: { deletedAt: this.context.now(), autoSettleAt: null },
+        });
       this.projects.delete(project.id);
       this.retained.set(project.id, project);
       this.removed.add(project.id);

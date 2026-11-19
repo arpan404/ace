@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { wireShape } from "@ace/provider-kit/wire-shape";
 import {
   Notification,
   NotificationDevice,
@@ -35,11 +36,19 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("unregister"), device: DeviceId.and(z.string().max(200)) }),
   z.object({ method: z.literal("connectDevice"), device: DeviceId.and(z.string().max(200)) }),
   z.object({
+    method: z.literal("pushAddresses"),
+    devices: z.array(DeviceId.and(z.string().max(200))).max(128),
+  }),
+  z.object({
     method: z.literal("preferences"),
     device: DeviceId.and(z.string().max(200)),
     preferences: NotificationPreferences,
   }),
   z.object({ method: z.literal("revoke"), device: DeviceId.and(z.string().max(200)) }),
+  z.object({
+    method: z.literal("markRemote"),
+    threads: z.array(ThreadId.and(z.string().max(200))).max(256),
+  }),
   z.object({ method: z.literal("snooze"), thread: ThreadId.and(z.string().max(200)), until: seq }),
   z.object({
     method: z.literal("presence"),
@@ -55,7 +64,7 @@ export const WorkerCall = z.discriminatedUnion("method", [
   }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
-export const ToWorker = z.discriminatedUnion("type", [
+const ToWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("call"), id: seq, call: WorkerCall }),
   z.object({
     type: z.literal("deliveryResult"),
@@ -63,7 +72,20 @@ export const ToWorker = z.discriminatedUnion("type", [
     result: z.enum(["accepted", "retry", "gone", "revoked", "failed"]),
   }),
 ]);
-export const FromWorker = z.discriminatedUnion("type", [
+const refusalPathChars = 4096;
+const refusalMessageChars = 8192;
+/**
+ * The frame a worker sends when it refuses its store, cut to the wire's limits: a frame over
+ * them would fail to parse, and the daemon would degrade instead of stopping on the refusal.
+ */
+export function incompatibleFrame(refusal: { path: string; message: string }) {
+  return {
+    type: "incompatible" as const,
+    path: refusal.path.slice(0, refusalPathChars),
+    message: refusal.message.slice(0, refusalMessageChars),
+  };
+}
+const FromWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({
     type: z.literal("result"),
@@ -74,6 +96,8 @@ export const FromWorker = z.discriminatedUnion("type", [
         seq,
         NotificationFeed,
         NotificationPreferences,
+        /** `pushAddresses`: devices with a push address that may be alerted now. */
+        z.array(NotificationDevice).max(128),
         /** `closeSleep`: the spans in which queued agent notices are too old to send. */
         z.array(z.object({ after: seq, before: seq }).strict()).max(64),
       ])
@@ -88,11 +112,27 @@ export const FromWorker = z.discriminatedUnion("type", [
     notification: Notification,
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
+  /** The store is in a format this build cannot read; the worker waits to be stopped. */
+  z.object({
+    type: z.literal("incompatible"),
+    path: z.string().max(refusalPathChars),
+    message: z.string().max(refusalMessageChars),
+  }),
   /** Sent after a call changes when delivery next has work or whether the worker is idle. */
   z.object({ type: z.literal("state"), deadline: seq.nullable(), idle: z.boolean() }),
 ]);
 /** What a successful call may return. */
 export type WorkerValue = Extract<z.infer<typeof FromWorker>, { type: "result" }>["value"];
+/**
+ * Messages between the daemon and its notification worker. Both ends are this build (the
+ * worker checks `notifyWireShape` when it starts), so they are typed, not parsed on receipt.
+ * Calls carrying arguments the daemon was handed are checked against `WorkerCall` before they
+ * are sent (`NotificationWorker`); the worker's replies come from its store, which decodes
+ * its rows as it reads them.
+ */
+export type ToWorker = z.output<typeof ToWorker>;
+export type FromWorker = z.output<typeof FromWorker>;
+export const notifyWireShape = wireShape([ToWorker, FromWorker]);
 export const WorkerConfig = z.object({
   path: z.string().max(4096),
   windowMs: seq.default(5000),

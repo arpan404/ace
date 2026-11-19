@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
-import { DeferredWorkCard, workSurface } from "./work-button.tsx";
+import { DeferredWorkCard, workSurface } from "./work-surface.ts";
 import {
   workCardColumnWidth,
   workCardFitsSide,
@@ -117,7 +117,8 @@ export function WorkSide(props: { threadId: string }) {
   useEffect(() => {
     const element = card.current;
     if (!shown || !element || !store) return;
-    element.focus({ preventScroll: true });
+    // Only an open the person asked for moves focus; a remembered or synced card leaves it.
+    if (store.takeFocus()) element.focus({ preventScroll: true });
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target;

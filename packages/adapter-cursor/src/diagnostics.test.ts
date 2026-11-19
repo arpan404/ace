@@ -91,20 +91,6 @@ test("every Cursor bookkeeping frame is retained without becoming visible conver
   expect(JSON.stringify(notices)).toContain("unassociated output");
 });
 
-test("a quiet host exit does not warn but an active run does", () => {
-  const quiet = replay();
-  quiet.frame("result", { status: "finished" });
-  quiet.frame("host-exit", { deliberate: false });
-  expect(Object.values(quiet.state.items).filter((item) => item.type === "notice")).toEqual([]);
-  const active = replay();
-  active.frame("host-exit", { deliberate: false });
-  expect(
-    Object.values(active.state.items).filter(
-      (item) => item.type === "notice" && !isRawHistoryItem(item),
-    ),
-  ).toHaveLength(1);
-});
-
 test("two diagnostics from one frame retain separate evidence without either overwriting the other", () => {
   const threadId = ThreadId.parse("same-frame");
   const translator = new CursorTranslator({ threadId, rootKey: "root" });

@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { agentMcp } from "./agent-mcp-test-support.ts";
-import { executablePath, fixture, toolPort } from "./test-support.ts";
+import { executablePath, sharedFixture, toolPort } from "./test-support.ts";
 
 /** A local site whose /slow page never answers: a dev server stuck mid-request. */
 async function stuckSite(): Promise<string> {
@@ -27,7 +27,7 @@ async function stuckSite(): Promise<string> {
 
 describe.skipIf(!executablePath)("waiting after a page that loads too slowly", () => {
   it("a slow page fails as page_timeout, and the next wait gets its own time instead of failing at once", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const site = await stuckSite();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_open", { url: `${site}/` });

@@ -7,6 +7,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { z } from "zod";
 import { expect, it } from "vitest";
 import { createDevThread, readConfig, startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 it("agents discover ace through initialize, resources and status even when computer use is disabled", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-mcp-discovery-"));
@@ -22,6 +23,7 @@ it("agents discover ace through initialize, resources and status even when compu
     publishArtifact: async () => {},
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
     modelInstances: [],

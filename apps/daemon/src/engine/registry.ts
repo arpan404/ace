@@ -25,6 +25,21 @@ export class AdapterRegistry {
     const backend = adapter.backend ?? undefined;
     if (backend) this.backends.set(`${adapter.provider}:${backend}`, entry);
   }
+  /**
+   * A later reading of a registered CLI, such as its login once that slower probe ends. It
+   * applies only to the CLI the adapter was registered with: same path, same version.
+   */
+  refreshDiscovery(provider: ProviderKind, cli: DiscoveryResult): void {
+    const entry = this.entries.get(provider);
+    if (
+      !entry ||
+      !cli.installed ||
+      entry.discovery.path !== cli.path ||
+      entry.discovery.version !== cli.version
+    )
+      return;
+    entry.discovery = { ...cli };
+  }
   get(provider: ProviderKind, backend?: ProviderBackend): Entry {
     if (provider === "cursor" && this.entries.get(provider)?.adapter.backend === "cursor-sdk")
       backend = "cursor-sdk";

@@ -134,10 +134,17 @@ fallback remain; ace does not manufacture a model or an entitlement.
 ## Source evidence and cache lifetime
 
 OpenCode grouping reads only the CLI's credential-free connection status.
-`opencode-go` is Go and `opencode`/`opencode-zen` is Zen. CLI local flags,
-loopback base-URL metadata and known local provider IDs identify local sources.
-OAuth/Go/Copilot flags identify subscriptions. Zen is an API-key gateway with
-`service: "opencode_zen"`; Go has `service: "opencode_go"`. Render the two services
+`opencode-go` is Go and `opencode`/`opencode-zen` is Zen. An OpenCode Console
+login is a single `opencode` row even when the account also has Go, so a
+connected `opencode` row makes Go a candidate source: Go models the CLI serves
+(in metadata or `opencode models`) join the catalog, and an account without Go
+gets no Go group. The connection fingerprint treats such a login as Go-connected
+either way, so polling `auth list` does not rediscover an unchanged catalog.
+CLI local flags, loopback base-URL metadata and known local provider IDs
+identify local sources. Go/Copilot IDs and OAuth flags (`authType`, or `method`
+in OpenCode 2.2) identify subscriptions. Zen stays an API-key gateway with
+`service: "opencode_zen"` even under an OAuth Console login, because it bills
+per request; Go has `service: "opencode_go"`. Render the two services
 separately from ordinary provider API-key groups. The official
 [Zen guide](https://opencode.ai/docs/zen) describes its per-request credit billing.
 Exposed API-key/environment connection types identify API keys. A generic

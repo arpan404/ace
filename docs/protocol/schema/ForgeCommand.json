@@ -225,7 +225,8 @@
         },
         "reviewers": {
           "items": {
-            "pattern": "^[\\w-]+$",
+            "maxLength": 100,
+            "pattern": "^[\\w.-]+$",
             "type": "string"
           },
           "maxItems": 100,

@@ -1,14 +1,23 @@
 import { z } from "zod";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
+import { conversationStartedBy } from "./conversation-tables.ts";
 import { skillUsageTable } from "./skill-usage.ts";
 import {
   machineChildGenerations,
   machineChildLaunches,
+  machineChildLiveness,
   machineChildReach,
+  machineGrants,
+  machineJobs,
 } from "./machine-tables.ts";
+
+import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
+import { machineCodeTables } from "./account-access/tables.ts";
+import { outsideGrantTables, outsideOAuthTables } from "./external-mcp/tables.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -147,14 +156,65 @@ const migrations = [
   machineChildLaunches,
   // Remote children stay reachable: their pairing, a parent's children, refused messages.
   machineChildReach,
+  // Per linked machine, per capability grants; defaults need no backfill.
+  machineGrants,
+  // Remote command jobs that hold their calling thread open; no rows exist before it.
+  machineJobs,
+  // Threads an agent opened with thread_start name their starter, backfilled from the journal.
+  conversationStartedBy,
+  retiredWorkflowMigration,
+  // Remote children's proof of life and stops in progress (ADR 0052), backfilled from their rows.
+  machineChildLiveness,
+  // The machine code and the account devices that passed it (ADR 0111); no rows exist before it.
+  machineCodeTables,
+  // Each paired device names its app install (ADR 0115); older records learn it when they next
+  // connect. A record folded into another (`merged_into`) is listed under it, and revoked with it.
+  `ALTER TABLE devices ADD COLUMN install_id TEXT;
+  ALTER TABLE devices ADD COLUMN merged_into TEXT;
+  CREATE INDEX devices_install ON devices(install_id) WHERE install_id IS NOT NULL;`,
+  // The account device that proved, in its own authenticated hello, that it holds a paired
+  // record's credential (ADR 0115): the two share command receipts. None is proven before it.
+  `ALTER TABLE devices ADD COLUMN account_link TEXT;`,
+  // Outside MCP clients' grants and hashed tokens (ADR 0122); none existed on disk before it.
+  outsideGrantTables,
+  // Token pairs bound to the resource they were issued for, and DCR clients (ADR 0122).
+  outsideOAuthTables,
+  // The Spade bots whose computer the person drives, so a restart leaves them driving; no rows
+  // exist before it.
+  `CREATE TABLE IF NOT EXISTS spade_computer_drivers (bot TEXT PRIMARY KEY, takeover TEXT NOT NULL);`,
+  // The sequence of the event that last wrote an item's body, so a reader of its raw payloads
+  // (`item.raw`) can tell versions apart without reading them. Existing rows keep 0, which the
+  // reader takes as their creation (`ItemStore.rawRevision`), so the step rewrites no row.
+  `ALTER TABLE item_heads ADD COLUMN raw_seq INTEGER NOT NULL DEFAULT 0;`,
+  // Whether a paired device's link was made by someone with the person's standing (ADR 0190): 1
+  // or 0. NULL for devices paired before it: nobody can tell who made their links, so they are
+  // not the person's until paired again from a link the person makes. No row is rewritten.
+  `ALTER TABLE devices ADD COLUMN person INTEGER;`,
+  // The public key a device paired from a person's link proves the person's standing with (ADR
+  // 0190): base64url raw P-256. NULL for devices paired before it or by apps that name none:
+  // their bearer token alone is never the person. No row is rewritten.
+  `ALTER TABLE devices ADD COLUMN standing_key TEXT;`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the
  * backfill existing rows need to read correctly. Older databases are refused.
  */
-const UPGRADE_FLOOR = 14;
+export const UPGRADE_FLOOR = 14;
+/** The schema version this build migrates to. */
+export const schemaVersion = migrations.length;
+
+/**
+ * The schema version just before `step` runs, so an upgrade test can put a database back to
+ * the release before it without counting steps from the end.
+ */
+export function schemaVersionBefore(step: (typeof migrations)[number]): number {
+  const index = migrations.indexOf(step);
+  if (index < 0) throw new Error("Not a migration step");
+  return index;
+}
+
 export function migrate(db: DatabaseSync): void {
-  backupBeforeUpgrade(db);
+  removeUpgradeBackups(db);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(
@@ -179,14 +239,7 @@ export function migrate(db: DatabaseSync): void {
         `The daemon database is schema ${version}, and this build reads schema ${migrations.length}`,
         "Quit ace, then start it with a fresh ACE_HOME.",
       );
-    for (let i = version; i < migrations.length; i++) {
-      const sql = migrations[i];
-      if (sql === undefined) throw new Error("Missing migration");
-      db.exec(sql);
-      db.prepare(
-        "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
-      ).run(i + 1);
-    }
+    runSteps(db, version, migrations.length);
     // Pre-release branches once shipped different thread metadata columns under one schema
     // number. Those layouts are refused rather than repaired (AGENTS.md: no legacy upgrades).
     const columns = new Set(
@@ -209,36 +262,65 @@ export function migrate(db: DatabaseSync): void {
   }
 }
 
-/** Version recorded by an existing database, or 0 when it has none yet. */
-function storedVersion(db: DatabaseSync): number {
-  const table = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'")
-    .get();
-  if (!table) return 0;
-  const row = db.prepare("SELECT version FROM schema_version WHERE id = 1").get();
-  return z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .catch(0)
-    .parse(row?.version ?? 0);
-}
 /**
- * A consistent copy of the database as it was, kept beside it before any upgrade step runs.
- * The steps themselves are one transaction; the copy covers a step whose backfill is wrong.
+ * Builds a new, empty database at an older supported schema by running the steps the release
+ * that shipped it ran, so an upgrade test starts from that layout instead of rewinding a current
+ * one. Only the steps: what a Store creates at open is not part of a schema version.
  */
-function backupBeforeUpgrade(db: DatabaseSync): void {
-  const version = storedVersion(db);
-  const path = db.location();
-  if (!path || version < UPGRADE_FLOOR || version >= migrations.length) return;
-  const target = `${path}.schema-${version}.backup`;
-  if (existsSync(target)) return;
-  // Written under a temporary name, so an interrupted copy is never mistaken for a backup.
-  const partial = `${target}.partial`;
-  rmSync(partial, { force: true });
-  db.prepare("VACUUM INTO ?").run(partial);
-  renameSync(partial, target);
+export function createDatabaseAt(db: DatabaseSync, version: number): void {
+  if (!Number.isInteger(version) || version < UPGRADE_FLOOR || version > migrations.length)
+    throw new Error(`Schema ${version} is not one this build upgrades from`);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(
+      "CREATE TABLE schema_version (id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)",
+    );
+    runSteps(db, 0, version);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
+
+/** Runs steps `from` up to `to` in the caller's transaction, recording each version reached. */
+function runSteps(db: DatabaseSync, from: number, to: number): void {
+  for (let i = from; i < to; i++) {
+    const sql = migrations[i];
+    if (sql === undefined) throw new Error("Missing migration");
+    db.exec(sql);
+    db.prepare(
+      "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+    ).run(i + 1);
+  }
+}
+
+/**
+ * Deletes the full copies older builds wrote beside the database before each upgrade
+ * (`events.sqlite.schema-<n>.backup`, and `.partial` when cut short). Writing one blocked
+ * startup for as long as copying the whole database took, and nothing ever deleted or read
+ * them. The upgrade steps run in one transaction, so a failed step already rolls back.
+ */
+function removeUpgradeBackups(db: DatabaseSync): void {
+  const path = db.location();
+  if (!path) return;
+  const prefix = `${basename(path)}.schema-`;
+  let names: string[];
+  try {
+    names = readdirSync(dirname(path));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !UPGRADE_BACKUP.test(name.slice(prefix.length))) continue;
+    try {
+      rmSync(join(dirname(path), name), { force: true });
+    } catch {
+      // Removed again on the next start.
+    }
+  }
+}
+const UPGRADE_BACKUP = /^\d{1,6}\.backup(\.partial)?$/;
 
 const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
 function location(db: DatabaseSync): string {

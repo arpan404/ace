@@ -6,7 +6,9 @@ import {
   ToolRegistry,
   aceInstructions,
   bareToolName,
+  codexClientHeader,
   coreToolsHeader,
+  cursorClientHeader,
   developerInstructions,
   nodeScheduler,
   staticToolsHeader,
@@ -36,26 +38,41 @@ const deferring = new Map<ProviderKind, string>([
   ["antigravity", "antigravity/alwaysLoad"],
 ]);
 /**
- * Codex defers every ace tool and its code-mode models see no MCP schema or name: it pays only
- * for its developer instructions, which carry the names this session can call.
+ * Cursor's MCP meta tool shows the model each listed tool's name and the server's instructions,
+ * never a schema: the model reads one with GetMcpTools and calls it with CallMcpTool. Nothing
+ * loads upfront, so it pays only for the names.
+ */
+const namesOnly = new Set<ProviderKind>(["cursor"]);
+/**
+ * Codex defers every ace tool on a model with tool search (every model in its catalog) and its
+ * code-mode models see no MCP schema or name: it pays only for its developer instructions, which
+ * carry the names this session can call. Models without search are budgeted below.
  */
 const instructionsOnly = new Set<ProviderKind>(["codex"]);
 /** These load every listed tool upfront and reload on tools/list_changed: core mode. */
 const reloading = new Set<ProviderKind>(["opencode", "pi"]);
-// The rest never reload: a fixed core list, with tools_call for everything else.
+// Generic ACP and its stdio bridge never reload: a fixed core list, tools_call for the rest.
 /**
  * Tokens each provider may spend on ace per request: guidance with the brief, upfront tools,
  * deferred names and the skill listing. Codex pays its developer text only.
  */
 const budgets: Record<ProviderKind, number> = {
-  claude: 2_650,
-  // Raised from 1_150 for the transfer tool's name (ADR 0101).
-  codex: 1_200,
-  opencode: 3_800,
-  cursor: 3_800,
-  antigravity: 2_100,
-  acp: 3_200,
-  pi: 3_800,
+  // Lowered from 2_650 when schemas were compacted and Claude preloaded only context and delegate.
+  // Raised from 1_550 (measured 1_575): the make-a-suit skill line and suit_apply's deferred name.
+  claude: 1_600,
+  codex: 1_150,
+  // Raised from 2_650 (measured 2_661 with the wording trimmed): html_render says what its 360 px
+  // layout check refuses, wait names the usage-limit hold, delegate takes another machine's
+  // account (all three load upfront here) and the guidance points at screen_display.
+  opencode: 2_700,
+  // Lowered from 2_900: Cursor's MCP meta tool shows names only, so it pays for every tool's name
+  // and no schema (ADR 0086, 2026-10-27).
+  cursor: 1_150,
+  // Raised from 1_600 (measured 1_604 with the wording trimmed): wait, delegate and the guidance
+  // grew as for opencode, and html_preview added a deferred name.
+  antigravity: 1_650,
+  acp: 2_350,
+  pi: 2_900,
 };
 
 let world: EvalWorld | undefined;
@@ -81,6 +98,8 @@ async function session() {
     });
   const core = await connect(coreToolsHeader);
   const fixed = await connect(staticToolsHeader);
+  // Cursor never reloads, so it lists the simulator tools a reloading client gets on first use.
+  const cursor = await connect(cursorClientHeader);
   if (!world.daemon.mcp) throw new Error("Missing MCP server");
   // The computer-use tools register only beside a screen helper: the macOS engine's, and the
   // session tools other platforms keep. Registration reads definitions; no helper starts.
@@ -96,21 +115,31 @@ async function session() {
   );
   // What the daemon knows at injection: the brief, roles, callable tools and access mode.
   const facts: SessionGuidance = connection.session?.() ?? {};
-  return { full, core, fixed, registered, facts };
+  return { full, core, fixed, cursor, registered, facts };
 }
-type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed">;
+type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed" | "cursor">;
 /** The tools a provider's model has in context on every request. */
 function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedTool[] {
-  if (instructionsOnly.has(provider)) return [];
+  if (instructionsOnly.has(provider) || namesOnly.has(provider)) return [];
   const alwaysLoad = deferring.get(provider);
   if (alwaysLoad) return full.tools.filter((tool) => tool["_meta"]?.[alwaysLoad] === true);
   return reloading.has(provider) ? core.tools : fixed.tools;
 }
+/** The names a deferring client lists beside what it loads; Cursor separates them by commas. */
+function listedNames(provider: ProviderKind, { full, cursor }: Agents): string {
+  if (!deferring.has(provider) && !namesOnly.has(provider)) return "";
+  const listed = provider === "cursor" ? cursor : full;
+  return listed.tools.map((tool) => tool.name).join(namesOnly.has(provider) ? ", " : " ");
+}
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();
-/** ace's guidance as one provider receives it: server instructions or its native channel. */
+/**
+ * ace's guidance as one provider receives it: server instructions or its native channel. A
+ * native copy names the session's own tools, so it is recognised by its opening line.
+ */
 function guidance(provider: ProviderKind, facts: SessionGuidance = {}): string {
   const native = developerInstructions(provider, facts);
-  return native.includes(aceInstructions) ? native : `${aceInstructions}\n${native}`;
+  const opening = aceInstructions.split("\n")[0] ?? aceInstructions;
+  return native.includes(opening) ? native : `${aceInstructions}\n${native}`;
 }
 /** The shipped skills as a provider's native skill listing shows them. */
 async function skillListing(): Promise<string> {
@@ -118,10 +147,8 @@ async function skillListing(): Promise<string> {
   return guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n");
 }
 
-it("ace's shared guidance stays under 315 tokens and each provider's own lines stay short", () => {
-  // Raised from 300 for one clause naming offshift (#899): it loads only on request, so the
-  // instructions are the one place an agent learns it exists.
-  expect(tokens(aceInstructions)).toBeLessThanOrEqual(315);
+it("ace's shared guidance stays under 250 tokens and each provider's own lines stay short", () => {
+  expect(tokens(aceInstructions)).toBeLessThanOrEqual(250);
   // What varies by provider and listing (naming, how to reach an unlisted tool) is the provider's
   // own prefix, never the shared text. Codex's prefix carries its exec recipe instead of any
   // schema or name listing; mcp-codex-discovery.process.test.ts holds it under 900 tokens whole.
@@ -142,7 +169,7 @@ it("each provider's per-request ace context stays within its budget", async () =
       text,
       ...tools.map(descriptor),
       // A deferring client also lists every deferred tool's name.
-      deferring.has(provider) ? agents.full.tools.map((tool) => tool.name).join(" ") : "",
+      listedNames(provider, agents),
       // Where ace's guides are installed as skills, the provider lists them on every request.
       text.includes("installed as skills") ? skills : "",
     ].join("\n");
@@ -155,10 +182,17 @@ it("each provider's per-request ace context stays within its budget", async () =
 it("only the entry points and tools_find load upfront, whatever the client", async () => {
   const agents = await session();
   const { full, core, fixed } = agents;
-  // browser_open and html_render are deferred for Claude; it loads them by exact name.
-  expect(bareNames(upfront("claude", agents))).toEqual(
+  // Claude searches deferred tools itself and reads the guides as skills: only context and
+  // delegate load upfront. Antigravity has neither, so it keeps wait, guide and tools_find too.
+  expect(bareNames(upfront("claude", agents))).toEqual(["context", "delegate"]);
+  expect(bareNames(upfront("antigravity", agents))).toEqual(
     ["context", "delegate", "guide", "tools_find", "wait"].toSorted(),
   );
+  // Cursor lists every tool by name and calls each directly through its own CallMcpTool, so ace
+  // never offers it tools_call.
+  expect(upfront("cursor", agents)).toEqual([]);
+  expect(full.has("thread_start")).toBe(true);
+  expect(full.has("tools_call")).toBe(false);
   // Clients that load their list upfront keep them: they have no tool search to load them by.
   expect(core.has("browser_open")).toBe(true);
   expect(core.has("html_render")).toBe(true);
@@ -173,13 +207,14 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
-  // Raised to 31 for offshift (#899), a durable run record no thread tool can hold. Raised to 33
-  // for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
-  // can do; the base it landed on already listed 32.
+  // Raised for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
+  // can do; the base it landed on already listed 32. Raised from 33 to 35 for market_read and
+  // market_publish (ADR 0178 §12.5): nothing else reaches the market, and they load upfront
+  // nowhere.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(33);
+  expect(own.length).toBeLessThanOrEqual(35);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {
@@ -202,25 +237,18 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   });
   await core.refreshTools();
   expect(core.has("agents_status")).toBe(true);
+  // The market has no guide: finding its tools opens them.
+  expect(core.has("market_publish")).toBe(false);
+  await core.call("tools_find", { query: "publish a draft to the market" });
+  await core.refreshTools();
+  expect(core.has("market_publish")).toBe(true);
   await core.close();
 });
 
-it("a core-mode session lists offshift only once an agent reads the offshift guide", async () => {
-  const { core } = await session();
-  expect(core.has("offshift")).toBe(false);
-  await core.call("guide", { topic: "ace-threads" });
-  await core.refreshTools();
-  expect(core.has("offshift")).toBe(false);
-  await core.call("guide", { topic: "offshift" });
-  await core.refreshTools();
-  expect(core.has("offshift")).toBe(true);
-  await core.close();
-});
-
-it("the shipped skills cost under 600 tokens in a native skill listing", async () => {
+it("the shipped skills cost under 350 tokens in a native skill listing", async () => {
   const guides = await builtinGuides();
   const listing = guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n");
-  expect(tokens(listing)).toBeLessThanOrEqual(600);
+  expect(tokens(listing)).toBeLessThanOrEqual(350);
 });
 
 it("every shipped guide is reachable from the always-on guidance and serves through guide", async () => {
@@ -228,13 +256,24 @@ it("every shipped guide is reachable from the always-on guidance and serves thro
   const guide = full.tools.find((tool) => tool.name === "guide");
   if (!guide) throw new Error("guide is not offered");
   for (const topic of guideTopics) expect(aceInstructions).toContain(topic);
-  const pointers = `${aceInstructions}\n${guide.description ?? ""}`;
-  for (const { name, body } of await builtinGuides()) {
+  // The guide tool's topic enum names every guide once; the shared text names the families.
+  const pointers = `${aceInstructions}\n${JSON.stringify(guide.inputSchema)}`;
+  for (const { name, body, files } of await builtinGuides()) {
     expect(pointers, name).toContain(name);
     const served = await full.call("guide", { topic: name });
     expect(served.failed, name).toBe(false);
     expect(z.object({ guide: z.string() }).parse(served.data).guide).toBe(body);
+    // Providers without native skills read a guide's reference files through guide too.
+    for (const [file, content] of Object.entries(files)) {
+      const reference = await full.call("guide", { topic: name, file });
+      expect(reference.failed, file).toBe(false);
+      expect(z.object({ guide: z.string() }).parse(reference.data).guide).toBe(content);
+    }
   }
+  const missing = await full.call("guide", { topic: "make-a-suit", file: "references/nope.md" });
+  expect(missing.failed).toBe(true);
+  expect(missing.text).toContain("invalid_arguments");
+  expect(missing.text).toContain("references/suit-json.md");
 });
 
 it("a wrong guide topic or an unavailable tool tells the agent what to call next", async () => {
@@ -253,4 +292,77 @@ it("a wrong guide topic or an unavailable tool tells the agent what to call next
   );
   expect(next).toEqual(["tools_find", "context"]);
   for (const tool of next) expect(registered.has(tool), tool).toBe(true);
+});
+
+it.runIf(process.platform === "win32")(
+  "Windows: each provider's per-request ace context stays within its budget with the guidance the server serves",
+  async () => {
+    const agents = await session();
+    const skills = await skillListing();
+    // Windows' computer-use engine lists screen_open_app, so the server's guidance names it
+    // instead of macOS's screen_state; count the copy the server serves, once.
+    const served = agents.full.serverInstructions;
+    for (const provider of ProviderKind.options) {
+      const native = developerInstructions(provider, agents.facts);
+      // Providers that skip server instructions carry their own copy in the native channel.
+      const own = native.includes(served.split("\n")[0] ?? served);
+      const text = own ? native : `${served}\n${native}`;
+      const tools = upfront(provider, agents);
+      const always = [
+        text,
+        ...tools.map(descriptor),
+        listedNames(provider, agents),
+        text.includes("installed as skills") ? skills : "",
+      ].join("\n");
+      expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
+    }
+  },
+);
+
+/**
+ * Codex loads every listed tool upfront where the model has no tool search (a model outside its
+ * catalog, Bedrock Runtime) and never reloads, so those sessions connect with the fixed list.
+ * Listing every tool there cost the whole catalogue, about 10,050 tokens, on every request.
+ */
+const codexWithoutToolSearchCap = 3_100;
+
+it(`a Codex session without tool search pays at most ${codexWithoutToolSearchCap} tokens of ace context per request`, async () => {
+  const agents = await session();
+  const text = guidance("codex", { ...agents.facts, listing: "static" });
+  if (!world) throw new Error("Missing world");
+  // As Codex connects: the fixed list, as Codex's client, which lists destructive tools by name.
+  const { connection } = await world.agent({});
+  const codex = await EvalAgent.connect({
+    url: connection.url,
+    bearer: connection.bearer,
+    nativeInstructions: "",
+    serverInstructions: false,
+    headers: {
+      [staticToolsHeader.name]: staticToolsHeader.value,
+      [codexClientHeader.name]: codexClientHeader.value,
+    },
+  });
+  const always = [
+    text,
+    ...codex.tools.map(descriptor),
+    text.includes("installed as skills") ? await skillListing() : "",
+  ].join("\n");
+  expect(text).toContain("tools_call {name, arguments}");
+  expect(codex.has("automation_remove")).toBe(true);
+  expect(tokens(always)).toBeLessThanOrEqual(codexWithoutToolSearchCap);
+  await codex.close();
+});
+
+it("Claude's per-request ace context stays under 1,600 tokens", async () => {
+  const agents = await session();
+  const text = guidance("claude", agents.facts);
+  // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.
+  const always = [
+    text,
+    ...upfront("claude", agents).map(descriptor),
+    agents.full.tools.map((tool) => tool.name).join(" "),
+    await skillListing(),
+  ].join("\n");
+  expect(text).toContain("installed as skills");
+  expect(tokens(always)).toBeLessThanOrEqual(budgets.claude);
 });

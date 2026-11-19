@@ -77,11 +77,17 @@ test("once a recalled message is edited, ↑ no longer replaces it", async () =>
   expect(message.textContent).toBe("Question 2: what does route 2 render? Also 3");
 });
 
-test("↑ recalls nothing while the agent works or once something is typed", async () => {
+test("↑ recalls the last sent message while the agent works", async () => {
   const { message } = await open("busy");
   await userEvent.click(message);
   await userEvent.keyboard("{ArrowUp}");
-  expect(message.textContent).toBe("");
+  await waitFor(() =>
+    expect(message.textContent).toMatch(/^After a daemon restart the web client replays/),
+  );
+});
+
+test("↑ leaves a typed draft alone", async () => {
+  const { message } = await open("idle");
   await userEvent.type(message, "draft");
   await userEvent.keyboard("{ArrowUp}");
   expect(message.textContent).toBe("draft");

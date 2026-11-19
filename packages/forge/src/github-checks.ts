@@ -58,7 +58,11 @@ const AnnotationsBody = z
     }),
   )
   .max(100);
-const RunBody = z.looseObject({ id: positive, run_attempt: positive });
+const RunBody = z.looseObject({
+  id: positive,
+  run_attempt: positive,
+  status: z.string().max(64).optional(),
+});
 
 const clip = (value: string | null | undefined) => (value ? value.slice(0, 65_536) : null);
 const lineNumber = (value: number | null | undefined) =>
@@ -216,6 +220,44 @@ export class GitHubChecks {
     const action = input.jobs === "failed" ? "rerun-failed-jobs" : "rerun";
     const response = await this.#api.request(
       `${this.#root}/actions/runs/${input.runId}/${action}`,
+      signal,
+      {},
+      "POST",
+      dispatch,
+    );
+    if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
+  }
+
+  /** Whether the workflow run has finished, by itself or by an accepted cancel. */
+  async runFinished(runId: number, signal: AbortSignal): Promise<boolean> {
+    const response = await this.#api.request(`${this.#root}/actions/runs/${runId}`, signal);
+    const run = RunBody.safeParse(response.body);
+    if (!run.success || run.data.id !== runId) throw new ForgeError("invalid_data");
+    return run.data.status === "completed";
+  }
+
+  /**
+   * Cancel a workflow run that is still going, at the attempt the person saw. A run that has
+   * finished (an earlier cancel whose result was lost, or the run ending first) is left alone,
+   * and one re-run since is refused: a stale Cancel never stops the newer attempt.
+   */
+  async cancel(
+    input: { runId: number; attempt: number },
+    signal: AbortSignal,
+    allowed: () => boolean,
+    dispatch = new MutationDispatch(),
+  ): Promise<void> {
+    positive.parse(input.runId);
+    positive.parse(input.attempt);
+    const current = await this.#api.request(`${this.#root}/actions/runs/${input.runId}`, signal);
+    const run = RunBody.safeParse(current.body);
+    if (!run.success || run.data.id !== input.runId) throw new ForgeError("invalid_data");
+    if (run.data.status === "completed") return;
+    if (run.data.run_attempt !== input.attempt)
+      throw new ForgeError("run_attempt_moved", undefined, false);
+    if (!allowed()) throw new ForgeError("cancelled", undefined, false);
+    const response = await this.#api.request(
+      `${this.#root}/actions/runs/${input.runId}/cancel`,
       signal,
       {},
       "POST",

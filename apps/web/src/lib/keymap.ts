@@ -2,7 +2,7 @@
  * Every shortcut, in one place. Tooltips, menus, the palette and Settings › Keyboard read
  * labels and keys from here; `useHotkey` binds them, with the user's rebindings applied
  * (`lib/keybindings.ts`). Notation: "mod" is ⌘ on Apple platforms and Ctrl elsewhere; a space
- * separates the keys of a sequence ("g h").
+ * separates the keys of a sequence ("escape escape").
  */
 
 /**
@@ -26,7 +26,10 @@ export interface KeymapEntry {
   readonly label: string;
   /** Used in a browser tab, where the browser keeps `keys` for itself (⌘N, ⌘T, ⌘W). */
   readonly web?: string;
-  /** Used off Apple platforms, where `keys` would collide once ⌃ and ⌘ are both Ctrl. */
+  /**
+   * Used on Windows and Linux, where `keys` would collide once ⌃ and ⌘ are both Ctrl, or where
+   * the system or desktop keeps `keys` (`systemKeys` in lib/keybindings.ts).
+   */
   readonly nonApple?: string;
   /** Extra bindings that always work alongside the main one (↓ beside j). Not rebindable. */
   readonly also?: readonly string[];
@@ -48,8 +51,14 @@ export const keymap = {
     label: "New thread in the current project",
   },
   addProject: { keys: "shift+mod+o", label: "Add project" },
-  nextThread: { keys: "alt+mod+arrowdown", label: "Next thread" },
-  previousThread: { keys: "alt+mod+arrowup", label: "Previous thread" },
+  // Off Apple, Ctrl+Alt+↑/↓ rotate the screen (Windows graphics drivers) or switch workspaces
+  // (GNOME), so Alt+Shift there.
+  nextThread: { keys: "alt+mod+arrowdown", nonApple: "alt+shift+arrowdown", label: "Next thread" },
+  previousThread: {
+    keys: "alt+mod+arrowup",
+    nonApple: "alt+shift+arrowup",
+    label: "Previous thread",
+  },
   nextNeedsYou: { keys: "alt+mod+j", label: "Next thread that needs you" },
   // ⌘1 to ⌘9 open the list's first nine threads; a browser keeps ⌘1–9 for its tabs. Holding
   // the modifiers shows each row's number. Bound as nine keys, so shown but not rebound.
@@ -76,9 +85,10 @@ export const keymap = {
   rightPanel: { keys: "shift+mod+b", nonApple: "alt+mod+b", label: "Show or hide the side panel" },
   fullView: { keys: "shift+mod+f", label: "Full view" },
   workCard: { keys: "alt+mod+o", label: "Show or hide thread details" },
-  newTab: { keys: "alt+mod+t", label: "New tab" },
+  // Ubuntu opens a terminal on Ctrl+Alt+T, so off Apple New tab adds Shift and Reopen takes Z.
+  newTab: { keys: "alt+mod+t", nonApple: "shift+alt+mod+t", label: "New tab" },
   closeTab: { keys: "alt+mod+w", label: "Close tab" },
-  reopenTab: { keys: "shift+alt+mod+t", label: "Reopen closed tab" },
+  reopenTab: { keys: "shift+alt+mod+t", nonApple: "shift+alt+mod+z", label: "Reopen closed tab" },
   nextTab: { keys: "shift+mod+]", label: "Next tab" },
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
@@ -110,9 +120,10 @@ export const keymap = {
   preview: { keys: "ctrl+shift+p", label: "Preview" },
   devices: { keys: "ctrl+shift+m", label: "Devices" },
   logs: { keys: "ctrl+shift+l", label: "Logs" },
-  // A long thread (features/thread/long): moving between its turns, searching it.
-  previousTurn: { keys: "shift+alt+mod+arrowup", label: "Previous turn" },
-  nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
+  // A long thread (features/thread/long): moving between its turns, searching it. Off Apple,
+  // Ctrl+Alt+Shift+↑/↓ move the window to another workspace (GNOME).
+  previousTurn: { keys: "shift+alt+mod+arrowup", nonApple: "alt+pageup", label: "Previous turn" },
+  nextTurn: { keys: "shift+alt+mod+arrowdown", nonApple: "alt+pagedown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
   // A fresh page and a fresh daemon connection, as a browser's reload. A focused browser
@@ -145,14 +156,40 @@ export const keymap = {
     scope: "composer",
     fixed: true,
   },
-  goHome: { keys: "g h", label: "Go to Home" },
-  goAutomations: { keys: "g u", label: "Go to Automations" },
-  goSkills: { keys: "g s", label: "Go to Skills" },
-  goPullRequests: { keys: "g p", label: "Go to Pull requests" },
-  goIssues: { keys: "g i", label: "Go to Issues" },
+  // Views always take a modifier, so they work with the composer focused and can be rebound.
+  // ⌃⌘ on Apple platforms (⌥⌘H hides other apps, ⌥⌘I opens developer tools); Ctrl+Alt
+  // elsewhere, where ⌃⌘ would be Ctrl alone.
+  goHome: { keys: "ctrl+mod+h", nonApple: "alt+mod+h", label: "Go to Home" },
+  goChats: { keys: "ctrl+mod+c", nonApple: "alt+mod+c", label: "Go to Chats" },
+  goAutomations: { keys: "alt+mod+a", label: "Go to Automations" },
+  goSkills: { keys: "alt+mod+s", label: "Go to Skills" },
+  goUsage: { keys: "alt+mod+u", label: "Go to Usage" },
+  // Off Apple, Ctrl+Alt+P pins the thread.
+  goPullRequests: {
+    keys: "ctrl+mod+p",
+    nonApple: "shift+alt+mod+p",
+    label: "Go to Pull requests",
+  },
+  goIssues: { keys: "ctrl+mod+i", nonApple: "alt+mod+i", label: "Go to Issues" },
   // The Home thread list (features/home): plain keys on the focused row.
   "home.pin": { keys: "p", label: "Pin or unpin the focused thread", scope: "home" },
   "home.select": { keys: "x", label: "Select the focused thread", scope: "home" },
+  "home.settle": { keys: "e", label: "Settle the focused thread", scope: "home" },
+  "home.snooze": { keys: "h", label: "Snooze the focused thread", scope: "home" },
+  "home.tabs": {
+    keys: "1",
+    also: ["2", "3"],
+    label: "Inbox, Snoozed or Settled",
+    scope: "home",
+    fixed: true,
+  },
+  // The Threads panel's tabs, from anywhere in the app (the panel's own 1/2/3 stay as well).
+  // ⌃1–3 on Apple platforms; off them ⌃ is Ctrl too, so Alt+Shift there (as other shortcuts add
+  // a modifier where ⌃ and ⌘ would merge). Nothing else in the keymap answers these chords.
+  showInbox: { keys: "ctrl+1", nonApple: "alt+shift+1", label: "Show Inbox" },
+  showSnoozed: { keys: "ctrl+2", nonApple: "alt+shift+2", label: "Show Snoozed" },
+  showSettled: { keys: "ctrl+3", nonApple: "alt+shift+3", label: "Show Settled" },
+  nextThreadsTab: { keys: "alt+shift+t", label: "Next threads tab" },
   "home.move": {
     keys: "space",
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",
@@ -190,6 +227,13 @@ export const keymap = {
   },
   // The file tree, on a focused file.
   "files.rename": { keys: "f2", label: "Rename the focused file", scope: "files", fixed: true },
+  // Inside a Files tab; elsewhere the same keys are Full view.
+  "files.search": {
+    keys: "shift+mod+f",
+    label: "Search file contents",
+    scope: "files",
+    fixed: true,
+  },
   "files.delete": { keys: "delete", label: "Delete the focused file", scope: "files", fixed: true },
   "files.move": {
     keys: "shift+mod+m",
@@ -198,8 +242,9 @@ export const keymap = {
     fixed: true,
   },
   // Base UI's toast viewport answers F6 itself; F6 walks regions now (`nextRegion`), so this
-  // hands Base UI its F6 under another key (features/shell/regions).
-  focusToasts: { keys: "alt+f6", label: "Focus notifications" },
+  // hands Base UI its F6 under another key (features/shell/regions). GNOME keeps Alt+F6 for
+  // switching windows, so Ctrl+F6 off Apple.
+  focusToasts: { keys: "alt+f6", nonApple: "mod+f6", label: "Focus notifications" },
 } as const satisfies Record<string, KeymapEntry>;
 
 export type KeymapId = keyof typeof keymap;
@@ -219,6 +264,9 @@ export function keymapEntry(id: KeymapId): KeymapEntry {
 const apple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
 /** ⌘ is the command key here (Apple platforms); elsewhere "mod" is Ctrl. */
 export const applePlatform = apple;
+const windows = /Windows/.test(globalThis.navigator?.userAgent ?? "");
+/** Windows, where labels read modifiers in its own order: Ctrl+Shift+N. */
+export const windowsPlatform = windows;
 
 export interface Chord {
   key: string;
@@ -252,6 +300,8 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   delete: ["⌦", "Delete"],
   home: ["Home", "Home"],
   end: ["End", "End"],
+  pageup: ["⇞", "PgUp"],
+  pagedown: ["⇟", "PgDn"],
   space: ["Space", "Space"],
   arrowup: ["↑", "↑"],
   arrowdown: ["↓", "↓"],
@@ -259,7 +309,21 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   arrowright: ["→", "→"],
 };
 
+/** Windows: modifiers before the key in Ctrl, Shift, Alt order, as its own menus write them. */
+const windowsModifierOrder = ["mod", "ctrl", "shift", "alt"];
+function windowsRank(part: string): number {
+  const index = windowsModifierOrder.indexOf(part.toLowerCase());
+  return index === -1 ? windowsModifierOrder.length : index;
+}
+function windowsChord(chord: string): string {
+  return chord
+    .split(/\+(?!$)/)
+    .toSorted((a, b) => windowsRank(a) - windowsRank(b))
+    .join("+");
+}
+
 function formatChord(chord: string, isApple: boolean): string {
+  if (windows && !isApple) chord = windowsChord(chord);
   return chord
     .split(/\+(?!$)/)
     .map((part) => {
@@ -275,6 +339,7 @@ function formatChord(chord: string, isApple: boolean): string {
  */
 /** The keys in one chord as individual platform labels, without joining punctuation. */
 export function formatChordParts(keys: string, isApple = apple): string[] {
+  if (windows && !isApple) keys = windowsChord(keys);
   return keys.split(/\+(?!$)/).map((part) => {
     const glyph = glyphs[part.toLowerCase()];
     return glyph ? glyph[isApple ? 0 : 1].replace(/\+$/, "") : part.toUpperCase();

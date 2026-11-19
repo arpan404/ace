@@ -55,7 +55,7 @@ const group = (feed: HTMLElement, title: string) =>
   within(feed).findByRole("region", { name: title });
 
 test.each(["child", "descendant"])(
-  "owned background task updates keep an idle %s's card working until the task completes",
+  "owned background task updates keep an idle %s's card working until the task completes or is lost",
   async (owner) => {
     const app = harness();
     const nested: Fact[] =
@@ -128,8 +128,11 @@ test.each(["child", "descendant"])(
       expect(within(card).queryByRole("button", { name: "1 subagent ran" })).toBeNull();
       expect(within(card).queryByText("Done")).toBeNull();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
+      // Lost track of (ADR 0052): with no proof of life the task holds nothing, so the card
+      // settles; a later report that it ended still settles it the same way.
       await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
-      expect(within(card).getByRole("link", { name: "Open Review first, Running" })).toBeTruthy();
+      expect(await within(card).findByRole("button", { name: "1 subagent ran" })).toBeTruthy();
+      expect(within(card).queryByRole("link", { name: "Open Review first, Running" })).toBeNull();
       await deliver(
         {
           type: "background_task.updated",
@@ -553,15 +556,91 @@ test("a group leads with its providers' marks, not a status glyph, and a child's
   expect(
     [...lead.querySelectorAll("[data-provider]")].map((mark) => mark.getAttribute("data-provider")),
   ).toEqual(["codex"]);
-  expect(header.querySelector("[data-state]")).toBeNull();
+  expect(header.querySelector("[data-slot=status-glyph]")).toBeNull();
   expect(within(pair).getByRole("status").textContent).toBe("2 working");
   await userEvent.click(header);
   const second = within(pair).getByRole("link", { name: "Open Review second, Running" });
   const live = second.querySelector("[data-detail]");
   expect(live?.getAttribute("data-detail")).toBe("live");
-  expect(live?.className).toContain("agent-shimmer");
+  // What it does now reads in foreground ink, without motion; its result reads muted.
+  expect(live?.classList.contains("text-foreground")).toBe(true);
   await act(async () => app.daemon.apply("inline-subagents", [facts.endTurn("second")]));
   const done = await within(pair).findByRole("link", { name: "Open Review second, Done" });
   expect(done.querySelector("[data-detail='live']")).toBeNull();
-  expect(done.querySelector(".agent-shimmer")).toBeNull();
+  expect(done.querySelector(".text-foreground[data-detail]")).toBeNull();
+});
+
+test("hovering an agent row opens a card with its status and the machine it runs on", async () => {
+  const app = harness();
+  app.play(scenario(spawn("first"))).runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const row = await within(feed).findByRole("link", { name: /^Open Review first, Running/ });
+  await userEvent.hover(row);
+  const card = await screen.findByLabelText("Details for Review first", {}, { timeout: 3000 });
+  // Its name and status as the row says them, then where it runs: this machine.
+  expect(card.textContent).toContain("Review first");
+  expect(card.textContent).toContain("Running");
+  expect(card.textContent).toMatch(/This machine|Fake machine/);
+  await userEvent.unhover(row);
+});
+
+const read = (id: string): Fact[] => [
+  facts.tool("root", id, {
+    kind: "file.read",
+    title: `Read ${id}`,
+    detail: { kind: "file.read", path: `${id}.ts` },
+  }),
+  facts.toolDone("root", id),
+];
+
+// Mutations: leaving a finished turn's launches and receipts as separate rows, or dropping the
+// receipt's child (launched before the turn) from the merged row.
+test("a finished turn's launches and the receipts it was handed read as one subagents row", async () => {
+  const app = harness();
+  const receipt: Fact = {
+    type: "item.upsert",
+    agent: "root",
+    item: "builder-back",
+    draft: {
+      type: "delegation.settled",
+      origin: "ace",
+      delivery: "tool",
+      complete: true,
+      results: [
+        {
+          threadId: ThreadId.parse("thread-builder"),
+          outcome: "completed",
+          result: "Built the agents server",
+          truncated: false,
+          before: null,
+        },
+      ],
+    },
+  };
+  const output = [
+    ...read("plan"),
+    receipt,
+    ...spawn("first"),
+    facts.endTurn("first"),
+    ...read("between"),
+    ...spawn("second"),
+    facts.endTurn("second"),
+    facts.message("root", "answer", "assistant", "Both reviews are in."),
+    facts.endTurn("root"),
+  ];
+  app.play(scenario(output)).runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Both reviews are in.");
+  const crew = await group(feed, "3 subagents ran");
+  expect(within(feed).getAllByRole("region", { name: /subagents? ran$/ })).toEqual([crew]);
+  await userEvent.click(within(crew).getByRole("button", { name: "3 subagents ran" }));
+  const rows = within(crew).getAllByRole("link", { name: /^Open .+, Done$/ });
+  expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+    "Open Review first, Done",
+    "Open Review second, Done",
+    "Open Delegated thread's thread, Done",
+  ]);
+  expect(rows[2]?.textContent).toContain("Built the agents server");
 });

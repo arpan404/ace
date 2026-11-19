@@ -1,4 +1,4 @@
-import { BackgroundTask, Event, EventPayload, Interaction, Thread } from "@ace/protocol";
+import { Agent, BackgroundTask, Event, EventPayload, Interaction, Thread } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { isTestCommand, liveMetadata, updateThread } from "./index.ts";
 
@@ -74,6 +74,48 @@ test("the hints name the background command still running, and forget it once it
   expect(
     fold(target, [{ type: "background_task.updated", taskId: "relay", status: "completed" }])
       ?.watching,
+  ).toBeUndefined();
+});
+
+test("nine background commands running are counted as nine, though only the newest eight are named", () => {
+  const target = thread();
+  const live = fold(
+    target,
+    Array.from({ length: 9 }, (_, at) => ({
+      type: "background_task.started",
+      task: task(`shell-${at}`, `bun run job-${at}`),
+    })),
+  );
+  expect(live?.watching?.map((each) => each.id)).toEqual(
+    Array.from({ length: 8 }, (_, at) => `shell-${at + 1}`),
+  );
+  expect(live?.watchingCount).toBe(9);
+});
+
+test("the oldest command still counts once the newest eight end, though no name is left for it", () => {
+  const target = thread();
+  fold(
+    target,
+    Array.from({ length: 9 }, (_, at) => ({
+      type: "background_task.started",
+      task: task(`shell-${at}`, `bun run job-${at}`),
+    })),
+  );
+  const live = fold(
+    target,
+    Array.from({ length: 8 }, (_, at) => ({
+      type: "background_task.updated",
+      taskId: `shell-${at + 1}`,
+      status: "completed",
+    })),
+  );
+  expect(live?.watching).toBeUndefined();
+  expect(live?.watchingCount).toBe(1);
+  // An ambient helper is never counted; the last command ending leaves nothing.
+  fold(target, [{ type: "background_task.started", task: task("lsp", "tsserver", true) }]);
+  expect(
+    fold(target, [{ type: "background_task.updated", taskId: "shell-0", status: "stopped" }])
+      ?.watchingCount,
   ).toBeUndefined();
 });
 
@@ -172,4 +214,134 @@ test("test runs are recognised however they are started, and other commands are 
     expect([command, isTestCommand(command)]).toEqual([command, true]);
   for (const command of ["bun run build", "test -f package.json", "cat tests/setup.ts", "ls test"])
     expect([command, isTestCommand(command)]).toEqual([command, false]);
+});
+
+/** Apply payloads at given times, with the live changes they cause, as the daemon stamps them. */
+function timed(target: Thread) {
+  let seq = 0;
+  return (raw: unknown, time: number, previous?: Agent) => {
+    const payload = EventPayload.parse(raw);
+    const change = liveMetadata(target, payload, previous, undefined, undefined, time);
+    for (const next of change ? [payload, change] : [payload])
+      updateThread(
+        target,
+        Event.parse({ seq: ++seq, id: `e${seq}`, threadId: target.id, at: time, payload: next }),
+      );
+  };
+}
+
+test("a root whose turn ended while its subagents carry on starts its wait then, and drops it once they end", () => {
+  const target = thread();
+  const at = timed(target);
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 1000);
+  const child = Agent.parse({
+    id: "child",
+    threadId: "thread-1",
+    parentId: "root",
+    origin: "provider_subagent",
+    native: { provider: "claude", nativeId: "child" },
+    fidelity: "full",
+    cwd: "/repo",
+    status: { state: "working", activity: "tool" },
+    createdAt: 0,
+  });
+  at({ type: "thread.updated", status: { state: "working", agents: 2 } }, 2000);
+  at({ type: "agent.created", agent: child }, 2000);
+  expect(target.live?.waitingSince).toBeUndefined();
+  // The root's own turn ends: only the subagent still works.
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 3000);
+  expect(target.live).toMatchObject({ workingSince: 1000, waitingSince: 3000 });
+  at({ type: "agent.status", agentId: "child", status: { state: "idle" } }, 4000, child);
+  expect(target.live?.waitingSince).toBeUndefined();
+  expect(target.live?.workingSince).toBe(4000);
+  // The thread finishing clears both.
+  at({ type: "thread.updated", status: { state: "done" } }, 5000);
+  expect(target.live?.workingSince).toBeUndefined();
+  expect(target.live?.waitingSince).toBeUndefined();
+});
+
+/** A root run starting, numbered by the daemon into `turn`. */
+const runStarted = (id: string, turn: number, trigger: string, time: number) => ({
+  type: "run.started",
+  run: {
+    id,
+    threadId: "thread-1",
+    agentId: "root",
+    trigger,
+    turn,
+    ordinal: Number(id.replace(/\D/g, "")),
+    state: "active",
+    startedAt: time,
+  },
+});
+const runEnded = (id: string, time: number) => ({
+  type: "run.ended",
+  runId: id,
+  state: "completed",
+  endedAt: time,
+});
+
+/** A turn that left a shell running, ended, and paused until that shell finished. */
+function pausedAfterFirstTurn() {
+  const target = thread();
+  target.status = { state: "new" };
+  const at = timed(target);
+  at(runStarted("run-1", 1, "user", 1000), 1000);
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 1000);
+  at(runEnded("run-1", 75_000), 75_000);
+  at({ type: "thread.updated", status: { state: "waiting", on: "background_task" } }, 75_000);
+  at({ type: "thread.updated", status: { state: "done" } }, 100_000);
+  expect(target.live?.workingSince).toBeUndefined();
+  return { target, at };
+}
+
+test.each(["background_completion", "subagent_result"])(
+  "a %s run carries the turn on, so Working keeps the turn's start through the pause",
+  (trigger) => {
+    const { target, at } = pausedAfterFirstTurn();
+    // The daemon numbers it into the same turn (ADR 0062).
+    at(runStarted("run-2", 1, trigger, 100_000), 100_000);
+    at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 100_000);
+    expect(target.live?.workingSince).toBe(1000);
+  },
+);
+
+test("a new turn the person starts times Working from its own start", () => {
+  const { target, at } = pausedAfterFirstTurn();
+  at(runStarted("run-2", 2, "user", 120_000), 120_000);
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 120_000);
+  expect(target.live?.workingSince).toBe(120_000);
+  // Its status may arrive first: the run's start still restarts the time.
+  const early = pausedAfterFirstTurn();
+  early.at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 130_000);
+  early.at(runStarted("run-2", 2, "user", 130_000), 130_000);
+  expect(early.target.live?.workingSince).toBe(130_000);
+});
+
+test("compaction is timed from when the root began compacting, and forgotten once it ends", () => {
+  const target = thread();
+  /** One root status at `at`, folded as the daemon folds it. */
+  const at = (time: number, value: Record<string, unknown>) => {
+    const change = liveMetadata(
+      target,
+      EventPayload.parse(status(value)),
+      undefined,
+      undefined,
+      undefined,
+      time,
+    );
+    if (change)
+      updateThread(
+        target,
+        Event.parse({ seq: time, id: `e${time}`, threadId: target.id, at: time, payload: change }),
+      );
+    return target.live;
+  };
+  at(1_000, { state: "working", activity: "tool" });
+  expect(at(301_000, { state: "working", activity: "compacting" })?.compactingSince).toBe(301_000);
+  // Still compacting later: the start stays where it was.
+  expect(at(330_000, { state: "working", activity: "compacting" })?.compactingSince).toBe(301_000);
+  expect(
+    at(360_000, { state: "working", activity: "starting_turn" })?.compactingSince,
+  ).toBeUndefined();
 });

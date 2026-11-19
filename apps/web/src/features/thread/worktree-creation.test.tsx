@@ -4,6 +4,7 @@ import { configure, act, cleanup, screen, waitFor, within } from "@testing-libra
 
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { composerWords } from "@/test/composer-text.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -138,8 +139,8 @@ test("once made, the settled worktree is never shown in chat", async () => {
   expect(screen.queryByRole("list", { name: "Steps" })).toBeNull();
   expect(screen.queryByRole("log", { name: "Worktree details" })).toBeNull();
   expect(within(transcript).queryByText("Workshop Mac")).toBeNull();
-  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-    "Keep the retries bounded too",
+  expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+    "Keep the retries bounded too[reconnect.txt]",
   );
   expect(
     within(screen.getByRole("list", { name: "Attachments" })).getByText("reconnect.txt"),
@@ -281,7 +282,7 @@ test("Don't use worktree starts the thread on the local checkout and sends the m
 test("a worktree that fails comes back to New thread with its message, and starts on the local checkout from there", async () => {
   const made = app();
   await made.open("/");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   // A base the project doesn't have: the daemon can't make the worktree.
   await act(() =>
     made.client.enqueue(

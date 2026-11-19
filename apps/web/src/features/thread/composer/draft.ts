@@ -1,4 +1,5 @@
 import type { Mention, ContentPart, MessageContextItem } from "@ace/protocol";
+import { triggerAt, type ComposerTrigger } from "@ace/ui-core";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message the composer hands over on Enter. */
@@ -8,15 +9,18 @@ export interface Draft {
   /** Other threads and browser tabs the message points at (`MessageContext.items`). */
   threadRefs?: MessageContextItem[] | undefined;
   mentions: Mention[];
-  /** Files the daemon already holds. */
-  attachments: { sha256: string }[];
+  /** Files the daemon already holds, each with where it sits in the words when it was marked. */
+  attachments: { sha256: string; at?: number | undefined }[];
   /**
    * Every file attached, handed over from the composer (`useAttachments().handOff()`): as the
    * pending bubble shows them, the ones still uploading, and when they've all settled.
    */
   files: {
-    /** As shown, with the hash of each file the daemon already holds. */
-    local: (LocalAttachment & { sha256?: string | undefined })[];
+    /**
+     * As shown, with the hash of each file the daemon already holds and where the person put it
+     * in the message (`MessageContext.attachments[].at`), when they did.
+     */
+    local: (LocalAttachment & { sha256?: string | undefined; at?: number | undefined })[];
     uploading: number;
     settled: Promise<{ sha256: string; name: string }[]>;
     /** Each file's own outcome, in `local`'s order. */
@@ -36,26 +40,9 @@ export interface Draft {
   opposite: boolean;
 }
 
-/** The `@file` or `/command` being typed at the caret, if any. Pure. */
-export interface Trigger {
-  kind: "mention" | "command";
-  query: string;
-  /** Index of the `@` or `/`. */
-  start: number;
-  /** Caret index; the token runs from `start` to here. */
-  end: number;
-}
-
-export function triggerAt(text: string, caret: number): Trigger | undefined {
-  let start = caret;
-  while (start > 0 && !/\s/.test(text[start - 1] ?? "")) start--;
-  const word = text.slice(start, caret);
-  if (word.startsWith("@") && !word.slice(1).includes("@"))
-    return { kind: "mention", query: word.slice(1), start, end: caret };
-  if (word.startsWith("/") && !word.slice(1).includes("/"))
-    return { kind: "command", query: word.slice(1), start, end: caret };
-  return undefined;
-}
+/** The `@file` or `/command` being typed at the caret (shared with every client). */
+export type Trigger = ComposerTrigger;
+export { triggerAt };
 
 /** Replace the trigger's token with `insert` plus a space; returns the text and new caret. */
 export function accept(

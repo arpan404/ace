@@ -49,7 +49,7 @@ export class MessageRejections {
    * The device can still be admitted now: not revoked, its access not run out. A copy that
    * authenticated before its device was revoked fails here, before any refusal is consulted.
    */
-  active(device: Device): boolean {
+  active(device: Pick<Device, "id">): boolean {
     return Boolean(
       this.store.atomic((db) =>
         db

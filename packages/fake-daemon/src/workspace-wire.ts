@@ -1,4 +1,5 @@
 import { fakeEmojiImages, resolveFakeMedia } from "./catalog/forge-media.ts";
+import { fakeGitDiff } from "./git-diff-wire.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
@@ -24,10 +25,11 @@ import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeInboxWire } from "./inbox-wire.ts";
-import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
+import { catalogIssueList, matchingIssues, projectRepository } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
+import { FakePrWork } from "./pr-work-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
@@ -38,11 +40,15 @@ export type FakeWorkspaceControls = Pick<
   | "setGitStatus"
   | "setGitDiff"
   | "setEditors"
+  | "opened"
+  | "setOwnerOnlyHostPaths"
   | "setForgeRead"
   | "holdForgeRead"
+  | "holdGitDiff"
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
+  | "addPullRequests"
   | "mergePullRequest"
   | "submitPullRequestReview"
   | "pushPullRequest"
@@ -52,6 +58,10 @@ export type FakeWorkspaceControls = Pick<
   | "checkReruns"
   | "git"
   | "conflicts"
+  | "prWork"
+  | "linkPullRequest"
+  | "patchPullRequest"
+  | "worktrees"
   | "failMoves"
   | "setDetails"
 >;
@@ -64,6 +74,10 @@ export class FakeWorkspaceWire {
   readonly checkReruns: ForgeCheckAction[] = [];
   /** Merge conflicts in PR checkouts (`git.conflicts`). */
   readonly conflicts = new FakeConflicts();
+  /** Pull requests' stacks and check runs (`forge.pr.stack`, `forge.pr.check`). */
+  readonly prWork = new FakePrWork();
+  /** Every `forge.pr.worktree` checkout asked for, oldest first. */
+  readonly worktrees: Extract<CommandPayload, { type: "forge.pr.worktree" }>[] = [];
   private moveFailure: string | undefined;
   /** Every checkout move fails with `error` (its change kept as failed), or none does. */
   failMoves(error: string | undefined): void {
@@ -104,7 +118,11 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
-  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  /** More whole pull requests beside the seeded ones. */
+  addPullRequests(fixtures: readonly PullRequestFixture[]): void {
+    this.pullRequests.add(fixtures);
+  }
+  /** Push to a catalog PR's branch: a new head (its own push, or new-side lines moved by ten). */
   pushPullRequest(number: number): boolean {
     return this.pullRequests.push(number);
   }
@@ -115,16 +133,34 @@ export class FakeWorkspaceWire {
   ): void {
     this.pullRequests.submitReview(number, review);
   }
+  /** Change catalog PR `number` as GitHub would have, for every later read. */
+  patchPullRequest(number: number, change: Parameters<FakePrCatalog["patch"]>[1]): void {
+    this.pullRequests.patch(number, change);
+  }
+  /** Catalog PR `number` names `thread` among the threads working on it. */
+  linkPullRequest(number: number, thread: { id: ThreadId; title: string }): void {
+    this.pullRequests.patch(number, (fixture) => ({
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        relatedThreads: [...fixture.detail.relatedThreads, { ...thread, archived: false }],
+      },
+    }));
+  }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
   }
   /**
    * A seeded read asked for with the repository named, as a link from a PR page asks: the
-   * catalog seeds `acme/ace`'s reads without it.
+   * catalog seeds `acme/ace`'s reads without it. Only GitHub's `acme/ace`: the GitLab mirror of
+   * `ace` is another repository, never answered with GitHub's reads.
    */
   private withoutRepository(op: WorkspaceActionRequest["operation"]) {
-    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    if (!("repository" in op) || !op.repository) return undefined;
+    const { forge, host, owner, name } = op.repository;
+    if (forge !== "github" || host !== "github.com" || owner !== "acme" || name !== "ace")
+      return undefined;
     const { repository: _repository, ...rest } = op;
     return this.forgeReads.get(JSON.stringify(rest));
   }
@@ -134,6 +170,29 @@ export class FakeWorkspaceWire {
       if (read.resource === "issueDetail" && read.value.ref.number === number)
         return read.value.title;
     return undefined;
+  }
+  private reportCapabilities(data: ForgeBrowserResult): ForgeBrowserResult {
+    if (data.resource === "prDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.status.ref.repository),
+        },
+      };
+    if (data.resource === "issueDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.ref.repository),
+        },
+      };
+    return data;
   }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
@@ -185,6 +244,26 @@ export class FakeWorkspaceWire {
       gate.resolve();
     };
   }
+  private entering = new Map<string, () => void>();
+  /**
+   * Answer the thread's whole uncommitted diff only once `release` runs, as git busy on a large
+   * checkout would; the patch sent is the one set by then. `entered` settles when a read arrives.
+   */
+  holdGitDiff(threadId: string): { entered: Promise<void>; release(): void } {
+    const key = JSON.stringify({ op: "git.diff", threadId });
+    const gate = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    this.entering.set(key, arrived.resolve);
+    return {
+      entered: arrived.promise,
+      release: () => {
+        if (this.held.get(key) === gate.promise) this.held.delete(key);
+        this.entering.delete(key);
+        gate.resolve();
+      },
+    };
+  }
   private failing = new Map<string, string>();
   /**
    * Refuse `operation` with `code`, as GitHub refusing it would (`forge_rate_limit`), until the
@@ -206,6 +285,13 @@ export class FakeWorkspaceWire {
   private editors: readonly InstalledEditor[] = [];
   setEditors(editors: readonly InstalledEditor[]): void {
     this.editors = InstalledEditor.array().max(32).parse(editors);
+  }
+  /** What `host.open` opened on this fake machine, in order: no process starts. */
+  readonly opened: { app: string; folder: string; path?: string; line?: number }[] = [];
+  /** Host paths under these folders answer `owner_only`, as for a phone without `admin`. */
+  private ownerOnly: readonly string[] = [];
+  setOwnerOnlyHostPaths(prefixes: readonly string[]): void {
+    this.ownerOnly = [...prefixes];
   }
   /** The project's scripts as the daemon lists them from package.json, by workspace. */
   private scriptOverrides = new Map<string, readonly string[]>();
@@ -253,7 +339,10 @@ export class FakeWorkspaceWire {
       this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
     }
     const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
-    if (held) await held;
+    if (held) {
+      this.entering.get(JSON.stringify(op))?.();
+      await held;
+    }
     const failure = this.failing.size ? this.failing.get(JSON.stringify(op)) : undefined;
     if (failure)
       return ServerMessage.parse({
@@ -300,11 +389,76 @@ export class FakeWorkspaceWire {
         });
       }
     }
+    if (op.op === "host.open") {
+      const editor = op.app.kind === "editor" ? op.app.editorId : undefined;
+      const folder = op.threadId ?? op.workspaceId ?? (op.hostPath ? "host" : undefined);
+      const path = op.hostPath ?? op.path;
+      const known = editor === undefined || this.editors.some((entry) => entry.id === editor);
+      const ownerOnly =
+        op.hostPath !== undefined && this.ownerOnly.some((prefix) => path?.startsWith(prefix));
+      const code = ownerOnly ? "owner_only" : "editor_not_found";
+      if (known && folder && !ownerOnly)
+        this.opened.push({
+          app: editor ?? "files",
+          folder,
+          ...(path ? { path } : {}),
+          ...(op.line ? { line: op.line } : {}),
+        });
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: known && folder && !ownerOnly ? { kind: "opened" } : { kind: "error", code },
+      });
+    }
     if (op.op === "workspaces.list")
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
         result: this.projects.list(op.after, op.limit),
+      });
+    if (op.op === "workspace.origin") {
+      const source = this.projects.source(op.workspaceId);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: source
+          ? { kind: "origin", url: (source.git && source.origin) || null }
+          : { kind: "error", code: "workspace_not_found" },
+      });
+    }
+    if (op.op === "workspace.checkout" || op.op === "workspaces.identitySuggestions") {
+      // A daemon from before identities can't parse these: it answers `invalid_message`.
+      if (!this.projects.identities.enabled)
+        return ServerMessage.parse({
+          type: "error",
+          code: "invalid_message",
+          message: "Message does not match the protocol",
+          requestId: request.requestId,
+        });
+      const checkout =
+        op.op === "workspace.checkout" ? this.projects.checkout(op.workspaceId) : undefined;
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result:
+          op.op === "workspaces.identitySuggestions"
+            ? this.projects.identitySuggestions(
+                op.remotes,
+                op.subpath,
+                op.after,
+                op.limit,
+                op.identityId,
+              )
+            : checkout
+              ? { kind: "checkout", checkout }
+              : { kind: "error", code: "workspace_not_found" },
+      });
+    }
+    if (op.op === "workspaces.match")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "match", workspaceId: this.projects.withOrigin(op.url)?.id ?? null },
       });
     if (op.op === "runs.list") {
       const all = Object.values(this.context.thread(op.threadId)?.runs ?? {}).filter(
@@ -326,7 +480,8 @@ export class FakeWorkspaceWire {
     }
     const catalogued = this.forgeReads.has(JSON.stringify(op))
       ? undefined
-      : (this.pullRequests.peopleRead(op, (state) =>
+      : (this.prWork.read(op) ??
+        this.pullRequests.peopleRead(op, (state) =>
           "workspaceId" in op
             ? (matchingIssues(op, ForgeIssueSearch.parse({ state }), this.forgeReads) ?? [])
             : [],
@@ -334,14 +489,15 @@ export class FakeWorkspaceWire {
         (op.op.startsWith("forge.pr.") ||
         op.op === "forge.repo.pr-options" ||
         op.op === "forge.repo.milestones" ||
-        op.op === "forge.compare"
+        op.op === "forge.compare" ||
+        op.op === "forge.file.content"
           ? this.pullRequests.read(op, this.context.now())
           : undefined));
     if (catalogued)
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: { kind: "forge", data: catalogued },
+        result: { kind: "forge", data: this.reportCapabilities(catalogued) },
       });
     if (op.op === "forge.pr.merge-state" && !this.forgeReads.has(JSON.stringify(op))) {
       const value = this.forge.mergeState(op.workspaceId, op.repository, op.number);
@@ -365,6 +521,24 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
       });
+    if (op.op === "forge.repository" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "repository", value: projectRepository(op) } },
+      });
+    if (op.op === "forge.repositories" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "forge",
+          data: {
+            resource: "repositories",
+            value: this.projects.repositories.read(op.workspaceId),
+          },
+        },
+      });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({
         type: "workspace.result",
@@ -385,7 +559,9 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
+        result: data
+          ? { kind: "forge", data: this.reportCapabilities(data) }
+          : { kind: "error", code: "forge_not_found" },
       });
     }
     if (op.op === "git.conflicts")
@@ -398,22 +574,20 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: {
-          kind: "gitDiff",
-          patch: this.gitPatches.get(op.threadId) ?? "",
-          truncated: false,
-        },
+        result: fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op),
       });
     const result =
       op.op === "editors.list"
-        ? { kind: "editors", editors: this.editors }
+        ? { kind: "editors", editors: this.editors, fileManager: "Finder" }
         : op.op === "scripts.list"
           ? {
               kind: "scripts",
               scripts: this.scripts(this.context.thread(op.threadId)?.thread.workspaceId),
             }
           : op.op === "branches.list"
-            ? this.git.branches(op.workspaceId)
+            ? this.projects.isPlainCopy(op.workspaceId)
+              ? { kind: "error" as const, code: "git_not_a_repo" }
+              : this.git.branches(op.workspaceId)
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
               : op.op === "git.status"
@@ -443,8 +617,14 @@ export class FakeWorkspaceWire {
     }
     if (payload.type === "forge.hosted.checks") {
       this.checkReruns.push(payload.action);
+      const { moved, error } = this.prWork.checks(payload);
+      if (error) return { ok: false, error };
+      this.pullRequests.restateChecks(payload.pr.number, moved);
       return { ok: true };
     }
+    if (payload.type === "forge.pr.worktree") return this.checkOut(payload);
+    const stack = this.prWork.command(payload);
+    if (stack) return stack;
     const merged =
       this.pullRequests.merge(payload) ??
       this.pullRequests.mergeState(payload) ??
@@ -521,6 +701,7 @@ export class FakeWorkspaceWire {
                   : `/fake/${view.thread.workspaceId}`,
               workspaceChange: { ...change, state },
               worktreeMissing: undefined,
+              checkoutMissing: undefined,
             },
           },
         });
@@ -574,7 +755,22 @@ export class FakeWorkspaceWire {
       if (printed.done) this.terminals.prompt(terminal.id);
       return { ok: true, terminalId: terminal.id };
     }
-    if (payload.type === "git.conflicts") return this.conflicts.command(payload);
+    if (payload.type === "git.conflicts") {
+      const result = this.conflicts.command(payload);
+      // A finished merge is a commit the remote doesn't have yet, as Git counts it.
+      if (result.ok && "commit" in result && result.commit)
+        this.context.update(payload.threadId, {
+          type: "thread.client.updated",
+          changes: {
+            details: {
+              ...thread?.details,
+              head: result.commit,
+              ahead: (thread?.details?.ahead ?? 0) + 1,
+            },
+          },
+        });
+      return result;
+    }
     if (payload.type === "git.commit") {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };
@@ -627,6 +823,42 @@ export class FakeWorkspaceWire {
     if (payload.type === "git.lock.clear")
       return thread ? { ok: true, locksCleared: 1 } : { ok: false, error: "thread_not_found" };
     return undefined;
+  }
+  /** A thread's checkout becomes the pull request's head, as `forge.pr.worktree` leaves it. */
+  private checkOut(
+    payload: Extract<CommandPayload, { type: "forge.pr.worktree" }>,
+  ): Omit<CommandResult, "commandId"> {
+    this.worktrees.push(payload);
+    const view = this.context.thread(payload.threadId);
+    if (!view) return { ok: false, error: "thread_not_found" };
+    const detail = this.pullRequests.detailOf(payload.pullRequest.ref.number);
+    if (!detail) return { ok: false, error: "forge_not_found" };
+    if (detail.status.headSha !== payload.pullRequest.headSha)
+      return { ok: false, error: "forge_conflict" };
+    const details = view.thread.details ?? {};
+    this.context.update(payload.threadId, {
+      type: "thread.client.updated",
+      changes: {
+        details: {
+          ...details,
+          mode: "worktree",
+          branch: detail.headBranch,
+          head: detail.status.headSha,
+          worktree: `/fake/worktrees/${payload.threadId}`,
+          pullRequestWorkspace: {
+            ref: detail.status.ref,
+            headSha: detail.status.headSha,
+            baseSha: detail.baseSha,
+            headBranch: detail.headBranch,
+            baseBranch: detail.baseBranch,
+            headRepository: detail.headRepository ?? null,
+            context: "",
+            contextTruncated: false,
+          },
+        },
+      },
+    });
+    return { ok: true, threadId: payload.threadId };
   }
   descriptor(id: string, threadId: ThreadId) {
     const terminal = this.terminals.list(threadId).find((entry) => entry.id === id);

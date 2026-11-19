@@ -1,10 +1,8 @@
 import type { RawPayload, Question, ApprovalOption } from "@ace/protocol";
-import { z } from "zod";
-const objectSchema = z.record(z.string(), z.unknown());
+import { nativeRecord, type NativeRecord } from "@ace/provider-kit/record";
 export type Obj = Record<string, unknown>;
-export function obj(value: unknown): Obj {
-  const decoded = objectSchema.safeParse(value);
-  return decoded.success ? decoded.data : {};
+export function obj(value: unknown): NativeRecord {
+  return nativeRecord(value);
 }
 export function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;

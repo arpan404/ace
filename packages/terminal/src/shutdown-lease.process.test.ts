@@ -21,8 +21,7 @@ test("daemon death during shell freeze stops the shell, keeper and background jo
     "PS1=''; set +H; stty -echo; trap '' TERM HUP; printf '__READY__\\n'\n",
   );
   const source = `
-    import { TerminalManager, createPosixBackendFactory } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
-    import { spawn as spawnPty } from 'node-pty';
+    import { TerminalManager, createPosixBackendFactory, spawnNativePty as spawnPty } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
     import { execFile, execFileSync } from 'node:child_process';
     import { promisify } from 'node:util';
     import { openSync, closeSync, existsSync, constants } from 'node:fs';

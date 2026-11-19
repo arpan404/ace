@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { Bounds, ResolvedNode, CallResult } from "./cdp.ts";
+
+const FrameOwner = z.object({ backendNodeId: z.number() });
 export interface BrowserFrameSession {
   frameId: string;
   cdp: BrowserCdp;
@@ -21,9 +23,9 @@ export async function frameOffset(
     visited.add(frame.frameId);
     const parent = frames.get(frame.parentId);
     if (!parent) throw new Error("Parent frame unavailable");
-    const owner = z
-      .object({ backendNodeId: z.number() })
-      .parse(await parent.cdp.send("DOM.getFrameOwner", { frameId: frame.frameId }));
+    const owner = FrameOwner.parse(
+      await parent.cdp.send("DOM.getFrameOwner", { frameId: frame.frameId }),
+    );
     const { object } = ResolvedNode.parse(
       await parent.cdp.send("DOM.resolveNode", { backendNodeId: owner.backendNodeId }),
     );

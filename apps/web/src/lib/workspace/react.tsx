@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import { useLayout } from "@/lib/layout.tsx";
+import { useLayoutServices, useOptionalLayoutServices } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import type { PanelPlace } from "./places.ts";
@@ -11,7 +11,7 @@ import { WorkspaceStore } from "./store.ts";
  * `<LayoutProvider>`, persisted to that provider's storage.
  */
 export function useWorkspaceStore(): WorkspaceStore {
-  const { storage, workspaceStore } = useLayout();
+  const { storage, workspaceStore } = useLayoutServices();
   return workspaceStore(() => new WorkspaceStore({ storage }));
 }
 
@@ -37,6 +37,37 @@ export function useWorkspaceActions(scope: string): WorkspaceActions {
   const store = useWorkspaceStore();
   const here = useContext(PanelPlaceContext);
   return useMemo(() => workspaceActions(store, scope, here), [store, scope, here]);
+}
+
+/**
+ * Whether the screen's side panel can open without covering its main column: false on a phone's
+ * layout, where the panel takes the column's place, and where there is no panel at all.
+ */
+export const PanelRoomContext = createContext(false);
+
+/**
+ * A scope's workspace where the view sits inside the shell, else undefined: a piece drawn on its
+ * own (an answer outside the transcript) has no side panel to open things in. `read` gives the
+ * scope's tabs as they are now, `subscribe` says when they change.
+ */
+export function useOptionalWorkspace(scope: string):
+  | {
+      actions: WorkspaceActions;
+      read: () => ScopeWorkspace;
+      subscribe: (listener: () => void) => () => void;
+    }
+  | undefined {
+  const services = useOptionalLayoutServices();
+  const here = useContext(PanelPlaceContext);
+  return useMemo(() => {
+    if (!services) return undefined;
+    const store = services.workspaceStore(() => new WorkspaceStore({ storage: services.storage }));
+    return {
+      actions: workspaceActions(store, scope, here),
+      read: () => store.get(scope),
+      subscribe: (listener: () => void) => store.subscribe(scope, listener),
+    };
+  }, [services, scope, here]);
 }
 
 function useGlobal<T>(read: (store: WorkspaceStore) => T): T {

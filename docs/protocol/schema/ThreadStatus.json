@@ -68,6 +68,12 @@
         "state": {
           "const": "waiting",
           "type": "string"
+        },
+        "waitingFor": {
+          "enum": [
+            "storage"
+          ],
+          "type": "string"
         }
       },
       "required": [

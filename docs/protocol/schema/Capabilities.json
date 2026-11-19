@@ -39,6 +39,9 @@
           ],
           "type": "string"
         },
+        "interleaved": {
+          "type": "boolean"
+        },
         "maxInlineBytes": {
           "maximum": 33554432,
           "minimum": 0,

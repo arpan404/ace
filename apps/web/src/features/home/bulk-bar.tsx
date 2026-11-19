@@ -6,7 +6,7 @@ import {
   PushPinSlashIcon,
   TrashIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -88,8 +88,8 @@ function bulkActions(
       icon: ArchiveIcon,
       danger: false,
       run: () => {
-        actions.archiveMany(entries);
-        selection.clear();
+        // Cancel on the question keeps the selection, as it does for Delete.
+        actions.archiveMany(entries, () => selection.clear());
       },
     },
     {

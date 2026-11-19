@@ -31,6 +31,8 @@ export interface ProblemSituation {
   attempt: string;
   /** A failure with no public code: the first line of what the tool said. */
   message?: string | undefined;
+  /** The tool's own message and detail (`toolSaid`), for a failure that names it in its hint. */
+  said?: string | undefined;
 }
 
 type Words = { title: string; hint?: string };
@@ -58,6 +60,8 @@ const during: Record<InputKind, string> = {
 const readAgain = (thing: string) => `The agent should read the ${thing} again before retrying.`;
 
 const screen: Record<string, Wording> = {
+  person_driving: () => ({ title: "You were driving, so the bot waited" }),
+  person_busy: (app) => ({ title: `You were using ${app}, so the agent waited` }),
   not_supported: (app, { input = "other", mode }) => ({
     title: `${app} didn't accept ${refused[input]}${mode === "background" ? " in the background" : ""}`,
     hint:
@@ -191,6 +195,8 @@ const browser: Record<string, Wording> = {
   recording_active: () => ({ title: "The browser is already recording" }),
   recording_inactive: () => ({ title: "The browser wasn't recording" }),
   recording_failed: () => ({ title: "The recording couldn't be saved" }),
+  person_driving: () => ({ title: "You were driving, so the bot waited" }),
+  person_busy: () => ({ title: "You were using this tab, so the agent waited" }),
   needs_person: (site) => ({
     title: `${site} needs you`,
     hint: "It shows a warning only you can get past, in the Browser panel.",
@@ -201,6 +207,10 @@ const browser: Record<string, Wording> = {
     hint: "Close the ones you no longer need.",
   }),
   tab_crashed: () => ({ title: "The page crashed", hint: "Reload it to bring it back." }),
+  tab_unavailable: () => ({
+    title: "The tab couldn't be shown",
+    hint: "It was idle and didn't come back this time. Other tabs still work.",
+  }),
   not_hittable: () => ({
     title: "That element couldn't take the click",
     hint: "It was out of view or kept moving.",
@@ -288,13 +298,26 @@ const agents: Record<string, Wording> = {
 
 /** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
-  invalid_arguments: () => ({ title: "The agent's request was malformed" }),
+  // The agent fixes its arguments and calls again by itself: the step reads as the call it
+  // was, failed, and what the tool told the agent opens from it.
+  invalid_arguments: (_, { attempt, said }) => ({
+    title: attempt,
+    ...(said ? { hint: said } : {}),
+  }),
   invalid_data: () => ({ title: "The tool answered with something unexpected" }),
   timeout: () => ({ title: "No answer in time", hint: "Nothing changed. Try again." }),
   invalid_html: () => ({ title: "That page has content ace can't show" }),
   invalid_image: () => ({ title: "That file isn't an image ace can show" }),
   image_unavailable: () => ({ title: "Couldn't read that image file" }),
+  image_not_saved: (_, { said }) => ({
+    title: "Couldn't save that image to the thread",
+    ...(said ? { hint: said } : {}),
+  }),
   tool_unavailable: () => ({ title: "That ace tool isn't available in this thread" }),
+  call_directly: () => ({
+    title: "That action needs its own approval step",
+    hint: "The agent can retry it through the provider's approval flow.",
+  }),
   limit: () => ({ title: "That's more than ace takes at once" }),
   machine_offline: () => ({ title: "That machine is offline" }),
   machine_unavailable: () => ({ title: "That machine isn't available to agents" }),
@@ -369,6 +392,17 @@ function possessive(name: string): string {
 /** A sentence starting with its subject: "the app" opens one with a capital. */
 function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "Invalid tool arguments: Name a project on that machine…": a tool's message and detail. */
+export function toolSaid(
+  message: string | undefined,
+  detail: string | undefined,
+): string | undefined {
+  const parts = [message, detail]
+    .map((part) => part?.trim())
+    .filter((part): part is string => !!part);
+  return parts.length ? parts.join(": ") : undefined;
 }
 
 /** A failed step in words: what went wrong and what to do next. */

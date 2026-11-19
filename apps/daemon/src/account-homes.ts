@@ -14,6 +14,13 @@ import {
   type ManagedAccountProvider,
 } from "@ace/protocol/accounts";
 
+/** The person's normal Codex home: `CODEX_HOME`, else `~/.codex`. */
+export function defaultCodexHome(env: NodeJS.ProcessEnv): string {
+  const user = env.HOME ?? env.USERPROFILE;
+  if (!user) throw new Error("CLI home unavailable");
+  return resolve(env.CODEX_HOME ?? join(user, ".codex"));
+}
+
 /** Account metadata points to the normal CLI home; admission never creates that home. */
 export async function registerImplicitAccounts(
   registry: AccountRegistry,
@@ -22,7 +29,7 @@ export async function registerImplicitAccounts(
   const user = env.HOME ?? env.USERPROFILE;
   if (!user) throw new Error("CLI home unavailable");
   const homes = {
-    codex: env.CODEX_HOME ?? join(user, ".codex"),
+    codex: defaultCodexHome(env),
     claude: env.CLAUDE_CONFIG_DIR ?? join(user, ".claude"),
     opencode: join(env.XDG_DATA_HOME ?? join(user, ".local", "share"), "opencode"),
     pi: env.PI_CODING_AGENT_DIR ?? join(user, ".pi", "agent"),

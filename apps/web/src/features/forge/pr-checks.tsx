@@ -1,43 +1,34 @@
-import { useState } from "react";
-import {
-  ArrowClockwiseIcon,
-  CaretRightIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  ClockIcon,
-  MinusCircleIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
-import type { ForgeCheck } from "@ace/protocol";
+import { useEffect, useState } from "react";
+import { useNow } from "@/lib/time.ts";
 import { Button } from "@/components/ui/button.tsx";
-import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
-import { PrSection } from "./pr-section.tsx";
 import { PrCheckDetail } from "./pr-check-detail.tsx";
-import { LocalCheckRow } from "./pr-local-check-row.tsx";
+import { LocalCheckDetail, LocalCheckRow } from "./pr-local-check-row.tsx";
 import { usePrLocalCheck } from "./pr-local-check.ts";
+import {
+  CheckGroup,
+  CheckRow,
+  ChecksListBox,
+  checkDuration,
+  checkState,
+  sortChecks,
+} from "./pr-checks-list.tsx";
 import { useProjectDialogsIfHosted } from "@/features/projects/index.ts";
 
-const checkLook: Record<
-  ForgeCheck["status"],
-  { icon: typeof CircleIcon; word: string; tone: string }
-> = {
-  success: { icon: CheckCircleIcon, word: "Passed", tone: "text-status-done" },
-  failure: { icon: XCircleIcon, word: "Failed", tone: "text-status-failed" },
-  pending: { icon: ClockIcon, word: "Running", tone: "text-status-working" },
-  cancelled: { icon: MinusCircleIcon, word: "Cancelled", tone: "text-subtle-foreground" },
-  unknown: { icon: CircleIcon, word: "Unknown", tone: "text-subtle-foreground" },
-};
+/** The local check's place in the selection, beside GitHub's check ids. */
+const localId = "local";
 
 /**
- * The PR's checks, folded by default: each with its state, opening in place to its log,
- * annotations and re-runs (read only then). When the host couldn't say, one inline Refresh,
- * the panel's only one.
+ * The PR's checks as the Checks tab: a list grouped by where they ran, failures first, beside
+ * the selected check's detail (its log, annotations and re-runs). Narrow, the list sits above the
+ * detail. It opens at the first failing check; `focus` (Open log from the merge box) picks and
+ * reveals one. When the host couldn't say, one inline Refresh.
  */
 export function PrChecks(props: {
   context: PrWorkspaceContext;
   refreshing: boolean;
-  reveal?: number | undefined;
+  /** Selects this check and scrolls to it; `seq` repeats a jump to the same one. */
+  focus?: { id: string; seq: number } | undefined;
   hostThreadId?: string | undefined;
   onRefresh(): void;
   onOpen(number: number): void;
@@ -51,85 +42,114 @@ export function PrChecks(props: {
   // Open PRs always show their local check; finished ones only one that ran.
   const unfinished = status.state === "open" || status.state === "draft";
   const showLocal = local.run !== undefined || (unfinished && local.command !== undefined);
-  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string) =>
-    setOpened((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+  // A project without a command has nothing to select, only a way to set one.
+  const localSelectable = showLocal && (local.run !== undefined || local.command !== null);
+  const localFailed = local.result === "failed";
+  const now = useNow();
+  const checks = sortChecks(status.checks);
+  const [picked, setPicked] = useState<string | undefined>(props.focus?.id);
+  // A new focus selects its check during render; the detail scrolls itself into view.
+  const [focused, setFocused] = useState(props.focus);
+  if (props.focus !== focused) {
+    setFocused(props.focus);
+    if (props.focus) setPicked(props.focus.id);
+  }
+  useEffect(() => {
+    if (focused)
+      document
+        .getElementById("pr-check-detail")
+        ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [focused]);
+  // What was picked while it still exists; else the first failure (the local one leads only
+  // when it failed), else the first check.
+  const ids = [
+    ...(localFailed && localSelectable ? [localId] : []),
+    ...checks.map((check) => check.id),
+    ...(!localFailed && localSelectable ? [localId] : []),
+  ];
+  const firstFailing = localFailed
+    ? localId
+    : checks.find((check) => check.status === "failure")?.id;
+  const selected = picked !== undefined && ids.includes(picked) ? picked : (firstFailing ?? ids[0]);
+  const selectedCheck = checks.find((check) => check.id === selected);
+  const localRow = showLocal && (
+    <CheckGroup title="On this machine">
+      <LocalCheckRow
+        workspaceId={workspaceId}
+        detail={props.context.detail}
+        run={local.run}
+        command={local.command}
+        selected={selected === localId}
+        onSelect={() => setPicked(localId)}
+        onSetCommand={
+          dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
+        }
+      />
+    </CheckGroup>
+  );
+  const empty = !status.checks.length && !showLocal;
   return (
-    <PrSection
-      id="pr-checks"
-      title="Checks"
-      count={status.checks.length || undefined}
-      defaultOpen={false}
-      reveal={props.reveal}
-    >
+    <section aria-label="Checks" className="space-y-3 pt-2">
       {stale && (
         <p className="flex items-center gap-2 text-ui text-muted-foreground">
           Check details are out of date.
           <Button variant="ghost" size="xs" disabled={props.refreshing} onClick={props.onRefresh}>
-            <ArrowClockwiseIcon aria-hidden size={14} />
             Refresh
           </Button>
         </p>
       )}
-      {(showLocal || status.checks.length > 0) && (
-        <ul>
-          {showLocal && (
-            <LocalCheckRow
-              workspaceId={workspaceId}
-              detail={props.context.detail}
-              run={local.run}
-              command={local.command}
-              onSetCommand={
-                dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
-              }
+      {empty && !stale && <p className="text-ui text-muted-foreground">No checks reported.</p>}
+      {!empty && (
+        <div className="grid items-start gap-4 @min-[40rem]/pr:grid-cols-[16.25rem_minmax(0,1fr)] @min-[40rem]/pr:gap-5">
+          <ChecksListBox>
+            {localFailed && localRow}
+            {checks.length > 0 && (
+              <CheckGroup
+                title={
+                  <>
+                    Checks on <span className="font-mono">{status.headSha.slice(0, 7)}</span>
+                  </>
+                }
+              >
+                {checks.map((check) => {
+                  const state = checkState(check);
+                  return (
+                    <CheckRow
+                      key={check.id}
+                      label={`${check.name}: ${state.word}`}
+                      name={check.name}
+                      tone={state.tone}
+                      selected={check.id === selected}
+                      onSelect={() => setPicked(check.id)}
+                      trailing={checkDuration(check, now)}
+                    />
+                  );
+                })}
+              </CheckGroup>
+            )}
+            {!localFailed && localRow}
+          </ChecksListBox>
+          {selectedCheck ? (
+            <PrCheckDetail
+              key={selectedCheck.id}
+              context={props.context}
+              check={selectedCheck}
+              hostThreadId={props.hostThreadId}
+              onOpen={props.onOpen}
+              onOpenCode={props.onOpenCode}
             />
+          ) : (
+            selected === localId && (
+              <LocalCheckDetail
+                workspaceId={workspaceId}
+                detail={props.context.detail}
+                run={local.run}
+                command={local.command}
+              />
+            )
           )}
-          {status.checks.map((check) => {
-            const look = checkLook[check.status];
-            const Glyph = look.icon;
-            const open = opened.has(check.id);
-            return (
-              <li key={check.id}>
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  aria-label={`${check.name}: ${look.word}`}
-                  onClick={() => toggle(check.id)}
-                  className="flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-ui transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-expanded:bg-active"
-                >
-                  <Glyph aria-hidden size={14} className={cn("shrink-0", look.tone)} />
-                  <span className="min-w-0 flex-1 break-words">{check.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{look.word}</span>
-                  <CaretRightIcon
-                    aria-hidden
-                    size={12}
-                    className={cn(
-                      "shrink-0 text-faint-foreground transition-transform duration-(--motion-fast)",
-                      open && "rotate-90",
-                    )}
-                  />
-                </button>
-                {open && (
-                  <PrCheckDetail
-                    context={props.context}
-                    check={check}
-                    hostThreadId={props.hostThreadId}
-                    onOpen={props.onOpen}
-                    onOpenCode={props.onOpenCode}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        </div>
       )}
-      {!status.checks.length && !stale && (
-        <p className="text-ui text-muted-foreground">No checks reported.</p>
-      )}
-    </PrSection>
+    </section>
   );
 }

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-import { floatingControl, floatingMotion } from "./floating.ts";
+import { floatingControl, floatingMotion } from "@/components/floating-control.ts";
 import { useTurnHead } from "./turn-index.ts";
 
 /*

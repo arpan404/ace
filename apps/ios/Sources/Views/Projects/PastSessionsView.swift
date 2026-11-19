@@ -7,6 +7,9 @@ private struct PastSession: Decodable, Identifiable {
     let provider: String
     let messageCount: Int
     let support: Support
+    /// Whether its provider can resume it, so Continue is offered; absent from older machines.
+    let continuation: Support?
+    var continuable: Bool { support.status == "supported" && continuation?.status == "supported" }
 }
 private struct PastSessionsReply: Decodable {
     struct Cursor: Codable { let lastActivity: Double; let id: String }
@@ -15,7 +18,8 @@ private struct PastSessionsReply: Decodable {
     let next: Cursor?
     let scan: Scan?
 }
-private struct HistoryImportReply: Decodable { let status: String; let threadId: String?; let reason: String? }
+/// `pastSessions.open` (`bridge/past-sessions.ts`): the thread to open, or the shared words for why not.
+private struct PastSessionOpened: Decodable { let threadId: String?; let problem: String? }
 
 struct PastSessionsView: View {
     let model: ClientModel
@@ -26,33 +30,49 @@ struct PastSessionsView: View {
     @State private var query = ""
     @State private var problem: String?
     @State private var importing: String?
+    @State private var continuing = false
     @State private var path: [String] = []
     @State private var loading = false
-    var body: some View {
+    private var list: some View {
         List {
-            Group {
-                ForEach(sessions) { session in
-                    Button {
-                        importing = session.id
-                        Task { await open(session) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                            Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                            Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            if let reason = session.support.reason { Text(reason).foregroundStyle(AceTheme.Colours.subtleForeground) }
-                        }
-                    }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
-                }
-                if loading || importing != nil { ProgressView().accessibilityLabel(importing == nil ? "Loading sessions" : "Opening session") }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await read() } } }
-                if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
-                if !loading && sessions.isEmpty && problem == nil { ContentUnavailableView.search(text: query) }
-                if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
+            if let problem {
+                Section { ProblemRow("Couldn't read past sessions.", detail: problem, id: "pastSessions.problem") { Task { await read() } } }
             }
-            .insetRowBackground()
+            if ["scanning", "retrying"].contains(state) || loading || importing != nil {
+                Section {
+                    HStack(spacing: AceDesign.Space.related) {
+                        WorkingMark()
+                        Text(importing != nil ? (continuing ? "Continuing session…" : "Opening session…") : loading && sessions.isEmpty ? "Loading sessions…" : "Reading CLI history…")
+                            .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    }
+                }
+                .listRowBackground(Color.clear)
+            }
+            if !loading, sessions.isEmpty, problem == nil {
+                Section {
+                    if query.isEmpty { EmptyState(systemImage: "clock.arrow.circlepath", title: "No past CLI sessions in this folder") }
+                    else { EmptyState.search(query) }
+                }
+                .listRowBackground(Color.clear)
+            }
+            if !sessions.isEmpty {
+                Section {
+                    ForEach(sessions) { session in row(session) }
+                    if next != nil {
+                        Button("Show more sessions") { Task { await read(more: true) } }
+                            .buttonStyle(.rowAction).disabled(loading)
+                    }
+                } footer: { Text("Tap a session to bring it into ace as a thread.") }
+                .insetRowBackground()
+            }
         }
+    }
+
+    var body: some View {
+        list
         .insetGroupedList()
+        .searchBarEdge()
+        .smoothChange(sessions.map(\.id))
         .searchable(text: $query, prompt: "Search past sessions")
         .navigationTitle("Past CLI sessions").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {
@@ -63,11 +83,45 @@ struct PastSessionsView: View {
             }
         }
         .refreshable { await read(rescan: true) }
-        .navigationDestination(isPresented: Binding(get: { !path.isEmpty }, set: { if !$0 { path = []; model.back() } })) {
-            if let thread = model.thread { ThreadView(model: model, thread: thread) { model.open($0) } }
-        }
+        .navigationDestination(isPresented: opened) { threadPage }
         .onDisappear { Task { _ = try? await model.service(["type": "history.release"], as: ServiceValue.self) } }
     }
+    /// The thread an opened session became.
+    @ViewBuilder private var threadPage: some View {
+        if let thread = model.thread { ThreadView(model: model, thread: thread) { model.open($0) } }
+    }
+
+    /// Whether an opened session's thread is showing; going back leaves it.
+    private var opened: Binding<Bool> {
+        Binding(get: { !path.isEmpty }, set: { if !$0 { path = []; model.back() } })
+    }
+
+    /// A session: tapping it imports it as a thread; Continue also resumes it in its CLI.
+    private func row(_ session: PastSession) -> some View {
+        let title = session.title.isEmpty ? "Untitled session" : session.title
+        return HStack(spacing: AceDesign.Space.related) {
+            Button { begin(session, action: "import") } label: {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    QuietRowText(title: title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
+                    if let reason = session.support.reason {
+                        Text(reason).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Import \(title)")
+            if session.continuable {
+                // Imports it, then resumes it in its provider: the next message goes to the CLI's own session.
+                Button("Continue") { begin(session, action: "continue") }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
+                    .accessibilityLabel("Continue \(title)")
+            }
+        }
+        .disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+    }
+
     private func read(more: Bool = false, rescan: Bool = false) async {
         loading = true; problem = nil
         defer { loading = false }
@@ -80,11 +134,17 @@ struct PastSessionsView: View {
             problem = reply.scan?.error
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
-    private func open(_ session: PastSession) async {
-        defer { importing = nil }
+    private func begin(_ session: PastSession, action: String) {
+        importing = session.id; continuing = action == "continue"; problem = nil
+        Task { await open(session, action: action) }
+    }
+    /// Import, or import and resume ("continue"), in the bridge; the words for a failure are the web's.
+    private func open(_ session: PastSession, action: String) async {
+        defer { importing = nil; continuing = false }
         do {
-            let reply = try await model.service(["type": "history.import", "sourceId": session.id, "workspaceId": project.id], as: HistoryImportReply.self)
-            guard reply.status == "imported", let id = reply.threadId else { throw ServiceFailure(message: reply.reason ?? "This session couldn't be imported.") }
+            let reply = try await model.service(["type": "pastSessions.open", "sourceId": session.id, "workspaceId": project.id, "action": action],
+                                                as: PastSessionOpened.self)
+            guard let id = reply.threadId else { problem = reply.problem; return }
             model.open(id); path = [id]
         } catch { problem = error.localizedDescription }
     }

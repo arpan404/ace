@@ -11,7 +11,7 @@ export const explainerHtml = `<!doctype html>
 <style>
   :root { --cell: 34px; }
   h2 { font-size: 15px; margin-bottom: 2px; }
-  .row { gap: 10px 14px; margin-bottom: 12px; }
+  .ace-row { gap: 10px 14px; margin-bottom: 12px; }
   input[type=range] { width: min(260px, 100%); }
   .target { font: 600 13px var(--font-mono); padding: 1px 8px; border-radius: 999px; background: var(--muted); }
   .cells { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; margin: 6px 0 4px; }
@@ -40,8 +40,8 @@ export const explainerHtml = `<!doctype html>
 </head>
 <body>
 <h2>Binary search halves the list every step</h2>
-<p class="lead">Pick a number to find, then step through. Each step looks at the middle and throws away the half that can't hold it.</p>
-<div class="row">
+<p class="ace-lead">Pick a number to find, then step through. Each step looks at the middle and throws away the half that can't hold it.</p>
+<div class="ace-row">
   <label for="target">Find</label>
   <input id="target" type="range" min="0" max="15" value="14" aria-describedby="target-value">
   <span class="target" id="target-value" aria-live="polite">71</span>
@@ -49,7 +49,7 @@ export const explainerHtml = `<!doctype html>
 <div class="cells" id="cells" role="list" aria-label="Sorted list"></div>
 <div class="marks" id="marks" aria-hidden="true"></div>
 <p class="note" id="note" aria-live="polite"></p>
-<div class="row">
+<div class="ace-row">
   <button id="back" type="button">Back</button>
   <button id="next" type="button" class="primary">Next step</button>
   <button id="reset" type="button">Reset</button>
@@ -125,9 +125,9 @@ $('reset').addEventListener('click', restart);
 for (const choice of $('choices').querySelectorAll('button')) {
   choice.addEventListener('click', () => {
     const right = choice.dataset.answer === '20';
-    for (const other of $('choices').querySelectorAll('button')) { other.setAttribute('aria-pressed', 'false'); other.className = ''; }
+    for (const other of $('choices').querySelectorAll('button')) { other.setAttribute('aria-pressed', 'false'); other.className = 'ace-button'; }
     choice.setAttribute('aria-pressed', 'true');
-    choice.className = right ? 'right' : 'wrong';
+    choice.className = 'ace-button ' + (right ? 'right' : 'wrong');
     $('feedback').textContent = right
       ? 'Right: 2^20 is about a million, so 20 halvings are enough.'
       : 'Not quite: each step halves what is left, and 2^20 is already about a million.';

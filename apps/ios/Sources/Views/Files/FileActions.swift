@@ -98,6 +98,13 @@ struct FileStrip: Equatable {
                 if case .delete(let path) = prompt, let trashId = change.trashId {
                     strip = FileStrip(message: "Deleted \(Self.name(path)).", undo: (trashId, path))
                 } else { strip = nil }
+                // Recent and open files follow a rename or move, and forget a deleted file.
+                switch prompt {
+                case .rename(let path), .move(let path):
+                    if let destination = change.destination { model.action(["type": "files.moved", "scope": scope.wire, "from": path, "to": destination]) }
+                case .delete(let path): model.action(["type": "files.forgot", "scope": scope.wire, "path": path])
+                default: break
+                }
                 changed(prompt, change)
             } catch {
                 strip = FileStrip(message: "\(prompt.failure(typed: value)) \(error.localizedDescription)")
@@ -185,7 +192,7 @@ struct FilesStripView: View {
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
         .floatingGlass()
         .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
         .transition(.opacity)

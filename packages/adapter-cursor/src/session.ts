@@ -1,4 +1,9 @@
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  assertSteerTarget,
+  InputRejected,
+  type ProviderSession,
+  type SessionContext,
+} from "@ace/engine-api";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { z } from "zod";
@@ -33,6 +38,9 @@ export function unexpectedStopMessage(detail: string | undefined): string {
     : "Cursor stopped unexpectedly. Unfinished work needs your attention.";
 }
 const OpenReply = z.object({ agentId: z.string().min(1).max(512) });
+const SandboxSupport = z.object({ sandboxSupported: z.boolean() });
+const ResultStatus = z.object({ status: z.string() });
+const SettledError = z.object({ settled: z.literal(true) });
 export async function openCursorSession(
   context: SessionContext,
   options: CursorSessionOptions,
@@ -77,7 +85,7 @@ export async function openCursorSession(
     async (data, payload) => {
       if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
       if (data.kind === "open") {
-        const support = z.object({ sandboxSupported: z.boolean() }).safeParse(data.body);
+        const support = SandboxSupport.safeParse(data.body);
         context.onCapabilities?.(
           cursorCapabilitiesForSandbox(support.success && support.data.sandboxSupported),
         );
@@ -93,10 +101,9 @@ export async function openCursorSession(
         data.operationId === operation &&
         data.segment === segment
       ) {
-        const result = z.object({ status: z.string() }).safeParse(data.body);
+        const result = ResultStatus.safeParse(data.body);
         if (
-          (data.kind === "error" &&
-            z.object({ settled: z.literal(true) }).safeParse(data.body).success) ||
+          (data.kind === "error" && SettledError.safeParse(data.body).success) ||
           (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
         ) {
           active = false;
@@ -127,28 +134,33 @@ export async function openCursorSession(
     void close("shutdown").catch(() => {});
   };
   context.signal.addEventListener("abort", abort, { once: true });
-  void host.process.exited.then((exit) => {
-    exited = true;
-    context.signal.removeEventListener("abort", abort);
-    const detail = host.failureMessage;
-    frame(
-      "note",
-      "host-exit",
-      {
+  // exited resolves on its own; a throw while reporting the exit must not go unheard.
+  void host.process.exited
+    .then((exit) => {
+      exited = true;
+      context.signal.removeEventListener("abort", abort);
+      const detail = host.failureMessage;
+      frame(
+        "note",
+        "host-exit",
+        {
+          deliberate,
+          code: exit.code,
+          signal: exit.signal,
+          reason: exit.reason,
+          ...(detail ? { detail } : {}),
+        },
+        operation,
+        segment,
+      );
+      context.onExit({
         deliberate,
-        code: exit.code,
-        signal: exit.signal,
-        reason: exit.reason,
-        ...(detail ? { detail } : {}),
-      },
-      operation,
-      segment,
+        ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
+      });
+    })
+    .catch((error: unknown) =>
+      process.emitWarning(`Cursor session exit handling failed: ${String(error)}`),
     );
-    context.onExit({
-      deliberate,
-      ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
-    });
-  });
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
     closing ??= (async () => {
       deliberate = true;
@@ -196,7 +208,7 @@ export async function openCursorSession(
           modelParams: readCursorModelParams(selection.options),
         });
       },
-      async send(input: ContentPart[], delivery, commandId) {
+      async send(input: ContentPart[], delivery, commandId, _origin, fence) {
         // Every refusal before the host's send request leaves the input unsent.
         if (closing || exited) throw new InputRejected("SDK host is closed");
         if (uncertain)
@@ -213,6 +225,8 @@ export async function openCursorSession(
         control = true;
         try {
           if (delivery === "steer" && active) {
+            // A steer here cancels the running turn first: check its fence before that write.
+            assertSteerTarget(delivery, fence);
             frame("send", "cancel", { replacement: true, commandId }, operation, segment);
             await host.request("cancel").catch((error: unknown) => {
               throw rejected(error);

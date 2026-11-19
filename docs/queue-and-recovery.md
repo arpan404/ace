@@ -81,7 +81,12 @@ replayed automatically; the operator can issue a fresh resume command.
 Rate-limit facts and structured quota errors derive `limited`; process exit does
 not erase that evidence. Generic `retry.cleared` from shell output also preserves
 it; only authoritative `limit.cleared` or explicit resume clears quota evidence. Human interactions and live agents retain ADR 0004
-precedence. Queued messages stay held. `thread.limit.action` supports:
+precedence. Existing queued messages stay held. A fresh message releases a usage-limit
+hold even before a known reset, cancels its timer and synthetic continuation, and sends
+the queue in order. A manual pause stays held. Another definite provider refusal holds
+the queue again. An input refused before consumption returns to the strip in its
+original position, retaining the limit hold and its selected timer so resume, snooze
+and migration controls remain available. `thread.limit.action` supports:
 
 - `resume_now`: continue immediately through native resume.
 - `resume_at_reset`: persist an indexed timer using the account's latest blocking

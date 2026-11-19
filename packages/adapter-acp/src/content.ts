@@ -1,6 +1,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ContentPart } from "@ace/protocol";
-import { object, string } from "./data.ts";
+import { base64DataUrl } from "@ace/provider-kit/data-url";
+import { object } from "./data.ts";
 export function decodeContent(value: unknown): ContentPart[] {
   const content = object(value);
   if (content["type"] === "text" && typeof content["text"] === "string")
@@ -48,7 +49,7 @@ export function encodeContent(part: ContentPart): unknown {
       name: part.path.split("/").at(-1) ?? part.path,
       ...(part.mimeType ? { mimeType: part.mimeType } : {}),
     };
-  const match = /^data:[^;]+;base64,(.*)$/s.exec(part.url);
-  if (!match) throw new Error("ACP image input requires a base64 data URL");
-  return { type: "image", mimeType: part.mimeType, data: string(match[1]) };
+  const image = base64DataUrl(part.url);
+  if (!image) throw new Error("ACP image input requires a base64 data URL");
+  return { type: "image", mimeType: part.mimeType, data: image.data };
 }

@@ -2,6 +2,10 @@ import { Attachment, BlobHash, type ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { z } from "zod";
 
+const RememberedPaths = z
+  .array(z.object({ sha256: BlobHash, path: z.string().min(1).max(4096) }))
+  .max(64);
+
 /** Durable input correlation, independent of transcript bodies and native echo timing. */
 export class AttachmentCorrelations {
   private store: Store;
@@ -36,10 +40,7 @@ export class AttachmentCorrelations {
     return row ? Attachment.parse(JSON.parse(String(row.attachment))) : undefined;
   }
   rememberPaths(thread: ThreadId, paths: readonly { sha256: string; path: string }[]): void {
-    const parsed = z
-      .array(z.object({ sha256: BlobHash, path: z.string().min(1).max(4096) }))
-      .max(64)
-      .parse(paths);
+    const parsed = RememberedPaths.parse(paths);
     for (const path of parsed)
       this.store
         .statement(

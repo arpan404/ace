@@ -1,4 +1,3 @@
-import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -10,6 +9,8 @@ struct MessageAttachmentAccess {
     /// The preview, at most `pixels` on its long side; nil when it can't be read.
     let thumbnail: @MainActor (_ itemId: String, _ ref: String, _ pixels: CGFloat) async -> UIImage?
     let open: @MainActor (_ row: TranscriptRow, _ line: AttachmentLine) -> Void
+    /// The picture itself, from the message carrying it (or the thread's own list when nil).
+    var original: @MainActor (_ itemId: String?, _ ref: String) async -> UIImage? = { _, _ in nil }
 }
 
 extension EnvironmentValues {
@@ -27,7 +28,7 @@ struct MessageAttachments: View {
     var body: some View {
         let images = attachments.filter(\.previewed)
         let files = attachments.filter { !$0.previewed }
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if !images.isEmpty { ImageGroup(row: row, images: images) }
             ForEach(Array(files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(row: row, line: file) }
             if more > 0 {
@@ -62,14 +63,14 @@ private struct ImageGroup: View {
         } else {
             let shown = Array(images.prefix(4))
             let rest = images.count > 4 ? images.count - 3 : 0
-            let columns = [GridItem(.fixed(Self.cell), spacing: AceTheme.Spacing.xs), GridItem(.fixed(Self.cell), spacing: AceTheme.Spacing.xs)]
-            LazyVGrid(columns: columns, alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            let columns = [GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight), GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight)]
+            LazyVGrid(columns: columns, alignment: .trailing, spacing: AceDesign.Space.tight) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, image in
                     AttachmentThumb(row: row, line: image, size: CGSize(width: Self.cell, height: Self.cell),
                                     more: index == 3 ? rest : 0)
                 }
             }
-            .frame(width: Self.cell * 2 + AceTheme.Spacing.xs)
+            .frame(width: Self.cell * 2 + AceDesign.Space.tight)
         }
     }
     /// A lone image keeps its shape within 240×240 (4:3 when its shape isn't known).
@@ -100,17 +101,17 @@ private struct AttachmentThumb: View {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: size.width, height: size.height).clipped()
                 } else if failed {
-                    AceIcon(.image, size: 20).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.image, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if more > 0 {
-                    AceTheme.Colours.background.opacity(0.6)
+                    AceDesign.Surface.veil
                     Text("+\(more)").aceFont(AceTheme.Typography.title, relativeTo: .title3).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.foreground)
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(AceShape.rounded(AceTheme.Radii.code))
-            .contentShape(AceShape.rounded(AceTheme.Radii.code))
+            .clipShape(AceDesign.Shape.block)
+            .contentShape(AceDesign.Shape.block)
         }
         .buttonStyle(.plain)
         .disabled(access == nil)
@@ -134,9 +135,9 @@ private struct AttachmentFileLine: View {
     var body: some View {
         let opens = line.opens == true && access != nil
         Button { access?.open(row, line) } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 AceIcon(line.kind == "image" ? .image : line.kind == "pdf" || line.kind == "text" ? .fileText : .file,
-                        size: 16, relativeTo: .footnote)
+                        size: AceDesign.Size.icon, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     Text(line.name.isEmpty ? "Attachment" : line.name)
@@ -150,7 +151,7 @@ private struct AttachmentFileLine: View {
                     }
                 }
             }
-            .frame(minHeight: AceTheme.Spacing.xxxl + AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Space.section + AceDesign.Space.related)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -181,20 +182,6 @@ struct AttachmentBytes: Decodable, Sendable {
     }
 }
 
-/// `data` as an image no larger than `pixels` on its long side, decoded off the main thread's
-/// budget: only the downsampled bitmap is ever held.
-nonisolated func downsampledImage(_ data: Data, pixels: CGFloat) -> UIImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
-    let options = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: max(1, pixels),
-    ] as CFDictionary
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-    return UIImage(cgImage: image)
-}
-
 /// Where a thread's message attachments open: an image in the full-screen viewer, any other file
 /// fetched because that message carries it and shown in Quick Look (which can share it).
 struct MessageAttachmentRoutes: ViewModifier {
@@ -208,20 +195,19 @@ struct MessageAttachmentRoutes: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.messageAttachments, access)
-            .sheet(item: $viewing) { target in
-                NavigationStack { NativeMediaView(model: model, threadId: threadId, item: target.row, attachment: target.line) }
-                    .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .fullScreenCover(item: $viewing) { target in
+                MediaViewer(title: target.line.name.isEmpty ? "Image" : target.line.name) { await original(target) }
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
                 if let opening {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
+                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
                     .floatingGlass()
-                    .padding(.top, AceTheme.Spacing.sm)
+                    .padding(.top, AceDesign.Space.related)
                     .accessibilityIdentifier("attachment.opening")
                 }
             }
@@ -240,7 +226,7 @@ struct MessageAttachmentRoutes: ViewModifier {
                 let payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "thumbnail"]
                 guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
                 let image = await Task.detached(priority: .userInitiated) {
-                    Data(base64Encoded: reply.data).flatMap { downsampledImage($0, pixels: pixels) }
+                    Data(base64Encoded: reply.data).flatMap(ImageDecoding.source).flatMap { ImageDecoding.preview($0, pixels: pixels) }
                 }.value
                 if let image {
                     let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
@@ -248,8 +234,25 @@ struct MessageAttachmentRoutes: ViewModifier {
                 }
                 return image
             },
-            open: { row, line in open(row, line) }
+            open: { row, line in open(row, line) },
+            original: { itemId, ref in
+                var payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "ref": ref, "variant": "original"]
+                if let itemId { payload["itemId"] = itemId }
+                guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
+                return await MediaViewer.image(base64: reply.data)
+            }
         )
+    }
+
+    /// The image itself, read because its message carries it, for the full-screen viewer.
+    private func original(_ target: AttachmentTarget) async -> UIImage? {
+        guard let reply = try? await model.service(originalRequest(target.row.id, target.line.ref ?? ""), as: AttachmentBytes.self) else { return nil }
+        return await MediaViewer.image(base64: reply.data)
+    }
+
+    /// The file itself (not its preview), asked for because message `itemId` carries it.
+    private func originalRequest(_ itemId: String, _ ref: String) -> [String: Any] {
+        ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "original"]
     }
 
     private func open(_ row: TranscriptRow, _ line: AttachmentLine) {
@@ -262,7 +265,7 @@ struct MessageAttachmentRoutes: ViewModifier {
         Task {
             defer { opening = nil }
             do {
-                let reply = try await model.service(["type": "native.attachment", "threadId": threadId, "itemId": row.id, "ref": ref, "variant": "original"], as: AttachmentBytes.self)
+                let reply = try await model.service(originalRequest(row.id, ref), as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
                 preview = try Self.keep(data, named: reply.name)
             } catch {
@@ -272,7 +275,7 @@ struct MessageAttachmentRoutes: ViewModifier {
     }
 
     /// A private copy for Quick Look, under the file's own name with any folders taken out.
-    private static func keep(_ data: Data, named name: String) throws -> URL {
+    static func keep(_ data: Data, named name: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ace-attachments", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

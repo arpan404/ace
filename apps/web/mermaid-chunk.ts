@@ -10,7 +10,7 @@ type ChunkGroup = Exclude<NonNullable<Rolldown.OutputOptions["codeSplitting"]>, 
  * old apps would still refuse the archive).
  *
  * Everything below is only reachable through the one dynamic import in
- * `src/features/forge/rich/mermaid-diagram.tsx`, except `marked`, which the app's own markdown
+ * `src/components/markdown/mermaid-render.ts`, except `marked`, which the app's own markdown
  * renderer imports too – so `marked` stays in the automatic shared chunks. A dependency this
  * list misses stays a separate lazy chunk, which is still correct, just larger. Dependencies
  * are not pulled in recursively: that would also swallow `marked`, and every markdown page

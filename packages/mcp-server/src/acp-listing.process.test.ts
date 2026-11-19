@@ -15,8 +15,8 @@ import {
 
 /**
  * Each ACP agent lists what its own tool refresh supports, through ace's stdio bridge as a real
- * child process: Gemini CLI reloads (core), claude-agent-acp and Antigravity defer like Claude
- * Code (every tool), and any other agent keeps a fixed list.
+ * child process: Gemini CLI and Antigravity reload (core), claude-agent-acp defers
+ * (every tool), and any other agent keeps a fixed list.
  */
 async function bridged(cli: string | undefined) {
   const tools = new ToolRegistry({ scheduler: nodeScheduler });
@@ -81,17 +81,23 @@ async function bridged(cli: string | undefined) {
   return { listing, listed, find, http: acpInjection({ ...lease, url: server.url, listing }) };
 }
 
-test("Gemini CLI starts with the core list and grows it as the agent finds tools", async () => {
-  const gemini = await bridged("gemini");
-  expect(await gemini.listed()).toEqual(["context", "notify", "tools_call", "tools_find"]);
-  await gemini.find();
-  expect(await gemini.listed()).toContain("thread_read");
-  expect(gemini.http.mcpServers[0]?.headers).toContainEqual({ name: "X-Ace-Tools", value: "core" });
-});
+test.each(["gemini", "antigravity"])(
+  "%s starts small and grows its list as the agent finds tools",
+  async (cli) => {
+    const gemini = await bridged(cli);
+    expect(await gemini.listed()).toEqual(["context", "notify", "tools_call", "tools_find"]);
+    await gemini.find();
+    expect(await gemini.listed()).toContain("thread_read");
+    expect(gemini.http.mcpServers[0]?.headers).toContainEqual({
+      name: "X-Ace-Tools",
+      value: "core",
+    });
+  },
+);
 
-test("claude-agent-acp and Antigravity list every tool, as Claude Code does", async () => {
+test("claude-agent-acp lists every tool, as Claude Code does", async () => {
   // Both load only always-load tools upfront and reach the rest on demand.
-  for (const cli of ["claude-acp", "antigravity"]) {
+  for (const cli of ["claude-acp"]) {
     const agent = await bridged(cli);
     expect(await agent.listed(), cli).toEqual(["context", "notify", "thread_read", "tools_find"]);
     expect(

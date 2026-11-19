@@ -8,7 +8,7 @@
       "type": "string"
     },
     "name": {
-      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
     },
     "version": {
       "maxLength": 128,

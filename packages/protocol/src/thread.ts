@@ -1,5 +1,4 @@
 import { QueueState } from "./queue.ts";
-import { OffshiftRunMark } from "./offshift.ts";
 import { ProviderGoal } from "./goal.ts";
 import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
@@ -11,13 +10,16 @@ import {
   ThreadSwitch,
   ExecutionSource,
   DelegatedBy,
+  DelegatedFrom,
   QueuedLaunch,
+  StartedBy,
 } from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./imported-provenance.ts";
+import { StartedByClient } from "./outside-clients.ts";
 import { ProviderKind, Capabilities } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */
@@ -87,8 +89,6 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   queue: QueueState.optional(),
-  /** Where the thread's most recently updated Offshift run stands, while it has one. */
-  run: OffshiftRunMark.optional(),
   /** The provider-native goal the thread is pursuing, while one is set. */
   goal: ProviderGoal.optional(),
   titleSource: z.enum(["provisional", "provider", "generated", "person", "agent"]).optional(),
@@ -102,6 +102,12 @@ export const Thread = z.object({
     })
     .optional(),
   capabilities: Capabilities.optional(),
+  /**
+   * Stands in for `capabilities` on a connection that asked for the `provider-capabilities` trim:
+   * the key of a `provider.capabilities` message sent earlier on the same connection. A client
+   * puts the capabilities back before it hands the thread on, so no reader sees this field.
+   */
+  capabilitiesRef: z.string().min(1).max(64).optional(),
   permission: PermissionState.optional(),
   handoff: z
     .object({
@@ -123,6 +129,15 @@ export const Thread = z.object({
    * the message that launched it. Absent for a thread a person started.
    */
   delegatedBy: DelegatedBy.optional(),
+  /** Set when an agent on a paired machine delegated this thread here (`DelegatedFrom`). */
+  delegatedFrom: DelegatedFrom.optional(),
+  /** Set when another thread's agent started this one with `thread_start` (`StartedBy`). */
+  startedBy: StartedBy.optional(),
+  /**
+   * Set when an outside MCP client started this thread (ADR 0122). Kept beside `startedBy`, which
+   * stays a thread id so older clients still read it.
+   */
+  startedByClient: StartedByClient.optional(),
   /** Present while the thread, delegated past its parent's run slots, waits to start. */
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),

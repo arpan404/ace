@@ -3,7 +3,7 @@ export type { CursorAuthQuery } from "./client.ts";
 export { Client } from "./client.ts";
 export { ClientCore } from "./client-core.ts";
 export { commandAdmissionError, type CommandAdmissionEvidence } from "./command-admission.ts";
-export { ClientError, defaultLimits } from "./types.ts";
+export { ClientError, defaultLimits, screenTail } from "./types.ts";
 export type {
   ClientOptions,
   ConnectionState,
@@ -12,10 +12,12 @@ export type {
   DiagnosticEvent,
   Transport,
   TransportEvents,
+  PathRefusal,
   Storage,
   IntentRecords,
   Scheduler,
   Limits,
+  OpenTail,
   RequestOptions,
   TextReadOptions,
 } from "./types.ts";
@@ -27,6 +29,7 @@ export { Notifications } from "./observable.ts";
 export type {
   ClientApi,
   ClientCoreApi,
+  StandingChallenge,
   ConnectionControl,
   ThreadSource,
   SidebarSource,
@@ -37,14 +40,27 @@ export type {
   Mirrorable,
 } from "./api.ts";
 export { ThreadStore } from "./thread-store.ts";
+export type { ReadRequest, WholeRequestInput } from "./whole-request.ts";
 /** Transcript order: dedupe by id, order by the daemon's creation sequence (ADR 0062). */
 export { mergeBySeq } from "@ace/projection";
 export type { ThreadReader, ThreadKey } from "./thread-store.ts";
-export type { ThreadSubscription } from "./subscriptions.ts";
+export type { AcquireOptions, ThreadSubscription } from "./subscriptions.ts";
 export type { Intent } from "./intents.ts";
 export type { Sidebar } from "./sidebar.ts";
 export type { SidebarKey, SidebarReader } from "./readers.ts";
 export { ticketCredential } from "./credentials.ts";
+export { machineCodeGate } from "./machine-code-gate.ts";
+export { relayRoute, MACHINE_CODE_CLOSE } from "./relay-route.ts";
+export { Multipath } from "./multipath.ts";
+export type { LinkEstimate, MachineRoute, MultipathOptions, PathConnection } from "./multipath.ts";
+export type { PathRoute } from "./path-handshake.ts";
+export { pathRank, isDirect, isPathKind, knownPaths, type PlannedPath } from "./path-plan.ts";
+export { machineCodeAdmin } from "./machine-code-admin.ts";
+export type { MachineCodeAdmin } from "./machine-code-admin.ts";
+export type { RelayRouteOptions } from "./relay-route.ts";
+export type { PortableSocket } from "./portable-relay.ts";
+export { redeemPairingViaRelay, RelayPairingError } from "./relay-pairing.ts";
+export type { MachineCodeGate } from "./machine-code-gate.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
 export { rootProviderControls, childProviderControls } from "./provider-controls.ts";
@@ -58,10 +74,16 @@ export { PermissionClient, threadPermission, accessModes } from "./permissions.t
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
+export { listThreadAttachments } from "./thread-attachment-list.ts";
 export { subscribeSettings } from "./settings-subscription.ts";
+export { subscribeLockedUse } from "./locked-use-subscription.ts";
+export { onSocketMove } from "./socket-moves.ts";
+export type { SocketSource } from "./socket-moves.ts";
+export type { LockedUseOwner } from "./locked-use-subscription.ts";
 export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
+export { keepBrowserEngine, moveBrowserEngine, type BrowserEngine } from "./browser-engine.ts";
 export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
@@ -75,9 +97,22 @@ export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./devi
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
-export { downloadFile, uploadFile } from "./files.ts";
+/** Bounded wire base64 to bytes, natively where the engine can. */
+export { decodeBase64 } from "./base64.ts";
+/** SHA-256 fed in parts, for an upload's hash without holding the file. */
+export { Sha256 } from "./sha256.ts";
+export {
+  connectionLost,
+  downloadFile,
+  fileDigest,
+  sendResumableUpload,
+  uploadFile,
+  type ResumableUpload,
+} from "./files.ts";
 export {
   readFile,
+  readFileRange,
+  type FileRangeInput,
   type FileReadInput,
   type FileReadOutcome,
   type FileReader,
@@ -101,6 +136,7 @@ export { loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 export type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,
@@ -121,3 +157,19 @@ export { attachmentReadScope } from "./attachment-scope.ts";
 export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
 
 export { windowSource, type ThreadWindow } from "./window-source.ts";
+export { SendOps, retryOf, type SendOp } from "./send-ops.ts";
+
+export {
+  RowSnapshots,
+  type ItemRow,
+  type RowSnapshotOptions,
+  type SnapshotRows,
+  type ThreadWrite,
+} from "./row-snapshots.ts";
+export {
+  expiredSnapshots,
+  snapshotRetention,
+  type KeptSnapshot,
+  type RetentionPolicy,
+} from "./snapshot-retention.ts";
+export { itemFinished } from "./item-finished.ts";

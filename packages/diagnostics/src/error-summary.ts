@@ -35,11 +35,12 @@ const FRAMES = 8;
  */
 export function stackFrames(error: unknown, redact: (text: string) => string): string[] {
   if (!(error instanceof Error)) return [];
-  const descriptor = Object.getOwnPropertyDescriptor(error, "stack");
   let stack: unknown;
   try {
     // Only the engine's own accessor runs; a producer-defined getter is never invoked. The
-    // engine formats lazily and may still reach a throwing message accessor.
+    // engine formats lazily and may still reach a throwing message accessor. Bun formats when
+    // the descriptor is read, running any Error.prepareStackTrace hook.
+    const descriptor = Object.getOwnPropertyDescriptor(error, "stack");
     stack =
       descriptor && "value" in descriptor
         ? descriptor.value

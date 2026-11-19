@@ -2,6 +2,10 @@ import { useAgent } from "@ace/client-react";
 import type { DeviceActivity } from "@ace/protocol";
 import { useEffect, useRef, useState } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { agentName } from "@ace/ui-core";
+import { agentInitial, coworkLine } from "@ace/ui-core/cowork";
+import type { AgentPointer } from "@ace/protocol";
+import { AgentPointerMark, useAgentPointerShown } from "@/components/agent-pointer.tsx";
 import { activityCaption, screenFraction, type Size } from "@ace/ui-core/devices";
 
 /** How long a caption stays before it fades. */
@@ -18,7 +22,11 @@ export interface ShownActivity {
  * The agent's newest action while it is fresh: each sequence shows once, for about two seconds,
  * then fades. What was already there when the view opened isn't replayed.
  */
-export function useFreshActivity(activity: DeviceActivity | undefined): ShownActivity | undefined {
+export function useFreshActivity(
+  activity: DeviceActivity | undefined,
+  stateLoaded: boolean,
+): ShownActivity | undefined {
+  const initialized = useRef(stateLoaded);
   const seen = useRef<number | undefined>(activity?.sequence);
   const latest = useRef(activity);
   // Runs before the effect below in the same commit, so it reads this render's activity.
@@ -28,6 +36,12 @@ export function useFreshActivity(activity: DeviceActivity | undefined): ShownAct
   const [shown, setShown] = useState<ShownActivity>();
   const sequence = activity?.sequence;
   useEffect(() => {
+    if (!stateLoaded) return;
+    if (!initialized.current) {
+      initialized.current = true;
+      seen.current = sequence;
+      return;
+    }
     const fresh = latest.current;
     if (sequence === undefined || !fresh || sequence === seen.current) return;
     seen.current = sequence;
@@ -41,7 +55,7 @@ export function useFreshActivity(activity: DeviceActivity | undefined): ShownAct
       clearTimeout(fade);
       clearTimeout(clear);
     };
-  }, [sequence]);
+  }, [sequence, stateLoaded]);
   return shown;
 }
 
@@ -90,5 +104,43 @@ export function ActivityCaption(props: {
       )}
       <span className="truncate">{activityCaption(props.shown.activity)}</span>
     </p>
+  );
+}
+
+/** While the agent using the device yields to the person's input: "Codex is waiting for you". */
+export function YieldLine(props: {
+  waiting: boolean;
+  holder: { threadId: string; agentId: string } | undefined;
+}) {
+  const agent = useAgent(props.holder?.threadId ?? "", props.holder?.agentId ?? "");
+  if (!props.waiting || !props.holder) return null;
+  return (
+    <p role="status" className="truncate text-xs text-muted-foreground">
+      {coworkLine("waiting", agent ? agentName(agent) : "The agent")}
+    </p>
+  );
+}
+
+/**
+ * The agent's cursor on the device while the person and the agent share it (ADR 0143): where it
+ * last acted (device points), with its initial, fading ~1.5 s after that action.
+ */
+export function DeviceAgentPointer(props: {
+  pointer: AgentPointer | undefined;
+  holder: { threadId: string; agentId: string } | undefined;
+  screen: Size;
+}) {
+  const agent = useAgent(props.holder?.threadId ?? "", props.holder?.agentId ?? "");
+  const shown = useAgentPointerShown(props.pointer);
+  const at = props.pointer && screenFraction(props.pointer, props.screen);
+  if (!at) return null;
+  const name = agent ? agentName(agent) : "The agent";
+  return (
+    <AgentPointerMark
+      name={name}
+      mark={agentInitial(name)}
+      shown={shown}
+      style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
+    />
   );
 }

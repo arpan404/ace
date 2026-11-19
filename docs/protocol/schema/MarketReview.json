@@ -1,0 +1,94 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReview.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blocked": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "body": {
+      "$ref": "https://ace.local/protocol/v1/MarketReviewBody.json"
+    },
+    "byAce": {
+      "type": "boolean"
+    },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "from": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketReviewId.json"
+    },
+    "items": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    },
+    "reviewed": {
+      "type": "boolean"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+    },
+    "signed": {
+      "type": "boolean"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "unlisted": {
+      "type": "boolean"
+    },
+    "updates": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source",
+    "type",
+    "name",
+    "title",
+    "version",
+    "hash",
+    "signed",
+    "reviewed",
+    "byAce",
+    "body",
+    "expiresAt",
+    "items"
+  ],
+  "type": "object"
+}

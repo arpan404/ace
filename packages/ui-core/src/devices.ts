@@ -1,27 +1,58 @@
-import type { AppDevice, DeviceFailure, DeviceInput, DeviceState } from "@ace/protocol";
+import { coworkLine } from "./cowork.ts";
+import type {
+  AppDevice,
+  DeviceFailure,
+  DeviceInput,
+  DevicePosture,
+  DeviceState,
+} from "@ace/protocol";
 
 /** One simulator or emulator as the devices list shows it. */
 export interface DeviceRow {
   id: string;
   name: string;
   platform: AppDevice["platform"];
-  /** "iOS 18.4 · Running", "Android 15 · Off". */
+  /** "iOS 18.4 · Running", "Android 15 · Shut down". */
   detail: string;
   /** "iOS 18.4", "Android 15", when the platform reports it. */
   runtime: string | undefined;
   running: boolean;
+  /** As the platform reports it: booted, shut down, offline or not authorized. */
+  state: AppDevice["state"];
+  /**
+   * Boot can start it: a simulator or emulator that is shut down and not already booting. An
+   * offline or unauthorized device can't be booted from here (`deviceUnavailableHint`).
+   */
+  bootable: boolean;
   /** Its screen is streaming. */
   live: boolean;
   /** The hardware it simulates (a Simulator's device type), when the daemon says. */
   model?: string | undefined;
+  /** How a foldable sits, which says which of its screens shows; absent for the rest. */
+  posture?: DevicePosture | undefined;
 }
 
 const stateWords: Record<AppDevice["state"], string> = {
   booted: "Running",
-  shutdown: "Off",
+  // "Shut down", never "Off": off is what turning devices off for the whole machine is.
+  shutdown: "Shut down",
   offline: "Offline",
   unauthorized: "Not authorized",
 };
+
+/**
+ * What a device that is neither running nor bootable needs before it can be used, in words;
+ * undefined for every other device.
+ */
+export function deviceUnavailableHint(
+  device: Pick<AppDevice, "name" | "state">,
+): string | undefined {
+  if (device.state === "offline")
+    return `${device.name} is offline. Reconnect it, or restart its emulator, then refresh.`;
+  if (device.state === "unauthorized")
+    return `${device.name} hasn't allowed this computer. Accept the USB debugging prompt on it, then refresh.`;
+  return undefined;
+}
 
 /** iOS first, then Android; running devices before the rest; then by name. */
 export function deviceRows(
@@ -36,7 +67,7 @@ export function deviceRows(
   return [...all.values()]
     .map((device): DeviceRow => {
       const state = byId.get(device.id);
-      return {
+      const row: DeviceRow = {
         id: device.id,
         name: device.name,
         platform: device.platform,
@@ -45,9 +76,13 @@ export function deviceRows(
           .join(" · "),
         runtime: device.runtime,
         running: device.state === "booted",
+        state: device.state,
+        bootable: device.state === "shutdown" && state?.booting !== true,
         live: state?.lifecycle === "live",
         model: device.model,
       };
+      if (state?.posture) row.posture = state.posture;
+      return row;
     })
     .toSorted(
       (a, b) =>
@@ -74,9 +109,9 @@ export interface DeviceControls {
   inControl: boolean;
   /** Milliseconds left on your lease; 0 when you don't hold one. */
   leaseLeftMs: number;
-  /** One line: "Live · You're in control", "Off", "Live · The agent is in control". */
+  /** One line: "Live · You're in control", "Shut down", "Live · The agent is working here". */
   status: string;
-  /** Where the device is, without who controls it: "Live", "Booting…", "Off". */
+  /** Where the device is, without who controls it: "Live", "Booting…", "Shut down". */
   where: string;
   error: DeviceProblem | undefined;
 }
@@ -170,7 +205,8 @@ export function deviceControls(
   const who = inControl
     ? "You're in control"
     : controller === "agent"
-      ? "The agent is in control"
+      ? // Shared: the agent works on it, and waits while the person's input is recent.
+        coworkLine(state?.personActive ? "waiting" : "working", "The agent")
       : controller === "human"
         ? remaining > 0
           ? "Another connection is in control"

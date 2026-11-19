@@ -39,7 +39,7 @@ test("Ctrl+Enter starts the thread and stays on New thread, and its row in the l
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("");
 
-  const threads = within(screen.getByRole("navigation", { name: "Threads" }));
+  const threads = within(screen.getByRole("navigation", { name: "Projects" }));
   await userEvent.click(
     await threads.findByRole("link", { name: /Rotate the relay's signing keys/ }),
   );
@@ -57,7 +57,7 @@ test("a start-without-opening key rebound in Settings works on New thread, and C
   fireEvent.keyDown(shortcut, { key: "Enter", code: "Enter", altKey: true });
   expect(shortcut.textContent).toBe("Alt+Enter");
   await waitFor(() =>
-    expect(made.daemon.services.settings.get("clients.keybindings")).toEqual({
+    expect(JSON.parse(made.storage.getItem("ace.keybindings") ?? "null")).toEqual({
       startInBackground: "alt+enter",
     }),
   );

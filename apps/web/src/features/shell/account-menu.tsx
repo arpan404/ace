@@ -1,42 +1,50 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useConnectionState } from "@ace/client-react";
-import { UserIcon } from "@phosphor-icons/react";
+import { UserIcon } from "@ace/icons";
 import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";
+import { useAccountPicture, useAceAccount } from "@/features/ace-account/index.ts";
 import { Icon } from "@/components/icon.tsx";
+import { ProfileAvatar } from "@/components/profile-avatar.tsx";
+import { railPlaceClass } from "@/components/rail-place.ts";
 import { connectionDot, connectionLabels } from "./connection-labels.ts";
+import { BetaPeel } from "./beta-peel.tsx";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
 const AccountMenuContent = deferredComponent(() =>
   import("./account-menu-content.tsx").then((module) => module.AccountMenuContent),
 );
 /**
- * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
- * (a silhouette until they give a name in Settings › General) and their name. Connection trouble
- * is a quiet dot beside the name (the screen says it in words once); a healthy connection adds none. The connection is
- * part of the button's name rather than a live region, so a flapping connection isn't read out
- * each time. Its menu is the only way to Usage.
+ * The profile at the foot of the rail: the ace account's picture, else the person's initials
+ * on a neutral disc (their ace account's name, else the name they gave in Settings › Profile; a silhouette until either). Connection trouble is a quiet dot on the disc
+ * (the screen says it in words once); a healthy connection adds none. The connection is part of
+ * the button's name rather than a live region, so a flapping connection isn't read out each
+ * time. Its menu is the only way to Usage. On a beta build the disc wears the beta's peel, and
+ * the build's name joins the button's name and tip.
  */
-export function AccountMenu() {
+export function AccountMenu(props: { beta?: string | undefined }) {
   const state = useConnectionState();
-  const [name] = useProfileName();
+  const [profileName] = useProfileName();
+  const { session } = useAceAccount();
+  const picture = useAccountPicture();
+  const name = session?.account.name || profileName;
   const letters = initials(name);
   const shown = name.trim() || "You";
-  const label =
+  const connection =
     state === "ready"
       ? `${shown}, account`
       : `${shown}, account, ace ${connectionLabels[state].toLowerCase()}`;
+  const label = props.beta ? `${connection}, ${props.beta}` : connection;
   return (
     <SidebarMenu
+      tip={props.beta ? `${shown}, ${props.beta}` : shown}
       trigger={
-        <button
-          type="button"
-          aria-label={label}
-          className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:h-11"
-        >
-          <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
-            {letters ? (
+        <button type="button" aria-label={label} data-part="rail-item" className={railPlaceClass}>
+          <span className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
+            {picture ? (
+              <ProfileAvatar name={name} picture={picture} className="size-7" iconSize={14} />
+            ) : letters ? (
               <span
                 aria-hidden
                 className="text-2xs font-semibold tracking-[0.02em] text-foreground"
@@ -46,13 +54,14 @@ export function AccountMenu() {
             ) : (
               <Icon icon={UserIcon} size={14} />
             )}
+            {props.beta && <BetaPeel />}
+            {state !== "ready" && (
+              <span
+                aria-hidden
+                className={`absolute -top-px -right-px size-2 rounded-full ring-2 ring-sidebar ${connectionDot[state]}`}
+              />
+            )}
           </span>
-          <span aria-hidden className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-ui font-medium text-foreground">{shown}</span>
-          </span>
-          {state !== "ready" && (
-            <span aria-hidden className={`size-2 shrink-0 rounded-full ${connectionDot[state]}`} />
-          )}
         </button>
       }
     >

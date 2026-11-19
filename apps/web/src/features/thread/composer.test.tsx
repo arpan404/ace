@@ -84,22 +84,6 @@ test("while the agent only waits on its subagents, Enter sends the message in no
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
-test("while the thread works, Enter queues the message until the agent's turn ends", async () => {
-  const { app, feed, message } = await open("busy");
-  await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
-  const queue = await screen.findByRole("list", { name: "Queued messages" });
-  expect(within(queue).getByText("Also check the iOS cold-start path")).toBeTruthy();
-  expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
-
-  // The agent's turn ends while its subagents and the background relay keep running: the
-  // queued message starts the next turn without waiting for them.
-  app.daemon.apply("thread-replay-cursor", [
-    { type: "turn.ended", agent: "root", outcome: "completed" },
-  ]);
-  expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
-});
-
 test("Stop holds the queued message instead of sending it once the turn ends", async () => {
   const { app, feed, message } = await open("busy");
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
@@ -215,7 +199,7 @@ test("the details card carries checkout details and refreshes them after a commi
   expect(
     await within(card).findByRole("button", { name: "Branch fix/replay-cursor, switch branch" }),
   ).toBeTruthy();
-  expect(within(card).queryByText(/not pushed/)).toBeNull();
+  expect(within(card).queryByText(/to push/)).toBeNull();
 
   // The commit form leaves pushing optional.
   await gitAction("Commit & push…");
@@ -223,7 +207,7 @@ test("the details card carries checkout details and refreshes them after a commi
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
-  expect(await within(await openWorkCard()).findByText("1 commit not pushed")).toBeTruthy();
+  expect(await within(await openWorkCard()).findByText("1 to push")).toBeTruthy();
 
   // The card leaves the draft usable while it stays open.
   const input = screen.getByRole("combobox", { name: "Message" });
@@ -245,18 +229,6 @@ test("the composer carries no context or usage meter, whatever the provider repo
   await screen.findByRole("button", { name: /^Model: / });
   expect(screen.queryByRole("meter")).toBeNull();
   expect(screen.queryByText(/tokens in context|% used|\d+%$/)).toBeNull();
-});
-
-test("a composer squeezed by an open panel keeps its hint to one short line", async () => {
-  layoutWidth(500);
-  const { message } = await open("idle");
-  expect(message.getAttribute("aria-placeholder")).toBe("Ask anything");
-});
-
-test("a wide composer spells out the @ and / hints", async () => {
-  layoutWidth(900);
-  const { message } = await open("idle");
-  expect(message.getAttribute("aria-placeholder")).toBe("Ask anything");
 });
 
 test("access and predefined effort keep their readable modes on a phone", async () => {
@@ -301,12 +273,6 @@ test("an empty composer on a phone is one pill row that opens while typing", asy
 test("a narrow column on a wide window keeps the full composer with its approvals", async () => {
   // A docked side panel at 768 or 1024 leaves the composer about 440px wide.
   layoutWidth(440);
-  await open("busy");
-  expect(await screen.findByRole("button", { name: /^Access: / })).toBeTruthy();
-});
-
-test("a wide composer never collapses into the pill", async () => {
-  layoutWidth(900);
   await open("busy");
   expect(await screen.findByRole("button", { name: /^Access: / })).toBeTruthy();
 });

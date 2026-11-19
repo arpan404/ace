@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandId, HostId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { ProjectIdentityId } from "./project-identity.ts";
 
 /**
  * Carrying a project, or a thread with its project, to another of the person's machines
@@ -80,6 +81,22 @@ export const TransferIgnoredFiles = z.object({
 });
 export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
 
+/**
+ * Where a live switch-over stands (ADR 0191): the bulk uploading while the agent works, stopping
+ * at a safe point, handed over and waiting for the other machine's answer, moved there, or back
+ * to running here because the move didn't happen.
+ */
+export const TransferLiveStage = z.enum(["readying", "stopping", "handing", "moved", "resumed"]);
+export type TransferLiveStage = z.infer<typeof TransferLiveStage>;
+
+/** How a moved agent's history went: its provider's own session, or the handoff summary. */
+export const TransferSessionOutcome = z.object({
+  kind: z.enum(["native", "summary"]),
+  /** Why the summary was used, in words a person reads. */
+  reason: z.string().max(256).optional(),
+});
+export type TransferSessionOutcome = z.infer<typeof TransferSessionOutcome>;
+
 /** One transfer as the sending machine sees it. */
 export const Transfer = z.object({
   transferId: id,
@@ -107,7 +124,22 @@ export const Transfer = z.object({
   totalBytes: z.number().int().nonnegative().optional(),
   /** Set when ignored files travel with it. */
   ignoredFiles: TransferIgnoredFiles.optional(),
-  /** Set once completed: what now exists on the other machine. */
+  /**
+   * Set once completed: what now exists on the other machine.
+   *
+   * - `workspaceId` is always the project there: a project it already had (same origin, or the
+   *   copy an earlier transfer of this project made) or a new one.
+   * - Without `branchOnly`, the work is checked out in that project's own folder (`path`), on
+   *   `branch` for Git projects: a local thread there starts on it.
+   * - With `branchOnly`, the project's checkout there was busy (its own changes, another branch,
+   *   or an agent working in it) and was left alone: the work is only on the new local `branch`
+   *   (`<branch>-from-<machine>`), and `path` is the project's folder. Uncommitted changes that
+   *   travelled are that branch's top commit ("Uncommitted changes carried to another
+   *   machine"). A client starts a worktree thread in `workspaceId` from `branch`; never a
+   *   local thread, which would run in the person's checkout without the work.
+   * - With `threadId` (Continue on), the thread there already starts where the work is: in the
+   *   project's checkout, or in a worktree of its own on `branch` when the checkout was busy.
+   */
   result: z
     .object({
       workspaceId: WorkspaceId,
@@ -116,10 +148,31 @@ export const Transfer = z.object({
       threadId: ThreadId.optional(),
       /** Ignored files that were kept back because the project there already had them. */
       ignoredSkipped: z.number().int().nonnegative().optional(),
+      /**
+       * A folder sent again to the copy an earlier transfer made: files that copy already had,
+       * kept as they are there instead of being replaced by the sent ones. Only files it lacked
+       * were added; nothing there is ever overwritten.
+       */
+      keptFiles: z.number().int().nonnegative().optional(),
+      /** The work landed only on `branch`, not in the project's checkout; see above. */
+      branchOnly: z.boolean().optional(),
+      /**
+       * The project there already belongs to another logical project (ADR 0180): its identity
+       * is kept, never overwritten, and the person may link the two.
+       */
+      identityConflict: z.object({ identityId: ProjectIdentityId }).optional(),
     })
     .optional(),
   /** Set once failed, in words a person acts on. */
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),
+  /** A thread moved while it was working (ADR 0191): where the switch-over stands. */
+  live: z
+    .object({
+      stage: TransferLiveStage,
+      /** How the agent's history went: its provider's own session, or the handoff summary. */
+      session: TransferSessionOutcome.optional(),
+    })
+    .optional(),
   startedAt: Timestamp,
   updatedAt: Timestamp,
 });

@@ -176,7 +176,7 @@ test.each([
           "--eval",
           `
         const {GitService}=await import(${JSON.stringify(entry)});
-        const git=new GitService();
+        const git=new GitService({leaseWaitMs:0});
         const state=await git.mutationState(${JSON.stringify(root)});
         const code=await git.createCheckpoint({worktree:${JSON.stringify(childRoot)},threadId:'restart',label:'blocked'}).then(()=>'unexpected',error=>error.code);
         process.stdout.write(JSON.stringify({state:state.status,code}));await git.close();

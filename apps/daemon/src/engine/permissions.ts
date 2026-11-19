@@ -116,6 +116,22 @@ export class Permissions {
     );
     return this.state(id);
   }
+  /**
+   * A host thread's mode (ADR 0121): no launch ever resolves it, so the mode is its own effective
+   * mode at once and the ceiling of its children from then on. Returns whether it changed.
+   */
+  hold(id: ThreadId, access: AccessMode, at: number): boolean {
+    this.ensure(id);
+    const before = this.read(id);
+    if (before.override === access && before.effective === access) return false;
+    this.repo.store.atomic((db) =>
+      db
+        .prepare("UPDATE engine_permissions SET override=?, effective=? WHERE thread_id=?")
+        .run(access, access, id),
+    );
+    this.repo.store.appendEvents(id, [{ type: "thread.updated", permission: this.state(id) }], at);
+    return true;
+  }
   effective(id: ThreadId): AccessSelection | null {
     return this.read(id).effective;
   }
@@ -298,6 +314,20 @@ export class Permissions {
     const capabilities =
       nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities;
     const offers = offersOf(provider, capabilities);
+    // A Spade bot's session (ADR 0133) runs read-only or not at all: no native mode the person
+    // chose for the provider, no provider default, no override.
+    if (thread?.host === "spade-bot") {
+      const readOnly = offers.find((offer) => offer.mode === "read-only");
+      if (!readOnly)
+        throw new AccessError(
+          "access_mode_unavailable",
+          `${provider} offers no read-only mode, which a Spade bot's session needs`,
+        );
+      const selection = this.contained(id, provider, readOnly.mode, offers);
+      if (selection !== "read-only")
+        throw new AccessError("access_mode_unavailable", "a Spade bot's session must be read-only");
+      return { selection, native: readOnly.native };
+    }
     let selection: AccessSelection | null;
     if (defaults.custom && supportsPermissionMode(capabilities, defaults.custom))
       selection = customSelection(defaults.custom);

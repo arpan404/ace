@@ -1,36 +1,70 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
+import { fakeMarket } from "./fake-market.ts";
+import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
+  FakeMachineAccount,
   ScenarioPlayer,
+  buildServerChats,
   crossDevice,
+  streamingReply,
   delegatedQuestion,
   devWorld,
+  showcaseWorld,
   fakeTransport,
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
+  seedRestartedTurn,
+  seedTurnEndings,
+  seedLeftRunning,
+  seedSettledHeld,
+  seedConnectedApps,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
   seedColdStartState,
   turnStatuses,
+  rowStates,
+  failedJustNow,
+  oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
+  seedPrChecks,
+  seedLongIssue,
+  movingPullRequest,
+  seedProjectForge,
+  seedGitLabMirror,
+  seedLongLists,
+  withLongAutomations,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
+import { HostId } from "@ace/protocol";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
+import { seedFleetUpdates } from "./fake-updates.ts";
+import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
+import { fakeOrigin, fakePerson, withFakeMachineAccount } from "./fake-account.ts";
 
 const timer = {
   set(delayMs: number, callback: () => void) {
     const handle = setTimeout(callback, delayMs);
     return () => clearTimeout(handle);
   },
+};
+
+/**
+ * `origin` remotes for This Mac's checkouts. The build server has its own copy of relay (under
+ * another folder name) but not billing-api, so moving New thread there shows both outcomes.
+ */
+const origins: Record<string, string> = {
+  "/Users/dev/relay": "git@github.com:acme/relay.git",
+  "/Users/dev/billing-api": "https://github.com/acme/billing-api.git",
 };
 
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
@@ -48,6 +82,8 @@ export function bootFake(): {
   installFakeVideoDecoder();
   const daemon = new FakeDaemon({
     clock: () => Date.now(),
+    // Its first start: the world it boots with is history, what happens after is news.
+    seenBefore: Date.now(),
     hostId: "this-mac",
     threadCompletionSchedule: (callback) => void setTimeout(callback, 1200),
     displayName: "This Mac",
@@ -59,22 +95,50 @@ export function bootFake(): {
     worktreeCreationSlow:
       (globalThis as { aceFakeWorktree?: string }).aceFakeWorktree === "slow" ||
       new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
+    // `?fakeLine=beta`: a daemon on the beta release line, so the rail shows the beta mark.
+    ...(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLine") === "beta" && {
+      releaseLine: "beta",
+    }),
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
-  // threads and no projects: the first run. `?fakeWorld=thread-activity` adds threads caught
-  // mid-work (watching a command, waiting on subagents, running tests, asking) to the world.
+  // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the
+  // marketing screenshots are taken in. `?fakeWorld=thread-activity` adds threads caught
+  // mid-work (watching a command, waiting on subagents, running tests, asking) to the world;
+  // `?fakeWorld=row-states` adds one thread for each thread-row status.
   const world =
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
     new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
   const empty = world === "empty";
+  // `?fakeWorld=just-this-mac`: Fleet with this computer alone, nothing else paired or on the
+  // account.
+  const solo = world === "just-this-mac";
   if (world === "real-thread-state") seedRealThreadState(daemon);
+  // `?fakeWorld=settled-held`: the dev world plus settled threads held at a usage limit or with
+  // a command left running: they stay in Settled.
+  if (world === "settled-held") seedSettledHeld(daemon, Date.now());
+  // `?fakeWorld=connected-apps`: outside MCP clients' grants, a sign-in request and screen use.
+  if (world === "connected-apps") seedConnectedApps(daemon, Date.now());
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=row-states`: every thread-row status at once (waiting on three agents, a
+  // background command, a test run, a fresh failure) beside the dev world's own.
+  if (world === "row-states") {
+    for (const scenario of rowStates())
+      new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+    // After the client's first launch, so the failure and the finished turn are news rather
+    // than history.
+    setTimeout(() => {
+      for (const scenario of [failedJustNow(), oneTurnWork("thread-finished-now")])
+        new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+    }, 5_000);
+  }
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
   for (const thread of empty || ["real-thread-state", "cold-start-state"].includes(world ?? "")
     ? []
-    : devWorld()) {
+    : world === "showcase"
+      ? showcaseWorld()
+      : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
     if (thread.through) player.runThrough(thread.through);
     else if (!thread.live) player.runUntilBlocked();
@@ -82,23 +146,47 @@ export function bootFake(): {
   }
   // The folders the Add project dialog browses.
   const host = hostFolders(Date.now());
+  for (const folder of host.folders) {
+    const remote = origins[folder.path];
+    if (remote) folder.remote = remote;
+  }
   daemon.projects.seedFolders(host.home, host.folders);
   // The panels' terminals, browser and dev server, in the daemon's own services.
   if (!empty) seedPanels(daemon);
   // Automations, plugins and linked pull requests, served over the wire like a daemon's.
+  // `?fakeLists=2000`: that many pull requests, issues, notifications, automations, skills and
+  // settled threads (as many as the wire carries), for measuring the long lists.
+  const longLists = Number(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLists"));
   if (!empty) {
-    daemon.seedServices(
-      workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+    const services = workbenchServices(
+      Date.now(),
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
+    daemon.seedServices(longLists > 0 ? withLongAutomations(services, longLists) : services);
+    // The marketplace's listings, account and drafts, so its every page can be walked.
+    daemon.marketplace.seed(fakeMarket(Date.now()));
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedLongIssue(daemon, Date.now());
+    // The other projects' pull requests, issues and notifications, for the lists across projects.
+    seedProjectForge(daemon, Date.now());
+    // Merge requests on ace's GitLab mirror, beside its GitHub reviews.
+    seedGitLabMirror(daemon, Date.now());
+    // #229's checks with runs to read, so a failing one quotes its first failure line.
+    seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
+    if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
+    // A 62-file PR whose head moves while it's reviewed (#250 in acme/ace).
+    daemon.workspace.addPullRequests([movingPullRequest(Date.now())]);
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
-    // with its lines moved, for trying what survives a push.
+    // with its lines moved, for trying what survives a push. #250 plays a real commit.
     (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
       number,
     ) => daemon.workspace.pushPullRequest(number);
+    // `ACE_FAKE_PR_PUSH_EVERY_MS=60000 bun run dev:fake`: #250 is pushed to on that timer.
+    const pushEvery = Number(import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS);
+    if (pushEvery > 0) setInterval(() => daemon.workspace.pushPullRequest(250), pushEvery);
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
@@ -110,6 +198,12 @@ export function bootFake(): {
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
   if (world === "interrupted-turn") seedInterruptedTurn(daemon);
+  // `?fakeWorld=restarted-turn`: a turn ace restarted three times and a limit held, read as one.
+  if (world === "restarted-turn") seedRestartedTurn(daemon);
+  // `?fakeWorld=turn-endings`: a turn a usage limit paused, and one the person stopped.
+  if (world === "turn-endings") seedTurnEndings(daemon);
+  // `?fakeWorld=left-running`: a done thread whose turn left a dev server running.
+  if (world === "left-running") seedLeftRunning(daemon);
   // `?fakeWorld=child-question`: a Claude thread whose delegated Codex child asks the person.
   if (world === "child-question")
     for (const scenario of delegatedQuestion())
@@ -117,6 +211,23 @@ export function bootFake(): {
   // `?fakeWorld=cross-device`: a thread working on another of the person's machines.
   if (world === "cross-device")
     new ScenarioPlayer(daemon, crossDevice(), { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=streaming-reply`: a reply that streams under a finished subagent once
+  // `aceStreamReply.play()` runs, or a chunk at a time with `aceStreamReply.step()`.
+  if (world === "streaming-reply") {
+    const search = new URLSearchParams(globalThis.location?.search ?? "");
+    const history = Number(search.get("history")) || 0;
+    const afterStep = search.has("afterStep");
+    const player = new ScenarioPlayer(daemon, streamingReply({ history, afterStep }), {
+      agoMs: 0,
+    });
+    player.runThrough("asked");
+    Object.assign(globalThis, {
+      aceStreamReply: {
+        play: (speed = 1) => player.autoplay(timer, speed),
+        step: () => player.step(),
+      },
+    });
+  }
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);
@@ -144,6 +255,8 @@ export function bootFake(): {
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   server.projects.seedFolders("/home/ci", [
+    // This Mac's relay, cloned under another folder name: New thread finds it by its origin.
+    { path: "/home/ci/src/relay-ci", git: true, remote: "https://github.com/acme/relay" },
     { path: "/home/ci/services/api", git: true },
     { path: "/home/ci/services/billing-worker", git: true },
     { path: "/home/ci/services/web-gateway", git: true },
@@ -151,6 +264,11 @@ export function bootFake(): {
   ]);
   // One project there already, so New thread can start on the build server.
   if (!empty) {
+    const relay = server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
+    // Linked to This Mac's relay (ADR 0180): New thread in lists them as one project.
+    const relayProject = "5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90";
+    if (relay?.workspace) server.projects.identities.set(relay.workspace.id, relayProject);
+    daemon.projects.identities.set("relay", relayProject);
     const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
     // A thread there, so Continue on… runs from the build server too.
     if (added?.workspace)
@@ -162,8 +280,14 @@ export function bootFake(): {
         hasSentMessage: true,
         details: { workspace: added.workspace },
       });
+    // Chats there too, so the Chats panel shows another machine's chats and its device filter.
+    for (const chat of buildServerChats())
+      new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();
   }
   seedBuildServerUsage(server, Date.now());
+  // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
+  if (world === "spade") seedFakeSpade(daemon, server);
+  if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
   // that is off, which the chooser shows as offline (ADR 0101).
@@ -176,13 +300,28 @@ export function bootFake(): {
     },
   );
   if (!empty) seedLimitReadings(daemon, Date.now());
-  const machines = fakeMachinePool([server], (other) =>
-    createBrowserClient({
-      deviceId: "web-fake-device",
-      transport: () => fakeTransport(other),
-      credential: async () => other.token,
-      storage: memoryStorage(),
-    }),
+  // This Mac is signed in to the fake ace account, so Fleet shows it reachable from anywhere,
+  // and one pairing link waits for a device.
+  (daemon.access.machineAccount ??= new FakeMachineAccount()).signIn(fakeOrigin, fakePerson);
+  if (!empty)
+    daemon.access.pair({ scopes: ["read", "operate"], label: "Kitchen iPad", ttlMs: 3_600_000 });
+  // A laptop paired here that's switched off, so Fleet shows a machine offline.
+  const away =
+    empty || solo ? [] : [{ hostId: HostId.parse("old-laptop"), displayName: "Old laptop" }];
+  // `?fakeWorld=updates`: a release is out, for Settings › Fleet's updates.
+  const updating = world === "updates" ? seedFleetUpdates(daemon, server) : [];
+  const machines = fakeMachinePool(
+    solo ? [] : [server, ...updating],
+    (other) =>
+      createBrowserClient({
+        deviceId: "web-fake-device",
+        transport: () => fakeTransport(other),
+        credential: async () => other.token,
+        storage: memoryStorage(),
+      }),
+    away,
+    // The build server is reached over the tailnet, as the Fleet map draws it.
+    { "build-server": "ws://100.64.0.7:4242" },
   ).then((fake) => fake.pool);
   return {
     client,
@@ -195,15 +334,19 @@ export function bootFake(): {
 
 /** The connection dev:fake and tests run on: the fake daemon's access routes and devices. */
 export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
+  const account = (daemon.access.machineAccount ??= new FakeMachineAccount());
   return {
     ...fallback,
     endpoint: {
       kind: "fake",
-      access: {
-        origin: "http://127.0.0.1:4242/",
-        fetch: daemon.access.fetch,
-        token: async () => daemon.access.token,
-      },
+      access: withFakeMachineAccount(
+        {
+          origin: "http://127.0.0.1:4242/",
+          fetch: daemon.access.fetch,
+          token: async () => daemon.access.token,
+        },
+        account,
+      ),
       devices: () => daemon.appDevices.transport(),
       screen: () => daemon.screen.transport(),
     },

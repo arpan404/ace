@@ -22,6 +22,11 @@ struct NewThreadMemory: Codable, Equatable, Sendable {
     }
     var machine: String?
     var choices: [String: Choice] = [:]
+    /// What the last thread started in each project ran on (`NewThreadPicks`), by
+    /// `NewThreadPicks.key(machine:project:)`. Absent in memory kept before it was.
+    var projects: [String: NewThreadPicks]? = nil
+    /// The skills last picked into a first message in each project, newest first, by the same key.
+    var skills: [String: [NewThreadSkill]]? = nil
 
     /// The machine New thread opens on: the one remembered while it can start a thread and is
     /// reachable; else the first paired that can, reachable ones first; else the first listed.

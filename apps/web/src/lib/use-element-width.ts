@@ -5,7 +5,10 @@ import { useCallback, useState } from "react";
  * has, not the window's. Pass the returned ref to the element; 0 until it mounts. Without
  * ResizeObserver (jsdom) it reads the width once.
  */
-export function useElementWidth(): [ref: (element: HTMLElement | null) => void, width: number] {
+export function useElementWidth(): [
+  ref: (element: HTMLElement | null) => (() => void) | undefined,
+  width: number,
+] {
   const [width, setWidth] = useState(0);
   const ref = useCallback((element: HTMLElement | null) => {
     if (!element) return;

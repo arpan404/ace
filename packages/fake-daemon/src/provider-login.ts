@@ -11,6 +11,30 @@ import type {
   ServerMessage,
 } from "@ace/protocol";
 
+/**
+ * OpenCode's services as its server lists them: well over a dozen, most taking only an API key,
+ * and GitHub Copilot's pre-2.2 login not carried over.
+ */
+const openCodeServices = [
+  ...openCodeLoginChoices
+    .filter((choice) => choice.id !== "other")
+    .map((choice) =>
+      choice.id === "github-copilot"
+        ? Object.assign({}, choice, { note: "sign_in_again" as const })
+        : choice,
+    ),
+  { id: "cerebras", label: "Cerebras" },
+  { id: "cloudflare-ai-gateway", label: "Cloudflare AI Gateway" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "fireworks-ai", label: "Fireworks AI" },
+  { id: "groq", label: "Groq" },
+  { id: "mistral", label: "Mistral" },
+  { id: "togetherai", label: "Together AI" },
+  { id: "vercel", label: "Vercel AI Gateway" },
+  { id: "wafer.ai", label: "Wafer" },
+  { id: "other", label: "Other provider" },
+];
+
 /** `paste_code`: Claude Code's own flow, a browser opened here plus a fallback page's code. */
 type Scenario = "device_code" | "browser" | "choice" | "failure" | "paste_code";
 /** Claude's fallback page: it shows `code#state`, pasted back into the CLI. */
@@ -327,7 +351,7 @@ export class FakeProviderLogin {
           prompt: "Choose the account provider.",
           choices:
             input.provider === "opencode"
-              ? openCodeLoginChoices
+              ? openCodeServices
               : [
                   { id: "github-copilot", label: "GitHub Copilot" },
                   { id: "openai-codex", label: "ChatGPT / Codex" },

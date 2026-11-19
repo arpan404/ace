@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One model: its name (and a muted line when there's more to say), a check when it's the one
-/// chosen, and a star that adds it to Favorites or takes it off.
+/// chosen, and a star that adds it to Favorites or takes it off. The name and its line are the
+/// shared quiet row's, so the list reads with the rest of the app's inner pages.
 struct ModelChoiceRow: View {
     let row: ModelPickerRow
     /// The choose button's accessibility identifier.
@@ -9,25 +10,22 @@ struct ModelChoiceRow: View {
     var enabled = true
     let choose: () -> Void
     let star: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var detail: String? {
+        let line = [row.detail, row.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return line.isEmpty ? nil : line
+    }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             Button(action: choose) {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        // One line per model keeps the list even; accessibility sizes wrap instead.
-                        Text(row.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        if let detail = row.detail, !detail.isEmpty {
-                            Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        }
+                QuietSectionRow {
+                    QuietRowText(title: row.label, detail: detail)
+                    if row.chosen {
+                        AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.primary)
                     }
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    if row.chosen { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
                 }
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!enabled)
@@ -35,19 +33,20 @@ struct ModelChoiceRow: View {
             .accessibilityIdentifier(identifier)
             Button(action: star) {
                 Image(systemName: row.starred ? "star.fill" : "star")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(AceDesign.Typeface.title)
                     .foregroundStyle(row.starred ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .padding(.trailing, AceDesign.Space.tight)
             .accessibilityLabel(row.starred ? "Remove \(row.label) from favorites" : "Add \(row.label) to favorites")
             .accessibilityIdentifier("star.\(row.label)")
             .sensoryFeedback(.selection, trigger: row.starred)
         }
-        .opacity(enabled ? 1 : 0.5)
+        .opacity(enabled ? 1 : AceDesign.Ink.dimmedOpacity)
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xs))
+        .listRowInsets(EdgeInsets())
         .sensoryFeedback(.selection, trigger: row.chosen)
     }
 }
@@ -66,7 +65,10 @@ struct OptionChoiceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-            GlassChoice(items: items, selection: selection, idPrefix: idPrefix, disabled: disabled, select: select)
+            // A row with nothing to choose says why in its note alone.
+            if !items.isEmpty {
+                GlassChoice(items: items, selection: selection, idPrefix: idPrefix, disabled: disabled, select: select)
+            }
             if let note, !note.isEmpty {
                 Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)

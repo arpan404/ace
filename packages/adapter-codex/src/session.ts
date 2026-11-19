@@ -10,6 +10,9 @@ import { sessionLifetime } from "./session-lifetime.ts";
 import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
+import { readCodexToolFacts } from "./tool-facts.ts";
+import { codexShellEnvConfig } from "./shell-env.ts";
+import { codexToolListing } from "./tool-search.ts";
 import { configuredTurnPolicy } from "./default-permissions.ts";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
@@ -29,6 +32,18 @@ import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
 import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
 import { readRateLimits } from "./rate-limits-read.ts";
+
+const PermissionProfiles = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(256),
+        description: z.string().max(2048).nullish(),
+        allowed: z.boolean(),
+      }),
+    )
+    .max(256),
+});
 
 export type CodexOptions = {
   discovery?: DiscoveryOptions;
@@ -52,7 +67,7 @@ export async function openCodexSession(
   const scope = io.sessionId();
   const interactionKey = (id: unknown) => requestKey(id, scope);
   const seenQuestions = new Set<string>();
-  const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
+  let injection: ReturnType<typeof codexInjection> | undefined;
   let link: CodexChannel | undefined;
   const started = io.now();
   let sequence = 0;
@@ -84,7 +99,7 @@ export async function openCodexSession(
       }
       // Local RPC rejection cannot resolve translation's held completion. Retire the owned peer.
       emit("note", { event: "turn-correlation-timeout", threadId: thread });
-      void lifetime.failTransport();
+      lifetime.failTransport();
     };
     correlationDeadlines.set(id, io.schedule(expire, deadline - io.now()));
   }
@@ -137,7 +152,7 @@ export async function openCodexSession(
       }
       if (!optionalMethod || !(error instanceof RangeError)) {
         // A rejected incoming execution frame makes the peer detach. Its process is ours.
-        if (dir === "recv") void lifetime.failTransport();
+        if (dir === "recv") lifetime.failTransport();
         throw error;
       }
       emit("note", {
@@ -328,7 +343,7 @@ export async function openCodexSession(
     notification: (message) => onNotification(message),
     request: (message) => onRequest(message),
     stderr: (line) => lifetime.stderr(line),
-    failed: () => void lifetime.failTransport(),
+    failed: () => lifetime.failTransport(),
     exited: (exit) => lifetime.exited(exit),
   };
   const rpc: Pick<CodexChannel, "request"> = {
@@ -377,7 +392,7 @@ export async function openCodexSession(
   function onNotification({ method, params }: Notification): void {
     catalog.changed(method, params);
     if (method === "turn/completed" && obj(params)["threadId"] === nativeSessionId)
-      void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`);
+      void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`).catch(diagnostic);
     if (method === "thread/queue/changed")
       void refreshQueue(str(obj(params)["threadId"])).catch(diagnostic);
   }
@@ -439,20 +454,17 @@ export async function openCodexSession(
   lifetime.attached(link);
   try {
     if (ctx.signal.aborted) throw ctx.signal.reason;
+    // Independent of the profile catalog: both requests are in flight together.
+    const configured =
+      permissionMode === null && ctx.resetPermissions
+        ? request("config/read", { cwd: ctx.cwd, includeLayers: false })
+        : undefined;
+    // Awaited below; a failure while the catalog is read must not go unhandled meanwhile.
+    void configured?.catch(() => {});
     try {
-      const listing = z
-        .object({
-          data: z
-            .array(
-              z.object({
-                id: z.string().min(1).max(256),
-                description: z.string().max(2048).nullish(),
-                allowed: z.boolean(),
-              }),
-            )
-            .max(256),
-        })
-        .parse(await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }));
+      const listing = PermissionProfiles.parse(
+        await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }),
+      );
       const builtins = nativePermissionModes("codex");
       const permissionModes = listing.data
         .filter((profile) => profile.allowed)
@@ -487,22 +499,35 @@ export async function openCodexSession(
       // Older experimental servers lack the profile catalog; preserve native startup policy.
       if (ctx.signal.aborted) throw error;
     }
+    // Whether Codex will defer ace's tools on this thread's model decides how ace lists them.
+    if (ctx.aceMcp)
+      injection = codexInjection({
+        ...ctx.aceMcp,
+        listing: codexToolListing(
+          await readCodexToolFacts({
+            request: (method, params) => request(method, params),
+            cwd: ctx.cwd,
+            model: ctx.model,
+            signal: ctx.signal,
+            schedule: io.schedule,
+            catalogs: link.catalogs,
+          }),
+        ),
+      });
     const threadPolicy: Pick<
       ThreadStartParams,
       "permissions" | "approvalPolicy" | "approvalsReviewer" | "config"
-    > =
-      permissionMode === null && ctx.resetPermissions
-        ? configuredTurnPolicy(await request("config/read", { cwd: ctx.cwd, includeLayers: false }))
-        : codexThreadPolicy(permissionMode, ctx.cwd);
+    > = configured
+      ? configuredTurnPolicy(await configured)
+      : codexThreadPolicy(permissionMode, ctx.cwd);
+    const shellEnv = codexShellEnvConfig(ctx.agentEnv);
     const params = {
       cwd: ctx.cwd,
       ...threadPolicy,
-      ...(injection
-        ? {
-            developerInstructions: injection.developerInstructions,
-            config: { ...threadPolicy.config, ...injection.config },
-          }
+      ...(injection || Object.keys(shellEnv).length
+        ? { config: { ...threadPolicy.config, ...injection?.config, ...shellEnv } }
         : {}),
+      ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(
@@ -601,6 +626,9 @@ export async function openCodexSession(
     async configure(selection) {
       const executionOptions = CodexSelectionOptions.parse(selection.options);
       assertOpen();
+      // MCP headers and the tool guidance are fixed at connection startup. The engine resumes
+      // this native thread with fresh discovery before sending another turn.
+      if (ctx.aceMcp && selection.model !== ctx.model) return "reopen" as const;
       await request("thread/settings/update", {
         threadId: nativeSessionId,
         model: selection.model ?? null,

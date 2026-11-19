@@ -4,8 +4,10 @@ import { act, configure, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { showUncommitted, wholeFilePatch } from "@/test/uncommitted.ts";
 import { panelServices } from "../services.ts";
-import { discardDraft, saveDraft } from "./drafts.ts";
+import { discardDraft, saveDraft } from "@ace/ui-core/review";
+import { beginComposition } from "./compositions.ts";
 import { persistReview } from "./review-store.ts";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -47,6 +49,8 @@ async function openChanges(app = harness()) {
   app.play(coldStartReplay()).runThrough("test-done");
   app.daemon.apply(threadId, edit("historical", historical));
   app.daemon.apply(threadId, edit("current", current));
+  // Comments go on the checkout's uncommitted lines: the file as the last turn left it.
+  app.daemon.workspace.setGitDiff(threadId, wholeFilePatch(path, base, current));
   const mounted = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await app.client.request({
@@ -62,7 +66,7 @@ async function openChanges(app = harness()) {
     await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   }
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("region", { name: path });
+  await within(await showUncommitted(panel)).findByRole("region", { name: path });
   return { app, panel, mounted };
 }
 
@@ -142,10 +146,9 @@ test("repeated empty selections leave only the current editor while preserving a
   const { panel } = await openChanges();
   const block = within(panel).getByRole("region", { name: path });
   await begin(block, "Keep the written work", "const b = 4;");
-  for (let index = 0; index < 40; index++) {
-    const line = index % 2 === 0 ? 1 : 3;
+  // Blank editors don't pile up (the rule's cases are in compositions.test.ts).
+  for (const line of [1, 3, 1, 3])
     await userEvent.click(within(block).getByRole("button", { name: `Comment on line ${line}` }));
-  }
   expect(within(panel).getAllByRole("button", { name: /^Resume / })).toHaveLength(1);
   expect(within(block).getByRole("textbox", { name: "Comment on line 3" })).toHaveProperty(
     "value",
@@ -168,15 +171,23 @@ test("repeated empty selections leave only the current editor while preserving a
 }, 30000);
 
 test("the composition limit refuses a new selection while keeping written work editable and releases space after save", async () => {
-  const { panel } = await openChanges();
+  const { app, panel } = await openChanges();
   const block = within(panel).getByRole("region", { name: path });
-  for (let number = 1; number <= 32; number++) {
-    await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
-    await userEvent.type(
-      within(block).getByRole("textbox", { name: "Comment on line 2" }),
-      `Keep ${number}`,
-    );
-  }
+  // Fill the client to its 32 editors: two written here, the 30 between copied from the first.
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  await userEvent.type(within(block).getByRole("textbox", { name: "Comment on line 2" }), "Keep 1");
+  const { compositions } = await panelServices(app.client);
+  const [first] = compositions.get().entries.values();
+  if (!first) throw new Error("No editor started");
+  act(() => {
+    for (let number = 2; number <= 31; number++)
+      beginComposition(compositions, { ...first, id: `copy-${number}`, text: `Keep ${number}` });
+  });
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  await userEvent.type(
+    within(block).getByRole("textbox", { name: "Comment on line 2" }),
+    "Keep 32",
+  );
   await userEvent.click(within(block).getByRole("button", { name: "Comment on line 1" }));
   expect(within(panel).getByRole("alert").textContent).toBe(
     "Save or cancel an unfinished comment before starting another.",
@@ -299,35 +310,27 @@ test.each([
   30000,
 );
 
-test("changing to a cached diff scope retains its historical suggestion without admitting it against the newer text", async () => {
+test("an unfinished suggestion waits while a turn's diff shows and is saved back on Uncommitted", async () => {
   const { app, panel } = await openChanges();
-  // Warm both scopes so the same annotation position survives the scope transition.
-  await pickScope(panel, "Turn 3");
-  await pickScope(panel, "Last turn");
-  const older = await pickScope(panel, "Turn 3");
-  await begin(older, "Change historical a", "const a = 3;");
-  const newer = await pickScope(panel, "Last turn");
-  expect(within(newer).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull();
-  expect(within(newer).queryByRole("textbox", { name: "Suggested change" })).toBeNull();
-  const retained = within(panel).getByRole("region", { name: "Unfinished review comment" });
-  expect(within(retained).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+  await begin(
+    within(panel).getByRole("region", { name: path }),
+    "Change current b",
+    "const b = 3;",
+  );
+  const turn = await pickScope(panel, "Turn 3");
+  // A turn's lines aren't the checkout's: no editor there, and nothing to start one with.
+  expect(within(panel).queryByRole("textbox")).toBeNull();
+  expect(within(turn).queryByRole("button", { name: /^Comment on/ })).toBeNull();
+  await showUncommitted(panel);
+  const block = await within(panel).findByRole("region", { name: path });
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
     "value",
-    "const a = 3;",
+    "Change current b",
   );
-  expect(within(retained).getByRole("button", { name: "Comment" })).toHaveProperty(
-    "disabled",
-    true,
-  );
-  await userEvent.click(within(retained).getByRole("textbox", { name: "Comment on line 2" }));
-  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
-  expect(await readFile(app)).toBe(current);
-  expect(app.daemon.review.comments()).toEqual([]);
-
-  await begin(newer, "Change current b", "const b = 3;");
-  await userEvent.click(within(newer).getByRole("button", { name: "Comment" }));
-  const comment = within(newer).getByRole("article", { name: "Comment on line 2" });
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  const comment = within(block).getByRole("article", { name: "Comment on line 2" });
   await userEvent.click(within(comment).getByRole("button", { name: "Apply" }));
-  await within(newer).findByText("Applied");
+  await within(block).findByText("Applied");
   expect(await readFile(app)).toBe("header\nconst b = 3;\nfooter\n");
   expect(app.daemon.review.comments()).toEqual([
     expect.objectContaining({
@@ -374,7 +377,10 @@ test.each(["new comment", "edited saved comment"])(
       threadId,
       operation: { op: "write", path, expected: stat.value.version, text: updated },
     });
+    app.daemon.workspace.setGitDiff(threadId, wholeFilePatch(path, base, updated));
     app.daemon.apply(threadId, edit("background", updated));
+    // Nothing pushes the checkout's diff: it is read again on Refresh.
+    await userEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
     const retained = await within(panel).findByRole("region", {
       name: "Unfinished review comment",
     });
@@ -399,7 +405,10 @@ test.each(["new comment", "edited saved comment"])(
     await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
     const older = await pickScope(panel, "Turn 4");
     expect(within(older).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull();
-    const recovered = within(panel).getByRole("region", { name: "Unfinished review comment" });
+    await showUncommitted(panel);
+    const recovered = await within(panel).findByRole("region", {
+      name: "Unfinished review comment",
+    });
     expect(within(recovered).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
       "value",
       "Keep my unfinished edits",
@@ -412,7 +421,6 @@ test.each(["new comment", "edited saved comment"])(
       "disabled",
       true,
     );
-    await pickScope(panel, "Last turn");
     await userEvent.click(within(panel).getByRole("button", { name: "Reselect lines" }));
     const newer = within(panel).getByRole("region", { name: path });
     await userEvent.click(within(newer).getByRole("button", { name: "Comment on line 2" }));

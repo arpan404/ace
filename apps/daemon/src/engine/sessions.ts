@@ -1,4 +1,7 @@
 import { interruptedNotice } from "./thread-liveness.ts";
+import { SessionFenced } from "./session-fenced.ts";
+import { homeWaitText } from "@ace/accounts/home-wait";
+import { spadeBotAceTools } from "../spade/brain-tools.ts";
 import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -10,6 +13,7 @@ import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
+import { agentSessionEnv } from "./agent-env.ts";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -20,6 +24,8 @@ import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
 import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
+import { bounded } from "../liveness/bounded.ts";
+import { INTERRUPT_GRACE_MS, KILL_GRACE_MS, TERMINATE_GRACE_MS } from "../liveness/stop.ts";
 
 const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
@@ -40,10 +46,12 @@ interface SessionDependencies {
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
   prepareWorkspace?(id: ThreadId, options: { runCommands: boolean }): Promise<string>;
-  assertWorkspaceAvailable?(cwd: string): Promise<void>;
+  assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
+  /** The thread is moving or moved to another machine (ADR 0191): no provider opens for it. */
+  fenced?(id: ThreadId): boolean;
   wake(id: ThreadId): void;
   openFailed?(
     id: ThreadId,
@@ -62,13 +70,20 @@ interface SessionDependencies {
     threadId: ThreadId,
     signal: AbortSignal,
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
+  /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
+  agentHome?: string;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
+
   private turnPermissions = new Map<ThreadId, number>();
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
+  }
+
+  private assertUnfenced(id: ThreadId): void {
+    if (this.dependencies.fenced?.(id)) throw new SessionFenced();
   }
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
@@ -78,6 +93,7 @@ export class Sessions {
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
     if (this.dependencies.repo.cleaning(actor.id)) throw new Error("Thread is being deleted");
+    this.assertUnfenced(actor.id);
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
     // A prepared root is starting before its first turn, not a pinned live policy.
@@ -120,7 +136,7 @@ export class Sessions {
     if (actor.session && permissions.effective(actor.id) !== access)
       await this.close(actor, "idle");
     if (actor.session) {
-      await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd);
+      await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd, actor.id);
       permissions.applied(actor.id, access, this.dependencies.clock.now());
       return;
     }
@@ -217,7 +233,9 @@ export class Sessions {
       await this.dependencies.repo.store.writable();
       if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
         throw new Error("Thread is being deleted");
-      await this.assertWorkspaceAvailable(metadata.cwd);
+      await this.assertWorkspaceAvailable(metadata.cwd, actor.id);
+      // Last word before the provider starts: the move may have fenced it during the awaits above.
+      this.assertUnfenced(actor.id);
       const codexContext = {
         resetPermissions:
           mode === null && this.dependencies.repo.permissions.effective(actor.id) !== null,
@@ -246,8 +264,30 @@ export class Sessions {
         ...(mode ? { permissionMode: mode } : {}),
         ...codexContext,
         ...(aceMcp ? { aceMcp } : {}),
+        ...(this.dependencies.repo.store.getThread(actor.id)?.host === "spade-bot"
+          ? { spadeBot: { allowAceTools: spadeBotAceTools } }
+          : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
+        // A notice while the account's folder hasn't answered: the turn is waiting, not lost.
+        onAccountWait: (accounts) =>
+          actor.enqueue(() => {
+            if (generation !== actor.generation || lifetime.signal.aborted) return;
+            actor.apply([
+              {
+                type: "item.upsert",
+                agent: rootKey,
+                item: `account-wait:${this.dependencies.clock.now()}`,
+                draft: {
+                  type: "notice",
+                  level: "info",
+                  code: "account_home_waiting",
+                  text: homeWaitText(accounts),
+                  complete: true,
+                },
+              },
+            ]);
+          }),
         onCapabilities: (effectiveCapabilities, acpSupport) => {
           if (generation !== actor.generation) return;
           actor.effectiveCapabilities = effectiveCapabilities;
@@ -270,6 +310,7 @@ export class Sessions {
           );
         },
         threadId: actor.id,
+        agentEnv: agentSessionEnv({ threadId: actor.id, home: this.dependencies.agentHome }),
         rootKey,
         cwd: metadata.cwd,
         ...(transition.fork && metadata.nativeSessionId === undefined
@@ -408,6 +449,11 @@ export class Sessions {
         await session.close("shutdown");
         throw new Error("Provider session closed while opening");
       }
+      // Fenced while the provider opened (ADR 0191): it ends at once and runs nothing.
+      if (this.dependencies.fenced?.(actor.id)) {
+        await session.close("shutdown");
+        throw new SessionFenced();
+      }
       actor.session = session;
       if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
         this.dependencies.repo.permissions.applied(actor.id, access, this.dependencies.clock.now());
@@ -463,39 +509,42 @@ export class Sessions {
               detail: original.detail,
             })
           : original;
-      try {
-        const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
-        const routeField = (value: string | undefined): string | null =>
-          value === undefined
-            ? null
-            : scrub(
-                errorSecrets.reduce(
-                  (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
-                  value,
-                ),
-              ).slice(0, 256);
-        const model = routeField(openingModel);
-        const instance = routeField(openingInstance);
-        const backend = this.dependencies.repo.backend(actor.id);
-        const diagnostic = this.dependencies.openFailed?.(
-          actor.id,
-          {
-            provider: stateBefore.config.provider,
-            code: failure.code,
-            title: failure.title,
-            detail: failure.detail,
-          },
-          {
-            ...(model ? { model } : {}),
-            ...(instance ? { instance } : {}),
-            ...(backend ? { backend } : {}),
-          },
-        );
-        void Promise.resolve(diagnostic).catch(() => {});
-      } catch {
-        // Diagnostics are optional; their failure cannot replace the sanitized
-        // provider error or prevent lifetime/capacity cleanup below.
-      }
+      // Fenced by a move (ADR 0191): not a failure to report; the send goes back to the queue.
+      const fenced = error instanceof SessionFenced;
+      if (!fenced)
+        try {
+          const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
+          const routeField = (value: string | undefined): string | null =>
+            value === undefined
+              ? null
+              : scrub(
+                  errorSecrets.reduce(
+                    (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
+                    value,
+                  ),
+                ).slice(0, 256);
+          const model = routeField(openingModel);
+          const instance = routeField(openingInstance);
+          const backend = this.dependencies.repo.backend(actor.id);
+          const diagnostic = this.dependencies.openFailed?.(
+            actor.id,
+            {
+              provider: stateBefore.config.provider,
+              code: failure.code,
+              title: failure.title,
+              detail: failure.detail,
+            },
+            {
+              ...(model ? { model } : {}),
+              ...(instance ? { instance } : {}),
+              ...(backend ? { backend } : {}),
+            },
+          );
+          void Promise.resolve(diagnostic).catch(() => {});
+        } catch {
+          // Diagnostics are optional; their failure cannot replace the sanitized
+          // provider error or prevent lifetime/capacity cleanup below.
+        }
       await actor.flush();
       if (generation === actor.generation) {
         const session = actor.session;
@@ -513,20 +562,20 @@ export class Sessions {
         lifetime.abort();
         try {
           actor.apply([
-            { type: "process.exited", deliberate: false },
+            { type: "process.exited", deliberate: fenced },
             { type: "queue.changed", source: "provider", count: 0 },
           ]);
         } finally {
           this.dependencies.released(actor.id);
         }
       }
-      throw failure;
+      throw fenced ? error : failure;
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
     }
   }
-  async assertWorkspaceAvailable(cwd: string): Promise<void> {
-    await this.dependencies.assertWorkspaceAvailable?.(cwd);
+  async assertWorkspaceAvailable(cwd: string, threadId: ThreadId): Promise<void> {
+    await this.dependencies.assertWorkspaceAvailable?.(cwd, threadId);
     this.dependencies.repo.store.workspaceReservations.assertAvailable(cwd);
   }
 
@@ -553,6 +602,70 @@ export class Sessions {
     if (!selection.model)
       throw new Error("No available default model; refresh the provider catalog");
     return selection.model;
+  }
+  /**
+   * The provider's own interrupt, the first step of a Stop: one that doesn't answer within
+   * INTERRUPT_GRACE_MS fails with StopUnanswered, so the Stop goes on to close the session.
+   */
+  interruptWithin<T>(work: Promise<T>): Promise<T> {
+    return bounded(
+      this.dependencies.clock.setTimer,
+      INTERRUPT_GRACE_MS,
+      "Provider interrupt",
+      work,
+    );
+  }
+  /**
+   * The last step of a Stop (ADR 0052): the session closes, which ends its process with SIGTERM
+   * then SIGKILL, within the bound. A close that fails or doesn't answer in time still ends the
+   * session here: the thread reads stopped, saying the provider didn't confirm, and a late exit
+   * of the old process changes nothing.
+   */
+  async closeForStop(actor: ThreadActor): Promise<void> {
+    const generation = actor.generation;
+    try {
+      await bounded(
+        this.dependencies.clock.setTimer,
+        TERMINATE_GRACE_MS + KILL_GRACE_MS,
+        "Provider close",
+        this.close(actor, "user"),
+      );
+    } catch (error) {
+      if (actor.generation !== generation) return;
+      const session = actor.session;
+      actor.session = undefined;
+      actor.lifetime?.abort();
+      actor.retireGeneration();
+      actor.idleDue = false;
+      const at = this.dependencies.clock.now();
+      const text = "Stopped · the provider didn't confirm it ended";
+      this.dependencies.repo.apply(
+        actor.id,
+        [
+          {
+            type: "item.upsert",
+            agent: this.dependencies.repo.requireState(actor.id).rootKey ?? "root",
+            item: `liveness:stop-unconfirmed:${at}`,
+            draft: {
+              type: "notice",
+              level: "warning",
+              code: "stop_unconfirmed",
+              text,
+              complete: true,
+            },
+          },
+          { type: "process.exited", deliberate: true, message: text },
+          { type: "queue.changed", source: "provider", count: 0 },
+        ],
+        at,
+      );
+      actor.releaseInputs();
+      actor.schedule();
+      // The old session is left to its own close, still in flight or failed; nothing waits on
+      // it, and the thread's notice says the provider didn't confirm (`error`).
+      void session;
+      void error;
+    }
   }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;

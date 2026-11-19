@@ -9,6 +9,19 @@
       ],
       "type": "string"
     },
+    "accounts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineAccount.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "delegateAccounts": {
+      "type": "boolean"
+    },
+    "grants": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrants.json"
+    },
     "hostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },
@@ -16,6 +29,9 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "paths": {
+      "$ref": "https://ace.local/protocol/v1/MachinePaths.json"
     },
     "projects": {
       "items": {
@@ -33,10 +49,12 @@
     },
     "tools": {
       "items": {
-        "$ref": "https://ace.local/protocol/v1/MachineToolGroup.json"
+        "maxLength": 64,
+        "type": "string"
       },
-      "maxItems": 8,
-      "type": "array"
+      "maxItems": 16,
+      "type": "array",
+      "x-ace-constraint": "Unknown tool groups are accepted and omitted from the decoded list."
     },
     "transfers": {
       "type": "boolean"

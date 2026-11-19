@@ -11,14 +11,17 @@ import { findExecutable } from "@ace/provider-kit/discovery";
 import { AgentCatalog } from "./catalog.ts";
 import { buildInstallPlan, InstallPlanError, type InstallPlan } from "./plans.ts";
 import {
+  ExecutableDigests,
   LocalInventory,
   LocalInstallation,
   bindLocal,
   executableDigest,
+  type DigestMemory,
   type LocalBinding,
 } from "./inventory.ts";
 import { CommittedWriteError } from "./files.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
+const StoredInstallations = z.array(LocalInstallation).max(512);
 export type InventoryStorage = {
   load(): Promise<unknown>;
   /** Reject with CommittedWriteError if publication happened before a durability failure. */
@@ -27,6 +30,8 @@ export type InventoryStorage = {
 export type RegistryServiceOptions = {
   catalog: AgentCatalog;
   storage: InventoryStorage;
+  /** Keeps launch digests across restarts, so a start does not hash every agent again. */
+  digests?: DigestMemory;
   root: string;
   target: string;
   env: NodeJS.ProcessEnv;
@@ -37,6 +42,7 @@ export class AgentRegistry {
   readonly catalog: AgentCatalog;
   readonly inventory: LocalInventory;
   readonly #options: RegistryServiceOptions;
+  readonly #digests: ExecutableDigests;
   #plans = new Map<string, InstallPlan>();
   #intents = new Map<
     string,
@@ -52,15 +58,21 @@ export class AgentRegistry {
   #progress: RegistryInstallProgress | undefined;
   #closed = false;
   #binding = false;
-  private constructor(options: RegistryServiceOptions, entries: LocalInstallation[]) {
+  private constructor(
+    options: RegistryServiceOptions,
+    entries: LocalInstallation[],
+    digests: ExecutableDigests,
+  ) {
     this.#options = options;
+    this.#digests = digests;
     this.catalog = options.catalog;
-    this.inventory = new LocalInventory(entries);
+    this.inventory = new LocalInventory(entries, digests);
   }
   static async open(options: RegistryServiceOptions): Promise<AgentRegistry> {
-    const value = await options.storage.load();
-    const entries = value === undefined ? [] : z.array(LocalInstallation).max(512).parse(value);
-    return new AgentRegistry(options, entries);
+    const digests = new ExecutableDigests(undefined, options.digests);
+    const [value] = await Promise.all([options.storage.load(), digests.recall()]);
+    const entries = value === undefined ? [] : StoredInstallations.parse(value);
+    return new AgentRegistry(options, entries, digests);
   }
   has(identity: AcpIdentity): boolean {
     return this.inventory.has(identity);
@@ -297,5 +309,6 @@ export class AgentRegistry {
     for (const intent of this.#intents.values()) if (!intent.committing) intent.abort.abort();
     await Promise.all([...this.#intents.values()].map((intent) => intent.result));
     await this.catalog.close();
+    await this.#digests.saved();
   }
 }

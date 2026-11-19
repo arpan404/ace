@@ -21,6 +21,12 @@ const config = z
     agent: z.record(PaletteName, z.unknown()).default({}),
   })
   .passthrough();
+const OpenCodeAgent = z
+  .object({
+    description: z.string().max(2048).default(""),
+    disable: z.boolean().default(false),
+  })
+  .passthrough();
 export function parseOpenCodeConfig(text: string, ctx: Omit<ParseContext, "format">): ParsedSource {
   if (new TextEncoder().encode(text).byteLength > 65536) return diagnostic(ctx.source);
   try {
@@ -40,13 +46,7 @@ export function parseOpenCodeConfig(text: string, ctx: Omit<ParseContext, "forma
       );
     }
     for (const [name, value] of Object.entries(parsed.agent).slice(0, 256)) {
-      const agent = z
-        .object({
-          description: z.string().max(2048).default(""),
-          disable: z.boolean().default(false),
-        })
-        .passthrough()
-        .safeParse(value);
+      const agent = OpenCodeAgent.safeParse(value);
       if (agent.success && !agent.data.disable)
         result.commands.push(
           definition({ ...ctx, name, format: "opencode", kind: "agent" }, "", agent.data),

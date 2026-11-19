@@ -20,14 +20,9 @@ export const contextToolCatalog = [
     title: "Read project and session context",
     riskClass: "read-only",
     description:
-      "Recent threads, uncommitted changes, PRs, notes and session status in one read; call it first in an existing project. status: this thread, project, access mode and ace tool groups that are off. recent: the 5 latest threads with outcomes. changes: branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.",
+      "Project and session context; call it first in an existing project. status: thread, access, ace groups off. recent: latest threads, outcomes. changes: branch, uncommitted paths. prs: linked PRs, CI. notes: project notes. diagnostics: your failed ace calls, what keeps this thread unsettled.",
     input: z.strictObject({
-      topics: z
-        .array(ContextTopic)
-        .min(1)
-        .max(ContextTopic.options.length)
-        .default(defaultTopics)
-        .describe("Only the topics you need."),
+      topics: z.array(ContextTopic).min(1).max(ContextTopic.options.length).default(defaultTopics),
     }),
     output: ContextResult,
     // One open field per topic: the full shapes would cost context on every listing.
@@ -69,9 +64,12 @@ export function createContextRegistry(
           access: state.access,
           ...(state.project ? { project: state.project } : {}),
           // Only what is off, with why: a group that is on needs no words.
-          groups: mcpStatusGroups(registry.capabilities(), capabilities, state.disabled).filter(
-            (group) => !group.enabled,
-          ),
+          groups: mcpStatusGroups(
+            registry.capabilities(),
+            capabilities,
+            state.disabled,
+            state.offReasons,
+          ).filter((group) => !group.enabled),
         },
         ...known,
       };

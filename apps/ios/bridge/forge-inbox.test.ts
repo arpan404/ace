@@ -67,3 +67,59 @@ test("a write GitHub doesn't confirm says so and is sent only once", async () =>
   expect(reply.message).toContain("sending it again is safe");
   expect(sent).toHaveLength(1);
 });
+
+const readAll = async (ask: Ask, extra: Record<string, unknown> = {}) =>
+  (await ask({
+    type: "forge.inbox.write",
+    project: "ace",
+    action: "read-all",
+    participating: false,
+    searched: false,
+    unread: (await inbox(ask, extra)).rows.filter((row) => row.unread).map((row) => row.id),
+    ...extra,
+  })) as InboxWriteReply;
+const unreadIds = async (ask: Ask) =>
+  (await inbox(ask, { all: true })).rows.filter((row) => row.unread).map((row) => row.id);
+
+test("Mark all read marks everything read up to the press in one write", async () => {
+  const at = Date.parse("2026-10-21T00:00:00Z");
+  const { ask, sent } = await connected(undefined, undefined, undefined, () => at);
+  expect((await unreadIds(ask)).length).toBeGreaterThan(1);
+  expect((await readAll(ask)).ok).toBe(true);
+  expect(sent.map((payload) => payload.type === "forge.inbox.write" && payload.input)).toEqual([
+    { action: "read-all", before: "2026-10-21T00:00:00.000Z" },
+  ]);
+  expect(await unreadIds(ask)).toEqual([]);
+});
+
+test("with a reason chosen, Mark all read marks only that reason's unread rows, one by one", async () => {
+  const at = Date.parse("2026-10-21T00:00:00Z");
+  const { ask, sent } = await connected(undefined, undefined, undefined, () => at);
+  const before = await unreadIds(ask);
+  expect((await readAll(ask, { reason: "mention" })).ok).toBe(true);
+  expect(sent.map((payload) => payload.type === "forge.inbox.write" && payload.input)).toEqual([
+    { action: "read", id: "9002" },
+  ]);
+  expect(await unreadIds(ask)).toEqual(before.filter((id) => id !== "9002"));
+});
+
+test("rows stay read while GitHub is still applying Mark all read, for one poll interval", async () => {
+  let at = Date.parse("2026-10-21T00:00:00Z");
+  const { ask, daemon } = await connected(undefined, undefined, undefined, () => at);
+  daemon.workspace.inbox.deferReadAll();
+  const before = await unreadIds(ask);
+  expect((await readAll(ask)).ok).toBe(true);
+  expect(await unreadIds(ask)).toEqual([]);
+  // Past GitHub's poll interval, what GitHub holds is shown again, applied or not.
+  at += 61_000;
+  expect(await unreadIds(ask)).toEqual(before);
+});
+
+test("a Mark all read GitHub refused leaves the rows unread on the next read", async () => {
+  const at = Date.parse("2026-10-21T00:00:00Z");
+  const { ask, daemon } = await connected(undefined, undefined, undefined, () => at);
+  const before = await unreadIds(ask);
+  daemon.workspace.inbox.setOutcome("refused");
+  expect((await readAll(ask)).ok).toBe(false);
+  expect(await unreadIds(ask)).toEqual(before);
+});

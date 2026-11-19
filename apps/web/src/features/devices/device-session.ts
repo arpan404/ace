@@ -11,11 +11,16 @@ import {
   type DeviceTransport,
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import type { MediaRoute } from "@ace/browser/live-view";
+import { useOptionalClient } from "@ace/client-react";
+import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
+import type { ChannelEndpoint } from "@/boot/main-machine.ts";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import { channelReconnect } from "@/lib/channel-reconnect.ts";
 import { learnRelay, type RelayRoute } from "./relay-route.ts";
+import { devicesRoute } from "./devices-route.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -38,11 +43,25 @@ const httpOrigin = (url: string) => {
  * end-to-end encrypted relay (`routed` says which one carries it).
  */
 function transportFor(
-  endpoint: DaemonEndpoint,
+  endpoint: ChannelEndpoint,
   routed: (route: DeviceConnection) => void,
 ): DeviceTransport {
   if (endpoint.kind === "fake") return endpoint.devices();
   const { target, deviceId } = endpoint;
+  const token = target.token;
+  const plan = devicesRoute(target);
+  if (plan.kind === "relay") {
+    routed("relay");
+    return deviceTransport({
+      target: { kind: "relay", url: plan.url, pinnedFingerprint: plan.hostId },
+      expectedHostId: plan.hostId,
+      deviceId,
+      credential: async () => token,
+      socket: browserDeviceSocket,
+      keys: ephemeralRelayKeys,
+      schedule,
+    });
+  }
   const direct = deviceTransport({
     target: { kind: "local", url: target.url },
     deviceId,
@@ -51,8 +70,7 @@ function transportFor(
     keys: ephemeralRelayKeys,
     schedule,
   });
-  const token = target.token;
-  if (loopback(target.url) || !target.pairedDeviceId) return direct;
+  if (plan.kind === "direct") return direct;
   const relay = learnRelay(
     webStorage(() => localStorage),
     target.url,
@@ -103,8 +121,10 @@ export interface DeviceSession {
   close(): void;
 }
 
-function openSession(endpoint: DaemonEndpoint): DeviceSession {
+function openSession(endpoint: ChannelEndpoint, media?: MediaRoute): DeviceSession {
   const client = new DeviceClient({ id: () => crypto.randomUUID(), schedule });
+  // Live pictures come by the daemon connection's media connection when it has one.
+  client.useMedia(media);
   const listeners = new Set<() => void>();
   let connection: DeviceConnection =
     endpoint.kind === "fake" || loopback(endpoint.target.url) ? "local" : "remote";
@@ -163,6 +183,7 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
     close() {
       retry.dispose();
       stop();
+      client.useMedia(undefined);
       client.disconnect();
     },
   };
@@ -185,33 +206,34 @@ const none = () => () => {};
  */
 interface Shared {
   session: DeviceSession;
+  media: MediaRoute | undefined;
   users: number;
   listeners: Set<() => void>;
 }
-const shared = new WeakMap<DaemonEndpoint, Shared>();
+const shared = new WeakMap<ChannelEndpoint, Shared>();
 
-function acquire(endpoint: DaemonEndpoint): Shared {
+function acquire(endpoint: ChannelEndpoint, media: MediaRoute | undefined): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    entry = { session: openSession(endpoint), users: 0, listeners: new Set() };
+    entry = { session: openSession(endpoint, media), media, users: 0, listeners: new Set() };
     shared.set(endpoint, entry);
   }
   entry.users++;
   return entry;
 }
 
-function release(endpoint: DaemonEndpoint, entry: Shared) {
+function release(endpoint: ChannelEndpoint, entry: Shared) {
   entry.users--;
   if (entry.users > 0) return;
   entry.session.close();
   if (shared.get(endpoint) === entry) shared.delete(endpoint);
 }
 
-function reopen(endpoint: DaemonEndpoint) {
+function reopen(endpoint: ChannelEndpoint) {
   const entry = shared.get(endpoint);
   if (!entry) return;
   entry.session.close();
-  entry.session = openSession(endpoint);
+  entry.session = openSession(endpoint, entry.media);
   for (const listener of entry.listeners) listener();
 }
 
@@ -219,11 +241,15 @@ function reopen(endpoint: DaemonEndpoint) {
  * The devices channel while a devices view is open; `reconnect` opens a fresh one for every
  * view. Nothing is replayed: control and approval are asked for again after a reconnect.
  */
-export function useDeviceSession(endpoint: DaemonEndpoint | undefined) {
+export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   const [session, setSession] = useState<DeviceSession | undefined>();
+  const daemon = useOptionalClient();
   useEffect(() => {
     if (!endpoint) return;
-    const entry = acquire(endpoint);
+    const web = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon);
+    web?.relayWith(mediaRelayFor(endpoint));
+    const media = web?.route;
+    const entry = acquire(endpoint, media);
     const follow = () => setSession(entry.session);
     entry.listeners.add(follow);
     follow();
@@ -232,7 +258,7 @@ export function useDeviceSession(endpoint: DaemonEndpoint | undefined) {
       release(endpoint, entry);
       setSession(undefined);
     };
-  }, [endpoint]);
+  }, [endpoint, daemon]);
   const snapshot = useSyncExternalStore(
     session?.subscribe ?? none,
     session?.get ?? (() => offline),

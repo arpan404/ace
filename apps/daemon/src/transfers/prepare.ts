@@ -1,5 +1,8 @@
-import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { realpath } from "node:fs/promises";
+import { relative, sep } from "node:path";
+import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import { maxTransferBytes, type TransferMethod } from "@ace/protocol";
+import { archivePrune, ignoredInProject } from "./archive-selection.ts";
 import { ignoredSelection, staysBehind } from "./ignored-files.ts";
 import { headRef } from "./landing.ts";
 import type { TransferPlan } from "./outgoing-rows.ts";
@@ -31,10 +34,36 @@ const fullRef = (prefix: string, name: string) =>
 /** The ref uncommitted changes travel under, in the bundle and briefly in the source repo. */
 export const changesRef = (transferId: string) => `refs/ace/transfer/${transferId}`;
 
+/** Where the folder sits for Git, with any refusal in words a person acts on (ADR 0101). */
+async function sourceCheckout(git: TransferGit, source: string) {
+  let found: Awaited<ReturnType<TransferGit["sourceCheckout"]>>;
+  try {
+    found = await git.sourceCheckout(source);
+  } catch (error) {
+    if (error instanceof GitError && error.code === "git_missing")
+      throw new TransferError(
+        "git_missing",
+        "This project is a Git repository, but Git isn't installed on this machine. Install Git, then try again.",
+      );
+    throw new TransferError(
+      "source_unreadable",
+      "Git couldn't read this project's repository. Run git status in its folder to see why, then try again.",
+    );
+  }
+  if (found.kind === "untrusted")
+    throw new TransferError(
+      "source_untrusted",
+      "Git won't read this project's repository because its folder belongs to another user. Mark it safe with git config --global --add safe.directory and the folder's path, then try again.",
+    );
+  return found;
+}
+
 /**
- * How the code travels (ADR 0101): a Git repository with an origin goes as `remote`, one without
- * as `bundle`, any other folder as `archive`. Uncommitted changes are captured as a commit
- * without touching the checkout or its index.
+ * How the code travels (ADR 0101): a repository's top with an origin goes as `remote`, one
+ * without as `bundle`. Any other folder goes as `archive`: a plain folder, a folder inside a
+ * repository (so only that folder lands, not the whole repository), and a repository with no
+ * commit and no changes to carry (its bundle would hold nothing). Uncommitted changes are
+ * captured as a commit without touching the checkout or its index.
  */
 export async function planSource(
   git: TransferGit,
@@ -42,12 +71,18 @@ export async function planSource(
   policy: ProjectGitPolicy = {},
 ): Promise<{ method: TransferMethod; plan: TransferPlan }> {
   const base = { source: input.source, name: input.name };
-  let refs: Awaited<ReturnType<TransferGit["bundleRefs"]>>;
-  try {
-    refs = await git.bundleRefs(input.source);
-  } catch {
-    return { method: "archive", plan: base };
-  }
+  const checkout = await sourceCheckout(git, input.source);
+  if (checkout.kind === "folder") return { method: "archive", plan: base };
+  const folder = relative(checkout.root, await realpath(input.source))
+    .split(sep)
+    .join("/");
+  const archived = {
+    method: "archive" as const,
+    plan: { ...base, repository: { root: checkout.root, path: folder } },
+  };
+  if (folder) return archived;
+  const refs = await git.bundleRefs(input.source);
+  if (!refs.head && !input.includeChanges) return archived;
   const remote = await git.transferOrigin(input.source);
   if (remote) (policy.validateUrl ?? validateCloneUrl)(remote.url);
   const changes = input.includeChanges
@@ -56,6 +91,7 @@ export async function planSource(
         message: "Uncommitted changes carried to another machine",
       })
     : undefined;
+  if (!refs.head && !changes) return archived;
   // A detached HEAD has no branch to carry it: a ref pins the commit so the bundle holds it.
   const pinned = !refs.branch && refs.head ? headRef(input.transferId) : undefined;
   if (pinned && refs.head) await git.pinRef(input.source, pinned, refs.head);
@@ -74,6 +110,26 @@ export async function planSource(
   };
 }
 
+/** What an archive of `plan.source` leaves behind; see `archive-selection.ts`. */
+async function archiveRule(git: TransferGit, plan: TransferPlan, includeIgnored: boolean) {
+  const { repository } = plan;
+  if (!repository) return archivePrune({ includeIgnored });
+  let ignored: string[];
+  try {
+    ignored = await git.ignoredPaths(repository.root, repository.path || undefined);
+  } catch {
+    throw new TransferError(
+      "ignored_unreadable",
+      "Git couldn't list the files it ignores in this folder, so nothing was sent. Try again.",
+    );
+  }
+  const inProject = ignoredInProject(ignored, repository.path);
+  return archivePrune({
+    includeIgnored,
+    ...(inProject ? { checkout: { ignored: inProject } } : {}),
+  });
+}
+
 /**
  * Writes what travels to `file`: a full or incremental bundle, or the folder's archive. None when
  * an incremental bundle would be empty because origin already has everything.
@@ -85,16 +141,20 @@ export async function writeTransferFile(
     plan: TransferPlan;
     file: string;
     incremental: boolean;
+    /** For an archive: whether files Git ignores, or a plain folder's `.env`, go too. */
+    includeIgnored: boolean;
     signal: AbortSignal;
   },
 ): Promise<TransferPlan["file"]> {
   const { plan, file, signal } = input;
   await removeQuietly(file);
   if (input.method === "archive") {
-    const measured = await deps.archive.measureFolder(plan.source, { signal });
+    const prune = await archiveRule(deps.git, plan, input.includeIgnored);
+    const measured = await deps.archive.measureFolder(plan.source, { signal, prune });
     if (measured.bytes > maxTransferBytes) throw tooLarge(measured.bytes);
     const packed = await deps.archive.packFolder(plan.source, file, {
       signal,
+      prune,
       maxBytes: maxTransferBytes,
     });
     return { path: file, bytes: packed.bytes, sha256: packed.sha256 };

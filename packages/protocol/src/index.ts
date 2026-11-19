@@ -1,5 +1,11 @@
 export * from "./extension-catalog.ts";
 export * from "./skill-library.ts";
+export * from "./contained-path.ts";
+export * from "./spade.ts";
+export * from "./spade-brains.ts";
+export * from "./spade-remote.ts";
+export * from "./spade-computer.ts";
+export * from "./cowork.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
@@ -19,6 +25,7 @@ export * from "./interactions.ts";
 export * from "./items.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
+export * from "./thread-place.ts";
 export * from "./goal.ts";
 export * from "./terminal.ts";
 export * from "./tools.ts";
@@ -29,6 +36,11 @@ export * from "./files.ts";
 
 export * from "./screen.ts";
 export * from "./diagnostics.ts";
+export * from "./admission.ts";
+export * from "./app-update.ts";
+export * from "./release-data.ts";
+export * from "./ace-client.ts";
+export * from "./machine-update.ts";
 export * from "./context.ts";
 export * from "./search.ts";
 export * from "./automations.ts";
@@ -45,6 +57,9 @@ export * from "./orchestration-spawn.ts";
 export * from "./notifications.ts";
 export * from "./mcp.ts";
 export * from "./remote.ts";
+export * from "./machine-paths.ts";
+export * from "./machine-access.ts";
+export * from "./relay-channel.ts";
 
 export * from "./review.ts";
 export * from "./usage.ts";
@@ -61,6 +76,10 @@ export {
 export * from "./agent-registry.ts";
 export * from "./command-library.ts";
 export * from "./screen-v2.ts";
+export * from "./media-acceleration.ts";
+export * from "./media-link.ts";
+export * from "./media-connection.ts";
+export * from "./media-stream.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./cursor-auth.ts";
@@ -89,7 +108,11 @@ export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
+export * from "./machine-relay.ts";
+export * from "./parcels.ts";
+export * from "./machine-grants.ts";
 export * from "./fleet.ts";
+export * from "./outside-clients.ts";
 export * from "./transfers.ts";
 export * from "./machine-transfers.ts";
 export * from "./queue.ts";
@@ -125,16 +148,21 @@ export * from "./permissions.ts";
 export * from "./permission-client.ts";
 
 export * from "./machines.ts";
+export * from "./locked-use.ts";
 
 export * from "./history.ts";
 
 export * from "./badge-color.ts";
 export * from "./projects.ts";
+export * from "./project-identity.ts";
 export * from "./project-notes.ts";
+export * from "./project-repositories.ts";
+export * from "./forge-capabilities.ts";
 export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
+export * from "./item-raw.ts";
 export * from "./avatars.ts";
 
 export * from "./cli-version.ts";
@@ -162,6 +190,7 @@ export {
 export * from "./worktree-creation.ts";
 
 export * from "./agent-orchestration.ts";
+export * from "./agent-models.ts";
 
 export * from "./forge-browser.ts";
 export * from "./forge-file-content.ts";
@@ -189,3 +218,6 @@ export * from "./storage.ts";
 export * from "./html.ts";
 export * from "./image-share.ts";
 export * from "./forge-inbox.ts";
+
+export { DelegationFailure } from "./delegation-failure.ts";
+export * from "./relay-handshake.ts";

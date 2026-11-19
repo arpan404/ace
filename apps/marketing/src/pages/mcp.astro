@@ -1,0 +1,83 @@
+---
+/*
+ * MCP tools: one heading and one sentence beside a drawn tool call, then every tool by group,
+ * how each CLI loads them, and the questions people ask about them. Words in content/mcp.ts.
+ */
+import Closing from "../components/Closing.astro";
+import DownloadButton from "../components/DownloadButton.astro";
+import Faq from "../components/Faq.astro";
+import CliLoading from "../components/mcp/CliLoading.astro";
+import ToolCallArt from "../components/mcp/ToolCallArt.astro";
+import ToolGroups from "../components/mcp/ToolGroups.astro";
+import { mcpPage, mcpQuestions } from "../content/mcp.ts";
+import { faq } from "../content/product.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor } from "../seo/schema.ts";
+
+const path = "/mcp/";
+const questions = [
+  ...faq.filter((entry) => entry.question === "What are ace's MCP tools?"),
+  ...mcpQuestions,
+];
+---
+
+<Page
+  path={path}
+  title={mcpPage.title}
+  description={mcpPage.description}
+  schema={[faqPage(schemaFor(Astro.site), path, questions)]}
+>
+  <section class="page opening">
+    <div class="words">
+      <h1>{mcpPage.headline}</h1>
+      <p class="lead">{mcpPage.intro}</p>
+      <div class="actions">
+        <DownloadButton />
+        <a class="button button-secondary" href="#tools">See every tool</a>
+      </div>
+    </div>
+    <ToolCallArt />
+  </section>
+
+  <ToolGroups />
+  <CliLoading />
+  <Faq items={questions} heading={mcpPage.questionsHeading} moreHref="/faq/" />
+  <Closing />
+</Page>
+
+<style>
+  .opening {
+    display: grid;
+    gap: clamp(36px, 5vw, 56px) clamp(40px, 6vw, 80px);
+    align-items: center;
+    padding-top: clamp(32px, 5vw, 64px);
+  }
+
+  @media (min-width: 900px) {
+    .opening {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  h1 {
+    max-width: 10em;
+    font-size: clamp(44px, 5.8vw, 84px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 30em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+</style>

@@ -68,7 +68,8 @@ export class RunCheckpoints {
             );
         }
         if (p.type === "thread.updated" && p.status && ["done", "failed"].includes(p.status.state))
-          void this.finish(event.threadId);
+          // finish() swallows its own capture failure and the next drain picks the rows up.
+          void this.finish(event.threadId).catch(() => {});
       }
     });
   }
@@ -92,7 +93,14 @@ export class RunCheckpoints {
       .catch(() => {})
       .finally(() => {
         this.flights.delete(id);
-        if (completed) this.drainPending();
+        // Due rows stay stored and the next finished thread drains them: an unreadable store
+        // here must not reject this flight, which nothing awaits.
+        if (completed)
+          try {
+            this.drainPending();
+          } catch {
+            // Left for the next drain.
+          }
       });
     this.flights.set(id, task);
     return task;
@@ -108,7 +116,8 @@ export class RunCheckpoints {
     );
     for (const row of candidates) {
       const id = ThreadId.parse(row.thread_id);
-      if (!this.flights.has(id)) void this.finish(id);
+      // finish() swallows its own capture failure and the next drain picks the rows up.
+      if (!this.flights.has(id)) void this.finish(id).catch(() => {});
       if (this.flights.size >= 16) break;
     }
   }

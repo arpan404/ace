@@ -1,0 +1,183 @@
+---
+/*
+ * The open thread's transcript, one section per thread the scenes open (the soak test is what
+ * the Linux machine shows while it runs the job handed to it). Only the cold-start
+ * thread shows at first; the story script shows the thread a scene opens (`data-for`). The
+ * cold-start thread's agents group opens (`data-agents="open"` on the window) to list the agents
+ * it handed work to.
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import { formatElapsed } from "@ace/ui-core/time";
+import { browserSteps, delegates } from "../../content/stage.ts";
+import BrandMark from "../BrandMark.astro";
+import AppIcon from "./AppIcon.astro";
+
+const claude = providerIcon({ provider: "claude" }).brand;
+/** The soak test the cold-start thread hands to the Linux machine, as its own thread there. */
+const soak = delegates.find((agent) => agent.machine === "build-server");
+/** The agents group leads with the marks of the providers it handed work to, once each. */
+const groupMarks = [...new Set(delegates.map((agent) => agent.provider))].flatMap((provider) => {
+  const brand = providerIcon({ provider }).brand;
+  return brand ? [brand] : [];
+});
+---
+
+<section class="thread" data-for="cold-start">
+  <p class="you">
+    Resuming phones get every event since the thread began. Cap the replay, keep the client buffer
+    until the ack, and prove it holds at 2,000 clients.
+  </p>
+  <p class="reply">I'll fix the server here and hand off the rest.</p>
+  <div class="step">
+    <AppIcon name="pencil-line" size={16} />
+    <span>Edited</span><code>apps/server/src/replay.ts</code>
+    <span class="end"><ins>+3</ins> <del>−2</del></span>
+  </div>
+  <div class="step agents-step" data-target="subagents">
+    <span class="group-marks">
+      {groupMarks.map((brand) => <BrandMark brand={brand} size={16} />)}
+    </span>
+    <b>3 agents</b><span class="working before-done">2 running</span><span class="after-done"
+      >finished</span
+    >
+    <span class="end"
+      ><span data-seconds="248">4m 8s</span><AppIcon name="caret-down" size={14} /></span
+    >
+  </div>
+  <div class="agent-list" data-agent-list>
+    {
+      delegates.map((agent, index) => {
+        const brand = providerIcon({ provider: agent.provider }).brand;
+        return (
+          <div class="agent-row" data-tone={agent.state} style={`--i: ${index}`}>
+            <span class="agent-mark">{brand && <BrandMark brand={brand} size={16} />}</span>
+            <span class="agent-main">
+              <span class="agent-first">
+                <b>{agent.name}</b>
+                {agent.machine && <span class="agent-machine">on {agent.machine}</span>}
+                <span class="agent-meta">Delegated</span>
+              </span>
+              <span class="agent-detail">{agent.detail}</span>
+            </span>
+            <span class="agent-state">
+              <span class="before-done">{agent.state === "done" ? "Done" : "Running"}</span>
+              <span class="after-done">Done</span>
+              {agent.seconds !== undefined && (
+                <span class="agent-time before-done" data-seconds={agent.seconds}>
+                  {formatElapsed(agent.seconds * 1000)}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })
+    }
+  </div>
+  <p class="reply after-done">
+    The test passes, the review is clean, and the soak held 2,000 clients. Done.
+  </p>
+</section>
+
+<section class="thread" data-for="checkout" hidden>
+  <p class="you">checkout.spec.ts fails about one run in five. Find out why and fix it.</p>
+  <p class="waiting before-approval"><i></i>Waiting for your approval</p>
+  <p class="worked after-approval">Worked for 3m 12s</p>
+  <p class="reply">I'll look for timing assumptions in the checkout flow first.</p>
+  <div class="step">
+    {claude && <BrandMark brand={claude} size={18} />}
+    <b>1 subagent ran</b>
+    <span class="end"><AppIcon name="caret-right" size={14} /></span>
+  </div>
+  <div class="step before-approval">
+    <AppIcon name="terminal" size={16} />
+    <span>Running in background</span><code>bun run test --watch checkout</code>
+    <span class="end">3m</span>
+  </div>
+  <div class="step after-approval">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>rm -rf node_modules/.cache/vitest</code>
+  </div>
+  <p class="reply after-approval">
+    The poller now awaits the payment promise instead of a fixed timer. 25 consecutive passes.
+  </p>
+</section>
+
+<section class="thread" data-for="soak" hidden>
+  <p class="you">
+    Soak-test the capped replay on this branch: 2,000 phones resume at once, and each one gets
+    only the events it missed.
+  </p>
+  <p class="reply">Building the server here, then resuming 2,000 clients against it.</p>
+  <div class="step">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>bun run build:server</code>
+    <span class="end">38s</span>
+  </div>
+  <div class="step live-step before-done">
+    <AppIcon name="terminal" size={16} />
+    <b>Running</b><code>bun run soak --clients 2000</code>
+    <span class="end working">{soak?.detail}</span>
+  </div>
+  <div class="step after-done">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>bun run soak --clients 2000</code>
+    <span class="end">2,000 of 2,000 clients resumed</span>
+  </div>
+  <p class="reply after-done">All 2,000 resumed with only the events they missed. Done.</p>
+</section>
+
+<section class="thread" data-for="sign-in" hidden>
+  <p class="you">Sign in on an iPhone 17 Pro with the test account and check the 2FA screen.</p>
+  <p class="reply">This server has no simulator, so I'll use the iPhone 17 Pro on your Mac.</p>
+  <div class="step">
+    <AppIcon name="device-mobile" size={16} />
+    <span>Asked for</span><code>iPhone 17 Pro · Simulator on your Mac</code>
+  </div>
+  <div class="step device-using">
+    <AppIcon name="download-simple" size={16} />
+    <span>Installed</span><code>Acme · debug build 412</code>
+    <span class="end">12s</span>
+  </div>
+  <div class="step live-step device-using">
+    <AppIcon name="device-mobile" size={16} />
+    <b>Using iPhone 17 Pro</b><span class="working" data-sim-note>Opening Acme</span>
+    <span class="end"><AppIcon name="caret-right" size={14} /></span>
+  </div>
+</section>
+
+<section class="thread" data-for="staging" hidden>
+  <p class="you">
+    The staging checkout adds tax twice on some carts. Check it in the browser and fix it.
+  </p>
+  <p class="reply">Opening the checkout in ace's browser to see what a customer sees.</p>
+  {
+    browserSteps.map((step, index) => (
+      <div class="step browser-step" data-browser-step={index}>
+        <AppIcon name="globe" size={16} />
+        <span>{step.verb}</span>
+        <code>{step.detail}</code>
+      </div>
+    ))
+  }
+  <p class="reply browser-done">
+    Pay now charges $54.18, the cart's total with tax counted once. The fix is in cart.ts.
+  </p>
+</section>
+
+<section class="thread" data-for="webhooks" hidden>
+  <p class="you">Split the webhook handler by event type and retry failed deliveries.</p>
+  <p class="worked">Worked for 12m 40s</p>
+  <p class="reply">
+    Handlers are split into invoice, charge and subscription events. Retries are next.
+  </p>
+  <div class="step before-move">
+    <AppIcon name="gauge" size={16} />
+    <span>Claude · Personal reached its usage limit</span>
+    <span class="end">Resets 4:20 PM</span>
+  </div>
+  <div class="step after-move">
+    <AppIcon name="gauge" size={16} />
+    <span>Moved to</span><b>Claude · Work</b>
+  </div>
+  <p class="reply after-move">Adding retries with backoff to each handler.</p>
+</section>

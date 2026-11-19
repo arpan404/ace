@@ -1,0 +1,17 @@
+{
+  "json": {
+    "payload": {
+      "summary": {
+        "bytes": 4194304,
+        "files": 18,
+        "limitHit": false,
+        "matches": 240
+      },
+      "type": "searchDone"
+    },
+    "subscription": 3,
+    "type": "event"
+  },
+  "text": "{\"type\":\"event\",\"subscription\":3,\"payload\":{\"type\":\"searchDone\",\"summary\":{\"files\":18,\"bytes\":4194304,\"matches\":240,\"limitHit\":false}}}",
+  "frame": "88000000017b2274797065223a226576656e74222c22737562736372697074696f6e223a332c227061796c6f6164223a7b2274797065223a22736561726368446f6e65222c2273756d6d617279223a7b2266696c6573223a31382c226279746573223a343139343330342c226d617463686573223a3234302c226c696d6974486974223a66616c73657d7d7d"
+}

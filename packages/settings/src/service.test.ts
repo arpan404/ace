@@ -43,7 +43,7 @@ test("each key resolves from the highest present layer and reports its provenanc
     provenance: "thread",
   });
   expect(await f.service.get("remote.enabled", scope)).toMatchObject({
-    value: false,
+    value: true,
     provenance: "defaults",
   });
   await f.service.close();

@@ -2,8 +2,10 @@ import { z } from "zod";
 import { SocketUrl } from "../../shared/contract.ts";
 import { newerDataMessage } from "./exit-policy.ts";
 
-/** Platforms the daemon runs on locally (its workspace addon is macOS and Linux only). */
+/** Platforms the daemon runs on locally. */
 const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
+// Windows runs the daemon natively on the bundled Node runtime (ADR 0095).
+localDaemonPlatforms.add("win32");
 
 /**
  * Which daemon this app talks to:
@@ -12,8 +14,8 @@ const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
  * - `attach`: development. Connect to the dev daemon (`bun run daemon`) and never spawn.
  * - `remote`: ACE_DAEMON_URL points at a daemon elsewhere; the token comes from the env.
  * - `fake`: the renderer runs the in-page fake daemon (`dev:desktop:fake`).
- * - `remote-only`: this platform runs no local daemon (Windows today) and no remote one is
- *   configured; the page asks for one.
+ * - `remote-only`: this platform runs no local daemon and no remote one is configured; the
+ *   page asks for one.
  * - `refused`: the daemon home can't be used (it holds data from a newer ace, or an older
  *   daemon still runs in a home that needs a fresh start); nothing is spawned and the page
  *   says why.

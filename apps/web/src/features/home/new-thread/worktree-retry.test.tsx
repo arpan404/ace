@@ -2,6 +2,7 @@ import { workbench } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 20000 });
@@ -30,7 +31,7 @@ async function startThatFails(text: string, file?: File) {
       expect(screen.queryByRole("progressbar", { name: `Uploading ${file.name}` })).toBeNull(),
     );
   }
-  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), text);
+  await typeAtEnd(await screen.findByRole("combobox", { name: "Message" }), text);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -47,7 +48,7 @@ test("a worktree that can't be made puts the message and its file back in New th
     "Keep every word of this",
     new File(["notes"], "notes.txt", { type: "text/plain" }),
   );
-  await waitFor(() => expect(message().textContent).toBe("Keep every word of this"));
+  await waitFor(() => expect(composerWords(message())).toBe("[notes.txt]Keep every word of this"));
   expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project: relay" })).toBeTruthy();
   const reason = await screen.findByText(failure);
@@ -60,7 +61,7 @@ test("a worktree that can't be made puts the message and its file back in New th
 test("the returned message, edited, starts the thread with the edited text", async () => {
   const made = await startThatFails("First try");
   await screen.findByText(failure);
-  await waitFor(() => expect(message().textContent).toBe("First try"));
+  await waitFor(() => expect(composerWords(message())).toBe("First try"));
   made.daemon.restoreRequests();
 
   await userEvent.click(message());

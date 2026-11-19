@@ -179,6 +179,7 @@ export function seeAgent(
       ...(fact.role === undefined ? {} : { role: fact.role }),
       ...(fact.model === undefined ? {} : { model: fact.model }),
       ...(fact.background === undefined ? {} : { background: fact.background }),
+      ...(fact.machine === undefined ? {} : { machine: structuredClone(fact.machine) }),
     },
     events,
   );

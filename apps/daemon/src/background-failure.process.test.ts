@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 import { accessRequest } from "./client-access.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { readConfig, startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 function sqliteFull(): Error {
   // A genuine node:sqlite SQLITE_FULL: this database may not grow past two pages.
@@ -29,6 +30,7 @@ test("a background storage pass that hits a full disk is logged with the free sp
   const startupMs = 54_321;
   const scheduled: { delay: number; work: () => void }[] = [];
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
     diskSpace: () => ({ bavail: 7, bsize: 4096 }),
     retentionTiming: { startupMs, intervalMs: 3_600_000, changeMs: 2_000, retryMs: 60_000 },
@@ -69,4 +71,57 @@ test("a background storage pass that hits a full disk is logged with the free sp
       }),
     }),
   );
+});
+
+test("a full disk met by a background pass holds new work on the daemon, and freed space lets it in again", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-disk-full-hold-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const startupMs = 54_321;
+  const scheduled: { delay: number; work: () => void }[] = [];
+  const reads: (() => void)[] = [];
+  let freeBlocks = 1_000_000;
+  const daemon = await startDaemon({
+    engine: noProviderDiscovery,
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    diskSpace: () => ({ bavail: freeBlocks, bsize: 4096 }),
+    storageWatch: {
+      delay: (run) => {
+        reads.push(run);
+        return () => reads.splice(reads.indexOf(run) >>> 0, 1);
+      },
+    },
+    retentionTiming: { startupMs, intervalMs: 3_600_000, changeMs: 2_000, retryMs: 60_000 },
+    storageSchedule: (delay, work) => {
+      const entry = { delay, work };
+      scheduled.push(entry);
+      return () => scheduled.splice(scheduled.indexOf(entry) >>> 0, 1);
+    },
+  });
+  onTestFinished(() => daemon.close());
+  const origin = await readFile(join(home, "daemon-endpoint"), "utf8");
+  const token = await readFile(daemon.tokenPath, "utf8");
+  const holds = async () => daemon.maintenance.status().holds;
+  /** Whether the local app's health check reads admission closed (it is not told why). */
+  const closed = async () =>
+    ((await accessRequest(origin, "/v1/status", { token })) as { admission: { draining: boolean } })
+      .admission.draining;
+  expect(await holds()).toEqual([]);
+  const storage = daemon.storage;
+  if (!storage) throw new Error("Storage service did not start");
+  storage.retain = () => Promise.reject(sqliteFull());
+  scheduled.find((entry) => entry.delay === startupMs)?.work();
+  for (let attempt = 0; attempt < 100 && (await holds()).length === 0; attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(await holds()).toEqual(["storage"]);
+  expect(await closed()).toBe(true);
+  // Still held while the volume stays nearly full; released once a read finds room.
+  freeBlocks = 10;
+  reads.shift()?.();
+  expect(await holds()).toEqual(["storage"]);
+  freeBlocks = 1_000_000;
+  reads.shift()?.();
+  expect(await holds()).toEqual([]);
+  expect(await closed()).toBe(false);
 });

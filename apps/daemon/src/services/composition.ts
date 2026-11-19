@@ -1,4 +1,3 @@
-import { startExternalMcp } from "./external-mcp.ts";
 import { startStorage } from "./storage.ts";
 import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
@@ -7,7 +6,9 @@ import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
+import { startBackgroundPorts } from "./background-ports.ts";
 import { startAutomations } from "./automations.ts";
+import { startSidebarPlacement } from "./sidebar-placement.ts";
 import { startActivityReads } from "./activity-reads.ts";
 import { startVerify } from "./verify.ts";
 import { startIcons } from "./icons.ts";
@@ -22,6 +23,8 @@ import { startCommands } from "./commands.ts";
 import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
+import { startSuits } from "./suits.ts";
+import { startMarketplace } from "./marketplace.ts";
 import { startBrowser } from "./browser.ts";
 import { startBrowsing } from "./browsing.ts";
 import { startUserBrowser } from "./user-browser.ts";
@@ -33,203 +36,67 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
-import { startAgentControl } from "./agent-control.ts";
-import { startMachines } from "./machines.ts";
-import { startTransfers } from "../transfers/service.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import { startUtility } from "./utility.ts";
 import type { ServiceContext, Services } from "./types.ts";
-import type { ServiceDefinition } from "./startup.ts";
-/** Dependencies are explicit; optional integration failures do not disable the engine. */
-export const serviceFactories: readonly ServiceDefinition[] = [
-  { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
-  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
-  {
-    name: "sourceControl",
-    phase: "core",
-    requires: ["settings"],
-    after: [],
-    start: startSourceControl,
-  },
-  { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
-  {
-    name: "providerStatuses",
-    phase: "core",
-    requires: [],
-    after: ["accounts", "settings"],
-    start: startProviderStatuses,
-  },
-  { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
-  { name: "files", phase: "core", requires: [], after: [], start: startFiles },
-  { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },
-  { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
-  { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
-  { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
-  { name: "icons", phase: "core", requires: [], after: [], start: startIcons },
-  { name: "userBrowser", phase: "core", requires: [], after: [], start: startUserBrowser },
-  {
-    name: "browser",
-    phase: "core",
-    requires: [],
-    after: ["settings", "userBrowser"],
-    start: startBrowser,
-  },
-  { name: "browsing", phase: "core", requires: [], after: ["browser"], start: startBrowsing },
-  {
-    name: "workspaceActions",
-    phase: "core",
-    requires: [],
-    after: ["files", "sourceControl"],
-    start: startWorkspaceActions,
-  },
-  {
-    name: "verify",
-    phase: "core",
-    requires: ["workspaceActions"],
-    after: ["workspaceActions"],
-    start: startVerify,
-  },
-  {
-    name: "projects",
-    phase: "core",
-    requires: ["settings"],
-    after: ["workspaceActions"],
-    start: startProjects,
-  },
-  {
-    name: "models",
-    phase: "core",
-    requires: ["accounts"],
-    after: ["settings", "accounts"],
-    start: startModels,
-  },
-  {
-    name: "utility",
-    phase: "core",
-    requires: [],
-    after: ["settings", "accounts", "providerStatuses", "models"],
-    start: startUtility,
-  },
-  {
-    name: "mcp",
-    phase: "core",
-    requires: [],
-    after: ["screen", "browser", "devices"],
-    start: startMcp,
-  },
-  {
-    name: "transitions",
-    phase: "core",
-    requires: [],
-    after: ["accounts"],
-    start: startThreadTransitions,
-  },
-  { name: "pi", phase: "core", requires: [], after: ["mcp"], start: startPi },
-  { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
-  {
-    // Without the engine every command fails with engine_unavailable: refuse to start instead.
-    name: "engine",
-    phase: "core",
-    essential: true,
-    requires: ["accounts"],
-    after: [
-      "accounts",
-      "plugins",
-      "settings",
-      "models",
-      "mcp",
-      "pi",
-      "agentRegistry",
-      "transitions",
-      "workspaceActions",
-    ],
-    start: startEngine,
-  },
-  {
-    name: "cursorAuth",
-    phase: "listener",
-    requires: ["engine", "accounts"],
-    after: [],
-    start: startCursorAuth,
-  },
-  {
-    name: "accountManagement",
-    phase: "listener",
-    requires: ["accounts"],
-    after: ["engine", "models", "cursorAuth"],
-    start: startAccountManagement,
-  },
-  {
-    name: "providerLogin",
-    phase: "listener",
-    requires: ["accounts"],
-    after: ["models", "providerStatuses", "accountManagement", "cursorAuth"],
-    start: startProviderLogin,
-  },
-  {
-    name: "providerInstalls",
-    phase: "listener",
-    requires: [],
-    after: ["models", "providerStatuses"],
-    start: startProviderInstalls,
-  },
-  { name: "context", phase: "listener", requires: [], after: [], start: startContext },
-  { name: "review", phase: "listener", requires: [], after: [], start: startReview },
-  { name: "history", phase: "listener", requires: [], after: ["engine"], start: startHistory },
-  { name: "usage", phase: "listener", requires: [], after: [], start: startUsage },
-  { name: "notifications", phase: "listener", requires: [], after: [], start: startNotifications },
-  {
-    name: "agentControl",
-    phase: "listener",
-    requires: ["engine"],
-    after: ["accounts", "context", "notifications", "settings"],
-    start: startAgentControl,
-  },
-  {
-    name: "machines",
-    phase: "listener",
-    requires: ["engine"],
-    after: ["agentControl", "settings", "browser"],
-    start: startMachines,
-  },
-  {
-    name: "transfers",
-    phase: "listener",
-    requires: ["engine"],
-    after: ["machines", "projects", "workspaceActions", "settings", "agentControl"],
-    start: startTransfers,
-  },
-  {
-    name: "externalMcp",
-    phase: "listener",
-    requires: ["agentControl"],
-    after: ["agentControl"],
-    start: startExternalMcp,
-  },
-  { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
-  {
-    name: "threadOrganization",
-    phase: "listener",
-    requires: [],
-    after: ["engine", "settings", "workspaceActions"],
-    start: startThreadOrganization,
-  },
-  {
-    name: "automations",
-    phase: "listener",
-    requires: ["engine", "settings"],
-    after: ["context", "agentControl", "workspaceActions"],
-    start: startAutomations,
-  },
-  {
-    name: "storage",
-    phase: "listener",
-    requires: ["context", "workspaceActions"],
-    after: ["engine", "agentControl", "threadOrganization", "browser", "settings", "automations"],
-    start: startStorage,
-  },
-];
+import { loadOnStart, type ServiceDefinition } from "./startup.ts";
+import { serviceOrder, type ServiceName } from "./service-order.ts";
+
+/** Each service's start, by its name in `serviceOrder` (`service-order.ts`). */
+const starts: Record<ServiceName, ServiceDefinition["start"]> = {
+  screen: startScreen,
+  settings: startSettings,
+  sourceControl: startSourceControl,
+  accounts: startAccounts,
+  providerStatuses: startProviderStatuses,
+  commands: startCommands,
+  files: startFiles,
+  devices: startDevices,
+  relay: startRelayKeys,
+  plugins: startPlugins,
+  suits: startSuits,
+  marketplace: startMarketplace,
+  activityReads: startActivityReads,
+  sidebarPlacement: startSidebarPlacement,
+  icons: startIcons,
+  userBrowser: startUserBrowser,
+  browser: startBrowser,
+  browsing: startBrowsing,
+  workspaceActions: startWorkspaceActions,
+  verify: startVerify,
+  projects: startProjects,
+  models: startModels,
+  utility: startUtility,
+  mcp: startMcp,
+  transitions: startThreadTransitions,
+  pi: startPi,
+  agentRegistry: startAgentRegistry,
+  engine: startEngine,
+  cursorAuth: startCursorAuth,
+  accountManagement: startAccountManagement,
+  providerLogin: startProviderLogin,
+  providerInstalls: startProviderInstalls,
+  context: startContext,
+  review: startReview,
+  history: startHistory,
+  usage: startUsage,
+  notifications: startNotifications,
+  agentControl: loadOnStart(() => import("./agent-control.ts"), "startAgentControl"),
+  machines: loadOnStart(() => import("./machines.ts"), "startMachines"),
+  transfers: loadOnStart(() => import("../transfers/service.ts"), "startTransfers"),
+  parcels: loadOnStart(() => import("../parcels/service.ts"), "startParcels"),
+  externalMcp: loadOnStart(() => import("./external-mcp.ts"), "startExternalMcp"),
+  spade: loadOnStart(() => import("./spade.ts"), "startSpade"),
+  previewClient: startPreviewClient,
+  backgroundPorts: startBackgroundPorts,
+  threadOrganization: startThreadOrganization,
+  automations: startAutomations,
+  storage: startStorage,
+};
+export const serviceFactories: readonly ServiceDefinition[] = serviceOrder.map((entry) =>
+  Object.assign({}, entry, { start: starts[entry.name] }),
+);
 /** Public daemon access fails explicitly when a feature could not be initialized. */
 export function requireService<T>(service: T | undefined, name: string): T {
   if (service === undefined) throw new Error(`Service ${name} is degraded`);
@@ -244,6 +111,7 @@ export function readyServices(
     handle: (command, store) =>
       services.asks?.resolve(command) ??
       services.browserHelp?.resolve(command) ??
+      services.marketAgent?.requests.resolve(command) ??
       handler.handle(command, store),
   };
 }

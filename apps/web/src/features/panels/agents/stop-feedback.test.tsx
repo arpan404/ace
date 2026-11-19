@@ -6,20 +6,20 @@ import { beforeEach, expect, test } from "vitest";
 import * as z from "zod/mini";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
-import { openDoneAgents, openWorkPanel } from "@/test/open-work.ts";
+import { agentRow, isBreathing, openWorkPanel } from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 const cases = [
   {
     target: "agent",
     command: "thread.interrupt",
-    row: "resume-sweep: Working",
+    row: "resume-sweep: Pair a phone on localhost:5173/settings/devices",
     button: "Stop resume-sweep",
   },
   {
     target: "command",
     command: "background_task.stop",
-    row: "bun run relay:soak --clients 2: running",
+    row: "$ bun run relay:soak --clients 2: running",
     button: "Stop",
   },
 ] as const;
@@ -27,21 +27,19 @@ async function open(app: ReturnType<typeof harness>, target: (typeof cases)[numb
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   const work = await openWorkPanel();
-  const item = await within(work).findByRole(target.target === "agent" ? "treeitem" : "listitem", {
-    name: target.row,
-  });
-  const row = target.target === "agent" ? item.parentElement : item;
+  const item = await within(work).findByRole("treeitem", { name: target.row });
+  const row = item.parentElement;
   if (!row) throw new Error("Missing Stop row");
   return { work, row, stop: within(row).getByRole("button", { name: target.button }) };
 }
 async function expectStopped(work: HTMLElement, target: (typeof cases)[number]) {
   if (target.target === "agent")
-    await within(await openDoneAgents(work)).findByRole("treeitem", {
-      name: "resume-sweep: Interrupted",
-    });
+    await waitFor(async () =>
+      expect(isBreathing(await agentRow(work, "resume-sweep"))).toBe(false),
+    );
   else
     await waitFor(() =>
-      expect(within(work).queryByRole("listitem", { name: target.row })).toBeNull(),
+      expect(within(work).queryByRole("treeitem", { name: target.row })).toBeNull(),
     );
 }
 

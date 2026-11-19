@@ -1,3 +1,5 @@
+import { restOf, type HeldRow } from "./text-edit.ts";
+
 /*
  * What native holds of a thread it keeps between visits: for each kept key, the patch it last
  * confirmed (without its navigation generation). Reopening a kept thread sends only the patches
@@ -31,7 +33,7 @@ export function ledgerText(patch: Record<string, unknown>): string {
 export class NativeLedger {
   readonly threadId: string;
   #entries = new Map<string, string>();
-  #streaming = new Map<string, string>();
+  #streaming = new Map<string, HeldRow>();
   #bytes = 0;
   /** Native holds this ledger's patches: an "all" pass diffs instead of resetting. */
   #held = false;
@@ -55,10 +57,10 @@ export class NativeLedger {
     return this.#entries.get(key) === text;
   }
   /**
-   * The row text native last confirmed for an item still streaming, kept apart from the entry so
-   * each delta reads it without parsing the row (`text-edit.ts`).
+   * The row native last confirmed for an item still streaming, kept apart from the entry so each
+   * delta reads it without parsing the row (`text-edit.ts`).
    */
-  streaming(key: string): string | undefined {
+  streaming(key: string): HeldRow | undefined {
     return this.#entries.has(key) ? this.#streaming.get(key) : undefined;
   }
   /** Native's copy of `key` is no longer known, after it turned a frame down. */
@@ -78,9 +80,9 @@ export class NativeLedger {
     if (removable.test(key) && patch.row === null) this.#forget(key);
     else {
       this.#set(key, text);
-      const row = patch.row as { complete?: unknown; text?: unknown } | null | undefined;
+      const row = patch.row as Record<string, unknown> | null | undefined;
       if (row?.complete === false && typeof row.text === "string")
-        this.#streaming.set(key, row.text);
+        this.#streaming.set(key, { text: row.text, rest: restOf(row) });
       else this.#streaming.delete(key);
     }
   }
@@ -105,7 +107,29 @@ export class NativeLedger {
     const removals: [string, () => Record<string, unknown>][] = [];
     for (const [key, text] of this.#entries)
       if (removable.test(key) && !pass.has(key))
-        removals.push([key, () => ({ ...(JSON.parse(text) as object), row: null, epoch })]);
+        removals.push([
+          key,
+          () => {
+            let seq: number | null = null;
+            try {
+              const parsed = JSON.parse(text) as {
+                row?: { seq?: unknown; creationSeq?: unknown } | null;
+              };
+              const candidate = parsed.row?.seq ?? parsed.row?.creationSeq;
+              if (typeof candidate === "number") seq = candidate;
+            } catch {
+              seq = null;
+            }
+            const base = { ...(JSON.parse(text) as object), row: null, epoch } as Record<
+              string,
+              unknown
+            >;
+            // Preserve the last known creation sequence for eviction inference.
+            // Reason stays absent here (no store access); incremental removals carry it.
+            if (seq !== null) base.seq = seq;
+            return base;
+          },
+        ]);
     return removals;
   }
   get passing(): boolean {

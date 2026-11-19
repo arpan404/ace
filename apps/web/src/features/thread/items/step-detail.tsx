@@ -8,7 +8,7 @@ import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
-import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -16,7 +16,9 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { patchLines, stepPath, stripAnsi } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { readOutputText } from "@/lib/output-read.ts";
+import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { WebLink } from "@/components/web-link.tsx";
+import { OmittedRaw } from "./omitted-raw.tsx";
 
 /**
  * The expanded body of a work-log row (IR-7): command output, diffs, the file read, the tool's
@@ -78,9 +80,24 @@ function CallDetail(props: { threadId: string; item: ToolItem }) {
 
 function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: string }) {
   const { detail, error, raw, title } = props.item.call;
+  // A path the agent read or wrote: open it in the editor, on this computer or its own machine.
+  const fileTarget =
+    detail.kind === "file.read"
+      ? { path: detail.path, line: detail.range?.start }
+      : detail.kind === "file.edit" ||
+          detail.kind === "file.write" ||
+          detail.kind === "file.delete" ||
+          detail.kind === "file.move"
+        ? detail.changes[0]
+          ? { path: detail.changes[0].path, line: undefined as number | undefined }
+          : undefined
+        : undefined;
   return (
     <div className="flex flex-col gap-2">
       {detail.kind === "shell" && detail.output && <ShellOutput output={detail.output} />}
+      {props.threadId && fileTarget && (
+        <FileOpen threadId={props.threadId} path={fileTarget.path} line={fileTarget.line} />
+      )}
       {"changes" in detail &&
         detail.changes.map((change) => (
           <ChangeDiff key={change.path} change={change} cwd={props.cwd} />
@@ -131,11 +148,16 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
         <McpDetails item={props.item} />
       ) : (
         ["browser", "image", "notebook", "custom"].includes(detail.kind) &&
-        raw.length > 0 && (
+        (raw.length > 0 ? (
           <ToolDetails>
             <JsonText label="Raw" value={raw} />
           </ToolDetails>
-        )
+        ) : (
+          props.item.rawOmitted &&
+          props.threadId && (
+            <OmittedRaw key={props.item.id} threadId={props.threadId} item={props.item} />
+          )
+        ))
       )}
     </div>
   );
@@ -218,7 +240,11 @@ function RawFrames(props: { frames: readonly unknown[] }) {
         Raw
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+        <pre
+          data-part="tool-output"
+          data-variant="raw"
+          className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+        >
           {JSON.stringify(props.frames, null, 2)}
         </pre>
       </CollapsibleContent>
@@ -230,7 +256,11 @@ function JsonText(props: { label: string; value: unknown }) {
   return (
     <div>
       <p className="text-xs text-subtle-foreground">{props.label}</p>
-      <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+      <pre
+        data-part="tool-output"
+        data-variant="json"
+        className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+      >
         {JSON.stringify(props.value, null, 2)}
       </pre>
     </div>
@@ -285,11 +315,28 @@ function TodoList(props: { todos: readonly TodoEntry[] }) {
   );
 }
 
+/** A path the agent read or wrote, opened in the editor on its own machine. */
+function FileOpen(props: { threadId: string; path: string; line?: number | undefined }) {
+  const editing = useOpenInEditor(props.threadId);
+  const editor = editing.editor;
+  if (!editor) return null;
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="self-start"
+      onClick={() => void editing.open(props.path, props.line)}
+    >
+      Open in {editor.name}
+    </Button>
+  );
+}
+
 function ShellOutput(props: { output: OutputSummary }) {
   const [full, setFull] = useState<string>();
   const text = stripAnsi(full ?? props.output.tail ?? "");
   return (
-    <div className={`overflow-hidden rounded-card bg-code ${cardEdge}`}>
+    <div data-part="tool-output" className={`overflow-hidden rounded-card bg-code ${cardEdge}`}>
       <pre
         aria-label="Output"
         className="max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-normal whitespace-pre-wrap text-muted-foreground"
@@ -347,7 +394,7 @@ export function ChangeDiff(props: { change: FileChange; cwd?: string | undefined
     ? patchLines(change.diff)
     : (change.newText ?? "").split("\n").map((text) => ({ kind: "add" as const, text }));
   return (
-    <figure className={`overflow-hidden rounded-card ${cardEdge}`}>
+    <figure data-part="diff" className={`overflow-hidden rounded-card ${cardEdge}`}>
       <figcaption className="flex h-8 items-center gap-2 border-b px-3 font-mono text-xs text-muted-foreground">
         <span title={change.movePath ?? change.path} className="truncate">
           {change.movePath ? `${path(change.path)} → ${path(change.movePath)}` : path(change.path)}

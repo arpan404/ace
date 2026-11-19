@@ -1,50 +1,61 @@
+import { ACE_APP_SIGN_IN_RETURN, AceSignInReturnStatus } from "@ace/protocol/ace-account";
+import { readAceLink } from "@ace/ui-core";
 import { DeepLink } from "../shared/contract.ts";
 
 export const protocolScheme = "ace";
 
+const windows = process.platform === "win32";
+
 /**
- * Parses `ace://` links:
+ * Windows: a path naming another computer or a device: two leading slashes or backslashes, as in
+ * a UNC share, a `\\?\UNC` long path or a `\\.` device path. Merely looking at one makes
+ * Windows connect over SMB and offer the person's credentials, so a link or argument from
+ * outside never names one.
+ */
+export function isNetworkPath(path: string): boolean {
+  return /^[\\/]{2}/.test(path);
+}
+
+/** Windows: a link that would open a folder on another computer (`isNetworkPath`). */
+export function opensNetworkFolder(link: DeepLink): boolean {
+  return link.kind === "open-folder" && isNetworkPath(link.path);
+}
+
+/**
+ * Parses `ace://` links by the shared reader (`readAceLink` in `@ace/ui-core`):
  * `ace://thread/<id>[/item/<itemId>]`, `ace://settings[/<page>]`,
  * `ace://new` and `ace://open?folder=<absolute folder>` (`path=` is the older spelling).
- * Anything else is ignored.
+ * Anything else is ignored. The phone's extras (`machine`, `project`) don't apply here.
  */
 export function parseDeepLink(input: string): DeepLink | undefined {
-  let url: URL;
-  let segments: string[];
-  try {
-    url = new URL(input);
-    // OS arguments are untrusted, including malformed UTF-8 and percent escapes.
-    segments = [url.hostname, ...url.pathname.split("/")]
-      .filter(Boolean)
-      .map((segment) => decodeURIComponent(segment));
-  } catch {
-    return undefined;
-  }
-  if (url.protocol !== `${protocolScheme}:`) return undefined;
-  // `ace://thread/abc`: the first segment parses as the host.
-  const [kind, first, second, third] = segments;
-  const candidate = (() => {
-    switch (kind) {
-      case "thread":
-        return second === "item" && third
-          ? { kind, threadId: first, itemId: third }
-          : { kind, threadId: first };
-      case "settings":
-        return first ? { kind, page: first } : { kind };
-      case "new":
-        return { kind: "new-thread" };
-      case "open":
-        return {
-          kind: "open-folder",
-          path: url.searchParams.get("folder") ?? url.searchParams.get("path"),
-        };
-      default:
-        return undefined;
-    }
-  })();
-  if (kind === "settings" && first && !/^[a-z-]{1,40}$/.test(first)) return undefined;
+  const signedIn = signInReturn(input);
+  if (signedIn) return signedIn;
+  const link = readAceLink(input);
+  if (!link) return undefined;
+  const candidate =
+    link.kind === "thread"
+      ? {
+          kind: link.kind,
+          threadId: link.threadId,
+          ...(link.itemId ? { itemId: link.itemId } : {}),
+        }
+      : link.kind === "new-thread"
+        ? { kind: link.kind }
+        : link;
   const parsed = DeepLink.safeParse(candidate);
+  if (parsed.success && windows && opensNetworkFolder(parsed.data)) return undefined;
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * `ace://account/signed-in?status=<status>`: the browser coming back from ace sign-in
+ * (ADR 0100). It carries only how the sign-in ended; any other query makes it no link.
+ */
+function signInReturn(input: string): DeepLink | undefined {
+  const prefix = `${ACE_APP_SIGN_IN_RETURN}?status=`;
+  if (!input.startsWith(prefix)) return undefined;
+  const status = AceSignInReturnStatus.safeParse(input.slice(prefix.length));
+  return status.success ? { kind: "signed-in", status: status.data } : undefined;
 }
 
 /**
@@ -63,6 +74,8 @@ export function linksFromArgv(
       if (link) links.push(link);
     } else {
       const path = localPath(argument);
+      // Windows: checked before `isDirectory`, whose stat would already reach the server.
+      if (path && windows && isNetworkPath(path)) continue;
       if (path && isDirectory(path)) links.push({ kind: "open-folder", path });
     }
   }

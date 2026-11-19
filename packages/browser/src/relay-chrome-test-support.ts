@@ -113,6 +113,8 @@ export async function chromeDesktop(executablePath: string) {
       "--no-default-browser-check",
       // Tests run with a temporary HOME; the real keychain would block Chrome's network stack.
       "--use-mock-keychain",
+      // Windows: an elevated test would otherwise see Chrome relaunch unelevated and exit.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--password-store=basic",
       "--window-size=1280,720",
       "about:blank",
@@ -129,8 +131,13 @@ export async function chromeDesktop(executablePath: string) {
     child.once("exit", () => reject(new Error(`Chrome exited: ${output.slice(0, 500)}`)));
   });
   const connect = async () => {
-    const targets = Target.parse(await (await fetch(`http://${endpoint}/json/list`)).json());
-    const url = targets.find((target) => target.type === "page")?.webSocketDebuggerUrl;
+    // Chrome prints its DevTools endpoint before it has always listed the about:blank page.
+    let url: string | undefined;
+    for (let attempt = 0; !url && attempt < 50; attempt++) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 100));
+      const targets = Target.parse(await (await fetch(`http://${endpoint}/json/list`)).json());
+      url = targets.find((target) => target.type === "page")?.webSocketDebuggerUrl;
+    }
     if (!url) throw new Error("No page target");
     const page = new RawPage(url);
     await page.ready;
@@ -296,7 +303,9 @@ export async function chromeDesktop(executablePath: string) {
         child.kill("SIGKILL");
         await exited;
       }
-      await rm(profile, { recursive: true, force: true });
+      // The killed browser's helpers hold profile files open (Windows) or still write to it
+      // (Linux: ENOTEMPTY) until they notice and exit.
+      await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     },
   };
 }

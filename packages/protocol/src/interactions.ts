@@ -42,7 +42,11 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
     mcpServer: z.object({ name: z.string(), source: z.string() }).passthrough().optional(),
     permissionUpdates: z.array(z.unknown()).optional(),
   }),
-  z.object({ kind: z.literal("question"), questions: z.array(Question) }),
+  z.object({
+    kind: z.literal("question"),
+    questions: z.array(Question),
+    target: ApprovalTarget.optional(),
+  }),
   z.object({
     kind: z.literal("plan_review"),
     title: z.string().optional(),
@@ -68,6 +72,7 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
    */
   z.object({
     kind: z.literal("browser_help"),
+    target: ApprovalTarget.optional(),
     tabId: z.string().min(1).max(256),
     reason: BrowserHelpReason,
     message: z.string().max(1000),
@@ -139,5 +144,13 @@ export const Interaction = z.object({
   createdAt: Timestamp,
   closedAt: Timestamp.optional(),
   raw: z.array(RawPayload).default([]),
+  /**
+   * Present when this copy is a summary, not the whole request (ADR 0157): the request is too
+   * large to send with its thread, so its text is cut, its large parts are left out and `raw` is
+   * empty. `chars` is the whole request's JSON length in UTF-16 code units. Clients say so where
+   * they show it, read it whole with `interaction.read`, and offer an affirmative answer (allow,
+   * approve, accept, answers to questions) only once they show it whole.
+   */
+  truncated: z.object({ chars: z.number().int().nonnegative() }).optional(),
 });
 export type Interaction = z.infer<typeof Interaction>;

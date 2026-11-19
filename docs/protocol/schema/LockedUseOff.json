@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseOff.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "state": {
+      "const": "off",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

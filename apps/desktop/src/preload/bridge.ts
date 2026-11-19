@@ -6,11 +6,12 @@ import {
   requests,
   type EventChannel,
   type EventOf,
+  type MachineAccountRequest,
   type RequestChannel,
   type RequestOf,
   type ResultOf,
 } from "../shared/channels.ts";
-import { AbsolutePath, type AppInfo } from "../shared/contract.ts";
+import { AbsolutePath, clipboardImageLimit, type AppInfo } from "../shared/contract.ts";
 
 /** The slice of `ipcRenderer` the bridge needs; injected so it can be tested without Electron. */
 export interface BridgeIpc {
@@ -63,6 +64,12 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
   }
 
   return {
+    account: {
+      read: (origin: string) => call("account.read", origin),
+      write: (origin: string, token: string | null) => call("account.write", { origin, token }),
+      /** This computer's daemon's ace account and machine code. */
+      machine: (request: MachineAccountRequest) => call("daemon.account", request),
+    },
     version: info.version,
     platform: info.platform,
     arch: info.arch,
@@ -78,6 +85,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     },
     daemon: {
       connection: () => call("daemon.connection"),
+      /** The connection this page will most likely get, without waiting for the daemon. */
+      expected: (remembered?: string) => call("daemon.expected", remembered ?? null),
       authorize: (url: string) => call("daemon.authorize", url),
       status: () => call("daemon.status"),
       restart: () => call("daemon.restart"),
@@ -130,7 +139,9 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       },
     },
     clipboard: {
-      /** A PNG or JPEG (base64, at most 8 MiB) onto the system clipboard. */
+      /** The most image bytes `writeImage` takes, so the page can refuse more in words. */
+      imageLimit: clipboardImageLimit,
+      /** A PNG or JPEG (base64 of at most `imageLimit` bytes) onto the system clipboard. */
       writeImage: (image: RequestOf<"clipboard.writeImage">) => call("clipboard.writeImage", image),
     },
     notifications: {
@@ -143,6 +154,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       toggleFullScreen: () => call("window.action", "fullscreen"),
       close: () => call("window.action", "close"),
       state: () => call("window.state"),
+      /** This window's page as a JPEG, for a Suit's live check. */
+      capture: (request: RequestOf<"window.capture">) => call("window.capture", request),
       onChange: (listener: (value: EventOf<"window.changed">) => void) =>
         subscribe("window.changed", listener),
     },
@@ -187,6 +200,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       download: () => call("updates.download"),
       install: () => call("updates.install"),
       busy: () => call("updates.busy"),
+      setLine: (line: RequestOf<"updates.setLine">) => call("updates.setLine", line),
       onStatus: (listener: (value: EventOf<"updates.status">) => void) =>
         subscribe("updates.status", listener),
       onChecked: (listener: (value: EventOf<"updates.checked">) => void) =>
@@ -199,6 +213,21 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       restart: () => call("sandbox.restart"),
       onStatus: (listener: (value: EventOf<"sandbox.status">) => void) =>
         subscribe("sandbox.status", listener),
+    },
+    /**
+     * Spade on this computer, reached directly (ADR 0123). The main process holds Spade's
+     * address and token; the page sends requests and opens live streams through it.
+     */
+    spade: {
+      endpoint: () => call("spade.endpoint"),
+      health: () => call("spade.health"),
+      request: (request: RequestOf<"spade.request">) => call("spade.request", request),
+      openLive: (request: RequestOf<"spade.live.open">) => call("spade.live.open", request),
+      closeLive: (streamId: string) => call("spade.live.close", { streamId }),
+      onLive: (listener: (value: EventOf<"spade.live">) => void) =>
+        subscribe("spade.live", listener),
+      onEndpointChanged: (listener: () => void) =>
+        subscribe("spade.endpoint.changed", () => listener()),
     },
     diagnostics: {
       /**

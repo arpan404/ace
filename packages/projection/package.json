@@ -6,7 +6,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./activity-reads": "./src/activity-reads.ts",
-    "./offshift-mark": "./src/offshift-mark.ts"
+    "./turn-boundary": "./src/turn-boundary.ts",
+    "./wire-trim": "./src/wire-trim.ts",
+    "./entity-pages": "./src/entity-pages.ts",
+    "./short-deltas": "./src/short-deltas.ts",
+    "./interaction-summary": "./src/interaction-summary.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

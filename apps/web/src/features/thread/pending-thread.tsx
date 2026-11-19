@@ -8,13 +8,13 @@ import {
   type TurnActivity,
   worktreeTabLabel,
 } from "@ace/ui-core";
-import { GitForkIcon, ShieldIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { GitForkIcon, ShieldIcon } from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { iconControl, environmentRow, environmentSurface } from "./composer/composer-styles.ts";
 import { buttonVariants } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
@@ -101,7 +101,7 @@ export function PendingThreadView(props: {
   const code = entry?.error ?? intent?.error;
   const returning = isWorktreeCreate(payload) && failed && worktreeUnmade(code);
   const receipt = intent?.result;
-  const { returnStart } = useSendActions(props.threadId);
+  const { returnStart } = useSendActions();
   const returned = useRef(false);
   useEffect(() => {
     if (!returning || !payload || returned.current) return;
@@ -114,23 +114,31 @@ export function PendingThreadView(props: {
   }, [returning, payload, progress, code, receipt, commandId, returnStart]);
   if (!entry && !intent && ready)
     return (
-      <Screen title="New thread">
+      <Screen page="thread" title="">
         <div role="alert" className="h-full">
-          <EmptyState
-            icon={WarningCircleIcon}
+          <MissingState
             title="This new thread isn't on this device any more"
             description="It may have started from another window. Find it in the list."
-            action={
-              <Link to="/" className={buttonVariants({ size: "sm" })}>
-                Back to Home
-              </Link>
+            actions={
+              <>
+                <Link
+                  to="/new"
+                  search={search}
+                  className={buttonVariants({ size: "sm", variant: "primary" })}
+                >
+                  New thread
+                </Link>
+                <Link to="/" className={buttonVariants({ size: "sm" })}>
+                  Back to Home
+                </Link>
+              </>
             }
           />
         </div>
       </Screen>
     );
   return (
-    <Screen title={title} subtitle={workspaceId && projectName(workspaceId)}>
+    <Screen page="thread" title={title} subtitle={workspaceId && projectName(workspaceId)}>
       <div className="flex h-full min-h-0 flex-col">
         {/* The same column and spacing the transcript opens with, so the move to the
             real thread doesn't shift the bubble. */}

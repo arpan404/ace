@@ -15,7 +15,7 @@ async function emptyProject() {
 
 test("empty Home and sidebar show the browser's New thread shortcut", async () => {
   await (await emptyProject()).open("/");
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   expect(within(threads).getByText(/Start one with Alt\+Ctrl\+N/)).toBeTruthy();
   const main = screen.getByRole("main");
   expect(await within(main).findByText("Alt+Ctrl+N")).toBeTruthy();
@@ -30,9 +30,9 @@ test("changing New thread in the keymap updates both empty hints and the working
   fireEvent.keyDown(recorder, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
   await openProfileView("Automations");
   await screen.findByRole("heading", { name: "Automations", level: 1 });
-  await userEvent.keyboard("gh");
+  await userEvent.keyboard("{Control>}{Alt>}h{/Alt}{/Control}");
   await screen.findByRole("heading", { name: "Home", level: 1 });
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   expect(await within(threads).findByText(/Start one with Shift\+Ctrl\+Y/)).toBeTruthy();
   const main = screen.getByRole("main");
   expect(await within(main).findByText("Shift+Ctrl+Y")).toBeTruthy();
@@ -47,7 +47,7 @@ test("the project's Add action shows its rebound shortcut and that shortcut open
   fireEvent.keyDown(recorder, { key: "j", code: "KeyJ", ctrlKey: true, shiftKey: true });
   await openProfileView("Automations");
   await screen.findByRole("heading", { name: "Automations", level: 1 });
-  await userEvent.keyboard("gh");
+  await userEvent.keyboard("{Control>}{Alt>}h{/Alt}{/Control}");
   await screen.findByRole("heading", { name: "Home", level: 1 });
   await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
   // The rebinding is saved asynchronously; the menu shows it once the keymap has it.

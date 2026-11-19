@@ -16,18 +16,46 @@ final class MachineSession: Identifiable {
 @MainActor @Observable final class MachineInbox {
     private(set) var sessions: [MachineSession] = []
     private(set) var names: [String: String] = [:]
+    /// The worktree start whose card is asked to show (its machine and command id): New thread's
+    /// wait sets it after Send, and a start's Unsent row sets it again to reopen the card.
+    var startCard: InboxKey?
     private var seen: [String: Double]
     /// Each machine's mark as last seen, so an offline machine's rows keep it.
     private var glyphs: [String: String]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: () -> Double
     @ObservationIgnored private var memo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
+    @ObservationIgnored private var chatMemo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
+    @ObservationIgnored private var projectCache = ProjectChoiceCache()
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Double) {
         self.defaults = defaults; self.now = now
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
         glyphs = defaults.dictionary(forKey: Self.glyphsKey) as? [String: String] ?? [:]
     }
+
+    /// The projects search can be filtered by, every machine's, by name. Built from the rows
+    /// only when threads join or leave a machine's list, never on a row's own change, so a busy
+    /// inbox doesn't rescan and sort every row on each redraw.
+    func projectChoices() -> [ProjectChoice] {
+        // Each machine's projects version moves only when a row's project changes or rows join
+        // or leave, so reading it costs one number per machine.
+        let membership = sessions.map { "\($0.hostId):\($0.client.projectsVersion)" }
+        return projectCache.choices(for: membership + [showsMachineNames ? "named" : ""]) {
+            var seen = Set<String>()
+            return sessions.flatMap { session in
+                session.client.inbox.values.compactMap { row -> ProjectChoice? in
+                    guard let workspace = row.workspaceId, row.chat != true else { return nil }
+                    let id = "\(session.hostId)/\(workspace)"
+                    guard seen.insert(id).inserted else { return nil }
+                    return ProjectChoice(id: id, name: showsMachineNames ? "\(row.project) · \(name(session.hostId))" : row.project)
+                }
+            }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    /// The phone's clock (ms), as the inbox was given it.
+    func clock() -> Double { now() }
 
     /// Machine names show on rows only when there is more than one machine to tell apart.
     var showsMachineNames: Bool { sessions.count > 1 }
@@ -53,6 +81,15 @@ final class MachineSession: Identifiable {
            zip(memo.inputs, inputs).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) { return memo.merged }
         let merged = MergedInbox.merge(inputs.map { (machineId: $0.0, layout: $0.1) })
         memo = (inputs, merged)
+        return merged
+    }
+    /// Every machine's chats (the Chats tab), merged by rank as the inbox is.
+    var mergedChats: MergedInbox {
+        let inputs = sessions.map { ($0.hostId, $0.client.chatLayout) }
+        if let chatMemo, chatMemo.inputs.count == inputs.count,
+           zip(chatMemo.inputs, inputs).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) { return chatMemo.merged }
+        let merged = MergedInbox.merge(inputs.map { (machineId: $0.0, layout: $0.1) })
+        chatMemo = (inputs, merged)
         return merged
     }
     /// The machines' Sort threads setting, as the menu shows it: the first machine in `scope`
@@ -89,7 +126,6 @@ final class MachineSession: Identifiable {
     @discardableResult func detach(_ hostId: String) -> ClientModel? {
         guard let index = sessions.firstIndex(where: { $0.hostId == hostId }) else { return nil }
         names[hostId] = nil
-        forget(hostId)
         return sessions.remove(at: index).client
     }
     func rename(_ hostId: String, to name: String) { names[hostId] = name }
@@ -110,7 +146,8 @@ final class MachineSession: Identifiable {
         defaults.set(seen, forKey: Self.seenKey)
         defaults.set(glyphs, forKey: Self.glyphsKey)
     }
-    private func forget(_ hostId: String) {
+    /// Drop when the machine was last seen and its mark: only when the person removes it.
+    func forget(_ hostId: String) {
         seen[hostId] = nil
         glyphs[hostId] = nil
         defaults.set(seen, forKey: Self.seenKey)
@@ -118,4 +155,38 @@ final class MachineSession: Identifiable {
     }
     private static let seenKey = "ace.machines.lastSeen"
     private static let glyphsKey = "ace.machines.marks"
+}
+
+/// A project search can filter by: one machine's project ("machine/workspace") and its name.
+struct ProjectChoice: Equatable, Sendable {
+    let id: String
+    let name: String
+    /// Whether a row's change can change the project choices: it joined or left, or its project
+    /// (id, name, or being a chat) changed. Every other change, the busy ones, can't.
+    static func changes(_ old: ThreadRow?, _ new: ThreadRow?) -> Bool {
+        old?.workspaceId != new?.workspaceId || old?.project != new?.project || old?.chat != new?.chat
+    }
+}
+
+/// Keeps the project choices until the list they were read from changes.
+struct ProjectChoiceCache {
+    private var key: [String]?
+    private var kept: [ProjectChoice] = []
+    mutating func choices(for key: [String], build: () -> [ProjectChoice]) -> [ProjectChoice] {
+        if key != self.key { kept = build(); self.key = key }
+        return kept
+    }
+}
+
+extension MachineInbox {
+    /// Everything waiting on the person in these rows, in the list's order: each request, and
+    /// each thread that needs the person with no request to answer here. The Threads list's
+    /// "3 need you" and the empty page beside it count the same.
+    func needs(in sections: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] {
+        sections.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key -> [NeedsRunQueue.Entry] in
+            let asks = client(key.machineId)?.needsYou(key.id) ?? []
+            if !asks.isEmpty { return asks.map { NeedsRunQueue.Entry(thread: key, request: $0.id) } }
+            return row(key)?.look?.level == "needs-you" ? [NeedsRunQueue.Entry(thread: key, request: nil)] : []
+        }
+    }
 }

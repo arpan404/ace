@@ -14,12 +14,10 @@ import SwiftUI
         }
     }
 
-    @Test func aCompactWindowStacksTheListAndTheThread() {
+    @Test func aCompactWindowNeverPutsTheListBesideTheThread() {
         // A phone, the folded Duo, a narrow iPad window.
         #expect(!ThreadColumns.sideBySide(.compact, width: 402))
         #expect(!ThreadColumns.sideBySide(.compact, width: 1000))
-        #expect(ThreadColumns.compactColumn([.thread(open)]) == .detail)
-        #expect(ThreadColumns.compactColumn([]) == .sidebar)
     }
 
     @Test func aRegularWindowTooNarrowForBothGivesTheOpenThreadTheWholeWidth() {
@@ -35,7 +33,6 @@ import SwiftUI
         #expect(ThreadColumns.selection(path) == open)
         #expect(ThreadColumns.detail(path) == [.thread(child)])
         #expect(ThreadColumns.path(path, detail: ThreadColumns.detail(path)) == path)
-        #expect(ThreadColumns.compactColumn(path) == .detail)
     }
 
     @Test func goingBackFromAChildInTheDetailColumnKeepsItsParentOpen() {
@@ -44,27 +41,41 @@ import SwiftUI
         #expect(ThreadColumns.path([], detail: [.thread(child)]) == [])
     }
 
-    @Test func besideTheListTheSidebarCarriesTheTabsAndAPhoneKeepsItsTabBar() {
-        // Regular: Threads, Pull requests and New thread live in the sidebar; no tab bar at all.
-        #expect(ThreadColumns.sidebarHoldsTabs(.regular))
-        #expect(!ThreadColumns.showsTabBar(.regular, path: []))
-        #expect(!ThreadColumns.showsTabBar(.regular, path: [.thread(open)]))
-        // Compact: the tab bar is back, stepping aside while a page shows.
-        #expect(!ThreadColumns.sidebarHoldsTabs(.compact))
-        #expect(ThreadColumns.showsTabBar(.compact, path: []))
-        #expect(!ThreadColumns.showsTabBar(.compact, path: [.thread(open)]))
+    @Test func aTapJustAfterARowActionOpensNothingButALaterOneDoes() {
+        var taps = RowTapGuard()
+        #expect(taps.opens(at: 100))
+        taps.acted(at: 100)
+        // The row sliding in under the finger takes the same touch.
+        #expect(!taps.opens(at: 100.2))
+        #expect(taps.opens(at: 100 + RowTapGuard.window))
     }
 
-    @Test func besideTheListTheCardComposerAndTranscriptShareOneColumnsEdges() {
-        let wide = ReadingColumn.bar(.regular)
-        #expect(wide.card == wide.composer)
-        #expect(wide.composer == ReadingColumn.textMargin)
-        // Clear of the window's resize corner, which sits under the composer's trailing end.
-        #expect(wide.bottom > ReadingColumn.bar(.compact).bottom)
-        // A phone keeps its composer near the edge and the card tucked narrower than it.
-        let phone = ReadingColumn.bar(.compact)
-        #expect(phone.card > phone.composer)
-        #expect(phone.composer < ReadingColumn.textMargin)
+    @Test func besideTheListTheSidebarCarriesTheTabsAndAPhoneKeepsItsTabBar() {
+        // Regular: the places live in the sidebar's foot; compact: the phone's own bar holds them.
+        #expect(ThreadColumns.sidebarHoldsTabs(.regular))
+        #expect(!ThreadColumns.sidebarHoldsTabs(.compact))
+    }
+
+    @Test func theTranscriptComposerAndStripsShareOneEdgeInEveryWindow() {
+        for sizeClass in [UserInterfaceSizeClass.compact, .regular] {
+            let bar = ReadingColumn.bar(sizeClass)
+            #expect(bar.composer == bar.text)
+        }
+        // A phone keeps the design language's one side margin.
+        #expect(ReadingColumn.bar(.compact).text == AceDesign.Space.margin)
+        // Beside the list the column keeps the wider reading margin, and stays clear of the
+        // window's resize corner, which sits under the composer's trailing end.
+        #expect(ReadingColumn.bar(.regular).text > ReadingColumn.bar(.compact).text)
+        #expect(ReadingColumn.bar(.regular).bottom > ReadingColumn.bar(.compact).bottom)
+    }
+
+    @MainActor @Test func aStripsWordsStartWhereTheComposersWordsStart() {
+        // The strip's lead mark, then its gap, end where the + and the field's inset end.
+        let lead = ReadingColumn.stripLead
+        #expect(lead + StripLeadMark.width + AceDesign.Space.related == ComposerCapsuleMetrics.aboveInset)
+        // The mark sits under the capsule's +, inside the strip's glass.
+        #expect(lead > 0)
+        #expect(lead + StripLeadMark.width <= AceDesign.Size.tap)
     }
 
     @Test func theListsHeaderStepsClearOfTheSidebarCornerAndTheWindowControlsOnly() {
@@ -86,17 +97,17 @@ import SwiftUI
         #expect(ThreadColumns.neighbour(of: nil, in: [], step: 1) == nil)
     }
 
-    @Test func threadOrderSkipsClosedShelvesAndOpensAnUnsentRowsThread() {
+    @Test func threadOrderStaysInTheOpenTabAndOpensAnUnsentRowsThread() {
         let key = { InboxKey(machineId: "m", id: $0) }
         let sections = [
-            MergedInbox.Section(key: "settled", label: "Settled", rows: [key("done")]),
+            MergedInbox.Section(key: "settled", label: "Settled", rows: [key("done")], tab: "settled"),
             MergedInbox.Section(key: "unsent", label: "Unsent", rows: [key("pending-1")]),
             MergedInbox.Section(key: "now", label: "", rows: [key("a"), key("b")]),
-            MergedInbox.Section(key: "snoozed", label: "Snoozed", rows: [key("later")]),
+            MergedInbox.Section(key: "snoozed", label: "Snoozed", rows: [key("later")], tab: "snoozed"),
         ]
         let thread: (InboxKey) -> InboxKey? = { $0.id == "pending-1" ? key("b") : $0 }
-        #expect(ThreadColumns.order(sections, shelves: InboxShelves(), thread: thread) == [key("b"), key("a")])
-        #expect(ThreadColumns.order(sections, shelves: InboxShelves(snoozed: true, settled: true), thread: thread)
-                == [key("b"), key("a"), key("later"), key("done")])
+        #expect(ThreadColumns.order(sections, tab: "inbox", thread: thread) == [key("b"), key("a")])
+        #expect(ThreadColumns.order(sections, tab: "snoozed", thread: thread) == [key("later")])
+        #expect(ThreadColumns.order(sections, tab: "settled", thread: thread) == [key("done")])
     }
 }

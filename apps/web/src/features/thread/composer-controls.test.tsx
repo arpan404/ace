@@ -1,4 +1,4 @@
-import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
+import { openEffortControl, chooseEffort, chooseModel } from "@/test/model-control.ts";
 import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
@@ -60,6 +60,29 @@ test("Plan mode runs Claude's next turn in Read-only, its native plan mode", asy
   await waitFor(() =>
     expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("read-only"),
   );
+});
+
+test("a pending switch to another provider tunes the new model's levels, not the old thinking", async () => {
+  const { app } = await open("busy");
+  // Opus runs at Medium; turn it up to High first.
+  const tune = await openEffortControl();
+  await chooseEffort(tune, "{End}");
+  await closeModelControl();
+  // Switch to a Codex model while offline: the switch waits unsent, so the thread still
+  // runs on Opus while the chip already names Codex.
+  act(() => app.client.networkOnline(false));
+  await screen.findAllByText(/^Offline$/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5\.5/);
+  const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
+  const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
+  expect(chip.textContent).toContain("Pending");
+  // Tune lists the Codex model's own levels, keeping the carried level where it offers one.
+  const pending = await openEffortControl(/^Model: GPT-5 Codex/);
+  const slider = within(pending).getByRole("slider", { name: "Effort" });
+  // Codex offers Minimal through High: four stops, with the carried High still chosen.
+  expect(slider.getAttribute("aria-valuemax")).toBe("3");
+  expect(slider.getAttribute("aria-valuetext")).toBe("High");
 });
 
 test("a file mentioned once comes first in the next @ picker", async () => {
@@ -222,16 +245,6 @@ test("a model without effort levels shows only model and account controls", asyn
   expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
-  const { app } = await open("busy");
-  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
-  act(() => app.client.networkOnline(false));
-  await screen.findAllByText(/^Offline/);
-  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
-  await userEvent.click(chip);
-  expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
-});
-
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {
   const { app } = await open("busy", ({ daemon }) => {
     daemon.services.models = daemon.services.models.filter((model) => model.provider !== "pi");

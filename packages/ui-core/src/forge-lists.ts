@@ -12,7 +12,12 @@ import {
 
 /** What the Pull requests list shows, as its address keeps it (`/pulls?state=merged&…`). */
 export interface PullsSearch {
+  /** The projects picked (`useProjectChoice`); none is every project. */
+  projects?: string[] | undefined;
+  /** An older link's one project. */
   project?: string | undefined;
+  /** A quick view: only the ones that need the person. */
+  view?: "needs" | undefined;
   who?: "all" | "authored" | "reviewing" | undefined;
   state?: "open" | "merged" | "closed" | "all" | undefined;
   sort?: PullsSort | undefined;
@@ -108,6 +113,7 @@ export function groupPrs(
 
 /** What the Issues list shows, as its address keeps it (`/issues?state=closed&…`). */
 export interface IssuesSearch {
+  projects?: string[] | undefined;
   project?: string | undefined;
   who?: "all" | "assigned" | "created" | undefined;
   state?: "open" | "closed" | undefined;
@@ -151,6 +157,19 @@ export function groupIssues(
     { id: "created", label: "Created by you", rows: created },
     { id: "others", label: "Others", rows: others },
   ].filter((group) => group.rows.length > 0);
+}
+
+/** The first message of a thread started from a pull request: what to work on, its link,
+ * which branch goes into which, and its body. */
+export function prSourceText(pr: {
+  number: number;
+  title: string;
+  url: string;
+  headBranch: string;
+  baseBranch: string;
+  body: string;
+}): string {
+  return `Work on GitHub PR #${pr.number}: ${pr.title}\n${pr.url}\n\n${pr.headBranch} → ${pr.baseBranch}\n\n${pr.body}`;
 }
 
 /** The first message of a thread started from an issue: what to work on, its link and body. */

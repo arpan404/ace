@@ -1,7 +1,16 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import type { CommandPayload, GoalChange, ProviderGoal, ThreadId } from "@ace/protocol";
-import { goalResumable, goalTitle, goalUsage, readTurnActivity } from "@ace/ui-core";
-import { livePill } from "@ace/ui-core/mobile";
+import {
+  type TurnActivity,
+  backgroundCommand,
+  goalResumable,
+  goalTitle,
+  goalUsage,
+  ledgerOf,
+  readStoppedTurn,
+  readTurnActivity,
+} from "@ace/ui-core";
+import { type LivePill, leftRunningStripLine, livePill } from "@ace/ui-core/mobile";
 import { preview } from "./presentation.ts";
 
 /*
@@ -46,10 +55,31 @@ export function goalPayload(
   return allowed ? { type: "thread.goal.set", threadId, change: next } : undefined;
 }
 
+/**
+ * Which live facts the pill names, so the transcript leaves their rows to it while it shows:
+ * subagents when it counts them or the root only waits on them ("Waiting on 2"), commands when
+ * it counts them or the root only waits on them. A pill that names neither covers nothing, and
+ * the transcript keeps its live rows.
+ */
+export function pillCovers(pill: LivePill | undefined, activity: TurnActivity | undefined) {
+  const kinds = new Set(pill?.segments.map((segment) => segment.kind));
+  // The status is the wait only when it opens the tree and isn't a request elsewhere.
+  const status = pill?.status;
+  const waiting =
+    status?.opens === "agents" && status.tone !== "needs-you"
+      ? activity?.waitingOn?.kind
+      : undefined;
+  return {
+    subagents: kinds.has("subagents") || waiting === "subagents",
+    commands: kinds.has("commands") || waiting === "background",
+  };
+}
+
 export class PillFollower {
   readonly #store: ThreadSource;
   readonly #put: Put;
   #queued = 0;
+  #held = false;
   #watch = new Set<string>();
 
   constructor(store: ThreadSource, put: Put) {
@@ -72,16 +102,48 @@ export class PillFollower {
       .some((id) => this.#store.interaction(id)?.state === "pending");
   }
 
-  /** The queue was read again: its count is one of the pill's parts. */
-  queued(count: number): void {
-    if (count === this.#queued) return;
+  /** The queue was read again: its count is one of the pill's parts, and whether its strip says what holds the turn. */
+  queued(count: number, held = this.#held): void {
+    if (count === this.#queued && held === this.#held) return;
     this.#queued = count;
+    this.#held = held;
     this.#emit();
   }
 
   /** Whether ace sets this provider's goals itself (the provider's own `/goal` otherwise). */
   get editable(): boolean {
     return this.#store.thread?.capabilities?.goals === true;
+  }
+
+  /**
+   * Commands a stopped or finished turn left running, as the strip above the composer says them
+   * with one Stop for all (`leftRunningStripLine`); null while anything else carries on.
+   */
+  #leftRunning(rootId: string) {
+    const store = this.#store;
+    const stopped = readStoppedTurn(store, rootId);
+    for (const key of stopped.watch) this.#watch.add(key);
+    const running: { taskId: string; command: string }[] = [];
+    for (const [itemId, taskId] of ledgerOf(store).background) {
+      this.#watch.add(`task:${taskId}`);
+      const task = store.task(taskId);
+      if (!task || task.internal || task.status !== "running" || !task.stoppable) continue;
+      running.push({ taskId, command: backgroundCommand(task, store.item(itemId)) });
+    }
+    const strip = leftRunningStripLine({
+      over: stopped.stopped || store.thread?.status.state === "done",
+      subagents: store.thread?.live?.runningSubagentCount ?? 0,
+      commands: running.map((entry) => entry.command),
+    });
+    if (!strip) return null;
+    return {
+      strip: {
+        ...strip,
+        sentence: preview(strip.sentence, 256),
+        payload: preview(strip.payload, 512),
+      },
+      taskIds: running.map((entry) => entry.taskId),
+    };
   }
 
   #emit(): void {
@@ -95,6 +157,7 @@ export class PillFollower {
         queued: this.#queued,
         goal: thread?.goal,
         requestShown: this.#requestShown(),
+        holdShown: this.#held,
       });
       return {
         type: "thread.pill",
@@ -114,12 +177,15 @@ export class PillFollower {
               segments: pill.segments.map((segment) => ({
                 kind: segment.kind,
                 label: preview(segment.label, 256),
+                detail: preview(segment.detail ?? "", 256),
                 opens: segment.opens,
                 live: segment.live,
               })),
+              covers: pillCovers(pill, reading.activity),
             }
           : null,
         goal: goalRow(thread?.goal, this.editable),
+        leftRunning: this.#leftRunning(rootId),
       };
     });
   }

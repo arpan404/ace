@@ -3,6 +3,8 @@ import { Command, ThreadId, type CommandResult } from "@ace/protocol";
 import { initializeThreadCleanup, threadCleaning } from "./thread-cleanup-journal.ts";
 import { organizationDecision } from "@ace/projection";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
+import { workChangedSince } from "./thread-fence.ts";
+import { tombstone } from "./thread-gone.ts";
 import type { ServerOptions } from "./server-options.ts";
 
 /** How often the liveness backstop visits one batch of unsettled threads. */
@@ -121,6 +123,16 @@ export class ThreadLifecycle {
           return { commandId: command.id, ok: false, error: "thread_deleting" };
         if (this.options.engine && store.workspaceReservations.threadReserved(p.threadId))
           return { commandId: command.id, ok: false, error: "workspace_change_in_progress" };
+        // Every thread the delete stops, inside this transaction with the delete itself.
+        if (
+          p.beforeSeq !== undefined &&
+          workChangedSince(
+            store,
+            this.options.engine?.cleanupThreads(p.threadId) ?? [p.threadId],
+            p.beforeSeq,
+          )
+        )
+          return { commandId: command.id, ok: false, error: "thread_changed" };
         const alive = this.alive(p.threadId);
         if (!p.force && Object.values(alive).some((count) => count > 0))
           return { commandId: command.id, ok: false, error: "thread_busy", alive };
@@ -179,17 +191,9 @@ export class ThreadLifecycle {
       }
       await this.options.store.writable();
       this.options.store.atomic((db) => {
+        // The deletion policy ran when the delete was admitted, and the tree is stopped.
         if (this.options.store.getThread(id)?.deletedAt === undefined)
-          this.options.store.appendEvents(
-            id,
-            [
-              {
-                type: "thread.client.updated",
-                changes: { deletedAt: this.now(), autoSettleAt: null },
-              },
-            ],
-            this.now(),
-          );
+          tombstone(this.options.store, id, this.now());
         this.options.store.completeAsyncCommand(command.id, {
           commandId: command.id,
           ok: true,

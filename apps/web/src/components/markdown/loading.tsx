@@ -1,12 +1,10 @@
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
-import type { ReactNode } from "react";
 
 /** Show live text immediately; reserve wrapped lines while preparing settled messages. */
 export function MarkdownLoading(props: {
   text: string;
   className?: string | undefined;
   streaming?: boolean | undefined;
-  tail?: ReactNode;
 }) {
   // Text already received must remain readable while either lazy code or the worker starts.
   // Plain text needs no parsing, and React escapes it just as it does a rendered token.
@@ -14,7 +12,6 @@ export function MarkdownLoading(props: {
     return (
       <div className={props.className} style={{ whiteSpace: "pre-wrap" }}>
         {props.text}
-        {props.tail}
       </div>
     );
   const lines = props.text

@@ -4,6 +4,7 @@ import type {
   CatalogMention,
   ContentPart,
   Mention,
+  MessageContextItem,
   ThreadRefContextItem,
 } from "@ace/protocol";
 
@@ -17,6 +18,11 @@ export interface ComposerToken {
   thread?: ThreadRefContextItem | undefined;
   /** A tab of the thread's browser (`@` a tab). */
   browserTab?: BrowserTabContextItem | undefined;
+  /**
+   * A file attached where this marker stands (`composer-markers.ts`): its chip's key in this
+   * composer, and its hash once the daemon holds it.
+   */
+  attachment?: { key?: number | undefined; sha256?: string | undefined } | undefined;
 }
 
 /** An edit touching a reference removes it; edits around it preserve its position. */
@@ -57,6 +63,34 @@ export function composerInput(text: string, tokens: readonly ComposerToken[]): C
   }
   if (at < text.length) parts.push({ type: "text", text: text.slice(at) });
   return parts.length ? parts : [{ type: "text", text }];
+}
+
+/**
+ * What a message's references add to its context: the threads and browser tabs it points at,
+ * and its files (`also`, files written as `@path` without a reference, first), each file once.
+ */
+export function referenceContext(
+  tokens: readonly ComposerToken[],
+  also: readonly Mention[] = [],
+): { items: MessageContextItem[]; mentions: Mention[] } {
+  const files = tokens.flatMap((token) => (token.file ? [token.file] : []));
+  const mentions = [
+    ...also.filter((mention) => !files.some((file) => file.path === mention.path)),
+    ...files,
+  ].filter(
+    (mention, index, all) =>
+      all.findIndex(
+        (other) =>
+          other.path === mention.path &&
+          JSON.stringify(other.lines) === JSON.stringify(mention.lines),
+      ) === index,
+  );
+  return {
+    items: tokens.flatMap((token): MessageContextItem[] =>
+      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
+    ),
+    mentions,
+  };
 }
 
 /**
@@ -110,4 +144,16 @@ export function tokensFromInput(input: readonly ContentPart[]): {
     }
   }
   return { text, tokens };
+}
+
+/**
+ * A sent or queued message's input with new words: its `@` mentions and catalog picks follow the
+ * edit as the composer's do, and its files and images stay. Pure.
+ */
+export function inputWithText(input: readonly ContentPart[], text: string): ContentPart[] {
+  const original = tokensFromInput(input);
+  return [
+    ...composerInput(text, editComposerTokens(original.text, text, original.tokens)),
+    ...input.filter((part) => part.type !== "text" && part.type !== "mention"),
+  ];
 }

@@ -206,7 +206,8 @@ test("switching to another tool hides the embedded page", async () => {
   await waitFor(() => expect(last()?.visible).toBe(true));
   // With no agent at work, the page doesn't follow the person into picture-in-picture.
   act(() => browser.agentIdle("thread-cold-start"));
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
   await waitFor(() => expect(last()?.visible).toBe(false));
   expect(last()?.threadId).toBe("thread-cold-start");
   expect(last()?.covered).toBeUndefined();

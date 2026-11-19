@@ -1,6 +1,7 @@
 ---
 import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
 import { product } from "../content/product.ts";
+import { cardFor } from "../seo/cards.ts";
 import "../styles/global.css";
 
 interface Props {
@@ -10,13 +11,27 @@ interface Props {
   noindex?: boolean;
   /** schema.org data for this page, serialized into a JSON-LD script. */
   structuredData?: object;
+  /** Open Graph type: the home page is a website, every other page an article. */
+  ogType?: "website" | "article";
+  /** This page's Markdown version, for AI agents (seo/markdown.ts). */
+  markdown?: string;
+  /** The social card shared links show (seo/cards.ts); the home card when not given. */
+  ogImage?: { image: string; alt: string };
 }
 
-const { title, description, noindex = false, structuredData } = Astro.props;
+const {
+  title,
+  description,
+  noindex = false,
+  structuredData,
+  ogType = "website",
+  markdown,
+  ogImage: card = cardFor("/"),
+} = Astro.props;
 const site = Astro.site;
 const canonical = site ? new URL(Astro.url.pathname, site).href : undefined;
-const ogImage = site ? new URL("/og.png", site).href : "/og.png";
-const ogAlt = `${product.name}: ${product.headline}`;
+const ogImage = site ? new URL(card.image, site).href : card.image;
+const ogAlt = card.alt;
 // JSON in a script tag must not be able to close the tag early.
 const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "\\u003c") : "";
 ---
@@ -27,6 +42,7 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
+    <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
     <meta name="description" content={description} />
     <meta
       name="robots"
@@ -36,7 +52,7 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     />
     {canonical && <link rel="canonical" href={canonical} />}
 
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content={product.name} />
     <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={title} />
@@ -55,17 +71,55 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
 
     <meta name="application-name" content={product.name} />
     <meta name="apple-mobile-web-app-title" content={product.name} />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0c0c0c" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f5f1" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-64.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="alternate" type="text/plain" title="ace for language models" href="/llms.txt" />
+    {markdown && <link rel="alternate" type="text/markdown" title="This page as Markdown" href={markdown} />}
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
-    <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
+    <!--
+      Before paint: the theme (the visitor's saved choice, else the light one the site is
+      drawn for), whether to animate, and their desktop OS so the matching download
+      button shows.
+    -->
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const key = "ace-theme";
+        const saved = () => {
+          try {
+            return localStorage.getItem(key);
+          } catch {
+            return null;
+          }
+        };
+        const apply = () => {
+          root.dataset.theme = saved() ?? "light";
+        };
+        apply();
+      })();
+      (() => {
+        // Motion: on unless reduced motion is asked for. If the motion script hasn't started
+        // within three seconds (blocked, failed), drop it so no content stays hidden.
+        const root = document.documentElement;
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        root.classList.add("motion");
+        setTimeout(() => {
+          if (!("motionReady" in root.dataset)) root.classList.remove("motion");
+        }, 3000);
+      })();
+      (() => {
+        const ua = navigator.userAgent;
+        if (/Android|iPhone|iPad|iPod/.test(ua)) return;
+        if (/Windows/.test(ua)) document.documentElement.dataset.os = "windows";
+        else if (/Linux|X11|CrOS/.test(ua)) document.documentElement.dataset.os = "linux";
+      })();
+    </script>
     {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   </head>
   <body>

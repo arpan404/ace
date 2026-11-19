@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeSubscriptions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SpadeSubscription.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "providers"
+  ],
+  "type": "object"
+}

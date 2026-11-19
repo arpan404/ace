@@ -1,0 +1,165 @@
+//! The API's edges: the token, health, routes that are gone, the live stream and keys.
+
+mod support;
+
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use serde_json::json;
+use spade_testkit::Script;
+use support::{Result, Spade};
+
+#[tokio::test]
+async fn health_is_open_and_everything_else_needs_the_token() -> Result {
+    let spade = Spade::start(vec![Script::reply("hi")], Vec::new()).await?;
+    let health = spade
+        .http
+        .get(format!("{}/health", spade.base))
+        .send()
+        .await?;
+    assert_eq!(health.status(), 200);
+    let health: serde_json::Value = health.json().await?;
+    assert_eq!(health["ok"], true);
+    assert_eq!(health["api"], 1);
+    assert_eq!(health["version"], env!("CARGO_PKG_VERSION"));
+    let bare = spade
+        .http
+        .get(format!("{}/v1/conversations", spade.base))
+        .send()
+        .await?;
+    assert_eq!(bare.status(), 401);
+    let wrong = spade
+        .http
+        .get(format!("{}/v1/conversations", spade.base))
+        .bearer_auth("nope")
+        .send()
+        .await?;
+    assert_eq!(wrong.status(), 401);
+    let (status, _) = spade.get("/v1/conversations").await?;
+    assert_eq!(status, 200);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_removed_budget_route_answers_404_and_spends_nothing() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let agent = spade.new_agent("Scout", "Find things").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    // Spade has no budgets (ADR 0166): the route a worker's budget was set on is gone.
+    let (status, _) = spade
+        .put(
+            &format!("/v1/agents/{id}/budget"),
+            json!({ "budget_usd": 5 }),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    let (status, _) = spade
+        .put(
+            &format!("/v1/agents/{id}/budget"),
+            json!({ "budget_usd": null }),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    let (status, body) = spade.get(&format!("/v1/agents/{id}/tree")).await?;
+    assert_eq!(status, 200, "{body}");
+    assert!(body["tree"].get("budget_micros").is_none(), "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_live_stream_sends_stored_events_then_deltas_as_they_arrive() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("one two three four")
+                .chunks(4)
+                .delay(Duration::from_millis(60)),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Count").await?;
+    let response = spade
+        .http
+        .get(format!("{}/v1/conversations/{id}/live?after=0", spade.base))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?;
+    let mut body = response.bytes_stream();
+    let mut text = String::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !text.contains("reply_finished") && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(5), body.next()).await {
+            Ok(Some(Ok(chunk))) => text.push_str(&String::from_utf8_lossy(&chunk)),
+            _ => break,
+        }
+    }
+    let first_stored = text.find("event: stored").unwrap_or(usize::MAX);
+    let first_delta = text.find("event: delta").unwrap_or(usize::MAX);
+    assert!(first_stored < first_delta, "{text}");
+    assert!(text.contains("\"type\":\"user_message\""), "{text}");
+    assert!(text.contains("reply_finished"), "{text}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_key_is_stored_reported_as_set_and_deleted_but_never_returned() -> Result {
+    let spade = Spade::start(vec![Script::reply("hi")], Vec::new()).await?;
+    let (_, before) = spade.get("/v1/models").await?;
+    assert_eq!(before["endpoints"][0]["key_set"], false);
+
+    let put = spade
+        .http
+        .put(format!("{}/v1/keys/fake", spade.base))
+        .bearer_auth(support::TOKEN)
+        .json(&json!({ "key": "sk-secret-123" }))
+        .send()
+        .await?;
+    assert_eq!(put.status(), 204);
+    let (_, after) = spade.get("/v1/models").await?;
+    assert_eq!(after["endpoints"][0]["key_set"], true);
+    assert!(!after.to_string().contains("sk-secret-123"));
+
+    let delete = spade
+        .http
+        .delete(format!("{}/v1/keys/fake", spade.base))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?;
+    assert_eq!(delete.status(), 204);
+    let (_, gone) = spade.get("/v1/models").await?;
+    assert_eq!(gone["endpoints"][0]["key_set"], false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn health_proves_spade_holds_its_token_without_revealing_it() -> Result {
+    let spade = Spade::start(vec![Script::reply("hi")], Vec::new()).await?;
+    let nonce = "00112233445566778899aabbccddeeff";
+    let answer: serde_json::Value = spade
+        .http
+        .get(format!("{}/health?nonce={nonce}", spade.base))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        answer["proof"].as_str(),
+        spade_server::proof::answer(support::TOKEN, nonce).as_deref()
+    );
+    assert!(!answer.to_string().contains(support::TOKEN));
+    let plain: serde_json::Value = spade
+        .http
+        .get(format!("{}/health", spade.base))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(plain.get("proof").is_none());
+    let bad = spade
+        .http
+        .get(format!("{}/health?nonce=xyz", spade.base))
+        .send()
+        .await?;
+    assert_eq!(bad.status(), 400);
+    Ok(())
+}

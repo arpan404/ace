@@ -126,5 +126,6 @@ it("measurement MCP actions request view permission only when no input is suppli
   expect(registry.action("screen_measure", { repeat: 6 })).toBeUndefined();
   expect(
     registry.list(lease.principal).find((tool) => tool.name === "screen_measure")?.inputSchema,
-  ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
+    // The 10 s cap is enforced above; advertised schemas drop maxima this generous.
+  ).toMatchObject({ properties: { observeMs: { type: "integer" }, repeat: { maximum: 5 } } });
 });

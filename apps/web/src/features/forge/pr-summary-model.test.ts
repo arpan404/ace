@@ -92,7 +92,7 @@ test("changes at a glance keeps the biggest files, split into folder and name, s
   ]);
 });
 
-test("needs attention lists failing checks, then open review threads, and nothing settled", () => {
+test("blocking the merge lists open review threads, then failing checks, and nothing settled", () => {
   const failing = {
     id: "links",
     name: "links",
@@ -111,10 +111,10 @@ test("needs attention lists failing checks, then open review threads, and nothin
     ],
   });
   expect(items.map((item) => [item.key, item.title, item.detail])).toEqual([
-    ["check:links", "links", "failure"],
     ["thread:open", "Which port?", "src/a.ts:3"],
+    ["check:links", "links", "failure"],
   ]);
-  const [check, review] = items;
+  const [review, check] = items;
   if (!check || !review) throw new Error("expected two items");
   expect(fixRequest(check, { number: 31, url: "https://pr/31" })).toContain(
     'The check "links" fails on PR #31 (https://ci/links)',
@@ -128,4 +128,30 @@ test("an outdated conversation in needs attention names its file without a dangl
   const outdated = { ...thread("old", false, [comment(9, "mira", "2026-01-05")]), line: null };
   const [item] = attentionItems({ checks: [], reviewThreads: [outdated] });
   expect(item?.detail).toBe("src/a.ts");
+});
+
+const keys = (comments: ForgeComment[], threads = [] as ForgePrStatus["reviewThreads"]) =>
+  attentionItems({ checks: [], reviewThreads: threads, comments }).map((item) => item.key);
+
+test("a review asking for changes blocks in the reviewer's words until their next verdict", () => {
+  const review = (id: number, author: string, at: string, state: string, body = "") =>
+    comment(id, author, at, { kind: "review", reviewState: state, body });
+  const asked = review(20, "mira", "2026-01-03", "CHANGES_REQUESTED", "Add a jittered backoff.");
+  expect(keys([asked])).toEqual(["review:20"]);
+  const [item] = attentionItems({ checks: [], reviewThreads: [], comments: [asked] });
+  if (!item) throw new Error("expected the review");
+  expect(item.title).toBe("Add a jittered backoff.");
+  expect(fixRequest(item, { number: 31, url: "https://pr/31" })).toContain(
+    "Address mira's requested changes on PR #31:\n\n> Add a jittered backoff.",
+  );
+  // An approval afterwards settles it; so does hiding the review on GitHub.
+  expect(keys([asked, review(21, "mira", "2026-01-04", "APPROVED")])).toEqual([]);
+  expect(
+    attentionItems({ checks: [], reviewThreads: [], comments: [asked] }, (c) => c.id === 20),
+  ).toEqual([]);
+  // A review with no words of its own that asked through a line comment shows as that thread.
+  const silent = review(22, "sam", "2026-01-03", "CHANGES_REQUESTED");
+  const line = thread("t", false, [comment(23, "sam", "2026-01-03", { kind: "inline" })]);
+  expect(keys([silent], [line])).toEqual(["thread:t"]);
+  expect(keys([silent])).toEqual(["review:22"]);
 });

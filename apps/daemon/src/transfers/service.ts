@@ -9,18 +9,35 @@ import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { AgentTransfers } from "./agent.ts";
-import { transferTransport } from "./client.ts";
+import { transferTransport, type TransferTransport } from "./client.ts";
+import { routedTransfers } from "./routes.ts";
+import { MachineConnections } from "../machines/connections.ts";
+import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferCommands } from "./commands.ts";
 import { IncomingTransfers } from "./incoming.ts";
+import { transferIdentities } from "./identity.ts";
 import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
+import { threadGone } from "../thread-gone.ts";
 import { sourceThreads, targetProjects, targetThreads } from "./service-adapters.ts";
+import { liveResumePorts, liveSourcePorts, liveTargetPorts } from "./live/adapters.ts";
+import { LiveResumes } from "./live/resumes.ts";
+import { ThreadOwnership } from "./live/ownership.ts";
+import { LiveSource } from "./live/source.ts";
+import { LiveTarget } from "./live/target.ts";
 
 export interface DaemonTransfers {
   outgoing: OutgoingTransfers;
   incoming: IncomingTransfers;
   commands: TransferCommands;
   agents: AgentTransfers;
+}
+
+/** The shell's timer for closing idle connections; nothing waits on it at exit. */
+function schedule(ms: number, run: () => void) {
+  const timer = setTimeout(run, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
 }
 
 /** Waits `ms`, or less when the transfer is cancelled. The shell's only timer. */
@@ -61,6 +78,33 @@ export function startTransfers(context: ServiceContext): void {
     }
   };
 
+  // Probes, calls and chunks to one machine share one kept-open, pinned connection.
+  // The pairings saved now, through one kept-open reader that re-reads only when they change:
+  // a transfer holding one removed since, here or by `ace remote remove`, is refused.
+  const saved = new SavedPairings(config.dataDir, record("warn"));
+  resources.own(() => saved.close());
+  const connections = new MachineConnections({ schedule, saved });
+  resources.own(() => connections.close());
+  // Unlinking from Settings ends the machine's transfer connections before it reports done.
+  const unfollow = services.fleet?.onChange((listed) => connections.retain(listed));
+  if (unfollow) resources.own(unfollow);
+  // Every route parcels use reaches the machine for transfers too (ADR 0192).
+  const transport: TransferTransport = routedTransfers({
+    direct: options.transfers?.transport ?? transferTransport,
+    connections,
+    links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
+    now,
+  });
+
+  // Which machine owns each thread (ADR 0191); the engine's fence reads the same record.
+  const ownership = new ThreadOwnership(store);
+  // What a failed move owes the agent, sent until it goes, across restarts.
+  const resumes = new LiveResumes(
+    liveResumePorts(context, { sleep: options.transfers?.sleep ?? sleep, log: record("warn") }),
+  );
+  resources.own(() => resumes.close());
+  const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({
     store,
     directory: join(directory, "incoming"),
@@ -69,6 +113,10 @@ export function startTransfers(context: ServiceContext): void {
     archive,
     projects: targetProjects(context),
     threads: targetThreads(context),
+    identities,
+    live: new LiveTarget(
+      liveTargetPorts(context, { ownership, git, archive, log: record("warn") }),
+    ),
     now,
     log: record("info"),
   });
@@ -81,8 +129,12 @@ export function startTransfers(context: ServiceContext): void {
     git,
     gitPolicy: options.projects?.gitPolicy,
     archive,
-    transport: options.transfers?.transport ?? transferTransport,
-    profiles,
+    transport,
+    profiles: () => {
+      const listed = profiles();
+      connections.retain(listed);
+      return listed;
+    },
     origin: async () => ({
       hostId: HostId.parse(hostId),
       hostName: ((await hostName()) || "ace").slice(0, 256),
@@ -91,6 +143,16 @@ export function startTransfers(context: ServiceContext): void {
     now,
     sleep: options.transfers?.sleep ?? sleep,
     nextId: randomUUID,
+    identities,
+    live: new LiveSource(
+      liveSourcePorts(context, {
+        ownership,
+        git,
+        archive,
+        resumes,
+        sleep: options.transfers?.sleep ?? sleep,
+      }),
+    ),
     log: record("info"),
     ...(options.transfers?.offlineMs ? { offlineMs: options.transfers.offlineMs } : {}),
   });
@@ -105,6 +167,11 @@ export function startTransfers(context: ServiceContext): void {
       if (!runtime) return "workspace_unavailable";
       return runtime.continueRefusal(id);
     },
+    // A delegated child moves with its parent; a thread already moving can't move again.
+    liveRefusal: (id) =>
+      services.agentControl?.delegations.journal.get(id)
+        ? "thread_is_child"
+        : ownership.refusal(id)?.code,
   });
   const agents = new AgentTransfers({
     store,
@@ -122,8 +189,11 @@ export function startTransfers(context: ServiceContext): void {
         rows.find((row) => String(row["name"]).toLowerCase() === name.toLowerCase());
       return found ? WorkspaceId.parse(found["id"]) : undefined;
     },
-    hold: (threadId, agentId, transferId, change) =>
-      services.engine?.transferHold(threadId, agentId, transferId, change),
+    // A thread that is gone holds nothing: its transfer's hold went with it.
+    hold: (threadId, agentId, transferId, change) => {
+      if (threadGone((id) => store.getThread(id), services.engine, threadId)) return;
+      services.engine?.transferHold(threadId, agentId, transferId, change);
+    },
     deliver: (threadId, key, text) => {
       const parent = store.getThread(threadId);
       if (!parent || parent.deletedAt !== undefined) return;
@@ -151,11 +221,16 @@ export function startTransfers(context: ServiceContext): void {
       );
   });
   services.transfers = { outgoing, incoming, commands, agents };
-  void (async () => {
-    await incoming.recover();
+  // Each side recovers on its own: a home indexing its incoming history doesn't hold up the
+  // transfers it is sending (ADR 0170).
+  const recovering = (side: string, run: () => Promise<void>) =>
+    run().catch((error: unknown) =>
+      record("warn")("Transfers could not recover", { side, error: String(error) }),
+    );
+  void recovering("incoming", () => incoming.recover());
+  void recovering("outgoing", async () => {
     await outgoing.recover();
     for (const pending of outgoing.undelivered()) agents.settled(pending);
-  })().catch((error: unknown) =>
-    record("warn")("Transfers could not recover", { error: String(error) }),
-  );
+  });
+  resumes.start();
 }

@@ -1,4 +1,12 @@
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { API } from "typescript/unstable/sync";
 import { z } from "zod";
@@ -65,6 +73,8 @@ function discover(root: string): Workspace[] {
     for (const entry of readdirSync(join(root, top), { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const directory = join(root, top, entry.name);
+      // Not a workspace: a folder with no package.json.
+      if (!existsSync(join(directory, "package.json"))) continue;
       const manifest = manifestSchema.parse(
         JSON.parse(readFileSync(join(directory, "package.json"), "utf8")),
       );
@@ -85,11 +95,16 @@ function discover(root: string): Workspace[] {
   return workspaces;
 }
 
+/** A package's exports that are TypeScript; others (a stylesheet, say) are not type-checked. */
+function typeExports(workspace: Workspace): [string, string][] {
+  return Object.entries(workspace.manifest.exports).filter(([, file]) => /\.[cm]?tsx?$/.test(file));
+}
+
 function declarationPaths(workspaces: Workspace[], own?: Workspace): Record<string, string[]> {
   const paths: Record<string, string[]> = {};
   for (const workspace of workspaces) {
     if (workspace === own) continue;
-    for (const [key, file] of Object.entries(workspace.manifest.exports)) {
+    for (const [key, file] of typeExports(workspace)) {
       const name =
         key === "." ? workspace.manifest.name : `${workspace.manifest.name}/${key.slice(2)}`;
       paths[name] = [
@@ -186,9 +201,7 @@ export function prepareTypecheck(
               outDir: join(dirname(workspace.runtime), "declarations"),
               tsBuildInfoFile: join(dirname(workspace.runtime), "runtime.tsbuildinfo"),
             },
-            files: Object.values(workspace.manifest.exports).map((file) =>
-              resolve(workspace.directory, file),
-            ),
+            files: typeExports(workspace).map(([, file]) => resolve(workspace.directory, file)),
             include: [],
             references,
           },

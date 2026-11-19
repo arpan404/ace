@@ -7,7 +7,7 @@ import {
   type ForgeCompareHead,
   type ForgePrRef,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, prCreateNotice } from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -106,13 +106,14 @@ export function useCreatePr(project: string) {
           }),
         );
         if (!result.pr) throw new Error("action_outcome_uncertain");
-        if (result.prExisting)
-          toast.info({ title: `This branch already has pull request #${result.pr.number}` });
-        else if (result.code)
-          toast.warning({
-            title: `Opened pull request #${result.pr.number}`,
-            description: actionErrorText(result.code),
-          });
+        const notice = prCreateNotice({
+          number: result.pr.number,
+          existing: !!result.prExisting,
+          code: result.code,
+        });
+        if (notice?.warning)
+          toast.warning({ title: notice.title, description: notice.detail ?? undefined });
+        else if (notice) toast.info({ title: notice.title });
         return result.pr;
       } catch (error) {
         toast.error({

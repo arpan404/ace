@@ -4,18 +4,19 @@ import { configure, cleanup, screen, waitFor, within } from "@testing-library/re
 
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { archiveStoppingCommands } from "@/test/archive-question.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
 
 async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -28,24 +29,24 @@ async function rightClick(title: RegExp) {
 
 test("Rename from the menu opens the shared title field; Escape keeps the old one", async () => {
   await openHome();
-  let menu = await rightClick(/Retry budget/);
+  let menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: /Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
   await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.clear(field);
-  await userEvent.type(field, "Cap app-server restarts{Enter}");
+  await userEvent.type(field, "Bound broadcast fan-out{Enter}");
   expect(
-    await within(threads()).findByRole("link", { name: /Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /Bound broadcast fan-out/ }),
   ).toBeTruthy();
 
-  menu = await rightClick(/Cap app-server restarts/);
+  menu = await rightClick(/Bound broadcast fan-out/);
   await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
   const again = await screen.findByRole("textbox", { name: "Thread title" });
   await userEvent.type(again, " later{Escape}");
   expect(
-    await within(threads()).findByRole("link", { name: /Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /Bound broadcast fan-out/ }),
   ).toBeTruthy();
-  expect(card(/restarts later/)).toBeNull();
+  expect(card(/fan-out later/)).toBeNull();
 });
 
 test("Mark unread and Pin are kept by the daemon, so the list shows them after a reload", async () => {
@@ -67,23 +68,22 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
 
   // Another window on the same daemon sees both.
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(card(/Backpressure.*, unread.*Pinned/)).toBeTruthy());
   menu = await rightClick(/Backpressure/);
   expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
-test("opening an unread thread marks it read", async () => {
+test("a finished thread marked unread reads unread in its row, and opening it marks it read", async () => {
   await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Mark unread" }));
-  const unread = await waitFor(() => {
-    const link = card(/, unread/);
-    if (!link) throw new Error("not unread yet");
-    return link;
-  });
+  await waitFor(() => expect(card(/^Invoice PDF.*, unread/)).toBeTruthy());
+  const unread = card(/^Invoice PDF.*, unread/);
+  if (!unread) throw new Error("Missing the unread row");
   await userEvent.click(unread);
-  await waitFor(() => expect(card(/, unread/)).toBeNull());
+  await waitFor(() => expect(card(/^Invoice PDF.*, unread/)).toBeNull());
+  expect(card(/^Invoice PDF/)).toBeTruthy();
 });
 
 /** The daemon still serves the thread; a deleted one is gone from every read. */
@@ -132,8 +132,8 @@ test("Archive takes effect on the daemon at once and Undo unarchives it", async 
   };
   const menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  // It is still working, so it asks first.
-  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
+  // It replied with its soak test left running (ADR 0116): archiving stops that, so it asks.
+  await archiveStoppingCommands();
   await waitFor(() => expect(card(/Backpressure/)).toBeNull());
   expect(await screen.findByText("Archived · Backpressure on broadcast fan-out")).toBeTruthy();
   await waitFor(() => expect(archivedAt()).toBeDefined());
@@ -157,7 +157,7 @@ test("a running thread refused for delete stays listed, says what runs, and Stop
 test("New thread from default branch starts from the project's own default branch, not main", async () => {
   const app = await openHome();
   app.daemon.workspace.git.setDefaultBranch("billing-api", "develop");
-  const menu = await rightClick(/Partial refunds/);
+  const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(
     within(menu).getByRole("menuitem", { name: /New thread from default branch/ }),
   );
@@ -169,7 +169,7 @@ test("New thread from default branch starts from the project's own default branc
 
 test("people link pull requests from the thread menu and confirm before unlinking all", async () => {
   const app = await openHome();
-  let menu = await rightClick(/Retry budget/);
+  let menu = await rightClick(/Rewrite the install page/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Link pull request…" }));
   const dialog = await screen.findByRole("dialog", { name: "Link pull request" });
   await userEvent.type(
@@ -179,7 +179,7 @@ test("people link pull requests from the thread menu and confirm before unlinkin
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({
       kind: "thread",
-      threadId: ThreadId.parse("thread-retry-budget"),
+      threadId: ThreadId.parse("thread-install-page"),
     });
     expect(
       snapshot &&
@@ -187,14 +187,14 @@ test("people link pull requests from the thread menu and confirm before unlinkin
         snapshot.thread.details?.linkedPrs?.some((pr) => pr.number === 283),
     ).toBe(true);
   });
-  menu = await rightClick(/Retry budget/);
+  menu = await rightClick(/Rewrite the install page/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Unlink all pull requests" }));
   const confirmation = await screen.findByRole("dialog", { name: "Unlink all pull requests?" });
   await userEvent.click(within(confirmation).getByRole("button", { name: "Unlink all" }));
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({
       kind: "thread",
-      threadId: ThreadId.parse("thread-retry-budget"),
+      threadId: ThreadId.parse("thread-install-page"),
     });
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toEqual([]);
   });

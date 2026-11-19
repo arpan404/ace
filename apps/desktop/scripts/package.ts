@@ -1,23 +1,41 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { signAsync } from "@electron/osx-sign";
 import { existsSync } from "node:fs";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
+import { smokeMedia } from "@ace/release/media-smoke";
+import { smokeFiles } from "@ace/release/files-smoke";
+import { aceFilesVersion } from "@ace/release/ace-files";
+import { verifyDesktopNatives } from "@ace/release/native-smoke";
+import { readScreenHelperIdentity } from "@ace/release/screen-identity";
+import { ReleaseTarget } from "@ace/protocol";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 // The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor --fix` installs.
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
 import {
   appVersion,
+  asarUnpacked,
   desktop,
   dist,
   electronVersion,
+  repo,
   installedElectronDist,
   packagedAppVersion,
   targetArch,
 } from "./common.ts";
+import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import {
+  windowsSigning,
+  windowsSigningConfig,
+  windowsSigningConfigured,
+} from "../src/packaging/release-signing.ts";
+import { checkAppArchive } from "../src/packaging/app-archive.ts";
+import { copyBesideApp, packagedResources } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
+import { releaseLineOf } from "@ace/service/release-line";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -46,6 +64,19 @@ const arch = targetArch(process.argv);
 const notary = notaryCredentials(process.env);
 if (signed && process.platform === "darwin" && notary.kind === "incomplete")
   throw new Error(`Notarization needs ${notary.missing.join(", ")} as well`);
+// Windows: sign when a certificate is configured, else build unsigned and say so.
+const authenticode =
+  process.platform === "win32" && signed ? windowsSigning(process.env) : undefined;
+if (authenticode?.kind === "incomplete")
+  throw new Error(`Windows signing needs ${authenticode.missing.join(", ")} as well`);
+if (authenticode?.kind === "none")
+  console.warn("[package] no Windows signing certificate is configured; building unsigned");
+// A beta's Dock icon has a peeled corner (ADR 0177), rendered from the master for this build.
+const betaIcon =
+  process.platform === "darwin" &&
+  releaseLineOf(packagedAppVersion(process.env, appVersion())) === "beta"
+    ? join(dist, "beta-icon", "icon.icns")
+    : undefined;
 if (!process.argv.includes("--skip-build"))
   execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
     stdio: "inherit",
@@ -54,19 +85,39 @@ if (!process.argv.includes("--skip-build"))
       ? {
           ...process.env,
           ACE_REQUIRE_SCREEN_HELPER: "1",
-          ...(unsigned ? {} : { ACE_SCREEN_SIGN_RELEASE: "1" }),
+          ACE_SCREEN_SIGN_RELEASE: unsigned ? "0" : "1",
         }
       : process.env,
   });
+// After build.ts, which empties dist; electron-builder must find it, so a missing icon stops here.
+if (betaIcon) {
+  execFileSync(
+    process.execPath,
+    [join(desktop, "scripts/icons.ts"), "--beta", join(dist, "beta-icon")],
+    { stdio: "inherit" },
+  );
+  if (!existsSync(betaIcon)) throw new Error(`The beta's Dock icon wasn't rendered: ${betaIcon}`);
+}
+
+if (signed && process.platform === "darwin") {
+  const staged = lockedUseEnvironment(join(dist, "locked-use"));
+  if (!staged.ACE_LOCKED_USE_TEAM)
+    throw new Error(
+      "The signed package is missing its locked-use components; rebuild before packaging.",
+    );
+}
 
 // Also after --skip-build: dist/ may hold another architecture's build.
 await verifyNatives(arch);
-// Linux release packages run on Ubuntu 20.04+ and Debian 11+: what ace builds itself (the
-// daemon's natives, its Node runtime, ripgrep, the screen helper) must not need a newer
-// glibc. Electron's own floor is Chromium's. Local packages may use the host's toolchain.
+// Linux release packages run on Ubuntu 24.04+ and Debian 12+ (ADR 0093; natives are built on
+// Debian 12's glibc 2.36): what ace builds itself (the daemon's natives, its Node runtime,
+// ripgrep, the screen helper) must not need a newer glibc. Electron's own floor is Chromium's.
+// Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
-    ["daemon", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
+    ["daemon", "bin", "helpers", "runtime", "spade", "media", "files"]
+      .map((d) => join(dist, d))
+      .filter((path) => existsSync(path)),
   ))
     console.warn(`[package] above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
 const linuxResources = join(dist, "linux");
@@ -79,6 +130,11 @@ const notarize =
   signed && process.platform === "darwin" && notary.kind !== "none" && notary.kind !== "incomplete";
 const helper = join(dist, "helpers/AceScreenHelper.app");
 
+const screenIdentity = process.platform === "darwin" ? readScreenHelperIdentity(helper) : undefined;
+if (screenIdentity)
+  await writeFile(join(dist, "screen-helper-identity.json"), JSON.stringify(screenIdentity) + "\n");
+let packedApp = "";
+let packedResources = "";
 const config: Configuration = {
   appId: "dev.ace.app",
   productName: "ace",
@@ -95,18 +151,26 @@ const config: Configuration = {
   asar: true,
   // dist/app has no node_modules: everything is bundled.
   npmRebuild: false,
-  // Native addons and helper binaries cannot run from inside an asar archive.
-  asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
+  asarUnpack: [...asarUnpacked],
   extraResources: [
+    ...(signed && process.platform === "darwin" && existsSync(join(dist, "locked-use"))
+      ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
+      : []),
     { from: join(dist, "bin"), to: "bin" },
+    // Spade's server (ADR 0123), in every build; Settings › Beta hides it at run time (ADR 0139).
+    { from: join(dist, "spade"), to: "spade" },
+    { from: join(dist, "media"), to: "media" },
+    { from: join(dist, "files"), to: "files" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
       from: join(desktop, "resources"),
       to: "icons",
       filter: ["trayTemplate*.png", "trayColor*.png"],
     },
-    // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
+    // The daemon's own runtime (Bun).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
+    // Windows: what the installer runs on that runtime (build/installer.nsh).
+    ...(existsSync(join(dist, "setup")) ? [{ from: join(dist, "setup"), to: "setup" }] : []),
     ...(process.platform === "darwin"
       ? existsSync(helper)
         ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
@@ -117,22 +181,17 @@ const config: Configuration = {
       ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
       : []),
   ],
-  // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
-  // rather than through extraResources, which always drops node_modules, and the daemon needs
-  // its staged runtime packages (node-pty, koffi, playwright-core, the Claude SDK).
-  afterPack: async (context) => {
-    const resources =
-      context.electronPlatformName === "darwin"
-        ? join(
-            context.appOutDir,
-            `${context.packager.appInfo.productFilename}.app`,
-            "Contents/Resources",
-          )
-        : join(context.appOutDir, "resources");
-    await cp(join(dist, "daemon"), join(resources, "daemon"), {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
+  // The daemon runs as a separate process, so it ships as plain files, and so does koffi for
+  // the Windows main process (beside-app.ts). They are copied here rather than through
+  // extraResources, which always drops node_modules: the daemon needs its staged runtime
+  // packages (playwright-core, the Claude SDK).
+  afterPack: async (packed) => {
+    packedApp =
+      process.platform === "darwin" ? join(packed.appOutDir, "ace.app") : packed.appOutDir;
+    packedResources = packagedResources(packed);
+    // A run that packed a dependency tree into app.asar fails here, before anything is signed.
+    await checkAppArchive(join(packagedResources(packed), "app.asar"));
+    await copyBesideApp(dist, arch)(packed);
   },
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
@@ -152,8 +211,8 @@ const config: Configuration = {
   },
   mac: {
     category: "public.app-category.developer-tools",
-    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png.
-    icon: join(desktop, "build/icon.icns"),
+    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png; a beta's has the peeled corner.
+    icon: betaIcon ?? join(desktop, "build/icon.icns"),
     target: full
       ? [
           { target: "dmg", arch: [arch] },
@@ -161,6 +220,18 @@ const config: Configuration = {
         ]
       : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
+    binaries: ["Contents/Resources/media/ace-media", "Contents/Resources/files/ace-files"],
+    // Keep Electron's JIT entitlements off the Rust natives in the same signing pass.
+    sign: async (options) => {
+      const original = options.optionsForFile;
+      await signAsync({
+        ...options,
+        optionsForFile: (file: string) =>
+          file.endsWith("/media/ace-media") || file.endsWith("/files/ace-files")
+            ? { hardenedRuntime: true, entitlements: [] }
+            : (original?.(file) ?? {}),
+      });
+    },
     entitlements: join(desktop, "build/entitlements.mac.plist"),
     entitlementsInherit: join(desktop, "build/entitlements.mac.plist"),
     notarize,
@@ -169,7 +240,7 @@ const config: Configuration = {
     ...(signed ? {} : { identity: "-" }),
     // The screen helper keeps its own stable identity (dev.ace.screen-helper), signed by
     // native/screen-helper/build.sh; re-signing would break the daemon's manifest check.
-    signIgnore: ["Contents/Helpers/AceScreenHelper.app"],
+    signIgnore: ["Contents/Helpers/AceScreenHelper.app", "Contents/Resources/locked-use"],
     // Contents/Helpers may hold only code: the manifest goes to Resources (extraResources).
     extraFiles: existsSync(helper) ? [{ from: helper, to: "Helpers/AceScreenHelper.app" }] : [],
     extendInfo: {
@@ -191,10 +262,12 @@ const config: Configuration = {
     icon: join(desktop, "build/icon.png"),
     // One naming scheme for every release file (`desktopAssets` in release-plan.ts).
     artifactName: "ace-${version}-${arch}-setup.${ext}",
+    ...(authenticode ? windowsSigningConfig(authenticode) : {}),
   },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
-    // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
+    // `ace` is the daemon CLI, never the GUI: the app writes `~/.ace/bin/ace` on launch, and the
+    // deb's postinst installs the same script as /usr/bin/ace (build/linux/after-install.tpl).
     executableName: "ace-desktop",
     syncDesktopName: true,
     target: [
@@ -210,20 +283,17 @@ const config: Configuration = {
     // One PNG per hicolor size (`scripts/icons.ts`): the theme has no 1024 px directory.
     icon: join(desktop, "build/linux-icons"),
     artifactName: "ace-${version}-${arch}.${ext}",
-    // `ace://` comes from `protocols`: electron-builder adds its handler type to the entry.
-    mimeTypes: ["inode/directory"],
+    // `ace://` comes from `protocols`: electron-builder adds its handler type to the entry. No
+    // `inode/directory`: listing it made ace the default folder opener over the file manager.
   },
   // The static type2 AppImage runtime (FUSE 3). The legacy default links an unversioned
   // libz.so on arm64, which a stock Ubuntu (no zlib1g-dev) does not have.
   toolsets: { appimage: "1.0.3" },
   deb: {
     packageName: "ace-desktop",
-    // Its own list: electron-builder appends the `ace://` handler type to the list it is
-    // given, so the deb sharing `linux.mimeTypes` with the AppImage would list it twice.
-    mimeTypes: ["inode/directory"],
     // electron-builder's defaults plus ALSA, which Electron links but the defaults omit: a
     // minimal Ubuntu install failed with "libasound.so.2: cannot open shared object file".
-    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is the older releases.
+    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is Debian 12.
     depends: [
       "libgtk-3-0",
       "libnotify4",
@@ -236,19 +306,42 @@ const config: Configuration = {
       "libsecret-1-0",
       "libasound2t64 | libasound2",
     ],
-    // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
+    // The tray. electron-builder's default recommends libappindicator3-1, which Debian 13 no
+    // longer ships; Ayatana's fork is its maintained replacement on Debian and Ubuntu.
+    recommends: ["libayatana-appindicator3-1 | libappindicator3-1"],
+    // Ours, not electron-builder's: they also install and remove ace's Chromium profile and
+    // the /usr/bin/ace command.
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
-  // The update feed: GitHub releases tagged v<version>. Only a full package carries it, so
+  // The update feed: GitHub releases (ADR 0091, 0177). Only a full package carries it, so
   // a local build never offers updates. Nothing uploads from here (`publish: "never"`);
   // `bun run release:publish` creates the release with the GitHub CLI.
   publish: full
-    ? [{ provider: "github", owner: "arpan404", repo: "ace", releaseType: "release" }]
+    ? [
+        {
+          provider: "github",
+          owner: "arpan404",
+          repo: "ace",
+          releaseType: "release",
+          // Always `latest-*.yml`, a beta's too: electron-builder would otherwise name a beta's
+          // feed after its prerelease tag (`beta-mac.yml`), and the app reads `latest-mac.yml`
+          // from whichever release it picked (ADR 0177).
+          channel: "latest",
+        },
+      ]
     : null,
 };
 
 if (!signed) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+// Windows ARM64: 7-Zip picks its ARM64 executable filter for .exe and .dll files, which the
+// installer's 7z extractor cannot decode, so it silently skips them (ace.exe included). BCJ
+// is one it decodes; it only costs a little compression on ARM64 code.
+if (process.platform === "win32" && arch === "arm64")
+  process.env.ELECTRON_BUILDER_7Z_FILTER = "BCJ";
+// An unsigned Windows build must not pick up a certificate from the environment.
+if (process.platform === "win32" && authenticode?.kind !== "certificate")
+  for (const name of ["CSC_LINK", "WIN_CSC_LINK"]) delete process.env[name];
 
 const targets =
   process.platform === "darwin"
@@ -256,7 +349,44 @@ const targets =
     : process.platform === "win32"
       ? Platform.WINDOWS
       : Platform.LINUX;
-const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
+// electron-builder packs the dependencies of the first of the app folder, the project folder and
+// the workspace root that declares any. dist/app declares none, and neither does the repo root,
+// so the project folder is pinned there: left to default to the working directory, a run from
+// apps/desktop packed the desktop package's whole dependency tree into app.asar.
+const outputs = await build({
+  targets: targets.createTarget(),
+  config,
+  projectDir: repo,
+  publish: "never",
+});
+const nativeTarget = ReleaseTarget.parse(`${process.platform}-${arch}`);
+await verifyDesktopNatives(
+  packedApp,
+  nativeTarget,
+  join(repo, "native/screen-helper/identity.txt"),
+  {
+    production: signed && process.platform === "darwin",
+    authenticode: windowsSigningConfigured(authenticode),
+    ...(screenIdentity ? { screenIdentity } : {}),
+  },
+);
+const runtime = join(
+  packedResources,
+  "runtime",
+  process.platform === "win32" ? "node.exe" : "bin/node",
+);
+await smokeMedia(
+  packedResources,
+  nativeTarget,
+  packagedAppVersion(process.env, appVersion()),
+  runtime,
+);
+await smokeFiles(
+  packedResources,
+  nativeTarget,
+  aceFilesVersion({ repo, target: nativeTarget }),
+  runtime,
+);
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({

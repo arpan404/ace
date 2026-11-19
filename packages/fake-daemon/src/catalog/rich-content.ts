@@ -1,5 +1,6 @@
 import { ForgeIssueDetail, type ForgeBrowserResult } from "@ace/protocol";
 import { colors } from "../forge-list-rows.ts";
+import { withCodeReview } from "./code-review.ts";
 import { media } from "./forge-media.ts";
 import { sketchPullRequests } from "./forge-browse.ts";
 import { review, type PullRequestFixture } from "./pull-request-details.ts";
@@ -200,7 +201,7 @@ export function richPullRequest(now: number): PullRequestFixture {
       },
     ],
   };
-  return fixture;
+  return withCodeReview(fixture, now);
 }
 
 export const richIssueBody = [

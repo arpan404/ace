@@ -342,40 +342,42 @@ export function settledSummary(results: readonly DelegationResult[]): string | u
 }
 
 export interface TaskPrompt {
-  /** "Task from", "Handoff from", "Automation". */
+  /** "Handoff", "Automation". */
   label: string;
   role?: string | undefined;
   task: string;
   parentThreadId?: string | undefined;
 }
 
-/** A prompt ace started a thread with ("Role: greeter\n\nTask:\n…") as its parts. */
+/**
+ * The words of a prompt ace started a thread with, or another agent sent: a delegated task
+ * ("Role: greeter\n\nTask:\n…") without its frame, another agent's message without Claude's
+ * envelope. Never empty when the message had words: it falls back to the text as stored.
+ */
+export function promptText(input: SystemInput): string {
+  const text = stripAceOriginMarker(input.text.trimStart()).trimStart();
+  const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(text);
+  const task = (match?.[2] ?? agentMessageBody(text) ?? text).trim();
+  return task || input.text;
+}
+
+/**
+ * A prompt ace started a thread with that keeps its own label: a portable handoff or an
+ * automation. Messages from another thread's agent are sent messages (`sentBy`), not prompts.
+ */
 export function taskPrompt(input: SystemInput): TaskPrompt | undefined {
-  const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(input.text.trimStart());
+  const match = /^Role: ([^\n]*)\n\nTask:\n/.exec(input.text.trimStart());
   const role = input.origin?.role ?? match?.[1];
-  const task = (match?.[2] ?? agentMessageBody(input.text) ?? input.text).trim();
-  switch (input.kind) {
-    case "spawn":
-      return role?.startsWith("handoff: ")
-        ? {
-            label: "Handoff",
-            role: role.slice(9),
-            task,
-            parentThreadId: input.origin?.parentThreadId,
-          }
-        : { label: "Task", role, task, parentThreadId: input.origin?.parentThreadId };
-    case "parent_agent":
-      return {
-        label: "From the parent agent",
-        role,
-        task,
-        parentThreadId: input.origin?.parentThreadId,
-      };
-    case "automation":
-      return { label: "Automation", role, task };
-    default:
-      return undefined;
-  }
+  const task = promptText(input);
+  if (input.kind === "spawn" && role?.startsWith("handoff: "))
+    return {
+      label: "Handoff",
+      role: role.slice(9),
+      task,
+      parentThreadId: input.origin?.parentThreadId,
+    };
+  if (input.kind === "automation") return { label: "Automation", role, task };
+  return undefined;
 }
 
 /** A portable handoff's excerpts as readable text, for "Show summary". */
@@ -399,7 +401,13 @@ export function handoffSummary(text: string): string | undefined {
   }
 }
 
-const separateReports = new Set<InputKind>(["background_completion", "subagent_result"]);
+/* Each of these says something of its own: a different text is another report or message. */
+const separateReports = new Set<InputKind>([
+  "background_completion",
+  "subagent_result",
+  "spawn",
+  "parent_agent",
+]);
 
 /**
  * The same ace event already shown just before `index` (A2: a restart writes a notice and the
@@ -416,7 +424,8 @@ export function repeatsEarlierEvent(
   for (let at = index - 1; at >= Math.max(0, index - span); at--) {
     const earlier = item(order[at] ?? "");
     if (!earlier) continue;
-    // Each finished background task reports itself once: a different report is another task.
+    // Each finished background task reports itself once, and each message another agent sent
+    // is its own: a different text is another one.
     if (
       separateReports.has(kind) &&
       earlier.type === "message" &&

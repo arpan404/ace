@@ -26,8 +26,17 @@ final class NativeHost: @unchecked Sendable {
     private let snapshotQueue = DispatchQueue(label: "ace.client.snapshots", qos: .userInitiated)
     private var store: DurableStore?
     private var snapshots: SnapshotStore?
-    private var sockets: [String: PinnedSocket] = [:]
+    private var sockets: [String: any DaemonSocket] = [:]
     private var timers: [String: Timer] = [:]
+    /// The machine's pinned HTTPS and WSS connections, made on first use and kept until this
+    /// runtime ends, so a ticket and the socket after it reuse one connection and TLS session.
+    private var pinnedSession: PinnedSession?
+    private func pinned(_ target: ConnectionTarget) -> PinnedSession {
+        if let pinnedSession { return pinnedSession }
+        let made = PinnedSession(target: target, now: services.now)
+        pinnedSession = made
+        return made
+    }
 
     init(runtime: ClientRuntime, binding: HostBinding) {
         self.runtime = runtime; self.binding = binding
@@ -40,9 +49,10 @@ final class NativeHost: @unchecked Sendable {
         let call: @convention(block) (String, String, JSValue, JSValue) -> Void = { [weak self] operation, json, body, value in
             // The body is the operation's large text, sent unescaped; absent unless a string.
             let text = body.isString ? body.toString() : nil
-            self?.call(HostRequest(operation, input: Data(json.utf8), body: text), callback: Callback(value))
+            self?.call(HostRequest(operation, input: Data(json.utf8), body: text), value: value)
         }
         let emit: @convention(block) (String) -> Void = { [weak self] json in
+            self?.runtime?.vm.check("aceHost.emit")
             guard let data = HostTrace.measure("host.emit", { json.data(using: .utf8) }), data.count <= 32768 else { return }
             HostTrace.add("host.emit.bytes", seconds: 0, bytes: data.count)
             ThreadOpenTrace.emitted()
@@ -50,22 +60,30 @@ final class NativeHost: @unchecked Sendable {
         }
         let socket: @convention(block) (String, String, String) -> Void = { [weak self] id, action, text in self?.socket(id, action: action, text: text) }
         let timer: @convention(block) (String, Double, JSValue) -> Void = { [weak self] id, delay, value in
-            self?.setTimer(id, delay: delay, callback: Callback(value))
+            guard let self else { return }
+            self.setTimer(id, delay: delay, callback: Callback(value, runtime: self.runtime))
         }
-        let cancel: @convention(block) (String) -> Void = { [weak self] id in self?.timers.removeValue(forKey: id)?.invalidate() }
+        let cancel: @convention(block) (String) -> Void = { [weak self] id in
+            self?.runtime?.vm.check("aceHost.cancelTimer")
+            self?.timers.removeValue(forKey: id)?.invalidate()
+        }
         let own: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer, "cancelTimer": cancel]
         HostContract.install(HostContract.stateless().merging(own) { _, runtime in runtime }, in: context)
     }
     /// Inputs past this are refused before any work; bodies have each operation's own cap.
     private static let inputLimit = 1024 * 1024
     private static let bodyLimit = 9 * 1024 * 1024
-    private func call(_ request: HostRequest, callback: Callback) {
+    private func call(_ request: HostRequest, value: JSValue) {
         let operation = request.operation
-        let callback = HostTrace.enabled ? Callback(callback.value, traced: operation, began: CACurrentMediaTime()) : callback
+        let callback = HostTrace.enabled ? Callback(value, runtime: runtime, traced: operation, began: CACurrentMediaTime())
+            : Callback(value, runtime: runtime)
         guard request.input.count <= Self.inputLimit, (request.body?.utf8.count ?? 0) <= Self.bodyLimit else {
             reply(.failure(HostError.storage), to: callback); return
         }
         if operation == "http" { http(request.input, callback: callback); return }
+        if operation == "media.delivery" { mediaDelivery(request.input, callback: callback); return }
+        if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.current() }; return }
+        if operation == "credential.fresh", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.fresh() }; return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
@@ -86,8 +104,25 @@ final class NativeHost: @unchecked Sendable {
             reply(result, to: callback)
         }
     }
+    /// An account machine's device grant (`{"grant": …}`): `current` for the hello, the one its
+    /// relay socket just fetched; `fresh` for an open socket's grant refresh (ADR 0114).
+    private func accountGrant(_ grants: AccountGrants, callback: Callback,
+                              _ read: @escaping @Sendable (AccountGrants) async throws -> String) {
+        Task { [self] in
+            let result: Result<String, Error>
+            do {
+                let token = try await read(grants)
+                let json = try JSONEncoder().encode(["grant": token])
+                result = .success(String(decoding: json, as: UTF8.self))
+            } catch { result = .failure(error) }
+            reply(result, to: callback)
+        }
+    }
     private func snapshot(_ request: HostRequest, callback: Callback) {
+        // With `-ace-host-trace`, each read snapshot call from asked to answered, queue wait included.
+        let tracing = HostTrace.enabled ? LaunchTrace.begin("snapshot", request.operation) : nil
         snapshotQueue.async { [self] in
+            defer { tracing?.end() }
             let result: Result<String, Error> = Result {
                 guard let storageURL else { throw HostError.storage }
                 if snapshots == nil { snapshots = try SnapshotStore(database: storageURL, now: services.now) }
@@ -97,12 +132,32 @@ final class NativeHost: @unchecked Sendable {
             reply(result, to: callback)
         }
     }
+    /// The script set a live source's delivery (ADR 0147 §4): its renderer follows it from here on.
+    private struct DeliveryInput: Decodable {
+        let view: String
+        let source: String
+        let generation: Int
+        let revision: Int
+        let path: String?
+        let poster: String?
+    }
+    private func mediaDelivery(_ input: Data, callback: Callback) {
+        guard let value = try? JSONDecoder().decode(DeliveryInput.self, from: input),
+              ["browser", "screen", "device"].contains(value.view), value.generation >= 0,
+              value.source.utf8.count <= 512, (value.path?.utf8.count ?? 0) <= 128,
+              (value.poster?.utf8.count ?? 0) <= 64 else {
+            reply(.failure(HostError.encoding), to: callback); return
+        }
+        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, revision: value.revision, poster: value.poster),
+                                             for: DeliveryKey(view: value.view, source: value.source))
+        reply(.success(""), to: callback)
+    }
     private func reply(_ result: Result<String, Error>, to callback: Callback) {
         callback.finish()
         runtime?.execute { _ in HostTrace.measure("js.reply") {
             switch result {
-            case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-            case .failure(let error): callback.value.call(withArguments: [HostError.code(of: error), ""])
+            case .success(let text): callback.call([NSNull(), text])
+            case .failure(let error): callback.call([HostError.code(of: error), ""])
             }
         } }
     }
@@ -115,8 +170,8 @@ final class NativeHost: @unchecked Sendable {
             }
             runtime?.execute { _ in
                 switch encoded {
-                case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-                case .failure(let reason): callback.value.call(withArguments: [reason.rawValue, ""])
+                case .success(let text): callback.call([NSNull(), text])
+                case .failure(let reason): callback.call([reason.rawValue, ""])
                 }
             }
         }
@@ -125,13 +180,17 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(.invalid)); return
         }
         let tracing = LaunchTrace.begin("http", request.path)
-        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
+        let ticket = request.path == "/v1/tickets"
+        PinnedHTTP.send(on: pinned(target), origin: origin, request: request) { result in
             tracing.end()
+            // Only whether and how it was answered; never the ticket.
+            if ticket { LaunchTrace.mark("ticket.answered", (try? result.get()).map { String($0.status) } ?? "failed") }
             callback.finish()
             reply(result)
         }
     }
     private func socket(_ id: String, action: String, text: String) {
+        runtime?.vm.check("aceHost.socket")
         switch action {
         case "open":
             let runtime = runtime
@@ -139,7 +198,7 @@ final class NativeHost: @unchecked Sendable {
                 runtime?.execute { context in context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, "close", "4003"]) }
                 return
             }
-            let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
+            let event: @Sendable (String, SocketPayload) -> Void = { type, value in
                 runtime?.execute { context in
                     // Binary messages reach the SDK as a Uint8Array made from the socket's own bytes.
                     let payload: Any = switch value {
@@ -149,19 +208,42 @@ final class NativeHost: @unchecked Sendable {
                     HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }
+            // Pictures on either socket go to the same native views; each socket assembles its own.
+            let streams = runtime?.browserStreams
+            let socket: any DaemonSocket
+            switch (SocketOpening.parse(text), target.relay) {
+            case (.daemon, let relay?): socket = RelaySocket(route: relay, streams: streams, event: event)
+            case (.daemon, nil): socket = PinnedSocket(target: target, session: pinned(target), streams: streams, event: event)
+            // Through the relay a media connection is always a relay stream, whatever URL came with it:
+            // the phone has no pin for the machine's own listeners there.
+            case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", path: id, streams: streams, event: event)
+            case (.media(let url?), nil):
+                guard let media = target.media(at: url) else { event("close", .text("1008")); return }
+                // Its own session, held to the media address's host with the daemon's pin.
+                socket = PinnedSocket(target: media, path: id, now: services.now, streams: streams, event: event)
+            default:
+                // A direct media connection without an address, or one that isn't this daemon's
+                // pinned WSS. Never 4003, which means a revoked device.
+                event("close", .text("1008")); return
+            }
             sockets[id] = socket
             socket.open()
         case "send": sockets[id]?.send(text)
+        case "bytes":
+            // Base64 of one binary message, at most a media hello's few bytes in practice.
+            guard text.utf8.count <= 4096, let bytes = Data(base64Encoded: text), !bytes.isEmpty else { return }
+            sockets[id]?.send(bytes: bytes)
         case "close": sockets.removeValue(forKey: id)?.close()
         default: break
         }
     }
     private func setTimer(_ id: String, delay: Double, callback: Callback) {
+        runtime?.vm.check("aceHost.timer")
         guard delay.isFinite, delay >= 0, timers.count < 4096 else { return }
         let timer = Timer(timeInterval: delay / 1000, repeats: false) { [weak self] _ in
             self?.timers.removeValue(forKey: id)
             let began = CACurrentMediaTime()
-            HostTrace.measure("js.timer") { _ = callback.value.call(withArguments: []) }
+            HostTrace.measure("js.timer") { callback.call([]) }
             let spent = CACurrentMediaTime() - began
             ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }
@@ -173,6 +255,8 @@ final class NativeHost: @unchecked Sendable {
         sockets.removeAll()
         for timer in timers.values { timer.invalidate() }
         timers.removeAll()
+        pinnedSession?.close()
+        pinnedSession = nil
         storageQueue.sync { store = nil }
     }
 }

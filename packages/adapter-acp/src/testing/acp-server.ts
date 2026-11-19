@@ -1,7 +1,22 @@
 // Real local JSON-RPC boundary for session tests. Never invokes a provider.
-import { closeSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { closeSync, fstatSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { object, string, list } from "../data.ts";
+
+/** Ends stdout while the process lives on. Bun keeps its own copy of a socket stdout, closed too. */
+function closeStdout() {
+  const out = fstatSync(1);
+  for (let fd = 3; fd < 64; fd++) {
+    try {
+      const other = fstatSync(fd);
+      if (other.dev === out.dev && other.ino === out.ino) closeSync(fd);
+    } catch {
+      // Not open.
+    }
+  }
+  closeSync(1);
+}
 if (process.argv.includes("--version")) {
   process.stdout.write("2026.09.26-test\n");
   process.exit(0);
@@ -71,6 +86,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       result(message["id"], { stopReason: "end_turn" });
       return;
     }
+    // "shell-env:<file>": one shell command run as the agent's own shell tool runs it,
+    // inheriting the agent process's environment; it writes that environment to <file>.
+    if (text.startsWith("shell-env:")) {
+      const file = JSON.stringify(text.slice("shell-env:".length));
+      const script = `require("node:fs").writeFileSync(${file}, JSON.stringify(process.env))`;
+      spawnSync(process.execPath, ["-e", script], { env: { ...process.env } });
+      result(message["id"], { stopReason: "end_turn" });
+      return;
+    }
     if (text === "user-echo") {
       update({
         sessionUpdate: "user_message_chunk",
@@ -78,7 +102,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
       result(message["id"], { stopReason: "end_turn" });
     } else if (text === "eof") {
-      closeSync(1);
+      closeStdout();
     } else if (text === "unknown") {
       result(message["id"], { stopReason: "future-paused" });
     } else if (text === "repair") {

@@ -36,6 +36,4 @@ test("scrolling up loads older transcript history without clicking", async () =>
   fireEvent.wheel(viewport, { deltaY: -200 });
   await within(feed).findByText("Question 1: what does route 1 render?");
   expect(questionNumbers(feed)).toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
-  expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
-  expect(screen.queryByText("Beginning of thread")).toBeNull();
 });

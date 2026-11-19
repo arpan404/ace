@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { openDoneAgents, openWorkPanel } from "@/test/open-work.ts";
+import { agentRow, isBreathing, openWorkPanel } from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -98,76 +98,61 @@ async function openReview() {
   return { app, work: await openWorkPanel() };
 }
 
-test("this turn says what happened, not the person's message, each count opening its list", async () => {
+test("Results show the files changed and who changed them, and the checks in words", async () => {
   const { work } = await openReview();
-  const turn = await within(work).findByRole("region", { name: "This turn" });
-  expect(within(turn).queryByText("Split the summary panel into sections.")).toBeNull();
-  const commands = await within(turn).findByRole("button", { name: /^1 command, 1 failed/ });
-  await userEvent.click(within(turn).getByRole("button", { name: /^1 file changed/ }));
-  const files = within(turn).getByRole("list", { name: "Files changed" });
-  expect(within(files).getByRole("button", { name: file })).toBeTruthy();
-  await userEvent.click(commands);
-  const list = within(turn).getByRole("list", { name: "Commands" });
-  expect(within(list).getByRole("listitem", { name: "bun run typecheck: failed" })).toBeTruthy();
-  // One list at a time.
-  expect(within(turn).queryByRole("list", { name: "Files changed" })).toBeNull();
+  const results = await within(work).findByRole("region", { name: "Results" });
+  const files = await within(results).findByRole("button", { name: "1 file changed" });
+  await waitFor(() =>
+    expect(files.parentElement?.textContent).toMatch(
+      /by Claude Code \(1\) and Rename the panel helpers \(1\)/,
+    ),
+  );
+  // The person's message is the transcript's, not a result.
+  expect(within(results).queryByText("Split the summary panel into sections.")).toBeNull();
+  await userEvent.click(files);
+  const list = within(results).getByRole("list", { name: "Files changed" });
+  expect(within(list).getByRole("button", { name: file })).toBeTruthy();
+  const checks = within(results).getByRole("listitem", { name: "Checks" });
+  expect(checks.textContent).toBe("Typecheck failed · exit 2");
+  await userEvent.click(within(results).getByRole("button", { name: "Review changes" }));
+  expect(await screen.findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
 
-test("a finished agent is named by its task and shows its result line and files touched", async () => {
+test("a finished agent is named by its task and its row says how it ended and opens it", async () => {
   const { work } = await openReview();
-  const done = await openDoneAgents(work);
-  const helper = await within(done).findByRole("treeitem", {
-    name: "Rename the panel helpers: Idle",
-  });
-  expect(helper.textContent).not.toMatch(/Subagent/);
-  await waitFor(() =>
-    expect(helper.textContent).toContain("Renamed 3 helpers and updated callers. · 1 file"),
+  const helper = await agentRow(work, "Rename the panel helpers");
+  expect(helper.getAttribute("aria-label")).toBe(
+    "Rename the panel helpers: Renamed 3 helpers and updated callers.",
   );
-  const row = helper.parentElement as HTMLElement;
-  expect(
-    within(row).getByRole("button", { name: "Diff of Rename the panel helpers" }),
-  ).toBeTruthy();
-  await userEvent.click(within(row).getByRole("button", { name: "Open Rename the panel helpers" }));
+  expect(isBreathing(helper)).toBe(false);
+  await userEvent.click(helper);
   expect(
     await screen.findByRole("heading", { level: 1, name: "Rename the panel helpers" }),
   ).toBeTruthy();
 });
 
-test("two agents editing the same file in one worktree are flagged", async () => {
+test("two agents editing the same file in one checkout are flagged", async () => {
   const { work } = await openReview();
-  const changes = await within(work).findByRole("region", { name: "Changes by agent" });
-  const alert = within(changes).getByRole("alert");
+  const results = await within(work).findByRole("region", { name: "Results" });
+  const alert = await within(results).findByRole("alert");
   await waitFor(() =>
     expect(alert.textContent).toBe(
       "src/panel.ts was changed by Claude Code and Rename the panel helpers in the same checkout",
     ),
   );
-  expect(
-    within(changes).getAllByRole("button", {
-      name: "src/panel.ts, also changed by another agent",
-    }),
-  ).toHaveLength(2);
 });
 
-test("a failed typecheck shows under Checks", async () => {
-  const { work } = await openReview();
-  const checks = await within(work).findByRole("region", { name: "Checks" });
-  const typecheck = within(checks).getByRole("listitem", { name: "Typecheck: Failed" });
-  expect(typecheck.textContent).toContain("exit 2");
-  expect(typecheck.textContent).toContain("bun run typecheck");
-});
-
-test("returning to a thread that moved on shows what happened since, until dismissed", async () => {
+test("returning to a thread that moved on shows what happened since, until cleared", async () => {
   let now = 10 * 24 * 60 * 60 * 1000;
   const app = harness({ snapshotItems: 40, clock: () => (now += 1) });
   app.play(multiDayDemo("thread-away", 6, { scans: 2 })).runUntilBlocked();
   app.daemon.markReadThrough("thread-away", "answer-3", "test-device");
   await app.open("/t/thread-away");
   const work = await openWorkPanel();
-  const since = await within(work).findByRole("region", { name: "Since you last looked" });
-  expect(since.textContent).toMatch(/\d+ turns finished/);
-  await userEvent.click(within(since).getByRole("button", { name: "Dismiss" }));
+  const since = await within(work).findByRole("region", { name: "Since you looked" });
+  expect(within(since).getByText(/^\d+ turns finished$/)).toBeTruthy();
+  await userEvent.click(within(since).getByRole("button", { name: "Clear" }));
   await waitFor(() =>
-    expect(within(work).queryByRole("region", { name: "Since you last looked" })).toBeNull(),
+    expect(within(work).queryByRole("region", { name: "Since you looked" })).toBeNull(),
   );
 });

@@ -10,6 +10,7 @@ import {
   issueStateMark,
   lifecycleLabels,
   lockReasonLabels,
+  revertDraft,
   type ForgeMark,
 } from "@ace/ui-core";
 import { z } from "zod";
@@ -50,10 +51,36 @@ export const ForgeManageWriteRequest = z.object({
 });
 export type ForgeManageWriteRequest = z.infer<typeof ForgeManageWriteRequest>;
 
+/** Where a pull request can go from its state, in the order the page offers them. */
+const lifecycleKinds = [
+  "ready",
+  "draft",
+  "close",
+  "reopen",
+  "update.merge",
+  "update.rebase",
+] as const;
+type LifecycleKind = (typeof lifecycleKinds)[number];
+/** The fields the phone edits in one go; the milestone has its own picker. */
+const editableKinds = ["title", "body", "baseBranch", "labels", "assignees"] as const;
+
 export interface ManageReply {
   type: "forge.pull.manage";
   /** The version every write names. */
   version: string;
+  state: "open" | "draft" | "closed" | "merged";
+  /** The state changes GitHub allows this account now, with the words the page uses. */
+  lifecycle: { kind: LifecycleKind; label: string }[];
+  /** The pull request's text and people as GitHub has them, for the edit sheet. */
+  metadata: {
+    title: string;
+    body: string;
+    baseBranch: string;
+    labels: string[];
+    assignees: string[];
+  };
+  /** Which of `metadata`'s fields this account may change. */
+  editable: (typeof editableKinds)[number][];
   milestone: { number: number; title: string } | null;
   /** Open milestones to choose from; null where the milestone can't be changed. */
   milestones: { number: number; title: string }[] | null;
@@ -76,6 +103,8 @@ export interface ManageReply {
   /** Writes GitHub hasn't confirmed, by what they were, to reconcile before anything else. */
   unconfirmed: { id: string; label: string }[];
   reasons: { value: string; label: string }[];
+  /** The draft that reverts a merged pull request, as first offered; null where it can't. */
+  revert: { title: string; body: string } | null;
 }
 
 export interface ManageWriteReply {
@@ -83,6 +112,8 @@ export interface ManageWriteReply {
   ok: boolean;
   message: string;
   uncertain: boolean;
+  /** The pull request a revert opened. */
+  opened: number | null;
 }
 
 function branchNote(snapshot: ForgeLifecycleState["snapshot"]): string | null {
@@ -113,6 +144,18 @@ export async function readManage(
   return {
     type: "forge.pull.manage",
     version: snapshot.version,
+    state: snapshot.state,
+    lifecycle: lifecycleKinds
+      .filter((kind) => snapshot.actions.includes(kind))
+      .map((kind) => ({ kind, label: lifecycleLabels[kind] })),
+    metadata: {
+      title: preview(snapshot.metadata.title, 256),
+      body: snapshot.metadata.body,
+      baseBranch: snapshot.metadata.baseBranch,
+      labels: snapshot.metadata.labels,
+      assignees: snapshot.metadata.assignees,
+    },
+    editable: editableKinds.filter((kind) => snapshot.editableFields.includes(kind)),
     milestone: snapshot.milestone
       ? { number: snapshot.milestone.number, title: preview(snapshot.milestone.title, 200) }
       : null,
@@ -155,15 +198,18 @@ export async function readManage(
             : "Pull request change",
       })),
     reasons: Object.entries(lockReasonLabels).map(([value, label]) => ({ value, label })),
+    revert: snapshot.actions.includes("revert")
+      ? revertDraft({ number: snapshot.pr.number, title: snapshot.metadata.title })
+      : null,
   };
 }
 
-const write = (ok: boolean, message: string, uncertain = false): ManageWriteReply => ({
-  type: "forge.write",
-  ok,
-  message,
-  uncertain,
-});
+const write = (
+  ok: boolean,
+  message: string,
+  uncertain = false,
+  opened: number | null = null,
+): ManageWriteReply => ({ type: "forge.write", ok, message, uncertain, opened });
 
 /** What a lifecycle command's answer means for the person. */
 export function lifecycleOutcome(result: CommandResult | undefined): ManageWriteReply {
@@ -176,6 +222,8 @@ export function lifecycleOutcome(result: CommandResult | undefined): ManageWrite
   if (receipt.outcome === "pending") return write(false, "Waiting for GitHub to confirm it.", true);
   if (receipt.outcome === "head_changed")
     return write(false, "The branch head changed. Review its new commits before trying again.");
+  if (receipt.revertPr)
+    return write(true, `Opened draft #${receipt.revertPr.number}`, false, receipt.revertPr.number);
   return write(true, "");
 }
 

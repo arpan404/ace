@@ -5,6 +5,7 @@ import {
   choiceSelection,
   currentModelChoice,
   recordedChoice,
+  switchNextTurnNote,
   type ModelChoice,
 } from "@ace/ui-core";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -24,9 +25,6 @@ export function useChosenModel(threadId: string): ModelChoice | undefined {
   return usePendingChoice(modelSwitches, threadId, switchState(useThreadMeta(threadId))).chosen
     ?.value;
 }
-
-/** When a switch takes over, while nothing more specific (offline, slow) needs saying. */
-const nextTurn = "Applies at the agent's next turn";
 
 /** A model or account switch that hasn't reached the agent yet, as the chip shows it. */
 export interface WaitingSwitch {
@@ -65,7 +63,7 @@ export function useModelSwitch(
         return undefined;
       return {
         from: from.model === target.model ? undefined : from.model,
-        description: `Switches from ${named(from)} · ${pending.note ?? nextTurn}`,
+        description: `Switches from ${named(from)} · ${pending.note ?? switchNextTurnNote}`,
       };
     },
     switchTo: (choice: ModelChoice) =>

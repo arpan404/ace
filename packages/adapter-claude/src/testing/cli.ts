@@ -14,6 +14,17 @@ function option(name: string): string | undefined {
   return arg === name ? process.argv[index + 1] : arg?.slice(name.length + 1);
 }
 const session = option("--session-id") ?? "fake-session";
+/** ACE_FAKE_CLAUDE_READ_SKILL: each plugin directory's copy of this skill, as this process read it. */
+const readSkill = process.env["ACE_FAKE_CLAUDE_READ_SKILL"];
+const pluginSkills = readSkill
+  ? process.argv.flatMap((arg, at) => {
+      const directory = process.argv[at + 1];
+      if (arg !== "--plugin-dir" || !directory) return [];
+      return [
+        { directory, text: readFileSync(`${directory}/skills/${readSkill}/SKILL.md`, "utf8") },
+      ];
+    })
+  : undefined;
 const write = (data: unknown) => console.log(JSON.stringify(data));
 /** `get_usage`: the plan usage in the file the test names, read when asked. */
 const usageAnswer = (): unknown => {
@@ -29,6 +40,8 @@ let elicitationWaiting = false;
 let foreground: { tool: string; task: string } | undefined;
 const heldBehindTool: unknown[] = [];
 const configIndex = process.argv.indexOf("--mcp-config");
+// How many MCP set replacements report ace's server as failing to connect.
+let aceConnectFailures = Number(process.env["ACE_FAKE_CLAUDE_ACE_CONNECT_FAILURES"] ?? 0);
 let mcp: Record<string, unknown> =
   configIndex >= 0
     ? object(
@@ -60,6 +73,7 @@ for await (const line of lines) {
       subtype: "fake_control",
       request,
       argv: process.argv,
+      ...(pluginSkills ? { pluginSkills } : {}),
       mcpServers: mcp,
       settings: {
         permissionMode: option("--permission-mode"),
@@ -180,7 +194,12 @@ for await (const line of lines) {
                     ? {
                         added: Object.keys(mcp),
                         removed: [],
-                        errors: "broken" in mcp ? { broken: "connection refused" } : {},
+                        errors:
+                          "broken" in mcp
+                            ? { broken: "connection refused" }
+                            : aceConnectFailures-- > 0
+                              ? { ace: "connection refused" }
+                              : {},
                         future: "retained",
                       }
                     : {},
@@ -220,6 +239,50 @@ for await (const line of lines) {
     write({ type: "system", subtype: "fake_input", input: data });
     // Hold a turn open until a follow-up arrives; no timers or model involved.
     if (text === "steer-wait") continue;
+    // A foreground Bash call that returns by itself: messages held behind it join the turn at
+    // that tool boundary, before the turn ends, as Claude Code's do.
+    if (text === "foreground-brief") {
+      const call = { tool: "brief-tool", task: "brief-task" };
+      foreground = call;
+      write({
+        type: "assistant",
+        parent_tool_use_id: null,
+        session_id: session,
+        message: {
+          id: "brief-message",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: call.tool, name: "Bash", input: { command: "bun run build" } },
+          ],
+        },
+      });
+      setTimeout(
+        () => {
+          if (foreground !== call) return;
+          foreground = undefined;
+          write({
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: session,
+            message: {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: call.tool, content: "built" }],
+            },
+          });
+          for (const input of heldBehindTool.splice(0))
+            write({ type: "system", subtype: "fake_input", input });
+          write({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            terminal_reason: "completed",
+            session_id: session,
+          });
+        },
+        Number(process.env["ACE_FAKE_CLAUDE_FOREGROUND_MS"] ?? 400),
+      );
+      continue;
+    }
     // A foreground Bash call that blocks the turn until it is backgrounded.
     if (text === "foreground-wait") {
       foreground = { tool: "wait-tool", task: "wait-task" };

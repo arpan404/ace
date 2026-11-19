@@ -1,9 +1,17 @@
 export { validateHtml, maxHtmlBytes } from "./validation.ts";
+export {
+  checkHtmlForPublish,
+  estimateHtmlLayout,
+  lintHtmlLayout,
+  narrowestColumn,
+} from "./layout-lint.ts";
 export { hasScript, resolveHtmlMode } from "./mode.ts";
 export {
   visualizationDocument,
   visualizationUrl,
+  inlineVisualizationUrl,
   visualizationWindow,
+  styleKitVersion,
   themeMessage,
   htmlCsp,
   staticHtmlCsp,
@@ -13,3 +21,14 @@ export {
   type ThemeProperty,
 } from "./document.ts";
 export { heightFromTitle, visualizationPartition } from "./scripts.ts";
+export {
+  measuredLayoutProblems,
+  phoneWidth,
+  previewMaxHeight,
+  previewMeasure,
+  previewReport,
+  previewWidths,
+  smallTextPx,
+  unreadableTextPx,
+  type PreviewMeasurement,
+} from "./preview.ts";

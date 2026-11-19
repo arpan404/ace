@@ -98,18 +98,53 @@ export function seedBrowser(daemon: FakeDaemon, details: Details): void {
     state: "complete",
     path: "/fixture/receipt-2291.pdf",
   });
+  // The receipt can be saved onto the phone; the page plays a sound; the engine runs one extension.
+  browser.downloadBytes.set(
+    `${browserThread}\u0000receipt`,
+    new TextEncoder().encode("%PDF-1.4\n% receipt 2291 · 148.00\n%%EOF\n"),
+  );
+  if (first) browser.sound(browserThread, first, true, false);
+  browser.extensions = [
+    { id: "react-devtools", name: "React Developer Tools", version: "6.1", enabled: true },
+  ];
 }
 
 const Control = z.object({
-  action: z.enum(["dialog", "prompt", "signin", "chooser", "agent", "idle", "fail"]),
+  action: z.enum([
+    "dialog",
+    "prompt",
+    "signin",
+    "chooser",
+    "agent",
+    "idle",
+    "fail",
+    "pin",
+    "region",
+    "approve",
+  ]),
 });
 
-/** `POST /browser {action}`: the page asks for something, or the agent comes and goes. */
+/**
+ * `POST /browser {action}`: the page asks for something, or the agent comes and goes. `GET
+ * /browser` reads the fixture browser back.
+ */
 export async function browserControl(
   daemon: FakeDaemon,
   request: Request,
 ): Promise<Response | undefined> {
-  if (new URL(request.url).pathname !== "/browser" || request.method !== "POST") return undefined;
+  if (new URL(request.url).pathname !== "/browser") return undefined;
+  // `GET /browser`: the fixture browser's engine and its shown page, for UI tests to check.
+  if (request.method === "GET") {
+    const view = daemon.browser.view(browserThread);
+    const shown = view?.tabs?.find((tab) => tab.tabId === view.activeTabId);
+    return Response.json({
+      backend: view?.backend ?? null,
+      closed: view?.closed ?? true,
+      url: shown?.url ?? null,
+      tabs: view?.tabs?.map((tab) => tab.url) ?? [],
+    });
+  }
+  if (request.method !== "POST") return undefined;
   const { action } = Control.parse(await request.json());
   const browser = daemon.browser;
   const tabId = browser.view(browserThread)?.activeTabId ?? "";
@@ -132,6 +167,21 @@ export async function browserControl(
   else if (action === "chooser") browser.fileChooserOpen(browserThread, tabId, false);
   else if (action === "agent") browser.agentWorks(browserThread, { pointer: { x: 120, y: 300 } });
   else if (action === "idle") browser.agentIdle(browserThread);
+  // What the page's annotate overlay reports when the person taps an element or drags an area.
+  else if (action === "pin")
+    browser.annotations.pin(browserThread, {
+      comment: "Make the total bold",
+      tag: "p",
+      text: "Total 148.00",
+    });
+  else if (action === "region")
+    browser.annotations.pin(browserThread, {
+      comment: "Too much space above Pay",
+      tag: "button",
+      text: "Pay 148.00",
+    });
+  // The Mac's owner approved locked use in System Settings.
+  else if (action === "approve") daemon.computerAccess.approve();
   else browser.loadFailed(browserThread, "net::ERR_CONNECTION_REFUSED");
   return Response.json({ ok: true });
 }
@@ -151,10 +201,11 @@ export function answerScreenshot(
       type: z.literal("browser.execute"),
       requestId: z.string(),
       threadId: z.string(),
-      command: z.object({ action: z.literal("screenshot") }),
+      command: z.object({ action: z.literal("screenshot"), sizes: z.array(z.string()).optional() }),
     })
     .safeParse(JSON.parse(text));
-  if (!message.success) return false;
+  // Screenshots at several sizes are the fake daemon's own (one preview per size).
+  if (!message.success || message.data.command.sizes) return false;
   const frame = daemon.browser.frame(message.data.threadId);
   const png = drawPage(
     frame?.width ?? 402,
@@ -177,6 +228,8 @@ export function answerScreenshot(
 export function realVideo(
   daemon: FakeDaemon,
   send: (bytes: Uint8Array) => void,
+  /** Where a thread's video goes instead, when it has a media connection (`spike-media.ts`). */
+  route: (threadId: string) => ((bytes: Uint8Array) => void) | undefined = () => undefined,
 ): (bytes: Uint8Array) => void {
   const assembler = new StreamAssembler();
   let streams = 0;
@@ -189,6 +242,7 @@ export function realVideo(
       return;
     }
     const { threadId, chunk } = message;
+    const out = route(threadId) ?? send;
     const video = encoded(chunk.width, chunk.height, title(daemon, threadId));
     for (const piece of encodeBrowserVideo(
       ++streams,
@@ -202,11 +256,11 @@ export function realVideo(
       },
       video.sample,
     ))
-      send(piece);
+      out(piece);
   };
 }
 
-function title(daemon: FakeDaemon, threadId: string): string {
+export function title(daemon: FakeDaemon, threadId: string): string {
   const tab = daemon.browser.tab(threadId);
   return tab?.url.includes("cart") ? "Your cart" : "Checkout";
 }
@@ -267,13 +321,25 @@ function nalUnits(stream: Buffer): Buffer[] {
 
 /** ffmpeg's drawing filters, in CSS pixels drawn at 2×. */
 const font = "/System/Library/Fonts/SFNS.ttf";
+/** Whether this Mac's ffmpeg can draw text: Homebrew's default build has no `drawtext`. */
+const drawsText = /\bdrawtext\b/.test(
+  spawnSync("ffmpeg", ["-hide_banner", "-filters"]).stdout?.toString() ?? "",
+);
+/** A line of the page's text, or nothing where ffmpeg can't draw it (the page keeps its boxes). */
 const text = (value: string, x: number, y: number, size: number, colour: string) =>
-  `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`;
+  drawsText
+    ? `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`
+    : "";
 const box = (x: number, y: number, bw: number, bh: number, colour: string, fill = true) =>
   `drawbox=x=${x * 2}:y=${y * 2}:w=${bw * 2}:h=${bh * 2}:color=${colour}:t=${fill ? "fill" : 2}`;
 
 /** A shop's checkout page drawn by ffmpeg at twice `width` × `height` CSS pixels. */
-function drawPage(width: number, height: number, format: "h264" | "png", heading: string): Buffer {
+export function drawPage(
+  width: number,
+  height: number,
+  format: "h264" | "png" | "jpeg",
+  heading: string,
+): Buffer {
   const w = even(width * 2);
   const h = even(height * 2);
   const inner = width - 40;
@@ -310,7 +376,7 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
     "-f",
     "lavfi",
     "-i",
-    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.join(",")}`,
+    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.filter(Boolean).join(",")}`,
     "-frames:v",
     "1",
     ...(format === "h264"
@@ -327,9 +393,36 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
           "h264",
           "-",
         ]
-      : ["-f", "image2", "-c:v", "png", "-"]),
+      : format === "jpeg"
+        ? ["-f", "image2", "-c:v", "mjpeg", "-q:v", "14", "-"]
+        : ["-f", "image2", "-c:v", "png", "-"]),
   ];
   const result = spawnSync("ffmpeg", args, { maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);
   return result.stdout;
+}
+
+/**
+ * With `ACE_IOS_SPIKE_DEGRADED=1`, the browser's video says it runs on the processor, as
+ * ace-media reports a source whose encode fell back (`acceleration.degraded`), so the live view's
+ * degraded sentence can be seen. Every other message passes unchanged.
+ */
+export function degradedBrowser(enabled: boolean): (text: string) => string {
+  if (!enabled) return (message) => message;
+  const acceleration = {
+    steps: [{ step: "encode", backend: "cpu", hardware: false, readbacks: 1, uploads: 0 }],
+    degraded: true,
+    reason: "Video runs on the processor here: this computer has no hardware video encoder.",
+  };
+  const mark = (value: unknown) => {
+    if (value && typeof value === "object" && "threadId" in value && "closed" in value)
+      Object.assign(value, { acceleration });
+  };
+  return (frame) => {
+    if (!frame.includes('"type":"browser.')) return frame;
+    const message = JSON.parse(frame) as { state?: unknown; result?: { state?: unknown } };
+    mark(message.state);
+    mark(message.result?.state);
+    return JSON.stringify(message);
+  };
 }

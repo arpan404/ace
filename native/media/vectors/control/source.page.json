@@ -1,0 +1,10 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.page",
+    "source": "source-1",
+    "width": 1,
+    "height": 1,
+    "scale": 1.5
+  }
+}

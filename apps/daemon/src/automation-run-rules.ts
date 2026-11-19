@@ -12,7 +12,10 @@ import { treeOutcome } from "./work-outcome.ts";
 export type TreeState = "working" | "needs-human" | "uncertain" | "ok" | "failed";
 
 /** The run's thread itself, read while no later turn has started in it (`readTreeMembers`). */
-export type RootFacts = Pick<CliTree[number], "status" | "attention" | "cancelled">;
+export type RootFacts = Pick<CliTree[number], "status" | "attention" | "cancelled"> & {
+  /** Its queue's hold: a Stop's stays even though a Stop asks the person nothing. */
+  queue?: Pick<CliTree[number]["queue"], "paused" | "reason"> | undefined;
+};
 
 /** Work the run's turn began that is still open, besides its delegated threads. */
 export interface OpenWork {
@@ -71,7 +74,8 @@ function rootState(root: RootFacts | undefined, cancelling: boolean): TreeState 
     return "working";
   // Killed work never carries on: the run is over.
   if (root.cancelled || status.state === "failed") return "failed";
-  if (root.attention === "stopped") return cancelling ? "failed" : "needs-human";
+  if (root.queue?.paused && root.queue.reason === "stopped")
+    return cancelling ? "failed" : "needs-human";
   return "ok";
 }
 

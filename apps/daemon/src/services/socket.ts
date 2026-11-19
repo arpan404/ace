@@ -10,12 +10,17 @@ import type {
   UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
-import type { WebSocket } from "ws";
+import type { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "@ace/protocol/suits";
+import type { MarketClientMessage, MarketServerMessage } from "@ace/protocol/marketplace";
+import type { MainSocket } from "../main-socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { MaintenanceGate } from "@ace/service";
 export type SocketMessage =
   | ClientMessage
   | PluginClientMessage
+  | SuitClientMessage
+  | SuitReportMessage
+  | MarketClientMessage
   | BrowserClientMessage
   | BrowserBackendClientMessage
   | UserBrowserExtensionMessage;
@@ -35,6 +40,8 @@ export interface SocketService {
   authenticated?(
     channel: Extract<ClientMessage, { type: "hello" }>["channel"],
   ): void | Promise<void>;
+  /** The welcome has been sent: the client now accepts this service's pushes. */
+  welcomed?(): void;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
@@ -42,7 +49,7 @@ export interface SocketService {
 }
 export interface SocketContext {
   options: ServerOptions;
-  socket: WebSocket;
+  socket: MainSocket;
   sessionId: string;
   /** True only for the daemon loopback listener, never a client claim. */
   local?: boolean;
@@ -53,7 +60,16 @@ export interface SocketContext {
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
   maintenance: MaintenanceGate;
+  /** The desktop app's last update report (`app-update-board.ts`). */
+  appUpdate: import("../app-update-board.ts").AppUpdateBoard;
+  /** This machine's remote updates (ADR 0113), when the daemon has them. */
+  machineUpdates?: import("../machine-update/machine-updates.ts").MachineUpdates;
   device(): DeviceId | undefined;
+  /**
+   * The generation of the paired credential that authenticated this socket; undefined for the
+   * host and account devices, whose authority no credential replacement ends.
+   */
+  credentialGeneration?(): string | undefined;
   authorize(scope: DeviceScope): boolean;
   /** Capture authenticated authority for admitted durable effects across reconnects. */
   authorityLease?(scope: DeviceScope): () => boolean;
@@ -63,15 +79,28 @@ export interface SocketContext {
    * only, never revocable), not by a paired device.
    */
   hostCredential?(): boolean;
+  /**
+   * Whether this socket's credential is the person's for person-only actions (ADR 0178 §12.7,
+   * ADR 0190): a paired device, or an account device whose standing grant says person. Not the
+   * host token, which any process that reads it holds, and not an account device with only a
+   * machine's standing. Absent counts as not.
+   */
+  personProven?(): boolean;
+  /** The ace account an account device's grant names (ADR 0111); undefined for others. */
+  accountDevice?(): string | undefined;
   /** Pairing and paired devices on this daemon (`fleet.request`). */
   access?: {
     auth: import("../remote-auth.ts").RemoteAuth;
     pairing(): import("../pairing-issue.ts").PairingConnection | undefined;
     /** Origin of the web app new pairing links open; this daemon's own when undefined. */
     pairingApp?(): Promise<string | undefined>;
+    /** What `GET /v1/status` reports as `remoteAccess`: one implementation for both. */
+    remoteStatus?(): import("@ace/protocol").RemoteAccessStatus;
   };
   connected(): boolean;
-  send(message: ServerMessage | PluginServerMessage): void;
+  send(
+    message: ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage,
+  ): void;
   fail(
     code: string,
     message: string,

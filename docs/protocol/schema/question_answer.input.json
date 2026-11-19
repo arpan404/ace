@@ -10,35 +10,32 @@
         },
         "type": "array"
       },
-      "description": "Question id to the chosen option ids, or to free text when other is allowed.",
+      "description": "Question id to chosen option ids, or free text where other is allowed.",
       "propertyNames": {
         "type": "string"
       },
       "type": "object"
     },
     "dismissed": {
-      "description": "Decline to answer; the agent continues without.",
+      "description": "Decline; the agent continues without.",
       "type": "boolean"
     },
     "feedback": {
-      "description": "Why, when declining.",
       "maxLength": 8192,
       "type": "string"
     },
     "interactionId": {
-      "description": "The request's interactionId.",
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "threadId": {
-      "description": "A thread you own: this one or one you started. With full access, also any of the person's threads.",
+      "description": "This thread, one you started or, with full access, any.",
       "minLength": 1,
       "type": "string"
     }

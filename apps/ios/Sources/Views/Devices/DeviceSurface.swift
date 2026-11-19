@@ -12,11 +12,17 @@ final class DeviceSurfaceView: UIView {
     private var shown: CVPixelBuffer?
     private var started: DevicePress?
     var nextPicture: () -> NativeDevicePicture? = { nil }
+    /// The still the subscribe brought back, shown until the first live picture (ADR 0149).
+    var nextPoster: () -> CGImage? = { nil }
+    private let posterLayer = CALayer()
+    private var posterGate = PosterGate()
     var onGesture: (DevicePress, DevicePress) -> Void = { _, _ in }
     /// The upright picture's size in device points, each time it changes.
     var onScreenSize: (CGSize) -> Void = { _ in }
     /// The degrees the picture turns to stand upright, each time they change.
     var onTurn: (DeviceRotation) -> Void = { _ in }
+    /// Each picture as it reaches the screen, for the stream's stats.
+    var sampler: StreamSampler?
     /// While the person drives, a swipe here goes to the device, never to ace's back swipe.
     var interactive = false { didSet { claim.isEnabled = interactive } }
     private lazy var claim = SurfaceTouchClaim.install(on: self)
@@ -26,6 +32,9 @@ final class DeviceSurfaceView: UIView {
         video.videoGravity = .resize
         video.anchorPoint = .zero
         layer.addSublayer(video)
+        posterLayer.contentsGravity = .resizeAspect
+        posterLayer.isHidden = true
+        layer.addSublayer(posterLayer)
         backgroundColor = .black
         clipsToBounds = true
         isAccessibilityElement = true
@@ -43,9 +52,16 @@ final class DeviceSurfaceView: UIView {
             link.add(to: .main, forMode: .common); self.link = link
         }
     }
-    override func layoutSubviews() { super.layoutSubviews(); fit() }
+    override func layoutSubviews() {
+        super.layoutSubviews(); fit()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        posterLayer.frame = bounds
+        CATransaction.commit()
+    }
     fileprivate func drawNewest() {
+        if let poster = nextPoster(), posterGate.offer(poster) { showPoster(poster) }
         guard let picture = nextPicture(), let sample = samples.sample(picture.image) else { return }
+        if posterGate.pictureDrawn() { showPoster(nil) }
         let size = Self.screenSize(picture.chunk)
         if chunk.map(Self.screenSize) != size { onScreenSize(size) }
         if chunk?.rotation != picture.chunk.rotation { onTurn(picture.chunk.rotation) }
@@ -55,6 +71,15 @@ final class DeviceSurfaceView: UIView {
         let renderer = video.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
+        sampler?.shown(captured: picture.chunk.timestamp)
+    }
+    /// The poster in place of the picture, or gone once the first live one is drawn.
+    private func showPoster(_ image: CGImage?) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        posterLayer.contents = image
+        posterLayer.isHidden = image == nil
+        CATransaction.commit()
+        accessibilityValue = image == nil ? nil : "Still picture"
     }
     /// The picture on screen now, upright, for Screenshot.
     func snapshot() -> UIImage? {
@@ -112,12 +137,14 @@ final class DeviceSurfaceView: UIView {
 
 struct DeviceSurface: UIViewRepresentable {
     let next: () -> NativeDevicePicture?
+    var poster: () -> CGImage? = { nil }
     let interactive: Bool
     var handle: DeviceSurfaceHandle? = nil
     var label = "Remote device screen"
     var identifier = "devices.surface"
     var screenSize: (CGSize) -> Void = { _ in }
     var turn: (DeviceRotation) -> Void = { _ in }
+    var sampler: StreamSampler? = nil
     let input: (DevicePress, DevicePress) -> Void
     func makeUIView(context: Context) -> DeviceSurfaceView {
         let view = DeviceSurfaceView()
@@ -126,7 +153,7 @@ struct DeviceSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: DeviceSurfaceView, context: Context) {
-        view.nextPicture = next; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize; view.onTurn = turn
+        view.nextPicture = next; view.nextPoster = poster; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize; view.onTurn = turn; view.sampler = sampler
         handle?.view = view
     }
 }

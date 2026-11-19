@@ -1,0 +1,205 @@
+import SwiftUI
+
+/// A compact window's list as a drawer over the open thread (an iPhone, the folded iPhone Duo, a
+/// narrow iPad window). The open thread fills the window; its sidebar button or an edge swipe
+/// slides the list in from the leading edge, pushing the thread aside, dimmed, with rounded
+/// corners. Pulled on past its width, the list takes the whole window and the thread leaves off
+/// the trailing edge. Tapping or swiping the dimmed thread closes the list, and so does picking a
+/// thread in it (the open thread's own row brings it back). With nothing open the list fills the
+/// window on its own. A regular window keeps the list
+/// beside the thread (`ThreadColumns`) and never draws the drawer.
+struct ThreadDrawer: Equatable {
+    /// What the window shows.
+    enum Layout: Equatable {
+        /// Regular: the list beside the thread, the split view's own columns.
+        case beside
+        /// Compact with nothing open: the list fills the window.
+        case list
+        /// Compact with a page open: the page fills the window, the list a drawer over it.
+        case page
+    }
+
+    /// Where the drawer rests over an open page.
+    enum Stop: Equatable {
+        case closed
+        /// The list out beside the dimmed page.
+        case open
+        /// The list across the whole window, the page off its trailing edge.
+        case full
+    }
+
+    private(set) var stop = Stop.closed
+    /// Whether the list is out over the open page, beside it or across the window.
+    var isOpen: Bool { stop != .closed }
+
+    static func layout(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Layout {
+        if sizeClass == .regular { return .beside }
+        return path.isEmpty ? .list : .page
+    }
+
+    /// The sidebar button or a finished edge swipe. Only a page has a drawer to open.
+    mutating func open(in layout: Layout) { settle(.open, in: layout) }
+    /// A released drag: where it settled. Only a page has a drawer to rest open.
+    mutating func settle(_ stop: Stop, in layout: Layout) { self.stop = layout == .page ? stop : .closed }
+    /// A tap or swipe on the dimmed page, the escape gesture, or a thread shown from elsewhere
+    /// (a notification, a transfer, the tab changing).
+    mutating func close() { stop = .closed }
+    /// The sidebar button and its keyboard shortcut: out if it was in, in if it was out.
+    mutating func toggle(in layout: Layout) { if isOpen { close() } else { open(in: layout) } }
+
+    /// What a row picked in the list does.
+    struct Pick: Equatable {
+        /// Whether the row's thread opens. The open thread's own row only closes the drawer:
+        /// opening it again would restart its session for nothing.
+        let opens: Bool
+        /// Whether the list's search ends. In a compact window the list is left for the thread,
+        /// so its field must not keep the keyboard or take the person's typing.
+        let endsSearch: Bool
+    }
+    /// A row picked in the list, while `open` is the thread showing. The drawer closes whichever
+    /// row it was.
+    mutating func pick(_ key: InboxKey, open: InboxKey?, in layout: Layout) -> Pick {
+        stop = .closed
+        return Pick(opens: key != open, endsSearch: layout != .beside)
+    }
+    /// The window or its path changed: another page in place of the open one, the open one
+    /// closed (archived), or the window turning regular. The drawer closes with any of them;
+    /// pages pushed over the open one change nothing, as they can't be pushed while it is out.
+    mutating func follow(layout: Layout, old: [InboxRoute], new: [InboxRoute]) {
+        if layout != .page || old.first != new.first { stop = .closed }
+    }
+
+    /// How far out the drawer rests at `stop`: 0 closed, 1 beside the page, `full` across it.
+    static func resting(_ stop: Stop, full: CGFloat) -> CGFloat {
+        switch stop {
+        case .closed: 0
+        case .open: 1
+        case .full: full
+        }
+    }
+
+    /// The dimmed page takes taps and drags while the drawer is out beside it or a finger holds
+    /// it, so a drag that brings the list all the way in still ends where it started. With the
+    /// list across the window the page is out of sight and takes nothing.
+    static func closerShown(_ layout: Layout, stop: Stop, held: CGFloat?) -> Bool {
+        layout == .page && (stop == .open || held != nil)
+    }
+
+    /// Whether the list carries Threads, Pull requests and New thread itself. Beside a thread
+    /// and as a drawer over one the tab bar is gone; filling the window, the list has it back.
+    static func listHoldsTabs(_ layout: Layout) -> Bool { layout != .list }
+
+    /// An edge swipe opens the list only at the open page's root: over a pushed page (a child
+    /// thread, a file, the browser) the same swipe is the system's Back.
+    static func edgeOpens(_ layout: Layout, path: [InboxRoute]) -> Bool {
+        layout == .page && path.count == 1
+    }
+
+    /// The list's width over a page: about four fifths of the window, so the page stays in
+    /// sight at the trailing edge, and never wider than the list beside a thread.
+    static func listWidth(window: CGFloat) -> CGFloat {
+        min((window * 0.8).rounded(), ThreadColumns.listWidth.max)
+    }
+
+    /// How far out the list is across the whole window, in list widths: a little over 1.
+    static func full(window: CGFloat) -> CGFloat {
+        let width = listWidth(window: window)
+        return width > 0 ? max(window / width, 1) : 1
+    }
+
+    /// How far open (0 closed, 1 beside the page, `limit` across the window) a horizontal drag of
+    /// `translation` leaves the list, from `start`.
+    static func progress(from start: CGFloat, translation: CGFloat, width: CGFloat, limit: CGFloat) -> CGFloat {
+        guard width > 0 else { return start }
+        return min(max(start + translation / width, 0), max(limit, 1))
+    }
+
+    /// A flick faster than this, in points per second, settles the way it moves.
+    static let flick: CGFloat = 400
+    /// Where a released drag settles. Pulled past the list's width, it goes across the window
+    /// once past halfway there or flicked on, back beside the page otherwise, and closed when
+    /// flicked back. Within the list's width a flick follows its direction, otherwise the nearer
+    /// end, never the whole window.
+    static func settles(progress: CGFloat, velocity: CGFloat, full: CGFloat) -> Stop {
+        if progress > 1 && full > 1 {
+            if velocity <= -flick { return .closed }
+            if velocity >= flick || progress >= 1 + (full - 1) / 2 { return .full }
+            return .open
+        }
+        if abs(velocity) >= flick { return velocity > 0 ? .open : .closed }
+        return progress >= 0.5 ? .open : .closed
+    }
+
+    /// Where the list and the page sit for a layout and how far the list is out.
+    struct Placement: Equatable {
+        /// The list's width and its offset from the window's leading edge.
+        var listWidth: CGFloat
+        var listOffset: CGFloat
+        var listOpacity: Double
+        /// The page's offset from the leading edge, and how dimmed it is (0 to 1).
+        var pageOffset: CGFloat
+        var dim: Double
+        /// The page takes the display's rounded corners while it is out of its place or dimmed.
+        var rounded: Bool { pageOffset != 0 || dim > 0 }
+    }
+
+    /// The list slides in from the leading edge as the page slides aside, one strip. Reduce
+    /// Motion keeps both in place: the list fades in over the dimmed page. With nothing open the
+    /// list fills the window and the empty page waits off its trailing edge, so the first thread
+    /// opened slides in over where the list was. Pulled past its width the list stays its width
+    /// while the page follows the finger (the gap is the list's own colour), and takes the whole
+    /// window once there, so a drag never lays the list out again frame by frame.
+    static func placement(_ layout: Layout, progress: CGFloat, window: CGFloat, reduceMotion: Bool) -> Placement {
+        switch layout {
+        case .beside:
+            return Placement(listWidth: 0, listOffset: 0, listOpacity: 0, pageOffset: 0, dim: 0)
+        case .list:
+            return Placement(listWidth: window, listOffset: 0, listOpacity: 1, pageOffset: reduceMotion ? 0 : window, dim: 0)
+        case .page:
+            let width = listWidth(window: window), full = full(window: window)
+            let across = full > 1 && progress >= full
+            let shown = min(max(progress, 0), 1)
+            if reduceMotion {
+                return Placement(listWidth: across ? window : width, listOffset: 0, listOpacity: shown, pageOffset: 0, dim: shown)
+            }
+            if progress > 1 {
+                let pulled = min(progress, full)
+                return Placement(listWidth: across ? window : width, listOffset: 0, listOpacity: 1, pageOffset: pulled * width, dim: 1)
+            }
+            return Placement(listWidth: width, listOffset: (shown - 1) * width, listOpacity: 1, pageOffset: shown * width, dim: shown)
+        }
+    }
+}
+
+/// The drawer's place while a finger holds it. Only the modifiers that place the list and the
+/// page read it, so a drag redraws their offsets and nothing of the thread or the list.
+@MainActor @Observable final class DrawerHold {
+    /// How far open (0 closed, 1 beside the page, `full` across the window) while a finger holds
+    /// the drawer; nil when none does.
+    private(set) var progress: CGFloat?
+    /// The layout the list and page are placed for, which follows the window's with animation.
+    var layout = ThreadDrawer.Layout.list
+    @ObservationIgnored private var from: CGFloat = 0
+    @ObservationIgnored private var full: CGFloat = 1
+
+    /// A finger took the drawer where it rested (`ThreadDrawer.resting`); `full` is how far it can
+    /// be pulled, across the window.
+    func begin(from start: CGFloat, full: CGFloat) {
+        from = start
+        self.full = full
+        progress = start
+    }
+    /// The finger moved `translation` sideways from where it took the drawer, `width` wide.
+    func move(_ translation: CGFloat, width: CGFloat) {
+        progress = ThreadDrawer.progress(from: from, translation: translation, width: width, limit: full)
+    }
+    /// The finger let go, or the system cancelled its drag (velocity zero): where the drawer
+    /// settles, nil when no finger held it.
+    func release(velocity: CGFloat) -> ThreadDrawer.Stop? {
+        guard let progress else { return nil }
+        self.progress = nil
+        return ThreadDrawer.settles(progress: progress, velocity: velocity, full: full)
+    }
+    /// The drawer was opened or closed some other way while a finger held it.
+    func drop() { progress = nil }
+}

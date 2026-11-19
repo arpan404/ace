@@ -1,7 +1,15 @@
-import { oklchToHex } from "./colour.ts";
+import {
+  chartSeries,
+  projectTints,
+  rampSteps,
+  rowStatusColours,
+  sharedStatus,
+  type Palette,
+  type Scheme,
+  glassText,
+} from "@ace/themes";
+import { chatSurfaces } from "./chat-surfaces.ts";
 import { dangerFill } from "./danger.ts";
-import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
-import { glassText } from "./glass-floor.ts";
 import { defaultTranslucency, glassVariables } from "./translucency.ts";
 
 /*
@@ -19,44 +27,20 @@ const rgbTriple = (hex: string) =>
 const wash = (colour: string, percent: number) =>
   `color-mix(in srgb, ${colour} ${percent}%, transparent)`;
 
-/**
- * Project badge tints: twelve hues around the wheel at one perceptual lightness per scheme, so
- * no project looks louder than another. Each reads as text on the theme's surfaces (AA).
- */
-const projectHues = [25, 55, 85, 125, 150, 178, 205, 240, 268, 295, 325, 355] as const;
-const projectLightness: Record<Scheme, { l: number; c: number }> = {
-  dark: { l: 0.85, c: 0.12 },
-  light: { l: 0.41, c: 0.14 },
-};
-const projectTints = (scheme: Scheme): Record<`--project-${number}`, string> => {
-  const { l, c } = projectLightness[scheme];
-  return Object.fromEntries(
-    projectHues.map((hue, index) => [`--project-${index + 1}`, oklchToHex(l, c, hue)]),
-  );
-};
+const projectVariables = (scheme: Scheme): Record<`--project-${number}`, string> =>
+  Object.fromEntries(projectTints(scheme).map((tint, index) => [`--project-${index + 1}`, tint]));
 const projectSets: Record<Scheme, Record<`--project-${number}`, string>> = {
-  light: projectTints("light"),
-  dark: projectTints("dark"),
+  light: projectVariables("light"),
+  dark: projectVariables("dark"),
 };
 
-/**
- * Chart series for published HTML visualizations (@ace/html `themeProperties`): blue, red,
- * green, magenta, amber and cyan, 55–60° apart at one lightness per scheme, so each is distinct
- * from the others and reads on the theme's background.
- */
-const chartHues = [260, 30, 145, 330, 85, 200] as const;
-const chartLightness: Record<Scheme, { l: number; c: number }> = {
-  dark: { l: 0.78, c: 0.14 },
-  light: { l: 0.55, c: 0.16 },
-};
 const chartSets: Record<Scheme, Record<string, string>> = {
-  light: chartSeries("light"),
-  dark: chartSeries("dark"),
+  light: chartVariables("light"),
+  dark: chartVariables("dark"),
 };
-function chartSeries(scheme: Scheme): Record<string, string> {
-  const { l, c } = chartLightness[scheme];
+function chartVariables(scheme: Scheme): Record<string, string> {
   return Object.fromEntries(
-    chartHues.map((hue, index) => [`--chart-${index + 1}`, oklchToHex(l, c, hue)]),
+    chartSeries(scheme).map((colour, index) => [`--chart-${index + 1}`, colour]),
   );
 }
 
@@ -64,6 +48,17 @@ function chartSeries(scheme: Scheme): Record<string, string> {
 function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
   return Object.fromEntries(rampSteps.map((step, index) => [`--neutral-${index + 1}`, p[step]]));
 }
+
+/**
+ * Thread-row status icons, one colour per state, the same in every theme of a scheme
+ * (`rowStatusColours`, shared with the iPhone). Each is a mark (an icon, no words), so it needs
+ * 3:1 against the sidebar's surfaces, the panel, hover and the open row's fill
+ * (readability.test.ts).
+ */
+const rowStatus = (scheme: Scheme): Record<`--row-status-${string}`, string> =>
+  Object.fromEntries(
+    Object.entries(rowStatusColours[scheme]).map(([key, value]) => [`--row-status-${key}`, value]),
+  );
 
 export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTranslucency) {
   const light = scheme === "light";
@@ -94,9 +89,13 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--reading": p.s0,
     "--sidebar": p.sidebar,
     "--panel": p.sidebar,
+    // The sidebar's panel: darker than the chat, most of the way to the frame the rail sits on,
+    // so the panel and the chat read as separate areas in every theme and mode.
+    "--sidebar-panel": `color-mix(in oklab, ${p.s0} 30%, ${p.sidebar})`,
     "--popover": p.s2,
     "--card": p.s1,
     "--bubble": p.s1,
+    ...chatSurfaces(p, scheme),
     "--code": p.code,
     "--fill": fill,
     "--fill-strong": fillStrong,
@@ -105,6 +104,11 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--accent": fill,
     "--hover": p.hover,
     "--active": p.active,
+    // The Threads pill's selection thumb sits on translucent glass over rows, where the
+    // rail's `--active` almost vanishes: a stronger foreground wash, 8% in light, 14% dark.
+    "--pill-thumb": light
+      ? "color-mix(in oklab, var(--foreground) 8%, transparent)"
+      : "color-mix(in oklab, var(--foreground) 14%, transparent)",
     "--border": p.border,
     "--border-soft": `color-mix(in srgb, ${p.border} 70%, transparent)`,
     "--border-strong": p.borderStrong,
@@ -114,7 +118,10 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--faint-foreground": p.faint,
     // Modal backdrops: a light neutral scrim when solid, a barely-there tint over blur when glass.
     "--scrim": light ? `rgb(${p.shadow} / 0.14)` : "rgb(0 0 0 / 0.36)",
-    "--scrim-glass": light ? "rgb(255 255 255 / 0.16)" : "rgb(0 0 0 / 0.18)",
+    // Over a modal's blurred page: a wash of the theme's own canvas in light, never plain white,
+    // and a dim in dark, with the page's colour never boosted, so in every theme the palette
+    // (the canvas raised, `tintedLike`) reads as the same colour lifted off the page.
+    "--scrim-glass": light ? `color-mix(in srgb, ${p.s0} 16%, transparent)` : "rgb(0 0 0 / 0.18)",
     "--skel": wash(p.t1, light ? 6 : 8),
     "--skel-hi": wash(p.s0, light ? 70 : 12),
 
@@ -154,6 +161,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--status-done-text": p.doneText,
     "--status-waiting": status.waiting,
     "--status-unresponsive": status.unresponsive,
+    ...rowStatus(scheme),
 
     // Diffs and code.
     "--diff-add": p.diffAdd,
@@ -178,17 +186,20 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
 
     // A simulator's drawn hardware (Devices): a graphite metal band and buttons around black
     // glass, on the stage it sits on. Hardware looks the same in every theme, so the metal is a
-    // fixed colour; its rim is one soft hairline (a lit edge), never a drawn outline.
+    // fixed colour, lit from above (brighter at the top and bottom edges, darker through the
+    // middle, as brushed aluminium reads); its rim is one soft hairline (a lit edge), never a
+    // drawn outline. The daemon draws an emulator's body in the same metal.
     "--device-stage": light
       ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 1.5%)`
       : `color-mix(in srgb, ${p.sidebar}, #000 20%)`,
     "--device-body": "#2b2b2f",
+    "--device-metal": "linear-gradient(180deg, #55555b, #2c2c30 50%, #46464b)",
     // A hardware button under the pointer: the body's metal, one step lighter.
     "--device-body-hover": "#3a3a3f",
     "--device-rim": light
-      ? "inset 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 0 0 0.5px rgb(0 0 0 / 0.18)"
-      : "inset 0 0 0 0.5px rgb(255 255 255 / 0.12)",
-    "--device-glass": "#000",
+      ? "inset 0 0 0 1px rgb(255 255 255 / 0.18), 0 0 0 0.5px rgb(0 0 0 / 0.22)"
+      : "inset 0 0 0 1px rgb(255 255 255 / 0.18)",
+    "--device-glass": "#050506",
 
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
@@ -240,5 +251,4 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
 
 export type ThemeTokens = ReturnType<typeof themeTokens>;
 
-/** How many project tints a theme has; `--project-1` to `--project-${projectTintCount}`. */
-export const projectTintCount = projectHues.length;
+export { projectTintCount } from "@ace/themes";

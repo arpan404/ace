@@ -10,7 +10,7 @@ import {
   subagentEnded,
   subagentPhase,
 } from "@ace/ui-core";
-import { ArrowBendDownRightIcon, GitForkIcon } from "@phosphor-icons/react";
+import { ArrowBendDownRightIcon, GitForkIcon } from "@ace/icons";
 import { useCallback, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -20,12 +20,15 @@ import { ComposerDock } from "../composer/composer-dock.tsx";
 import { runsNow } from "../composer/execution.ts";
 import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
+import { useVisibleParent } from "@/lib/spade-host.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 
 /**
  * The bottom of a thread: its composer (`children`), unless ace delegated it and its whole tree
  * has ended. Then a status bar says how it went and leads back to the thread that delegated
  * it; ace still delivers a follow-up to it, so Continue brings the composer back, and Fork takes
- * the conversation over as a thread of its own.
+ * the conversation over as a thread of its own. Only on a confirmed copy: a cached "ended" may
+ * be working again, so until the daemon confirms it the composer stays.
  */
 export function DelegateBottom(props: {
   thread: Thread;
@@ -33,7 +36,8 @@ export function DelegateBottom(props: {
   onFork: (() => void) | undefined;
   children: ReactNode;
 }) {
-  const parentThreadId = props.thread.delegatedBy;
+  // A thread Spade delegated has no parent the person can open (Spade's hidden host thread).
+  const parentThreadId = useVisibleParent(props.thread.delegatedBy);
   return parentThreadId ? (
     <Delegated thread={props.thread} parentThreadId={parentThreadId} onFork={props.onFork}>
       {props.children}
@@ -57,13 +61,14 @@ function Delegated(props: {
     [rootId],
   );
   const branch = useAgentFacts(thread.id, read, branchEqual);
+  const { fresh, live } = useThreadLiveState(thread.id);
   // Continue holds for the ended stretch it was pressed in; a later end shows the bar again.
   const [continued, setContinued] = useState<number>();
   // The daemon's status covers the whole tree and queued input; the branch adds how it ended.
   const listed = delegatedState(thread.status);
   const phase = subagentPhase(branch ? rollupSubagent(listed, branch.state) : listed);
   const end = branch?.end;
-  if (!subagentEnded(phase) || (continued !== undefined && continued === (end ?? 0)))
+  if (!fresh || !subagentEnded(phase) || (continued !== undefined && continued === (end ?? 0)))
     return props.children;
   const selection = runsNow(thread);
   const effort = optionEffort(selection.options);
@@ -75,6 +80,7 @@ function Delegated(props: {
         model={selection.model ? modelLabel(selection.model) : providerNames[selection.provider]}
         effort={effort && effortLabel(effort)}
         phase={phase}
+        live={live}
         startedAt={root?.createdAt ?? thread.createdAt}
         endedAt={end}
         parent={{ threadId: props.parentThreadId }}

@@ -1,0 +1,123 @@
+import type { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
+import type { MachineAccount } from "./account-access/machine-account.ts";
+import type { RemoteAuth } from "./remote-auth.ts";
+import type { Devices, SessionActor } from "./devices.ts";
+
+type Hello = Extract<ClientMessage, { type: "hello" }>;
+export type RelayAdmission =
+  | {
+      /** For a paired device: the generation of the credential it used. */
+      device: { id: DeviceId; generation?: string };
+      /** For an account device: whether it still holds access (account, machine code). */
+      stillAdmitted?: () => boolean;
+      /** For an account device: the ace account its grant names. */
+      account?: string;
+      /** For an account device: when its grant runs out, unless the socket refreshes it. */
+      grantExpiresAt?: number;
+      refusal?: undefined;
+    }
+  | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
+
+/**
+ * Who a relayed hello authenticates. Relay credentials are paired-device tokens, one-use
+ * tickets, or a device grant on this machine's ace account (ADR 0111); never the host token.
+ * A grant refusal is answered with a typed error so the client can ask for the machine code.
+ */
+export async function relayHello(
+  hello: Hello,
+  options: { auth: RemoteAuth; account?: MachineAccount | undefined },
+): Promise<RelayAdmission> {
+  // An account grant wins over a paired token: a signed-in device is admin (ADR 0114).
+  if (hello.grant !== undefined) {
+    const admitted = await accountHello(hello, hello.grant, options.account);
+    if (admitted.device) options.auth.accountDeviceSeen(admitted.device.id, hello.link);
+    return admitted;
+  }
+  const device =
+    hello.ticket !== undefined
+      ? options.auth.consume(hello.ticket)
+      : hello.token !== undefined
+        ? options.auth.deviceBearer(hello.token)
+        : undefined;
+  // As on a direct socket: the client stops instead of retrying a credential that won't work.
+  if (!device || device.id !== hello.deviceId)
+    return { refusal: { type: "error", code: "unauthorized", message: "Valid hello required" } };
+  // The same install over the LAN, Tailscale or a relay is one device (ADR 0115).
+  options.auth.recognize(device, hello.installId);
+  return { device: { id: device.id, generation: device.generation } };
+}
+
+/**
+ * Who a hello's ace account device grant admits, on any path: the machine checks the grant,
+ * its account and the machine code (`admitDevice`, ADR 0111), and the device keeps access only
+ * while `stillAdmitted` holds. A refusal is a typed error so the client can ask for the code.
+ */
+export async function accountHello(
+  hello: Pick<Hello, "deviceId" | "machineCode">,
+  grant: string,
+  machine: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined,
+): Promise<RelayAdmission> {
+  const admission = machine
+    ? await machine.admitDevice({
+        grant,
+        deviceId: hello.deviceId,
+        machineCode: hello.machineCode,
+      })
+    : ({ admitted: false, code: "unauthorized", message: "Valid hello required" } as const);
+  if (!admission.admitted) {
+    // A locked machine says until when, so the device can show the time left.
+    const lockedUntil =
+      admission.code === "machine_code_locked"
+        ? machine?.status().machineCode.lockedUntil
+        : undefined;
+    return {
+      refusal: {
+        type: "error",
+        code: admission.code,
+        message: admission.message,
+        ...(lockedUntil === undefined ? {} : { lockedUntil }),
+      },
+    };
+  }
+  const { account, expiresAt } = admission;
+  return {
+    device: { id: hello.deviceId },
+    account,
+    grantExpiresAt: expiresAt,
+    stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
+  };
+}
+
+/**
+ * An admitted account device: admin while it stays admitted, never revoked by device id. It is
+ * never the person by its admission; a socket proves that on its own (`account.standing`, ADR
+ * 0190).
+ */
+export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
+  return {
+    id,
+    name: "ace account device",
+    scopes: ["admin"],
+    createdAt: now,
+    lastSeenAt: now,
+    revokedAt: null,
+    revocable: false,
+  };
+}
+
+/**
+ * Who a relayed main channel speaks for: a paired device with its stored scopes (never the
+ * desktop app's local-only credential), or an account device holding admin while it stays
+ * admitted (ADR 0111).
+ */
+export function mainActor(
+  admitted: { id: DeviceId; generation?: string | undefined },
+  stillAdmitted: (() => boolean) | undefined,
+  options: { auth: RemoteAuth; devices: Devices },
+): SessionActor | undefined {
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
+  const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
+  if (!device) return undefined;
+  if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;
+  return { ...device, scopes: [...device.scopes], revocable: true };
+}

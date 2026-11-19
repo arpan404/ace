@@ -34,7 +34,8 @@ export class RecoveryLoop {
     if (this.running || this.cancel || !this.tasks.size) return;
     this.cancel = this.timer(() => {
       this.cancel = undefined;
-      void this.tick();
+      // tick() backs off on a failed recovery itself and never rejects.
+      void this.tick().catch(() => {});
     }, this.delay);
   }
   private async tick(): Promise<void> {

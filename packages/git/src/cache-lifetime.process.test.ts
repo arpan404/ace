@@ -38,18 +38,18 @@ it("evicted checkpoint counters reload durable sequences without growing the cac
   }
 });
 
-it("distinct roots and threads share the default retention budget and recover independent sequences", async () => {
+it("distinct roots and threads share one retention budget and recover independent sequences", async () => {
   const roots = [await repository(), await repository()];
-  const bounded = ownedService();
+  const bounded = ownedService(3);
   for (const root of roots) {
-    for (let index = 0; index < 70; index++) {
+    for (let index = 0; index < 2; index++) {
       const saved = await bounded.createCheckpoint({
         worktree: root,
         threadId: `thread_${index}`,
         label: root,
       });
       expect(saved.sequence).toBe(1);
-      expect(bounded.resourceUsage().checkpointCounters).toBeLessThanOrEqual(128);
+      expect(bounded.resourceUsage().checkpointCounters).toBeLessThanOrEqual(3);
     }
   }
   // The oldest root/thread pair is evicted, while the same thread in the other

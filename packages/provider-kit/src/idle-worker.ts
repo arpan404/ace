@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
-import { Worker, type WorkerOptions, type Transferable } from "node:worker_threads";
+import type { WorkerOptions, Transferable } from "node:worker_threads";
+import { startWorker } from "./worker.ts";
+import { unscoped } from "./unscoped.ts";
 import { nextIdleWindow, type IdleWindowPolicy } from "./idle-window.ts";
 
 /** Node watch-mode infrastructure shares the worker message channel with application RPC. */
@@ -16,6 +18,14 @@ export interface IdleWorkerRuntime {
   delay(callback: () => void, milliseconds: number): () => void;
   /** Monotonic milliseconds. Without it the idle window stays fixed. */
   now?(): number;
+  /**
+   * A background worker keeps the process alive only while it has work: from a request until
+   * its owner calls `idle()`, through a restart or retirement in between. Idle, it never does.
+   * Its isolate is unref'd after this class attaches its listeners (a `message` listener
+   * attached later refs a worker again, on Node and Bun alike), and a referenced keep-alive
+   * stands for the work instead.
+   */
+  background?: boolean;
 }
 export interface WorkerPort {
   on(event: "message", listener: (input: unknown) => void): this;
@@ -23,11 +33,13 @@ export interface WorkerPort {
   on(event: "exit", listener: (code: number) => void): this;
   postMessage(message: unknown, transfer?: readonly Transferable[]): void;
   terminate(): Promise<number>;
+  unref?(): void;
 }
 const systemRuntime: IdleWorkerRuntime = {
-  spawn: (entry, options) => new Worker(entry, options),
+  spawn: (entry, options) => startWorker(entry, options),
   delay(callback, milliseconds) {
-    const timer = setTimeout(callback, milliseconds);
+    // The idle timer belongs to the worker, never to the caller that last used it.
+    const timer = unscoped(() => setTimeout(callback, milliseconds));
     timer.unref();
     return () => clearTimeout(timer);
   },
@@ -54,6 +66,8 @@ export class IdleWorker extends EventEmitter {
   private cancelRestart: (() => void) | undefined;
   private resumeRestart: (() => void) | undefined;
   private retirementFailure: Error | undefined;
+  /** Set while a background worker has work: the process stays alive for its replies. */
+  private releaseWork: (() => void) | undefined;
   constructor(entry: URL, options: WorkerOptions, runtime = systemRuntime, idleMs = 5000) {
     super();
     if (!Number.isSafeInteger(idleMs) || idleMs < 1) throw new Error("Invalid worker idle timeout");
@@ -102,6 +116,7 @@ export class IdleWorker extends EventEmitter {
           if (this.closing) return;
           const deferred = this.deferred.splice(0);
           if (!deferred.length) return;
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })
@@ -112,11 +127,16 @@ export class IdleWorker extends EventEmitter {
         });
       this.emit("exit", code);
     });
+    if (this.runtime.background) worker.unref?.();
   }
   postMessage(message: unknown, transfer?: readonly Transferable[]): void {
     this.cancelIdle?.();
     this.cancelIdle = undefined;
     this.start();
+    if (this.runtime.background && !this.releaseWork) {
+      const work = setInterval(() => {}, 2 ** 30);
+      this.releaseWork = () => clearInterval(work);
+    }
     if (this.stopping) {
       // Clients admit bounded RPCs before sending. Keep one extra slot for close.
       if (this.deferred.length >= 129) throw new Error("Worker restart queue full");
@@ -124,6 +144,8 @@ export class IdleWorker extends EventEmitter {
     } else this.worker?.postMessage(message, transfer);
   }
   idle(): void {
+    this.releaseWork?.();
+    this.releaseWork = undefined;
     this.cancelIdle?.();
     if (!this.worker || this.closing) return;
     this.cancelIdle = this.runtime.delay(() => {
@@ -140,6 +162,8 @@ export class IdleWorker extends EventEmitter {
           const deferred = this.deferred;
           this.deferred = [];
           if (!deferred.length) return;
+          // Requests queued during terminate() mean this was not a useful idle retirement.
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })
@@ -154,6 +178,8 @@ export class IdleWorker extends EventEmitter {
   }
   terminate(): Promise<number> {
     if (!this.closing) {
+      this.releaseWork?.();
+      this.releaseWork = undefined;
       this.cancelIdle?.();
       this.cancelRestart?.();
       this.resumeRestart?.();

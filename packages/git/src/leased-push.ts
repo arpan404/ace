@@ -9,6 +9,11 @@ const branchRef = z
   .regex(/^refs\/heads\/[^\s:~^?*[\\]+$/)
   .refine((ref) => !ref.includes("..") && !ref.endsWith("/") && !ref.endsWith(".lock"));
 
+const LeasedUpdates = z
+  .array(z.object({ ref: branchRef, lease: objectId, target: objectId }))
+  .min(1)
+  .max(100)
+  .refine((list) => new Set(list.map((update) => update.ref)).size === list.length);
 export type LeasedRefUpdate = { ref: string; lease: string; target: string };
 export type LeasedPushOptions = {
   worktree: string;
@@ -63,12 +68,7 @@ export async function pushLeasedRefs(
     .regex(/^[\w./-]+$/)
     .refine((value) => !value.startsWith("-"))
     .parse(options.remote);
-  const updates = z
-    .array(z.object({ ref: branchRef, lease: objectId, target: objectId }))
-    .min(1)
-    .max(100)
-    .refine((list) => new Set(list.map((update) => update.ref)).size === list.length)
-    .parse(options.updates);
+  const updates = LeasedUpdates.parse(options.updates);
   const root = await repository.root(options.worktree);
   return repository.serial(root, async () => {
     const info = await repository.info(root);

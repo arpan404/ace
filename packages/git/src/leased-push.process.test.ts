@@ -57,6 +57,9 @@ test("a collaborator commit on one leased branch rejects the whole push and move
   const f = await stackRemote();
   const collaborator = join(await scratch(), "collaborator");
   await git(f.root, "clone", "--quiet", "--branch", "api", f.remote, collaborator);
+  // A clone has no identity of its own; the test home has no global one either.
+  await git(collaborator, "config", "user.name", "Collaborator");
+  await git(collaborator, "config", "user.email", "collaborator@ace.local");
   await git(collaborator, "commit", "--quiet", "--allow-empty", "-m", "Collaborator fix");
   await git(collaborator, "push", "--quiet", "origin", "api");
   const theirs = await scalar(collaborator, "rev-parse", "HEAD");

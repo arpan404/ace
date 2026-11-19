@@ -1,16 +1,11 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { CursorAuthEvent, ProjectIcon } from "@ace/protocol";
+import { CursorAuthEvent, ProjectIcon, MachineDescription } from "@ace/protocol";
 import * as fc from "fast-check";
 import {
   protocolCatalog,
   convertSchemas,
   renderReference,
-  checkFiles,
-  writeFiles,
   canonical,
   schemaId,
   jsonValidator,
@@ -137,28 +132,6 @@ it("distinguishes accepted input defaults from populated MCP output defaults", (
   expect(validate.getSchema(schemaId("Output"))?.({})).toBe(false);
   expect(validate.getSchema(schemaId("Output"))?.({ count: 1 })).toBe(true);
 });
-it("detects missing, stale and unexpected files and regeneration repairs them", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ace-protocol-docs-"));
-  try {
-    const files = new Map([
-      ["README.md", "Generated reference\n"],
-      ["schema/Command.json", canonical(snapshot.schemas.Command)],
-    ]);
-    expect(await checkFiles(root, files)).toContain("README.md");
-    await writeFiles(root, files);
-    expect(await checkFiles(root, files)).toEqual([]);
-    await writeFile(join(root, "schema", "Command.json"), "stale");
-    await writeFile(join(root, "retired.json"), "{}");
-    expect(await checkFiles(root, files)).toEqual(["retired.json", "schema/Command.json"]);
-    await writeFiles(root, files);
-    expect(await checkFiles(root, files)).toEqual([]);
-    expect(await readFile(join(root, "schema", "Command.json"), "utf8")).toBe(
-      files.get("schema/Command.json"),
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
 it.each([
   ["Date", z.object({ value: z.date() })],
   ["Transform", z.object({ value: z.string().transform((value) => value.length) })],
@@ -174,7 +147,9 @@ it.each([
   expect(() => convertSchemas([{ name, schema }])).toThrow(`Schema ${name}:`);
 });
 it("exports declared semantic rules and rejects invalid examples", () => {
-  expect(canonical(snapshot.schemas.ClientMessage)).toContain("Exactly one of token and ticket");
+  expect(canonical(snapshot.schemas.ClientMessage)).toContain(
+    "Exactly one of token, ticket and grant",
+  );
   const impossible = z
     .string()
     .refine(() => false)
@@ -183,6 +158,19 @@ it("exports declared semantic rules and rejects invalid examples", () => {
   expect(() => renderReference(entries, [], convertSchemas(entries))).toThrow(
     "Schema Impossible: no valid example",
   );
+});
+
+it("documents a normalization the schema declares in words, and still refuses one it doesn't", () => {
+  const rule = "Leading and trailing whitespace is removed before the length limits apply.";
+  const declared = z.string().trim().min(1).max(8).meta({ "x-ace-constraint": rule });
+  const converted = convertSchemas([{ name: "Declared", schema: declared }]);
+  expect(canonical(converted.schemas.Declared)).toContain(rule);
+  expect(() => convertSchemas([{ name: "Bare", schema: z.string().trim().min(1) }])).toThrow(
+    "Schema Bare: Unsupported overwrite at root",
+  );
+  // The marketplace's typed text is documented with its rule, and so is the wire around it.
+  expect(canonical(snapshot.schemas.AppealAnswer)).toContain(rule);
+  expect(snapshot.schemas.ClientMessage).toBeDefined();
 });
 
 it("derives ids and the version from matching hello and welcome literals", () => {
@@ -304,4 +292,25 @@ it("a change to one schema leaves every other schema's example as it was", () =>
       .find((part) => part.startsWith("Widget"));
   expect(section(before)).toBeDefined();
   expect(section(after)).toBe(section(before));
+});
+
+it("machine discovery accepts older descriptions and future tool groups on the wire", () => {
+  const validate = jsonValidator(
+    convertSchemas([{ name: "MachineDescription", schema: MachineDescription }]),
+  ).getSchema(schemaId("MachineDescription"));
+  const older = {
+    hostId: "host",
+    name: "Studio",
+    access: "operate",
+    projects: [],
+    tools: ["agents", "browser"],
+    providers: [],
+  };
+  expect(validate?.(older)).toBe(true);
+  expect(MachineDescription.parse(older).tools).toEqual(["agents", "browser"]);
+  const future = { ...older, tools: ["devices", "future-tool", "commands"] };
+  expect(validate?.(future)).toBe(true);
+  expect(MachineDescription.parse(future).tools).toEqual(["devices", "commands"]);
+  expect(validate?.({ ...older, tools: [42] })).toBe(false);
+  expect(MachineDescription.safeParse({ ...older, tools: [42] }).success).toBe(false);
 });

@@ -1,4 +1,11 @@
-import type { BrowserState, BrowserOriginBlock, BrowserTab, BrowserTabActor } from "@ace/protocol";
+import type {
+  BrowserState,
+  BrowserOriginBlock,
+  BrowserTab,
+  BrowserTabActor,
+  BrowserVideoStatus,
+  MediaAcceleration,
+} from "@ace/protocol";
 import type { SessionOptions } from "./session-options.ts";
 
 /**
@@ -18,6 +25,8 @@ export function browserState(
     blocked?: BrowserOriginBlock | undefined;
     annotation?: string | undefined;
     recording?: BrowserTabActor | undefined;
+    video?: BrowserVideoStatus | undefined;
+    acceleration?: MediaAcceleration | undefined;
   },
 ): BrowserState {
   const tabs = options.backend.tabs;
@@ -36,9 +45,15 @@ export function browserState(
       "tabs",
       "collaborate",
       ...(options.cursor?.visible ? ["page-cursor"] : []),
+      // `engines`: this daemon says which engines can open; `embedded-engine`: the desktop's can.
+      ...(options.embeddedAvailable
+        ? ["engines", ...(options.embeddedAvailable() ? ["embedded-engine"] : [])]
+        : []),
     ],
     ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),
+    ...(lifecycle.video ? { video: lifecycle.video } : {}),
+    ...(lifecycle.acceleration ? { acceleration: lifecycle.acceleration } : {}),
     ...(tabs
       ? {
           ...(lifecycle.activeTabId ? { activeTabId: lifecycle.activeTabId } : {}),

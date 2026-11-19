@@ -70,10 +70,8 @@ export const machineChildGenerations = `${machineChildren}
  * - `lost_at`, `lost_key` and `lost_ask` mark a child whose pairing is gone: it stays unsettled,
  *   and its parent asks the person (the open approval's key and id) until the pairing returns or
  *   the person stops tracking it.
- * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
- *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
- *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
- *   pages to the machine's unsettled children.
+ * - `machine_child_cursors` is no longer read or written: polling is planned per child
+ *   (machines/child-schedule.ts). The table stays so older stores open unchanged.
  * - `machine_message_rejections` is the target's answer for a message it refused before it ever
  *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
  *   copy of that request is admitted, so a refused request can never run later. Each is kept only
@@ -106,3 +104,52 @@ export const machineChildReach = `
   CREATE TRIGGER IF NOT EXISTS machine_message_rejections_revoked
     AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
     BEGIN DELETE FROM machine_message_rejections WHERE device_id = NEW.id; END;`;
+
+/**
+ * What each linked machine's agents may do here, per capability (ADR 0105). Sparse: a missing
+ * row is the capability's default, so existing pairings keep what `remote.agentAccess` gave.
+ * A revoked pairing takes its grants with it, so nothing paired later inherits them.
+ */
+export const machineGrants = `CREATE TABLE IF NOT EXISTS machine_grants (
+  device_id TEXT NOT NULL, capability TEXT NOT NULL, level TEXT NOT NULL,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (device_id, capability));
+  CREATE TRIGGER IF NOT EXISTS machine_grants_revoked
+    AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
+    BEGIN DELETE FROM machine_grants WHERE device_id = NEW.id; END;`;
+
+/**
+ * Background command jobs agents here started on other machines (ADR 0105). Each holds a row in
+ * its calling thread until the job ends there, is stopped, or can never be read again, so the
+ * thread never reads done while it runs. A row is deleted once its job is settled.
+ */
+export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
+  machine TEXT NOT NULL, job_id TEXT NOT NULL, thread_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+  deadline INTEGER NOT NULL, stopping INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+  PRIMARY KEY (machine, job_id));`;
+
+/**
+ * Proof of life and stops for children on other machines (ADR 0052, "Stop and proof of life").
+ * - `seen_at`: when the child's machine last reported it. Backfilled from when it last changed,
+ *   but startup counts its lease from the daemon's own start, so downtime here is never blamed
+ *   on the child.
+ * - `silent_since`: its lease lapsed, so it is lost contact: when its first unanswered read went
+ *   out. It still holds its parent, which asks the person about it (ADR 0153, its question in
+ *   `lost_key`/`lost_ask`); null while it reports.
+ * - `stop_started_at`, `stop_attempts`, `stop_last_at`: a Stop in progress, so a restart picks up
+ *   where it was and one past its bound gives up at once.
+ * - `stopped_unconfirmed`: every cancel went out and its machine never confirmed the stop; it is
+ *   stopped here, and a later report records its real end without reviving it. 1: the cancel is
+ *   still sent; 2: confirmed late; 3: can never be confirmed (unpaired, or gone there).
+ */
+export const machineChildLiveness = `
+  ALTER TABLE machine_children ADD COLUMN seen_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN silent_since INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stop_started_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stop_attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE machine_children ADD COLUMN stop_last_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stopped_unconfirmed INTEGER NOT NULL DEFAULT 0;
+  UPDATE machine_children SET seen_at = COALESCE(settled_at, created_at);
+  CREATE INDEX IF NOT EXISTS machine_children_seen ON machine_children(seen_at)
+    WHERE settled = 0;
+  CREATE INDEX IF NOT EXISTS machine_children_stopping ON machine_children(stop_started_at)
+    WHERE settled = 0 AND stop_started_at IS NOT NULL;`;

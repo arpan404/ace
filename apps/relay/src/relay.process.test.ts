@@ -1,8 +1,16 @@
+import { encodeBrowserVideo, StreamAssembler } from "@ace/browser/stream";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { keyPair, hostId, NoiseXX } from "@ace/secure-channel";
-import { startRelay, connectClientViaRelay, connectHostToRelay } from "./index.ts";
+import { createServer } from "node:http";
+import {
+  startRelay,
+  connectClientViaRelay,
+  connectHostToRelay,
+  RelayRefusedError,
+} from "./index.ts";
 import { DeviceId } from "@ace/protocol";
+import { z } from "zod";
 import type { HostChannel } from "./index.ts";
 import {
   openPeer as dial,
@@ -343,4 +351,183 @@ it("stream tickets are single-use and expire before an unauthenticated join can 
   cleanups.push(() => expired.socket.terminate());
   expect(await closed(expired.socket)).toBe(1008);
   expect(await staleClosed).toBe(1008);
+});
+
+it("a host and a client offering account grants still pair through a self-hosted relay", async () => {
+  const relay = await startRelay();
+  cleanups.push(() => relay.close());
+  const grants: string[] = [];
+  const waiter = deferred<HostChannel>();
+  const host = await connectHostToRelay({
+    relayUrl: relay.url,
+    hostKeys: keyPair(),
+    account: {
+      grant: async () => {
+        grants.push(`machine.${grants.length}`);
+        return grants.at(-1) ?? "";
+      },
+    },
+    onClientChannel: (channel) => waiter.resolve(channel),
+  });
+  cleanups.push(() => host.close());
+  // A relay that did not echo the offered subprotocol would fail the client's upgrade.
+  const client = await connectClientViaRelay({
+    relayUrl: relay.url,
+    hostId: host.hostId,
+    pinnedFingerprint: host.hostId,
+    grant: "device-grant.signature",
+  });
+  cleanups.push(() => client.close());
+  const server = await waiter.promise;
+  await client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("phone"),
+    token: "validated",
+  });
+  expect(await server.receive()).toMatchObject({ deviceId: "phone" });
+  expect(grants).toEqual(["machine.0"]);
+});
+
+it("a host the relay refuses stops with the refusal instead of reconnecting", async () => {
+  const offered: (string | undefined)[] = [];
+  const refusing = new WebSocketServer({
+    port: 0,
+    handleProtocols: (protocols) => [...protocols][0] ?? false,
+  });
+  cleanups.push(() => new Promise<void>((resolve) => refusing.close(() => resolve())));
+  refusing.on("connection", (socket, request) => {
+    offered.push(request.headers["sec-websocket-protocol"]);
+    socket.close(1008, "Sign in to ace on this machine");
+  });
+  await new Promise((resolve) => refusing.once("listening", resolve));
+  const { port } = z.object({ port: z.number() }).parse(refusing.address());
+  const attempt = connectHostToRelay({
+    relayUrl: `ws://127.0.0.1:${port}`,
+    hostKeys: keyPair(),
+    account: { grant: async () => "stale-grant" },
+    limits: { retryInitialMs: 10, retryMaxMs: 20 },
+    onClientChannel: () => {},
+  });
+  const refusal = await attempt.catch((error: unknown) => error);
+  expect(refusal).toBeInstanceOf(RelayRefusedError);
+  expect(String(refusal)).toContain("Sign in to ace on this machine");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(offered).toEqual(["ace.grant.stale-grant"]);
+
+  // A relay answering the upgrade with 403 (a grant for another host) refuses too.
+  let upgrades = 0;
+  const http = createServer();
+  http.on("upgrade", (_request, socket) => {
+    upgrades++;
+    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>((resolve) => http.close(() => resolve())));
+  const { port: httpPort } = z.object({ port: z.number() }).parse(http.address());
+  await expect(
+    connectHostToRelay({
+      relayUrl: `ws://127.0.0.1:${httpPort}`,
+      hostKeys: keyPair(),
+      limits: { retryInitialMs: 10, retryMaxMs: 20 },
+      onClientChannel: () => {},
+    }),
+  ).rejects.toBeInstanceOf(RelayRefusedError);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(upgrades).toBe(1);
+
+  // A 401 (missing or expired grant) is not a refusal: the host fetches a fresh grant and retries.
+  let unauthorized = 0;
+  const expired = createServer();
+  expired.on("upgrade", (_request, socket) => {
+    unauthorized++;
+    socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+  });
+  await new Promise<void>((resolve) => expired.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>((resolve) => expired.close(() => resolve())));
+  const { port: expiredPort } = z.object({ port: z.number() }).parse(expired.address());
+  let grants = 0;
+  const stop = new AbortController();
+  const retrying = connectHostToRelay({
+    relayUrl: `ws://127.0.0.1:${expiredPort}`,
+    hostKeys: keyPair(),
+    signal: stop.signal,
+    account: { grant: async () => `grant-${++grants}` },
+    limits: { retryInitialMs: 10, retryMaxMs: 20 },
+    onClientChannel: () => {},
+  }).catch((error: unknown) => error);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  stop.abort();
+  expect(await retrying).not.toBeInstanceOf(RelayRefusedError);
+  expect(unauthorized).toBeGreaterThan(1);
+  expect(grants).toBeGreaterThanOrEqual(unauthorized);
+});
+
+it("a host says when its registration is lost and again when the relay confirms it once more", async () => {
+  const first = await startRelay({ bind: "127.0.0.1" });
+  const port = Number(new URL(first.url).port);
+  const events: boolean[] = [];
+  const host = await connectHostToRelay({
+    relayUrl: first.url,
+    hostKeys: keyPair(),
+    limits: { retryInitialMs: 20, retryMaxMs: 50 },
+    onRegistration: (registered) => events.push(registered),
+    onClientChannel: () => {},
+  });
+  cleanups.push(() => host.close());
+  expect(events).toEqual([true]);
+
+  await first.close();
+  await expect.poll(() => events).toEqual([true, false]);
+  // Failed retries while the relay is down say nothing more.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(events).toEqual([true, false]);
+
+  const second = await startRelay({ bind: "127.0.0.1", port });
+  cleanups.push(() => second.close());
+  await host.whenRegistered(1);
+  expect(events).toEqual([true, false, true]);
+});
+
+it("a 300 KB chunk crosses the relay in exactly one encrypted data frame per smaller piece", async () => {
+  const { relay, connect } = await setup();
+  let counting = false;
+  const encrypted: number[] = [];
+  const via = await proxy(relay.url, (_path, direction, frame) => {
+    // Only this client's socket goes through the proxy. Handshakes end before counting starts;
+    // flow credit is not negotiated, so every subsequent server frame carries binary data.
+    if (counting && direction === "in") encrypted.push(frame.length);
+    return frame;
+  });
+  const { client, server } = await connect(via);
+  const payload = new Uint8Array(300_000).fill(42);
+  const pieces = encodeBrowserVideo(
+    17,
+    "thread-1",
+    {
+      sequence: 9,
+      timestamp: 99,
+      width: 640,
+      height: 400,
+      codedWidth: 640,
+      codedHeight: 400,
+      codec: "avc1.42E033",
+      key: true,
+    },
+    payload,
+  );
+  const first = pieces[0];
+  if (!first) throw new Error("No stream pieces");
+  const metaBytes = new DataView(first.buffer, first.byteOffset).getUint16(6);
+  const assembler = new StreamAssembler();
+  counting = true;
+  let received;
+  for (const piece of pieces) {
+    await server.sendBinary(piece);
+    received = assembler.push(await client.receiveBinary());
+  }
+  expect(received?.meta.length).toBe(metaBytes);
+  expect(received?.payload).toEqual(payload);
+  expect(encrypted).toHaveLength(Math.ceil((metaBytes + payload.length) / 65_498));
+  expect(encrypted.every((length) => length <= 65_535)).toBe(true);
 });

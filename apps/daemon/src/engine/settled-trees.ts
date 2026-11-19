@@ -1,7 +1,8 @@
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { EngineClock, ThreadActor } from "./actor.ts";
-import type { Recovery } from "./recovery.ts";
+import type { QueueHold, Recovery } from "./recovery.ts";
+import type { RecoveryRecord } from "./queue-store.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { Sessions } from "./sessions.ts";
 import { resumable } from "./thread-liveness.ts";
@@ -24,7 +25,8 @@ export interface SettledTreePorts {
  * Settling says the person is done with a thread, so nothing it started keeps running: each
  * thread in its tree, children first, loses its provider session (and with it every background
  * task and shell it owns), its open questions and the inputs that need a live session. Messages
- * the person queued stay, held, for when they come back.
+ * the person queued and results its own children sent stay, held, for when they come back:
+ * nothing in a settled tree starts a turn by itself (`settledHold`).
  *
  * The stop is fenced by the settle itself. Once the person unsettles the thread or sends to it,
  * whatever is left of the stop does nothing, so their new turn is never cut off.
@@ -70,16 +72,17 @@ export class SettledTrees {
     const { repo, sessions, clock } = this.ports;
     if (!repo.state(id)) return;
     const holdQueued = () => {
-      if (repo.queue.count(id) > 0)
-        repo.queue.set(
-          id,
-          { paused: true, reason: "stopped", resumeAt: null, timerAction: null },
-          clock.now(),
-        );
+      const hold = settledHold(repo.queue.get(id), repo.queue.waitingSends(id));
+      if (hold.paused)
+        repo.queue.set(id, { ...hold, resumeAt: null, timerAction: null }, clock.now());
     };
-    this.ports.recovery.discard(id);
     retireLiveIntents(repo, id);
-    holdQueued();
+    // In one write: a thread that read "waiting" for a moment would wake its parent's watch,
+    // which revives the edge, settles it again and hands its result over a second time.
+    this.ports.recovery.discardHolding(
+      id,
+      settledHold(repo.queue.get(id), repo.queue.waitingSends(id)),
+    );
     const actor = this.ports.actor(id);
     actor?.lifetime?.abort();
     // A provider that won't exit keeps its session: the thread reads as it is until a retry.
@@ -106,6 +109,24 @@ export class SettledTrees {
     this.ports.forget(id);
   }
 }
+
+/**
+ * How a settle leaves a thread's queue. A send that failed (its checkout gone, its model
+ * unavailable) or may have gone keeps that hold and its reason: it is not retried now, and it
+ * still says why it waits. Anything else still to send, the person's messages
+ * and child results alike, is held as stopped: sent, it would start a turn in a settled tree.
+ * With nothing to send, the queue is released.
+ */
+export function settledHold(
+  queue: Pick<RecoveryRecord, "paused" | "reason">,
+  waitingSends: number,
+): QueueHold {
+  if (waitingSends === 0) return { paused: false, reason: null };
+  if (queue.paused && queue.reason !== null && keptReasons.has(queue.reason))
+    return { paused: true, reason: queue.reason };
+  return { paused: true, reason: "stopped" };
+}
+const keptReasons: ReadonlySet<string> = new Set(["not_sent", "model_unavailable", "uncertain"]);
 
 /** Inputs that need a live session end with it; queued sends wait for the thread's next run. */
 function retireLiveIntents(repo: EngineRepository, id: ThreadId): void {

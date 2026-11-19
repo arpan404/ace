@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Agent, InteractionMeasurement, McpScope } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 it("daemon MCP exposes bounded measurement and enforces capability and controller ownership", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ace-measure-mcp-"));
   let next = 0;
@@ -20,6 +21,7 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
     publishArtifact: async () => {},
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: dir, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
     history: { instances: [] },
@@ -97,7 +99,8 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
       .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
       .parse(await request(lease.bearer, "tools/list"));
     expect(tools.tools.find((tool) => tool.name === "screen_measure")?.inputSchema).toMatchObject({
-      properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } },
+      // Advertised schemas drop maxima as generous as observeMs's 10 s cap.
+      properties: { observeMs: { type: "integer" }, repeat: { maximum: 5 } },
     });
     const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
     const response = z

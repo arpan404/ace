@@ -32,7 +32,8 @@ function IconButton({
   /** False: `keys` are this button's own, never a rebindable shortcut's (Tip). */
   resolve?: boolean;
   pressed?: boolean;
-  size?: "sm" | "default" | "lg";
+  /** `panel`: a panel title row's 32px action, the same as `panelIconButton`. */
+  size?: "sm" | "default" | "lg" | "panel";
   tooltip?: boolean;
   /** The tooltip's words when shorter than the accessible name. */
   tip?: string;
@@ -42,6 +43,8 @@ function IconButton({
   const button = (
     <ButtonPrimitive
       data-slot="icon-button"
+      data-part="icon-button"
+      data-state={props.disabled ? "disabled" : pressed ? "active" : undefined}
       aria-label={label}
       focusableWhenDisabled={reason !== undefined}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
@@ -53,11 +56,16 @@ function IconButton({
         size === "sm" && "size-6 rounded-sm touch-hit-lg",
         size === "default" && "size-[30px] rounded-md",
         size === "lg" && "size-[34px] rounded-md",
+        size === "panel" && "size-8 rounded-md touch-hit-lg hover:bg-hover",
         className,
       )}
       {...props}
     >
-      <Icon icon={icon} size={size === "sm" ? 14 : size === "lg" ? 20 : 16} active={pressed} />
+      <Icon
+        icon={icon}
+        size={size === "sm" ? 14 : size === "lg" ? 20 : size === "panel" ? 18 : 16}
+        active={pressed}
+      />
     </ButtonPrimitive>
   );
   if (!tooltip) return button;

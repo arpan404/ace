@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import { harness } from "./session.test-helper.ts";
 import { object } from "./native.ts";
-test.each(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"] as const)(
+// Modes pass through unchanged; bypassPermissions is the one that also sets a flag.
+test.each(["default", "bypassPermissions"] as const)(
   "Claude receives native %s unchanged",
   async (mode) => {
     const h = await harness(undefined, "root", {}, { permissionMode: mode });

@@ -26,16 +26,26 @@ struct VideoEncoderSettings: Equatable {
 /// Worst-case bytes per pixel of an H.264 High keyframe at each QP cap, measured on a window
 /// of dense small text (the hardest UI content). Real windows are mostly flat and much smaller.
 let refineBytesPerPixel: [(qp: Int, bytes: Double)] = [(12, 0.57), (16, 0.44), (20, 0.33), (24, 0.27)]
-/// A refine may take this long to reach a viewer at the negotiated bitrate.
-let refineBudgetSeconds = 1.5
+/// Any keyframe, a refine included, takes at most this long to reach a viewer at its bitrate
+/// (ADR 0149 §3). The daemon shrinks the picture on a thin link, so at the floor a keyframe is
+/// a smaller sharp picture rather than a large mushy one.
+let keyframeSeconds = 0.5
 
 /// The QP cap for a refine keyframe: the finest one whose worst-case size reaches the viewer
-/// within the budget at its bitrate; the coarsest otherwise, which is still sharper than
-/// motion frames at that bitrate.
+/// within `keyframeSeconds` at its bitrate; the coarsest otherwise, which is still sharper than
+/// motion frames at that bitrate. Real windows are far below the worst case, and the session's
+/// data rate limit (`keyframeDataRateLimits`) holds the refine to the cap either way.
 func refineFrameQP(bitrate: Int, pixels: Int) -> Int {
-    let budget = Double(bitrate) / 8 * refineBudgetSeconds
+    let budget = Double(bitrate) / 8 * keyframeSeconds
     let fitting = refineBytesPerPixel.first { Double(pixels) * $0.bytes <= budget }
     return (fitting ?? refineBytesPerPixel[refineBytesPerPixel.count - 1]).qp
+}
+
+/// The session's hard data rate limit, as `kVTCompressionPropertyKey_DataRateLimits` takes it
+/// (bytes, then seconds): no half second carries more than half a second of the bitrate, so no
+/// keyframe can either.
+func keyframeDataRateLimits(bitrate: Int) -> [Double] {
+    [Double(bitrate) / 8 * keyframeSeconds, keyframeSeconds]
 }
 
 /// Motion frames follow the viewer's bitrate. A refine is one keyframe with capped

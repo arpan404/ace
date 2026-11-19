@@ -34,7 +34,7 @@ export const fixtureVisualization: PublishedPage = {
 export const fixtureExplainer: PublishedPage = {
   threadId: "thread-explainer",
   html: explainerHtml,
-  sha256: "95bd1269754fbcc3bbc5b3f75c79bea3709ae0f7a3f5b3974c5fb8c96ec520b7",
+  sha256: "bf87e9c011e8f5c07a649269b65e3f3f2ced7c68c233c0a94aedc9334e067955",
   title: "Binary search, step by step",
   mode: "interactive",
   threadTitle: "Explain binary search",
@@ -84,6 +84,8 @@ function published(page: PublishedPage): Scenario {
               visualization: {
                 title: page.title,
                 mode: page.mode,
+                // Published against the current style kit (`@ace/html` styleKitVersion).
+                kit: 2,
                 document: {
                   sha256: page.sha256,
                   bytes,

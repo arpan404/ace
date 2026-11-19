@@ -9,7 +9,7 @@ import { end, scriptFrames, start, task } from "./test-support.ts";
  */
 afterEach(cleanupRecovery);
 
-/** A thread whose turn ended while a background shell it started still runs. */
+/** A thread whose turn ended while a background shell it started still runs (done, ADR 0116). */
 async function waitingOnShell(stop: { frames?: []; fail?: string }) {
   const frames = scriptFrames();
   const h = await fixture(
@@ -20,7 +20,10 @@ async function waitingOnShell(stop: { frames?: []; fail?: string }) {
     frames,
   );
   const id = await h.create();
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(Object.values(h.store.snapshotThread(id).backgroundTasks)).toMatchObject([
+    { status: "running" },
+  ]);
   return { h, id };
 }
 

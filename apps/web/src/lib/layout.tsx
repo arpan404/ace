@@ -11,7 +11,9 @@ import type { WorkspaceStore } from "./workspace/store.ts";
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 /** How narrow and wide the sidebar may be dragged, and where a double-click puts it back. */
-export const sidebarWidths = { min: 220, max: 480, preferred: 336 };
+/** The sidebar panel's width beside the rail (`--rail-width`), which the sidebar adds to it. */
+export const sidebarWidths = { min: 220, max: 480, preferred: 288 };
+export const railWidth = 52;
 
 export const ShellLayout = z.object({
   /** The sidebar is on screen (⌘\ hides it). */
@@ -46,6 +48,8 @@ export interface ComposerActions {
   chooseModel(): void;
   /** Open the model chip's effort slider. */
   tuneEffort(): void;
+  /** Answer one of the thread's approvals, through the same gated sender its card uses. */
+  approve?(interactionId: string, optionId: string): void;
 }
 
 /** A step of the palette it can open on, instead of its search. */
@@ -89,8 +93,9 @@ interface LayoutValue {
   /** Open the search dialog over the current screen, optionally with words already in it. */
   openSearch(query?: string): void;
   closeSearch(): void;
-  /** A screen is showing its side panel now (not just remembered open), so a crowded window
-   * can give it the sidebar's room. Set by the panel itself. */
+  /** A screen is showing its side panel beside the column or in full view now (not just
+   * remembered open), so a crowded window can give it the sidebar's room. Set by the panel
+   * itself; docked under the column it needs no such room. */
   rightPanelShown: boolean;
   /** Put the showing side panel away (asking for the sidebar back on a crowded window). */
   hideRightPanel(): void;
@@ -98,6 +103,8 @@ interface LayoutValue {
   setRightPanel(hide: (() => void) | undefined): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
+  /** Storage for this window alone that outlives a reload (the browser's session storage). */
+  windowStorage: KeyValueStorage | undefined;
   /** This app's workspace store, made by `create` on first use (`lib/workspace` loads lazily). */
   workspaceStore(create: () => WorkspaceStore): WorkspaceStore;
   /** A value this app keeps for its life (in memory), made by `create` on first use of `key`. */
@@ -110,13 +117,19 @@ export interface SessionKey<T> {
   /** Never set: carries `T` for the compiler. */
   readonly holds?: T;
 }
+type LayoutServices = Pick<
+  LayoutValue,
+  "storage" | "windowStorage" | "workspaceStore" | "sessionValue"
+>;
+const ServicesContext = createContext<LayoutServices | undefined>(undefined);
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
 export function LayoutProvider(props: {
   storage?: KeyValueStorage | undefined;
+  windowStorage?: KeyValueStorage | undefined;
   children: ReactNode;
 }) {
-  const { storage } = props;
+  const { storage, windowStorage } = props;
   const [layout, setLayout] = useState(() =>
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
@@ -165,6 +178,10 @@ export function LayoutProvider(props: {
       return values.get(key) as T;
     };
   });
+  const services = useMemo(
+    () => ({ storage, windowStorage, workspaceStore, sessionValue }),
+    [storage, windowStorage, workspaceStore, sessionValue],
+  );
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout) =>
       setLayout((previous) => {
@@ -194,6 +211,7 @@ export function LayoutProvider(props: {
       hideRightPanel: () => rightPanel?.hide(),
       setRightPanel,
       storage,
+      windowStorage,
       workspaceStore,
       sessionValue,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
@@ -217,11 +235,16 @@ export function LayoutProvider(props: {
       setRightPanel,
       change,
       storage,
+      windowStorage,
       workspaceStore,
       sessionValue,
     ],
   );
-  return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
+  return (
+    <ServicesContext.Provider value={services}>
+      <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>
+    </ServicesContext.Provider>
+  );
 }
 
 export function useLayout(): LayoutValue {
@@ -235,5 +258,17 @@ export function useLayout(): LayoutValue {
  * workspace on its own) keep their state in memory there instead.
  */
 export function useOptionalStorage(): KeyValueStorage | undefined {
-  return useContext(LayoutContext)?.storage;
+  return useContext(ServicesContext)?.storage;
+}
+
+/** The app services where there is a `<LayoutProvider>`; undefined outside the shell. */
+export function useOptionalLayoutServices(): LayoutServices | undefined {
+  return useContext(ServicesContext);
+}
+
+/** Stable app services, independent of shell visibility and action registrations. */
+export function useLayoutServices(): LayoutServices {
+  const value = useContext(ServicesContext);
+  if (!value) throw new Error("useLayoutServices needs a <LayoutProvider>");
+  return value;
 }

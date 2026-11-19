@@ -1,5 +1,5 @@
 import type { ClientMessage, DeviceId } from "@ace/protocol";
-import type { Device } from "./devices.ts";
+import type { SessionActor } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
@@ -13,7 +13,7 @@ export function helloActor(
   message: Hello,
   auth: RemoteAuth,
   isLocal: boolean,
-): (Device & { revocable: boolean }) | undefined {
+): SessionActor | undefined {
   const bearer =
     message.token !== undefined && isLocal && !auth.local(message.token)
       ? auth.deviceBearer(message.token)
@@ -39,6 +39,8 @@ export function helloActor(
         : desktop;
   const revocable = message.ticket !== undefined || desktop !== undefined;
   if (!actor || (revocable && actor.id !== message.deviceId)) return undefined;
+  // A paired device names its app install, so its records fold into one (ADR 0115).
+  if (message.ticket !== undefined) auth.recognize(actor, message.installId);
   return { ...actor, scopes: [...actor.scopes], revocable };
 }
 
@@ -70,7 +72,8 @@ export function enrollNotifications(
         attempt = Math.min(attempt + 1, 5);
       });
     options.tasks.add(task);
-    void task.finally(() => options.tasks.delete(task));
+    // The connect above logs its own failure; this only forgets the task.
+    void task.finally(() => options.tasks.delete(task)).catch(() => {});
   };
   enroll();
 }

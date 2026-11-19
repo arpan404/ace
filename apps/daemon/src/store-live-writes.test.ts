@@ -130,6 +130,36 @@ test.each<[string, EventPayload, object]>([
   },
 );
 
+test("a held event after a live-metadata follow-up is stored under its new sequence as it was published", async () => {
+  const state = setup();
+  const first = state.store.headSeq() + 1;
+  stream(state.store, state.thread.id, [
+    delta("hi"),
+    EventPayload.parse({
+      type: "agent.status",
+      agentId: "root",
+      status: { state: "blocked", on: "subagents", refs: ["child"] },
+    }),
+    { type: "thread.updated", title: "After the follow-up" },
+  ]);
+  expect(state.errors).toEqual([]);
+  expect(state.live.map((event) => event.payload.type)).toEqual([
+    "item.delta",
+    "agent.status",
+    "thread.client.updated",
+    "thread.updated",
+  ]);
+  const seqs = state.live.map((event) => event.seq);
+  expect(seqs).toEqual([...new Set(seqs)].toSorted((a, b) => a - b));
+  expect(state.store.getThread(state.thread.id)?.title).toBe("After the follow-up");
+  await state.reopen();
+  const stored = state.store
+    .readEvents({ afterSeq: first - 1, limit: 100 })
+    .filter((event) => event.threadId === state.thread.id);
+  expect(stored).toEqual(state.live);
+  expect(state.store.getThread(state.thread.id)?.title).toBe("After the follow-up");
+});
+
 test("deltas published before a held batch reach subscribers once and match the stored text", async () => {
   const state = setup();
   stream(state.store, state.thread.id, [delta("a")]);

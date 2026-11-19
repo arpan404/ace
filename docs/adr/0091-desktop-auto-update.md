@@ -1,7 +1,8 @@
 # 0091: Desktop auto-update through electron-updater and GitHub releases
 
 Status: accepted. Date: 2026-10-18. Completes the update follow-up of ADR 0054; the standalone
-daemon's updater (ADR 0041) is unchanged.
+daemon's updater (ADR 0041) is unchanged. Amended by [ADR 0113](0113-remote-updates.md): an
+administrator on another client can ask the app to download and install, through its daemon.
 
 ## Context
 
@@ -29,13 +30,11 @@ and the last error.
 
 The flow follows t3code's observed updater behaviour (clean-room: behaviour only, no code).
 
-- **Checks:** at once whenever the app is opened (its window shows, the dock icon or a
-  second launch brings it forward, or the Mac wakes), unless a check started in the last
-  30 s; 15 s after a launch that opens no window; then every 60–90 s from the last check (a
-  minute plus a random offset, so installs don't ask the feed in step); and on request from
-  the app menu or Settings › General › Updates. A background check
-  shows nothing until it finds a newer version, and its failures stay in the log. A
-  person's check shows `checking`, then the result.
+- **Checks:** a few seconds after the daemon is ready, or within a minute of launch if it
+  never becomes ready; then every four to six hours with a random offset. Opening or focusing
+  the window, waking or plugging in checks only after a four-hour gap. The app menu and
+  Settings › General › Updates still check on request. Background checks stay quiet until
+  they find a newer version; a person's check shows `checking`, then the result.
 - **Download:** a found update is `available` until the person clicks to download it. While
   it downloads, its progress shows on the button. A failed download stays on offer with its
   error, ready to retry.
@@ -84,7 +83,13 @@ defers to the app:
   command was the person's request. The same drain applies.
 - `recover` has nothing to do.
 
-A standalone install has no marker and keeps ADR 0041's transactional updater. The shell runs
+A standalone install has no marker and keeps ADR 0041's transactional updater.
+
+**From another client (ADR 0113).** The app's report to its daemon also carries the updater's
+state, progress, error and whether it installs in place. The daemon's reply can ask the app to
+download the release, or to install it: `idle` through the same drain as `ace update apply`,
+`now` through the confirmed Restart path. The app runs each instruction once and only for the
+release it offers itself. The shell runs
 the app's executable directly, rather than through an `ace://` link, so a web page cannot
 schedule a restart.
 

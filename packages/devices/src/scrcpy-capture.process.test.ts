@@ -1,155 +1,12 @@
 import { afterEach, expect, it } from "vitest";
-import { createServer, type Server, type Socket } from "node:net";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { nodeBinary } from "@ace/provider-kit/testing";
-import { spawnRawSupervised } from "@ace/provider-kit/process";
-import type { Frame } from "@ace/screen";
-import { DevicePlatform } from "./index.ts";
-import { scrcpyCapture } from "./scrcpy-capture.ts";
-import type { DeviceCapture } from "./capture.ts";
+import { fixture as scrcpyFixture, nal, sps, until, type Cleanup } from "./testing/fake-scrcpy.ts";
 
-const cleanup: (() => Promise<void> | void)[] = [];
+const cleanup: Cleanup = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-const nal = (...bytes: number[]) => Buffer.from([0, 0, 0, 1, ...bytes]);
-const sps = Buffer.concat([nal(0x67, 0x42, 0xc0, 0x29, 0x8d), nal(0x68, 0xce)]);
-function media(flags: number, payload: Buffer) {
-  const head = Buffer.alloc(12);
-  head.writeUInt8(flags, 0);
-  head.writeUInt32BE(payload.length, 8);
-  return Buffer.concat([head, payload]);
-}
-function session(width: number, height: number) {
-  const head = Buffer.alloc(12);
-  head.writeUInt8(0x80, 0);
-  head.writeUInt32BE(width, 4);
-  head.writeUInt32BE(height, 8);
-  return head;
-}
-async function until<T>(read: () => T | undefined): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt++) {
-    const value = read();
-    if (value !== undefined) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("Condition was not reached");
-}
-
-/**
- * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
- * dummy byte on the first connection, device name once control connects, then video.
- */
-async function fakeDevice() {
-  const sockets: Socket[] = [];
-  let control = Buffer.alloc(0);
-  const server: Server = createServer((socket) => {
-    sockets.push(socket);
-    if (sockets.length === 1) socket.write(Buffer.from([0]));
-    else {
-      socket.on("data", (chunk: Buffer) => {
-        control = Buffer.concat([control, chunk]);
-      });
-      const name = Buffer.alloc(64);
-      name.write("sdk_gphone64_arm64");
-      sockets[0]?.write(
-        Buffer.concat([
-          name,
-          Buffer.from("h264"),
-          session(540, 1200),
-          media(0x40, sps),
-          media(0x20, nal(0x65, 1)),
-          media(0x00, nal(0x41, 2)),
-        ]),
-      );
-    }
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanup.push(
-    () =>
-      new Promise<void>((resolve) => {
-        for (const socket of sockets) socket.destroy();
-        server.close(() => resolve());
-      }),
-  );
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("No port");
-  return {
-    port: address.port,
-    control: () => control,
-    write: (bytes: Buffer) => sockets[1]?.write(bytes),
-    hangUp: () => {
-      for (const socket of sockets) socket.destroy();
-    },
-  };
-}
-
-async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "ace-scrcpy-capture-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, "sdk/platform-tools"), { recursive: true });
-  await mkdir(join(root, "sdk/emulator"), { recursive: true });
-  // The long-running `adb shell app_process ...` stays up until ace stops it.
-  await nodeBinary(join(root, "sdk/platform-tools"), "adb", "process.stdin.resume();");
-  await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
-  const jar = join(root, "scrcpy-server");
-  await writeFile(jar, "server");
-  const device = await fakeDevice();
-  const commands: string[] = [];
-  const env = { PATH: "/usr/bin:/bin", ANDROID_HOME: join(root, "sdk") };
-  const platform = new DevicePlatform({
-    platform: "linux",
-    home: root,
-    env,
-    async probe(_command, args) {
-      const line = args.join(" ");
-      commands.push(line);
-      const stdout = line.includes("-list-avds")
-        ? "Pixel"
-        : line === "devices -l"
-          ? "List of devices attached\nemulator-5554 device"
-          : line.includes("avd_name")
-            ? "Pixel"
-            : line.includes("'wm' 'size'")
-              ? "Physical size: 1080x2400"
-              : line.includes("'dumpsys' 'input'")
-                ? "SurfaceOrientation: 0"
-                : line.includes("forward tcp:0")
-                  ? `${device.port}\n`
-                  : "";
-      return { stdout, stderr: "", code: 0 };
-    },
-  });
-  cleanup.push(() => platform.close());
-  const android = (await platform.list()).find((entry) => entry.platform === "android");
-  if (!android) throw new Error("No emulator");
-  const frames: Frame[] = [];
-  const failures: unknown[] = [];
-  const capture: DeviceCapture = await scrcpyCapture({
-    device: android,
-    streamId: "stream",
-    fps: 60,
-    jar,
-    platform,
-    env,
-    runtime: {
-      now: () => 1000,
-      id: () => "session",
-      after(ms, run) {
-        const timer = setTimeout(run, ms);
-        return () => clearTimeout(timer);
-      },
-      spawn: spawnRawSupervised,
-    },
-    publish: (frame) => frames.push(frame),
-    failure: (error) => failures.push(error),
-  });
-  cleanup.push(() => capture.stop());
-  return { capture, device, frames, failures, commands };
-}
-
+const fixture = (options: { ffmpeg?: boolean; resetAtControl?: boolean } = {}) =>
+  scrcpyFixture(cleanup, options);
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
   const { frames, commands } = await fixture();
   await until(() => (frames.length >= 2 ? true : undefined));
@@ -292,6 +149,30 @@ it("without ffmpeg, a request for still images keeps the H.264 view rather than 
   ).resolves.toEqual({ codec: "h264" });
 });
 
+it("a device stopped while it switches to still images leaves no ffmpeg running", async () => {
+  const { capture, ffmpegPids } = await fixture({ ffmpeg: true });
+  const switching = capture.configure?.({
+    codec: "jpeg",
+    maxWidth: 1920,
+    maxHeight: 2160,
+    fps: 60,
+    bitrate: 4_000_000,
+  });
+  await capture.stop();
+  await switching?.catch(() => {});
+  // Give a late decoder time to start, then check none outlived the device.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const running = (await ffmpegPids()).filter((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  expect(running).toEqual([]);
+});
+
 it("the view fails when the emulator side of the stream goes away", async () => {
   const { device, frames, failures } = await fixture();
   await until(() => (frames.length ? true : undefined));
@@ -307,5 +188,11 @@ it("input after the emulator went away says the view ended, not that control is 
   await expect(capture.input?.({ kind: "tap", x: 10, y: 10 }, () => {})).rejects.toMatchObject({
     code: "command_failed",
     message: "The Android screen stream ended",
+  });
+});
+
+it("an emulator that resets its sockets during startup fails the view, not the daemon", async () => {
+  await expect(fixture({ resetAtControl: true })).rejects.toMatchObject({
+    code: "command_failed",
   });
 });

@@ -1,6 +1,4 @@
 import type { MachineIcon } from "@ace/protocol";
-import { projectBadge } from "@ace/ui-core";
-import { ProjectMark } from "@/components/project-mark.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Link } from "@tanstack/react-router";
@@ -14,19 +12,27 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { usePreparations } from "./preparations.ts";
 import { useDiscardDraft } from "./use-discard-draft.ts";
+import { inScope, useSidebarDevice } from "../device-filter-state.ts";
 
 /**
  * Unsent preparations belong to a daemon and this device, outside the running thread list:
  * this window's own, then each other connected machine's (ADR 0102), each row marked with its
  * machine and reopening on it. Discard takes a row away at once, with Undo.
  */
-export function DraftRows() {
+export function DraftRows(props: {
+  /** Only this project's drafts (Chats: its chats'); otherwise the organizer's project, or all. */
+  project?: string | undefined;
+}) {
   const identity = useHostIdentity();
-  const others = useMachines().filter((machine) => !machine.primary && machine.client);
+  const device = useSidebarDevice();
+  const others = useMachines().filter(
+    (machine) => !machine.primary && machine.client && inScope(device, machine.id),
+  );
   return (
     <>
-      {identity && (
+      {identity && inScope(device, identity.hostId) && (
         <MachineDrafts
+          only={props.project}
           host={identity.hostId}
           name={identity.displayName ?? "This machine"}
           icon={identity.icon}
@@ -34,7 +40,13 @@ export function DraftRows() {
       )}
       {others.map((machine) => (
         <MachineScope key={machine.id} machine={machine}>
-          <MachineDrafts host={machine.id} name={machine.name} icon={machine.icon} remote />
+          <MachineDrafts
+            only={props.project}
+            host={machine.id}
+            name={machine.name}
+            icon={machine.icon}
+            remote
+          />
         </MachineScope>
       ))}
     </>
@@ -43,13 +55,15 @@ export function DraftRows() {
 
 /** One machine's drafts, read and discarded under its own client. */
 function MachineDrafts(props: {
+  only: string | undefined;
   host: string;
   name: string;
   icon: MachineIcon | undefined;
   remote?: boolean;
 }) {
   const { storage } = useLayout();
-  const { project } = useOrganizerState();
+  const organized = useOrganizerState().project;
+  const project = props.only ?? organized;
   const directory = useProjectDirectory();
   const discard = useDiscardDraft(storage, props.host);
   const machine = useMachineSearch();
@@ -75,6 +89,7 @@ function MachineDrafts(props: {
               search={{
                 ...machine,
                 project: row.project,
+                ...(row.from ? { from: row.from } : {}),
                 skill: row.skill,
                 issue: row.issue,
                 pullRequest: row.pullRequest,
@@ -83,19 +98,20 @@ function MachineDrafts(props: {
               className="flex h-20 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-3 text-ui focus-ring-inset"
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ProjectMark
-                  id={row.project}
-                  badge={projectBadge({ id: row.project, name: directory.name(row.project) })}
-                />
                 <span className="min-w-0 flex-1 truncate">{directory.name(row.project)}</span>
                 <span>Draft</span>
               </span>
               <span className="truncate text-base leading-5 text-foreground">{row.title}</span>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MachineMark icon={props.icon} primary={!props.remote} />
+                {props.remote && <MachineMark icon={props.icon} primary={false} />}
                 <span className="min-w-0 truncate">{props.name}</span>
                 {row.provider && (
-                  <ProviderIcon provider={row.provider} size={14} className="ml-auto" decorative />
+                  <ProviderIcon
+                    provider={row.provider}
+                    size={14}
+                    className="ml-auto text-foreground opacity-80"
+                    decorative
+                  />
                 )}
               </span>
             </Link>

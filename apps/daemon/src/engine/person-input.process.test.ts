@@ -22,7 +22,7 @@ test("a steer with no live turn starts the next turn while a dev server keeps ru
   cleanups.push(h.close);
   const id = await h.create();
   await h.engine.flush();
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
   h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
   await h.engine.flush();
   expect(h.adapter.commands.at(-1)).toMatchObject({ type: "send", input });

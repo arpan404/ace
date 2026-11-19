@@ -7,18 +7,17 @@
 //! The first time, the person picks the window in the portal's dialog; the request does not
 //! wait for that: it returns the outline and asks the agent to look again once approved.
 use crate::computer::image::Rgb;
-use crate::computer::pw_frame::{NO_FRAME, Watch};
-use futures_util::StreamExt;
+use crate::computer::portal_call::{Dict, PATH, SERVICE, close, request, text};
+use crate::computer::pw_frame::{NO_FRAME, Picture, Watch};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
-use zbus::{Connection, MatchRule, MessageStream, message::Type};
+use zbus::Connection;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
-const SERVICE: &str = "org.freedesktop.portal.Desktop";
-const PATH: &str = "/org/freedesktop/portal/desktop";
+const CAST: &str = "org.freedesktop.portal.ScreenCast";
 const MONITOR: u32 = 1;
 const WINDOW: u32 = 2;
 /// How long the person has to answer the dialog before the session is abandoned.
@@ -28,12 +27,14 @@ const FIRST_FRAME: Duration = Duration::from_secs(3);
 /// How long a stream that is waiting for the desktop to redraw stays open without a look.
 const KEEP: Duration = Duration::from_secs(120);
 
-type Dict = HashMap<String, OwnedValue>;
 
 /// A frame and the logical size of what it shows.
 pub struct Frame {
     pub picture: Rgb,
     pub logical: (u32, u32),
+    /// Where the window's opaque body sits in `picture` (its shadow around it), when the
+    /// stream carries alpha.
+    pub opaque: Option<crate::computer::pw_frame::Bounds>,
     /// The frame is exactly one window (not a whole monitor).
     pub window: bool,
 }
@@ -118,9 +119,6 @@ pub fn still_message(app: &str) -> String {
     )
 }
 
-fn text(value: &str) -> OwnedValue {
-    OwnedValue::try_from(Value::from(value)).unwrap_or_else(|_| OwnedValue::from(0u32))
-}
 
 impl ScreenCast {
     /// The portal, when this session has one that can capture.
@@ -287,11 +285,13 @@ impl ScreenCast {
         }
     }
 
-    fn frame(&self, picture: Rgb, logical: Option<(u32, u32)>) -> Frame {
+    fn frame(&self, picture: Picture, logical: Option<(u32, u32)>) -> Frame {
+        let Picture { rgb: picture, opaque } = picture;
         let logical = logical_size(logical, (picture.width, picture.height));
         Frame {
             picture,
             logical,
+            opaque,
             window: self.window_sources(),
         }
     }
@@ -357,7 +357,7 @@ impl ScreenCast {
 }
 
 /// The stream's latest picture, waiting up to `timeout` for a first one.
-async fn latest(watch: &Arc<Watch>, timeout: Duration) -> Result<Rgb, String> {
+async fn latest(watch: &Arc<Watch>, timeout: Duration) -> Result<Picture, String> {
     let watch = watch.clone();
     tokio::task::spawn_blocking(move || watch.latest(timeout))
         .await
@@ -368,20 +368,6 @@ fn stream_message(error: &str) -> String {
     format!("No picture came from the screen-sharing stream ({error}). Use the outline.")
 }
 
-/// Closing never holds up a look: a backend still waiting on its chooser can't answer it.
-const CLOSE_WAIT: Duration = Duration::from_secs(2);
-
-async fn close(conn: &Connection, session: &OwnedObjectPath) {
-    let call = conn.call_method(
-        Some(SERVICE),
-        session.as_str(),
-        Some("org.freedesktop.portal.Session"),
-        "Close",
-        &(),
-    );
-    let _ = tokio::time::timeout(CLOSE_WAIT, call).await;
-}
-
 /// CreateSession, SelectSources and Start. Unless the token restores, the portal asks the
 /// person at Start (GNOME, KDE) or already at SelectSources (xdg-desktop-portal-hyprland).
 async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Result<Started, String> {
@@ -390,7 +376,7 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
         "session_handle_token".into(),
         text(&format!("ace_cu{}", counter.fetch_add(1, Ordering::Relaxed))),
     );
-    let created = request(&conn, &counter, "CreateSession", None, create, Duration::from_secs(10)).await?;
+    let created = request(&conn, &counter, CAST, "CreateSession", None, create, Duration::from_secs(10)).await?;
     let session: String = created
         .get("session_handle")
         .and_then(|v| v.try_clone().ok())
@@ -401,6 +387,7 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
         request(
             &conn,
             &counter,
+            CAST,
             "SelectSources",
             Some(&session),
             select,
@@ -408,7 +395,7 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
             APPROVAL,
         )
         .await?;
-        let started = request(&conn, &counter, "Start", Some(&session), HashMap::new(), APPROVAL).await?;
+        let started = request(&conn, &counter, CAST, "Start", Some(&session), HashMap::new(), APPROVAL).await?;
         let streams: Vec<(u32, Dict)> = started
             .get("streams")
             .and_then(|v| v.try_clone().ok())
@@ -437,73 +424,6 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
         close(&conn, &session).await;
     }
     result
-}
-
-/// One portal request: subscribe to its Response, call, and wait for the answer.
-async fn request(
-    conn: &Connection,
-    counter: &AtomicU64,
-    method: &str,
-    session: Option<&OwnedObjectPath>,
-    mut options: Dict,
-    wait: Duration,
-) -> Result<Dict, String> {
-    let token = format!("ace_cu{}", counter.fetch_add(1, Ordering::Relaxed));
-    options.insert("handle_token".into(), text(&token));
-    let sender = conn
-        .unique_name()
-        .ok_or("no bus name")?
-        .as_str()
-        .trim_start_matches(':')
-        .replace('.', "_");
-    let handle = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
-    let rule = MatchRule::builder()
-        .msg_type(Type::Signal)
-        .interface("org.freedesktop.portal.Request")
-        .and_then(|b| b.member("Response"))
-        .and_then(|b| b.path(handle.as_str()))
-        .map_err(|e| e.to_string())?
-        .build();
-    let mut responses = MessageStream::for_match_rule(rule, conn, Some(4))
-        .await
-        .map_err(|e| e.to_string())?;
-    let interface = Some("org.freedesktop.portal.ScreenCast");
-    let call = match (method, session) {
-        ("CreateSession", _) => {
-            conn.call_method(Some(SERVICE), PATH, interface, method, &(options,))
-                .await
-        }
-        ("Start", Some(session)) => {
-            conn.call_method(Some(SERVICE), PATH, interface, method, &(session, "", options))
-                .await
-        }
-        (_, Some(session)) => {
-            conn.call_method(Some(SERVICE), PATH, interface, method, &(session, options))
-                .await
-        }
-        _ => return Err("no session".into()),
-    };
-    call.map_err(|e| format!("the portal refused {method}: {e}"))?;
-    let message = match tokio::time::timeout(wait, responses.next()).await {
-        Ok(Some(Ok(message))) => message,
-        _ => {
-            let close = conn.call_method(
-                Some(SERVICE),
-                handle.as_str(),
-                Some("org.freedesktop.portal.Request"),
-                "Close",
-                &(),
-            );
-            let _ = tokio::time::timeout(CLOSE_WAIT, close).await;
-            return Err("nobody answered the dialog".into());
-        }
-    };
-    let (code, results): (u32, Dict) = message.body().deserialize().map_err(|e| e.to_string())?;
-    match code {
-        0 => Ok(results),
-        1 => Err("the person cancelled the dialog".into()),
-        _ => Err("the portal ended the request".into()),
-    }
 }
 
 #[cfg(test)]

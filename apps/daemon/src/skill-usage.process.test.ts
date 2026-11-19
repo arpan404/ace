@@ -6,6 +6,7 @@ import { afterEach, expect, test } from "vitest";
 import { Agent, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
 import { readSkillUsage } from "./skill-usage.ts";
+import { undoMachineCode } from "./upgrade-test-support.ts";
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -99,10 +100,11 @@ test("upgrading counts skill mentions already in the history once", async () => 
     message("b", 20, [mention("research"), mention("unslop")]),
   ]);
   store.close();
-  // The previous schema had no usage table.
+  // The previous schema had no usage table, nor anything from the steps after it.
   const db = new DatabaseSync(path);
   db.exec(
-    "DROP TABLE skill_usage; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=17 WHERE id=1",
+    undoMachineCode +
+      "DROP TABLE skill_usage; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=17 WHERE id=1",
   );
   db.close();
   const upgraded = new Store(path);

@@ -1,16 +1,18 @@
 import type { ClientApi, SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
-import { projectLabel } from "@ace/ui-core";
+import type { ThreadListEntry } from "@ace/protocol";
+import { isChatEntry, projectLabel } from "@ace/ui-core";
 import { useCallback, useEffect, useMemo } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
-import { projectsKey, type Project } from "./project-cache.ts";
+import { projectsKey, trackProjectsRead, type Project } from "./project-cache.ts";
 
 export type { Project } from "./project-cache.ts";
 
 /** The daemon pages `workspaces.list` at 100; every page is read, however many projects. */
 const pageSize = 100;
 
-async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Project[]> {
+/** Every project the daemon lists, page by page. */
+export async function readProjects(client: ClientApi, signal?: AbortSignal): Promise<Project[]> {
   const projects: Project[] = [];
   let after: string | undefined;
   for (;;) {
@@ -19,7 +21,7 @@ async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Pro
         type: "workspace.request",
         operation: { op: "workspaces.list", limit: pageSize, ...(after ? { after } : {}) },
       },
-      { signal },
+      signal ? { signal } : {},
     );
     const result = reply.result;
     if (result.kind !== "workspaces") throw new Error("ace didn't list its projects.");
@@ -42,7 +44,12 @@ export function useThreadProjects(): readonly string[] {
   return useSidebarAll(readThreadProjects, sameList) ?? none;
 }
 
-const projectsQuery = { queryKey: projectsKey, staleTime: 60_000, read: readProjects };
+const projectsQuery = {
+  queryKey: projectsKey,
+  staleTime: 60_000,
+  read: (client: ClientApi, signal: AbortSignal) =>
+    trackProjectsRead(client, () => readProjects(client, signal)),
+};
 
 function useProjectList(): Project[] | undefined {
   return useDaemonQuery(projectsQuery).data;
@@ -81,6 +88,21 @@ function useChatTest(data: readonly Project[] | undefined): (id: string) => bool
 /** Whether a project id is a chat's hidden project (ADR 0099). */
 export function useIsChat(): (id: string) => boolean {
   return useChatTest(useProjectList());
+}
+
+/** What `useIsChatThread` reads of a thread. */
+export type ChatTestEntry = Pick<ThreadListEntry, "workspaceId" | "details">;
+
+/**
+ * Whether a thread is a chat (ADR 0099): its own details say so, or its project is one the
+ * daemon lists as a chat's. The Chats panel lists these, and the Threads panel leaves them out.
+ */
+export function useIsChatThread(): (entry: ChatTestEntry) => boolean {
+  const isChat = useIsChat();
+  return useCallback(
+    (entry: ChatTestEntry) => isChatEntry(entry) || isChat(entry.workspaceId),
+    [isChat],
+  );
 }
 
 export function useProjectIcon(): (id: string) => string | null | undefined {

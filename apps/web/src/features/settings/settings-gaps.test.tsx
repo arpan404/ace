@@ -113,7 +113,6 @@ test("provider configuration changes visibility, stars and custom model choices 
   await userEvent.click(within(models).getByRole("button", { name: "Hide Opus 4" }));
   await within(models).findByRole("button", { name: "Show Opus 4" });
   await userEvent.keyboard("{Escape}");
-  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
   await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "relative-cli");
   await userEvent.tab();
   expect(await screen.findByText(/^Enter the full path to the executable/)).toBeTruthy();
@@ -122,7 +121,7 @@ test("provider configuration changes visibility, stars and custom model choices 
   await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "/tmp/fake-claude");
   await userEvent.tab();
   await waitFor(() => expect(configuration(app)[0]?.binaryPath).toBe("/tmp/fake-claude"));
-  await userEvent.click(screen.getByRole("switch", { name: "Turn off provider" }));
+  await userEvent.click(screen.getByRole("button", { name: "Turn off" }));
   await waitFor(() => expect(configuration(app)[0]?.enabled).toBe(false));
   const disabled = await app.client.request({
     type: "models.list",
@@ -136,10 +135,8 @@ test("provider configuration changes visibility, stars and custom model choices 
   await app.open("/settings/agents");
   cleanup();
   await app.open("/settings/providers/claude");
-  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
-  expect(
-    (await screen.findByRole("switch", { name: "Turn off provider" })).getAttribute("aria-checked"),
-  ).toBe("true");
+  expect(await screen.findByRole("button", { name: "Turn on Claude Code" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull();
   expect(screen.getByRole("textbox", { name: "CLI path" }).getAttribute("value")).toBe(
     "/tmp/fake-claude",
   );

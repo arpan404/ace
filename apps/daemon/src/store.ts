@@ -1,3 +1,8 @@
+import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
+import { storedEntityShape } from "./entity-shape.ts";
+import { storedEventShape } from "./stored-shape.ts";
+import { openStoreTrust, startStoreTrustPass, type StoredTrustOptions } from "./store-trust.ts";
+import { confirmRecentThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -6,10 +11,16 @@ import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
+import { BoundedEvents } from "./bounded-events.ts";
+import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
+/** Committed sequences between marks: a rollback within the last this many may go unseen. */
+const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
+import { EventEncodings } from "./event-encodings.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
+import { spawnCheckpointWorker, type CheckpointWorkerFactory } from "./wal-worker-runtime.ts";
 import {
   bufferScheduler,
   type BufferScheduler,
@@ -18,6 +29,7 @@ import {
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
+import { openSidebarColumns } from "./sidebar-columns.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
@@ -65,18 +77,21 @@ import {
 } from "@ace/protocol";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
+import { MachineCodes } from "./account-access/machine-codes.ts";
 import { SqlitePairingCodes } from "./pairing-codes.ts";
-import { migrate } from "./migrations.ts";
+import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
+import { NeedsYouThreads } from "./needs-you-threads.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
-
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { StoreWriteGate, type StoreWriteGateOptions } from "./store-write-gate.ts";
 
-export interface StoreOptions extends Partial<CredentialRuntime> {
+export interface StoreOptions extends Partial<CredentialRuntime>, StoredTrustOptions {
+  /** The mark kept beside the database, naming it afresh when it was rolled back (ADR 0128). */
+  lineage?: LineageFile;
   /** Store owns and closes this SQLite connection when supplied. */
   database?: DatabaseSync;
   nextId?: () => string;
@@ -85,17 +100,25 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   searchWorkerFactory?: SearchWorkerFactory;
   writeGate?: StoreWriteGateOptions;
   bufferScheduler?: BufferScheduler;
+  /** Opens the connection that checkpoints the WAL off the event loop. */
+  checkpointWorker?: CheckpointWorkerFactory;
+  /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
+  threadRowShape?: string;
+  /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
+  entityShape?: string;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
 const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
+  /** This machine's code and which account devices passed it (ADR 0111). */
+  readonly machineCodes: MachineCodes;
   /** Pairing links waiting to be redeemed; they outlive a restart until they expire. */
   readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
-  private readonly usageReplay: UsageReplay;
+  readonly usageReplay: UsageReplay;
   private readonly searchReplay: SearchReplay;
   private readonly usageListeners = new Set<() => void>();
   readonly search: SearchIndex;
@@ -105,6 +128,8 @@ export class Store {
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   readonly measurements: MeasurementStore;
+  /** Threads waiting on a person now, kept current by the event writer (`ace request list`). */
+  readonly needsYou = new NeedsYouThreads(this);
   readonly toolResults: ToolResultStore;
   readonly nativeImages: NativeImageStore;
   private readonly history: HistoryIndex;
@@ -122,6 +147,14 @@ export class Store {
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
   private readonly readCache: ThreadReadCache;
+  /** Each published event's JSON, made once and shared by the live buffer and the server. */
+  readonly encodings = new EventEncodings();
+  /** Rows the event writer changed, each on behalf of the thread of the event it wrote. */
+  private attributedChanges = 0;
+  /** Threads the open transaction's events wrote: their cached reads end when it commits. */
+  private writtenThreads = new Set<ThreadId>();
+  /** A savepoint in the open transaction could not be undone: it must roll back whole. */
+  private doomed: unknown;
   private readonly wal: WalMaintenance;
   private transactions = 0;
   private eventRows = 0;
@@ -146,26 +179,30 @@ export class Store {
   private notifyingHistory = false;
   private publishing = false;
   private publishedSeq = 0;
+  /** The mark beside the database and the sequence it was last written at (ADR 0128). */
+  private lineage: LineageFile | undefined;
+  private markedSeq = 0;
+  /** Rows from here on were written by this build and are read without validating again. */
+  private readonly trust = untrusted();
+  readonly bounded = new BoundedEvents(() => this.db, this.trust, this);
+  /** Whether every entity row is in this build's shape, so read without validating again. */
+  private readonly entityTrust = untrustedEntities();
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
     options: StoreOptions = {},
   ) {
     this.onError = onError;
+    this.storedTrustBuild = options.storedTrustBuild;
     this.db = options.database ?? new DatabaseSync(path);
-    this.wal = new WalMaintenance({
-      path,
-      scheduler: options.bufferScheduler ?? bufferScheduler,
-      busy: () =>
-        !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
-      exec: (sql) => this.db.exec(sql),
-      report: (error) => this.onError(error),
-    });
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
+      // Other connections' commits, and local rows written outside the event writer.
       version: () =>
-        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
-      inTransaction: () => this.transactionEvents !== undefined,
+        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.totalChanges() - this.attributedChanges}`,
+      // Any transaction open on the connection, including one begun outside `transaction`
+      // (history installation): its rows may still roll back, which no counter would show.
+      inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
     this.threads = new ThreadCache({
@@ -192,10 +229,12 @@ export class Store {
       statement: (sql) => this.statement(sql),
       atomic: (run) => this.atomic(run),
       now: () => this.now(),
+      sameDevice: (a, b) => this.sameDevice(a, b),
     });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
       commit: (run) => this.atomic(run),
+      reserved: (through) => this.markLineage(through),
     });
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? timeOrderedIds();
@@ -206,29 +245,63 @@ export class Store {
       sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, outcome) => this.transaction(run, outcome),
-      persist: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at, [event]),
-      append: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at),
+      persist: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.append(event.threadId, [event.payload], event.at, [event]),
+        ),
+      // The stream parsed this payload when it built the envelope.
+      append: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.appendParsed(event.threadId, [event.payload], event.at),
+        ),
       stored: (event) =>
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
       publish: (events) => this.publish(events),
+      encodings: this.encodings,
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
     });
-    this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
-    this.status = new StatusStore(this.db, (sql) => this.statement(sql));
+    this.payloads = new PayloadStore(
+      this.db,
+      this.nextId,
+      (sql) => this.statement(sql),
+      this.trust,
+    );
+    this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
+    const eventShape = options.eventShape ?? storedEventShape(schemaVersion);
+    let opened: ReturnType<typeof openStoreTrust> = undefined;
     try {
       this.db.exec(
-        // auto_vacuum only takes effect before a new file's first page or through VACUUM.
-        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
+        // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
+        // waits for another connection's write like every later statement. auto_vacuum only
+        // takes effect before a new file's first page or through VACUUM.
+        "PRAGMA busy_timeout=5000; PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
       );
+      // Checkpoints run on their own connection; an in-memory or rollback-journal file has none.
+      this.wal = new WalMaintenance({
+        path,
+        scheduler: options.bufferScheduler ?? bufferScheduler,
+        worker:
+          this.db.prepare("PRAGMA journal_mode").get()?.["journal_mode"] === "wal"
+            ? (options.checkpointWorker ?? spawnCheckpointWorker)
+            : undefined,
+        busy: () =>
+          !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
+        checkpoint: (mode) => this.checkpointWal(mode),
+        report: (error) => this.onError(error),
+      });
       migrate(this.db);
       this.sequences.initialize();
       migrateSidebarRevisions(this.db);
+      this.keepLineage(options.lineage);
+      openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
+      // Needs every threads column the sidebar reads; its triggers cover the passes below.
+      this.atomic((db) => openSidebarColumns(db));
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
@@ -239,9 +312,9 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
-      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
+      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql), this.trust);
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
-      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
+      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql), this.trust);
       this.atomic(indexThreadRows);
       this.history = new HistoryIndex(
         this.db,
@@ -249,6 +322,7 @@ export class Store {
         (stream, offset, limit) => this.payloads.readOutputBytes(stream, offset, limit),
         (thread, item, stream, offset, text) =>
           this.payloads.archiveOutput(thread, item, stream, offset, text),
+        this.trust,
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
@@ -261,23 +335,32 @@ export class Store {
         flush: () => this.flushLiveWrites(),
         headSeq: () => this.headSeq(),
         getThread: (id) => this.getThread(id),
-        inTransaction: () => this.transactionEvents !== undefined,
+        readThread: (id) => this.readThread(id),
+        // Any transaction open on the connection, the store's own or one begun directly.
+        inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
         report: (error) => this.onError(error),
       });
       this.atomic(migrateRunClient);
+      this.status.trustEntities(options.entityShape ?? storedEntityShape(schemaVersion));
       this.longThreads = new LongThreadIndex(this.db, (id) => {
         const thread = this.getThread(ThreadId.parse(id));
         return thread?.deletedAt === undefined ? thread : undefined;
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.atomic(seedSentMessages);
+      // After the passes above that rewrite threads rows; the writer keeps stamps current and
+      // the idle trust pass checks the rest. Bounded: only the most recently changed rows.
+      this.atomic((db) => confirmRecentThreadRows(db));
+      // After every open-time pass that rewrites stored rows, before the first append.
+      opened = openStoreTrust(this.db, eventShape, options, this.trust);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
       this.pairingCodes = new SqlitePairingCodes(this.db);
+      this.machineCodes = new MachineCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
-      this.searchReplay = new SearchReplay(this.db, this.history);
+      this.searchReplay = new SearchReplay(this.db, this.history, this.trust);
       this.search = new SearchIndex(this.db, {
         readOutput: (threadId, streamId, offset, limit) => {
           const replay = this.history.readSearchBytes(threadId, streamId, offset, limit);
@@ -330,6 +413,7 @@ export class Store {
         toolResults: this.toolResults,
         nativeImages: this.nativeImages,
         measurements: this.measurements,
+        needsYou: this.needsYou,
         statement: (sql) => this.statement(sql),
         getThread: (id) => this.getThread(id),
         checkoutThread: (id) => this.threads.checkout(id),
@@ -340,6 +424,10 @@ export class Store {
         nextId: this.nextId,
         wakeSearch: () => this.searchMaintenance.wake(),
       });
+      // Statement journals stay in memory from here on: on disk, each write transaction
+      // created, wrote and deleted temp files. Startup migrations above keep sorting large
+      // index builds on disk. A savepoint deleting 220 MB of rows holds about 28 MB.
+      this.db.exec("PRAGMA temp_store=MEMORY");
     } catch (error) {
       this.db.close();
       throw error;
@@ -354,8 +442,38 @@ export class Store {
       })
       .catch(this.onError);
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
+    this.trustPass = startStoreTrustPass({
+      db: this.db,
+      shape: eventShape,
+      opened,
+      trust: this.trust,
+      options,
+      busy: () =>
+        !!this.transactionEvents ||
+        this.historyWriting ||
+        this.writes.isHeld() ||
+        this.streaming.buffer.bytes > 0,
+      headSeq: () => this.headSeq(),
+      // Rows the trust writes change belong to no thread and change no read.
+      accounted: (rows) => (this.attributedChanges += rows),
+      report: (error) => this.onError(error),
+    });
   }
+  private readonly trustPass: { close(): void };
+  /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
+  readonly storedTrustBuild: string | undefined;
   private onError: (error: unknown) => void;
+  /** A checkpoint on this connection that gives up rather than wait for a lock. */
+  private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
+    if (mode === "PASSIVE")
+      return this.statement("PRAGMA wal_checkpoint(PASSIVE)").get()?.["busy"] !== 1;
+    this.db.exec("PRAGMA busy_timeout=0");
+    try {
+      return this.statement("PRAGMA wal_checkpoint(TRUNCATE)").get()?.["busy"] !== 1;
+    } finally {
+      this.db.exec("PRAGMA busy_timeout=5000");
+    }
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing;
     const finished = Promise.withResolvers<void>();
@@ -364,11 +482,14 @@ export class Store {
       flush: () => this.streaming.drain(),
       stop: [
         () => this.streaming.buffer.stop(),
-        () => this.wal.close(),
+        () => this.wal.stop(),
         () => this.searchAbort.abort(),
         () => this.searchMaintenance.close(),
+        () => this.trustPass.close(),
       ],
-      workers: () => this.searchQueries.close(),
+      workers: async () => {
+        await Promise.all([this.searchQueries.close(), this.wal.close()]);
+      },
       release: () => {
         this.statements.clear();
         this.listeners.clear();
@@ -394,24 +515,18 @@ export class Store {
    */
   onWrite(hook: Listener): () => void {
     this.writeHooks.add(hook);
-    return () => {
-      this.writeHooks.delete(hook);
-    };
+    return () => void this.writeHooks.delete(hook);
   }
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => void this.listeners.delete(listener);
   }
   /** Wake analytics on committed events and durable deletion tombstones. */
   subscribeUsage(listener: () => void): () => void {
     if (this.usageListeners.size >= 16 && !this.usageListeners.has(listener))
       throw new Error("Usage subscription capacity reached");
     this.usageListeners.add(listener);
-    return () => {
-      this.usageListeners.delete(listener);
-    };
+    return () => void this.usageListeners.delete(listener);
   }
   headSeq(): number {
     return this.streaming.head();
@@ -475,7 +590,10 @@ export class Store {
         }
         return result;
       } catch (error) {
-        this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // SQLite may already have rolled the whole transaction back itself (SQLITE_FULL, an
+        // I/O error), or the recovery itself may fail. Either way the savepoint's rows may
+        // remain or be gone with the rest: the outer transaction must not commit.
+        if (!this.recoverSavepoint(savepoint)) this.doomed ??= error;
         this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
@@ -495,15 +613,22 @@ export class Store {
     try {
       result = run();
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
+      if (this.doomed !== undefined)
+        throw new Error("A failed step could not be undone, so the transaction rolled back", {
+          cause: this.doomed,
+        });
       events = this.transactionEvents;
       this.db.exec("COMMIT");
       this.threads.commit();
       this.transactions++;
-      this.readCache.invalidate();
+      this.readCache.evict(this.writtenThreads);
+      this.writtenThreads.clear();
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      // Always: SQLite may already have rolled back, and the outcomes must still settle.
+      this.rollBack();
+      this.writtenThreads.clear();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       this.settle(this.settlements.splice(0), "rolledBack");
@@ -511,6 +636,7 @@ export class Store {
     } finally {
       this.threads.end();
       this.transactionEvents = undefined;
+      this.doomed = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
     // subscribers have already received.
@@ -535,6 +661,36 @@ export class Store {
       }
     }
     return result;
+  }
+  /**
+   * Roll back the open transaction, if SQLite has not already done so itself (SQLITE_FULL, an
+   * I/O error). A failure to roll back is reported; the caller's own error is the one thrown.
+   */
+  /** Undo a savepoint; false when it could not be (the failure is reported, not thrown). */
+  private recoverSavepoint(savepoint: string): boolean {
+    if (!this.db.isTransaction) return false;
+    try {
+      this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+      return true;
+    } catch (error) {
+      this.reportQuietly(error);
+      return false;
+    }
+  }
+  private reportQuietly(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch {
+      /* The caller rethrows its own error. */
+    }
+  }
+  private rollBack(): void {
+    if (!this.db.isTransaction) return;
+    try {
+      this.db.exec("ROLLBACK");
+    } catch (error) {
+      this.reportQuietly(error);
+    }
   }
   private settle(
     settlements: { outcome: TransactionOutcome }[],
@@ -601,6 +757,9 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
+        // Committed, and about to reach clients: mark it, every so often, before they hear it.
+        if (this.publishedSeq >= this.markedSeq + lineageStride)
+          this.markLineage(this.publishedSeq);
         this.threadReads.updateViews(batch);
         const listeners = [...this.listeners];
         for (const listener of listeners) {
@@ -746,12 +905,14 @@ export class Store {
         cancelled,
       );
       this.db.exec("COMMIT");
+      this.readCache.evict(this.writtenThreads);
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      this.rollBack();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       throw error;
     } finally {
+      this.writtenThreads.clear();
       this.installingHistory = false;
     }
   }
@@ -834,7 +995,7 @@ export class Store {
     return binding;
   }
   completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
-    const thread = this.getThread(id);
+    const thread = this.readThread(id);
     if (!thread || thread.deletedAt !== undefined) return false;
     this.workspaceReservations.assertAvailable(expectedPath);
     this.workspaceReservations.assertAvailable(path);
@@ -906,12 +1067,33 @@ export class Store {
   readThread(id: ThreadId): FrozenThread | undefined {
     return this.threads.read(id);
   }
+  /** `readThread` for many threads in one statement. Missing threads have no entry. */
+  readThreads(ids: readonly ThreadId[]): Map<ThreadId, FrozenThread> {
+    const threads = new Map<ThreadId, FrozenThread>();
+    if (!ids.length) return threads;
+    const rows = this.statement(
+      `SELECT ${threadRowColumns}, revisions.revision AS row_revision FROM ${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id IN (SELECT value FROM json_each(?))`,
+    ).all(JSON.stringify([...new Set(ids)]));
+    for (const row of rows) {
+      const thread = this.threads.decode(row, row.row_revision);
+      threads.set(thread.id, thread);
+    }
+    return threads;
+  }
   /** Live authorization checks do not need to deserialize a thread's historical payload. */
   hasLiveThread(id: ThreadId): boolean {
     return (
       this.statement(
         "SELECT 1 FROM threads WHERE id=? AND json_extract(client,'$.deletedAt') IS NULL",
       ).get(id) !== undefined
+    );
+  }
+  /** Of the update blockers, the threads waiting on a person (an approval or a question). */
+  waitingBlockers(): number {
+    return Number(
+      this.statement(
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') = 'needs_you'",
+      ).get()?.n,
     );
   }
   updateBlockers(): number {
@@ -928,6 +1110,39 @@ export class Store {
   ) {
     return this.sidebarReads.sidebarPage(options, before, reuse);
   }
+  /** The row revision a listed entry was read at (`sidebarPage`). */
+  sidebarRowRevision(entry: import("@ace/protocol").ThreadListEntry): number | undefined {
+    return this.sidebarReads.rowRevision(entry);
+  }
+  /** A database behind its mark was rolled back: it takes a new name, then marks where it is. */
+  private keepLineage(lineage: LineageFile | undefined): void {
+    if (!lineage) return;
+    this.lineage = lineage;
+    const reserved = this.sequences.reservedThrough();
+    if (rolledBack(lineage.read(), this.sidebarToken(), reserved))
+      this.statement(
+        "UPDATE sidebar_epoch SET token = lower(hex(randomblob(8))) WHERE id = 1",
+      ).run();
+    this.markLineage(reserved);
+  }
+  /** Mark `seq`, a sequence this database has committed, as reached (`sequence-lineage.ts`). */
+  private markLineage(seq: number): void {
+    if (!this.lineage || seq < this.markedSeq) return;
+    this.markedSeq = seq;
+    try {
+      this.lineage.write({ token: this.sidebarToken(), reserved: seq });
+    } catch (error) {
+      // A mark not written only narrows what a rollback can be told by; never fatal to a write.
+      this.onError(error);
+    }
+  }
+  /**
+   * This database's own token, made once: row revisions from another database (a restore, a
+   * reset) never pass for this one's. Renamed when the database was rolled back (`keepLineage`).
+   */
+  sidebarToken(): string {
+    return String(this.statement("SELECT token FROM sidebar_epoch WHERE id = 1").get()?.token);
+  }
   /** Store owns all SQLite savepoints; SidebarReads owns only its page caches. */
   private sidebarSnapshot<T>(read: () => T): T {
     const name = `sidebar_read_${++this.sidebarSnapshotSeq}`;
@@ -937,11 +1152,19 @@ export class Store {
     try {
       return read();
     } catch (error) {
-      this.db.exec(`ROLLBACK TO ${name}`);
+      // A read-only savepoint: a failure to undo it is reported, never thrown over `error`.
+      try {
+        if (this.db.isTransaction) this.db.exec(`ROLLBACK TO ${name}`);
+      } catch (rollbackError) {
+        this.reportQuietly(rollbackError);
+      }
       throw error;
     } finally {
-      this.db.exec(`RELEASE ${name}`);
-      this.committedSnapshot = outer;
+      try {
+        if (this.db.isTransaction) this.db.exec(`RELEASE ${name}`);
+      } finally {
+        this.committedSnapshot = outer;
+      }
     }
   }
   listThreads(): Thread[] {
@@ -952,16 +1175,19 @@ export class Store {
       .map((row) => decodeThreadRow(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
-    return this.appendEventBatch(threadId, payloads, at);
+    return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));
   }
-  private appendEventBatch(
-    threadId: ThreadId,
-    payloads: EventPayload[],
-    at: number,
-    envelopes?: Event[],
-  ): Event[] {
+  /** One write of the event writer, in a transaction with the write hooks. */
+  private totalChanges(): number {
+    return Number(this.statement("SELECT total_changes() AS n").get()?.n);
+  }
+  private writeEvents(write: () => Event[]): Event[] {
     return this.transaction(() => {
-      const events = this.eventWriter.append(threadId, payloads, at, envelopes);
+      // Rows the writer changes belong to the threads of its events; hooks' writes are not.
+      const before = this.totalChanges();
+      const events = write();
+      this.attributedChanges += this.totalChanges() - before;
+      for (const event of events) this.writtenThreads.add(event.threadId);
       this.transactionEvents?.push(...events);
       for (const hook of this.writeHooks) hook(events);
       return events;
@@ -1020,19 +1246,28 @@ export class Store {
     const events: Event[] = [];
     let bytes = 0;
     for (const row of rows) {
-      const event = Event.parse({
-        seq: row.seq,
-        id: row.id,
-        threadId: row.thread_id,
-        at: row.at,
-        payload: JSON.parse(String(row.payload)),
-      });
+      const { event, bytes: size } = storedEvent(row, this.trust);
       events.push(event);
-      bytes += Buffer.byteLength(JSON.stringify(event));
+      bytes += size;
       // Include the crossing event so replay's caller can distinguish overflow from completion.
       if (bytes > (options.byteLimit ?? Infinity)) break;
     }
     return events;
+  }
+  /** How many of a thread's events lie in (afterSeq, throughSeq], counting at most `limit`. */
+  countThreadEvents(
+    threadId: ThreadId,
+    afterSeq: number,
+    throughSeq: number,
+    limit: number,
+  ): number {
+    this.flushLiveWrites();
+    // Index only (events_thread_seq): no payload is read.
+    return Number(
+      this.statement(
+        "SELECT count(*) AS n FROM (SELECT 1 FROM events WHERE thread_id = ? AND seq > ? AND seq <= ? LIMIT ?)",
+      ).get(threadId, afterSeq, throughSeq, limit)?.n,
+    );
   }
   readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
     this.flushLiveWrites();
@@ -1046,14 +1281,25 @@ export class Store {
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.receipts.recordCommand(commandId, deviceId, run);
   }
+  /** One device under two ids: a paired record and its install's account device (ADR 0115). */
+  sameDevice(a: string, b: string): boolean {
+    return a === b || this.devices.sameInstall(a, b);
+  }
   commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
     return this.receipts.commandReceipt(commandId, deviceId);
+  }
+  /** The id `deviceId`'s receipt for `commandId` is stored under, if it is that device's. */
+  commandOwner(commandId: CommandId, deviceId: DeviceId): DeviceId | undefined {
+    return this.receipts.commandOwner(commandId, deviceId);
   }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
     return this.receipts.completeAsyncCommand(id, input);
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
     this.receipts.releaseReviewCommand(commandId, deviceId);
+  }
+  releaseRefusedCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.receipts.releaseRefusedCommand(commandId, deviceId);
   }
   completeReviewCommand(
     commandId: CommandId,
@@ -1065,16 +1311,18 @@ export class Store {
   acquireThread(id: ThreadId): ThreadView {
     return this.threadReads.acquireThread(id);
   }
-  snapshotThread(id: ThreadId): ThreadView {
-    return this.threadReads.snapshotThread(id);
+  /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
+  snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
+    return this.threadReads.snapshotThread(id, tail);
   }
-  readEntityPage(
-    threadId: ThreadId,
-    collection: import("@ace/protocol").EntityCollection,
-    before: number,
-    limit: number,
-  ) {
-    return this.threadReads.readEntityPage(threadId, collection, before, limit);
+  readEntityPage(...page: Parameters<ThreadReads["readEntityPage"]>) {
+    return this.threadReads.readEntityPage(...page);
+  }
+  readInteractionRequest(...read: Parameters<ThreadReads["readInteractionRequest"]>) {
+    return this.threadReads.readInteractionRequest(...read);
+  }
+  interactionRequestVersion(...read: Parameters<ThreadReads["interactionRequestVersion"]>) {
+    return this.threadReads.interactionRequestVersion(...read);
   }
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);
@@ -1083,6 +1331,16 @@ export class Store {
   itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
     this.flushLiveWrites();
     return this.payloads.itemCreatedSeq(threadId, itemId);
+  }
+  /** For `item.raw`: the version of an item's raw payloads, undefined without the item. */
+  itemRawRevision(threadId: ThreadId, itemId: string) {
+    this.flushLiveWrites();
+    return this.payloads.rawRevision(threadId, itemId);
+  }
+  /** For `item.raw`: an item's raw payloads from `from`, read as they are taken. */
+  itemRawEntries(threadId: ThreadId, itemId: string, from: number) {
+    this.flushLiveWrites();
+    return this.payloads.rawEntries(threadId, itemId, from);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
     return this.threadReads.readItems(threadId, before, limit);
@@ -1123,6 +1381,10 @@ export class Store {
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
     return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
+  }
+  /** Told after `markThreadRead`, possibly before its transaction commits. */
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    return this.navigation.onThreadRead(listener);
   }
   outputThread(streamId: string) {
     return this.threadReads.outputThread(streamId);
@@ -1219,10 +1481,11 @@ export class Store {
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
-      if (!this.getThread(id)) return;
+      if (!this.readThread(id)) return;
       this.recordDataDeletion(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
+      this.needsYou.forget(id);
     });
     this.threadReads.forget(id);
   }

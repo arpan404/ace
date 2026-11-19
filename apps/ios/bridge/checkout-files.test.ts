@@ -86,7 +86,7 @@ async function connect(fake = daemon()) {
   await until(() => owner.state === "ready");
   const lease = owner.thread(thread);
   await until(() => lease.store.thread !== undefined && lease.store.order.length > 0);
-  const files = new CheckoutFiles(owner, async () => ["docs/runbook.md"]);
+  const files = new CheckoutFiles(owner, async () => ({ paths: ["docs/runbook.md"], ready: true }));
   const ask = (operation: unknown, scope: unknown = { threadId: thread }) =>
     files.request(
       NativeFilesRequest.parse({ type: "native.files", scope, operation }),
@@ -95,26 +95,43 @@ async function connect(fake = daemon()) {
   return { fake, ask };
 }
 
-test("the tree lists the checkout with each uncommitted change lettered, deleted files too", async () => {
-  const { ask } = await connect();
-  const tree = await ask({ op: "tree" });
-  const rows = tree.rows as { path: string; depth: number; folder: boolean; mark?: string }[];
-  expect(rows.find((row) => row.path === outbox)).toMatchObject({ depth: 4, mark: "M" });
-  expect(rows.find((row) => row.path === "apps/web/src/relay/legacy.ts")?.mark).toBe("D");
-  expect(rows.find((row) => row.path === "README.md")?.mark).toBeUndefined();
-  // Folders come before files, and the folders holding a change start open.
-  expect(rows[0]).toMatchObject({ path: "apps/", folder: true });
-  expect(tree.open).toEqual(["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-});
-
-test("a source file reads with grammar colours spelling its text and its changed lines marked", async () => {
+test("a source file reads with the language the phone colours it in and its changed lines marked", async () => {
   const { ask } = await connect();
   const file = await ask({ op: "read", path: outbox });
-  expect(file).toMatchObject({ ok: true, kind: "text", editable: true, marks: [[4, "modified"]] });
-  const runs = file.runs as number[];
-  const covered = runs.filter((_, index) => index % 2 === 0).reduce((sum, n) => sum + n, 0);
-  expect(covered).toBe(String(file.text).length);
-  expect((file.colours as unknown[]).length).toBeGreaterThan(2);
+  expect(file).toMatchObject({
+    ok: true,
+    kind: "text",
+    editable: true,
+    language: "ts",
+    marks: [[4, "modified"]],
+  });
+});
+
+test("a file too large to show whole still carries its changed lines for the parts shown", async () => {
+  const fake = daemon();
+  const log = "data/events.log";
+  // About 2.5 MB: over the whole-file view limit, so the phone reads it in parts.
+  const lines = Array.from({ length: 50_000 }, (_, line) => `event ${line} ${"x".repeat(40)}`);
+  fake.checkouts.seedBytes(thread, log, new TextEncoder().encode(lines.join("\n")));
+  fake.workspace.setGitDiff(
+    thread,
+    [
+      `diff --git a/${log} b/${log}`,
+      `--- a/${log}`,
+      `+++ b/${log}`,
+      "@@ -2,2 +2,3 @@",
+      ` ${lines[1]}`,
+      `+${lines[2]}`,
+      ` ${lines[3]}`,
+      "",
+    ].join("\n"),
+  );
+  const { ask } = await connect(fake);
+  expect(await ask({ op: "read", path: log })).toMatchObject({
+    ok: true,
+    kind: "large",
+    marks: [[3, "added"]],
+  });
 });
 
 test("a binary file and a missing one say so instead of sending text", async () => {

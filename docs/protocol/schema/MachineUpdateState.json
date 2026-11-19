@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineUpdateState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "enum": [
+        "none",
+        "available",
+        "waiting",
+        "downloading",
+        "ready",
+        "installing",
+        "updated",
+        "failed"
+      ],
+      "type": "string"
+    },
+    {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  ]
+}

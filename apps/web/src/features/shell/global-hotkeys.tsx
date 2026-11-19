@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { threadsTabs, type ThreadsTab } from "@ace/ui-core";
 import { reloadApp } from "@/boot/desktop.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
@@ -6,6 +7,8 @@ import { useKeybindingsSync } from "@/lib/keybindings.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useOrganizer } from "@/features/organize/index.ts";
+import { useRailPlace } from "./use-rail-place.ts";
 
 /**
  * App-wide shortcuts. Panel tab shortcuts are bound by the screens that have those panels.
@@ -36,8 +39,10 @@ export function GlobalHotkeys(props: {
   // A focused browser panel handles ⌘R first and reloads its own page instead.
   useHotkey(keymap.reloadApp.keys, () => reloadApp());
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
+  useHotkey(keymap.goChats.keys, () => void navigate({ to: "/chats" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
+  useHotkey(keymap.goUsage.keys, () => void navigate({ to: "/usage" }));
   useHotkey(keymap.goPullRequests.keys, () => void navigate({ to: "/pulls" }));
   useHotkey(keymap.goIssues.keys, () => void navigate({ to: "/issues" }));
   // ⌘. stops the showing thread's agent tree from anywhere in it, as the composer's Stop does.
@@ -48,5 +53,26 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.undo.keys, () => toast.undoLatest(), {
     when: (event) => !isEditable(event.target),
   });
+  // The Threads panel's tabs, from anywhere in the app. While another place is showing, the
+  // command switches to Threads first, then selects the tab; on a thread (or anywhere in
+  // Threads) it only selects, so an open thread stays open.
+  const organizer = useOrganizer();
+  const place = useRailPlace();
+  const showThreadsTab = (tab: ThreadsTab) => {
+    organizer.setTab(tab);
+    if (place !== undefined && place !== "home") void navigate({ to: "/" });
+  };
+  useHotkey(keymap.showInbox.keys, () => showThreadsTab("inbox"), { id: "showInbox" });
+  useHotkey(keymap.showSnoozed.keys, () => showThreadsTab("snoozed"), { id: "showSnoozed" });
+  useHotkey(keymap.showSettled.keys, () => showThreadsTab("settled"), { id: "showSettled" });
+  useHotkey(
+    keymap.nextThreadsTab.keys,
+    () => {
+      const tabs = threadsTabs.map((entry) => entry.id);
+      const at = tabs.indexOf(organizer.getState().tab);
+      showThreadsTab(tabs[(at + 1) % tabs.length] ?? "inbox");
+    },
+    { id: "nextThreadsTab" },
+  );
   return null;
 }

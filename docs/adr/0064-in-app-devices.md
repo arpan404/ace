@@ -493,3 +493,17 @@ and software elsewhere, and, unlike passing nothing, it overrides an AVD saved w
 graphics (`hw.gpu.mode=host`, Android Studio's "Hardware" choice), which on a machine without a
 usable GPU hangs the boot exactly as `host` did here. With the emulator's own window the AVD's
 setting stands. `ACE_ANDROID_EMULATOR_GPU` overrides the mode (`none` drops the flag).
+
+## Device support starts enabled, 2026-10-30
+
+Device support is available on every daemon start, including before its lazy service loads.
+Opening Devices or calling a simulator tool needs no activation click. Loading the service
+does not boot a simulator, start a capture or download tools.
+
+A person can still disable devices to stop current sessions across threads. That applies
+until they enable it again or restart the daemon. Existing controller leases and agent
+access checks still govern device operations.
+
+Devices offers downloads for ace-managed tools and install links for missing Xcode or
+Android Studio. Setup is separate from activation, and Check again refreshes toolchain
+diagnostics and device discovery after installation.

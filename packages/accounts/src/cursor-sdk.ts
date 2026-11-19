@@ -41,13 +41,27 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
     if (!fenced.has(id) && fenced.size >= 256)
       throw new Error("Cursor SDK instance fence capacity reached");
     fenced.add(id);
-    await owners.get(id)?.stopInstance(id);
+    try {
+      await owners.get(id)?.stopInstance(id);
+    } catch (error) {
+      // The credential never changed, so later sends open fresh owners again: a failed
+      // stop must not brick the account behind a fence no later step clears.
+      fenced.delete(id);
+      throw error;
+    }
   };
   const rebindInstance = async (id: string) => {
     if (!fenced.has(id)) return;
-    await owners.get(id)?.close();
-    owners.delete(id);
-    fenced.delete(id);
+    try {
+      await owners.get(id)?.close();
+    } finally {
+      // Sessions were already stopped before the rebind, so a host that refuses a clean
+      // exit still releases the account: later sends open new owners on the current
+      // credential instead of meeting a stale fence. The close failure still propagates
+      // so callers report it.
+      owners.delete(id);
+      fenced.delete(id);
+    }
   };
   return Object.assign(bound, {
     isFenced(id: string): boolean {

@@ -24,9 +24,15 @@ const outcomes: Record<AccountResetOutcome, string> = {
 export function BankedResetAction(props: {
   entry: AccountLimits;
   redeem?: RedeemReset | undefined;
+  /** Its confirmation opening or closing, for a hover card that must stay open under it. */
+  onDialogChange?: ((open: boolean) => void) | undefined;
 }) {
-  const { entry, redeem } = props;
-  const [open, setOpen] = useState(false);
+  const { entry, redeem, onDialogChange } = props;
+  const [open, setDialog] = useState(false);
+  const setOpen = (next: boolean) => {
+    setDialog(next);
+    onDialogChange?.(next);
+  };
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -35,12 +41,13 @@ export function BankedResetAction(props: {
   if (entry.account.provider === "claude")
     return (
       <a
-        className="mt-2 block text-xs text-link hover:underline focus-ring"
+        className="rounded-xs font-medium text-foreground hover:underline focus-ring"
         href="https://claude.ai/settings/usage"
         target="_blank"
         rel="noreferrer"
+        aria-label="Use one in Claude"
       >
-        Use reset in Claude
+        Use one
       </a>
     );
   if (entry.account.provider !== "codex" || !redeem) return null;
@@ -64,18 +71,18 @@ export function BankedResetAction(props: {
   };
   return (
     <>
-      <Button
-        size="sm"
-        className="mt-2"
+      <button
+        type="button"
+        className="rounded-xs font-medium text-foreground hover:underline focus-ring"
         onClick={() => {
           setNotice(undefined);
           setOpen(true);
         }}
       >
-        Use reset
-      </Button>
+        Use one
+      </button>
       {notice && !open && (
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
+        <p role="status" className="mt-1 text-xs text-muted-foreground">
           {notice}
         </p>
       )}

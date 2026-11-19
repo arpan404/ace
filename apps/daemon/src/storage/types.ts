@@ -5,6 +5,10 @@ import type { StorageCandidate } from "./planner.ts";
 
 export type StorageOwner = Pick<ServiceContext, "store" | "services" | "now" | "id"> & {
   root: string;
+  worktrees?: Pick<
+    import("@ace/git").GitService,
+    "inspectWorktreeCleanup" | "backupWorktree" | "cleanupWorktree"
+  >;
   cleanupPlanId?: string;
   afterRemove?(id: string): Promise<void>;
   /** Runs after each durable compaction step, before the next one starts. */
@@ -20,6 +24,8 @@ export const StorageTarget = z.discriminatedUnion("type", [
     repo: z.string().max(4096),
     path: z.string().max(4096),
     gitFingerprint: z.string(),
+    settledAt: z.number().nonnegative().optional(),
+    openThreads: z.boolean().optional(),
     head: z.string().nullable(),
     branch: z.string().nullable(),
   }),

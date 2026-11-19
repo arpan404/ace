@@ -1,4 +1,4 @@
-import { BrowserIcon, StopIcon } from "@phosphor-icons/react";
+import { BrowserIcon, StopIcon } from "@ace/icons";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -7,7 +7,8 @@ import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, ToolPill, toolbarButton } from "../browser/page-toolbar.tsx";
-import { OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { OpenOutside } from "../browser/open-outside.tsx";
+import type { FramePhase } from "./dev-server-frame.tsx";
 import { forwardFailure } from "./preview-errors.ts";
 import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
 import { usePanelServices } from "../services.ts";

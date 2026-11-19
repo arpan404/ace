@@ -1,7 +1,11 @@
 export { ContextError } from "./errors.ts";
 export { portableContext, type PortableSource } from "./handoff.ts";
-export { PathIndex } from "./path-index.ts";
-export { GitWorkspace, type WorkspaceFiles } from "./git-workspace.ts";
+export {
+  GitWorkspace,
+  type WorkspaceFiles,
+  type WorkspaceFileEntry,
+  type WorkspaceFolderLister,
+} from "./git-workspace.ts";
 export { resolveMentions, defaultMentionLimits, type MentionLimits } from "./mentions.ts";
 export { sniffMime, inspectImage, defaultImageLimits, type ImageLimits } from "./media.ts";
 export {
@@ -11,11 +15,6 @@ export {
   type UploadLimits,
 } from "./upload-store.ts";
 export { ContextService, type ContextServiceOptions } from "./service.ts";
-export {
-  WorkspaceCache,
-  defaultWorkspaceCacheLimits,
-  type WorkspaceCacheLimits,
-} from "./workspace-cache.ts";
 export {
   projectAttachments,
   fileUri,
@@ -30,10 +29,10 @@ export {
 
 export type { BlobLease } from "./blob-leases.ts";
 
-export type { CacheScheduler } from "./cache-scheduler.ts";
 export { deliverContext, type ContextDelivery, type ContextConsumer } from "./delivery.ts";
 
 export { summarizeThreadReference } from "./thread-reference.ts";
 export { canonicalContext } from "./canonical.ts";
+export { markPlaces, fillPlaces, type Places } from "./placement.ts";
 export { encodedContextBudget } from "./encoded-budget.ts";
 export { contextNotice } from "./notice.ts";

@@ -52,6 +52,9 @@
         "delegatedBy": {
           "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
         },
+        "delegatedFrom": {
+          "$ref": "https://ace.local/protocol/v1/DelegatedFrom.json"
+        },
         "effectiveCapabilities": {
           "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },
@@ -86,6 +89,12 @@
               "type": "null"
             }
           ]
+        },
+        "startedBy": {
+          "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+        },
+        "startedByClient": {
+          "$ref": "https://ace.local/protocol/v1/StartedByClient.json"
         },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
@@ -180,6 +189,9 @@
         },
         "lineage": {
           "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
+        "machine": {
+          "$ref": "https://ace.local/protocol/v1/AgentMachine.json"
         },
         "model": {
           "type": "string"
@@ -500,10 +512,21 @@
       "type": "object"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
+      "properties": {
+        "raw": {},
+        "type": {
+          "const": "unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "raw"
+      ],
+      "type": "object"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/OffshiftUpdated.json"
+      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/ContextMeterUpdated.json"

@@ -4,29 +4,71 @@ import UIKit
 
 /// The live page: decoded video on a sample-buffer display layer, fingers forwarded as the page's
 /// touch points, and the hidden field that brings up the keyboard for the page's focused field.
+/// The picture fits the view's width (`PageGeometry`); one larger than the view (a desktop, or a
+/// phone taller than the view) is zoomed and moved with two fingers, and one finger still uses
+/// the page.
 /// While it is on screen a display link draws the newest decoded picture once per refresh, up to
 /// 60 times a second; the layer keeps the last one until a newer arrives.
-final class BrowserSurfaceView: UIView {
+final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     private let videoLayer = AVSampleBufferDisplayLayer()
     private var samples = DisplaySamples()
     private var link: CADisplayLink?
     let textField = RemoteTextField()
     /// The drawn picture's page size in CSS pixels; zero before the first.
     private(set) var pageSize: CGSize = .zero
+    /// The person's zoom and move of the picture; back to the fit when the page's size changes.
+    private var zoom: CGFloat = 1
+    private var offset: CGPoint = .zero
+    var geometry: PageGeometry { PageGeometry(view: bounds.size, page: pageSize, zoom: zoom, offset: offset) }
+    /// The picture was zoomed or moved (overlays drawn over the page follow it).
+    var onMove: (CGFloat, CGPoint) -> Void = { _, _ in }
+    private lazy var pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+    private lazy var pan: UIPanGestureRecognizer = {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 2
+        return pan
+    }()
     /// The newest picture decoded since the last refresh, if any.
     var nextPicture: () -> BrowserPicture? = { nil }
+    /// The still the subscribe brought back, shown until the first live picture (ADR 0149).
+    var nextPoster: () -> CGImage? = { nil }
+    private let posterLayer = CALayer()
+    private var posterGate = PosterGate()
     /// While the person can use the page, a swipe here goes to the page, never to ace's back swipe.
     var interactive = true { didSet { claim.isEnabled = interactive } }
     private lazy var claim = SurfaceTouchClaim.install(on: self)
     var onInput: ([RemoteInput]) -> Void = { _ in } {
         didSet { textField.onInput = onInput }
     }
-    /// The view settled at a new size or scale.
-    var onLayout: (CGSize, CGFloat) -> Void = { _, _ in }
+    /// The view settled at a new size or scale, or the picture at a new drawn size (nil before
+    /// the first picture): the stream is encoded for the picture as drawn.
+    var onLayout: (CGSize, CGFloat, CGSize?) -> Void = { _, _, _ in }
     /// A finger touched the page (the keyboard opens for a field the person just tapped).
     var onTouch: () -> Void = {}
     private var tracker = TouchTracker<ObjectIdentifier>()
-    private var reported: (size: CGSize, scale: CGFloat)?
+    /// Annotate mode: one finger clicks and drags as a mouse does, two fingers scroll the page.
+    var annotating = false {
+        didSet {
+            guard annotating != oldValue else { return }
+            stroke = AnnotateStroke()
+            drawInk(fading: false)
+            if let input = tracker.cancelled() { onInput([input]) }
+            setNeedsLayout()
+        }
+    }
+    private var stroke = AnnotateStroke()
+    /// The finger's ink while drawing, in the accent; it fades once the page's marker is there.
+    private let inkLayer = CAShapeLayer()
+    /// A rim in the app's background colour under the ink, so it reads on any page, light or dark.
+    private let inkHalo = CAShapeLayer()
+    private let inkGroup = CALayer()
+    /// The picture last drawn and the tab it showed, for the still an iPad's split keeps of a
+    /// tab once another shows.
+    private(set) var lastPicture: (image: CVPixelBuffer, tabId: String)?
+    private var reported: (size: CGSize, scale: CGFloat, picture: CGSize?)?
+    /// The page's focused field, kept so it follows the picture as it is zoomed and moved.
+    private var field: PageRect?
     private var settle: DispatchWorkItem?
 
     override init(frame: CGRect) {
@@ -35,12 +77,33 @@ final class BrowserSurfaceView: UIView {
         isMultipleTouchEnabled = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
+        posterLayer.contentsGravity = .resizeAspect
+        posterLayer.isHidden = true
+        layer.addSublayer(posterLayer)
+        for (shape, width) in [(inkHalo, AceDesign.Size.inkStroke * 2), (inkLayer, AceDesign.Size.inkStroke)] {
+            shape.fillColor = nil
+            shape.lineWidth = width
+            shape.lineCap = .round
+            shape.lineJoin = .round
+            inkGroup.addSublayer(shape)
+        }
+        layer.addSublayer(inkGroup)
         addSubview(textField)
         claim.isEnabled = interactive
+        for recognizer in [pinch, pan] as [UIGestureRecognizer] {
+            recognizer.delegate = self
+            recognizer.isEnabled = false
+            addGestureRecognizer(recognizer)
+        }
         isAccessibilityElement = true
         accessibilityLabel = "Live browser page"
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.surface"
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Fit page width") { [weak self] _ in self?.zoomTo(1) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom in") { [weak self] _ in self?.zoomBy(1.5) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom out") { [weak self] _ in self?.zoomBy(1 / 1.5) ?? false },
+        ]
     }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -48,8 +111,15 @@ final class BrowserSurfaceView: UIView {
         super.layoutSubviews()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        videoLayer.frame = bounds
+        videoLayer.frame = pageSize == .zero ? bounds : geometry.box
+        posterLayer.frame = bounds
+        inkGroup.frame = bounds
+        inkLayer.frame = bounds
+        inkHalo.frame = bounds
         CATransaction.commit()
+        let movable = geometry.movable
+        pinch.isEnabled = movable || pageSize.width > bounds.width
+        pan.isEnabled = movable || annotating
         report()
     }
     override func didMoveToWindow() {
@@ -65,54 +135,178 @@ final class BrowserSurfaceView: UIView {
     /// Places the hidden field over the page's focused field, so the system's text UI (the IME's
     /// candidates, dictation) appears next to it.
     func place(field rect: PageRect?) {
+        field = rect
         guard let rect else { textField.frame = CGRect(x: 0, y: 0, width: 1, height: 1); return }
-        let shown = PageGeometry(view: bounds.size, page: pageSize).viewRect(rect)
+        let shown = geometry.viewRect(rect)
         textField.frame = CGRect(x: shown.minX, y: shown.minY, width: max(1, shown.width), height: max(1, shown.height))
     }
 
     /// One screen refresh: draws the newest picture, if one arrived since the last.
     fileprivate func drawNewest() {
+        if let poster = nextPoster(), posterGate.offer(poster) { showPoster(poster) }
         guard let picture = nextPicture(), let sample = samples.sample(picture.image) else { return }
+        if posterGate.pictureDrawn() { showPoster(nil) }
         let renderer = videoLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
-        pageSize = picture.page
+        if let tabId = picture.tabId { lastPicture = (picture.image, tabId) }
+        if pageSize != picture.page {
+            // Another device or size: the picture starts at the fit again.
+            pageSize = picture.page
+            zoom = 1
+            offset = .zero
+            moved()
+        }
+    }
+
+    /// The poster in place of the page, or gone once the first live picture is drawn.
+    private func showPoster(_ image: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        posterLayer.contents = image
+        posterLayer.isHidden = image == nil
+        CATransaction.commit()
+        accessibilityValue = image == nil ? nil : "Still picture"
+    }
+    private func moved() {
+        setNeedsLayout()
+        place(field: field)
+        onMove(zoom, offset)
+    }
+    private func zoomBy(_ factor: CGFloat) -> Bool {
+        guard pageSize != .zero else { return false }
+        let next = geometry.zoomed(by: factor, around: CGPoint(x: bounds.midX, y: bounds.midY))
+        zoom = next.zoom
+        offset = next.offset
+        moved()
+        return true
+    }
+    private func zoomTo(_ value: CGFloat) -> Bool { zoomBy(value / zoom) }
+    @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
+        guard recognizer.state == .changed || recognizer.state == .ended else { return }
+        let next = geometry.zoomed(by: recognizer.scale, around: recognizer.location(in: self))
+        recognizer.scale = 1
+        zoom = next.zoom
+        offset = next.offset
+        moved()
+    }
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        guard recognizer.state == .changed || recognizer.state == .ended else { return }
+        if annotating, !geometry.movable {
+            // The overlay never takes the wheel: two fingers scroll the page under the markers.
+            let delta = recognizer.translation(in: self)
+            recognizer.setTranslation(.zero, in: self)
+            let scale = geometry.box.width / max(1, pageSize.width)
+            let at = geometry.pagePoint(recognizer.location(in: self))
+            onInput([.scroll(x: at.x, y: at.y, deltaX: -delta.x / max(scale, 0.01), deltaY: -delta.y / max(scale, 0.01))])
+            return
+        }
+        let next = geometry.panned(by: recognizer.translation(in: self))
+        recognizer.setTranslation(.zero, in: self)
+        offset = next.offset
+        moved()
+    }
+    /// Zoom and move together, as in a photo.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        (gestureRecognizer === pinch && other === pan) || (gestureRecognizer === pan && other === pinch)
     }
 
     /// Sends the size once now, then again only once a change settles (rotation, split view).
     private func report() {
         let size = bounds.size, scale = traitCollection.displayScale
         guard size.width > 0, size.height > 0 else { return }
-        if let reported, reported.size == size, reported.scale == scale { return }
+        let box = geometry.box
+        let picture = pageSize == .zero ? nil : CGSize(width: box.width.rounded(), height: box.height.rounded())
+        if let reported, reported.size == size, reported.scale == scale, reported.picture == picture { return }
         settle?.cancel()
         let send = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.reported = (size, scale)
-            self.onLayout(size, scale)
+            self.reported = (size, scale, picture)
+            self.onLayout(size, scale, picture)
         }
         settle = send
         if reported == nil { send.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: send) }
     }
 
     private func points(_ touches: Set<UITouch>) -> [(ObjectIdentifier, CGPoint)] {
-        let geometry = PageGeometry(view: bounds.size, page: pageSize)
+        let geometry = geometry
         return touches.map { (ObjectIdentifier($0), geometry.pagePoint($0.location(in: self))) }
     }
     private var accepting: Bool { interactive && pageSize.width > 0 && pageSize.height > 0 }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard accepting else { return }
         onTouch()
+        if annotating {
+            let fingers = event?.allTouches?.count ?? touches.count
+            for touch in touches {
+                send(stroke.began(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self)), fingers: fingers))
+            }
+            drawInk(fading: false)
+            return
+        }
         if let input = tracker.began(points(touches)) { onInput([input]) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard accepting, let input = tracker.moved(points(touches)) else { return }
+        guard accepting else { return }
+        if annotating {
+            guard (event?.allTouches?.count ?? touches.count) == 1, let touch = touches.first else { return }
+            send(stroke.moved(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self))))
+            drawInk(fading: false)
+            return
+        }
+        guard let input = tracker.moved(points(touches)) else { return }
         onInput([input])
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if annotating {
+            send(stroke.ended())
+            drawInk(fading: true)
+            return
+        }
         if let input = tracker.ended(touches.map { ObjectIdentifier($0) }) { onInput([input]) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if annotating {
+            send(stroke.cancelled())
+            drawInk(fading: true)
+            return
+        }
         if let input = tracker.cancelled() { onInput([input]) }
+    }
+    /// Draws the stroke's ink; once the finger lifts it stays a moment, then fades.
+    private func drawInk(fading: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        inkLayer.strokeColor = UIColor(AceTheme.Colours.accent).resolvedColor(with: traitCollection).cgColor
+        inkHalo.strokeColor = UIColor(AceTheme.Colours.background).resolvedColor(with: traitCollection).cgColor
+        inkGroup.removeAnimation(forKey: "fade")
+        let points = annotating ? stroke.ink : []
+        let path = UIBezierPath()
+        if let first = points.first {
+            path.move(to: first)
+            for point in points.dropFirst() { path.addLine(to: point) }
+        }
+        inkLayer.path = path.cgPath
+        inkHalo.path = path.cgPath
+        inkGroup.opacity = fading ? 0 : 1
+        CATransaction.commit()
+        guard fading, !points.isEmpty else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.beginTime = CACurrentMediaTime() + AceDesign.Motion.inkHold
+        fade.duration = AceDesign.Motion.inkFade
+        fade.fillMode = .backwards
+        inkGroup.add(fade, forKey: "fade")
+    }
+    private func send(_ inputs: [RemoteInput]) {
+        guard !inputs.isEmpty else { return }
+        onInput(inputs)
+        // A pin or an area outlined: a light tap under the finger.
+        if inputs.contains(where: { if case .mouse(let event, _, _, _) = $0 { event == "mouseReleased" } else { false } }) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
     }
 }
 
@@ -129,6 +323,8 @@ struct BrowserSurface: UIViewRepresentable {
     @Bindable var model: ClientModel
     /// Bumped by the Keyboard button: show the keyboard for the focused field.
     let keyboardRequest: Int
+    /// Annotate mode is on: the page's overlay takes clicks and drags.
+    var annotating = false
 
     final class Coordinator {
         var lastTouch = Date.distantPast
@@ -143,26 +339,37 @@ struct BrowserSurface: UIViewRepresentable {
         let view = BrowserSurfaceView()
         let model = model
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
+        view.nextPoster = { [weak browser = model.browser] in browser?.nextPoster() }
         view.onInput = { model.browserInput($0) }
-        view.onLayout = { size, scale in
+        view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
+        view.onLayout = { size, scale, picture in
             if model.browser.threadId == nil { model.openBrowser(size: size, scale: scale) }
-            else { model.browserViewport(size: size, scale: scale) }
+            else { model.browserViewport(size: size, scale: scale, picture: picture) }
         }
         let coordinator = context.coordinator
         view.onTouch = { coordinator.lastTouch = Date() }
         coordinator.keyboardRequest = keyboardRequest
+        model.browser.currentPicture = { [weak view] in view?.lastPicture }
         return view
     }
     func updateUIView(_ view: BrowserSurfaceView, context: Context) {
         let coordinator = context.coordinator
         view.interactive = model.canOperate
+        view.annotating = annotating
         _ = model.browser.pageSize // Redraw the field's place when the page's size changes.
         let focus = model.canOperate ? model.browser.page?.focus : nil
         view.place(field: focus?.rect)
         guard let focus else {
             coordinator.focusType = nil
             coordinator.focusRect = nil
-            if view.textField.isFirstResponder { view.textField.resignFirstResponder() }
+            // The overlay's comment editor lives in its own shadow root, so the page reports no
+            // field: in annotate mode the Keyboard button still types into it.
+            if annotating, coordinator.keyboardRequest != keyboardRequest {
+                coordinator.keyboardRequest = keyboardRequest
+                view.textField.becomeFirstResponder()
+                return
+            }
+            if view.textField.isFirstResponder, !annotating { view.textField.resignFirstResponder() }
             return
         }
         // Another field: a new kind, or one somewhere else after the person touched the page

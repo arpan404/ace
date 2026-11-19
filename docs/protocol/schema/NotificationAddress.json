@@ -70,6 +70,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PushNotificationAddress.json"
+    },
+    {
       "properties": {
         "channel": {
           "const": "fcm",

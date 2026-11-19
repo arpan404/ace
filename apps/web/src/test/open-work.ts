@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { findTopBar } from "./top-bar.ts";
 
 /**
  * Open the side panel's Summary tab through its public shortcut, keeping an already selected
@@ -17,23 +18,27 @@ export async function openWorkPanel() {
 }
 
 /**
- * Open the Summary's folded Done section (its "N done" header) and resolve to its tree: the
- * agents whose work settled, finished, failed or stopped.
+ * An agent's row in the Summary's agent tree by the agent's name ("Explore the panel: Read 41
+ * files" is found by "Explore the panel"), waiting until it shows.
  */
-export async function openDoneAgents(work: HTMLElement) {
-  const fold = await within(work).findByRole("button", { name: /^\d+ done$/ });
-  if (fold.getAttribute("aria-expanded") === "false") await userEvent.click(fold);
-  return within(work).findByRole("tree", { name: "Done agents" });
+export async function agentRow(work: HTMLElement, name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return within(work).findByRole("treeitem", { name: new RegExp(`^${escaped}: `) });
 }
 
-/** The Summary's one-line thread status: "Working · 2 agents running · 4m", "Done · finished …". */
+/** Whether a tree row's provider mark breathes: it, or something under it, works or waits. */
+export function isBreathing(row: HTMLElement): boolean {
+  return row.querySelector("[data-breathing]") !== null;
+}
+
+/** The Summary's one short line for now: "Working · 4m", "Done · 52m", "… needs your answer". */
 export async function summaryStatus(work: HTMLElement) {
   return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
 }
 
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
 export async function workButton() {
-  return within(await screen.findByRole("banner")).findByRole("button", {
+  return within(await findTopBar()).findByRole("button", {
     name: /^Thread details/,
   });
 }
@@ -57,7 +62,7 @@ export const machineRow = /, (Connected|Connecting|Offline|Pair again)$/;
 
 /**
  * Open the details card's machine menu: the checkout's Local and Worktree moves, its path,
- * terminal, project scripts and Machine settings.
+ * path and terminal. The project's scripts live in Run a script.
  */
 export async function openMachineMenu() {
   const card = await openWorkCard();
@@ -67,7 +72,7 @@ export async function openMachineMenu() {
 
 /**
  * The checkout the machine menu marks current, "Local" or "Worktree" (the card shows it only as
- * the machine row's glyph). The menu closes again and the card stays open.
+ * the machine row's words after its name). The menu closes again and the card stays open.
  */
 export async function currentCheckout(): Promise<"Local" | "Worktree" | undefined> {
   const menu = await openMachineMenu();
@@ -83,9 +88,41 @@ export async function currentCheckout(): Promise<"Local" | "Worktree" | undefine
   return current;
 }
 
-/** Open the details card's "More git actions" menu and pick `name` from it. */
-export async function gitAction(name: string | RegExp) {
+/** Open the details card's "Run a script" list; resolves to its search field's popup. */
+export async function openRunScript() {
+  const card = await openWorkCard();
+  await userEvent.click(within(card).getByRole("button", { name: "Run a script" }));
+  return screen.findByRole("dialog", { name: "Run a script" });
+}
+
+/** Open the details card's git menu, from the caret on its sync row. */
+export async function openGitMenu() {
   const card = await openWorkCard();
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name }));
+  return screen.findByRole("menu");
+}
+
+/** Open the details card's "More git actions" menu and pick `name` from it. */
+export async function gitAction(name: string | RegExp) {
+  await userEvent.click(await within(await openGitMenu()).findByRole("menuitem", { name }));
+}
+
+/** The git menu's item marked as the next step ("next"), by its name. */
+export async function nextGitStep() {
+  const menu = await openGitMenu();
+  const next = within(menu)
+    .getAllByRole("menuitem")
+    .find((item) => within(item).queryByText("next"));
+  const name = next?.textContent?.replace(/next$/, "");
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => {
+    if (screen.queryByRole("menu")) throw new Error("The git menu is still open");
+  });
+  return name;
+}
+
+/** Open every folded "N done" line of the agent tree, so the finished agents' rows show. */
+export async function showFinished(work: HTMLElement) {
+  for (const row of within(work).queryAllByRole("treeitem", { name: /^\d+ done$/ }))
+    if (row.getAttribute("aria-expanded") === "false") await userEvent.click(row);
 }

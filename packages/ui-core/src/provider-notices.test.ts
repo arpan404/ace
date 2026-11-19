@@ -1,6 +1,6 @@
 import { Item } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { inputLine, repeatsEarlierEvent, systemInput, taskPrompt } from "./system-events.ts";
+import { inputLine, promptText, repeatsEarlierEvent, systemInput } from "./system-events.ts";
 
 /* Rows as the daemon stored them before the adapters classified provider notifications. */
 let ids = 0;
@@ -83,7 +83,7 @@ test("another agent's message shows its words without Claude's envelope", () => 
   );
   const input = systemInput(item);
   expect(input?.kind).toBe("parent_agent");
-  expect(input && taskPrompt(input)?.task).toBe("FYI: my Swift now compiles.");
+  expect(input && promptText(input)).toBe("FYI: my Swift now compiles.");
 });
 
 test("the person's own text shaped like a notification stays theirs", () => {

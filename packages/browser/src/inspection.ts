@@ -16,6 +16,29 @@ export function redactBrowserUrl(raw: string): string {
     return redactBrowserText(raw).slice(0, 8192);
   }
 }
+// CDP network events, decoded per event: built once, since Zod compiles a parser per schema.
+const RequestWillBeSent = z.object({
+  requestId: z.string(),
+  request: z.object({ url: z.string(), method: z.string().max(32).optional() }),
+  timestamp: z.number().finite().optional(),
+  type: z.string().max(64).optional().catch(undefined),
+});
+const LoadingFailed = z.object({
+  requestId: z.string(),
+  errorText: z.string(),
+  timestamp: z.number().finite().optional(),
+});
+const ResponseReceived = z.object({
+  requestId: z.string(),
+  response: z.object({ url: z.string(), status: z.number(), mimeType: z.string() }),
+});
+const DataReceived = z.object({ requestId: z.string(), dataLength: z.number() });
+const LoadingFinished = z.object({
+  requestId: z.string(),
+  encodedDataLength: z.number(),
+  timestamp: z.number().finite().optional(),
+});
+const ResponseBody = z.object({ body: z.string().max(512 * 1024), base64Encoded: z.boolean() });
 interface Response {
   cdp: BrowserCdp;
   id: string;
@@ -80,14 +103,7 @@ export class BrowserInspection {
     };
     bind("Network.requestWillBeSent", (raw) => {
       if (!this.enabled) return;
-      const parsed = z
-        .object({
-          requestId: z.string(),
-          request: z.object({ url: z.string(), method: z.string().max(32).optional() }),
-          timestamp: z.number().finite().optional(),
-          type: z.string().max(64).optional().catch(undefined),
-        })
-        .safeParse(raw);
+      const parsed = RequestWillBeSent.safeParse(raw);
       if (!parsed.success) return;
       if (this.requests.size >= 200) this.requests.delete(this.requests.keys().next().value ?? "");
       this.requests.set(`${tabId}:${parsed.data.requestId}`, {
@@ -100,13 +116,7 @@ export class BrowserInspection {
     });
     bind("Network.loadingFailed", (raw) => {
       if (!this.enabled) return;
-      const parsed = z
-        .object({
-          requestId: z.string(),
-          errorText: z.string(),
-          timestamp: z.number().finite().optional(),
-        })
-        .safeParse(raw);
+      const parsed = LoadingFailed.safeParse(raw);
       if (!parsed.success) return;
       const requestId = `${tabId}:${parsed.data.requestId}`,
         request = this.requests.get(requestId);
@@ -126,12 +136,7 @@ export class BrowserInspection {
     });
     bind("Network.responseReceived", (raw) => {
       if (!this.enabled) return;
-      const parsed = z
-        .object({
-          requestId: z.string(),
-          response: z.object({ url: z.string(), status: z.number(), mimeType: z.string() }),
-        })
-        .safeParse(raw);
+      const parsed = ResponseReceived.safeParse(raw);
       if (!parsed.success) return;
       const { requestId, response } = parsed.data,
         key = `${tabId}:${requestId}`;
@@ -160,7 +165,7 @@ export class BrowserInspection {
     });
     bind("Network.dataReceived", (raw) => {
       if (!this.enabled) return;
-      const parsed = z.object({ requestId: z.string(), dataLength: z.number() }).safeParse(raw);
+      const parsed = DataReceived.safeParse(raw);
       if (parsed.success) {
         const response = this.responses.get(`${tabId}:${parsed.data.requestId}`);
         if (response) response.bytes += parsed.data.dataLength;
@@ -168,13 +173,7 @@ export class BrowserInspection {
     });
     bind("Network.loadingFinished", (raw) => {
       if (!this.enabled) return;
-      const parsed = z
-        .object({
-          requestId: z.string(),
-          encodedDataLength: z.number(),
-          timestamp: z.number().finite().optional(),
-        })
-        .safeParse(raw);
+      const parsed = LoadingFinished.safeParse(raw);
       if (parsed.success) {
         const key = `${tabId}:${parsed.data.requestId}`;
         const request = this.requests.get(key);
@@ -232,9 +231,9 @@ export class BrowserInspection {
     if (!entry?.done) throw new Error("Response unavailable or still loading");
     if (entry.bytes > 256 * 1024 || !/text|json|javascript|xml|svg/i.test(entry.mime))
       throw new Error("Response body exceeds limit or is binary");
-    const raw = z
-      .object({ body: z.string().max(512 * 1024), base64Encoded: z.boolean() })
-      .parse(await entry.cdp.send("Network.getResponseBody", { requestId: entry.id }));
+    const raw = ResponseBody.parse(
+      await entry.cdp.send("Network.getResponseBody", { requestId: entry.id }),
+    );
     if (!this.enabled || epoch !== this.epoch) throw new Error("Response unavailable");
     const body = raw.base64Encoded ? Buffer.from(raw.body, "base64").toString("utf8") : raw.body;
     if (Buffer.byteLength(body) > 256 * 1024) throw new Error("Response body exceeds limit");

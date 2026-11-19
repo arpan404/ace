@@ -279,6 +279,83 @@ test("OpenCode Go's 5-hour, weekly and monthly meters are read with OpenCode's s
   expect(io.sent.map(({ url, init }) => [url, init.method])).toEqual([
     ["https://opencode.ai/zen/go/v1/usage", "GET"],
   ]);
+  // A Go key belongs to no Console org: none is sent.
+  expect(header(io.sent[0]!, "x-opencode-org-id")).toBeNull();
+});
+
+/** OpenCode 2.2's `credential` row for a browser (Console) sign-in, which serves Go and Zen. */
+const consoleLogin = (expires: number) =>
+  JSON.stringify({
+    type: "oauth",
+    methodID: "device",
+    access: secret,
+    refresh: "refresh-never-sent-9d8c7b",
+    expires,
+    metadata: {
+      server: "https://opencode.ai/console",
+      accountID: "acc_01EXAMPLE",
+      orgID: "wrk_01EXAMPLEORG",
+      orgName: "Default",
+    },
+  });
+/** OpenCode's SQLite store holding only the given integrations' rows. */
+const openCodeDb = (rows: Record<string, string>): Partial<UsagePorts> => ({
+  readSqlite: async ({ table, keyColumn, key, valueColumn }) =>
+    table === "credential" && keyColumn === "integration_id" && valueColumn === "value"
+      ? rows[key]
+      : undefined,
+});
+
+test("an OpenCode Console login reads Go usage with its access token and org, not a stale pre-v2 key", async () => {
+  const home = await temp();
+  await write(home, "auth.json", {
+    "opencode-go": { type: "api", key: "sk-go-revoked-in-september" },
+  });
+  const io = ports(
+    (_, init) =>
+      new Headers(init.headers).get("authorization") === `Bearer ${secret}`
+        ? Response.json(goUsage)
+        : new Response("{}", { status: 401 }),
+    openCodeDb({ opencode: consoleLogin(now + 60_000) }),
+  );
+  const result = await read(usageDeclaration({ provider: "opencode" }), account(home), io.ports);
+  expect(result).toMatchObject({
+    ok: true,
+    reading: { usageWindows: { five_hour: { usedPercent: 12 }, weekly: { usedPercent: 1 } } },
+  });
+  expect(result).not.toHaveProperty("notice");
+  expect(io.sent).toHaveLength(1);
+  expect(header(io.sent[0]!, "authorization")).toBe(`Bearer ${secret}`);
+  expect(header(io.sent[0]!, "x-opencode-org-id")).toBe("wrk_01EXAMPLEORG");
+});
+
+test("an OpenCode Console account without Go shows no usage and no error", async () => {
+  const home = await temp();
+  const io = ports(
+    () => new Response("{}", { status: 403 }),
+    openCodeDb({ opencode: consoleLogin(now + 60_000) }),
+  );
+  const result = await read(usageDeclaration({ provider: "opencode" }), account(home), io.ports);
+  expect(result).toEqual({ ok: false, reason: "none" });
+});
+
+test("a lapsed OpenCode Console login asks to sign in again and sends nothing", async () => {
+  const home = await temp();
+  const io = ports(() => Response.json(goUsage), openCodeDb({ opencode: consoleLogin(now - 1) }));
+  const result = await read(usageDeclaration({ provider: "opencode" }), account(home), io.ports);
+  expect(result).toMatchObject({ ok: false, message: "Sign in again in OpenCode" });
+  expect(io.sent).toEqual([]);
+});
+
+test("a Zen API key without a Console org reads no Go usage", async () => {
+  const home = await temp();
+  const io = ports(
+    () => Response.json(goUsage),
+    openCodeDb({ opencode: JSON.stringify({ type: "api", key: "sk-zen-pay-as-you-go-41a2" }) }),
+  );
+  const result = await read(usageDeclaration({ provider: "opencode" }), account(home), io.ports);
+  expect(result).toEqual({ ok: false, reason: "none" });
+  expect(io.sent).toEqual([]);
 });
 
 test("an OpenCode login without Go reads nothing and reports nothing", async () => {

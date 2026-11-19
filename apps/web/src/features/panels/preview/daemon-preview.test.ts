@@ -220,3 +220,23 @@ test("a watched thread lists its detected dev servers and follows the daemon's p
   stop();
   preview.dispose();
 });
+
+test("a browser an agent opens in a watched thread shows without waiting for the next retry", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  // The retry timer never fires in this test.
+  const preview = daemonPreview(client, { schedule: manualTimers().schedule, visibility: page() });
+  const before = preview.version;
+  const stop = preview.watch("thread-settings");
+  // The first look found no browser.
+  await waitFor(() => expect(preview.version).toBeGreaterThan(before));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(preview.view("thread-settings")).toBeUndefined();
+
+  daemon.browser.drive("thread-settings", { url: "http://localhost:5173", backend: "embedded" });
+  await waitFor(() => expect(preview.view("thread-settings")?.url).toBe("http://localhost:5173"));
+  stop();
+});

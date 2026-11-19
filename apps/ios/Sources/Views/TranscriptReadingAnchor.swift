@@ -1,22 +1,29 @@
 import SwiftUI
 
-/// Geometry belongs to the viewport, so keeping it never invalidates the observed message rows.
+/// Geometry observed by the I/O shell. The viewport controller owns the semantic
+/// anchor and computes alignment from the row's current size when restoring it.
+///
+/// A class nothing observes, so writing it from a geometry action never re-lays out the rows.
 @MainActor final class TranscriptReadingAnchor {
-    var frames: [String: CGRect] = [:]
-    private var pinned: (id: String, point: UnitPoint)?
+    /// Where the shown rows sit and where the reader is held (`TranscriptPlaceKeeper`).
+    var keeper = TranscriptPlaceKeeper()
+    /// Which stack holds the rows (`TranscriptStackChoice`, ADR 0157).
+    var stack = TranscriptStackChoice()
+    /// Each row's last measured height, kept while it is off screen, so a row that comes back at
+    /// another height (a page loading in again, a placeholder) is counted. Measurement only.
+    private var heights: [String: CGFloat] = [:]
 
-    func capture(viewport: CGFloat, topInset: CGFloat, bottomInset: CGFloat) {
-        pinned = nil
-        guard let first = frames.filter({ $0.value.maxY > topInset && $0.value.minY < viewport - bottomInset })
-            .min(by: { $0.value.minY < $1.value.minY }) else { return }
-        let available = viewport - topInset - bottomInset - first.value.height
-        guard abs(available) > 1 else { return }
-        // scrollTo aligns the same fraction of the row and viewport. Choosing that fraction
-        // from the old geometry retains partial rows as well as rows aligned to the top.
-        pinned = (first.key, UnitPoint(x: 0, y: (first.value.minY - topInset) / available))
+    /// Records `height` for `id`, counting a change of height in the performance probe:
+    /// `rows.resized` for any change, `rows.resizedOnReturn` for a row coming back on screen at
+    /// another height than it left with (the jump a reader sees scrolling back).
+    func measured(_ id: String, height: CGFloat, returning: Bool) {
+        guard PerfProbe.enabled else { return }
+        if let last = heights[id], abs(last - height) > 1 {
+            PerfProbe.add("rows.resized", 1)
+            if returning { PerfProbe.add("rows.resizedOnReturn", 1) }
+        }
+        heights[id] = height
     }
-    func restore(with proxy: ScrollViewProxy) {
-        guard let pinned else { return }
-        proxy.scrollTo(pinned.id, anchor: pinned.point)
-    }
+    /// The layout changed (width, type size, density, a disclosure): earlier heights don't count.
+    func layoutChanged() { heights.removeAll() }
 }

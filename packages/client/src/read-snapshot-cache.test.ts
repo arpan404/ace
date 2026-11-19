@@ -60,7 +60,7 @@ test("inactive SDK views obey a 16 MiB budget while active views stay retained",
   await f.start();
   async function large(id: string) {
     const held = f.client.thread(id);
-    const subscriptionId = f.wire("thread").subscriptionId;
+    const { subscriptionId } = await f.subscribed("thread", id);
     const snapshot = view();
     snapshot.thread.id = ThreadId.parse(id);
     f.deliver({ type: "snapshot", subscriptionId, seq: 10, view: snapshot });

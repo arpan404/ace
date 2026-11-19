@@ -10,7 +10,9 @@
             "devices",
             "browser",
             "screen",
-            "provider_auth"
+            "provider_auth",
+            "media",
+            "machine"
           ],
           "type": "string"
         },
@@ -25,15 +27,65 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },
+        "flowControl": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "framing": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "grant": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "installId": {
+          "$ref": "https://ace.local/protocol/v1/InstallId.json"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/PairingLinkProof.json"
+        },
+        "machineCode": {
+          "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "mediaTicket": {
+          "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
+        },
+        "nextTicket": {
+          "const": true,
+          "type": "boolean"
+        },
         "protocolVersion": {
           "const": 1,
           "type": "number"
+        },
+        "standing": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
         },
         "ticket": {
           "type": "string"
         },
         "token": {
           "type": "string"
+        },
+        "trims": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
         },
         "type": {
           "const": "hello",
@@ -46,7 +98,7 @@
         "deviceId"
       ],
       "type": "object",
-      "x-ace-constraint": "Exactly one of token and ticket is required."
+      "x-ace-constraint": "Exactly one of token, ticket and grant is required; machineCode and link only with grant."
     },
     {
       "properties": {
@@ -64,6 +116,25 @@
         "subscriptionId": {
           "minLength": 1,
           "type": "string"
+        },
+        "tail": {
+          "properties": {
+            "bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "items": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "bytes"
+          ],
+          "type": "object"
         },
         "type": {
           "const": "subscribe",
@@ -146,6 +217,37 @@
     },
     {
       "properties": {
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "interaction.read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "interactionId",
+        "offset"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "before": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -190,6 +292,11 @@
         "limit": {
           "exclusiveMinimum": 0,
           "maximum": 200,
+          "type": "integer"
+        },
+        "maxBytes": {
+          "maximum": 131072,
+          "minimum": 16384,
           "type": "integer"
         },
         "requestId": {
@@ -275,6 +382,30 @@
       },
       "required": [
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "grant": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.grant.refresh",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "grant"
       ],
       "type": "object"
     }

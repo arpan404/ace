@@ -1,71 +1,37 @@
-import { Suspense, useState, type ReactNode } from "react";
+import { Suspense, useState } from "react";
 import { SettingAddRow } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
-/** The registry browser loads when someone first opens it (or hovers its button). */
-const Registry = deferredComponent(() =>
-  import("./acp-registry/registry-dialog.tsx").then((module) => module.default),
+/** The form loads when someone first opens it (or points at its row). */
+const ManualAgentDialog = deferredComponent(() =>
+  import("./acp-registry/manual-agent-dialog.tsx").then((module) => module.default),
 );
 
 /**
- * The ACP registry browser behind an opener: search, review an install plan, install. `agentId`
- * opens straight on that entry (Update on an agent's page). Mounted from the first open on, so
- * closing animates out.
+ * The last row of the ACP agents group: add an agent the registry doesn't list, by the command
+ * that starts it. The dialog stays mounted from the first open on, so closing animates out.
  */
-function useRegistryDialog(agentId: string | undefined) {
+export function AddAgentByCommandRow() {
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false);
-  return {
-    preload: () => void Registry.preload(),
-    show: () => {
-      setOpened(true);
-      setOpen(true);
-    },
-    dialog: opened && (
-      <Suspense fallback={null}>
-        <Registry.Component open={open} onOpenChange={setOpen} agentId={agentId} />
-      </Suspense>
-    ),
-  };
-}
-
-/** A button that opens the ACP registry browser. */
-export function AddAcpAgent(props: {
-  agentId?: string | undefined;
-  children?: ReactNode;
-  variant?: "secondary" | "primary";
-}) {
-  const registry = useRegistryDialog(props.agentId);
-  return (
-    <>
-      <Button
-        size="sm"
-        variant={props.variant ?? "secondary"}
-        onPointerEnter={registry.preload}
-        onFocus={registry.preload}
-        onClick={registry.show}
-      >
-        {props.children ?? "Add"}
-      </Button>
-      {registry.dialog}
-    </>
-  );
-}
-
-/** The add row of a providers group that opens the ACP registry browser. */
-export function AddAcpAgentRow(props: { children: ReactNode }) {
-  const registry = useRegistryDialog(undefined);
+  const preload = () => void ManualAgentDialog.preload();
   return (
     <>
       <SettingAddRow
-        onPointerEnter={registry.preload}
-        onFocus={registry.preload}
-        onClick={registry.show}
+        onPointerEnter={preload}
+        onFocus={preload}
+        onClick={() => {
+          setOpened(true);
+          setOpen(true);
+        }}
       >
-        {props.children}
+        Add an agent by command
       </SettingAddRow>
-      {registry.dialog}
+      {opened && (
+        <Suspense fallback={null}>
+          <ManualAgentDialog.Component open={open} onOpenChange={setOpen} />
+        </Suspense>
+      )}
     </>
   );
 }

@@ -1,6 +1,14 @@
 import { forwardRef, useId, type SVGProps } from "react";
-import type { IconProps } from "@phosphor-icons/react";
-import { agentCursorOutline, agentCursorPath, agentCursorTip } from "@ace/design-tokens/glyphs";
+import { SidebarSimpleIcon, type IconProps } from "@ace/icons";
+import {
+  agentCursorOutline,
+  agentCursorPath,
+  agentCursorTip,
+  aceToolScale,
+  browserUseGlyph,
+  computerUseGlyph,
+  glyphStroke,
+} from "@ace/design-tokens/glyphs";
 import { cn } from "@/lib/cn.ts";
 import { AceWings } from "./ace-mark.tsx";
 
@@ -10,7 +18,7 @@ import { AceWings } from "./ace-mark.tsx";
  * Phosphor regular's 1.5 stroke on a 24 box. The pointer in each is the agent cursor's shape.
  */
 
-const stroke = 1.5;
+const stroke = glyphStroke;
 
 /** The cursor's path scaled by `scale`, with its tip moved to `tip`. */
 function pointerTransform(scale: number, tip: { x: number; y: number }): string {
@@ -41,25 +49,20 @@ export const ComputerUseIcon = forwardRef<SVGSVGElement, IconProps>(function Com
   { weight = "regular", color, ...svg },
   ref,
 ) {
-  const scale = 0.8;
+  const { scale, tip } = computerUseGlyph.pointer;
   const solid = weight === "fill" || weight === "duotone";
   const ink = color ?? "currentColor";
   return (
     <svg ref={ref} {...frame(svg)}>
       <path
         d={agentCursorPath}
-        transform={pointerTransform(scale, { x: 9, y: 9 })}
+        transform={pointerTransform(scale, tip)}
         fill={solid ? ink : "none"}
         stroke={ink}
         strokeWidth={stroke / scale}
         strokeLinejoin="round"
       />
-      <path
-        d="M9 2.75v2M2.75 9h2M4.6 4.6l1.4 1.4"
-        stroke={ink}
-        strokeWidth={stroke}
-        strokeLinecap="round"
-      />
+      <path d={computerUseGlyph.rays} stroke={ink} strokeWidth={stroke} strokeLinecap="round" />
     </svg>
   );
 });
@@ -73,8 +76,9 @@ export const BrowserUseIcon = forwardRef<SVGSVGElement, IconProps>(function Brow
   ref,
 ) {
   const mask = `ace-browser-use-${useId()}`;
-  const scale = 0.62;
-  const pointer = pointerTransform(scale, { x: 12.6, y: 12.6 });
+  const { pointer: placement, globe, equator, knockout } = browserUseGlyph;
+  const { scale } = placement;
+  const pointer = pointerTransform(scale, placement.tip);
   const solid = weight === "fill" || weight === "duotone";
   const ink = color ?? "currentColor";
   return (
@@ -86,14 +90,14 @@ export const BrowserUseIcon = forwardRef<SVGSVGElement, IconProps>(function Brow
           transform={pointer}
           fill="black"
           stroke="black"
-          strokeWidth={(stroke * 3) / scale}
+          strokeWidth={(stroke * knockout) / scale}
           strokeLinejoin="round"
         />
       </mask>
       <g mask={`url(#${mask})`} stroke={ink} strokeWidth={stroke} strokeLinecap="round">
-        <circle cx="10.5" cy="10.5" r="7.5" />
-        <ellipse cx="10.5" cy="10.5" rx="3.25" ry="7.5" />
-        <path d="M3 10.5h15" />
+        <circle cx={globe.cx} cy={globe.cy} r={globe.r} />
+        <ellipse cx={globe.cx} cy={globe.cy} rx={globe.rx} ry={globe.r} />
+        <path d={equator} />
       </g>
       <path
         d={agentCursorPath}
@@ -139,7 +143,10 @@ export const AceToolIcon = forwardRef<SVGSVGElement, IconProps>(function AceTool
 ) {
   return (
     <svg ref={ref} {...frame(svg)}>
-      <g fill={color ?? "currentColor"} transform="translate(2.16 3.06) scale(0.82)">
+      <g
+        fill={color ?? "currentColor"}
+        transform={`translate(${(12 * (1 - aceToolScale)).toFixed(2)} 3.06) scale(${aceToolScale})`}
+      >
         <AceWings />
       </g>
     </svg>
@@ -174,6 +181,52 @@ export const ResumeIcon = forwardRef<SVGSVGElement, IconProps>(function ResumeIc
         d="M7.5 5.82v12.36a1.1 1.1 0 0 0 1.68.93l9.6-6.18a1.1 1.1 0 0 0 0-1.86l-9.6-6.18a1.1 1.1 0 0 0-1.68.93Z"
         fill={color ?? "currentColor"}
       />
+    </svg>
+  );
+});
+
+/**
+ * The sidebar toggle while the sidebar shows: the same window glyph with its side pane filled in,
+ * as the pane on screen is. Hidden, the toggle is the outline (`SidebarSimpleIcon`).
+ */
+export const SidebarShownIcon = forwardRef<SVGSVGElement, IconProps>(
+  function SidebarShownIcon(props, ref) {
+    return <SidebarSimpleIcon ref={ref} {...props} weight="fill" />;
+  },
+);
+
+/** Spade's two eyes on the 24 box. */
+const spadeEyes = (fill: string) => (
+  <>
+    <ellipse cx="9.2" cy="11.2" rx="1.35" ry="1.9" fill={fill} />
+    <ellipse cx="14.8" cy="11.2" rx="1.35" ry="1.9" fill={fill} />
+  </>
+);
+
+/**
+ * Spade: its round head and two eyes, for places that list Spade with other glyphs (Settings).
+ * The rail draws the full mark (`SpadeMark`). Solid, the eyes are cut out of the head.
+ */
+export const SpadeIcon = forwardRef<SVGSVGElement, IconProps>(function SpadeIcon(
+  { weight = "regular", color, ...svg },
+  ref,
+) {
+  const ink = color ?? "currentColor";
+  const mask = useId();
+  if (weight === "fill" || weight === "duotone")
+    return (
+      <svg ref={ref} {...frame(svg)}>
+        <mask id={mask}>
+          <rect width="24" height="24" fill="white" />
+          {spadeEyes("black")}
+        </mask>
+        <circle cx="12" cy="12" r="9.75" fill={ink} mask={`url(#${mask})`} />
+      </svg>
+    );
+  return (
+    <svg ref={ref} {...frame(svg)}>
+      <circle cx="12" cy="12" r="9" stroke={ink} strokeWidth={stroke} />
+      {spadeEyes(ink)}
     </svg>
   );
 });

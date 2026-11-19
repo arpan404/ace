@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Store } from "./store.ts";
 
+const EnabledRow = z.object({ enabled: z.number() });
+
 /** The person's computer use switch, kept across daemon restarts. Off until turned on. */
 export class ScreenSettings {
   private readonly store: Store;
@@ -12,13 +14,9 @@ export class ScreenSettings {
     );
   }
   enabled(): boolean {
-    const row = z
-      .object({ enabled: z.number() })
-      .parse(
-        this.store.atomic((db) =>
-          db.prepare("SELECT enabled FROM screen_settings WHERE id=1").get(),
-        ),
-      );
+    const row = EnabledRow.parse(
+      this.store.atomic((db) => db.prepare("SELECT enabled FROM screen_settings WHERE id=1").get()),
+    );
     return row.enabled === 1;
   }
   enable(enabled: boolean): void {

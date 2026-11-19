@@ -1,5 +1,10 @@
 import { FakeDaemon, facts } from "@ace/fake-daemon";
-import { z } from "zod";
+
+/**
+ * Each action id's padding: 300 such actions stay under the 64 Ki characters a request may be and
+ * still go whole (ADR 0157), so the phone gets every one and answers one exactly.
+ */
+const actionIdPad = 100;
 
 export function manyActions(daemon: FakeDaemon, id: string): void {
   daemon.createThread({
@@ -13,6 +18,11 @@ export function manyActions(daemon: FakeDaemon, id: string): void {
   daemon.apply(id, [
     facts.rootAgent("codex"),
     facts.turn("root"),
+    // Enough transcript that the thread's snapshot goes in parts, while the approval itself stays
+    // small enough to go whole (ADR 0157): the phone still meets fragmented snapshots here.
+    ...Array.from({ length: 40 }, (_, index) =>
+      facts.message("root", `filler-${index}`, "assistant", `Step ${index}: ${"y".repeat(4000)}`),
+    ),
     facts.tool("root", "many-tool", {
       kind: "shell",
       title: "Choose an action",
@@ -29,42 +39,11 @@ export function manyActions(daemon: FakeDaemon, id: string): void {
         kind: "approval",
         title: "Choose an action",
         options: Array.from({ length: 300 }, (_, index) => ({
-          id: `action-${index}-` + "x".repeat(32768),
+          id: `action-${index}-` + "x".repeat(actionIdPad),
           label: `Choice ${index}`,
           kind: "deny",
         })),
       },
     },
   ]);
-}
-
-const SnapshotEnvelope = z.object({
-  type: z.literal("snapshot"),
-  subscriptionId: z.string().min(1),
-  seq: z.number().int().nonnegative(),
-});
-
-/** Speak the real snapshot.part protocol so the SDK admits the large logical snapshot. */
-export function* snapshotFrames(text: string): Generator<string> {
-  if (text.length <= 131072) {
-    yield text;
-    return;
-  }
-  const parsed = SnapshotEnvelope.safeParse(JSON.parse(text));
-  if (!parsed.success) {
-    yield text;
-    return;
-  }
-  let index = 0;
-  for (let offset = 0; offset < text.length; offset += 131072) {
-    const end = Math.min(text.length, offset + 131072);
-    yield JSON.stringify({
-      type: "snapshot.part",
-      subscriptionId: parsed.data.subscriptionId,
-      seq: parsed.data.seq,
-      index: index++,
-      done: end === text.length,
-      data: text.slice(offset, end),
-    });
-  }
 }

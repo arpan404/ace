@@ -24,7 +24,6 @@ export function NativeModeRow(props: { provider: ProviderKind }) {
     <SettingRow title="Native mode" inline>
       <Select
         label="Native mode"
-        className="w-56"
         value={value}
         disabled={offline || loading || native === undefined}
         options={[

@@ -1,8 +1,8 @@
 # Daemon releases
 
-The runtime is pinned to Node 24.13.0. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v24.13.0/SHASUMS256.txt). Bun's lockfile pins the JS and macOS node-pty inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
+The runtime is pinned to Node 26.12.1. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v26.12.1/SHASUMS256.txt). Bun's lockfile pins the JS inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
 
-Build from a committed checkout after `bun install --frozen-lockfile`, with Node 24.13.0 on PATH. The builder rejects other host runtime versions so tar/gzip output uses a fixed implementation. Generate a release authority outside the repository, or use an existing authority from the release secret manager. The build accepts only the public key. Keep the private key offline and outside this checkout, and never pass its contents as an argument or environment variable.
+Build from a committed checkout after `bun install --frozen-lockfile`, with Node 26.12.1 on PATH. The builder rejects other host runtime versions so tar/gzip output uses a fixed implementation. Generate a release authority outside the repository, or use an existing authority from the release secret manager. The build accepts only the public key. Keep the private key offline and outside this checkout, and never pass its contents as an argument or environment variable.
 
 ```sh
 openssl genpkey -algorithm ED25519 -out /secure/offline/ace-key.pem
@@ -13,19 +13,16 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 20.04+, Debian 11+, Fedora and Arch ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 11 container (glibc 2.31, GCC 10), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian11.sh` prepares a fresh `debian:11` container as root: it points apt at archive.debian.org (Debian 11 has left the regular mirrors), installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
-
-node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 24.13.0 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
+Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. The release pipeline runs the same steps on omarchy in rootless podman (`tools/release/linux/pipeline-build.sh`, arm64 under qemu emulation; [ADR 0188](../../docs/adr/0188-tag-driven-release-pipeline.md)).
 
 ```sh
-# Inside the debian:11 container on a host of the target architecture, from the checkout:
-sh tools/release/linux/setup-debian11.sh
+# Inside the debian:12 container on a host of the target architecture, from the checkout:
+sh tools/release/linux/setup-debian12.sh
 export PATH="$HOME/.cargo/bin:$PATH"
 bun install --frozen-lockfile
-node tools/release/src/native.ts linux-arm64
-node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem tools/release/dist/native/linux-arm64.json
+node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem
 node tools/release/src/glibc-check.ts tools/release/dist/linux-arm64
-node tools/release/src/smoke.ts tools/release/dist/linux-arm64
+node tools/release/src/smoke.ts tools/release/dist/linux-arm64 --unsigned-archive
 # The desktop release from the same container: AppImage, deb, tar.gz and latest-linux*.yml,
 # staged with SHA256SUMS in dist/releases/v1.0.0 (docs/releasing.md). --with-daemon also
 # builds, signs and stages this host's daemon archive (it needs the private key file).
@@ -37,7 +34,7 @@ The Linux build stages the screen helper at `helpers/ace-screen-helper-linux`, b
 The deb installs `/opt/ace` and the `ace-desktop` command; the GUI never installs `/usr/bin/ace`, which stays the daemon CLI. It depends on electron-builder's default libraries plus ALSA (`libasound2t64 | libasound2`), which Electron links and minimal installs lack. Its postinst installs and loads two AppArmor profiles when the running AppArmor can parse them (abi 4.0; Ubuntu 23.10+ needs them, older systems skip them): `ace-desktop` for the Electron binary (electron-builder's profile) and `ace-chromium` for ace's downloaded headless Chrome under `~/.ace/chromium`. Both grant only unprivileged user namespaces, so Chromium's sandbox works without turning off `kernel.apparmor_restrict_unprivileged_userns`. Removing the package unloads and deletes both; upgrades keep them. The AppImage and tar.gz have no installer, so where user namespaces are restricted their launchers start Electron with `--no-sandbox` (the AppImage's AppRun; the tar.gz's `ace-desktop`, a launcher beside Electron's `ace-desktop-bin`, written by `scripts/linux-tarball.ts`) and the app offers a one-time setup in one sentence: through pkexec or run0 it installs a profile attached to that copy (the AppImage file, covering the `ace-*.AppImage` names its updates take in the same folder; or the tarball's two executables) plus ace-chromium, after which a restart runs sandboxed. Without a password prompt it offers the same commands to copy. The profile is inherited by everything the AppImage starts, so its AppRun's own probe passes and adds nothing. Under an AppImage, the `ace` command the app writes names the stable `.AppImage` file and mounts it per command (`--appimage-mount`), so it keeps working after the app quits.
 
 ```sh
-bun run --filter @ace/release build 1.0.0 linux-x64 /secure/ace-public.pem /verified/native-inputs.json
+bun run --filter @ace/release build 1.0.0 linux-x64 /secure/ace-public.pem
 bun run --filter @ace/release sign dist/linux-x64.json /secure/offline/ace-key.pem dist/linux-x64.sig
 # Sign each built target, then prepare publication without uploading anything.
 node tools/release/src/publication.ts tools/release/dist https://github.com/arpan404/ace/releases/download/v1.0.0 /secure/ace-public.pem
@@ -45,7 +42,7 @@ node tools/release/src/publication.ts tools/release/dist https://github.com/arpa
 
 Publication accepts any non-empty subset of the four targets, so Linux can ship before macOS signing is ready. A target is included when its `TARGET.json` is present, and then needs its signature and archive. The installer pins only the included targets and refuses the others by name before downloading anything. The Homebrew formula names all four archives, so it is written only for a full release.
 
-Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile, public key and native inputs must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish the archives, manifests and signatures of every built target, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME. It must not load node-pty into Electron itself.
+Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile and public key must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish the archives, manifests and signatures of every built target, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME.
 
 Publication also emits one `ace-cli-VERSION-TARGET.tgz` npm package per target, their SHA-256
 sidecars and `npx.json` with the matching commands. Publish them with the signed
@@ -65,7 +62,7 @@ reviewed installer and immutable `ACE_HOME/releases` directory, so npm cache
 eviction cannot remove their runtime. The packages are ready for publication;
 building them does not upload a release or claim an npm registry name.
 
-The first public release needs a reviewed production public key and native Linux inputs. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
+The first public release needs a reviewed production public key. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
 
 The Cursor runtime ships as the `@cursor/sdk` 1.0.35 runtime package, its installed dependency and peer closure, and the release target's pinned helper package. The SDK and its subpaths stay external to esbuild; `cursor-sdk-host.mjs` runs in the selected account's supervised process. Staging refuses unsupported targets, conflicting dependency versions, more than 64 graph entries or manifests over 64 KiB. Staging omits TypeScript declarations and source maps, retaining runtime JS, native helpers and license notices. Archive mode normalization preserves executable helpers. Build and publication both extract every completed archive through the supported updater before producing publication metadata. The archive retains the oldest supported updater limits of 2,048 entries and 512 MiB expanded bytes. The offline artifact guard writes and reopens a local SDK checkpoint without authentication or a provider turn.
 
@@ -75,12 +72,46 @@ Install.sh requires curl, tar and a SHA-256 utility. The trusted installer pins 
 
 The daemon lives under `${ACE_HOME:-$HOME/.ace}` (ADR 0081: a format bump sets the data aside for a fresh home and moves the installed release into it). Add its `bin` directory to PATH. Run `ace status` for authenticated health, `ace service status` for service-manager state, and `ace service install|start|stop|uninstall` for management. The LaunchAgent runs during GUI login. The systemd user unit runs while the user's manager is active, normally from login to logout. Lingering stays off unless you opt in with `ace service install --linger` (Linux only), which runs `loginctl enable-linger` for your user so the daemon keeps running after logout; `loginctl disable-linger` turns it off again. Linux logs use `journalctl --user -u ace`; daemon output uses `.ace/logs/output.log` and `error.log` on both platforms, capped at 8 MiB each with one previous generation. Supervisor diagnostics use `daemon.log` and `daemon.err.log`, each capped at 8 MiB with one previous generation. launchd stdout/stderr use /dev/null; diagnostics are written through the bounded sink. Capture the provider CLI PATH when installing the service. Daemon port, listen, advertised-host and log-level settings are captured after validation; provider credential variables are excluded. Reinstall after changing it. A changed service plan restarts to apply the settings; reinstalling an unchanged plan leaves it running. This is an explicit service restart requested by the operator.
 
-Inside the desktop app, the bundled `ace update` hands the update to the app instead ([ADR 0091](../../docs/adr/0091-desktop-auto-update.md)). For standalone installs, `ace update check` authenticates the latest stable GitHub release, or the `preview` release tag for preview installations. `ace update apply` refuses active, waiting, approval or unresponsive threads. `ace update recover` restores a pending transaction without network access. Startup schedules that recovery automatically, even with daily updates disabled. `ace update apply --drain` closes admission and waits up to five minutes for natural completion. It does not cancel providers. No release is accepted unless its version increases and target/channel match. Preview prereleases at the same numeric version advance using dot-separated prerelease precedence, including numeric ordering of preview.1, preview.2 and preview.10. Target/channel checks still prevent implicit channel changes.
+Inside the desktop app, the bundled `ace update` hands the update to the app instead ([ADR 0091](../../docs/adr/0091-desktop-auto-update.md)). For standalone installs, `ace update check` authenticates the latest stable GitHub release, or the `preview` release tag for preview installations. `ace update apply` refuses active, waiting, approval or unresponsive threads. `ace update recover` restores a pending transaction without network access. Startup schedules that recovery automatically, even with daily updates disabled. `ace update apply --drain` closes admission and waits up to five minutes for natural completion. It does not cancel providers. `ace update apply --interrupt` stops running threads with the service instead, and the new version continues them after it starts (ADR 0098); a daemon uses it for an administrator's confirmed "update now" from another client ([ADR 0113](../../docs/adr/0113-remote-updates.md)). `--outcome` writes `ACE_HOME/update-outcome.json` before the updater exits, so the next daemon can say why an update failed. No release is accepted unless its version increases and target/channel match. Preview prereleases at the same numeric version advance using dot-separated prerelease precedence, including numeric ordering of preview.1, preview.2 and preview.10. Target/channel checks still prevent implicit channel changes.
 
 Automatic daily updates are enabled by default. Set ACE_AUTO_UPDATE=0 when installing the service to select manual updates. Under systemd, Linux launches the updater in a separate transient user unit, so stopping the service cannot kill it; without a systemd user session (containers, WSL) it starts detached, and `ace service` reports that it needs a session. The external updater survives its own service stop. The updater journals intent before service stop, then marks the snapshot complete only after syncing it. Recovery ignores incomplete snapshots and validates completed snapshots against their durable original database inventory before touching live databases. Empty/subset directories cannot silently discard databases; older journals missing the required inventory fail closed and need operator recovery from verified backups. A retained update journal keeps the candidate's command admission closed until health succeeds; rerunning the updater restores the previous binary and all pre-migration SQLite snapshots. An exclusive SQLite transaction serializes installation, updates and removal. The OS releases that lock when a process crashes, without stale-owner files or manual lock cleanup. A supervisor retries pending recovery independently of ACE_AUTO_UPDATE, with exponential backoff capped at 60 seconds. It finishes admission release even if the original updater committed just before crashing. Linux waits for the transient recovery unit outcome. It closes logs and timers on spawn failures, allowing normal service-manager crash restart. The mutex uses a .db suffix so migration snapshots exclude it.
 
 Uninstall stops and disables only ace's service and removes its executable pointers and releases. SQLite databases, access tokens and configuration stay in ACE_HOME. Delete that directory separately if you intend to erase data.
 
+### Windows (win32-x64, win32-arm64)
+
+Windows installs through `install.ps1`, for the current user and without administrator rights ([ADR 0095](../../docs/adr/0095-native-windows-daemon.md)). Download `install.ps1` and `install.ps1.sha256` from the same GitHub release, check that the script's SHA-256 matches the value in `install.ps1.sha256` and the release announcement, then run it with Windows PowerShell:
+
+```powershell
+(Get-FileHash .\install.ps1 -Algorithm SHA256).Hash.ToLower()
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon` (`\ace-next-daemon-<hash>` for a home other than `%USERPROFILE%\.ace`, ADR 0185), which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
+
 ## Verification
 
 The repo owner requires workers to use static checks only; tests, probes, benchmarks and mutations are deferred to merge. Use fake service-manager executables only when the merge runner executes the behaviour tests. The non-gating hash benchmark entry point is `bench/hash.ts`. The artifact smoke entry point is `src/smoke.ts`; running it on every target needs run at merge. Packaging smoke checks must run the artifact on each target, open a real PTY, start on an isolated ACE_HOME/port, query status, and terminate it. Do not launch provider CLIs or the recorder. See `verification/report.md` for static review, historical evidence and the cases awaiting merge execution.
+
+## Archive and desktop smoke modes
+
+The pre-signing archive step runs `node tools/release/src/smoke.ts RELEASE_ROOT
+--unsigned-archive`. The original root-only invocation remains equivalent. It checks file
+checksums, media version/exit, the terminal and daemon health/shutdown without requiring a
+desktop package or release authority.
+
+After signing TARGET.json to TARGET.sig, run `node tools/release/src/smoke.ts RELEASE_ROOT
+--signed-archive --manifest TARGET.json --public-key PUBLIC_KEY.pem`. The manifest, signature
+and completed archive must be together. This authenticates the archive before launching its
+packaged code. The local release driver runs the unsigned smoke before signing and this
+signed smoke afterwards. Disabled workflow builds use the unsigned mode explicitly because
+they do not have a private release authority.
+
+Desktop packaging separately captures the staged Mac helper's designated requirement, team
+and bundle id in `apps/desktop/dist/screen-helper-identity.json`, and compares all three after
+packaging. Only production Mac packages also enforce the committed Developer ID baseline.
+To repeat a local desktop smoke, append `--desktop PATH_TO_APP --local --screen-identity
+apps/desktop/dist/screen-helper-identity.json`. Release desktop checks omit `--local`.
+Authenticode verification is independent of archive authentication: add
+`--verify-authenticode` only when the Windows executable has a configured certificate or
+Azure signer. Unsigned Windows desktop builds keep their existing warning and skip it.

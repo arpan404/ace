@@ -5,26 +5,29 @@ import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
 import { isStoreRetry } from "../store-busy.ts";
-import { ProviderPayload } from "@ace/provider-kit/payload";
+import { frameEnvelopeError } from "./frame-envelope.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
-const frameSchema = z.object({
-  seq: z.number().int().nonnegative(),
-  t: z.number().nonnegative(),
-  dir: z.enum(["send", "recv", "stderr", "note"]),
-  channel: z.string(),
-  data: z.unknown(),
-  payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
-  usageAccount: z
-    .object({
-      id: z.string().min(1).max(512),
-      billingMode: z.enum(["api", "subscription", "unknown"]),
-    })
-    .optional(),
-});
+const CursorSend = z.object({ kind: z.literal("send") });
+
 const sdkBody = z.object({ kind: z.string(), body: z.unknown() });
+type ArmedTimer = { at: number; armedAt: number };
+/**
+ * Whether the armed timer still serves a deadline at `at`, so re-arming it per batch is waste:
+ * the same deadline, still ahead, and a clock that has not stepped back since arming. It is
+ * re-armed at least once a second, which bounds how late a forward clock step leaves it.
+ */
+export function keepsTimer(armed: ArmedTimer | undefined, at: number, now: number): boolean {
+  return (
+    armed !== undefined &&
+    armed.at === at &&
+    now < at &&
+    now >= armed.armedAt &&
+    now - armed.armedAt < 1000
+  );
+}
 export interface EngineClock {
   now(): number;
   setTimer(callback: () => void, delay: number): () => void;
@@ -39,6 +42,13 @@ export const systemClock: EngineClock = {
 };
 
 /** Frame folding never waits for provider I/O. One mailbox orders frames and ticks. */
+/** A Cursor frame's journal writes: provenance, its raw chunk and the boundary cursor. */
+interface CursorJournalEntry {
+  frame: Frame;
+  /** A send on a settled thread starts a turn, which trims older provenance first. */
+  beginsTurn: boolean;
+}
+
 export class ThreadActor {
   readonly id: ThreadId;
   translator: Translator | undefined;
@@ -80,15 +90,16 @@ export class ThreadActor {
     },
   };
   private updatePressure(): void {
+    const frames = this.queued + this.pendingFrames.length;
+    const bytes = this.queuedBytes + this.pendingBytes;
     if (
-      this.backlog().frames >=
-        Math.min(256, Math.max(1, Math.floor(this.limits.maxQueuedFrames / 4))) ||
-      this.backlog().bytes >= this.limits.maxQueuedBytes / 4
+      frames >= Math.min(256, Math.max(1, Math.floor(this.limits.maxQueuedFrames / 4))) ||
+      bytes >= this.limits.maxQueuedBytes / 4
     )
       this.pressure = true;
     if (
-      this.backlog().frames <= Math.min(64, Math.floor(this.limits.maxQueuedFrames / 16)) &&
-      this.backlog().bytes <= this.limits.maxQueuedBytes / 16
+      frames <= Math.min(64, Math.floor(this.limits.maxQueuedFrames / 16)) &&
+      bytes <= this.limits.maxQueuedBytes / 16
     ) {
       this.pressure = false;
       for (const resolve of this.drains) resolve();
@@ -96,6 +107,8 @@ export class ThreadActor {
     }
   }
   private cancelTimer: (() => void) | undefined;
+  /** The deadline the armed timer fires at, and when it was armed. */
+  private armed: ArmedTimer | undefined;
   private stopped = false;
   private onRetire: ((actor: ThreadActor, generation: number) => void) | undefined;
   private draining: () => boolean;
@@ -139,10 +152,8 @@ export class ThreadActor {
     this.steerYield = undefined;
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
-    if (this.inputLeases.size >= 256) {
-      release();
-      throw new Error("Input lease capacity exceeded");
-    }
+    // A redelivered intent replaces its earlier lease; the earlier one is released, never lost.
+    this.releaseInput(id);
     this.inputLeases.set(id, { release, runId });
   }
   releaseInput(id: number): void {
@@ -153,7 +164,15 @@ export class ThreadActor {
   releaseInputs(): void {
     for (const id of this.inputLeases.keys()) this.releaseInput(id);
   }
-  observeInputs(events: EventPayload[]): void {
+  /**
+   * Every fold reaches here, including ones applied around the actor (a Stop, a settle, a
+   * liveness check). A provider process that exited reads nothing more, so its inputs end too.
+   */
+  observeInputs(facts: readonly Fact[], events: EventPayload[]): void {
+    if (this.inputLeases.size && facts.some((fact) => fact.type === "process.exited")) {
+      this.releaseInputs();
+      return;
+    }
     for (const event of events) {
       if (
         event.type === "run.started" &&
@@ -284,15 +303,14 @@ export class ThreadActor {
   frame(frame: Frame, generation: number): Promise<void> {
     if (this.stopped || generation !== this.generation) return Promise.resolve();
     if (this.poisoned) return Promise.reject(new Error("Provider frame failed to commit"));
-    const result = frameSchema.safeParse(frame);
-    if (!result.success) {
+    const malformed = frameEnvelopeError(frame);
+    if (malformed !== undefined) {
       this.enqueue(() => {
-        throw result.error;
+        throw new Error(`Provider frame envelope is malformed: ${malformed}`);
       });
       return this.flush();
     }
-    const { payload, ...metadata } = result.data;
-    const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
+    const decoded = frame;
     let bytes: number;
     try {
       const certificate = decoded.payload;
@@ -322,8 +340,8 @@ export class ThreadActor {
       this.cancelBatch ??= this.batchScheduler.setTimer(() => this.sealFrames(), 1);
       if (
         this.draining() ||
-        this.backlog().frames >= this.limits.maxQueuedFrames ||
-        this.backlog().bytes >= this.limits.maxQueuedBytes ||
+        this.queued + this.pendingFrames.length >= this.limits.maxQueuedFrames ||
+        this.queuedBytes + this.pendingBytes >= this.limits.maxQueuedBytes ||
         this.pendingFrames.length >= 256 ||
         this.pendingBytes >= 262144
       )
@@ -340,7 +358,9 @@ export class ThreadActor {
     const bytes = this.pendingBytes;
     this.pendingFrames = [];
     this.pendingBytes = 0;
-    let translatedFacts: Fact[] | undefined;
+    // Translation runs once: translators keep state. A retry after a rollback reuses these facts
+    // and writes the Cursor journal again, since that rolled back with the rest.
+    let translated: { facts: Fact[]; journal: CursorJournalEntry[] } | undefined;
     // A retried batch never streams its facts a second time.
     let streamedFacts: boolean | undefined;
     let statusBefore: ThreadState["status"] | undefined;
@@ -353,12 +373,12 @@ export class ThreadActor {
           this.repo.backend(this.id) === "cursor-sdk";
         const fold = () => {
           const before = (statusBefore ??= this.repo.requireState(this.id).status);
-          const facts = (translatedFacts ??= markYieldedEnd(
-            live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
-            this.repo.requireState(this.id),
-            // A Stop the person asked for always wins over a steer sent in the same stretch.
-            this.repo.queue.get(this.id).paused ? undefined : this.steerYield,
-          ));
+          translated ??= this.translateBatch(
+            live.map((entry) => entry.frame),
+            cursorSdk,
+          );
+          this.writeCursorJournal(translated.journal);
+          const facts = translated.facts;
           const toolBoundary = facts.some(
             (fact) =>
               (fact.type === "item.upsert" && fact.draft.type === "tool_call") ||
@@ -421,27 +441,62 @@ export class ThreadActor {
       },
     );
   }
-  private translateFrame(decoded: Frame, cursorBackend: boolean): Fact[] {
-    const cursorSdk = decoded.channel === "sdk" && cursorBackend;
-    if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
-    if (
-      cursorSdk &&
-      z.object({ kind: z.literal("send") }).safeParse(decoded.data).success &&
-      this.repo.quiescent(this.repo.requireState(this.id))
-    )
-      this.repo.recovery.beginTurn(this.id);
+  /**
+   * A batch's facts and the Cursor journal writes they need, without writing anything: a write
+   * that fails rolls back, and the retry writes the journal again but must not translate again.
+   */
+  private translateBatch(
+    frames: Frame[],
+    cursorBackend: boolean,
+  ): { facts: Fact[]; journal: CursorJournalEntry[] } {
+    const journal: CursorJournalEntry[] = [];
+    // The boundary the journal will have reached at each frame: an earlier frame of the batch
+    // may commit the boundary a later duplicate carries.
+    let offset: number | undefined;
+    const facts = frames.flatMap((frame) => {
+      if (!(frame.channel === "sdk" && cursorBackend)) return this.translateFrame(frame);
+      const boundary = this.repo.recovery.boundary(frame);
+      offset ??= this.repo.recovery.offset(this.id);
+      if (boundary !== undefined && boundary <= offset) return [];
+      journal.push({
+        frame,
+        beginsTurn:
+          CursorSend.safeParse(frame.data).success &&
+          this.repo.quiescent(this.repo.requireState(this.id)),
+      });
+      if (boundary !== undefined) offset = boundary;
+      return this.translateFrame(frame);
+    });
+    return {
+      facts: markYieldedEnd(
+        facts,
+        this.repo.requireState(this.id),
+        // A Stop the person asked for always wins over a steer sent in the same stretch.
+        // Without a steer there is nothing to yield to, so the queue isn't read.
+        this.steerYield && !this.repo.queue.get(this.id).paused ? this.steerYield : undefined,
+      ),
+      journal,
+    };
+  }
+  /** The outer mailbox transaction commits provenance, offsets and facts together. */
+  private writeCursorJournal(journal: CursorJournalEntry[]): void {
+    for (const { frame, beginsTurn } of journal) {
+      if (beginsTurn) this.repo.recovery.beginTurn(this.id);
+      const body = sdkBody.safeParse(frame.data);
+      if (body.success && body.data.kind === "blob")
+        this.repo.store.appendRawChunk(this.id, body.data.body);
+      this.repo.captureFrame(this.id, frame);
+      this.repo.recovery.commit(this.id, frame);
+    }
+  }
+  private translateFrame(decoded: Frame): Fact[] {
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
     const raw = this.translator?.takeDiagnostics?.() ?? [];
     if (raw.length) this.diagnostic?.(this.id, raw);
-    if (cursorSdk) {
-      const body = sdkBody.safeParse(decoded.data);
-      if (body.success && body.data.kind === "blob")
-        this.repo.store.appendRawChunk(this.id, body.data.body);
-      this.repo.captureFrame(this.id, decoded);
-      // The outer mailbox transaction commits provenance, offsets and facts together.
-      this.repo.recovery.commit(this.id, decoded);
-    }
-    const accountId = decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId;
+    // Only a usage fact carries the account, so the session row is read only for a frame with one.
+    const accountId = facts.some((fact) => fact.type === "usage")
+      ? (decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId)
+      : undefined;
     return facts.map((fact) =>
       attachmentEcho(
         fact.type === "usage" && accountId
@@ -471,13 +526,21 @@ export class ThreadActor {
       for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.schedule();
   }
-  schedule(): void {
+  private disarm(): void {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
-    if (this.stopped || this.poisoned) return;
+    this.armed = undefined;
+  }
+  schedule(): void {
+    if (this.stopped || this.poisoned) return this.disarm();
     const state = this.repo.state(this.id);
-    if (!state) return;
-    if (state.status.state === "done" && this.session) {
+    if (!state) return this.disarm();
+    // Work left running after a done turn (a dev server, ADR 0109) lives in the provider's
+    // process: it stays warm until that work ends or the thread is settled or archived.
+    const leftRunning = Object.keys(state.indexes.runningTasks).some(
+      (key) => state.tasks[key]?.ambient === false,
+    );
+    if (state.status.state === "done" && this.session && (!leftRunning || this.releaseRequested)) {
       this.idleSince ??= this.clock.now();
     } else {
       this.idleSince = undefined;
@@ -487,21 +550,29 @@ export class ThreadActor {
       this.repo.deadline(this.id, this.translator?.nextDeadline?.()),
       this.releaseAt(),
     ].filter((value): value is number => value !== undefined);
-    if (!deadlines.length) return;
+    if (!deadlines.length) return this.disarm();
+    const at = Math.min(...deadlines);
+    const armedAt = this.clock.now();
+    if (this.cancelTimer && keepsTimer(this.armed, at, armedAt)) return;
+    this.disarm();
+    this.armed = { at, armedAt };
     this.cancelTimer = this.clock.setTimer(
-      () =>
+      () => {
+        // Spent: the next `schedule` arms a new one, even for the same deadline.
+        this.cancelTimer = undefined;
+        this.armed = undefined;
         this.enqueue(() => {
           const now = this.clock.now();
           this.apply([...(this.translator?.tick(now) ?? []), { type: "tick" }]);
           const release = this.releaseAt();
           if (release !== undefined && now >= release) {
             this.idleDue = true;
-            this.cancelTimer?.();
-            this.cancelTimer = undefined;
+            this.disarm();
           }
           this.wake();
-        }),
-      Math.max(0, Math.min(...deadlines) - this.clock.now()),
+        });
+      },
+      Math.max(0, at - armedAt),
     );
   }
   /** Only a done tree has a release deadline; any live work clears it in `schedule`. */
@@ -529,7 +600,7 @@ export class ThreadActor {
     this.sealFrames();
     this.stopped = true;
     for (const id of this.inputLeases.keys()) this.releaseInput(id);
-    this.cancelTimer?.();
+    this.disarm();
     this.pressure = false;
     for (const resolve of this.drains) resolve();
     this.drains.clear();

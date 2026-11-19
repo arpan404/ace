@@ -7,12 +7,17 @@ import { checkCli } from "@ace/provider-kit/cli-requirements";
 import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
+import { startupProbes } from "@ace/provider-kit/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
 import { applyInstallations } from "../installation-gate.ts";
 import { hasUnauthenticatedOpenCodeModels } from "../provider-model-availability.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
+import { defaultCodexHome } from "../account-homes.ts";
+import { claudeToolStatus, codexToolStatus } from "../native-tools/read.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
+import { claudeChromeSetting, codexToolSourceSetting } from "./native-tools.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startProviderStatuses(context: ServiceContext): void {
@@ -42,9 +47,21 @@ export function startProviderStatuses(context: ServiceContext): void {
       ? context.services.accountRegistry?.selectedCursorSdk()
       : context.services.accountRegistry?.selectedProvider(provider)) ??
     (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
+  const toolFiles = cachedToolFiles(nodeFileSystem);
+  // The engine reads the same CLIs next; it closes the share once its discovery is done.
+  const probes = startupProbes();
+  context.services.startupProbes = probes;
+  context.resources.onShutdown(() => probes.close());
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      probe: context.options.providerStatus?.probe ?? probes.probe,
+      ...(context.options.loginPath
+        ? {
+            // A stopping daemon's PATH is settled unchanged, never confirmed: probe nothing.
+            pathReady: context.options.loginPath.final.then(() => context.signal.throwIfAborted()),
+          }
+        : {}),
       antigravity: (signal) => antigravityDiscovery(context, signal),
       modelsAvailable: () =>
         Boolean(
@@ -96,6 +113,22 @@ export function startProviderStatuses(context: ServiceContext): void {
           authMethod: reportedAuthMethod(row.authDetail),
         };
       },
+      async nativeTools(row) {
+        const env = context.options.accounts?.env ?? process.env;
+        const settings = context.services.settings;
+        if (row.provider === "claude")
+          return claudeToolStatus(await claudeChromeSetting(settings), env, toolFiles);
+        if (row.provider !== "codex") return {};
+        const account = row.instanceId
+          ? context.services.accountRegistry?.get(row.instanceId)?.instance
+          : undefined;
+        return codexToolStatus({
+          setting: await codexToolSourceSetting(settings),
+          env,
+          homeDir: account?.homeDir ?? defaultCodexHome(env),
+          files: toolFiles,
+        });
+      },
       async versions(row, signal) {
         if (context.options.providerStatus?.versions)
           return context.options.providerStatus.versions(row, signal);
@@ -110,6 +143,12 @@ export function startProviderStatuses(context: ServiceContext): void {
         return plan.method === "registry"
           ? { latestVersion: plan.latestVersion, updateAvailable: plan.updateAvailable }
           : installs.versions.check(plan, signal);
+      },
+      async forgetVersions() {
+        context.services.providerInstalls?.versions.clear();
+        const catalog = context.services.agentRegistry?.catalog;
+        // The agent catalog otherwise stands for a day; Antigravity's update comes from it.
+        if (catalog) await catalog.refresh().catch(() => {});
       },
       attention(row) {
         const registry = context.services.accountRegistry;
@@ -207,6 +246,16 @@ export function startProviderStatuses(context: ServiceContext): void {
   );
   context.services.providerStatuses = statuses;
   context.resources.own(() => statuses.close());
+  // A changed tool source or Chrome choice shows on the provider rows without waiting.
+  const stopTools = context.services.settings
+    ?.subscribe(
+      { keys: ["providers.codex.toolSource", "providers.claude.chrome"], scope: {} },
+      (notification) => {
+        if (notification.type === "changed") void statuses.refreshAfterMutation().catch(() => {});
+      },
+    )
+    .catch(() => undefined);
+  context.resources.own(async () => (await stopTools)?.());
 }
 export function createProviderStatusesSession(context: SocketContext): SocketService {
   let pending = 0;
@@ -235,7 +284,7 @@ export function createProviderStatusesSession(context: SocketContext): SocketSer
         const statuses = context.options.providerStatuses;
         const task = (async () => {
           try {
-            if (message.operation === "refresh") await statuses.refresh();
+            if (message.operation === "refresh") await statuses.recheck();
             if (context.connected() && context.authorize("read"))
               reply({
                 ok: true,

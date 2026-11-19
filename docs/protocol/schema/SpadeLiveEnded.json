@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeLiveEnded.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveEndReason.json"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "status": {
+      "maximum": 599,
+      "minimum": 100,
+      "type": "integer"
+    },
+    "type": {
+      "const": "spade.live.ended",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "reason"
+  ],
+  "type": "object"
+}

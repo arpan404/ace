@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -9,10 +9,12 @@ import { afterEach, expect, it } from "vitest";
 import { ClientMessage, FilesServerMessage, Item, ServerMessage } from "@ace/protocol";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * A phone opens a file an agent linked in its answer, even when the file sits outside the
- * project (Desktop, Downloads). The message is the grant: only targets it links are served.
+ * project (Desktop, Downloads). The message is the grant: only targets it links, and absolute
+ * paths it names in code or prose, are served.
  */
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -83,6 +85,7 @@ async function setup(transport: "websocket" | "relay") {
   const relay = transport === "relay" ? await startRelay() : undefined;
   if (relay) cleanup.push(() => relay.close());
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       host: "127.0.0.1",
@@ -94,6 +97,8 @@ async function setup(transport: "websocket" | "relay") {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const workspaceId = daemon.store.createWorkspace(project, "Project");
   const thread = createDevThread(daemon.store, workspaceId);
   const message = (id: string, role: "user" | "assistant", text: string) =>
@@ -189,6 +194,40 @@ it("only targets the answer links are served, never a path the client picks", as
       type: "files.error",
       code: "FORBIDDEN",
     });
+});
+
+it("absolute paths an answer names in code or prose open; paths it doesn't name stay refused", async () => {
+  const f = await setup("websocket");
+  const notes = join(f.downloads, "notes.txt");
+  const log = join(f.home, "build.log");
+  await writeFile(log, "build ok\n");
+  f.message("answer", "assistant", `Saved \`${notes}\`. The build log is at ${log}:12.`);
+  expect(await f.open("answer", notes)).toBe("plain notes\n");
+  expect(await f.open("answer", log)).toBe("build ok\n");
+  expect(await f.open("answer", join(f.home, "secret.txt"))).toMatchObject({
+    type: "files.error",
+    code: "FORBIDDEN",
+  });
+});
+
+it("a home path an answer names opens from the daemon's home folder", async () => {
+  const f = await setup("websocket");
+  const folder = await mkdtemp(join(homedir(), "ace-linked-home-"));
+  cleanup.push(() => rm(folder, { recursive: true, force: true }));
+  await writeFile(join(folder, "Draft3.pdf"), "%PDF-1.7 draft\n");
+  const named = `~/${folder.slice(homedir().length + 1)}/Draft3.pdf`;
+  f.message(
+    "answer",
+    "assistant",
+    `I wrote the revised proposal: \`${named}\` and [a link](${named}).`,
+  );
+  expect(await f.open("answer", named)).toBe("%PDF-1.7 draft\n");
+});
+
+it("a path with spaces an answer names in inline code opens", async () => {
+  const f = await setup("websocket");
+  f.message("answer", "assistant", `I saved it as \`${f.pdf}\`.`);
+  expect(await f.open("answer", f.pdf)).toBe("%PDF-1.7 assignment\n");
 });
 
 it("a link in the person's own message grants nothing", async () => {

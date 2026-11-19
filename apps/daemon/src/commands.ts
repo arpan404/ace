@@ -16,6 +16,12 @@ export type CommandContext = Pick<
   "appendEvents" | "getThread" | "readEvents" | "getInteraction"
 > & {
   creationOwner?: object;
+  /**
+   * In-process only: the daemon's Spade brain service (ADR 0133) sends this command. The thread
+   * `thread.create` makes is then a bot's hidden session, and only commands carrying this may
+   * touch one. Never set from wire data.
+   */
+  host?: { host: "spade-bot"; key: string };
   preparedWorkspace?: {
     id: ThreadId;
     path: string;

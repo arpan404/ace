@@ -50,6 +50,8 @@ const fixed: readonly (readonly [string, string])[] = [
 const FilterKey = z.string().regex(/^filter\.[^\0\n]+\.(?:clean|smudge|process|required)$/);
 const HookKey = z.string().regex(/^hook\.[^\0\n]+\.[^\0\n.]+$/);
 
+const ConfiguredKeys = z.array(z.union([FilterKey, HookKey]));
+const TransportProtocols = z.array(z.enum(["http", "https", "ssh", "file"])).max(4);
 export const executionKeyQuery = [
   "config",
   "--null",
@@ -74,7 +76,7 @@ function configuredExtensions(keys: string): { drivers: Set<string>; hooks: Set<
     // entries can introduce an untrusted friendly name or filter driver.
     if (scope !== "command") configured.push(key);
   }
-  const parsed = z.array(z.union([FilterKey, HookKey])).safeParse(configured);
+  const parsed = ConfiguredKeys.safeParse(configured);
   if (!parsed.success)
     throw new GitError("malformed_output", "Invalid Git execution configuration");
   const drivers = new Set(
@@ -162,10 +164,7 @@ export function transportEnv(
   protocols: readonly string[],
   sshCommand: string = "ssh",
 ): Record<string, string> {
-  const allowed = z
-    .array(z.enum(["http", "https", "ssh", "file"]))
-    .max(4)
-    .parse(protocols);
+  const allowed = TransportProtocols.parse(protocols);
   const command = z
     .string()
     .max(16_384)

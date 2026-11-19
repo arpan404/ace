@@ -88,7 +88,7 @@ struct TransferSheet: View {
                 if let parent { send["parent"] = parent }
                 model.transfer(send)
             } label: {
-                Text(action).fontWeight(.medium).frame(maxWidth: .infinity)
+                Text(action).fontWeight(AceDesign.Typeface.strong).frame(maxWidth: .infinity)
                     .foregroundStyle(AceTheme.Colours.onAccent)
             }
             .buttonStyle(.borderedProminent).tint(AceTheme.Colours.accent)

@@ -1,19 +1,36 @@
+export { geminiUntrustedGuidance } from "./session-guidance.ts";
+export { keepPattern } from "./advertised-schema.ts";
 export { aceToolAction } from "./actions.ts";
 export { aceWaitTargets } from "./waits.ts";
 export { maxToolTimeoutMs } from "./timeouts.ts";
-export { CredentialRegistry, type Principal, type SessionLease } from "./credentials.ts";
+export {
+  CredentialRegistry,
+  type Authenticator,
+  type Principal,
+  type SessionLease,
+} from "./credentials.ts";
 export {
   ToolRegistry,
   nodeScheduler,
   type Scheduler,
   type ToolContext,
   type CallObserver,
+  type CallSignal,
+  type CallActor,
+  type CallAct,
   type ToolFailureReporter,
   type ToolDefinition,
   type ToolMetadata,
 } from "./registry.ts";
 export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
-export { startMcpServer, type McpServerOptions, type NotificationStreamLimits } from "./http.ts";
+export {
+  nodeListener,
+  startMcpServer,
+  type McpServerOptions,
+  type NotificationStreamLimits,
+  type ResourceFetch,
+  type ScopeChallenge,
+} from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
 export {
   registerAutomationTool,
@@ -26,6 +43,7 @@ export {
   redactMcpCredential,
   codexInjection,
   claudeInjection,
+  claudeAceServer,
   openCodeInjection,
   acpInjection,
   cursorSdkInjection,
@@ -72,12 +90,24 @@ export type { ModelImageRuntime } from "./model-image-runtime.ts";
 
 export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";
 
-export { mcpStatusGroups, type StatusReader } from "./status.ts";
+export { mcpStatusGroups, type GroupOffReasons, type StatusReader } from "./status.ts";
 export { withinJsonBudget } from "./json-budget.ts";
 export { maxRequestBodyBytes } from "./result-budgets.ts";
 
-export { htmlToolkit, htmlToolCatalog, type HtmlPublicationPort } from "./html-tools.ts";
+export {
+  htmlToolkit,
+  htmlPreviewToolkit,
+  htmlToolCatalog,
+  type HtmlPublicationPort,
+  type HtmlPreviewPort,
+  type HtmlLayoutPort,
+  type HtmlPreviewResult,
+} from "./html-tools.ts";
 export { imageToolkit, imageToolCatalog, type ImagePublicationPort } from "./image-tools.ts";
+export { suitToolkit, suitToolCatalog } from "./suit-tools.ts";
+export { marketToolkit, type MarketToolPort } from "./market-tools.ts";
+export { SuitPreviews, type SuitApplyOutcome, type SuitApplyStatus } from "./suit-previews.ts";
+export type { SuitPort } from "./suit-port.ts";
 
 export {
   renderBrief,
@@ -110,8 +140,20 @@ export { guideToolkit, type AceGuide } from "./guide-tools.ts";
 export { changesKey, resultReader, type ResultReader } from "./changes.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
 export {
+  acpClaudeToolListing,
+  claudeToolListing,
+  claudeToolListingAfter,
+  claudeToolSearch,
+  type ClaudeToolSearch,
+  type ClaudeToolSearchFacts,
+  type ClaudeToolSearchReason,
+} from "./claude-tool-search.ts";
+export {
   acpToolListing,
+  acpShowsServerInstructions,
+  cursorToolListing,
   codexClientHeader,
+  cursorClientHeader,
   coreTools,
   coreToolsHeader,
   openedToolset,

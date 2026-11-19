@@ -1,87 +1,50 @@
 import type { ReactNode } from "react";
-import { formatCount } from "@ace/ui-core";
-import { CaretDownIcon } from "@phosphor-icons/react";
-import { cn } from "@/lib/cn.ts";
-import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 
-/** A section's small muted label, with how many rows it holds when that helps. */
-function Label(props: { name: string; count?: number | undefined }) {
-  return (
-    <>
-      <span className="text-xs font-medium text-muted-foreground">{props.name}</span>
-      {props.count !== undefined && (
-        <span aria-hidden className="text-xs text-subtle-foreground tabular-nums">
-          {formatCount(props.count)}
-        </span>
-      )}
-    </>
-  );
-}
-
-/** A section of the summary: a small muted label, when there is more than one, over its rows. */
+/**
+ * A Summary section: a small grey heading, how many it holds when that helps, an optional quiet
+ * action at the right, then its rows. No card, no rule: sections part by space.
+ */
 export function Section(props: {
   name: string;
-  labelled: boolean;
-  count?: number | undefined;
+  count?: string | undefined;
   aside?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section aria-label={props.name} className="min-w-0">
-      {(props.labelled || props.aside) && (
-        <div className="flex h-7 min-w-0 items-center gap-1.5 px-2">
-          {props.labelled && (
-            <h3 className="flex min-w-0 items-baseline gap-1.5">
-              <Label name={props.name} count={props.count} />
-            </h3>
+    <section aria-label={props.name} className="min-w-0 px-2">
+      <div className="flex h-6 min-w-0 items-center gap-1.5">
+        <h3 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs font-medium text-subtle-foreground">
+          {props.name}
+          {props.count !== undefined && (
+            <span className="font-normal tabular-nums">{props.count}</span>
           )}
-          {props.aside}
-        </div>
-      )}
+        </h3>
+        {props.aside}
+      </div>
       {props.children}
     </section>
   );
 }
 
-/**
- * A section folded until the person opens it ("Done 24"), its header the disclosure. Whether it
- * is open is kept with the tab under `fold`.
- */
-export function FoldedSection(props: {
-  name: string;
-  count: number;
-  fold: string;
-  threadId: string;
+/** A quiet text action in a section's heading or a row's grey line ("Clear", "Review"). */
+export function QuietLink(props: {
   children: ReactNode;
+  label?: string | undefined;
+  onClick(): void;
+  strong?: boolean | undefined;
 }) {
-  const workspace = useScopeWorkspace(props.threadId);
-  const actions = useWorkspaceActions(props.threadId);
-  const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
-  const open = sections?.[props.fold] === true;
   return (
-    <section aria-label={props.name} className="min-w-0">
-      <h3>
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={`${formatCount(props.count)} ${props.name.toLowerCase()}`}
-          onClick={() =>
-            actions.updateUi("work", { sections: { ...sections, [props.fold]: !open } })
-          }
-          className="group/fold focus-ring-inset flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left hover:bg-accent"
-        >
-          <Label name={props.name} count={props.count} />
-          <CaretDownIcon
-            aria-hidden
-            size={12}
-            className={cn(
-              "text-faint-foreground transition-transform duration-(--motion-base) ease-out group-hover/fold:text-muted-foreground",
-              !open && "-rotate-90",
-            )}
-          />
-        </button>
-      </h3>
-      {open && props.children}
-    </section>
+    <button
+      type="button"
+      aria-label={props.label}
+      onClick={props.onClick}
+      className={
+        props.strong
+          ? "focus-ring rounded-xs font-medium text-foreground underline decoration-foreground/30 underline-offset-3 hover:decoration-foreground"
+          : "focus-ring rounded-xs text-xs text-subtle-foreground hover:text-foreground"
+      }
+    >
+      {props.children}
+    </button>
   );
 }

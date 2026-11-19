@@ -27,6 +27,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
   describedBy: string | undefined;
   /** The agent works and the draft is empty: the primary slot shows Stop. */
   canStop: boolean;
+  /** Shown instead of Send while the draft is empty and nothing can be stopped. */
+  idleAction?: ReactNode;
   stopping: boolean;
   onSend(): void;
   onStop(): void;
@@ -36,13 +38,15 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
     // Clicking the footer's empty space writes in the message, as the input's own area does.
     <div
       data-slot="composer-footer"
+      data-part="composer-toolbar"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
         props.onFocusInput();
       }}
-      className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
+      // A size container: narrow, the controls keep only their icons (`@max-md/composer-footer`).
+      className="@container/composer-footer mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
     >
       <div data-slot="composer-add" className="flex shrink-0 items-center">
         <AddButton
@@ -66,6 +70,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
       <div data-slot="composer-primary" className="flex shrink-0 items-center gap-1">
         {props.canStop ? (
           <StopAction stopping={props.stopping} onStop={props.onStop} />
+        ) : props.idleAction ? (
+          props.idleAction
         ) : (
           <PrimaryAction
             mode={props.mode}

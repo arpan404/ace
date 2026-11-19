@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineCodeRefusal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "machine_code_required",
+    "machine_code_wrong",
+    "machine_code_locked"
+  ],
+  "type": "string"
+}

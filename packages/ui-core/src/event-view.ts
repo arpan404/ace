@@ -18,6 +18,7 @@ import {
   interruptionNotice,
   noticeInput,
   parseDelegationResults,
+  promptText,
   repeatsEarlierEvent,
   settledResults,
   systemInput,
@@ -27,6 +28,7 @@ import {
   type TaskPrompt,
 } from "./system-events.ts";
 import { refusalCount, toolRefusal, type ToolRefusal } from "./tool-refusals.ts";
+import { isSentByAgent, sentBy, type SentBy, type SentByThread } from "./sent-by.ts";
 import { usageWarning } from "./usage-warning.ts";
 
 /*
@@ -68,8 +70,22 @@ export type EventView =
       summary?: string | undefined;
     }
   | { kind: "task"; prompt: TaskPrompt }
-  /** A row with nothing to open: "Context compacted", an interruption. */
-  | { kind: "system"; icon: "restart" | "compaction"; text: string; at: number }
+  /**
+   * A message another thread's agent sent: drawn as a sent message, with one line above it
+   * naming the sender (`sentByLine`). `text` is its words, without ace's frame.
+   */
+  | { kind: "sent"; sent: SentBy; text: string }
+  /**
+   * A quiet row: "Context compacted", an interruption. `summary`: what the provider kept of the
+   * conversation it compacted, folded behind the row; never a message of its own.
+   */
+  | {
+      kind: "system";
+      icon: "restart" | "compaction";
+      text: string;
+      at: number;
+      summary?: string | undefined;
+    }
   | { kind: "notSent"; notice: Notice; commandId: string }
   | { kind: "error"; error: ErrorInput; count: number }
   | { kind: "notice"; level: Notice["level"]; text: string }
@@ -127,12 +143,13 @@ function quiet(text: string): EventView {
 
 /**
  * How an event item shows. `provider` names the thread's provider for an error that doesn't say
- * whose it is.
+ * whose it is; `thread` names who sent a message from another thread when its origin doesn't.
  */
 export function eventView(
   stored: Item | undefined,
   counts: EventCounts,
   provider?: ProviderKind | undefined,
+  thread?: SentByThread | undefined,
 ): EventView {
   if (usageWarning(stored)) return none;
   const item = shown(stored);
@@ -148,6 +165,8 @@ export function eventView(
   if (input) {
     const marker = input.kind === "handoff" ? handoffMarker(item) : undefined;
     if (marker) return { kind: "handoff", marker, at: item.createdAt };
+    if (isSentByAgent(input))
+      return { kind: "sent", sent: sentBy(input, thread) ?? {}, text: promptText(input) };
     switch (input.kind) {
       // The question block above already shows the answer with its question.
       case "interaction_answer":
@@ -186,8 +205,16 @@ export function eventView(
   switch (item.type) {
     case "notice":
       return noticeView(item, counts, provider);
-    case "compaction":
-      return { kind: "system", icon: "compaction", text: "Context compacted", at: item.createdAt };
+    case "compaction": {
+      const summary = item.summary ? sanitizeUserText(item.summary) : "";
+      return {
+        kind: "system",
+        icon: "compaction",
+        text: "Context compacted",
+        at: item.createdAt,
+        ...(summary ? { summary } : {}),
+      };
+    }
     case "html":
     case "image":
     case "artifact":

@@ -1,5 +1,12 @@
 import { z } from "zod";
-export const ReleaseTarget = z.enum(["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]);
+export const ReleaseTarget = z.enum([
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm64",
+  "linux-x64",
+  "win32-x64",
+  "win32-arm64",
+]);
 export const ReleaseVersion = z
   .string()
   .regex(/^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$/)
@@ -21,8 +28,16 @@ export const ReleaseManifest = z.object({
 });
 export type ReleaseManifest = z.infer<typeof ReleaseManifest>;
 export const MaintenanceStatus = z.object({
+  /** True while any hold keeps admission closed. */
   draining: z.boolean(),
   blockers: z.number().int().nonnegative(),
+  /** Of `blockers`, the threads waiting on a person. Older daemons omit it. */
+  waiting: z.number().int().nonnegative().optional(),
+  /** What holds admission closed (`MaintenanceHold`). Older daemons omit it. */
+  holds: z
+    .array(z.enum(["user", "update", "kill", "stop", "storage"]))
+    .max(5)
+    .optional(),
 });
 export const DaemonHealth = z
   .object({
@@ -31,6 +46,8 @@ export const DaemonHealth = z
     // Older daemons omit readiness. New daemons expose startup without declaring
     // themselves ready for managed clients before listener controllers are attached.
     ready: z.literal(true).optional(),
+    /** Admission, for the host token only (the local app's health check). Older daemons omit it. */
+    admission: MaintenanceStatus.optional(),
   })
   .meta({ examples: [{ running: true, version: "development", ready: true }] });
 

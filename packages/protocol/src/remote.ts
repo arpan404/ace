@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { DeviceId } from "./ids.ts";
+import { DeviceId, InstallId } from "./ids.ts";
+import { MachineAccountStatus } from "./machine-access.ts";
 
 /**
  * `desktop` and `user-browser` are local-only credentials the daemon mints for its own desktop app
@@ -63,6 +64,21 @@ export type PendingPairing = z.infer<typeof PendingPairing>;
 export const PairingRedemption = z.object({
   code: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
+  /**
+   * The redeeming app's install id (ADR 0115). Pairing the same install again keeps its one
+   * device record and id. Older apps send none; older daemons ignore it.
+   */
+  installId: InstallId.optional(),
+  /**
+   * The raw P-256 public key (base64url, 65 bytes) of a key the redeeming app keeps and never
+   * exports (ADR 0190). A device paired from a person's link proves the person's standing on a
+   * socket only by signing with it; its bearer token alone never does. Older apps send none, and
+   * their devices are paired without the person's standing.
+   */
+  standingKey: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{87}$/)
+    .optional(),
 });
 export const PairingResponse = z.object({
   url: z.url(),
@@ -82,9 +98,41 @@ export const SocketTicket = z.object({
   expiresAt: timestamp,
 });
 
+/**
+ * One remote network's state: `off` (not wanted), `on` (serving), `waiting` (wanted, waiting on
+ * the person, such as a sign-in) or `failed` (wanted, not serving; `error` says why). A newer
+ * daemon may add states: readers treat one they don't know as neither serving nor failed.
+ */
+export const RemoteNetworkStatus = z.object({
+  state: z.union([z.enum(["off", "on", "waiting", "failed"]), z.string().max(64)]),
+  error: z.string().max(256).optional(),
+  /** Serving, with something the person can fix, such as browsers not trusting its address. */
+  warning: z.string().max(256).optional(),
+  /** Where it's reached: `https://host:port` for LAN and Tailscale, the relay's URL for a relay. */
+  address: z.string().max(2048).optional(),
+});
+export type RemoteNetworkStatus = z.infer<typeof RemoteNetworkStatus>;
+
+/**
+ * Each network remote access runs together (ADR 0112). `relay` is the relay the person turned on
+ * (theirs, or ace's when they named none); `account` is ace's relay, which a machine signed in to
+ * an ace account is on whenever remote access is. Absent from older daemons.
+ */
+export const RemoteNetworks = z.object({
+  lan: RemoteNetworkStatus,
+  tailscale: RemoteNetworkStatus,
+  relay: RemoteNetworkStatus,
+  account: RemoteNetworkStatus,
+});
+export type RemoteNetworks = z.infer<typeof RemoteNetworks>;
+
 /** Current network resources and launch overrides, independent of saved preferences. */
 export const RemoteAccessStatus = z.object({
   enabled: z.boolean(),
+  /**
+   * The one network older clients show: the person's relay while it serves, else Tailscale,
+   * else LAN, else any relay. `networks` has each.
+   */
   transport: z.enum(["local", "lan", "tailscale", "relay"]),
   listenOverride: z.enum(["local", "lan", "tailscale"]).nullable(),
   relayOverride: z.boolean(),
@@ -100,5 +148,8 @@ export const RemoteAccessStatus = z.object({
       hostId: z.string().min(1).max(256),
     })
     .optional(),
+  /** This machine's ace account and machine code (ADR 0111). Absent from older daemons. */
+  account: MachineAccountStatus.optional(),
+  networks: RemoteNetworks.optional(),
 });
 export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;

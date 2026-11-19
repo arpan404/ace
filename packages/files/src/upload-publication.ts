@@ -1,5 +1,7 @@
 import type { Stats } from "node:fs";
 import { dirname, join } from "node:path";
+import { posix } from "node:path";
+import { chmod } from "node:fs/promises";
 import { lstat } from "node:fs/promises";
 import { SafeRoot } from "@ace/workspace";
 import { Catalog, type UploadRecord, type UploadReceipt } from "./catalog.ts";
@@ -81,6 +83,7 @@ export class UploadPublication {
     await this.restoreUnpublished(record);
   }
   private async restoreUnpublished(record: UploadRecord): Promise<void> {
+    if (process.platform === "win32") return this.restoreUnpublishedWindows(record);
     if (!record.verified) return;
     try {
       const target = await this.safe.target(record.path);
@@ -117,6 +120,50 @@ export class UploadPublication {
     } catch {
       // Missing, replaced or inaccessible private files keep their reservation.
       // A failed preparation repair never disables startup or unrelated uploads.
+    }
+  }
+  /**
+   * Windows has only a read-only attribute: a private 0o600 temp reads back as 0o666, so that
+   * is the private mode there. Workspace paths keep `/` separators.
+   */
+  private async restoreUnpublishedWindows(record: UploadRecord): Promise<void> {
+    const verified = record.verified;
+    if (!verified) return;
+    try {
+      const target = await this.safe.target(record.path);
+      await target.verify();
+      const temp = posix.join(posix.dirname(record.path), record.temp);
+      const entry = await this.safe.privateFileMetadata(temp);
+      try {
+        if (
+          !verifiedInode(record, entry.info) ||
+          ![0o666, verified.mode].includes(entry.info.mode & 0o777)
+        )
+          return;
+        await entry.verify();
+        const current = await entry.handle.stat();
+        if (!verifiedInode(record, current) || current.nlink !== 1) return;
+        // The metadata handle can't change attributes on Windows; the name was just checked.
+        await chmod(join(dirname(target.path), record.temp), 0o600);
+        await entry.verify();
+      } finally {
+        await entry.handle.close();
+      }
+      const { handle, verify } = await openUpload(this.safe, record);
+      try {
+        if (!verifiedInode(record, await handle.stat())) return;
+        await handle.sync();
+        await verify();
+      } finally {
+        await handle.close();
+      }
+      const resumable = { ...record };
+      delete resumable.publishing;
+      delete resumable.verified;
+      delete resumable.mode;
+      this.catalog.publishUpload(resumable);
+    } catch {
+      // Missing, replaced or inaccessible private files keep their reservation.
     }
   }
   private async recoverPublished(record: UploadRecord): Promise<UploadReceipt | undefined> {

@@ -22,35 +22,75 @@ const INCOMPATIBLE_DATA_EXIT = exitCodes["incompatible-data"];
 export const incompatibleDataMessage =
   "ace can't read some of its saved data because a different ace build wrote it. The daemon log names the file and how to set it aside.";
 
+/**
+ * `ace start` could not take the home's lock: another daemon holds it, usually one still
+ * starting or shutting down (an earlier app's, the CLI's). Not a crash: the supervisor waits
+ * for that daemon to answer or let go, for up to `lockWaitMs`.
+ */
+const LOCK_HELD_EXIT = exitCodes["lock-held"];
+export const lockHeldMessage =
+  "Another ace process kept ace's data busy for too long. Quit it, then try again.";
+
 /** What a daemon's exit code says about why it stopped, when it says anything. */
 function exitCause(code: number | null): DaemonStatus["cause"] {
   return code === exitCodes["address-in-use"] ? "port-in-use" : undefined;
 }
 
+/**
+ * Said while the app restarts a daemon that kept stopping as it started, and while that
+ * daemon runs: what was left off, and how to get it back.
+ */
+export const safeModeRestartMessage =
+  "ace kept stopping as it started, so it is starting again without the part it was stuck on.";
+export const safeModeMessage =
+  "ace is running without the part that kept it from starting; restart ace to turn it back on.";
+
 export interface UnexpectedExit {
   code: number | null;
   signal: string | null;
-  /** Restarts in a row so far, after any reset for a stable run. */
+  /** Restarts in a row so far, after any reset for a stable run: each a fast failure. */
   crashes: number;
   maxRestarts: number;
+  /**
+   * Fast failures in a row after which the next start is in safe mode: the daemon leaves off
+   * the services its last start never finished (ADR 0175).
+   */
+  safeModeAfter: number;
 }
 
 /** What to do after the daemon this app started exited without being asked to. */
 export type ExitDecision =
   | { kind: "newer-data" }
   | { kind: "incompatible-data" }
+  | { kind: "lock-held" }
   | { kind: "give-up"; reason: string; cause: DaemonStatus["cause"] }
-  | { kind: "restart"; reason: string; cause: DaemonStatus["cause"]; delayMs: number };
+  | {
+      kind: "restart";
+      reason: string;
+      cause: DaemonStatus["cause"];
+      delayMs: number;
+      safeMode: boolean;
+    };
 
 /**
  * Restart with backoff until `maxRestarts` in a row, except for an exit that says a restart
- * would be refused the same way (data from a newer build, or in a format it cannot read).
+ * would be refused the same way (data from a newer build, or in a format it cannot read), and
+ * except for one refused by another daemon's lock, which is waited out rather than counted.
  */
 export function exitDecision(exit: UnexpectedExit): ExitDecision {
   if (exit.code === NEWER_DATA_EXIT) return { kind: "newer-data" };
   if (exit.code === INCOMPATIBLE_DATA_EXIT) return { kind: "incompatible-data" };
+  if (exit.code === LOCK_HELD_EXIT) return { kind: "lock-held" };
   const reason = `The daemon exited (${exit.signal ?? `code ${exit.code}`})`;
   const cause = exitCause(exit.code);
   if (exit.crashes >= exit.maxRestarts) return { kind: "give-up", reason, cause };
-  return { kind: "restart", reason, cause, delayMs: restartDelay(exit.crashes) };
+  return {
+    kind: "restart",
+    reason,
+    cause,
+    delayMs: restartDelay(exit.crashes),
+    // This exit is failure number `crashes + 1` in a row. Leaving services off cannot free
+    // a port another program holds, so a port conflict never starts one.
+    safeMode: cause === undefined && exit.crashes + 1 >= exit.safeModeAfter,
+  };
 }

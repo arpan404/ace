@@ -1,5 +1,5 @@
 import { useSidebarLoaded } from "@ace/client-react";
-import { ChatsIcon } from "@phosphor-icons/react";
+import { ChatsIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -30,9 +30,7 @@ export function HomeEmptyScreen() {
   // The last thread only while Home still lists it (not archived, inside the project filter).
   const listed =
     last !== null &&
-    [list.pinned, list.active, list.recent, list.snoozed, list.settled].some((ids) =>
-      ids.includes(last),
-    );
+    [list.pinned, list.listed, list.snoozed, list.settled].some((ids) => ids.includes(last));
   const target = listed ? last : loaded ? topThread(list) : undefined;
   // Asked only once the list is known to be empty: a returning person never waits on it.
   const onboarding = useOnboarding({ enabled: loaded && !target });
@@ -44,7 +42,7 @@ export function HomeEmptyScreen() {
   const settled = onboarding.data !== undefined || onboarding.isError;
   if (!settled || !loaded)
     return (
-      <Screen title="Home">
+      <Screen page="thread" title="Home">
         <LoadingRegion
           label="Home"
           className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
@@ -58,7 +56,7 @@ export function HomeEmptyScreen() {
   // add one for work in a folder.
   const noProjects = loaded && directory.loaded && directory.projects.length === 0;
   return (
-    <Screen title="Home">
+    <Screen page="thread" title="Home">
       <EmptyState
         icon={ChatsIcon}
         heading

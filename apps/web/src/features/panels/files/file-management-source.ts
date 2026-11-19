@@ -1,18 +1,17 @@
 import type { ClientApi } from "@ace/client";
-import { ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import { FolderPage, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import { ArchivePreview } from "@ace/ui-core";
 import { z } from "zod";
 import { checkoutError, fromCode } from "./checkout-source.ts";
 
-const listing = z.object({ paths: z.array(z.string()), truncated: z.boolean() });
 const trash = z.object({
   entries: z.array(
     z.object({ id: z.string(), path: z.string(), size: z.number(), expires: z.number() }),
   ),
   nextCursor: z.string().nullable(),
 });
-const preview = z.object({ previewId: z.string(), entries: z.number(), bytes: z.number() });
 export type TrashEntry = z.infer<typeof trash>["entries"][number];
-export type ArchivePreview = z.infer<typeof preview>;
+export type { ArchivePreview };
 export type FileMutation = Extract<
   FileOperation,
   { op: "write" | "create" | "mkdir" | "rename" | "move" | "delete" | "restore" }
@@ -44,8 +43,20 @@ export function fileManagement(client: ClientApi, threadId: string) {
     return reply.value;
   };
   return {
-    async list(signal?: AbortSignal) {
-      return decode(listing, await request({ op: "list", path: "", limit: 1000 }, signal));
+    /** One folder of the checkout, a page at a time; `cursor` is the last page's next one. */
+    async listFolder(
+      path: string,
+      cursor: string | undefined,
+      limit: number,
+      signal?: AbortSignal,
+    ) {
+      return decode(
+        FolderPage,
+        await request(
+          { op: "list.folder", path, limit, ...(cursor === undefined ? {} : { cursor }) },
+          signal,
+        ),
+      );
     },
     async mutate(operation: FileMutation) {
       return decode(WorkspaceFileChange, await request(operation));
@@ -58,7 +69,7 @@ export function fileManagement(client: ClientApi, threadId: string) {
     },
     async preview(path: string, includeIgnored: boolean, signal?: AbortSignal) {
       return decode(
-        preview,
+        ArchivePreview,
         await request({ op: "archive.preview", path, includeIgnored }, signal),
       );
     },

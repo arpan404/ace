@@ -100,8 +100,8 @@ const screens: Record<string, Setup> = {
         name: "Remove project",
       })
       .click();
-    // relay has threads still working: removing it means archiving them.
-    await expect(page.getByRole("button", { name: "Archive threads and remove" })).toBeVisible();
+    // relay has threads still working: removing it means stopping and deleting them.
+    await expect(page.getByRole("button", { name: "Stop threads and remove" })).toBeVisible();
   },
 };
 

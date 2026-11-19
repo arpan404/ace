@@ -1,17 +1,19 @@
 /*
  * The daemon's side of `ace-screen-helper --computer`: JSON lines over stdin/stdout, to a pool
  * of helpers. Each app gets its own helper, so agents in different apps run in parallel and a
- * hung app only ever stalls its own; one shared helper answers `hello`, `apps` and `resolve`.
+ * hung app only ever stalls its own; one shared helper answers `hello`, `apps`, `resolve` and
+ * the whole-display ops.
  * Helpers start on first use, restart after they exit or stop answering, and exit after a
  * while idle. At most `maxHelpers` app helpers live; the least recently used idle one goes.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { systemScheduler, type Scheduler } from "../runtime.ts";
 import { ComputerError } from "./errors.ts";
-import { HelperConnection } from "./helper-connection.ts";
+import { HelperConnection, type RequestDispatch } from "./helper-connection.ts";
 import { performance } from "node:perf_hooks";
 import type { ComputerRequestTiming } from "./timing.ts";
 
+export type { RequestDispatch } from "./helper-connection.ts";
 export { ComputerError } from "./errors.ts";
 export type { ComputerRequestTiming } from "./timing.ts";
 
@@ -37,6 +39,12 @@ export interface ComputerClientOptions {
   deadlineMs?: (op: string) => number;
   /** How long a cancelled or overdue request may take to reply before its helper is killed. */
   graceMs?: number;
+  /**
+   * Windows: how long a helper may take to exit after its stdin closes before it is killed.
+   * A kill there is immediate, so the helper gets this long to put back a borrowed clipboard
+   * and release held keys. Unset elsewhere, where SIGTERM lets it do that.
+   */
+  stopGraceMs?: number;
   /** How long an app's helper may sit idle before it exits. */
   idleMs?: number;
   /** App helpers kept alive at once. */
@@ -52,10 +60,18 @@ export interface ComputerRequestOptions {
   signal?: AbortSignal | undefined;
   /** The app the request acts on; defaults to the payload's `app` for state and act. */
   app?: string | undefined;
+  /** Rechecked just before native stdin; waits release the helper queue. */
+  dispatch?: RequestDispatch;
 }
 
 /** Ops about the computer as a whole rather than one app. */
-const catalogOps: ReadonlySet<string> = new Set(["hello", "apps", "resolve"]);
+const catalogOps: ReadonlySet<string> = new Set([
+  "hello",
+  "apps",
+  "resolve",
+  "displays",
+  "capture_displays",
+]);
 const catalog = "\u0000catalog";
 
 /** Launching, settling and capturing take seconds; a batch of actions takes longest. */
@@ -86,7 +102,7 @@ export class ComputerClient {
   async request(
     op: string,
     payload: Record<string, unknown>,
-    { signal, app }: ComputerRequestOptions = {},
+    { signal, app, dispatch }: ComputerRequestOptions = {},
   ): Promise<unknown> {
     if (this.closed) throw new ComputerError("closed", "Computer use is shutting down.");
     signal?.throwIfAborted();
@@ -99,7 +115,17 @@ export class ComputerClient {
       payload,
       (this.options.deadlineMs ?? defaultDeadlineMs)(op),
       signal,
+      dispatch,
     );
+  }
+
+  /**
+   * The process id of the helper that runs `app`'s state and act requests, starting it if
+   * needed: locked use counts input that process posts as the agent's.
+   */
+  async helperProcessId(app: string): Promise<number | undefined> {
+    if (this.closed) return undefined;
+    return this.entry(app.toLowerCase()).connection.pid();
   }
 
   close(): void {
@@ -129,6 +155,9 @@ export class ComputerClient {
         scheduler: this.scheduler,
         maxReplyBytes: this.options.maxReplyBytes ?? 32 * 1024 * 1024,
         graceMs: this.options.graceMs ?? 3_000,
+        ...(this.options.stopGraceMs !== undefined
+          ? { stopGraceMs: this.options.stopGraceMs }
+          : {}),
         idle: (idle) => this.idleChanged(key, entry, idle),
         ...(this.options.timing
           ? {

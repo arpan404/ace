@@ -8,11 +8,13 @@ enum ModelPickerState: Equatable {
     case failed(title: String, message: String)
 }
 
-/// The model sheet shared by a thread's composer and New thread, models only: X on the left, a
-/// check on the right, "Find a model" at the bottom within the thumb's reach (under the title
-/// before iOS 26), Favorites and one tab per account on a
-/// glass bar, then the shown tab's models as plain rows under hairlines, each with a star. A tab
-/// that can't take work says why in one line above its models.
+/// The one model sheet shared by an open thread and New thread: X on the left, a check on the
+/// right, "Find a model" at the bottom within the thumb's reach (under the title before iOS 26).
+/// At its top, Effort and Speed for the model it runs on (`TuneSection`); below them the account
+/// whose models show (`AccountPicker`: Favorites or one account), pinned while the models scroll,
+/// then that account's models as plain rows under hairlines, each with a star. An account that
+/// can't take work says why in one line above its models. Searching hides the tune rows and the
+/// account. A pick brings the Effort row into view and moves VoiceOver focus to it.
 struct ModelPicker: View {
     @Binding var query: String
     let tabs: [ModelPickerTab]
@@ -32,76 +34,101 @@ struct ModelPicker: View {
     var confirming = false
     /// Puts back what the sheet changed as it went, when X closes it.
     var cancel: () -> Void = {}
+    /// Done (✓) in the bar.
     let confirm: () -> Void
+    /// X beside Done, putting back what the sheet changed (`cancel`); without it Done is the only
+    /// bar button and a swipe down closes the sheet as Done does.
+    var closable = true
     let choose: (ModelPickerRow) -> Void
     let star: (ModelPickerRow) -> Void
+    /// Effort and Speed for the model it would run on; nil or empty shows no rows.
+    var tune: TuneChoices? = nil
+    var pickEffort: (TuneChoiceRow.Level) -> Void = { _ in }
+    var pickSpeed: (TuneChoiceRow.Level) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
+    @State private var detent: PresentationDetent = .large
+    /// Counts model picks, so the Effort row comes into view and takes VoiceOver focus after each.
+    @State private var picks = 0
+    @AccessibilityFocusState private var tuneFocus: Bool
 
     private var tab: ModelPickerTab? { tabs.first { $0.id == shown } }
     private var searching: Bool { ModelSearch.active(query) }
 
     var body: some View {
         NavigationStack {
-            List { content }
+            ScrollViewReader { scroller in
+                List { content }
+                    // A model picked: its Effort and Speed are what to set next.
+                    .onChange(of: picks) {
+                        guard let tune, !tune.isEmpty, !searching else { return }
+                        withAnimation { scroller.scrollTo(TuneSection.anchor, anchor: .top) }
+                        tuneFocus = true
+                    }
+            }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
             .modifier(ModelSearchField(query: $query))
-            .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
-            .inboxTopBar { if tabs.count > 1 && !searching { tabBar } }
+            .navigationTitle("Model").navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
+                if closable {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) { confirmButton }
             }
         }
         .tint(AceTheme.Colours.foreground)
         .toggleStyle(.systemSwitch)
-        .presentationDetents([.large]).presentationDragIndicator(.visible)
+        .presentationDetents([.medium, .large], selection: $detent).presentationDragIndicator(.visible)
     }
 
-    private var tabBar: some View {
-        GlassChoice(items: tabs.map(item), selection: shown, idPrefix: "tab") { shown = $0 }
+    private var accounts: some View {
+        AccountPicker(tabs: tabs, shown: $shown)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, AceTheme.Spacing.lg)
             .padding(.top, AceTheme.Spacing.xs)
             .padding(.bottom, AceTheme.Spacing.sm)
-    }
-    private func item(_ tab: ModelPickerTab) -> GlassChoiceItem {
-        GlassChoiceItem(id: tab.id, label: tab.name,
-                        glyph: tab.provider.map { .provider($0, quiet: tab.note != nil) } ?? .symbol("star"))
+            .background(AceTheme.Colours.background)
+            .listRowInsets(EdgeInsets())
     }
 
     @ViewBuilder private var content: some View {
+        if let tune, !tune.isEmpty, !searching {
+            TuneSection(choices: tune, focus: $tuneFocus, pickEffort: pickEffort, pickSpeed: pickSpeed)
+        }
+        // The account heads its models and stays pinned while they scroll.
+        Section { models } header: { if tabs.count > 1 && !searching { accounts } }
+            .listSectionSeparator(.hidden, edges: .top)
+    }
+
+    @ViewBuilder private var models: some View {
         switch state {
         case .loading:
-            HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+            SkeletonRows(count: 4, label: "Loading models").listRowBackground(Color.clear).listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
         case .failed(let title, let message):
-            ContentUnavailableView {
-                Label(title, systemImage: "wifi.exclamationmark")
-            } description: { Text(message) } actions: { Button("Try again", action: retry) }
-            .listRowSeparator(.hidden)
+            ProblemRow(title, detail: message,
+                            retryId: "modelSheet.retry", retry: retry)
         case .ready:
             if let starProblem { PickerNote(text: starProblem).accessibilityIdentifier("modelSheet.starProblem") }
             if !searching, let note = tab?.note {
                 PickerNote(text: note).accessibilityIdentifier("tab.\(shown).reason")
             }
             if rows.isEmpty {
-                if searching { ContentUnavailableView.search(text: query).listRowSeparator(.hidden) }
+                if searching { EmptyState.search(query).listRowSeparator(.hidden) }
                 else if shown == ModelPickerTab.favorites {
                     PickerNote(text: "Star a model to keep it here.").accessibilityIdentifier("favorites.empty")
                 } else if tab?.note == nil { PickerNote(text: "No models on this account.") }
             } else {
-                Section {
-                    ForEach(rows) { row in
-                        ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: searching || tab?.note == nil,
-                                       choose: { choose(row) }, star: { star(row) })
-                    }
-                    if hidden > 0 || expanded { moreRow }
+                ForEach(rows) { row in
+                    ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: (searching || tab?.note == nil) && row.note == nil,
+                                   choose: { choose(row); picks += 1 }, star: { star(row) })
                 }
-                .listSectionSeparator(.hidden, edges: .top)
+                if hidden > 0 || expanded { moreRow }
             }
         }
     }

@@ -9,6 +9,7 @@ import type { ProviderAdapter } from "@ace/engine-api";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import { personalGeminiHome } from "../antigravity-settings.ts";
 import { linkPersonalSkills } from "./antigravity-skills.ts";
+import { catalogEnvironment } from "../catalog-env.ts";
 import type { ServiceContext } from "./types.ts";
 
 /**
@@ -112,11 +113,8 @@ export function registerAntigravityAccountCatalog(
       executable: launch.executable,
       cwd: context.config.dataDir,
       args: [...launch.args],
-      env: Object.fromEntries(
-        Object.entries(env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
-      ),
       // The person's credentials the account never inherits, kept unset at launch too.
-      unsetEnv: Object.entries(env).flatMap(([key, value]) => (value === undefined ? [key] : [])),
+      ...catalogEnvironment(env),
       loginRevision: `${launch.loginRevision}:${instance.loginRevision ?? "0"}`,
       // No sign-in method: if its login has lapsed, discovery reports it instead of asking the
       // agent to sign in, which would open a browser nobody asked for.

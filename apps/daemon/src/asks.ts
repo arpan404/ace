@@ -49,6 +49,7 @@ export class Asks {
     const key = `ace-ask:${this.deps.id()}`;
     const request: InteractionRequest = {
       kind: "question",
+      target: { tool: "ask", access: "execute" },
       questions: [
         {
           id: "answer",

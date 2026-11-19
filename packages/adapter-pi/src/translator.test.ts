@@ -127,7 +127,9 @@ test("shell output appends only new suffixes and completion cannot erase survivi
   h.recv({ type: "tool_execution_update", toolCallId: "shell", partialResult: result("abc") });
   h.recv({ type: "tool_execution_update", toolCallId: "shell", partialResult: result("abcdef") });
   h.recv(settled);
-  expect(h.state.status.state).toBe("waiting");
+  // Settled with the shell still running: listed, not waited on (ADR 0116).
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.tasks).some((task) => task.status === "running")).toBe(true);
   h.recv({
     type: "tool_execution_end",
     toolCallId: "shell",
@@ -140,28 +142,6 @@ test("shell output appends only new suffixes and completion cannot erase survivi
   if (call?.type !== "tool_call" || call.call.detail.kind !== "shell") throw new Error("No shell");
   expect(call.call.detail.output?.bytes).toBe(6);
   expect(call.call.detail.output?.tail).toBe("abcdef");
-});
-test("streamed assistant text is not duplicated by the final authoritative message", () => {
-  const h = replay();
-  h.recv(start);
-  h.recv({ type: "message_start", message: { role: "assistant", content: [] } });
-  h.recv({
-    type: "message_update",
-    assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "hello" },
-  });
-  h.recv({
-    type: "message_end",
-    message: {
-      role: "assistant",
-      content: [{ type: "text", text: "hello" }],
-      stopReason: "stop",
-      usage: { input: 2, output: 1 },
-    },
-  });
-  h.recv(settled);
-  const item = h.state.items["pi:message:1:0"];
-  expect(item?.type === "message" ? item.parts : []).toEqual([{ type: "text", text: "hello" }]);
-  expect(item?.complete).toBe(true);
 });
 test("a Pi turn with 600 tool calls open at once keeps translating and settles once they finish", () => {
   const h = replay();

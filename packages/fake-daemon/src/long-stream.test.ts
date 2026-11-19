@@ -23,16 +23,17 @@ function connect(daemon: FakeDaemon) {
   transport.send(
     JSON.stringify({ type: "hello", protocolVersion: 1, deviceId: "phone", token: daemon.token }),
   );
-  const subscribe = (subscriptionId: string, afterSeq?: number) =>
+  const subscribe = (subscriptionId: string, afterSeq?: number, threadId = "long") =>
     transport.send(
       JSON.stringify({
         type: "subscribe",
         subscriptionId,
-        scope: { kind: "thread", threadId: "long" },
+        scope: { kind: "thread", threadId },
         ...(afterSeq === undefined ? {} : { afterSeq }),
       }),
     );
-  return { received, frames, subscribe };
+  const send = (message: Record<string, unknown>) => transport.send(JSON.stringify(message));
+  return { received, frames, subscribe, send };
 }
 
 function streamed(daemon: FakeDaemon, deltas: number, piece: string) {
@@ -80,4 +81,63 @@ test("a subscriber further behind than the daemon replays gets a snapshot, not e
     .filter((message) => message.type === "events")
     .reduce((sum, message) => sum + ((message.events as unknown[] | undefined)?.length ?? 0), 0);
   expect(replayed).toBe(0);
+});
+
+test("a quiet thread replays its own events however far another thread's stream moved the host", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({ id: "quiet", workspaceId: "ace", title: "Quiet", provider: "codex" });
+  daemon.apply("quiet", [facts.rootAgent("codex")]);
+  const seen = daemon.head;
+  streamed(daemon, 6_000, "x");
+  daemon.apply("quiet", [facts.turn("root")]);
+  const wire = connect(daemon);
+  wire.subscribe("back", seen, "quiet");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(wire.received.some((message) => message.type === "snapshot")).toBe(false);
+  const replayed = wire.received
+    .filter((message) => message.type === "events")
+    .flatMap((message) => (message.events as { threadId: string }[] | undefined) ?? []);
+  expect(replayed.length).toBeGreaterThan(0);
+  expect(replayed.every((event) => event.threadId === "quiet")).toBe(true);
+});
+
+test("each fake daemon run names its own database, the same on every connection", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const welcome = async (wire: ReturnType<typeof connect>) => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return wire.received.find((message) => message.type === "welcome")?.databaseId;
+  };
+  const first = await welcome(connect(daemon));
+  expect(first).toEqual(expect.any(String));
+  expect(await welcome(connect(daemon))).toBe(first);
+  // Its log lives in memory: a restarted fixture reuses sequences under the same host id.
+  expect(await welcome(connect(new FakeDaemon({ clock: () => 1000 })))).not.toBe(first);
+});
+
+test("a clipped message's whole text reads back through the source its preview names", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  streamed(daemon, 40, "é".repeat(1000));
+  const wire = connect(daemon);
+  wire.subscribe("whole");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const view = wire.received.find((message) => message.type === "snapshot")?.view as {
+    items: Record<string, { parts: { text: string; source?: { streamId: string } }[] }>;
+  };
+  const part = Object.values(view.items).find((item) => item.parts?.[0]?.source)?.parts[0];
+  const streamId = part?.source?.streamId ?? "";
+  expect(part?.text.length).toBe(previewUnits);
+
+  const whole: Buffer[] = [];
+  for (let offset = 0, page = 0; page < 10; page++) {
+    wire.send({ type: "output.read", requestId: `read-${page}`, streamId, offset, limit: 32768 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const reply = wire.received.find((message) => message.requestId === `read-${page}`) as
+      | { type: string; bytes: string; nextOffset: number; eof: boolean }
+      | undefined;
+    expect(reply?.type).toBe("output.data");
+    whole.push(Buffer.from(reply?.bytes ?? "", "base64"));
+    if (!reply || reply.eof) break;
+    offset = reply.nextOffset;
+  }
+  expect(Buffer.concat(whole).toString("utf16le")).toBe("Start" + "é".repeat(40_000));
 });

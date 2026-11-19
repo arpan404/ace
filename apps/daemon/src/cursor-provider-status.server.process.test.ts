@@ -71,7 +71,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
             discovery: {
               platform: "darwin",
               arch: "arm64",
-              nodeVersion: "24.0.0",
+              nodeVersion: "26.0.0",
               resolve: (id) =>
                 id === "@cursor/sdk" ? join(sdkRoot, "index.js") : join(helper, "package.json"),
             },

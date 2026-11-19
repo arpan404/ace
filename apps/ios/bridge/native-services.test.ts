@@ -1,5 +1,6 @@
 import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
+import { NativeReads } from "./native-reads.ts";
 import { NativeServices } from "./native-services.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -67,6 +68,23 @@ test("native service bridge refuses thread commands so they cannot bypass durabl
   expect(sink.read("service:bad")).toMatchObject({ ok: false, value: null });
 });
 
+test("an API key never leaves the phone, because ADR 0002 allows keys only over provider_auth", async () => {
+  const { client } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.state === "ready", "connected");
+  const sink = new RecordingSink();
+  new NativeServices(client, sink).handle({
+    type: "service",
+    id: "key",
+    request: { type: "provider.login.apiKey", session: "login-1", apiKey: "sk-test-123" },
+  });
+  await until(() => sink.read("service:key") !== undefined, "refused");
+  // Refused in the bridge: a forwarded request would come back with the daemon's own answer.
+  expect(sink.read("service:key")).toMatchObject({ ok: false, value: null });
+  expect(JSON.stringify(sink.read("service:key"))).not.toContain("sk-test-123");
+});
+
 test("phone search finds message content beyond the loaded inbox titles", async () => {
   const { client } = sheetFixture();
   close = () => client.close();
@@ -91,4 +109,56 @@ test("phone search finds message content beyond the loaded inbox titles", async 
       ],
     },
   });
+});
+
+test("a source-control rescan bypasses fresh phone cache and replaces the kept readiness", async () => {
+  const { client, daemon } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.connectionState().getSnapshot() === "ready", "connected");
+  const sink = new RecordingSink();
+  const reads = new NativeReads(client, sink, { now: () => 1000, schedule: () => () => {} });
+  const services = new NativeServices(
+    client,
+    sink,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    reads,
+  );
+  const request = { type: "source-control.request", operation: { op: "readiness" } };
+  const cache = JSON.stringify(request);
+  const ask = async (id: string, extra = {}) => {
+    services.handle({ type: "service", id, cache, request: { ...request, ...extra } });
+    await until(() => sink.read(`service:${id}`) !== undefined, id);
+    return sink.read(`service:${id}`);
+  };
+  try {
+    expect(await ask("initial")).toMatchObject({
+      ok: true,
+      value: { result: { readiness: { preferences: { remote: "origin" } } } },
+    });
+    daemon.seedServices({
+      settings: {
+        "sourceControl.preferences": {
+          hosts: [{ host: "github.com" }],
+          host: "github.com",
+          remote: "upstream",
+        },
+      },
+    });
+    expect(await ask("cached")).toMatchObject({
+      value: { result: { readiness: { preferences: { remote: "origin" } } } },
+    });
+    expect(await ask("rescan", { fresh: true })).toMatchObject({
+      value: { result: { readiness: { preferences: { remote: "upstream" } } } },
+    });
+    expect(await ask("reopened")).toMatchObject({
+      value: { result: { readiness: { preferences: { remote: "upstream" } } } },
+    });
+  } finally {
+    services.dispose();
+    reads.dispose();
+  }
 });

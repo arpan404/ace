@@ -7,6 +7,8 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
+import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
+import type { ScreenStreamSettings } from "@ace/protocol";
 
 export interface LifecycleOptions {
   platform: DevicePlatform;
@@ -21,6 +23,8 @@ export interface LifecycleOptions {
   recordingAvailable?(): boolean;
   recordingLimitBytes?: number;
   capture?: typeof startCapture;
+  /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
+  media?: DeviceMedia;
 }
 export interface LifecycleOwner {
   enabled(): boolean;
@@ -31,6 +35,11 @@ export interface LifecycleOwner {
   authorize(session: DeviceSession, actor: Actor): void;
   /** A failure nobody asked about (a live view ending on its own), for the daemon log. */
   log(message: string, session: DeviceSession, error: unknown): void;
+  /**
+   * ace-media's plan for the device's views, as one stream request (`source.want`, D1);
+   * undefined once it no longer holds.
+   */
+  mediaWant?(session: DeviceSession, settings: ScreenStreamSettings | undefined): void;
 }
 function noop() {}
 
@@ -87,12 +96,16 @@ export async function startDevice(
     owner.emit(session);
     return (options.capture ?? startCapture)({
       device,
-      ...(session.threadId ? { scope: { threadId: session.threadId, agentId: "human" } } : {}),
       streamId,
       fps,
       signal: controller.signal,
       platform: options.platform,
       ...(options.screen ? { screen: options.screen } : {}),
+      ...(options.media
+        ? {
+            media: withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+          }
+        : {}),
       runtime: options.runtime,
       env: options.env,
       publish(frame) {
@@ -219,19 +232,10 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
       if (session.capture === owned) delete session.capture;
       if (session.startup === startup) delete session.startup;
     };
-    const cleanupRecording = async () => {
-      const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
-      const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
-      const errors = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      delete session.recording;
-      if (errors.length) throw new AggregateError(errors, "Device recording cleanup failed");
-    };
     const results = await Promise.allSettled([
       cleanupCapture(),
       session.logs.stop(),
-      cleanupRecording(),
+      closeDeviceRecording(session),
     ]);
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
@@ -255,6 +259,15 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
   session.stopping = stopping;
   owner.emit(session);
   return stopping;
+}
+
+/** Ends any recording the device has open or is opening; the capture keeps running. */
+export async function closeDeviceRecording(session: DeviceSession): Promise<void> {
+  const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
+  const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
+  const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+  delete session.recording;
+  if (errors.length) throw new AggregateError(errors, "Device recording cleanup failed");
 }
 
 export { recordDevice, stopDeviceRecording } from "./recording.ts";

@@ -14,6 +14,11 @@ import { resolveCommand } from "./plan.ts";
 import type { SkillSource } from "./skill-context.ts";
 import { parseRuntime } from "./runtime.ts";
 import { searchCommands, type Usage } from "./search.ts";
+const NativeRuntimeMetadata = z.object({
+  plugins: z.unknown().optional(),
+  tools: z.unknown().optional(),
+  mcp_servers: z.unknown().optional(),
+});
 export class CommandCatalog {
   private version = 0;
   get revision(): number {
@@ -84,13 +89,7 @@ export class CommandCatalog {
     if (!parsed.commands.length && parsed.diagnostics.length) return false;
     const source = `runtime:${target.session}`;
     const old = this.sources.get(source);
-    const nativeMetadata = z
-      .object({
-        plugins: z.unknown().optional(),
-        tools: z.unknown().optional(),
-        mcp_servers: z.unknown().optional(),
-      })
-      .safeParse(input);
+    const nativeMetadata = NativeRuntimeMetadata.safeParse(input);
     if (target.provider === "claude" && old && nativeMetadata.success) {
       const oldSkills = new Map(
         old.commands

@@ -55,6 +55,35 @@ export class OpenCodeTranslator implements Translator {
       return [];
     }
     if (frame.channel === "transport.activity") return [{ type: "signal" }];
+    if (frame.channel === "mcp.readiness") {
+      this.diagnostics.push({
+        type: adapterWarning,
+        data: {
+          event: "mcp-readiness-unconfirmed",
+          detail:
+            "OpenCode never registered ace's readiness plugin; the session opened without confirming ace's tools.",
+        },
+      });
+      return [];
+    }
+    if (frame.channel === "agent.environment" && data.type === "stopped") {
+      // A subagent ace stopped because it couldn't give it its thread's shell environment.
+      const session = string(data.sessionID);
+      return [
+        {
+          type: "item.upsert",
+          agent: state.agents.has(session) ? state.key(session) : state.rootKey,
+          item: `agent-environment:${session}`,
+          draft: {
+            type: "notice",
+            complete: true,
+            level: "warning",
+            text: "ace stopped this subagent before it ran anything: it couldn't give it its thread's shell environment.",
+            detail: string(data.message),
+          },
+        },
+      ];
+    }
     if (frame.channel === "lifecycle") {
       if (data.type === "ancestry.pending")
         return state.background(string(data.id), state.rootNative, "other");

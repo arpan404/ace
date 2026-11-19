@@ -17,6 +17,7 @@ import {
   resolveKeymap,
   scopeOf,
   setKeybindingOverrides,
+  systemKeys,
   useKeybindingOverrides,
   useResolvedKeymap,
   type Keybindings,
@@ -30,8 +31,10 @@ import {
   type KeymapId,
   type KeyScope,
 } from "@/lib/keymap.ts";
-import { settingKeys } from "./data/setting-keys.ts";
-import { useSetting, useSettingsBackend, useSettingWrite } from "./data/use-settings.ts";
+import { useDeviceKeymap } from "@/lib/device-keymap.ts";
+import { useSettingWrite } from "./data/use-settings.ts";
+import { GlobalShortcuts } from "./keyboard-global.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The page's sections, in order; an id not listed lands in "Other". */
 const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
@@ -59,8 +62,12 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
     label: "Go to",
     ids: [
       "goHome",
+      "goChats",
       "goAutomations",
       "goSkills",
+      "goUsage",
+      "goPullRequests",
+      "goIssues",
       "nextThread",
       "previousThread",
       "nextNeedsYou",
@@ -98,15 +105,29 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "panel.moveTab",
     ],
   },
-  { label: "File tree", ids: ["files.rename", "files.delete", "files.move"] },
+  { label: "File tree", ids: ["files.rename", "files.delete", "files.move", "files.search"] },
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",
     ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser"],
   },
   {
+    label: "Projects",
+    ids: ["showInbox", "showSnoozed", "showSettled", "nextThreadsTab"],
+  },
+  {
     label: "Thread list",
-    ids: ["home.pin", "home.select", "home.move", "home.actions", "home.range", "home.ends"],
+    ids: [
+      "home.pin",
+      "home.select",
+      "home.settle",
+      "home.snooze",
+      "home.tabs",
+      "home.move",
+      "home.actions",
+      "home.range",
+      "home.ends",
+    ],
   },
 ];
 const listed = new Set(groups.flatMap((group) => group.ids));
@@ -126,27 +147,34 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   notifications: "In notifications",
 };
 
-/** Chords the browser (or the system, in the app) keeps for itself; a page never sees them. */
-function reservedKeys() {
-  const env = keyboardEnv();
+/** Chords a browser tab keeps for itself; a page never sees them. */
+function browserKeys(): readonly string[] {
+  if (!keyboardEnv().web) return [];
   return [
     "mod+w",
     "mod+q",
     "mod+t",
     "mod+l",
     "mod+r",
+    "mod+n",
+    "shift+mod+n",
     "shift+mod+w",
     "shift+mod+t",
-    ...(env.web ? ["mod+n", "shift+mod+n"] : env.apple ? ["mod+h", "mod+m", "mod+tab"] : []),
   ];
+}
+
+/** Who keeps `keys` for itself, or undefined when a shortcut may have them. */
+function reservedBy(keys: string): string | undefined {
+  const same = (chord: string) => normalizeKeys(chord) === normalizeKeys(keys);
+  if (browserKeys().some(same)) return "the browser";
+  if (systemKeys().some(same)) return "the system";
+  return undefined;
 }
 
 /** Why a shortcut can't be recorded here, or undefined when it can. */
 function readOnlyReason(id: KeymapId): string | undefined {
   if (!isRebindable(id)) return "Fixed";
-  const keys = keymap[id].keys;
-  if (keys.includes(" ")) return "Sequence";
-  const chord = parseChord(keys);
+  const chord = parseChord(keymap[id].keys);
   if (!chord.mod && !chord.ctrl && !chord.alt && !/^f\d+$/.test(chord.key)) return "Single key";
   return undefined;
 }
@@ -156,11 +184,12 @@ type Problem =
   | { id: KeymapId; text: string; swap: { keys: string; with: KeymapId } };
 
 /**
- * Every shortcut, grouped, with rebinding. Rebindings live in the daemon's client settings and
- * apply at once everywhere (`lib/keybindings.ts`): hotkeys, tooltips, menus and the palette.
+ * Every shortcut, grouped, with rebinding. Rebindings belong to this device (each app and browser
+ * keeps its own) and apply at once across it (`lib/keybindings.ts`): hotkeys, tooltips, menus and
+ * the palette.
  */
 export function KeyboardShortcuts() {
-  const [, store] = useSetting(settingKeys.keybindings);
+  const device = useDeviceKeymap();
   const overrides = useKeybindingOverrides();
   const bindings = useResolvedKeymap();
   const write = useSettingWrite("Keyboard shortcuts");
@@ -175,18 +204,10 @@ export function KeyboardShortcuts() {
   useEffect(() => {
     latest.current = overrides;
   });
-  const backend = useSettingsBackend();
-  /** What the daemon holds now, as far as this window knows (its optimistic writes included). */
-  const authoritative = (): Keybindings => {
-    const parsed = settingKeys.keybindings.schema.safeParse(
-      backend.values.get()[settingKeys.keybindings.key],
-    );
-    return parsed.success ? parsed.data : {};
-  };
   /**
-   * Apply an edit to the rebindings: shown at once, then stored. A Retry re-applies the edit to
-   * what is current then, never an old snapshot; a refusal shows what the daemon holds, so a
-   * failed older edit can't undo a newer one that was accepted.
+   * Apply an edit to the rebindings: shown at once, then stored on this device. A Retry re-applies
+   * the edit to what is current then, never an old snapshot; a failed save shows what the device
+   * holds, so a failed older edit can't undo a newer one that was saved.
    */
   const change = (edit: (current: Keybindings) => Keybindings) =>
     write.run(async () => {
@@ -196,9 +217,9 @@ export function KeyboardShortcuts() {
       latest.current = clean;
       setKeybindingOverrides(clean);
       try {
-        await store(clean);
+        await device.set(clean);
       } catch (error) {
-        setKeybindingOverrides(authoritative());
+        setKeybindingOverrides(device.get() ?? {});
         throw error;
       }
     });
@@ -218,15 +239,10 @@ export function KeyboardShortcuts() {
     }
     const keys = result.keys;
     // A shortcut may always take back its own default (Reload's ⌘R).
-    const ownDefault = normalizeKeys(keys) === normalizeKeys(keymap[id].keys);
-    if (
-      !ownDefault &&
-      reservedKeys().some((chord) => normalizeKeys(chord) === normalizeKeys(keys))
-    ) {
-      setProblem({
-        id,
-        text: `${formatKeys(keys)} is used by ${env.web ? "the browser" : "the system"}.`,
-      });
+    const ownDefault = normalizeKeys(keys) === normalizeKeys(defaultKeys(id));
+    const reserved = ownDefault ? undefined : reservedBy(keys);
+    if (reserved) {
+      setProblem({ id, text: `${formatKeys(keys)} is used by ${reserved}.` });
       return;
     }
     const taken = conflictFor(keys, id, bindings);
@@ -258,6 +274,7 @@ export function KeyboardShortcuts() {
 
   return (
     <div id="keyboard.shortcuts">
+      <GlobalShortcuts />
       {/* The filter sits in the title band; the first group starts a clear step below it. */}
       <div className="mb-6 flex items-center gap-3">
         <SearchField
@@ -281,7 +298,7 @@ export function KeyboardShortcuts() {
         />
       )}
       {visible.map(({ section, ids }) => (
-        <SettingSection key={section.label} label={section.label} card scope="daemon">
+        <SettingSection key={section.label} label={section.label} card>
           {ids.map((id) => (
             <ShortcutRow
               key={id}
@@ -413,6 +430,7 @@ function ShortcutRow(props: {
             aria-label={`${label} shortcut`}
             aria-describedby={described}
             aria-pressed={recording}
+            {...part("button", recording && "active", "shortcut")}
             onClick={() => props.onRecord(!recording)}
             onKeyDown={props.onKeyDown}
             className="rounded-sm px-1 py-0.5 transition-shadow duration-(--motion-fast) hover:bg-accent focus-ring aria-pressed:bg-accent"

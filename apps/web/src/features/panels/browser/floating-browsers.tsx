@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { usePhone } from "@/lib/breakpoints.ts";
@@ -19,6 +20,7 @@ import {
 import { pipPage } from "./pip-rules.ts";
 import { useAutomaticPip } from "./pip-setting.ts";
 import { useShowBrowserPanel } from "./reveal-tab.ts";
+import { useBrowserFeatures } from "./use-browser-features.ts";
 
 const same = <T,>(value: T) => value;
 
@@ -55,6 +57,7 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
   "use no memo";
   const { preview: source } = usePanelServices();
   const { threadId } = props;
+  const browser = useBrowserFeatures(threadId);
   const subscribe = useCallback(
     (changed: () => void) => source.subscribe(changed, threadId),
     [source, threadId],
@@ -70,10 +73,12 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
     addThread(floatingThreads, threadId);
     return () => removeThread(floatingThreads, threadId);
   }, [floats, threadId]);
-  const title = useThreadMeta(threadId)?.title;
+  const title = useThread(threadId, ["thread"], readTitle);
   const showBrowser = useShowBrowserPanel(threadId);
   const navigate = useNavigate();
   if (!page) return null;
+  const tabs = view?.tabs ?? [];
+  const shown = tabs.find((tab) => tab.tabId === view?.activeTabId);
   const restore = () => {
     showBrowser(page.tabId);
     if (!props.current) void navigate({ to: "/t/$threadId", params: { threadId } });
@@ -85,6 +90,12 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
       frame={source.frame(threadId)}
       page={page}
       threadTitle={title}
+      status={tabs.some((tab) => tab.inUse?.kind === "agent") ? "browsing" : "playing"}
+      recording={view?.recording !== undefined}
+      audible={shown?.audible === true}
+      muted={shown?.muted === true}
+      playing={shown?.playing === true}
+      onMute={() => void browser.muteTab(page.tabId, !(shown?.muted === true))}
       onRestore={restore}
       onDismiss={() => addThread(dismissedPip, threadId)}
     />
@@ -98,3 +109,6 @@ export default function FloatingBrowsersBoundary() {
     </WithServices>
   );
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readTitle = (reader: ThreadReader) => reader.thread?.title;

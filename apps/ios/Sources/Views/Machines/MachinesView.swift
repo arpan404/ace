@@ -10,14 +10,27 @@ struct MachinesView: View {
     var body: some View {
         List {
             Section {
-                ForEach(inbox.sessions) { session in
-                    NavigationLink(value: SettingsRoute.machine(session.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: session.hostId) }
-                        .accessibilityIdentifier("machines.row.\(session.hostId)")
+                ForEach(listed, id: \.self) { hostId in
+                    NavigationLink(value: SettingsRoute.machine(hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: hostId) }
+                        .accessibilityIdentifier("machines.row.\(hostId)")
                         .insetRowBackground()
+                        .swipeActions(edge: .trailing) { turnOnOrOff(hostId) }
+                        .contextMenu { turnOnOrOff(hostId) }
                 }
-                ForEach(unsupported) { entry in
-                    NavigationLink(value: SettingsRoute.machine(entry.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: entry.hostId) }
-                        .insetRowBackground()
+            }
+            if !inbox.sessions.isEmpty {
+                FleetUpdatesSection(inbox: inbox)
+                Section {
+                    NavigationLink { FleetMapView(inbox: inbox, machines: machines) } label: {
+                        InsetRow("Fleet map", systemImage: "network", subtitle: "How each machine and device is reached, and what needs you")
+                    }
+                    .accessibilityIdentifier("machines.fleetMap")
+                    .insetRowBackground()
+                    NavigationLink { FleetRulesView(inbox: inbox) } label: {
+                        InsetRow("Fleet rules", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Remote access and agents, on every machine")
+                    }
+                    .accessibilityIdentifier("machines.fleetRules")
+                    .insetRowBackground()
                 }
             }
             if machines != nil {
@@ -25,15 +38,15 @@ struct MachinesView: View {
                     ZStack {
                         // The card is the link; the system chevron would sit oddly beside a centred card.
                         NavigationLink(value: SettingsRoute.pair) { EmptyView() }.opacity(0)
-                        VStack(spacing: AceTheme.Spacing.md) {
-                            Image(systemName: "qrcode.viewfinder").font(.system(size: 34, weight: .regular))
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        VStack(spacing: AceDesign.Space.row) {
+                            Image(systemName: "qrcode.viewfinder").font(AceDesign.Typeface.largeTitle)
+                                .foregroundStyle(AceDesign.Ink.muted)
                             Text("Scan the code from ace on your computer")
-                                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .font(AceDesign.Typeface.title)
+                                .foregroundStyle(AceDesign.Ink.muted)
                                 .multilineTextAlignment(.center)
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.xl)
+                        .frame(maxWidth: .infinity).padding(.vertical, AceDesign.Space.group)
                     }
                     .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("machines.pair")
@@ -42,7 +55,7 @@ struct MachinesView: View {
             }
         }
         .insetGroupedList()
-        .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Machines")
         .toolbar {
             if machines != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -52,8 +65,24 @@ struct MachinesView: View {
             }
         }
     }
-    private var unsupported: [MachineEntry] {
-        machines.map { model in model.machines.filter { model.unsupported.contains($0.hostId) } } ?? []
+    /// Connected machines in their runtimes' order, then the ones turned off here or needing
+    /// pairing again: every machine stays listed, once.
+    private var listed: [String] { Self.listed(inbox: inbox, machines: machines) }
+    static func listed(inbox: MachineInbox, machines: MachinesModel?) -> [String] {
+        let live = inbox.sessions.map(\.hostId)
+        guard let machines else { return live }
+        let rest = machines.machines.map(\.hostId).filter { hostId in
+            !live.contains(hostId) && (machines.isOff(hostId) || machines.unsupported.contains(hostId))
+        }
+        return live + rest
+    }
+    /// Turn a machine off on this phone, or on again; it stays paired either way.
+    @ViewBuilder private func turnOnOrOff(_ hostId: String) -> some View {
+        if let machines, !machines.unsupported.contains(hostId) {
+            let off = machines.isOff(hostId)
+            Button(off ? "Turn on" : "Turn off") { Task { await machines.setOn(hostId, off) } }
+                .accessibilityIdentifier("machines.row.\(hostId).\(off ? "on" : "off")")
+        }
     }
 }
 
@@ -65,40 +94,36 @@ struct MachineRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             ConnectionDot(token: facts.connection.token, trying: facts.trying)
-            Image(systemName: facts.symbol).font(.system(size: 19)).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: 24).accessibilityHidden(true)
+            Image(systemName: facts.symbol).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(facts.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Text(facts.subtitle).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                Text(facts.name).font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Text(facts.subtitle).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// An 8pt connection dot: green when connected, faint while away, a pulsing amber while this
-/// phone is still trying to reach it.
+/// A connection dot: green when connected, faint while away, a dimmed amber while this phone is
+/// still trying to reach it.
 struct ConnectionDot: View {
     let token: String
     let trying: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
     var body: some View {
-        Circle().fill(colour).frame(width: 8, height: 8)
-            .opacity(trying && dim ? 0.35 : 1)
-            .animation(trying && !reduceMotion ? .easeInOut(duration: AceTheme.Motion.statusPulse / 2).repeatForever(autoreverses: true) : nil, value: dim)
-            .onAppear { dim = trying && !reduceMotion }
-            .onChange(of: trying) { _, now in dim = now && !reduceMotion }
+        Circle().fill(colour).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+            // Still while it tries: the row's words say it is reconnecting.
+            .opacity(trying ? AceDesign.Ink.recede : 1)
             .accessibilityHidden(true)
     }
     private var colour: Color {
         if token == "done" { return AceTheme.Status.done }
         if token == "failed" { return AceTheme.Status.failed }
-        return trying ? AceTheme.Status.needsYou : AceTheme.Colours.decoration
+        return trying ? AceTheme.Status.needsYou : AceDesign.Ink.faint
     }
 }
 
@@ -113,29 +138,48 @@ struct ConnectionDot: View {
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
     let symbol: String
+    /// New work is paused there ("Pause new work").
+    let paused: Bool
+    /// Turned off on this phone: no connection, its threads and notifications hidden.
+    let off: Bool
+    /// Threads whose agents the machine says are working now. A copy this phone kept says nothing
+    /// current, so it never counts (AGENTS.md: never claim work the machine hasn't confirmed).
+    let working: Int
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
         let client = inbox.client(hostId)
         name = entry?.displayName ?? inbox.name(hostId)
         needsPairing = machines?.unsupported.contains(hostId) ?? false
+        off = machines?.isOff(hostId) ?? false
         connection = needsPairing ? StatusDisplay(label: "Pair again", token: "failed")
+            : off ? StatusDisplay(label: "Off on this iPhone", token: "neutral")
             : client?.machineStatus?.status ?? StatusDisplay(label: "Connecting…", token: "neutral")
-        trying = !needsPairing && ["connecting", "reconnecting"].contains(client?.connection ?? "")
+        trying = !needsPairing && !off && ["connecting", "reconnecting"].contains(client?.connection ?? "")
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
-        address = entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
+        let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
+        address = entry?.isAccountMachine == true || onRelay ? "Through your ace account"
+            : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         symbol = Self.symbol(entry?.icon?.kind)
+        paused = client?.admission?.paused == true
+        working = client?.inbox.values.filter { $0.confirmed == true && $0.workingSince != nil }.count ?? 0
     }
     var connected: Bool { connection.token == "done" }
     /// The address while connected; otherwise the connection word and when it was last seen.
     var subtitle: String {
         var parts: [String] = []
-        if connected { parts.append(address ?? connection.label) }
+        if connected {
+            // As the web's fleet map words a machine: its agents at work first.
+            if working > 0 { parts.append(working == 1 ? "1 agent working" : "\(working) agents working") }
+            parts.append(address ?? connection.label)
+        }
+        else if off { parts.append(connection.label) }
         else {
             parts.append(connection.label)
             if let lastSeen, let age = ActivityTime.elapsed(since: lastSeen, now: Date()) { parts.append(age) }
         }
+        if paused { parts.append("New work paused") }
         if readOnly == true { parts.append("View only") }
         return parts.joined(separator: " · ")
     }

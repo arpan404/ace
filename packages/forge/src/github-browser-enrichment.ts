@@ -46,6 +46,9 @@ export function prIndicatorFields(repository: ForgeRepository, numbers: readonly
   return `repository(owner:${JSON.stringify(repository.owner)}, name:${JSON.stringify(repository.name)}) { ${fields.join(" ")} }`;
 }
 const Decision = z.enum(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]);
+const ViewerBody = z.looseObject({
+  data: z.looseObject({ viewer: z.looseObject({ login: z.string() }) }),
+});
 
 /** What a PR's GraphQL fields add to its row; a field GitHub left out stays off the row. */
 export function prIndicator(row: z.infer<typeof PrIndicator>): Partial<ForgePrRow> {
@@ -92,8 +95,6 @@ export function prIndicators(body: unknown): Record<string, Partial<ForgePrRow>>
 }
 /** The signed-in account a GraphQL answer named in `viewer { login }`, if it did. */
 export function viewerLogin(body: unknown): string | undefined {
-  const parsed = z
-    .looseObject({ data: z.looseObject({ viewer: z.looseObject({ login: z.string() }) }) })
-    .safeParse(body);
+  const parsed = ViewerBody.safeParse(body);
   return parsed.success ? parsed.data.data.viewer.login.slice(0, 100) : undefined;
 }

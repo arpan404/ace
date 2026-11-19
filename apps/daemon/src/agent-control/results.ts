@@ -1,9 +1,16 @@
+import type { FailureAccount } from "./failure-account.ts";
+import { failureResult } from "./failure-result.ts";
 import { type DelegationOutcome, type Item, type Thread } from "@ace/protocol";
 import { isAgentProse } from "@ace/projection";
 import type { Store } from "../store.ts";
 
 /** One small page is sufficient for an outcome preview; full content stays in the payload store. */
-export function threadOutcome(store: Store, thread: Thread, cancelled = false): DelegationOutcome {
+export function threadOutcome(
+  store: Store,
+  thread: Thread,
+  cancelled = false,
+  account: FailureAccount = {},
+): DelegationOutcome {
   const page = store.readBoundedItemPage(thread.id, store.headSeq() + 1, 20, 48 * 1024);
   let message: Extract<Item, { type: "message" }> | undefined;
   for (const item of page.items) if (isAgentProse(item)) message = item;
@@ -33,15 +40,20 @@ export function threadOutcome(store: Store, thread: Thread, cancelled = false): 
       break;
     }
   }
-  const result = parts.join("\n");
+  const root = thread.rootAgentId ? store.getMcpAgent(thread.id, thread.rootAgentId) : undefined;
+  const failure = cancelled ? undefined : failureResult(thread, root?.status, account);
+  const combined = [failure?.message, parts.join("\n")].filter(Boolean).join("\n");
+  const result = combined.slice(0, 4096);
+  truncated ||= combined.length > result.length;
   return {
     threadId: thread.id,
     outcome:
       cancelled || thread.queue?.lastFailure?.code === "cancelled"
         ? "cancelled"
-        : thread.status.state === "failed"
+        : failure !== undefined
           ? "failed"
           : "completed",
+    ...(failure ? { failure } : {}),
     result,
     truncated,
     before: page.itemsBefore,

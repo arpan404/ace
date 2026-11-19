@@ -3,6 +3,93 @@ import { streamSdkBody, ShellStreams } from "./index.ts";
 import { z } from "zod";
 import { replay } from "./translator-test-support.ts";
 
+it.each(["Uint8Array", "Buffer"])(
+  "admits Cursor MCP screenshot %s bytes and completes the tool without fencing the stream",
+  async (type) => {
+    const r = replay();
+    const args = { providerIdentifier: "ace", toolName: "browser_screenshot", args: {} };
+    r.frame("delta", {
+      type: "tool-call-started",
+      callId: "screenshot",
+      toolCall: { type: "mcp", args },
+    });
+    const data = type === "Buffer" ? Buffer.alloc(90000, 42) : new Uint8Array(90000).fill(42);
+    const parts: string[] = [];
+    const prepared = await streamSdkBody(
+      {
+        type: "tool-call-completed",
+        callId: "screenshot",
+        toolCall: {
+          type: "mcp",
+          args,
+          result: {
+            status: "success",
+            value: {
+              content: [{ image: { data, mimeType: "image/jpeg" } }],
+              isError: false,
+            },
+          },
+        },
+      },
+      "screenshot",
+      async (kind, body) => {
+        if (kind === "blob") {
+          const part = z.object({ text: z.string().optional() }).parse(body);
+          if (part.text) parts.push(part.text);
+        }
+        r.frame(kind, body);
+      },
+      {},
+    );
+    r.frame("delta", prepared.body);
+    r.frame("result", { status: "finished" });
+    expect(JSON.parse(parts.join(""))).toMatchObject({
+      toolCall: {
+        result: {
+          value: {
+            content: [
+              { image: { data: Buffer.from(data).toString("base64"), mimeType: "image/jpeg" } },
+            ],
+          },
+        },
+      },
+    });
+    expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
+      complete: true,
+      call: { status: "succeeded" },
+    });
+  },
+);
+
+it("refuses binary images beyond the combined streaming budget", async () => {
+  await expect(
+    streamSdkBody(
+      { content: [{ image: { data: new Uint8Array(6) } }, { image: { data: new Uint8Array(6) } }] },
+      "oversized-images",
+      async () => {},
+      {},
+      12,
+    ),
+  ).rejects.toThrow("SDK image exceeds streaming budget");
+});
+
+it("encodes native image bytes without invoking overridden byte accessors", async () => {
+  const data = new Uint8Array([1, 2, 3]);
+  let invoked = false;
+  const reject = () => {
+    invoked = true;
+    throw new Error("Vendor getter invoked");
+  };
+  Object.defineProperties(data, {
+    byteLength: { get: reject },
+    length: { get: reject },
+    [Symbol.iterator]: { get: reject },
+  });
+  const prepared = await streamSdkBody({ image: { data } }, "image-accessors", async () => {}, {});
+  expect(prepared.body).toEqual({ image: { data: "AQID" } });
+  expect(invoked).toBe(false);
+});
+
 it("appends explicitly associated live shell deltas before completion and does not append final overlap again", async () => {
   const r = replay(),
     shell = new ShellStreams(),

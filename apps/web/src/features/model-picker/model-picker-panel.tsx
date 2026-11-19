@@ -6,12 +6,13 @@ import {
   pickerEntries,
   pickerList,
   providerNames,
+  startingTab,
   providersWithProblems,
   type PickerGroup,
   type PickerModel,
   type PickerProvider,
 } from "@ace/ui-core";
-import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@ace/icons";
 import {
   useEffect,
   useId,
@@ -25,6 +26,7 @@ import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -109,16 +111,14 @@ export function ModelPickerPanel(props: {
   );
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
-  // It opens on Favorites when the person has any: switching usually means going elsewhere.
   const selected =
     tabs.find((entry) => entry.id === chosen) ??
-    (favorites.length ? tabs.find((entry) => entry.id === "favorites") : undefined) ??
-    tabs.find(
-      (entry) =>
-        entry.provider === props.currentProvider && entry.instance === props.currentInstance,
-    ) ??
-    tabs.find((entry) => entry.provider === (props.only ?? props.currentProvider)) ??
-    tabs.find((entry) => !entry.reason);
+    startingTab(tabs, {
+      favorites: favorites.length > 0,
+      provider: props.currentProvider,
+      instance: props.currentInstance,
+      only: props.only,
+    });
   const tab = selected?.id ?? "favorites";
   const provider = selected?.provider;
   const selectedInstance = selected?.instance;
@@ -342,6 +342,7 @@ export function ModelPickerPanel(props: {
             <div
               key={group.id}
               role="group"
+              {...part("list-group", group.refreshing ? "working" : undefined, group.provider)}
               aria-label={
                 group.label ??
                 accounts.data?.find((account) => account.id === selected?.instance)?.label ??
@@ -400,23 +401,28 @@ export function ModelPickerPanel(props: {
         className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
         <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring/40">
-          <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
-          <input
-            ref={search}
-            role="combobox"
-            aria-label="Search models"
-            aria-controls={listId}
-            aria-expanded
-            aria-activedescendant={items.length ? `${listId}-${active}` : undefined}
-            value={query}
-            placeholder="Search models…"
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setHighlight(0);
-            }}
-            onKeyDown={onSearchKey}
-            className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none focus-visible:placeholder:text-muted-foreground placeholder:text-subtle-foreground"
-          />
+          <label
+            {...part("search-field")}
+            className="flex h-full min-w-0 flex-1 items-center gap-2"
+          >
+            <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
+            <input
+              ref={search}
+              role="combobox"
+              aria-label="Search models"
+              aria-controls={listId}
+              aria-expanded
+              aria-activedescendant={items.length ? `${listId}-${active}` : undefined}
+              value={query}
+              placeholder="Search models…"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setHighlight(0);
+              }}
+              onKeyDown={onSearchKey}
+              className="h-full min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none focus-visible:placeholder:text-muted-foreground placeholder:text-subtle-foreground"
+            />
+          </label>
           {(props.catalog === "refreshing" || refresh.pending) && (
             <Spinner label="Refreshing models" />
           )}
@@ -435,6 +441,7 @@ export function ModelPickerPanel(props: {
           ref={list}
           role="listbox"
           id={listId}
+          {...part("list", undefined, "models")}
           aria-label="Models"
           aria-busy={loading || undefined}
           className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1 [scrollbar-width:thin]"

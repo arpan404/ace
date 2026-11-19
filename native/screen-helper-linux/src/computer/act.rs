@@ -1,9 +1,8 @@
 //! Runs model steps against one app. Each returns a one-line account of what it did, so the
 //! model knows which path was taken. Semantic steps go through AT-SPI and work on background
-//! windows; raw input (act_input.rs) needs the window in front.
+//! windows; raw input (act_input.rs) is refused, since Wayland lets no program send it.
 use crate::computer::bus::{Bus, BusError, Obj};
 use crate::computer::cancel::Checkpoint;
-use crate::computer::clipboard::Clipboard;
 use crate::computer::conditions::{self, Condition};
 use crate::computer::element::{self, Element};
 use crate::computer::error::{CuError, CuResult, clip};
@@ -11,7 +10,6 @@ use crate::computer::events::{Activity, pause};
 use crate::computer::outline::{self, Node};
 use crate::computer::session::AppSession;
 use crate::computer::text_match::{MenuChoice, choose_menu_item};
-use crate::computer::xdisplay::XDisplay;
 use serde_json::{Map, Value};
 use std::time::{Duration, Instant};
 
@@ -19,16 +17,20 @@ pub type Step = Map<String, Value>;
 
 pub struct Actor<'a> {
     pub bus: &'a Bus,
-    pub x: Option<&'a XDisplay>,
     pub session: &'a mut AppSession,
     pub activity: &'a Activity,
     pub check: &'a Checkpoint,
-    pub clipboard: &'a mut Option<Clipboard>,
+    /// Typing in front, for this batch (`act_front.rs`).
+    pub front: &'a mut crate::computer::act_front::Front,
 }
 
 pub fn int(step: &Step, key: &str) -> Option<i64> {
     step.get(key)
         .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+}
+
+pub fn point_of(step: &Step) -> Option<(f64, f64)> {
+    Some((step.get("x")?.as_f64()?, step.get("y")?.as_f64()?))
 }
 
 pub fn text<'s>(step: &'s Step, key: &str) -> Option<&'s str> {
@@ -46,10 +48,14 @@ impl Actor<'_> {
                 return Ok(format!("skipped {kind}: condition not met"));
             }
         }
+        // A held selection (held.rs) lasts only through consecutive text steps.
+        if !matches!(kind.as_str(), "type" | "paste" | "key" | "wait") {
+            self.session.held = None;
+        }
         match kind.as_str() {
             "click" => self.click(step).await,
-            "move" => self.move_pointer(step).await,
-            "drag" => self.drag(step).await,
+            "move" => Err(self.raw_refused("move")),
+            "drag" => Err(self.raw_refused("drag")),
             "type" => self.type_text(step).await,
             "paste" => self.paste(step).await,
             "key" => self.key(step).await,
@@ -74,10 +80,12 @@ impl Actor<'_> {
 
     /// A fresh walk of the chosen window, for conditions and waits.
     pub async fn refresh(&mut self) -> Vec<Node> {
-        let frames = match self.x.and_then(|x| self.session.x_window(x).map(|xid| (x, xid))) {
-            Some((x, xid)) => self.session.frame_map(self.bus, x, xid).await,
-            None => None,
-        };
+        // Keep element frames while x,y steps can be placed on the last screenshot.
+        let frames = self.session.shot_offset.map(|_| crate::computer::walk::FrameMap {
+            coord: element::COORD_WINDOW,
+            dx: 0.0,
+            dy: 0.0,
+        });
         self.session.walk(self.bus, frames, Duration::from_secs(2)).await;
         self.session.nodes.clone()
     }
@@ -111,6 +119,36 @@ impl Actor<'_> {
         )
     }
 
+    /// The clickable element under screenshot pixel x,y, from the last screenshot's marks.
+    pub async fn element_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::hit).await
+    }
+
+    /// The innermost element of any kind under screenshot pixel x,y.
+    pub async fn node_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::innermost).await
+    }
+
+    async fn find_at(&mut self, x: f64, y: f64, what: &str, find: fn(&[Node], f64, f64) -> Option<u64>) -> CuResult<u64> {
+        let Some((dx, dy)) = self.session.shot_offset else {
+            return Err(CuError::new(
+                "no_screenshot",
+                format!(
+                    "{what} at x,y needs a screenshot of {} first (screen_state with screenshot), whose pixels it is in. Or use an element id.",
+                    self.session.name
+                ),
+            ));
+        };
+        let scale = if self.session.scale > 0.0 { self.session.scale } else { 1.0 };
+        let nodes = self.refresh().await;
+        find(&nodes, x / scale + dx, y / scale + dy).ok_or_else(|| {
+            CuError::new(
+                "not_clickable",
+                format!("Nothing in {} to {what} is at ({x}, {y}). Look again with a screenshot, or use an element id.", self.session.name),
+            )
+        })
+    }
+
     /// Performs an action by index; a refusal or silence becomes a model-facing error.
     pub async fn perform(&self, element: &Element, index: usize, name: &str, label: &str) -> CuResult<()> {
         match element::do_action(self.bus, &element.obj, index).await {
@@ -132,7 +170,16 @@ impl Actor<'_> {
 
     async fn click(&mut self, step: &Step) -> CuResult<String> {
         if step.get("id").is_none() {
-            return self.raw_click(step).await;
+            let Some((x, y)) = point_of(step) else {
+                return Err(CuError::new("bad_action", "click needs an element id, or x and y from a screenshot."));
+            };
+            let id = self.element_at(x, y, "click").await?;
+            let mut by_id = step.clone();
+            by_id.remove("x");
+            by_id.remove("y");
+            by_id.insert("id".into(), Value::from(id));
+            let done = Box::pin(self.click(&by_id)).await?;
+            return Ok(format!("{done} (the element at the point)"));
         }
         let (id, element) = self.target(step).await?;
         let label = self.label(id);
@@ -173,20 +220,16 @@ impl Actor<'_> {
                 element.role.as_str(),
                 "list item" | "table cell" | "tree item" | "table row"
             );
-            if (element.states.selectable || row) && self.select_in_parent(&element).await {
-                return Ok(format!("selected {label}"));
-            }
-        }
-        if let Some(center) = self
-            .session
-            .nodes
-            .iter()
-            .find(|n| n.id == id)
-            .and_then(|n| n.frame)
-            .map(|f| (f.x + f.w / 2.0, f.y + f.h / 2.0))
-        {
-            if self.foreground("click").is_ok() {
-                return self.click_window_point(step, center, Some(&label)).await;
+            if element.states.selectable || row {
+                let window = self.session.window.as_ref().map(|w| w.obj.clone());
+                let before = match &window {
+                    Some(window) => element::action_names(self.bus, window).await.unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                let shown = shown_text(&self.refresh().await);
+                if self.select_in_parent(&element).await {
+                    return self.after_row_selected(&label, count, window, before, shown).await;
+                }
             }
         }
         if element.states.focusable && plain && grab(self.bus, &element.obj).await {
@@ -195,13 +238,75 @@ impl Actor<'_> {
                 "focused {label}; it has no click action, so nothing else happened"
             ));
         }
-        self.foreground("click").map(|_| ())?;
+        if !plain || button != "left" || count > 2 {
+            return Err(CuError::new(
+                "not_supported",
+                format!("A click with modifiers, a hold, another button or more than two clicks needs real pointer input, which Wayland does not let ace send to {}. Use a plain click, an action listed on {label}, or a menu path.", self.session.name),
+            ));
+        }
         Err(CuError::new(
             "not_clickable",
-            format!("{label} has no position to click. Try an action listed on it, a menu path, or the keyboard."),
+            format!("{label} has no click action, and Wayland lets ace send no real clicks. Try an action listed on it, a menu path, or focus it."),
         ))
     }
 
+    /// What a click on a list row that has no action of its own did. Selecting it is all
+    /// accessibility can do, and GTK 4 lists (a settings sidebar, a file list) open a row only on
+    /// activation, which needs a real click or Enter. A double click runs the open action its
+    /// window gained from the selection (Files' "open-with-default-application"); otherwise the
+    /// reply says honestly when nothing but the selection changed, and names what the window
+    /// now offers for the selected row.
+    async fn after_row_selected(
+        &mut self,
+        label: &str,
+        count: i64,
+        window: Option<Obj>,
+        before: Vec<String>,
+        shown: Vec<String>,
+    ) -> CuResult<String> {
+        pause(300, self.check).await?;
+        let after = match &window {
+            Some(window) => element::action_names(self.bus, window).await.unwrap_or_default(),
+            None => Vec::new(),
+        };
+        if count == 2 {
+            // The selection is now this row, so the window's open action opens it.
+            if let (Some(window), Some(index)) = (&window, open_action(&after)) {
+                let open = after[index].clone();
+                let target = element::read(self.bus, window).await.map_err(|_| self.busy("open"))?;
+                self.perform(&target, index, &open, label).await?;
+                return Ok(format!("opened {label} (selected it, then ran its window's {open})"));
+            }
+        }
+        let gained: Vec<String> = after.into_iter().filter(|name| !before.contains(name)).collect();
+        let offers = if gained.is_empty() {
+            String::new()
+        } else {
+            let window_id = window
+                .as_ref()
+                .and_then(|window| self.session.ids.existing(&crate::computer::bus::key(window)));
+            let target = window_id.map_or("its window".to_owned(), |id| format!("its window (id {id})"));
+            format!(
+                " Selecting it gave {target} these actions: {}; run one with action.",
+                gained.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
+            )
+        };
+        let nodes = self.refresh().await;
+        if count == 2 {
+            return Ok(format!(
+                "selected {label}, but did not open it: it has no activate action, and opening a row needs a real double click, which Wayland does not let ace send.{offers}"
+            ));
+        }
+        if shown_text(&nodes) == shown {
+            return Ok(format!(
+                "selected {label}, but nothing else in the window changed: it has no click action, and lists that open a row on a real click (a settings sidebar, say) ignore a selection made through accessibility.{offers}"
+            ));
+        }
+        Ok(format!("selected {label}{}", if offers.is_empty() { String::new() } else { format!(".{offers}") }))
+    }
+
+    /// Selects a row in the list around it, as a plain click would: the selection becomes this
+    /// row alone. True only once the row reads as selected (or its state can't be read).
     async fn select_in_parent(&self, element: &Element) -> bool {
         let Some(parent) = element::parent(self.bus, &element.obj).await else {
             return false;
@@ -213,15 +318,83 @@ impl Actor<'_> {
         else {
             return false;
         };
-        let selected = self
-            .bus
-            .atspi::<_, bool>(&parent, "Selection", "SelectChild", &(index,))
-            .await
-            .unwrap_or(false);
+        let selected = self.select_row(&parent, &element.obj, index).await;
         if selected {
             self.changed();
         }
         selected
+    }
+
+    /// SelectChild takes a position in the list's items, which GTK 4 does not keep equal to the
+    /// row's place among the list's children: a list or column view builds children only for
+    /// the rows around its scroll position, and a list box leaves out hidden rows and keeps its
+    /// children in insertion order however it sorts them. So the position is found and checked.
+    async fn select_row(&self, list: &Obj, row: &Obj, index: i32) -> bool {
+        if !self.select_only(list, index).await {
+            return false;
+        }
+        if self.is_selected(row).await != Some(false) {
+            return true;
+        }
+        let Ok(children) = self.bus.children(list).await else {
+            return false;
+        };
+        let built = i32::try_from(children.len()).unwrap_or(i32::MAX).max(1);
+        // A scrolled view: positions run on from its first child's. Positions `index`,
+        // `index + built`, … can't all miss the built rows; where one lands gives the offset.
+        for probe in 0..64 {
+            if self.check.check().is_err() {
+                return false;
+            }
+            let position = index.saturating_add(probe * built);
+            if probe > 0 && !self.select_only(list, position).await {
+                break;
+            }
+            let Some(landed) = self.selected_child(list, &children).await else {
+                continue;
+            };
+            let guess = position - landed + index;
+            if guess >= 0 && self.select_only(list, guess).await && self.is_selected(row).await == Some(true) {
+                return true;
+            }
+            break;
+        }
+        // A list box: try each position in turn.
+        for position in 0..512 {
+            if self.check.check().is_err() || !self.select_only(list, position).await {
+                return false;
+            }
+            if self.is_selected(row).await == Some(true) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Clears a list's selection and selects the item at `position`.
+    async fn select_only(&self, list: &Obj, position: i32) -> bool {
+        // SelectChild alone adds to a multiple selection, and an open action that follows would
+        // open every selected row.
+        let _ = self.bus.atspi::<_, bool>(list, "Selection", "ClearSelection", &()).await;
+        self.bus
+            .atspi::<_, bool>(list, "Selection", "SelectChild", &(position,))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn is_selected(&self, obj: &Obj) -> Option<bool> {
+        let set = self.bus.atspi::<_, atspi::StateSet>(obj, "Accessible", "GetState", &()).await.ok()?;
+        Some(element::states(&set).selected)
+    }
+
+    /// Which of `children` the list says is selected now, by its place among them.
+    async fn selected_child(&self, list: &Obj, children: &[Obj]) -> Option<i32> {
+        let selected = self
+            .bus
+            .atspi::<_, Obj>(list, "Selection", "GetSelectedChild", &(0i32,))
+            .await
+            .ok()?;
+        children.iter().position(|child| *child == selected).and_then(|at| i32::try_from(at).ok())
     }
 
     async fn focus(&mut self, step: &Step) -> CuResult<String> {
@@ -368,19 +541,26 @@ impl Actor<'_> {
         }
         grab(self.bus, &element.obj).await;
         self.session.text_focus = Some(element.obj.clone());
-        set_selection(self.bus, &element.obj, start as i32, end as i32)
+        let (start, end) = (start as i32, end as i32);
+        // GTK 4 text views before 4.22 refuse; GTK 4 drops it in a background window. Either
+        // way ace holds the range for the next edit (held.rs).
+        let set = set_selection(self.bus, &element.obj, start, end)
             .await
-            .map_err(|_| {
-                CuError::new(
-                    "action_failed",
-                    format!("{} would not change the selection in {label}.", self.session.name),
-                )
-            })?;
+            .is_ok();
+        let count = element::character_count(self.bus, &element.obj)
+            .await
+            .unwrap_or(0);
+        self.hold(&element.obj, start, end, count);
         self.changed();
-        Ok(if start == end {
-            format!("placed the cursor in {label}")
+        let note = if set && self.kept(&element.obj, start, end).await? {
+            String::new()
         } else {
-            format!("selected \"{shown}\" in {label}")
+            format!("; {}", crate::computer::act_text::HELD_NOTE)
+        };
+        Ok(if start == end {
+            format!("placed the cursor in {label}{note}")
+        } else {
+            format!("selected \"{shown}\" in {label}{note}")
         })
     }
 
@@ -448,6 +628,19 @@ impl Actor<'_> {
 
     /// Presses a menu item by its path without opening the menu on screen.
     async fn menu(&mut self, step: &Step) -> CuResult<String> {
+        let mut opened = None;
+        let result = self.menu_path(step, &mut opened).await;
+        // A menu ace opened to read its items stays open when no item in it was chosen.
+        if result.is_err() {
+            if let Some(menu) = opened {
+                self.toggle_menu(&menu).await;
+            }
+        }
+        result
+    }
+
+    /// `menu` itself; `opened` gets the outermost menu it had to open to read its items.
+    async fn menu_path(&mut self, step: &Step, opened: &mut Option<Obj>) -> CuResult<String> {
         let path: Vec<String> = step
             .get("path")
             .and_then(Value::as_array)
@@ -469,7 +662,14 @@ impl Actor<'_> {
         let mut trail: Vec<String> = Vec::new();
         for (index, wanted) in path.iter().enumerate() {
             self.check.check()?;
-            let items = self.menu_items(&container).await;
+            let mut items = self.menu_items(&container).await;
+            if items.is_empty() && index > 0 {
+                // GTK 3 apps such as Thunar build a menu's items only when it opens.
+                items = self.open_menu(&container).await?;
+                if !items.is_empty() && opened.is_none() {
+                    *opened = Some(container.clone());
+                }
+            }
             let titles: Vec<String> = items.iter().map(|(_, title)| title.clone()).collect();
             let place = if trail.is_empty() {
                 "the menu bar".to_owned()
@@ -524,7 +724,37 @@ impl Actor<'_> {
         Ok(format!("chose {}", trail.join(" > ")))
     }
 
-    async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
+    /// Opens a menu whose items are built on opening, and returns them once they appear.
+    async fn open_menu(&mut self, menu: &Obj) -> CuResult<Vec<(Obj, String)>> {
+        if !self.toggle_menu(menu).await {
+            return Ok(Vec::new());
+        }
+        for _ in 0..20 {
+            pause(50, self.check).await?;
+            let items = self.menu_items(menu).await;
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
+        // Opened, but nothing to show: close it again.
+        self.toggle_menu(menu).await;
+        Ok(Vec::new())
+    }
+
+    /// Clicks a menu's title, which opens it, or closes it when open. False when it can't.
+    async fn toggle_menu(&self, menu: &Obj) -> bool {
+        let actions = element::action_names(self.bus, menu).await.unwrap_or_default();
+        let Some(index) = outline::press_action(&actions) else {
+            return false;
+        };
+        let done = element::do_action(self.bus, menu, index).await.unwrap_or(false);
+        if done {
+            self.changed();
+        }
+        done
+    }
+
+    pub async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
         let Ok(children) = self.bus.children(container).await else {
             return Vec::new();
         };
@@ -578,5 +808,75 @@ pub async fn set_selection(bus: &Bus, obj: &Obj, start: i32, end: i32) -> Result
         Ok(())
     } else {
         Err(BusError::Failed("refused".into()))
+    }
+}
+
+/// The text a window shows, without states such as which row is selected: a click that only
+/// moved the selection leaves it as it was.
+fn shown_text(nodes: &[Node]) -> Vec<String> {
+    let mut shown: Vec<String> = nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}|{}|{}",
+                node.role,
+                node.name.as_deref().unwrap_or_default(),
+                node.value.as_deref().unwrap_or_default()
+            )
+        })
+        .collect();
+    shown.sort();
+    shown
+}
+
+/// The window action that opens the selection, by index: one named
+/// "open-with-default-application", "open-selection" or "open-selected" (any `group.` prefix).
+/// Never a bare "open", which in most apps shows a file chooser rather than opening a row.
+fn open_action(actions: &[String]) -> Option<usize> {
+    ["open-with-default-application", "open-selection", "open-selected"]
+        .iter()
+        .find_map(|wanted| actions.iter().position(|name| name.rsplit('.').next() == Some(*wanted)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(role: &str, name: &str, flags: &[&str]) -> Node {
+        Node {
+            id: 1,
+            depth: 0,
+            role: role.into(),
+            flags: flags.iter().map(|flag| (*flag).into()).collect(),
+            name: Some(name.into()),
+            value: None,
+            detail: None,
+            placeholder: None,
+            actions: Vec::new(),
+            frame: None,
+            actionable: false,
+        }
+    }
+
+    #[test]
+    fn a_selection_moving_leaves_the_shown_text_as_it_was_and_a_new_panel_does_not() {
+        let before = [node("button", "Network", &["selected"]), node("button", "Displays", &[])];
+        let moved = [node("button", "Network", &[]), node("button", "Displays", &["selected"])];
+        assert_eq!(shown_text(&before), shown_text(&moved));
+        let opened = [node("button", "Displays", &["selected"]), node("label", "Resolution", &[])];
+        assert_ne!(shown_text(&before), shown_text(&opened));
+    }
+
+    #[test]
+    fn the_open_action_is_found_by_its_name_after_any_group() {
+        let files: Vec<String> = ["default.activate", "view.open-item-new-tab", "view.open-with-default-application"]
+            .map(String::from)
+            .into();
+        assert_eq!(open_action(&files), Some(2));
+        let settings: Vec<String> = ["default.activate", "window.close"].map(String::from).into();
+        assert_eq!(open_action(&settings), None);
+        // An editor's "Open…" shows a file chooser: never taken for opening a row.
+        let editor: Vec<String> = ["win.open", "view.open-with-other-application"].map(String::from).into();
+        assert_eq!(open_action(&editor), None);
     }
 }

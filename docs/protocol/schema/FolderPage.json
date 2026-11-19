@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/FolderPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/FolderEntry.json"
+      },
+      "maxItems": 5000,
+      "type": "array"
+    },
+    "nextCursor": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "entries",
+    "nextCursor",
+    "total"
+  ],
+  "type": "object"
+}

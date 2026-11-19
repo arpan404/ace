@@ -9,6 +9,7 @@ export interface TreeFile {
   path: string;
   additions: number;
   deletions: number;
+  binary?: boolean | undefined;
 }
 
 export interface TreeFolderRow {
@@ -34,6 +35,8 @@ export interface TreeFileRow {
   deletions: number;
   /** Where the file sits in the list it was given, to jump to its diff. */
   index: number;
+  /** A binary file: no line counts to show. */
+  binary?: boolean | undefined;
 }
 
 export type TreeRow = TreeFolderRow | TreeFileRow;
@@ -118,6 +121,7 @@ export function changeTreeRows(files: readonly TreeFile[], options: TreeOptions 
         additions: entry.file.additions,
         deletions: entry.file.deletions,
         index: indexOf.get(entry.file) ?? entry.index,
+        ...(entry.file.binary ? { binary: true } : {}),
       });
   };
   walk(root, "", 0);

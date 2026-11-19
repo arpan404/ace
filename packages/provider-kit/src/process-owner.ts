@@ -1,6 +1,10 @@
+import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import { killWindowsTree } from "./windows-tree.ts";
+import { win32 } from "node:path";
+import { openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { loadKoffi } from "./koffi.ts";
+import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -18,8 +22,13 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
   if (process.platform === "win32") {
-    // No process groups exist; reap the tree like every other Windows stop.
-    killWindowsTree(pid, true);
+    // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
+    // still reach every other owner, so a failure here is reported, not thrown.
+    try {
+      killWindowsTree(pid, true);
+    } catch (error) {
+      process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
+    }
     return;
   }
   try {
@@ -28,6 +37,31 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     const code = (error as NodeJS.ErrnoException).code;
     // Darwin can report EPERM for groups containing only zombies before reaping.
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
+  }
+}
+/**
+ * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
+ * listeners and voided stop() calls. A group signal refused (EPERM when every member left runs
+ * as another user, or a Windows tree stop that cannot run) is reported, and the leader is still
+ * signalled through its own handle, which never reaches a reused pid once it has exited.
+ */
+export function signalTree(
+  pid: number,
+  force: boolean,
+  windows: boolean,
+  killTree: WindowsKillTree,
+  leader: { kill(signal: NodeJS.Signals): boolean },
+): void {
+  try {
+    if (windows) killTree(pid, force);
+    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
+  } catch (error) {
+    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+    try {
+      leader.kill(force ? "SIGKILL" : "SIGTERM");
+    } catch {
+      /* Already gone. */
+    }
   }
 }
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
@@ -91,9 +125,18 @@ export function registerGroup(
   if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
 }
+/**
+ * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a
+ * throw would be uncaught and end the daemon (a full disk did, through the inventory's delete).
+ */
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
-  for (const journal of journals) journal.remove(pid);
+  for (const journal of journals)
+    try {
+      journal.remove(pid);
+    } catch (error) {
+      process.emitWarning(`Could not record that process ${pid} exited: ${String(error)}`);
+    }
   if (ownersSize() === 0) process.removeListener("exit", cleanup);
 }
 
@@ -113,12 +156,16 @@ export function installShutdownHandlers({
   const terminate = (signal: NodeJS.Signals) => {
     if (terminating) return;
     terminating = true;
-    void Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs))).then(() => {
-      dispose();
-      // Incoming application handlers have run; restore default signal termination.
-      process.removeAllListeners(signal);
-      process.kill(process.pid, signal);
-    });
+    void Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)))
+      .then(() => {
+        dispose();
+        // Incoming application handlers have run; restore default signal termination.
+        process.removeAllListeners(signal);
+        process.kill(process.pid, signal);
+      })
+      .catch((error: unknown) =>
+        process.emitWarning(`Could not restore signal ${signal} termination: ${String(error)}`),
+      );
   };
   const onInt = () => terminate("SIGINT");
   const onTerm = () => terminate("SIGTERM");
@@ -131,4 +178,176 @@ export async function stopOwnedGroups(graceMs = 500): Promise<void> {
   const results = await Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)));
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Some owned process groups could not be stopped");
+}
+
+// Windows: no process groups exist, so trees stop through taskkill and batch entrypoints
+// run through cmd.exe.
+
+/** Whole-tree stop on Windows, where process groups do not exist. */
+export type WindowsKillTree = (pid: number, force: boolean) => void;
+
+/** taskkill /T stops the tree the way a Job Object would; /F forces it. Never uses a shell. */
+export function killWindowsTree(pid: number, force: boolean): void {
+  // A missing System32 or a failed spawn throws: the caller's stop then fails instead of
+  // waiting on a kill that never ran.
+  const killer = spawn(
+    windowsSystemExecutable("taskkill.exe"),
+    force ? ["/pid", String(pid), "/T", "/F"] : ["/pid", String(pid), "/T"],
+    {
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+  killer.once("error", (error) => {
+    process.emitWarning(`taskkill could not run for process ${pid}: ${error.message}`);
+  });
+  killer.unref();
+}
+
+/** GetSystemDirectoryW: the characters written to a 1,024-character buffer, or 0. */
+type SystemDirectoryReader = { read(buffer: Buffer, size: number): unknown; unload(): void };
+
+// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes take koffi: the desktop
+// app ships it for its main process and probe worker, so their Windows tree stops find
+// taskkill there; the daemon ships none. macOS and Linux load neither.
+function systemDirectoryReader(): SystemDirectoryReader {
+  if (runsOnBun()) {
+    const kernel = openLibrary("kernel32.dll", {
+      GetSystemDirectoryW: { args: ["ptr", "u32"], returns: "u32" },
+    });
+    return {
+      read: (buffer, size) => kernel.symbols.GetSystemDirectoryW(buffer, size),
+      unload: () => kernel.close(),
+    };
+  }
+  const kernel = loadKoffi().load("kernel32.dll");
+  try {
+    const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
+    return { read: (buffer, size) => read(buffer, size), unload: () => kernel.unload() };
+  } catch (error) {
+    kernel.unload();
+    throw error;
+  }
+}
+
+let systemDirectory: string | undefined;
+/** A file in Windows' own System32, located by the kernel rather than the environment. */
+export function windowsSystemExecutable(name: string): string {
+  if (systemDirectory === undefined) {
+    const reader = systemDirectoryReader();
+    try {
+      const buffer = Buffer.alloc(1024 * 2);
+      const length = Number(reader.read(buffer, 1024));
+      if (length <= 0 || length >= 1024) throw new Error("Windows system directory unavailable");
+      const directory = buffer.toString("utf16le", 0, length * 2);
+      if (!win32.isAbsolute(directory)) throw new Error("Windows system directory is not absolute");
+      systemDirectory = directory;
+    } finally {
+      reader.unload();
+    }
+  }
+  return win32.join(systemDirectory, name);
+}
+
+/** How long a forced Windows tree stop may take before the stop fails instead of completing. */
+const forcedTreeStopMs = 5_000;
+
+/** A Windows tree is alive while its joined job has members, else while its leader runs. */
+export function windowsTreeRunning(pid: number, job?: Pick<WindowsJob, "running">): boolean {
+  return job?.running?.() ?? leaderRunning(pid);
+}
+function leaderRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+/**
+ * Graceful tree stop that escalates after the grace, mirroring stopRetainedGroup. A joined job
+ * is the liveness source, so members that outlive the leader keep the stop open. It completes
+ * only once the tree is gone; a tree that survives the forced stop fails it.
+ */
+export async function stopRetainedWindowsTree(
+  pid: number,
+  graceMs: number,
+  killTree: WindowsKillTree = killWindowsTree,
+  job?: Pick<WindowsJob, "running" | "terminate">,
+): Promise<void> {
+  const running = () => windowsTreeRunning(pid, job);
+  killTree(pid, false);
+  const deadline = performance.now() + graceMs;
+  while (running()) {
+    if (performance.now() >= deadline) break;
+    await delay(25);
+  }
+  if (!running()) return;
+  // taskkill runs asynchronously, so the stop waits until the tree is really gone.
+  killTree(pid, true);
+  job?.terminate?.();
+  const forcedBy = performance.now() + forcedTreeStopMs;
+  while (running()) {
+    if (performance.now() >= forcedBy)
+      throw new Error("Windows process tree survived its forced stop");
+    await delay(25);
+  }
+}
+
+/** Batch entrypoints cannot spawn directly (CVE-2024-27980); route them through cmd.exe. */
+export type WindowsCommand = { command: string; args: string[]; verbatim: boolean };
+
+/** Quote for the target argv parser: always wrap, escape `"` and edge backslashes. */
+function msvcrtQuote(value: string): string {
+  let quoted = '"';
+  let backslashes = 0;
+  for (const char of value) {
+    if (char === "\\") {
+      backslashes++;
+      continue;
+    }
+    if (char === '"') quoted += "\\".repeat(backslashes * 2 + 1) + '"';
+    else quoted += "\\".repeat(backslashes) + char;
+    backslashes = 0;
+  }
+  return quoted + "\\".repeat(backslashes * 2) + '"';
+}
+
+/** Hide one cmd.exe parse behind `^`; a second pass survives the shim's `%*` reparse. */
+function caretEscape(text: string): string {
+  return text.replace(/([()%!^"<>&|])/g, "^$1");
+}
+
+/** The program path rides in plain quotes so a space cannot split it; a quote
+ * or % in the path is refused instead of misquoted. */
+function escapeCommand(value: string): string {
+  if (value.includes('"') || value.includes("%"))
+    throw new Error("Windows batch command path cannot contain a quote or %");
+  return `"${value}"`;
+}
+
+function escapeArgument(value: string): string {
+  return caretEscape(caretEscape(msvcrtQuote(value)));
+}
+
+/**
+ * One program inside a `cmd.exe /c` line the caller already owns: the path in plain quotes, a
+ * batch target's arguments escaped twice for its `%*` reparse, any other program's once.
+ */
+export function windowsCmdLine(command: string, args: readonly string[]): string {
+  const base = command.split(/[\\/]/).pop() ?? command;
+  const escape = /\.(?:cmd|bat)$/i.test(base)
+    ? escapeArgument
+    : (value: string) => caretEscape(msvcrtQuote(value));
+  return [escapeCommand(command), ...args.map(escape)].join(" ");
+}
+
+/** Wrap a batch entrypoint as `cmd.exe /d /s /c "..."`; other commands pass through. */
+export function toWindowsCommand(command: string, args: readonly string[]): WindowsCommand {
+  const base = command.split(/[\\/]/).pop() ?? command;
+  if (!/\.(?:cmd|bat)$/i.test(base)) return { command, args: [...args], verbatim: false };
+  const line = [escapeCommand(command), ...args.map(escapeArgument)].join(" ");
+  return { command: "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], verbatim: true };
 }

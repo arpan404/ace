@@ -9,6 +9,8 @@ import UIKit
 struct ProjectLookPatch: Decodable, Sendable, Equatable {
     let image: String?
     let glyph: String?
+    /// The badge colour the person chose (an account colour key); nil for the project's own tint.
+    var color: String? = nil
 }
 
 /// What a row's project mark draws, resolved once when the look arrives: the glyph as an ace icon
@@ -16,13 +18,16 @@ struct ProjectLookPatch: Decodable, Sendable, Equatable {
 @MainActor struct ProjectMarkLook: Equatable {
     let glyph: AceIcon.Name?
     let artwork: ProjectArtwork?
+    /// The chosen badge colour's key; nil keeps the tint that stays with the project's id.
+    let color: String?
 
-    init(glyph: AceIcon.Name?, artwork: ProjectArtwork?) { self.glyph = glyph; self.artwork = artwork }
+    init(glyph: AceIcon.Name?, artwork: ProjectArtwork?, color: String? = nil) { self.glyph = glyph; self.artwork = artwork; self.color = color }
     init(_ patch: ProjectLookPatch) {
         glyph = patch.glyph.flatMap(AceIcon.Name.init(rawValue:))
         artwork = patch.image.flatMap(ProjectArtwork.shared(for:))
+        color = patch.color
     }
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.glyph == b.glyph && a.artwork === b.artwork }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.glyph == b.glyph && a.artwork === b.artwork && a.color == b.color }
 }
 
 /// One project image, decoded or fetched once and kept for every row and machine that shows it.

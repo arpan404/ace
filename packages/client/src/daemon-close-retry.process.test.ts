@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { readConfig, startDaemon } from "@ace/daemon";
+import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import { DeviceId } from "@ace/protocol";
 import { Client, webSocketTransport } from "./index.ts";
 import { ManualScheduler, memoryStorage, ready, when } from "./test-support.ts";
@@ -12,6 +12,9 @@ test("the client retries after the daemon closes its socket with 1009", async ()
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     handler: { handle: (command) => ({ commandId: command.id, ok: false, error: "unused" }) },
+    // Probing installed provider CLIs plays no part in the socket close.
+    engine: { registry: new AdapterRegistry() },
+    modelInstances: [],
   });
   const sockets: WebSocket[] = [];
   const scheduler = new ManualScheduler();

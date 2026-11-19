@@ -5,36 +5,36 @@ private struct NativeMediaReply: Decodable { let kind: String; let document: Str
 
 /// Published media is read through the owning SDK connection. HTML uses the same opaque-origin
 /// sandbox as the desktop, in a separate, nonpersistent WebKit store with no native handlers.
-/// With `attachment`, it shows that image of the person's message `item` instead.
+/// An image is fitted to the sheet and zooms (`ZoomableImage`).
 struct NativeMediaView: View {
     let model: ClientModel
     let threadId: String
     let item: TranscriptRow
-    var attachment: AttachmentLine? = nil
-    private var title: String { attachment.map { $0.name.isEmpty ? "Image" : $0.name } ?? item.text }
+    private var title: String { item.text }
     private var request: [String: Any] {
-        if let attachment {
-            return ["type": "native.attachment", "threadId": threadId, "itemId": item.id, "ref": attachment.ref ?? "", "variant": "original"]
-        }
-        return ["type": "native.media", "threadId": threadId, "itemId": item.id, "scheme": scheme == .dark ? "dark" : "light"]
+        ["type": "native.media", "threadId": threadId, "itemId": item.id, "scheme": scheme == .dark ? "dark" : "light"]
     }
     @Environment(\.colorScheme) private var scheme
     @State private var document: String?
     @State private var picture: UIImage?
     @State private var problem: String?
+    @State private var attempt = 0
     var body: some View {
         Group {
-            if let document { SandboxedCanvas(document: document).padding(.horizontal, AceTheme.Spacing.xl) }
-            else if let picture { ScrollView([.horizontal, .vertical]) { Image(uiImage: picture).resizable().scaledToFit().accessibilityLabel(title) } }
-            else if let problem { ContentUnavailableView("Couldn't open media", systemImage: "doc", description: Text(problem)) }
-            else { ProgressView("Loading…") }
+            if let document { SandboxedCanvas(document: document).padding(.horizontal, AceDesign.Space.margin) }
+            else if let picture { ZoomableImage(image: picture, label: title) }
+            else if let problem { EmptyState(systemImage: "doc", title: "Couldn't open media", line: problem, failed: true) {
+                Button("Retry") { self.problem = nil; attempt += 1 }
+            } }
+            else { SkeletonPage(label: "Loading media") }
         }
         .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-        .task(id: scheme) {
+        .toolbar { SheetClose() }
+        .task(id: "\(scheme)-\(attempt)") {
             do {
                 let reply = try await model.service(request, as: NativeMediaReply.self)
                 if reply.kind == "html", let html = reply.document { document = html }
-                else if let encoded = reply.data, let data = Data(base64Encoded: encoded), let image = UIImage(data: data) { picture = image }
+                else if let encoded = reply.data, let image = await MediaViewer.image(base64: encoded) { picture = image }
                 else { throw ServiceFailure(message: "The attachment couldn't be decoded.") }
                 problem = nil
             } catch { if !Task.isCancelled { problem = error.localizedDescription } }

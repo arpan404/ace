@@ -115,6 +115,68 @@ describe("WebSocket API", () => {
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
   });
+  it("names its database in every welcome, and another database under the same host id differently", async () => {
+    const f = await setup();
+    const first = await f.connect();
+    const again = await f.connect();
+    const welcome = await first.next();
+    expect(welcome).toMatchObject({ type: "welcome", hostId: "host" });
+    const databaseId = welcome.type === "welcome" ? welcome.databaseId : undefined;
+    expect(databaseId).toEqual(expect.any(String));
+    expect(await again.next()).toMatchObject({ type: "welcome", databaseId });
+    // A restored or reset database keeps the host id file but is not the same history.
+    const other = await setup();
+    const elsewhere = await other.connect();
+    const otherWelcome = await elsewhere.next();
+    expect(otherWelcome).toMatchObject({ type: "welcome", hostId: "host" });
+    const otherId = otherWelcome.type === "welcome" ? otherWelcome.databaseId : undefined;
+    expect(otherId).toEqual(expect.any(String));
+    expect(otherId).not.toBe(databaseId);
+  });
+  it("replays a quiet thread's own events however far other threads moved the host", async () => {
+    const f = await setup({ replayLimit: 2 });
+    const busy = createDevThread(f.store, f.workspace);
+    const quiet = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Seen" }]);
+    const seen = quiet.at(-1)?.seq ?? 0;
+    f.store.appendEvents(
+      busy.id,
+      Array.from({ length: 5 }, () => ({ type: "thread.updated", title: "Busy" })),
+    );
+    const missed = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Missed" }]);
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "subscribe",
+      subscriptionId: "s",
+      scope: { kind: "thread", threadId: f.thread.id },
+      afterSeq: seen,
+    });
+    expect(await client.next()).toMatchObject({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: seen,
+      events: missed,
+    });
+  });
+  it("sends a snapshot when a thread has more of its own events to replay than the limit", async () => {
+    const f = await setup({ replayLimit: 2 });
+    f.store.appendEvents(
+      f.thread.id,
+      Array.from({ length: 3 }, () => ({ type: "thread.updated", title: "Latest" })),
+    );
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "subscribe",
+      subscriptionId: "s",
+      scope: { kind: "thread", threadId: f.thread.id },
+      afterSeq: 1,
+    });
+    expect(await client.next()).toMatchObject({
+      type: "snapshot",
+      view: { thread: { title: "Latest" } },
+    });
+  });
   it("applies duplicate commands once and returns the same result", async () => {
     const f = await setup();
     const client = await f.connect();

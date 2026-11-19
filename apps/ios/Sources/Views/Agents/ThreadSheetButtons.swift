@@ -1,33 +1,37 @@
 import SwiftUI
 
-/// The sheets the thread header's ⋯ menu opens: the agent tree, Changes and Terminal. ThreadView
-/// applies it with one line, so the header and sheets stay out of the transcript's file.
+/// The sheets the thread's ⋯ menu still opens over it: Work and Logs. On a phone Changes is a
+/// page beside Chat (`ThreadPager`) and Files, Terminal, Browser and Agents push (`ThreadPushedTools`);
+/// on iPad they are the side panel's tabs.
 struct ThreadSheetButtons: ViewModifier {
     @Bindable var model: ClientModel
-    @Bindable var thread: ThreadModel
-    /// Pushes an agent that runs as its own ace thread.
-    let openThread: ((String) -> Void)?
-    @Binding var showingAgents: Bool
-    @Binding var showingChanges: Bool
-    @Binding var showingTerminal: Bool
-    private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
+    @Binding var showingWork: Bool
+    @Binding var showingLogs: Bool
+    @Environment(\.openPullRequest) private var openPull
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $showingAgents) {
-                AgentsSheet(model: model, thread: thread, openThread: openThread).adaptiveSheetDetents().presentationDragIndicator(.visible)
+            .sheet(isPresented: $showingWork) {
+                WorkSheet(model: model).environment(\.openPullRequest, openPull).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $showingChanges) {
-                ChangesSheet(model: model, title: metadata?.title ?? "").presentationDetents([.large]).presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showingTerminal) {
-                NavigationStack { TerminalView(model: model, threadId: thread.id) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            .sheet(isPresented: $showingLogs) {
+                NavigationStack {
+                    LogsView(model: model)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showingLogs = false } } }
+                }
+                .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
     }
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, agents: Binding<Bool>, changes: Binding<Bool>, terminal: Binding<Bool>) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingAgents: agents, showingChanges: changes, showingTerminal: terminal))
+    func threadSheets(model: ClientModel, thread: ThreadModel, work: Binding<Bool>, logs: Binding<Bool>) -> some View {
+        modifier(ThreadSheetButtons(model: model, showingWork: work, showingLogs: logs))
     }
+}
+
+extension EnvironmentValues {
+    /// Opens a pull request's page on the thread's own stack: its project, number and repository.
+    /// The inbox sets it where it pushes thread pages; nil elsewhere, where GitHub opens instead.
+    @Entry var openPullRequest: ((String, Int, ForgeRepository?) -> Void)? = nil
 }

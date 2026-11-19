@@ -7,6 +7,7 @@ import { guideTopics, toolFamilies } from "./status.ts";
 import { rankTools } from "./tool-search.ts";
 import { findDelivery } from "./tool-delivery.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
+import { namesDestructiveTools } from "./toolsets.ts";
 
 const maxMatches = 10;
 const Match = z.strictObject({
@@ -40,10 +41,10 @@ function purpose(description: string | undefined): string {
 }
 
 /** The families a `tools_find` result returned, for a core-mode session to open. */
+const FoundFamilies = z.object({ matches: z.array(z.object({ family: z.string().optional() })) });
+
 export function foundFamilies(result: unknown): string[] {
-  const parsed = z
-    .object({ matches: z.array(z.object({ family: z.string().optional() })) })
-    .safeParse(result);
+  const parsed = FoundFamilies.safeParse(result);
   return parsed.success
     ? [...new Set(parsed.data.matches.flatMap((match) => (match.family ? [match.family] : [])))]
     : [];
@@ -55,15 +56,11 @@ const toolsFind = {
   riskClass: "read-only",
   openWorld: false,
   description:
-    "Find the ace tools for what you want to do, among the ones this session can call. Returns each match's name, purpose, effect and input schema.",
+    "Find ace tools this session can call for a task: each match's name, purpose, effect and input schema.",
   input: z.strictObject({
-    query: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe('What you want to do, in plain words, e.g. "click a button in Safari".'),
-    limit: z.number().int().min(1).max(maxMatches).default(5).describe("At most this many."),
-    family: z.enum(toolFamilies).optional().describe("Only this family's tools."),
+    query: z.string().min(1).max(500).describe('In plain words, e.g. "click a button in Safari".'),
+    limit: z.number().int().min(1).max(maxMatches).default(5),
+    family: z.enum(toolFamilies).optional(),
   }),
   output: FindResult,
   capability: null,
@@ -103,6 +100,9 @@ const toolsCall = {
 } as const;
 /** The meta tools' definitions, for documentation and static approval attribution. */
 export const metaToolCatalog = [toolsFind, toolsCall] as const;
+const ToolsFindAdvertisedOutput = z.looseObject({
+  matches: z.array(z.looseObject({ name: z.string() })),
+});
 
 /**
  * `tools_find` and `tools_call`: the way to the rest of ace's tools for a session that does not
@@ -113,7 +113,7 @@ export function createMetaRegistry(): ToolRegistry {
   const registry = new ToolRegistry({ scheduler: nodeScheduler, maxTools: 2 });
   registry.register({
     ...toolsFind,
-    advertisedOutput: z.looseObject({ matches: z.array(z.looseObject({ name: z.string() })) }),
+    advertisedOutput: ToolsFindAdvertisedOutput,
     async run({ query, limit, family }, context) {
       context.signal.throwIfAborted();
       const session = context.session;
@@ -150,9 +150,22 @@ export function createMetaRegistry(): ToolRegistry {
   registry.registerContent({
     ...dispatcher,
     async run({ name, arguments: args }, context) {
-      const dispatch = context.session?.dispatch;
+      const session = context.session;
+      const dispatch = session?.dispatch;
       if (!dispatch) throw new PublicToolError("tool_unavailable");
-      return dispatch(name, args, context.signal);
+      // Where destructive tools are listed by name, they keep the client's ask: never dispatched.
+      if (
+        namesDestructiveTools(session.listing, context.client) &&
+        session
+          .catalog()
+          .some(
+            ({ tool }) =>
+              bareToolName(tool.name) === bareToolName(name) &&
+              tool.annotations?.destructiveHint === true,
+          )
+      )
+        throw new PublicToolError("call_directly");
+      return dispatch(name, args, context.signal, context.actingFor);
     },
   });
   return registry;

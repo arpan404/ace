@@ -1,29 +1,31 @@
 import { useConnectionState } from "@ace/client-react";
 import { choiceForModel, pickerModelsFromChoices, pickerProviders } from "@ace/ui-core";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { selectTrigger } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 import { useModelChoices, useModelCatalogState } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useUtilityModel } from "@/lib/utility-model.ts";
-import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
-import { SettingSwitch } from "./setting-switch.tsx";
+import { part } from "@/lib/suit-part.ts";
 
-/** Titles and commit/PR drafts: the model they're written with, and drafting on open. */
+/**
+ * Titles and commit/PR drafts: the model they're written with. Drafting commit messages on open
+ * is on Settings › Source control.
+ */
 export function GenerationSettings() {
   const note = useNotConnectedNote();
   return (
     <SettingSection label="Generation" card scope="daemon" note={note}>
       <UtilityModelRow />
-      <SettingSwitch setting={settingKeys.autoDraftCommits} entry="generation.autoDraftCommits" />
     </SettingSection>
   );
 }
@@ -55,24 +57,31 @@ function UtilityModelRow() {
       <DaemonSlot control={{ loaded: choice !== undefined, offline, pending: write.pending }}>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger
-            render={<Button type="button" variant="secondary" size="sm" disabled={offline} />}
+            // Drawn as a Select, so it lines up with the selects on the page.
+            data-slot="select"
+            {...part("select", offline && "disabled", "model")}
+            disabled={offline}
+            className={cn(selectTrigger, "min-w-36")}
             aria-label={`${row.title}: ${label}`}
           >
-            {resolved && (
-              <ProviderAccountIcon
-                provider={resolved.provider}
-                instance={resolved.instance}
-                size={14}
-                accountLabel={false}
-              />
-            )}
-            <span className="max-w-48 truncate">{label}</span>
+            <span className="inline-flex min-w-0 items-center gap-2">
+              {resolved && (
+                <ProviderAccountIcon
+                  provider={resolved.provider}
+                  instance={resolved.instance}
+                  size={14}
+                  accountLabel={false}
+                />
+              )}
+              <span className="truncate">{label}</span>
+            </span>
             <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
           </PopoverTrigger>
           <PopoverContent aria-label={row.title} className="overflow-hidden p-0">
             <button
               type="button"
               aria-pressed={!choice}
+              {...part("menu-item", !choice && "checked")}
               className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
               onClick={() => pick(null)}
             >

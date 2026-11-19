@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeStatusChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatus.json"
+    },
+    "type": {
+      "const": "spade.status.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "status"
+  ],
+  "type": "object"
+}

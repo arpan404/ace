@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeMachine.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "online",
+        "offline"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId",
+    "name",
+    "status"
+  ],
+  "type": "object"
+}

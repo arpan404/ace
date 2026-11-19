@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { createModelDiscovery } from "@ace/models";
-import { nativeLoginHarness } from "./native-login-test-support.ts";
+import { nativeLoginHarness, within } from "./native-login-test-support.ts";
 import { startProviderStatuses } from "./services/provider-status.ts";
 
 const cases = ["catalog", "status"].flatMap((phase) =>
@@ -9,6 +9,9 @@ const cases = ["catalog", "status"].flatMap((phase) =>
     change,
   })),
 );
+
+// Each step below is bounded; this caps the whole case, harness setup and teardown included.
+const CASE_TIMEOUT_MS = 30_000;
 
 test.each(cases)(
   "a $change change during $phase completion cannot publish stale login success",
@@ -35,20 +38,30 @@ test.each(cases)(
         }
         return {};
       };
-      await startProviderStatuses(f.context);
+      startProviderStatuses(f.context);
       const statuses = f.context.services.providerStatuses;
       if (!statuses) throw new Error("Missing provider statuses");
-      await statuses.refresh();
+      await within(statuses.refresh(), () => "the first provider status refresh");
+      // The daemon shares startup's CLI reads only until it listens, and a login can only arrive
+      // after that. This harness has no engine or listener to end the share, so end it here.
+      f.context.services.startupProbes?.close();
       completing = true;
-      const session = await f.start("api_key");
+      const session = await within(f.start("api_key"), () => "the login to start");
       await f.wait("awaiting_api_key");
-      await f.sessions.handle("owner", {
-        type: "provider.login.apiKey",
-        requestId: "key",
-        session,
-        apiKey: "opaque-synthetic-completion",
-      });
-      await entered.promise;
+      await within(
+        f.sessions.handle("owner", {
+          type: "provider.login.apiKey",
+          requestId: "key",
+          session,
+          apiKey: "opaque-synthetic-completion",
+        }),
+        () => "the API key to be accepted",
+      );
+      // A login that fails before this step never enters it: say so instead of waiting forever.
+      await within(
+        entered.promise,
+        () => `completion to reach its ${phase} step; the login reported ${f.describe()}`,
+      );
       expect(f.f.registry.summary(f.instance.id, 100)?.quota.auth).toBe("logged_in");
       if (change === "selected account") f.f.registry.selectProvider("codex", (await f.f.add()).id);
       else if (change === "login revision") f.f.registry.loginChanged(f.instance.id);
@@ -58,9 +71,11 @@ test.each(cases)(
         );
       const revision = f.f.registry.get(f.instance.id)?.instance.loginRevision;
       release.resolve();
-      expect((await f.sessions.completed("owner", session)).state).toBe(
-        change === "unchanged" ? "succeeded" : "failed",
+      const completed = await within(
+        f.sessions.completed("owner", session),
+        () => `the login to finish; it reported ${f.describe()}`,
       );
+      expect(completed.state).toBe(change === "unchanged" ? "succeeded" : "failed");
       expect(f.f.accounts.isChangingAccount(f.instance.id)).toBe(false);
       expect(f.f.models.hasInstance(f.instance.id)).toBe(change === "unchanged");
       if (change === "unchanged")
@@ -73,7 +88,10 @@ test.each(cases)(
       );
       if (change === "login revision")
         expect(f.f.registry.get(f.instance.id)?.instance.loginRevision).toBe(revision);
-      await statuses.refreshAfterMutation();
+      await within(
+        statuses.refreshAfterMutation(),
+        () => "the provider status refresh after login",
+      );
       const status = statuses.list().find((row) => row.provider === "codex");
       expect(status?.readiness).toBe(
         change === "disabled"
@@ -86,7 +104,8 @@ test.each(cases)(
       expect(f.events.some((event) => event.state === "succeeded")).toBe(change === "unchanged");
     } finally {
       release.resolve();
-      await f.close();
+      await within(f.close(), () => "the login harness to close");
     }
   },
+  CASE_TIMEOUT_MS,
 );

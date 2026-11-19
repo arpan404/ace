@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { EmbeddedBackend } from "../src/index.ts";
-import { BrowserOpen } from "@ace/protocol";
+import { BrowserOpen, type BrowserBackendClientMessage } from "@ace/protocol";
 let latestSession = "";
 let holdReads = false;
 const backend = new EmbeddedBackend(
@@ -53,7 +53,7 @@ function report(path: string, iterations: number, start: number) {
 let start = performance.now();
 for (let index = 0; index < 100_000; index++) await session.cdp.send("Memory.getDOMCounters");
 report("relay command serialization, admission and response", 100_000, start);
-const frame = {
+const frame: BrowserBackendClientMessage = {
   type: "browser.backend.event",
   backendId: "bench",
   sessionId: "bench-1",

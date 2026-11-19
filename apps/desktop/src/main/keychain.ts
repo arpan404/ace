@@ -23,13 +23,18 @@ export interface NamedApp {
  * folder is pinned first, since its default follows the name; menus, the About panel and logs
  * read the name later and get the real one.
  *
- * Nothing in the app needs the keychain today (cookie encryption is off and `safeStorage` is
- * unused), so this only guarantees that a future use can never read the legacy app's item.
+ * Cookie encryption is off; the keychain holds only `safeStorage`'s key, which encrypts the ace
+ * account sessions (`account-secrets.ts`) and is read only once that file exists. This
+ * guarantees that read never reaches the legacy app's item.
  */
 export function claimKeychainName(app: NamedApp, platform: NodeJS.Platform): void {
   if (platform !== "darwin") return;
   const name = app.getName();
   app.setPath("userData", app.getPath("userData"));
   app.setName(keychainName);
-  void app.whenReady().then(() => app.setName(name));
+  // whenReady never rejects; the app's own name goes back as soon as it is ready.
+  void app
+    .whenReady()
+    .then(() => app.setName(name))
+    .catch(() => {});
 }

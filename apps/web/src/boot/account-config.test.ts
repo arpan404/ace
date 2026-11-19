@@ -1,0 +1,135 @@
+import { expect, test, vi } from "vitest";
+import { aceAccountClient } from "@ace/client/ace-account";
+import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  accountFetch,
+  accountOrigin,
+  accountSessionKey,
+  hostedRelayUrl,
+  sameAccountOrigin,
+  signInReturnTo,
+  webClient,
+  windowAccountSession,
+} from "./account-config.ts";
+
+const env = (values: Partial<ImportMetaEnv>) =>
+  ({ ...import.meta.env, ...values }) as ImportMetaEnv;
+
+test("the hosted relay is the account origin as a WebSocket address unless one is configured", () => {
+  expect(hostedRelayUrl(env({ VITE_ACE_ACCOUNT_URL: "https://acehq.dev" }))).toBe(
+    "wss://acehq.dev",
+  );
+  expect(hostedRelayUrl(env({ VITE_ACE_ACCOUNT_URL: "http://localhost:8787" }))).toBe(
+    "ws://localhost:8787",
+  );
+  expect(
+    hostedRelayUrl(
+      env({
+        VITE_ACE_ACCOUNT_URL: "https://acehq.dev",
+        VITE_ACE_HOSTED_RELAY_URL: "wss://relay.x",
+      }),
+    ),
+  ).toBe("wss://relay.x");
+  expect(hostedRelayUrl(env({ VITE_ACE_ACCOUNT_URL: "" }))).toBeUndefined();
+});
+
+/** A build's settings without an account address: `prod` for a release build. */
+function build(prod: boolean, values: Partial<ImportMetaEnv> = {}): ImportMetaEnv {
+  const { VITE_ACE_ACCOUNT_URL: _unset, ...rest } = import.meta.env;
+  return { ...rest, PROD: prod, ...values } as ImportMetaEnv;
+}
+
+test("a release build uses ace's own account backend unless told otherwise", () => {
+  expect(accountOrigin(build(true))).toBe("https://cloud.acehq.dev");
+  expect(hostedRelayUrl(build(true))).toBe("wss://cloud.acehq.dev");
+  expect(accountOrigin(build(true, { VITE_ACE_ACCOUNT_URL: "https://accounts.example" }))).toBe(
+    "https://accounts.example",
+  );
+  // Empty turns accounts off, for a build that ships without them.
+  expect(accountOrigin(build(true, { VITE_ACE_ACCOUNT_URL: "" }))).toBeUndefined();
+  // Development builds and tests stay account-free unless they set it.
+  expect(accountOrigin(build(false))).toBeUndefined();
+});
+
+test("sign-in returns to the desktop app by its link and to a browser by its own landing page", () => {
+  expect(signInReturnTo({ desktop: true, origin: "app://ace" })).toBe("ace://account/signed-in");
+  expect(signInReturnTo({ desktop: false, origin: "https://app.acehq.dev" })).toBe(
+    "https://app.acehq.dev/account/signed-in",
+  );
+  expect(signInReturnTo({ desktop: false, origin: "null" })).toBeUndefined();
+});
+
+function keyValue(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial));
+  const storage: KeyValueStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => void values.set(key, value),
+    removeItem: (key) => void values.delete(key),
+  };
+  return { storage, values };
+}
+const grant = (token: string) =>
+  JSON.stringify({
+    token: token.repeat(43),
+    account: { id: "user_a", email: "a@example.com", name: "A" },
+    expiresAt: 2_000_000_000_000,
+  });
+
+test("a window signed in under ace's former address stays signed in at the current one", () => {
+  const { storage, values } = keyValue({
+    "ace.account.session:https://relay.acehq.dev": grant("a"),
+  });
+  expect(windowAccountSession(storage, "https://cloud.acehq.dev")?.token).toBe("a".repeat(43));
+  expect([...values.keys()]).toEqual([accountSessionKey("https://cloud.acehq.dev")]);
+});
+
+test("a window session under ace's current address wins over one left under the former", () => {
+  const { storage } = keyValue({
+    "ace.account.session:https://relay.acehq.dev": grant("a"),
+    "ace.account.session:https://cloud.acehq.dev": grant("b"),
+  });
+  expect(windowAccountSession(storage, "https://cloud.acehq.dev")?.token).toBe("b".repeat(43));
+  // Another backend never takes ace's session.
+  expect(windowAccountSession(storage, "https://accounts.example")).toBeNull();
+});
+
+test("a machine chosen on ace's former address is on the same backend; another backend is not", () => {
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://relay.acehq.dev")).toBe(true);
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://cloud.acehq.dev")).toBe(true);
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://accounts.example")).toBe(false);
+});
+
+test("the web app names its stamped version to ace cloud, and nothing when the build has none", () => {
+  expect(webClient(env({ VITE_ACE_VERSION: "0.0.24-beta.1" }))).toBe("web/0.0.24-beta.1");
+  expect(webClient(env({ VITE_ACE_VERSION: "development" }))).toBe("web/development");
+  expect(webClient(env({ VITE_ACE_VERSION: "" }))).toBeUndefined();
+});
+
+test("a browser's account calls name the app in the URL and send no header an older cloud's preflight refuses", async () => {
+  const seen: { url: URL; headers: string[] }[] = [];
+  // The network boundary: what the browser would send.
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ url: new URL(String(input)), headers: [...new Headers(init?.headers).keys()] });
+    return new Response(null, { status: 401 });
+  });
+  try {
+    const origin = "https://cloud.acehq.dev";
+    const account = aceAccountClient({
+      origin,
+      fetch: accountFetch(origin, env({ VITE_ACE_VERSION: "0.0.24-beta.1" })),
+    });
+    const signal = AbortSignal.timeout(5_000);
+    await expect(account.session("token", signal)).rejects.toThrow();
+    await expect(
+      account.grant("token", { kind: "device", subject: "phone" }, signal),
+    ).rejects.toThrow();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(seen).toHaveLength(2);
+  for (const { url, headers } of seen) {
+    expect(url.searchParams.get("ace-client")).toBe("web/0.0.24-beta.1");
+    // Exactly what the account API's preflight has always allowed.
+    expect(headers.every((name) => ["authorization", "content-type"].includes(name))).toBe(true);
+  }
+});

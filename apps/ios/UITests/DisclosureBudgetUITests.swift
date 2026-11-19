@@ -12,7 +12,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--perf-probe"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-log-long"))
         let toggle = app.buttons.matching(identifier: "work.toggle").allElementsBoundByIndex.last { $0.isHittable }
         let work = try XCTUnwrap(toggle, "no settled log on screen")
@@ -96,12 +96,13 @@ import XCTest
 /// Budgets for opening in place, about 1.5 to 5 times the measured median (Perf, iOS 26 simulator,
 /// loopback fixture, 2026-10-23; before the fix in brackets). Lower them when opening gets faster;
 /// never raise one without a measured reason.
+/// Time budgets stretch by `PerfBudget.slack` (`ACE_PERF_SLACK`); patch and byte counts don't.
 enum DisclosureBudget {
-    static let firstOpenMs = 150.0     // [48; 71 after placeholder rows and a 147 KB read]
-    static let groupMs = 120.0         // [28; 95 when all 60 rows laid out in one frame]
-    static let reopenMs = 120.0        // [26; 18 to 64, then every page arrived again]
-    static let reopenPatches = 2.0     // [1, the header; 5 to 6, every page again]
-    static let reopenBytes = 16_000.0  // [3,933]
-    static let inPlaceMs = 120.0       // [step 24, thought 21]
-    static let fullMessageMs = 600.0   // [273, mostly the sheet; 314 behind a spinner]
+    static let firstOpenMs = 150.0 * PerfBudget.slack     // [48; 71 after placeholder rows and a 147 KB read]
+    static let groupMs = 120.0 * PerfBudget.slack         // [28; 95 when all 60 rows laid out in one frame]
+    static let reopenMs = 120.0 * PerfBudget.slack        // [26; 18 to 64, then every page arrived again]
+    static let reopenPatches = 2.0                        // [1, the header; 5 to 6, every page again]
+    static let reopenBytes = 16_000.0                     // [3,933]
+    static let inPlaceMs = 120.0 * PerfBudget.slack       // [step 24, thought 21]
+    static let fullMessageMs = 600.0 * PerfBudget.slack   // [273, mostly the sheet; 314 behind a spinner]
 }

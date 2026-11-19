@@ -13,6 +13,9 @@ struct ForgeManageSection: View {
     @State private var writing = false
     @State private var deleting = false
     @State private var linking = false
+    @State private var reverting = false
+    /// The edit sheet's starting point: the text and the version it was read at, held while it is open.
+    @State private var editing: ForgePullEditTarget?
     private var client: ClientModel { desk.client }
     private var request: [String: Any] { ClientModel.forgeManageRead(project: desk.target.project, number: desk.target.number, repository: route.repository) }
 
@@ -36,70 +39,97 @@ struct ForgeManageSection: View {
         .sheet(isPresented: $linking) {
             ForgeLinkIssueSheet(completer: desk.completer) { number in apply(["kind": "issue.link", "issue": number]) }
         }
+        .sheet(item: $editing) { target in
+            ForgePullEditSheet(metadata: target.metadata, editable: target.editable) { changes in
+                await edit(changes, at: target.version)
+            }
+        }
+        .sheet(isPresented: $reverting) {
+            if let draft = manage?.revert, let version = manage?.version {
+                ForgeRevertSheet(number: desk.target.number, draft: draft, create: { title, body in await revert(version, title, body) }) { number in
+                    open(ForgeRoute(kind: .pull, machineId: route.machineId, project: route.project, number: number, repository: route.repository))
+                }
+            }
+        }
     }
 
+    /// One row per fact or action (ADR 0184): each change of state a row action in the action
+    /// colour, the values that change through a menu (milestone, lock) with their value in it, and
+    /// the branch with its own action beside it. Revert and Delete branch draw in red.
     @ViewBuilder private func content(_ manage: ForgeManage) -> some View {
         ForgeSection(title: "Manage") {
+            if let message {
+                ProblemRow(message, id: "forge.manage.problem")
+            }
             ForEach(manage.unconfirmed, id: \.self) { change in
-                HStack {
-                    Text("\(change.label) not confirmed").meta()
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                QuietSectionRow {
+                    QuietRowText(title: "\(change.label) not confirmed")
                     Button("Reconcile") { write(["kind": "reconcile", "operationId": change.id]) }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .buttonStyle(.secondaryAction).controlSize(.small)
                         .disabled(writing || !client.canOperate)
+                        .accessibilityIdentifier("forge.manage.reconcile")
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            }
+            if client.canOperate {
+                ForgeLifecycleRows(steps: manage.lifecycle, enabled: ready) { kind in apply(["kind": kind]) }
+                if !manage.editable.isEmpty {
+                    Button("Edit title, description and labels") {
+                        editing = ForgePullEditTarget(version: manage.version, metadata: manage.metadata, editable: manage.editable)
+                    }
+                    .buttonStyle(.rowAction)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .disabled(!ready)
+                    .accessibilityIdentifier("forge.manage.edit")
+                }
             }
             milestone(manage)
             ForEach(manage.closingIssues, id: \.number) { issue in issueRow(issue) }
             if manage.canLink, client.canOperate {
-                Button("Link an issue") { linking = true }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                Button { linking = true } label: { AddRow("Link an issue") }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, AceDesign.Space.margin)
                     .disabled(!ready)
                     .accessibilityIdentifier("forge.manage.link")
             }
             if let branch = manage.branch { branchRow(branch) }
             if let conversation = manage.conversation { lockRow(conversation, manage.reasons) }
-            if let message {
-                Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+            if manage.revert != nil, client.canOperate {
+                Button("Revert", role: .destructive) { reverting = true }
+                    .buttonStyle(.rowAction)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .disabled(!ready)
+                    .accessibilityIdentifier("forge.manage.revert")
             }
         }
     }
 
     @ViewBuilder private func milestone(_ manage: ForgeManage) -> some View {
-        HStack {
-            Text("Milestone").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                .foregroundStyle(AceTheme.Colours.foreground)
-            Spacer(minLength: AceTheme.Spacing.sm)
+        QuietSectionRow {
+            QuietRowText(title: "Milestone")
             if let milestones = manage.milestones, client.canOperate {
                 Menu {
                     Picker("Milestone", selection: Binding(get: { manage.milestone?.number }, set: { choose($0, manage) })) {
                         Text("None").tag(Int?.none)
                         ForEach(milestones, id: \.number) { Text($0.title).tag(Optional($0.number)) }
                     }
-                } label: { Text(manage.milestone?.title ?? "None").meta() }
+                } label: { ForgeMenuValue(text: manage.milestone?.title ?? "None") }
                     .disabled(!ready)
                     .accessibilityIdentifier("forge.manage.milestone")
             } else {
-                Text(manage.milestone?.title ?? "None").meta()
+                InsetValue(text: manage.milestone?.title ?? "None")
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
     }
 
     private func issueRow(_ issue: ForgeManage.Issue) -> some View {
         Button { open(ForgeRoute(kind: .issue, machineId: route.machineId, project: route.project, number: issue.number, repository: route.repository)) } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                ForgeIssueGlyph(state: issue.state, size: 15)
+            QuietSectionRow {
+                ForgeIssueGlyph(state: issue.state, size: AceDesign.Size.icon)
                 Text(verbatim: "#\(issue.number)").monospacedDigit().meta(AceTheme.Colours.subtleForeground)
-                Text(issue.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                Text(issue.manual ? "Linked" : "Closes").meta()
+                QuietRowText(title: issue.title)
+                InsetValue(text: issue.manual ? "Linked" : "Closes")
+                RowCaret()
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.row)
         .contextMenu {
@@ -112,42 +142,37 @@ struct ForgeManageSection: View {
     }
 
     private func branchRow(_ branch: ForgeManage.Branch) -> some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(branch.name).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(branch.exists ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground).lineLimit(1)
-                if let note = branch.note { Text(note).meta() } else if !branch.exists { Text("Deleted on GitHub").meta() }
-            }
-            Spacer(minLength: AceTheme.Spacing.sm)
+        QuietSectionRow {
+            QuietRowText(title: branch.name, detail: branch.note ?? (branch.exists ? nil : "Deleted on GitHub"), mono: true,
+                         tone: branch.exists ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
             if branch.delete, client.canOperate {
-                Button("Delete branch") { deleting = true }.disabled(!ready).accessibilityIdentifier("forge.manage.delete-branch")
+                Button("Delete branch", role: .destructive) { deleting = true }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
+                    .disabled(!ready).accessibilityIdentifier("forge.manage.delete-branch")
             } else if branch.restore, client.canOperate {
-                Button("Restore branch") { apply(["kind": "branch.restore"]) }.disabled(!ready).accessibilityIdentifier("forge.manage.restore-branch")
+                Button("Restore branch") { apply(["kind": "branch.restore"]) }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
+                    .disabled(!ready).accessibilityIdentifier("forge.manage.restore-branch")
             }
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
     }
 
     private func lockRow(_ conversation: ForgeManage.Conversation, _ reasons: [ForgeManage.Reason]) -> some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Text(conversation.locked ? "Conversation locked" : "Conversation").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .fontWeight(.regular).foregroundStyle(AceTheme.Colours.foreground)
-            if let reason = conversation.reason { Text(reason).meta() }
-            Spacer(minLength: AceTheme.Spacing.sm)
+        QuietSectionRow {
+            QuietRowText(title: conversation.locked ? "Conversation locked" : "Conversation", detail: conversation.reason)
             if conversation.unlock, client.canOperate {
-                Button("Unlock") { apply(["kind": "unlock"]) }.disabled(!ready).accessibilityIdentifier("forge.manage.unlock")
+                Button("Unlock") { apply(["kind": "unlock"]) }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
+                    .disabled(!ready).accessibilityIdentifier("forge.manage.unlock")
             } else if conversation.lock, client.canOperate {
-                Menu("Lock") {
+                Menu {
                     ForEach(reasons, id: \.value) { reason in Button(reason.label) { apply(["kind": "lock", "reason": reason.value]) } }
                     Button("Without a reason") { apply(["kind": "lock", "reason": NSNull()]) }
-                }
+                } label: { ForgeMenuValue(text: "Lock") }
                 .disabled(!ready)
                 .accessibilityIdentifier("forge.manage.lock")
             }
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
     }
 
     private func choose(_ number: Int?, _ manage: ForgeManage) {
@@ -169,6 +194,25 @@ struct ForgeManageSection: View {
             message = outcome.ok ? nil : outcome.message
             writing = false
         }
+    }
+
+    /// The revert, pinned to the version shown; the section reads GitHub again after it.
+    private func revert(_ version: String, _ title: String, _ body: String) async -> ForgeWorkOutcome {
+        let target = desk.target
+        let outcome = await client.forgeWorkWrite(["type": "forge.manage", "project": target.project, "number": target.number,
+                                                   "repository": target.repository.json,
+                                                   "operation": ["kind": "apply", "version": version, "action": ["kind": "revert", "title": title, "body": body]]])
+        await load()
+        return outcome
+    }
+
+    /// An edit pinned to the version its sheet opened at, so one changed elsewhere since is refused
+    /// rather than overwritten. The section reads GitHub again after it either way.
+    private func edit(_ changes: [String: Any], at version: String) async -> ForgeReviewOutcome {
+        let outcome = await client.forgeManageWrite(desk.target, operation: ["kind": "apply", "version": version,
+                                                                             "action": ["kind": "edit", "changes": changes]])
+        await load()
+        return outcome
     }
 
     private func load() async {

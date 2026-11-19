@@ -8,7 +8,19 @@ export async function daemonFixture(
   agentControl?: import("../services/options.ts").DaemonOptions["agentControl"],
   options: Pick<
     import("../services/options.ts").DaemonOptions,
-    "accounts" | "workspaceActions" | "browser" | "machines" | "devices" | "projects" | "transfers"
+    | "accounts"
+    | "workspaceActions"
+    | "browser"
+    | "machines"
+    | "devices"
+    | "projects"
+    | "transfers"
+    | "parcels"
+    | "screen"
+    | "computer"
+    | "outsideClients"
+    | "spade"
+    | "personGrantKeys"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -47,14 +59,27 @@ export async function daemonFixture(
       ...(options.browser ? { browser: options.browser } : {}),
       ...(options.machines ? { machines: options.machines } : {}),
       ...(options.devices ? { devices: options.devices } : {}),
+      ...(options.screen ? { screen: options.screen } : {}),
+      ...(options.computer ? { computer: options.computer } : {}),
+      ...(options.outsideClients ? { outsideClients: options.outsideClients } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.transfers ? { transfers: options.transfers } : {}),
+      ...(options.parcels ? { parcels: options.parcels } : {}),
+      ...(options.spade ? { spade: options.spade } : {}),
+      ...(options.personGrantKeys ? { personGrantKeys: options.personGrantKeys } : {}),
       workspaceActions: {
         forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
         ...options.workspaceActions,
       },
     });
   const daemon = await boot();
+  // A daemon given Spade's seams is one with Spade turned on in Settings › Beta (ADR 0139).
+  if (options.spade) {
+    await daemon.settings.set("beta.spade", true, { kind: "global" });
+    const deadline = Date.now() + 5000;
+    while (daemon.spade?.status().hidden === true && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   let current = daemon;
   /** What a person would have set up before: settings persist, the scripted catalog is seeded. */
   const prepare = async (started: Awaited<ReturnType<typeof boot>>) => {

@@ -1,5 +1,16 @@
-import { cardDetails, threadCard, threadGlyph } from "@ace/ui-core";
+import { cardDetails, rowStatusLook, rowStatusState, threadCard, threadGlyph } from "@ace/ui-core";
 import { inboxGroup, type InboxThread } from "@ace/ui-core/mobile";
+import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
+
+/**
+ * This phone's read cursor for the row, as the daemon sends it with the entry and the desktop's
+ * sidebar reads it: reading through the last answer clears a finished result's check.
+ */
+export function readCursor(entry: ThreadListEntry): { readState?: ThreadReadStateResponse } {
+  if (!entry.readState) return {};
+  const readState = { type: "thread.readState" as const, requestId: "inbox", threadId: entry.id };
+  return { readState: { ...readState, ...entry.readState } };
+}
 
 /**
  * How an inbox row reads, by the same rule as the web's Home row (`threadCard` →
@@ -21,19 +32,44 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     now,
     projectName: entry.details?.workspace?.name,
     unconfirmed: thread.unconfirmed,
+    ...readCursor(entry),
   });
   const { level, word, tone, muted } = card.attention;
   // A word with no glyph: waiting, a failure already seen, and an unconfirmed copy.
   const bare = tone === "waiting" || level === "failed-seen" || level === "syncing";
+  // The desktop row's status mark (`rowStatusLook`): one icon in its state's colour, with the
+  // live elapsed time for work under way, the age at rest, or a quiet word while syncing.
+  const status = rowStatusLook(card.attention, card);
+  // Back from a snooze, until read: the alarm alone, as the desktop row shows it; why it woke
+  // is its meaning, for VoiceOver.
+  const woke = card.woke;
   return {
     level,
-    word: word ?? null,
     tone,
     muted,
     glyph: word === undefined || bare ? null : threadGlyph({ tone, mark: card.status.mark }),
+    /**
+     * The design language's status state (`rowStatusState`), the one word the lock screen
+     * counts by: only `working` is work under way; waits and usage limits are their own.
+     */
+    state: rowStatusState(card.attention, status),
     /** Start of the live stretch, for the elapsed time beside an active row's word. */
     since: level === "active" ? (card.status.since ?? null) : null,
     settled,
     subagents: card.subagents,
+    /** A finished result not yet opened, or marked unread by hand. */
+    unread: card.flags.unread,
+    /** The status icon (`RowStatusIconKind`, or `none`) and the colour it draws in. */
+    icon: woke ? "woke" : status.icon,
+    iconTone: woke ? "woke" : status.tone,
+    /** How many agents an `agents` icon waits on. */
+    count: status.count ?? null,
+    /** Beside the icon: the live elapsed time, the age, a quiet word, or nothing. */
+    mode: woke ? "icon" : status.mode,
+    word: word ?? null,
+    /** The state in a few words ("Needs approval"), for VoiceOver. */
+    meaning: woke ? woke.sentence : status.meaning,
+    /** Only a thread that needs the person sets its title in semibold. */
+    strong: level === "needs-you",
   };
 }

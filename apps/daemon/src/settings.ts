@@ -7,6 +7,7 @@ import {
   type Layer,
 } from "@ace/settings";
 import {
+  type SettingsLayer as SettingsLayerWire,
   type SettingsRequest,
   type SettingsScope,
   type ServerMessage,
@@ -16,6 +17,7 @@ import {
   SettingsKey,
   SettingsValues,
 } from "@ace/protocol";
+import { setOnItsOwn } from "@ace/settings/batch";
 import type { Store } from "./store.ts";
 import { canonicalProjectRoots } from "./project-policy.ts";
 import { canonicalDownloadFolder } from "./download-folder.ts";
@@ -35,6 +37,24 @@ export function settingsScope(store: Store, scope: SettingsScope): Scope {
     ...(scope.threadId ? { thread: scope.threadId } : {}),
   };
 }
+/** The wire scope a write's layer resolves inheritance in. */
+function layerScope(layer: SettingsLayerWire): SettingsScope {
+  return layer.kind === "global"
+    ? {}
+    : layer.kind === "workspace"
+      ? { workspaceId: layer.workspaceId }
+      : { threadId: layer.threadId };
+}
+/** The service layer a write lands on; an unknown workspace falls back to global, as before. */
+function writeLayer(layer: SettingsLayerWire, scope: Scope): Layer {
+  return layer.kind === "global"
+    ? { kind: "global" }
+    : layer.kind === "workspace" && scope.workspace
+      ? { kind: "workspace", workspace: scope.workspace }
+      : layer.kind === "thread"
+        ? { kind: "thread", thread: layer.threadId }
+        : { kind: "global" };
+}
 export function settingsSession(options: {
   service: SettingsService | undefined;
   store: Store;
@@ -42,8 +62,20 @@ export function settingsSession(options: {
   send(message: ServerMessage): void;
   authorize?(request: SettingsRequest): boolean;
   resetKeys?(): SettingsKey[];
+  /**
+   * Why this socket may not write `key` (a `SettingsError`), or undefined when it may: asked of
+   * every key a write names, single or batched, before anything is written (ADR 0190).
+   */
+  refuse?(key: SettingsKey): Promise<SettingsError | undefined>;
   set?(key: string, value: unknown, commit: () => Promise<void>): Promise<void>;
 }) {
+  /** Throws the first refusal among `keys`; writes nothing on the way. */
+  const mayWrite = async (keys: readonly SettingsKey[]) => {
+    for (const key of keys) {
+      const refused = await options.refuse?.(key);
+      if (refused) throw refused;
+    }
+  };
   let closed = false;
   let tail: Promise<void> = Promise.resolve();
   let pending = 0;
@@ -52,7 +84,10 @@ export function settingsSession(options: {
       reason instanceof SettingsError
         ? reason
         : new SettingsError("io", "Settings operation failed");
-    const layer = request.type === "settings.set" ? request.layer.kind : "global";
+    const layer =
+      request.type === "settings.set" || request.type === "settings.setMany"
+        ? request.layer.kind
+        : "global";
     options.send({
       type: "settings.result",
       requestId: request.requestId,
@@ -108,7 +143,11 @@ export function settingsSession(options: {
           const service = options.service;
           if (!service) throw new SettingsError("io", "Settings service is unavailable");
           if (request.type === "settings.reset") {
-            await service.reset(options.resetKeys?.() ?? []);
+            // A reset leaves out what this socket may not write, rather than failing.
+            const keys: SettingsKey[] = [];
+            for (const key of options.resetKeys?.() ?? [])
+              if (!(await options.refuse?.(key))) keys.push(key);
+            await service.reset(keys);
             options.send({
               type: "settings.result",
               requestId: request.requestId,
@@ -118,26 +157,39 @@ export function settingsSession(options: {
             });
             return;
           }
+          if (request.type === "settings.setMany") {
+            const scope = settingsScope(options.store, layerScope(request.layer));
+            // Every entry is checked before anything is written: all or none.
+            const assignments = request.entries.map((entry) =>
+              validateAssignment(entry.key, entry.value),
+            );
+            const own = assignments.find((assignment) => setOnItsOwn(assignment.key));
+            if (own)
+              throw new SettingsError("validation", `Set ${own.key} on its own, not with others`);
+            // The same per-key rules as a single write, for every key, before any is written.
+            await mayWrite(assignments.map((assignment) => assignment.key));
+            await service.setMany(assignments, writeLayer(request.layer, scope));
+            const result = await service.read({
+              keys: assignments.map((assignment) => assignment.key),
+              scope,
+            });
+            if (closed) return;
+            options.send({
+              type: "settings.result",
+              requestId: request.requestId,
+              ok: true,
+              ...result,
+            });
+            return;
+          }
           const wireScope =
-            request.type === "settings.set"
-              ? request.layer.kind === "global"
-                ? {}
-                : request.layer.kind === "workspace"
-                  ? { workspaceId: request.layer.workspaceId }
-                  : { threadId: request.layer.threadId }
-              : request.scope;
+            request.type === "settings.set" ? layerScope(request.layer) : request.scope;
           const scope = settingsScope(options.store, wireScope);
           if (request.type === "settings.set") {
-            const layer: Layer =
-              request.layer.kind === "global"
-                ? { kind: "global" }
-                : request.layer.kind === "workspace" && scope.workspace
-                  ? { kind: "workspace", workspace: scope.workspace }
-                  : request.layer.kind === "thread"
-                    ? { kind: "thread", thread: request.layer.threadId }
-                    : { kind: "global" };
+            const layer = writeLayer(request.layer, scope);
             // Validation remains in the service, including recursive secret checks.
             const assignment = validateAssignment(request.key, request.value);
+            await mayWrite([assignment.key]);
             let value = assignment.value;
             if (assignment.key === "projects.roots") {
               try {

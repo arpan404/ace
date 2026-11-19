@@ -59,6 +59,13 @@ export interface TrustedCertificate {
   select(servername: string): SecureContext | undefined;
   /** True while a valid Tailscale certificate is served, so a ts.net link works in browsers. */
   active(): boolean;
+  /** Why the last fetch failed and how to fix it; undefined once a certificate is fetched. */
+  problem(): string | undefined;
+  /**
+   * Fetches again now, unless a certificate is served, and waits up to `waitMs` for it: the
+   * person may have just fixed what the last fetch failed on.
+   */
+  retry(waitMs: number): Promise<void>;
   /** Settles after the first fetch, whether or not it produced a certificate. */
   ready: Promise<void>;
   stop(): void;
@@ -77,16 +84,26 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
   let expires = 0;
   let current = "";
   let stopped = false;
-  let failing = false;
+  let problem: string | undefined;
+  let fetching: Promise<void> | undefined;
   let cancel: (() => void) | undefined;
   const schedule = (milliseconds: number) => {
     if (stopped) return;
     cancel = options.delay(() => {
       cancel = undefined;
-      void refresh();
+      // refresh() logs its own failure and schedules the retry.
+      void refresh().catch(() => {});
     }, milliseconds);
   };
-  const refresh = async () => {
+  const refresh = () => {
+    cancel?.();
+    cancel = undefined;
+    fetching ??= fetchOnce().finally(() => {
+      fetching = undefined;
+    });
+    return fetching;
+  };
+  const fetchOnce = async () => {
     try {
       const pem = parseTailscaleCertificate(
         await options.fetch(options.name),
@@ -100,12 +117,13 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         expires = pem.expires;
         current = pem.cert;
       }
-      failing = false;
+      problem = undefined;
       schedule(refreshMs);
     } catch (error) {
       if (stopped) return;
-      if (!failing) options.log?.(certificateError(options.name, error));
-      failing = true;
+      const failure = certificateError(options.name, error);
+      if (failure.message !== problem) options.log?.(failure);
+      problem = failure.message;
       schedule(retryMs);
     }
   };
@@ -119,6 +137,18 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         ? context
         : undefined,
     active,
+    problem: () => problem,
+    async retry(waitMs) {
+      if (stopped || active()) return;
+      let stopWaiting: (() => void) | undefined;
+      await Promise.race([
+        refresh(),
+        new Promise<void>((resolve) => {
+          stopWaiting = options.delay(resolve, waitMs);
+        }),
+      ]);
+      stopWaiting?.();
+    },
     ready,
     stop() {
       stopped = true;
@@ -130,10 +160,27 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
 
 function certificateError(name: string, cause: unknown): Error {
   const detail = cause instanceof Error ? cause.message : "";
+  if (process.platform === "win32") return windowsCertificateError(name, detail, cause);
   // Linux tailscaled lets only root or its operator fetch certificates.
   const fix = /access denied|permission/i.test(detail)
     ? "Run `sudo tailscale set --operator=$USER` so ace can fetch it."
     : "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console; ace keeps trying.";
+  return new Error(
+    `Browsers won't trust ${name} until Tailscale issues its HTTPS certificate. ${fix}`,
+    { cause },
+  );
+}
+
+/**
+ * Windows has no operator setting: Tailscale answers only the Windows account that connected it
+ * in the Tailscale app (or an administrator), and ace never asks for administrator rights.
+ */
+function windowsCertificateError(name: string, detail: string, cause: unknown): Error {
+  const fix = /access denied|permission|in use by/i.test(detail)
+    ? "Connect Tailscale from this Windows account in the Tailscale app, so ace can fetch it; ace keeps trying."
+    : /not found|ENOENT|not recognized/i.test(detail)
+      ? "Install Tailscale for Windows and connect it; ace keeps trying."
+      : "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console; ace keeps trying.";
   return new Error(
     `Browsers won't trust ${name} until Tailscale issues its HTTPS certificate. ${fix}`,
     { cause },

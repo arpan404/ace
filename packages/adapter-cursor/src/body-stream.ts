@@ -5,6 +5,7 @@ import { z } from "zod";
 import { object } from "./contracts.ts";
 import { ShellStreams } from "./shell-streams.ts";
 import { streamText, markText } from "./text-stream.ts";
+import { sdkImages } from "./sdk-images.ts";
 
 export const BlobPart = z.object({
   id: z.string().regex(/^sdk-raw-[a-f0-9]{64}$/),
@@ -29,6 +30,7 @@ export async function streamSdkBody(
   scope = identity,
   frameBytes = 262144,
 ): Promise<{ body: unknown; raw?: z.infer<typeof BlobReference> }> {
+  body = sdkImages(body, maxBytes);
   const scrub = createStreamingRedactor(context);
   const text = (value: string, field?: string) =>
     isSensitiveField(field ?? "", value) ? ["<SECRET>"] : scrub(value);

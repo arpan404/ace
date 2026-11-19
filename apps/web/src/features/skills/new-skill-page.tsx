@@ -2,15 +2,18 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
-import { isSkillAgent, nameTaken, skillAgents } from "./library-model.ts";
+import { part } from "@/lib/suit-part.ts";
+import {
+  initialSkillAgents,
+  isSkillAgent,
+  nameTaken,
+  newSkillPath,
+  skillAgents,
+} from "./library-model.ts";
 import { SkillRequestError, useCreateSkill } from "./library-source.ts";
-import { NewSkillForm, type NewSkill } from "./new-skill-form.tsx";
+import { NewSkillForm } from "./new-skill-form.tsx";
 import { SkillPageSkeleton } from "./skills-landing-screen.tsx";
 import { useSkillLibrary } from "./skills-library.tsx";
-
-/** Where the daemon saves a new skill (ADR 0103), as the form previews it. */
-const pathFor = (scope: NewSkill["scope"], name: string) =>
-  `${scope === "personal" ? "~/" : ""}.agents/skills/${name}/SKILL.md`;
 
 /** Write a new skill; once the library lists it, its page opens. */
 export function NewSkillPage() {
@@ -27,29 +30,34 @@ export function NewSkillPage() {
   }, [listed, created, navigate]);
   // Agents start ticked when they are installed on the daemon's machine.
   const installed = statuses.data
-    ? skillAgents.filter((agent) =>
-        statuses.data?.some(
-          (status) => status.provider === agent && status.state !== "not_installed",
-        ),
+    ? initialSkillAgents(
+        statuses.data
+          .filter((status) => status.state !== "not_installed")
+          .map((status) => status.provider),
       )
     : statuses.isError
       ? skillAgents
       : undefined;
   return (
-    <Screen title="Skills">
+    <Screen page="skill" title="Skills" namedByPanel>
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
-          <h2 className="text-2xl font-semibold tracking-title">New skill</h2>
+        <div
+          {...part("page-body")}
+          className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
+        >
+          <h2 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+            New skill
+          </h2>
           {!installed ? (
             <SkillPageSkeleton />
           ) : (
             <NewSkillForm
               project={library.project?.name}
               agents={skillAgents}
-              initialAgents={installed.length ? installed : skillAgents}
+              initialAgents={installed}
               // Only the folder the daemon writes to counts; plugin and built-in names don't clash.
               taken={(name, scope) => nameTaken(library.entries, name, scope)}
-              pathFor={pathFor}
+              pathFor={newSkillPath}
               creating={create.isPending || !!created}
               error={error}
               onCancel={() => void navigate({ to: "/skills" })}

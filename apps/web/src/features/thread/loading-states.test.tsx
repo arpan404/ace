@@ -1,7 +1,12 @@
 import { longHistory, type FakeDaemon } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
+import { statusDelayMs } from "@/lib/held.ts";
 import { harness } from "@/test/harness.tsx";
+
+/** Long enough that a loading or syncing note would have shown by now. */
+const pastStatusDelay = () =>
+  act(() => new Promise((resolve) => setTimeout(resolve, statusDelayMs + 150)));
 
 const threadId = "thread-router";
 const latest = "Answer 6: route 6 renders its own panel.";
@@ -68,7 +73,7 @@ test("a thread that opens promptly never flashes a loading state", async () => {
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText(latest);
   // Past the moment a slow open would have said so.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+  await pastStatusDelay();
   expect(loading.seen()).toBe(false);
 });
 
@@ -127,10 +132,22 @@ test("a reconnect that catches up promptly never flashes Syncing…", async () =
   await within(feed).findByText(latest);
   const syncing = watchFor("Syncing…");
   watchers.push(syncing);
+  let reconnects = 0;
+  const connect = app.daemon.connect.bind(app.daemon);
+  app.daemon.connect = (wire) => {
+    reconnects++;
+    return connect(wire);
+  };
   act(() => app.daemon.disconnectAll());
   // Back and caught up, with time to spare past the delay.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 2_500)));
-  expect(app.client.state).toBe("ready");
+  await waitFor(
+    () => {
+      expect(reconnects).toBeGreaterThan(0);
+      expect(app.client.state).toBe("ready");
+    },
+    { timeout: 5_000 },
+  );
+  await pastStatusDelay();
   expect(syncing.seen()).toBe(false);
 });
 
@@ -144,7 +161,7 @@ test("while the connection is still coming back, Syncing… stays hidden: the co
   watchers.push(syncing);
   // The daemon refuses every connection: the thread is behind, but nothing is catching it up.
   act(() => app.daemon.refuseConnections(true));
-  await act(() => new Promise((resolve) => setTimeout(resolve, 1_200)));
+  await pastStatusDelay();
   expect(app.client.state).not.toBe("ready");
   expect(syncing.seen()).toBe(false);
   expect(within(feed).getByText(latest)).toBeTruthy();

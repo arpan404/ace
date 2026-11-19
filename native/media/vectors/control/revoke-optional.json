@@ -1,0 +1,13 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "revoke",
+    "id": "source-1",
+    "issued": 1,
+    "device": "source-1",
+    "admission": {
+      "kind": "pairing",
+      "generation": "9b31f2658274bab6c01149e5fcb699b5"
+    }
+  }
+}

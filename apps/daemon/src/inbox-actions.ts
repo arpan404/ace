@@ -10,13 +10,13 @@ import { commandNotDispatched } from "./command-not-dispatched.ts";
  */
 export async function runInboxWrite(
   command: Command & { payload: ForgeInboxCommand },
-  inbox: () => Promise<GitHubInbox>,
+  inbox: () => Promise<Pick<GitHubInbox, "write">>,
   allowed: () => boolean,
   signal: AbortSignal,
 ): Promise<Omit<CommandResult, "commandId">> {
   const input = command.payload.input;
   if (!allowed()) return commandNotDispatched(command, "forbidden");
-  let target: GitHubInbox;
+  let target: Pick<GitHubInbox, "write">;
   try {
     target = await inbox();
   } catch (error) {

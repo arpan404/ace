@@ -281,6 +281,14 @@
     },
     {
       "properties": {
+        "cursor": {
+          "$ref": "https://ace.local/protocol/v1/AttachmentListCursor.json"
+        },
+        "limit": {
+          "maximum": 256,
+          "minimum": 1,
+          "type": "integer"
+        },
         "op": {
           "const": "attachment.list",
           "type": "string"

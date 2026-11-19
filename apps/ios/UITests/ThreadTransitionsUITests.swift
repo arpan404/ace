@@ -1,0 +1,296 @@
+import XCTest
+
+/// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back,
+/// rendered Markdown, the person's markdown bubble, a brief another thread sent and Copy as typed,
+/// against the spike fixture's `ios-turns`, `ios-pi`, `ios-fork`, `ios-markdown`, `ios-messages`,
+/// `ios-sent` and `ios-copy`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
+/// saves the screenshots. Run on a fresh fixture: forking adds threads to it.
+@MainActor final class ThreadTransitionsUITests: XCTestCase, @unchecked Sendable {
+    override func setUp() { continueAfterFailure = false }
+
+    func testForkFromAnAnswerOpensTheForkInTheComposer() {
+        let app = launch()
+        open("ios-turns", in: app)
+        // A message's actions are in its long-press menu: nothing sits under it at rest.
+        XCTAssertTrue(waitForAny(prefix: "message.answer.", in: app))
+        openMenu(of: message("message.answer.", in: app), in: app)
+        screenshot("message-actions")
+        app.buttons["Fork from here"].tap()
+        XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["composer.fork.cancel"].exists)
+        screenshot("fork-composer")
+        let input = app.textViews["composer.input"]
+        input.typeText("Try a fake clock in one test first")
+        screenshot("fork-composer-typed")
+        app.buttons["composer.send"].tap()
+        // The fork opens once the machine has started it.
+        XCTAssertTrue(app.staticTexts["composer.fork"].waitForNonExistence(timeout: 20))
+        screenshot("fork-opened")
+    }
+
+    func testEditForksFromBeforeTheMessageWithItsWordsAndImage() {
+        let app = launch()
+        open("ios-turns", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
+        // The opening message has no answer before it, so it can't be edited: the second ask can,
+        // and it carries a picture.
+        let ask = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Can we fake the clock")).firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 20))
+        openMenu(of: ask, in: app)
+        app.buttons["Edit"].tap()
+        XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue((input.value as? String)?.isEmpty == false, "the edited message's words start the fork")
+        // Its picture is on the fork's message, the same stored file, and can be taken off.
+        XCTAssertTrue(app.buttons["composer.media"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["composer.media.remove"].exists)
+        screenshot("edit-composer")
+        input.typeText(" with one fake clock")
+        app.buttons["composer.send"].tap()
+        XCTAssertTrue(app.staticTexts["composer.fork"].waitForNonExistence(timeout: 20))
+        // The fork opens with the picture on its first message.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "attachment.image.")).firstMatch.waitForExistence(timeout: 30))
+        screenshot("edit-fork-opened")
+    }
+
+    func testRenameTurnsAndAttachmentsFromTheHeader() {
+        let app = launch()
+        open("ios-turns", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
+        let title = app.threadTitle(timeout: 20)
+        title.tap()
+        XCTAssertTrue(app.buttons["Rename…"].waitForExistence(timeout: 10))
+        screenshot("title-menu")
+        app.buttons["Rename…"].tap()
+        let field = app.textFields["rename.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        screenshot("rename-sheet")
+        // The whole name is selected: typing replaces it.
+        field.typeText("Fake the queue clock")
+        app.buttons["rename.save"].tap()
+        sleep(2)
+        screenshot("renamed")
+        XCTAssertTrue(app.navigationBars["Fake the queue clock"].waitForExistence(timeout: 15), "the bar's title is the new name")
+        app.buttons["thread.menu"].tap()
+        // Turns and Attachments sit in the ⋯ panel's Conversation menu.
+        let turns = app.threadMenuItem("thread.turns")
+        XCTAssertTrue(turns.waitForExistence(timeout: 10))
+        screenshot("thread-menu")
+        turns.tap()
+        XCTAssertTrue(app.buttons["turn.1"].waitForExistence(timeout: 15))
+        screenshot("turns-sheet")
+        app.buttons["turn.1"].tap()
+        XCTAssertTrue(app.buttons["turn.1"].waitForNonExistence(timeout: 10))
+        app.buttons["thread.menu"].tap()
+        let attachments = app.threadMenuItem("thread.attachments")
+        XCTAssertTrue(attachments.waitForExistence(timeout: 10))
+        attachments.tap()
+        XCTAssertTrue(app.navigationBars["Attachments"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["file.open.timings.txt"].waitForExistence(timeout: 15))
+        screenshot("attachments-sheet")
+        // The row's swipe offers Remove, named with the file it removes for VoiceOver.
+        app.buttons["file.open.timings.txt"].swipeLeft()
+        XCTAssertTrue(app.buttons["Remove timings.txt"].waitForExistence(timeout: 10), "Remove names its file")
+        app.buttons["file.open.timings.txt"].swipeRight()
+        XCTAssertTrue(app.buttons["Remove timings.txt"].waitForNonExistence(timeout: 10))
+        // A picture opens full screen, with Share.
+        app.buttons["file.open.queue-timings.png"].tap()
+        XCTAssertTrue(app.buttons["media.share"].waitForExistence(timeout: 15))
+        screenshot("attachment-image")
+        app.buttons["media.close"].tap()
+        // A document opens in Quick Look, which shares it too.
+        app.buttons["file.open.timings.txt"].tap()
+        XCTAssertTrue(app.navigationBars["timings.txt"].waitForExistence(timeout: 20) || app.otherElements["QLPreviewControllerView"].waitForExistence(timeout: 5))
+        screenshot("attachment-document")
+    }
+
+    func testPiOffersRetryAndRewind() {
+        let app = launch()
+        open("ios-pi", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.answer.", in: app))
+        // Rewind sits under an earlier answer, Retry under the last, each in its long-press menu
+        // (never both in one). Rewind goes first: its question's Cancel closes it cleanly, where a
+        // tap to close a long-press menu can miss its backdrop.
+        let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer."))
+        openMenu(of: answers.element(boundBy: 0), in: app)
+        choose(app.buttons["Rewind to here"], in: app)
+        XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
+        screenshot("rewind-confirm")
+        app.alerts.firstMatch.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["rewind.confirm"].waitForNonExistence(timeout: 10))
+        openMenu(of: answers.element(boundBy: answers.count - 1), in: app)
+        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Rewind to here"].exists, "Retry's answer offers Retry, not Rewind")
+        screenshot("pi-retry-rewind")
+    }
+
+    func testBringBackFromAFork() {
+        let app = launch()
+        open("ios-fork", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
+        app.buttons["thread.menu"].tap()
+        // Bring back sits in the ⋯ panel's Conversation menu.
+        let bringBack = app.threadMenuItem("thread.merge")
+        XCTAssertTrue(bringBack.waitForExistence(timeout: 15))
+        screenshot("fork-menu")
+        bringBack.tap()
+        XCTAssertTrue(app.textViews["merge.summary"].waitForExistence(timeout: 15))
+        screenshot("bring-back")
+    }
+
+    func testMarkdownMathCodeAndDiff() {
+        let app = launch()
+        open("ios-markdown", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
+        // markit draws the answer natively: its fenced code as a block with its own Copy, its math
+        // typeset as images in the text (no web view), from the first frame of a finished answer.
+        XCTAssertTrue(app.buttons["Copy code"].firstMatch.waitForExistence(timeout: 20))
+        // A paragraph holding typeset math reads its formulas as their source (markit speaks an
+        // attachment by its TeX), and it only does so once the formula is drawn as an image.
+        let typeset = app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@", "\\sigma^2")).firstMatch
+        XCTAssertTrue(typeset.waitForExistence(timeout: 20), "The inline formula is typeset")
+        let display = app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@", "mc^2")).firstMatch
+        XCTAssertTrue(display.waitForExistence(timeout: 20), "The display formula is typeset")
+        XCTAssertEqual(app.webViews.count, 0)
+        sleep(1)
+        screenshot("markdown-math-code-diff")
+    }
+
+    func testSentByLineOpensTheThreadThatSentTheBrief() {
+        let app = launch()
+        open("ios-sent", in: app)
+        let line = app.buttons["message.sentBy"].firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 90))
+        app.bringToMiddle(line)
+        // The sender reads by its title in the thread list.
+        XCTAssertEqual(line.label, "Sent by Keep the retry budget across restarts")
+        // The brief shows its first four lines until it is opened.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 10))
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("sent-by")
+        line.tap()
+        let sender = app.threadTitle(named: "Keep the retry budget")
+        XCTAssertTrue(sender.waitForExistence(timeout: 20), "the sender's thread opens")
+        screenshot("sent-by-opened")
+    }
+
+    func testTheMarkdownBubbleFoldsAndOpensWithShowMore() {
+        let app = launch()
+        open("ios-messages", in: app)
+        // The long ask is a list with code: rendered as markdown, folded under Show more.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 90))
+        app.bringToMiddle(fold)
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("markdown-bubble-folded")
+        fold.tap()
+        XCTAssertEqual(fold.value as? String, "Expanded")
+        screenshot("markdown-bubble-open")
+    }
+
+    func testCopyGivesTheMessageAsTypedAndTheBriefWhole() {
+        let app = launch()
+        open("ios-copy", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
+        let typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two"
+        // A short message, shown whole: its row is as tall as what it shows.
+        XCTAssertEqual(copyAndPaste(message("message.user.", in: app), in: app), typed)
+
+        open("ios-sent", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.sent.", in: app))
+        let brief = (["Add a restart test for the retry budget.",
+                      "Start the app server, spend two retries, then restart it.",
+                      "Check the budget still reads three left.",
+                      "Restart twice more and check it again.",
+                      "Keep the test under a second: use the fake clock.",
+                      "Report back with the test's name."]
+                     + (1...120).map { "Note \($0): keep the budget across restarts." }).joined(separator: "\n")
+        // The brief's own words, folded to four lines: its row also holds the Sent by line and
+        // Show more, and the folded words are the one element sized to what is shown.
+        XCTAssertEqual(copyAndPaste(message("message.words.", in: app), in: app), brief)
+    }
+
+    /// Copy from a bubble's long-press menu, then paste into the composer: what Copy put there.
+    private func copyAndPaste(_ bubble: XCUIElement, in app: XCUIApplication) -> String? {
+        openMenu(of: bubble, in: app)
+        app.buttons["Copy"].tap()
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.press(forDuration: 1.2)
+        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 10))
+        paste.tap()
+        return input.value as? String
+    }
+
+    private func waitForAny(prefix: String, in app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
+        message(prefix, in: app).waitForExistence(timeout: timeout)
+    }
+    private func message(_ prefix: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
+    }
+    /// A message's long-press menu: Copy, Select text, Share and what can be done from it. Returns
+    /// once the menu has stopped moving: its rows exist while it is still animating in, and a tap on
+    /// a row that is still moving presses it without choosing it (the menu stays open).
+    private func openMenu(of message: XCUIElement, in app: XCUIApplication) {
+        app.bringToMiddle(message)
+        message.press(forDuration: 1)
+        let copy = app.buttons["Copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 10))
+        var last = copy.frame
+        for _ in 0..<30 {
+            Thread.sleep(forTimeInterval: 0.1)
+            let now = copy.frame
+            if now == last && copy.isHittable { return }
+            last = now
+        }
+        XCTFail("The message's menu kept moving")
+    }
+    /// Chooses a row of the open long-press menu. Where the menu runs past the bottom of the
+    /// screen, as an earlier answer's in `ios-pi` does, the test's first touch on a row is dropped
+    /// and the menu stays open, so a row still there after a moment is touched once more.
+    private func choose(_ row: XCUIElement, in app: XCUIApplication) {
+        row.tap()
+        if app.buttons["Copy"].waitForNonExistence(timeout: 2) { return }
+        if row.isHittable { row.tap() }
+    }
+    /// Relaunches straight into `id`. The app reads the first `--spike-open`, so an earlier one is
+    /// replaced rather than kept.
+    private func open(_ id: String, in app: XCUIApplication) {
+        app.terminate()
+        var arguments = app.launchArguments
+        if let at = arguments.firstIndex(of: "--spike-open"), at + 1 < arguments.count { arguments.removeSubrange(at...at + 1) }
+        app.launchArguments = arguments + ["--spike-open", id]
+        app.launchWithArguments()
+    }
+    private func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchWithArguments()
+        return app
+    }
+    private func screenshot(_ name: String) {
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = "ios-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+extension XCUIElement {
+    /// Replaces a text field's text (shared by the UI tests that edit a name).
+    func clearAndType(_ text: String) {
+        // The caret at the end, so every character before it can be deleted.
+        coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        if let value = value as? String, !value.isEmpty {
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count + 4))
+        }
+        typeText(text)
+    }
+}

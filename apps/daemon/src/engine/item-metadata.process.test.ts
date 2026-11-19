@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Fact } from "@ace/core";
 import { harness, scriptFrames, start } from "./test-support.ts";
 

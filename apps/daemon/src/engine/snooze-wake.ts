@@ -1,4 +1,4 @@
-import { queueWakesSnooze } from "@ace/projection";
+import { queueWakesSnooze, snoozeWokeByQueue } from "@ace/projection";
 import type { EventPayload, Thread, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
@@ -11,6 +11,11 @@ export function wakeFor(
 ): EventPayload[] {
   const thread = store.getThread(id);
   return thread && queueWakesSnooze(thread, next, at)
-    ? [{ type: "thread.client.updated", changes: { snoozedUntil: null } }]
+    ? [
+        {
+          type: "thread.client.updated",
+          changes: { snoozedUntil: null, snoozeWoke: snoozeWokeByQueue(at) },
+        },
+      ]
     : [];
 }

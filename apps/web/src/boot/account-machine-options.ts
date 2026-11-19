@@ -1,0 +1,225 @@
+import { ClientError, type ClientApi, type Storage } from "@ace/client";
+import { aceAccountClient } from "@ace/client/ace-account";
+import { browserDeviceSocket } from "@ace/client/devices";
+import { adoptedOutbox } from "@ace/client-worker/adopted-outbox";
+import type { AccountMachineOptions } from "@ace/client-worker/machines";
+import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  accountFetch,
+  accountOrigin,
+  hostedRelayUrl,
+  webClient,
+  windowAccountSession,
+} from "./account-config.ts";
+import { createBrowserClient } from "./client.ts";
+import { proveFromWindow } from "./window-prover.ts";
+import { grantCache, type GrantCache } from "./grant-cache.ts";
+import { browserInstallId } from "./install-id.ts";
+import { authorizeDaemonUrl } from "./daemon-network.ts";
+import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
+import { pairedMachineOutbox } from "./worker-outbox.ts";
+
+/** What an account machine's client is made from: its relay route, for one attempt. */
+type AccountMachineRoute = Parameters<AccountMachineOptions["client"]>[0];
+
+/** What a send queued before outboxes were kept per account says, once carried over. */
+export const legacyOutboxError =
+  "Saved before ace kept queued work per account, so it wasn't sent. Send it again or discard it.";
+
+/** A saved outbox's entries, or none when it can't be read. */
+function entriesOf(text: string | null): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(text ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Carries an older build's outbox for this machine (one per machine, no account) into an
+ * account's. Nothing in it says which account queued it, so none of it is sent on its own: work
+ * still waiting becomes a failed send, kept for the person to send again or discard under the
+ * account they are now on. Work already done is dropped. Returns the merged value, or the
+ * current one when the old outbox can't be read.
+ */
+function carryLegacy(legacy: string, current: string | null): string | null {
+  const kept = entriesOf(current);
+  const ids = new Set(kept.map(commandId));
+  const carried = entriesOf(legacy).flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || !("state" in entry)) return [];
+    const id = commandId(entry);
+    if (id === undefined || ids.has(id)) return [];
+    if (entry.state === "failed") return [entry];
+    if (entry.state !== "saving" && entry.state !== "pending") return [];
+    return [{ ...entry, state: "failed", error: legacyOutboxError }];
+  });
+  return carried.length === 0 ? current : JSON.stringify([...kept, ...carried]);
+}
+
+function commandId(entry: unknown): string | undefined {
+  if (typeof entry !== "object" || entry === null || !("command" in entry)) return undefined;
+  const command: unknown = entry.command;
+  if (typeof command !== "object" || command === null || !("id" in command)) return undefined;
+  return typeof command.id === "string" ? command.id : undefined;
+}
+
+/**
+ * An account machine's outbox, kept for this window so a reload doesn't drop queued work. It is
+ * kept per account as well as per machine: work queued under one account is only ever sent
+ * under that account, and waits for it rather than being dropped if the window signs in to
+ * another one and back. With no account there is nothing to keep.
+ */
+function outbox(storage: KeyValueStorage, accountId: string | undefined, hostId: string): Storage {
+  if (accountId === undefined) return { load: async () => null, save: async () => {} };
+  const key = `ace.account.outbox:${encodeURIComponent(accountId)}:${hostId}`;
+  const legacyKey = `ace.account.outbox:${hostId}`;
+  return {
+    load: async () => {
+      const legacy = storage.getItem(legacyKey);
+      if (legacy !== null) {
+        const merged = carryLegacy(legacy, storage.getItem(key));
+        if (merged !== null) storage.setItem(key, merged);
+        storage.removeItem?.(legacyKey);
+      }
+      return storage.getItem(key);
+    },
+    save: async (value) => storage.setItem(key, value),
+  };
+}
+
+/**
+ * A client for an account machine, for `owner`'s work only: its outbox is `owner`'s, and should
+ * the window hold another account when it dials again, it never does, so that work is never
+ * sent under another account. `owner` undefined: a client made while signed out, with nothing
+ * to keep.
+ */
+export function accountMachineClient(
+  session: KeyValueStorage,
+  origin: string,
+  owner: string | undefined,
+  route: AccountMachineRoute,
+): ClientApi {
+  const holder = () => windowAccountSession(session, origin)?.account.id;
+  const owned = () => {
+    if (holder() !== owner)
+      throw new ClientError("auth", "This machine was opened on your other ace account.");
+  };
+  const own = outbox(session, owner, route.hostId);
+  // Standing in for this install's pairing of the same daemon, it takes over the sends that
+  // pairing's outbox still holds (ADR 0115). Signed out, there is no outbox to take them to.
+  const pairedOutbox =
+    route.paired && owner !== undefined ? pairedMachineOutbox(route.paired) : undefined;
+  const pairing =
+    route.paired && pairedOutbox ? { entry: route.paired, outbox: pairedOutbox } : undefined;
+  return proveFromWindow(
+    createBrowserClient({
+      deviceId: route.deviceId,
+      transport: route.transport,
+      credential: async () => {
+        owned();
+        return route.credential();
+      },
+      // A grant refresh is never sent under another account either.
+      grant: async () => {
+        owned();
+        return route.grant();
+      },
+      grantRefused: (grant) => route.grantRefused?.(grant) ?? false,
+      expectedHostId: route.expectedHostId,
+      ...(pairing ? { deviceAliases: [pairing.entry.deviceId] } : {}),
+      storage: pairing ? adoptedOutbox(own, pairing.outbox, pairing.entry.hostId) : own,
+    }),
+  );
+}
+
+/**
+ * How the machine pool opens machines on the person's ace account (ADR 0111): through ace's
+ * hosted relay, with a device grant from the account backend (kept for most of its life and
+ * shared by every path of an attempt) and the ace session this window holds at that moment. Undefined in a build without ace accounts.
+ */
+export function accountMachineOptions(options: {
+  /** Long-lived storage: this browser's device id on the account. */
+  storage: KeyValueStorage;
+  /** This window's storage: its ace session and the machines' outboxes. */
+  session: KeyValueStorage;
+}): AccountMachineOptions | undefined {
+  const origin = accountOrigin();
+  const relayUrl = hostedRelayUrl();
+  if (!origin || !relayUrl) return undefined;
+  const account = aceAccountClient({
+    origin,
+    fetch: accountFetch(origin),
+  });
+  // The account knows this install by its install id, the id every machine knows it by too.
+  const deviceId = browserInstallId(options.storage);
+  // One grant per machine serves every path of a race and the reconnects of its life: a machine's
+  // format 2 grant names the daemon it is for (ADR 0190). The clock is the browser's, read here
+  // at the boundary.
+  const caches = new Map<string, GrantCache>();
+  const cacheFor = (machine = "") => {
+    let cache = caches.get(machine);
+    if (!cache) {
+      const host = /^[A-Z2-7]{52}$/.test(machine) ? machine : undefined;
+      cache = grantCache(
+        (token) =>
+          account.grant(
+            token,
+            {
+              kind: "device",
+              subject: deviceId,
+              ...(host ? { host } : {}),
+            },
+            AbortSignal.timeout(15_000),
+          ),
+        { wall: () => Date.now(), elapsed: () => performance.now() },
+      );
+      caches.set(machine, cache);
+    }
+    return cache;
+  };
+  return {
+    relayUrl,
+    aceClient: webClient(),
+    deviceId,
+    async grant(machine) {
+      const session = windowAccountSession(options.session, origin);
+      if (!session) {
+        // Signed out: no grant of the last session stays in memory.
+        for (const cache of caches.values()) cache.clear();
+        throw new ClientError("auth", "Sign in to your ace account again.");
+      }
+      // The desktop app admits only addresses the person chose; the relay is one of them.
+      await authorizeDaemonUrl(relayUrl);
+      return cacheFor(machine).grant(session.token, machine);
+    },
+    grantRefused: (grant, machine) => cacheFor(machine).refused(grant, machine),
+    grantSettled: (machine) => caches.get(machine ?? "")?.settled(machine),
+    socket: browserDeviceSocket,
+    // The network changed: a better path may be back, or the active one gone.
+    watchNetwork: (changed) => {
+      addEventListener("online", changed);
+      return () => removeEventListener("online", changed);
+    },
+    clock: () => performance.now(),
+    // A direct path only where the browser checks the machine's certificate (ADR 0114).
+    // A path a browser can check: a `ts.net` name, or the address this window paired the same
+    // daemon at (ADR 0115), whose certificate it accepted then.
+    directRoute: (path, credential, paired) =>
+      paired || browserChecksDirect(path)
+        ? {
+            transport: () => checkedSocketTransport(path.url),
+            credential,
+            probe: httpsProbe(path.url, () => performance.now()),
+          }
+        : undefined,
+    // The pool opens machines for the account the window holds as it opens them.
+    client: (route) =>
+      accountMachineClient(
+        options.session,
+        origin,
+        windowAccountSession(options.session, origin)?.account.id,
+        route,
+      ),
+  };
+}

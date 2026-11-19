@@ -212,6 +212,49 @@ describe("embedded browser backend", () => {
     expect(t.responses(id)).toHaveLength(1);
   });
 
+  it("refuses a huge reply after reading about the relay limit's worth of it", async () => {
+    const t = setup();
+    await t.open();
+    let serialized = 0;
+    // A page's full accessibility tree: millions of nodes, gigabytes once serialized.
+    const nodes = Array.from({ length: 2_000_000 }, (_, index) => ({
+      toJSON: () => {
+        serialized++;
+        return { nodeId: String(index), role: { type: "role", value: "img" } };
+      },
+    }));
+    t.views.only().results.set("Accessibility.getFullAXTree", { nodes });
+    const id = t.request("s-1", { kind: "cdp", method: "Accessibility.getFullAXTree" });
+    expect(await t.response(id)).toMatchObject({ error: "Browser relay payload limit" });
+    expect(t.responses(id)).toHaveLength(1);
+    // About 60 bytes a node: the 1 MB limit is spent long before the tree is.
+    expect(serialized).toBeLessThan(50_000);
+  });
+
+  it("answers a reply that cannot be serialized with one error instead of none", async () => {
+    const t = setup();
+    await t.open();
+    t.views.only().results.set("Runtime.evaluate", { result: { value: 10n } });
+    const id = t.request("s-1", { kind: "cdp", method: "Runtime.evaluate" });
+    expect(await t.response(id)).toMatchObject({ error: "Browser relay payload limit" });
+    expect(t.responses(id)).toHaveLength(1);
+  });
+
+  it("names each reply and event while the main thread handles it, for the freeze watchdog", async () => {
+    const named: string[] = [];
+    const t = setup({
+      mark: (name, work) => {
+        named.push(name);
+        return work();
+      },
+    });
+    await t.open();
+    await t.response(t.request("s-1", { kind: "cdp", method: "DOM.getDocument" }));
+    t.views.only().emit("Network.requestWillBeSent", { requestId: "r-1" });
+    expect(named).toContain("browser reply DOM.getDocument");
+    expect(named).toContain("browser event Network.requestWillBeSent");
+  });
+
   it("forwards page events, and reports a view that died on its own before forgetting it", async () => {
     const t = setup();
     await t.open();

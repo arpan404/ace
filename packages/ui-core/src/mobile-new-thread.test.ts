@@ -1,5 +1,6 @@
 import { CatalogModel, type ProviderKind, type ProviderStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { modelKey } from "./models.ts";
 import {
   newThreadAgents,
   newThreadModelList,
@@ -64,12 +65,13 @@ const agents = () =>
     now: 0,
   });
 
-test("a signed-out or missing CLI is listed but can't start a thread, and says why", () => {
+test("a signed-out, missing or turned-off CLI is listed but can't start a thread, and says why", () => {
   const rows = agents().providers;
   expect(rows.map((entry) => [entry.provider, entry.ready, entry.reason])).toEqual([
     ["claude", true, undefined],
     ["codex", false, "Signed out. Sign in on your computer."],
     ["antigravity", false, "Not installed on this computer"],
+    ["cursor", false, "Turned off in ace's Settings on your computer"],
   ]);
   expect(rows[0]?.models.map((entry) => entry.label)).toEqual(["Opus", "Sonnet"]);
 });
@@ -79,11 +81,13 @@ test("the picker leaves out a CLI that isn't on the computer unless the draft na
   expect(newThreadPickerAgents(rows, undefined).map((entry) => entry.provider)).toEqual([
     "claude",
     "codex",
+    "cursor",
   ]);
   expect(newThreadPickerAgents(rows, "antigravity").map((entry) => entry.provider)).toEqual([
     "claude",
     "codex",
     "antigravity",
+    "cursor",
   ]);
 });
 
@@ -120,6 +124,32 @@ test("with nothing chosen the first ready agent starts on its default model and 
     model: start.ok ? agents().providers[0]?.models[1]?.key : undefined,
   });
   expect(picked.ok && picked.model.id).toBe("sonnet");
+});
+
+test("a model with no default effort shows the effort its thread is created with", () => {
+  const offered = newThreadAgents({
+    statuses: [row("claude")],
+    accounts: [],
+    catalog: { models: [model("claude", "opus", true, ["low", "medium", "high"])], instances: [] },
+    now: 0,
+  });
+  const shown = offered.providers[0]?.models[0]?.defaultEffort;
+  const start = selectNewThreadAgent(offered, {});
+  expect(start.ok && start.effort).toBe("medium");
+  expect(shown).toBe(start.ok ? start.effort : undefined);
+});
+
+test("an effort picked for another provider's model doesn't carry over to the ready agent", () => {
+  const start = selectNewThreadAgent(agents(), {
+    model: modelKey("codex", "gpt-6"),
+    effort: "high",
+  });
+  // Codex can't start here, so Claude's default does, at its own default effort.
+  expect(start.ok && [start.provider, start.model.id, start.effort]).toEqual([
+    "claude",
+    "opus",
+    "low",
+  ]);
 });
 
 test("projects with recent threads come first, newest activity on top, then the rest by name", () => {

@@ -1,4 +1,5 @@
-import { type RawData, type WebSocket } from "ws";
+import type { RawData } from "ws";
+import type { MainSocket } from "./main-socket.ts";
 
 export interface SocketInputLimits {
   /** Stop reading a socket once this many of its messages wait for a handler. */
@@ -46,7 +47,7 @@ export class SocketInput {
     return this.queued;
   }
   listen(
-    socket: WebSocket,
+    socket: MainSocket,
     receive: (data: RawData, binary: boolean) => Promise<void>,
     onError: (error: unknown) => void,
     immediate?: (data: RawData, binary: boolean) => boolean,

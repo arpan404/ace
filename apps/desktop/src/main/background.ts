@@ -16,7 +16,7 @@ import { NotificationRouter, type Alert } from "./notifications/router.ts";
 import { Attention } from "./os/attention.ts";
 import { StatusTray } from "./os/tray.ts";
 import { appLifetime } from "./os/lifetime.ts";
-import type { WorkSummary } from "./link/thread-watch.ts";
+import { noWork, type WorkSummary } from "./link/thread-watch.ts";
 
 export interface BackgroundOptions {
   userData: string;
@@ -30,13 +30,19 @@ export interface BackgroundOptions {
   window(): BrowserWindow | undefined;
   open(link?: DeepLink): void;
   quitAll(): void;
+  /** Quit and stop the daemon too (the tray's "Quit ace completely"). */
+  quitCompletely(): void;
   log(message: string): void;
   /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
   trayHost?: (() => Promise<boolean>) | undefined;
+  /** Names main-thread work for the freeze watchdog (`StallOperation.run`). */
+  mark?: <T>(name: string, work: () => T) => T;
 }
 
 /** How long Quit waits for the daemon link to close before it moves on. */
 const stopGraceMs = 2_000;
+/** How long the Linux screen lock check waits for the session bus to list its services. */
+const screenLockCheckMs = 2_000;
 
 const timers = {
   set(delayMs: number, callback: () => void) {
@@ -66,7 +72,7 @@ export class Background {
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
   /** Threads working or waiting on the person, as the daemon link last reported. */
-  private work: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private work: WorkSummary = noWork;
   private hadWindow = false;
   /** The person was told, this run, that ace keeps running with no tray icon to show it. */
   private toldUnseen = false;
@@ -89,6 +95,7 @@ export class Background {
         pause: (paused) =>
           void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
         quitAll: options.quitAll,
+        quitCompletely: options.quitCompletely,
       },
       options.trayIcon,
     );
@@ -97,8 +104,14 @@ export class Background {
       send: (command) =>
         this.link?.enqueue(command.id, command.payload) ?? Promise.reject(new Error("offline")),
       log: options.log,
+      now: Date.now,
     });
     options.runtime.onStatus((status) => this.tray.update({ status }));
+  }
+
+  /** Windows: whether a live toast answered an activation at or after `at` (`activation.ts`). */
+  toastHandledSince(at: number): boolean {
+    return this.notifier.handledSince(at);
   }
 
   /**
@@ -183,13 +196,25 @@ export class Background {
       { readDesktopCredential },
       { EmbeddedViews },
       { VideoEncoderHost },
+      { screenLock },
+      { runProgram },
+      { powerMonitor },
     ] = await Promise.all([
       import("./browser/backend.ts"),
       import("./browser/connection.ts"),
       import("./browser/credential.ts"),
       import("./browser/views.ts"),
       import("./browser/video-encoder.ts"),
+      import("./os/screen-lock.ts"),
+      import("./os/tray-host.ts"),
+      import("electron"),
     ]);
+    // On Linux an idle screen the X screen saver blanked reads as "locked" too (os/screen-lock.ts).
+    const locked = await screenLock({
+      platform: process.platform,
+      chromiumLocked: () => powerMonitor.getSystemIdleState(1) === "locked",
+      run: runProgram(screenLockCheckMs),
+    });
     if (this.stopped) return;
     const { runtime, log } = this.options;
     // Remote viewers watch the views as video from the app's own encoder (ADR 0088).
@@ -208,12 +233,12 @@ export class Background {
       // The person's chosen folder, else the system's Downloads folder.
       downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
-    const { powerMonitor } = await import("electron");
     const backend = new BrowserBackend(views, {
       log,
       // A locked screen draws no frames, so a view opened then never shows a picture.
-      drawable: () => powerMonitor.getSystemIdleState(1) !== "locked",
+      drawable: () => !locked(),
       ...(video ? { video } : {}),
+      ...(this.options.mark ? { mark: this.options.mark } : {}),
     });
     const connection = new BackendConnection(
       backend,
@@ -232,7 +257,7 @@ export class Background {
     );
     this.browser = { connection, views, video };
     // While the screen is locked the daemon moves these pages to ace's own Chromium.
-    connection.setDrawable(powerMonitor.getSystemIdleState(1) !== "locked");
+    connection.setDrawable(!locked());
     powerMonitor.on("lock-screen", () => connection.setDrawable(false));
     powerMonitor.on("unlock-screen", () => connection.setDrawable(true));
     connection.onState((state) => log(`Embedded browser backend: ${state}`));
@@ -354,7 +379,7 @@ export class Background {
   /** Quitting now would close browser pages that working agents just used (#952). */
   agentsBrowsing(now: number, systemShutdown: boolean): boolean {
     return quitNeedsConfirmation({
-      working: this.work.working,
+      working: this.work.working + this.work.hostedWorking,
       lastAgentBrowse: this.browser?.views.lastDriven() ?? -Infinity,
       now,
       systemShutdown,

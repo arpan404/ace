@@ -20,12 +20,16 @@ export interface SubagentEntry {
   model?: string | undefined;
   /** The paired machine it runs on, when that is not this one. */
   machine?: string | undefined;
+  /** That machine's host id, when its daemon knows it. */
+  machineHost?: string | undefined;
   title: string;
   state: SubagentState;
   /** While queued past its parent's run slots: where it stands. */
   slotLimit?: number | undefined;
   slotsInUse?: number | undefined;
   queuePosition?: number | undefined;
+  /** What it waits for besides a slot: the machine's disk too full to start it. */
+  waitingFor?: "storage" | undefined;
   startedAt: number;
   endedAt?: number | undefined;
   /** The first line of its final result, once it has one. */
@@ -129,6 +133,7 @@ export function readSubagentGroup(
       provider: launch?.provider ?? agent?.native.provider,
       model: launch?.model ?? agent?.model,
       machine: launch?.machine?.name,
+      machineHost: launch?.machine?.hostId,
       title: launch?.title ?? agentName(agent, spawn),
       state,
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
@@ -167,8 +172,19 @@ function queuedLaunch(launch: Launch): boolean {
 /** Where a queued launch stands, from its waiting status; undefined once it runs or aged out. */
 function queuePlace(
   launch: Launch | undefined,
-): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
+):
+  | { slotLimit?: number; slotsInUse?: number; queuePosition?: number; waitingFor?: "storage" }
+  | undefined {
   const status = launch?.status;
+  // Waiting for disk space says more than the slot place, and comes without one too.
+  if (status?.state === "waiting" && status.waitingFor === "storage")
+    return { ...queueSlots(status), waitingFor: "storage" };
+  return queueSlots(status);
+}
+
+function queueSlots(
+  status: Launch["status"] | undefined,
+): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
   if (
     status?.state !== "waiting" ||
     status.slotLimit === undefined ||
@@ -217,15 +233,21 @@ function branchReader(reader: ThreadReader, facts: AgentFacts, roots: readonly s
     const agent = reader.agent(id);
     if (!agent || visiting.has(id)) return { state: "working" };
     visiting.add(id);
-    let state = subagentState(agent.status);
+    // Blocked only on its subagents, it isn't working itself: they say what the branch is
+    // doing (a child held by a usage limit makes the branch wait, never work).
+    const onChildren = agent.status.state === "blocked" && agent.status.on === "subagents";
+    let state: SubagentState | undefined = onChildren ? undefined : subagentState(agent.status);
     let end = agent.endedAt ?? facts.endedAt(id);
     const taskEnd = facts.taskEndedAt(id);
     if (taskEnd !== undefined) end = Math.max(end ?? taskEnd, taskEnd);
     for (const child of reader.children(id)) {
       const below = branch(child);
-      state = rollupSubagent(state, below.state);
+      state = state === undefined ? below.state : rollupSubagent(state, below.state);
       if (below.end !== undefined) end = Math.max(end ?? below.end, below.end);
     }
+    // Waiting on subagents not loaded here, or on ones that just ended: unsettled either way.
+    if (state === undefined) state = "waiting";
+    else if (onChildren && subagentTerminal(state)) state = "working";
     if (work.needsYou.has(id)) state = "human";
     else if (subagentTerminal(state) && work.running.has(id)) state = "working";
     visiting.delete(id);
@@ -273,11 +295,13 @@ export function subagentEntriesEqual(
         entry.provider === other.provider &&
         entry.model === other.model &&
         entry.machine === other.machine &&
+        entry.machineHost === other.machineHost &&
         entry.title === other.title &&
         entry.state === other.state &&
         entry.slotLimit === other.slotLimit &&
         entry.slotsInUse === other.slotsInUse &&
         entry.queuePosition === other.queuePosition &&
+        entry.waitingFor === other.waitingFor &&
         entry.startedAt === other.startedAt &&
         entry.endedAt === other.endedAt &&
         entry.result === other.result

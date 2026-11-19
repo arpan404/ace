@@ -8,6 +8,9 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && admitsVersion("claude", cli.version);
   return {
     steer: supported,
+    // A steer joins the running turn at its next tool boundary. Only a person's steer (priority
+    // `now`) also moves the running tool to the background; any other waits for it.
+    steerTiming: "after_tool",
     permissionModes: nativePermissionModes("claude"),
     accessModes: accessModeOffers({ provider: "claude" }),
     permissions: {
@@ -32,6 +35,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
       format: "claude",
       documents: supported ? ["application/pdf"] : [],
       embeddedContext: false,
+      // A user message is an ordered `ContentBlockParam[]` (Agent SDK `SDKUserMessage`).
+      interleaved: true,
       maxInlineBytes: 4 * 1024 * 1024,
     },
     rewindFiles: false,

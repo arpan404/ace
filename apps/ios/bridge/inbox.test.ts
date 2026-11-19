@@ -29,6 +29,8 @@ import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
+import { host } from "./host.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { PatchPump } from "./patch-pump.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -88,8 +90,9 @@ async function following(seed: (daemon: FakeDaemon) => void) {
   await client.start();
   const clock = new TestClock();
   const sink = new RecordingSink();
-  closers.push(followInbox(client, "mac", sink, clock));
-  return { daemon, client, clock, sink };
+  const inbox = followInbox(client, "mac", sink, clock);
+  closers.push(inbox);
+  return { daemon, client, clock, sink, inbox };
 }
 
 type Sections = { sections: { key: string; ids: string[] }[] };
@@ -104,6 +107,30 @@ const status = (sink: RecordingSink, id: string) =>
   (sink.read(`inbox:${id}`) as { row: { status: { label: string; token: string } } } | undefined)
     ?.row.status;
 
+/** An approval the agent asks for. */
+const approval = (agent: string, interaction: string) => ({
+  type: "interaction.opened" as const,
+  agent,
+  interaction,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "approval",
+    title: "Run the tests",
+    options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+  }),
+});
+/** The section that lists the thread, if any. */
+const sectionOf = (sink: RecordingSink, id: string) =>
+  Object.entries(groups(sink)).find(([, ids]) => ids?.includes(id))?.[0];
+/** One finished thread the person settled from the phone. */
+const settledByHand = async () => {
+  const fixture = await following((seed) => finished(seed, "notes", "Notes"));
+  await until(() => sectionOf(fixture.sink, "notes") === "done", "done");
+  inboxAction(fixture.client, { kind: "settle", threadId: "notes" }, "settle", fixture.sink);
+  await until(() => sectionOf(fixture.sink, "notes") === "settled", "settled");
+  return fixture;
+};
+
 /** The real pump emits here and arms timers here; the test drives both by hand. */
 function runPumpTimers() {
   const pending = [...pumpTimers.values()];
@@ -111,7 +138,12 @@ function runPumpTimers() {
   for (const run of pending) run();
 }
 
-type DeliveredConnectionPatch = { type: "connection"; state: string; generation: unknown };
+type DeliveredConnectionPatch = {
+  type: "connection";
+  state: string;
+  generation: unknown;
+  socket?: unknown;
+};
 type DeliveredInboxRowPatch = {
   type: "inbox.row";
   id: string;
@@ -220,6 +252,95 @@ describe("inbox snooze expiry", () => {
   });
 });
 
+describe("snoozing until an event", () => {
+  type Row = {
+    group: string | null;
+    snoozeEvents: { id: string; label: string; detail: string }[];
+    snoozeWake: string | null;
+  };
+  const rowOf = (sink: RecordingSink, id: string) =>
+    (sink.read(`inbox:${id}`) as { row: Row } | undefined)?.row;
+  const pr = {
+    number: 196,
+    state: "open" as const,
+    url: "https://github.com/acme/ace/pull/196",
+    repo: { forge: "github" as const, host: "github.com", owner: "acme", name: "ace" },
+    updatedAt: 0,
+  };
+
+  test("a working thread snoozed until it needs you says so, and comes back when its turn ends", async () => {
+    const { daemon, client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "busy",
+        workspaceId: "ace",
+        title: "Busy",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+    });
+    await until(() => rowOf(sink, "busy")?.snoozeEvents.length === 1, "offered");
+    expect(rowOf(sink, "busy")?.snoozeEvents).toEqual([
+      {
+        id: "needs_you",
+        label: "Until it needs you",
+        detail: "Returns on a question, a failure or when it finishes",
+      },
+    ]);
+    inboxAction(client, { kind: "snooze", threadId: "busy", preset: "needs_you" }, "s1", sink);
+    await until(() => groups(sink).snoozed?.includes("busy") === true, "snoozed");
+    expect(rowOf(sink, "busy")?.snoozeWake).toBe("until it needs you");
+    daemon.apply("busy", [facts.endTurn("root")]);
+    await until(() => groups(sink).snoozed === undefined, "woke");
+    expect(rowOf(sink, "busy")?.snoozeWake).toBeNull();
+  });
+
+  test("on the phone's clock, which counts fractions of a millisecond, the event snooze is still admitted", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "busy",
+        workspaceId: "ace",
+        title: "Busy",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+    });
+    await until(() => rowOf(sink, "busy")?.snoozeEvents.length === 1, "offered");
+    // Swift's host clock is `Date().timeIntervalSince1970 * 1000`, never a whole number.
+    const clock = vi.spyOn(host, "now").mockReturnValue(Date.now() + 0.375);
+    closers.push(() => clock.mockRestore());
+    inboxAction(client, { kind: "snooze", threadId: "busy", preset: "needs_you" }, "frac", sink);
+    await until(() => sink.read("admission:frac") !== undefined, "the admission");
+    expect(sink.read("admission:frac")).toMatchObject({ ok: true });
+    await until(() => groups(sink).snoozed?.includes("busy") === true, "snoozed");
+  });
+
+  test("a finished thread with a confirmed pull request can sleep until the PR changes", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "shipped",
+        workspaceId: "ace",
+        title: "Shipped",
+        provider: "codex",
+        hasSentMessage: true,
+        details: { linkedPrs: [pr] },
+      });
+      seed.apply("shipped", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+      finished(seed, "plain", "Plain");
+    });
+    await until(() => rowOf(sink, "shipped")?.snoozeEvents.length === 1, "offered");
+    // Neither working nor linked to a pull request: only the times.
+    expect(rowOf(sink, "plain")?.snoozeEvents).toEqual([]);
+    expect(rowOf(sink, "shipped")?.snoozeEvents.map((choice) => choice.label)).toEqual([
+      "Until the PR changes",
+    ]);
+    inboxAction(client, { kind: "snooze", threadId: "shipped", preset: "pr" }, "s2", sink);
+    await until(() => groups(sink).snoozed?.includes("shipped") === true, "snoozed");
+    expect(rowOf(sink, "shipped")?.snoozeWake).toBe("until the PR changes");
+  });
+});
+
 describe("inbox attention", () => {
   type Look = {
     level: string;
@@ -227,6 +348,7 @@ describe("inbox attention", () => {
     tone: string;
     muted: boolean;
     glyph: string | null;
+    since: number | null;
   };
   const look = (sink: RecordingSink, id: string) =>
     (sink.read(`inbox:${id}`) as { row: { look: Look } } | undefined)?.row.look;
@@ -263,6 +385,16 @@ describe("inbox attention", () => {
       since: null,
       settled: false,
       subagents: 0,
+      unread: false,
+      // The desktop row's mark: the raised hand in the needs-you colour, alone, title semibold.
+      icon: "approve",
+      iconTone: "needs-you",
+      count: null,
+      mode: "icon",
+      meaning: "Needs approval",
+      strong: true,
+      // The design-language state the lock screen counts it under.
+      state: "needs-you",
     });
     await until(() => look(sink, "busy")?.level === "active", "the working row");
     expect(look(sink, "busy")).toMatchObject({
@@ -270,7 +402,14 @@ describe("inbox attention", () => {
       tone: "working",
       muted: true,
       glyph: "working",
+      // A dashed circle with the elapsed time since the work began; the title stays regular.
+      icon: "working",
+      iconTone: "working",
+      mode: "elapsed",
+      strong: false,
+      state: "working",
     });
+    expect(look(sink, "busy")?.since).toEqual(expect.any(Number));
     // Finished before the phone started following: read, so it claims no word, only its age.
     expect(look(sink, "notes")).toMatchObject({
       level: "quiet",
@@ -315,6 +454,83 @@ describe("inbox provider accounts", () => {
 });
 
 describe("inbox settling", () => {
+  test("a settled thread whose agent asks the person something leaves Settled for Needs you", async () => {
+    const { client, daemon, sink } = await following((seed) => finished(seed, "notes", "Notes"));
+    await until(() => groups(sink).done?.includes("notes") === true, "done");
+    inboxAction(client, { kind: "settle", threadId: "notes" }, "settle-ask", sink);
+    await until(() => groups(sink).settled?.includes("notes") === true, "settled");
+
+    // The agent starts again and asks: a request is never left in Settled.
+    daemon.apply("notes", [
+      facts.turn("root"),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "ask-notes",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "which",
+              text: "Which notes?",
+              multiSelect: false,
+              allowOther: true,
+              secret: false,
+              options: [],
+            },
+          ],
+        },
+      },
+    ]);
+    await until(
+      () =>
+        Object.entries(groups(sink)).find(([, ids]) => ids?.includes("notes"))?.[0] !== "settled",
+      "out of Settled",
+    );
+    const section = Object.entries(groups(sink)).find(([, ids]) => ids?.includes("notes"))?.[0];
+    expect(section).toBe("needs-you");
+  });
+
+  test("a settled thread whose subagent asks the person leaves Settled for Needs you", async () => {
+    const { daemon, sink } = await settledByHand();
+    daemon.apply("notes", [
+      facts.turn("root"),
+      facts.subagent("codex", "sub", "helper", "root"),
+      facts.turn("sub", "spawn"),
+      approval("sub", "ask-sub"),
+    ]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
+  });
+
+  test("a thread settled from Select asks, is answered, and stays in the Inbox as the daemon unsettled it", async () => {
+    const { client, daemon, sink, clock, inbox } = await following((seed) =>
+      finished(seed, "notes", "Notes"),
+    );
+    await until(() => sectionOf(sink, "notes") === "done", "done");
+    // Select's settle, wired as the bridge wires it (`main.ts`): shown before the daemon confirms it.
+    const select = inboxRequests(client, inbox.organizer, clock, sink);
+    await select({ type: "inbox.bulk", action: "settle", threadIds: ["notes"] }, "bulk");
+    await until(() => sectionOf(sink, "notes") === "settled", "settled");
+
+    daemon.apply("notes", [facts.turn("root"), approval("root", "ask-1")]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
+    // Answered: the request reopened it, so the settle the phone showed doesn't come back.
+    daemon.apply("notes", [
+      { type: "interaction.closed", interaction: "ask-1", state: "resolved" },
+      facts.endTurn("root"),
+    ]);
+    await until(() => sectionOf(sink, "notes") === "done", "done again");
+  });
+
+  test("a settled thread that asks while the phone is disconnected is in Needs you once it reconnects", async () => {
+    const { client, daemon, sink } = await settledByHand();
+    daemon.disconnectAll();
+    await until(() => client.connectionState().getSnapshot() !== "ready", "disconnected");
+    daemon.apply("notes", [facts.turn("root"), approval("root", "ask-1")]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
+  });
+
   test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
     const { client, sink } = await following((daemon) => finished(daemon, "notes", "Notes"));
     await until(() => groups(sink).done?.includes("notes") === true, "done");
@@ -707,6 +923,11 @@ describe("inbox confirmation", () => {
     expect(typeof advanced?.generation).toBe("number");
     const advancedGeneration = advanced?.generation as number;
     expect(advancedGeneration).toBeGreaterThan(settledGeneration);
+    // The ready state looks unchanged, but it is a new socket: the patch names it, so what the
+    // phone read on the old one (Search's pull requests) can tell it is out of date.
+    expect(typeof settledConnection?.socket).toBe("number");
+    expect(typeof advanced?.socket).toBe("number");
+    expect(advanced?.socket).not.toBe(settledConnection?.socket);
     const frame = pumpFrames[pumpFrames.length - 1] ?? [];
     expect(
       frame.some(
@@ -746,5 +967,51 @@ describe("inbox confirmation", () => {
       "coalesced working",
     );
     expect(lastCachedRow()?.generation).toBe(advancedGeneration);
+  });
+});
+
+describe("renaming from the list", () => {
+  test("a typed name renames the row, trimmed; an empty one is refused with words", async () => {
+    const { client, sink } = await following((seed) => {
+      finished(seed, "named", "Old name");
+    });
+    const title = () =>
+      (sink.read("inbox:named") as { row: { title: string } } | undefined)?.row.title;
+    await until(() => title() === "Old name", "listed");
+    inboxAction(
+      client,
+      { kind: "rename", threadId: "named", title: "  Ship the banner  " },
+      "r1",
+      sink,
+    );
+    await until(() => title() === "Ship the banner", "renamed");
+    inboxAction(client, { kind: "rename", threadId: "named", title: "   " }, "r2", sink);
+    expect(sink.read("admission:r2")).toMatchObject({ ok: false, message: /name/ });
+    expect(title()).toBe("Ship the banner");
+  });
+
+  test("asking for a new title names the thread from its first request with words again", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "asked",
+        workspaceId: "ace",
+        title: "Mine",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("asked", [
+        facts.rootAgent("codex"),
+        facts.turn("root"),
+        // A request with nothing to name it by is passed over, as the daemon does.
+        facts.message("root", "blank", "user", "   "),
+        facts.message("root", "ask", "user", "Make the banner wait two seconds"),
+        facts.endTurn("root"),
+      ]);
+    });
+    const title = () =>
+      (sink.read("inbox:asked") as { row: { title: string } } | undefined)?.row.title;
+    await until(() => title() === "Mine", "listed");
+    inboxAction(client, { kind: "retitle", threadId: "asked" }, "t1", sink);
+    await until(() => title() === "Make the banner wait two seconds", "named again");
   });
 });

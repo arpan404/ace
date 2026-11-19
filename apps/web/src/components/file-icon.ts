@@ -32,9 +32,9 @@ import {
   FileVueIcon,
   FileXlsIcon,
   FileZipIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { pathParts } from "@ace/ui-core";
-import type { IconGlyph } from "@/components/icon.tsx";
+import { pinnedGlyph, type IconGlyph } from "@/components/icon.tsx";
 
 /*
  * A file's glyph by its type, shared by the Files panel, quick open and attachment chips. The
@@ -124,9 +124,24 @@ const byExtension: Record<string, IconGlyph> = {
   svelte: FileCodeIcon,
 };
 
-/** A file's glyph from its extension: shape only, the tree stays monochrome. */
-export function fileIcon(path: string): IconGlyph {
+// File-type marks always draw in the regular weight.
+const regular = new Map(
+  [...new Set([...Object.values(byExtension), FileIcon])].map((glyph) => [
+    glyph,
+    pinnedGlyph(glyph, ["regular"]),
+  ]),
+);
+const plainFile = regular.get(FileIcon) ?? FileIcon;
+
+/** The glyph of a file type Phosphor has a mark for, from the file's extension. */
+export function knownFileIcon(path: string): IconGlyph | undefined {
   const name = pathParts(path).name.toLowerCase();
   const dot = name.lastIndexOf(".");
-  return (dot >= 0 && byExtension[name.slice(dot + 1)]) || FileIcon;
+  const glyph = dot >= 0 ? byExtension[name.slice(dot + 1)] : undefined;
+  return glyph && regular.get(glyph);
+}
+
+/** A file's glyph from its extension: shape only, the tree stays monochrome. */
+export function fileIcon(path: string): IconGlyph {
+  return knownFileIcon(path) ?? plainFile;
 }

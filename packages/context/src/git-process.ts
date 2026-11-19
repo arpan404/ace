@@ -12,7 +12,7 @@ export async function withGit<T>(
   args: readonly string[],
   options: GitProcessOptions,
   consume: (process: RawSupervisedProcess) => Promise<T>,
-): Promise<{ code: number; value: T }> {
+): Promise<{ code: number; value: T; stderr: string }> {
   const timeout = z
     .number()
     .int()
@@ -23,14 +23,19 @@ export async function withGit<T>(
   const child = (options.spawn ?? spawnRawSupervised)({
     command: "git",
     args: ["-C", root, ...args],
-    env: {},
+    env: { LC_ALL: "C" },
     name: "context-git",
   });
-  child.stderr.resume();
+  let stderr = "";
+  child.stderr.on("data", (chunk: unknown) => {
+    const data = z.instanceof(Buffer).parse(chunk);
+    if (stderr.length < 8192) stderr += data.toString("utf8").slice(0, 8192 - stderr.length);
+  });
   let failure: ContextError | undefined;
   const stop = (message: string) => {
     failure ??= new ContextError("busy", message);
-    void child.stop({ graceMs: 0 });
+    // The caller reports the failure; stop() warns a surviving tree itself.
+    void child.stop({ graceMs: 0 }).catch(() => {});
   };
   const cancel = () => stop("Git operation cancelled");
   options.signal?.addEventListener("abort", cancel, { once: true });
@@ -40,7 +45,7 @@ export async function withGit<T>(
     const value = await consume(child);
     const exit = await child.exited;
     if (failure) throw failure;
-    return { code: exit.code ?? -1, value };
+    return { code: exit.code ?? -1, value, stderr };
   } catch (error) {
     // Cancellation can interrupt a NUL frame. Preserve its cause rather than
     // misreporting the truncated frame as malformed Git output.

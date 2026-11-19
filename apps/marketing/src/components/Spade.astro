@@ -1,0 +1,64 @@
+---
+/*
+ * Spade's announcement: Spade in 3D (components/spade/Spade3d.astro), the name, that it is in
+ * beta, and the way to its own page.
+ */
+import { spade } from "../content/product.ts";
+import Spade3d from "./spade/Spade3d.astro";
+---
+
+<section class="section page spade">
+  <div class="say">
+    <p class="status reveal">{spade.status}</p>
+    <h2 class="section-title reveal">{spade.headline}</h2>
+    <p class="lede reveal">{spade.body}</p>
+    <a class="text-link more reveal" href="/spade/">What Spade does</a>
+  </div>
+  <div class="face reveal">
+    <Spade3d size={240} />
+  </div>
+</section>
+
+<style>
+  .spade {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px 64px;
+  }
+
+  @media (max-width: 759px) {
+    .spade {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .face {
+      order: -1;
+      margin-left: -30px;
+    }
+  }
+
+  .status {
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  h2 {
+    margin-top: 12px;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .lede {
+    margin-top: 14px;
+    max-width: 30em;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .more {
+    display: inline-block;
+    margin-top: 20px;
+  }
+</style>

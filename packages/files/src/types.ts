@@ -11,6 +11,12 @@ export function checkVersion(current: string | null, expected: string | null): v
 }
 export interface FilesOptions {
   workspaceRuntime?: import("@ace/workspace").WorkspaceRuntime;
+  /**
+   * The port a checkout's reads and writes go through. The daemon passes ace-files (ADR 0178);
+   * left out, the service uses its own confined Node I/O, as its tests and the daemon's private
+   * registries do.
+   */
+  workspaceIo?: import("./io.ts").FilesIo;
   exclusiveRename?: import("./exclusive-rename.ts").ExclusiveRename;
   workspace: string;
   dataDir: string;

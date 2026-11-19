@@ -1,5 +1,5 @@
 import type { LocalStore } from "../store.ts";
-import type { ReviewDraft } from "./drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
 import type { LineRange } from "./file-diff.tsx";
 
 /** Unfinished content and its selection evidence outlive the annotation and Changes tab. */

@@ -1,6 +1,6 @@
 # @ace/history-import
 
-Read existing local CLI transcripts without starting a provider or changing its files. Node 24+ is required. Each service runs its index, parsers and archive SQLite in a worker; filesystem sampling uses batches of 16 files.
+Read existing local CLI transcripts without starting a provider or changing its files. Node 26+ is required. Each service runs its index, parsers and archive SQLite in a worker; filesystem sampling uses batches of 16 files.
 
 ```ts
 import { openHistory } from "@ace/history-import";

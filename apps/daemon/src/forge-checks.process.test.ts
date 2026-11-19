@@ -238,3 +238,46 @@ describe("re-running a PR's workflow run", () => {
     });
   });
 });
+
+describe("cancelling a PR's workflow run", () => {
+  const cancel = { kind: "cancel", runId: 42, attempt: 1 } as const;
+  const going = { body: { id: 42, run_attempt: 1, status: "in_progress" } };
+
+  it("cancels a run that is still going through its cancel endpoint", async () => {
+    const forge = await setup({
+      "repos/octo/ace/actions/runs/42": [going],
+      "repos/octo/ace/actions/runs/42/cancel": [{ status: 202, raw: "" }],
+    });
+    expect(await forge.rerun("cancel", cancel)).toMatchObject({ ok: true });
+    expect((await forge.posts()).map((request) => request.path)).toEqual([
+      "repos/octo/ace/actions/runs/42/cancel",
+    ]);
+  });
+
+  it("writes nothing for a run that already finished", async () => {
+    const forge = await setup({ "repos/octo/ace/actions/runs/42": [run(1)] });
+    expect(await forge.rerun("finished", cancel)).toMatchObject({ ok: true });
+    expect(await forge.posts()).toHaveLength(0);
+  });
+
+  it("refuses a cancel shown for an earlier attempt once the run was re-run, and writes nothing", async () => {
+    const rerunGoing = { body: { id: 42, run_attempt: 2, status: "in_progress" } };
+    const forge = await setup({ "repos/octo/ace/actions/runs/42": [rerunGoing] });
+    expect(await forge.rerun("stale", cancel)).toMatchObject({
+      ok: false,
+      error: "forge_run_attempt_moved",
+    });
+    expect(await forge.posts()).toHaveLength(0);
+  });
+
+  it("reports a cancel it can't confirm as uncertain while the run still goes", async () => {
+    const forge = await setup({
+      "repos/octo/ace/actions/runs/42": [going, going],
+      "repos/octo/ace/actions/runs/42/cancel": [{ offline: true }],
+    });
+    expect(await forge.rerun("lost", cancel)).toMatchObject({
+      ok: false,
+      error: "action_outcome_uncertain",
+    });
+  });
+});

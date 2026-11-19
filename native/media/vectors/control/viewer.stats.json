@@ -1,0 +1,11 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "viewer.stats",
+    "viewer": "source-1",
+    "rate": 1,
+    "fps": 1.5,
+    "dropped": 1,
+    "rttMs": 1.5
+  }
+}

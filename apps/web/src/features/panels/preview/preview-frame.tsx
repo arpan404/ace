@@ -1,7 +1,8 @@
 import type { PreviewGatewayStatus } from "@ace/protocol";
 import { useState } from "react";
 import type { PreviewServer, PreviewSource } from "../sources.ts";
-import { DevServerFrame, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { OpenOutside } from "../browser/open-outside.tsx";
+import { DevServerFrame, type FramePhase } from "./dev-server-frame.tsx";
 import { gatewayFailure, signInAgainHelps, signInFailure } from "./preview-errors.ts";
 import { usePreviewSignIn } from "./use-preview-sign-in.ts";
 

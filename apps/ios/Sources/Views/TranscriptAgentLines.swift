@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// A question where the agent asked it, worded by the bridge as the web's line. While it waits:
-/// "Codex is asking · Tabs or spaces?" in the row's own ink (its card is the composer). Once
-/// closed: "Codex asked · Tabs or spaces? → Spaces", or how it ended.
+/// A question where the agent asked it, worded by the bridge as the web's line. While it waits
+/// the strip above the composer asks it, so the transcript says nothing (one place per state).
+/// Once closed: "Codex asked · Tabs or spaces? → Spaces", or how it ended.
 struct QuestionAskedLine: View {
     let question: BlockRow.Question
     var body: some View {
+        if !question.asking { line }
+    }
+    private var line: some View {
         QuietRow(icon: question.asking ? .chatCircle : .chatText,
                  tint: question.asking ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground) {
             words.lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)

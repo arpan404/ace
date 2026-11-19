@@ -7,15 +7,36 @@ import UIKit
 /// sidebar, an extra row in the detail column's bar) and never give it back.
 struct TabBarPlace: UIViewControllerRepresentable {
     let hidden: Bool
+    /// Changes when something else may lay the tabs out again and show the bar (the window
+    /// appearing, a thread opening, the side panel's inspector column opening or closing): the
+    /// place is set once more after that settles.
+    var relayout = ""
 
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ probe: Probe, context: Context) {
         probe.hidden = hidden
         probe.apply()
+        if probe.relayout != relayout {
+            probe.relayout = relayout
+            probe.pending?.cancel()
+            probe.pending = Task { @MainActor [weak probe] in
+                for wait in [150, 450, 1000] {
+                    do { try await Task.sleep(for: .milliseconds(wait)) } catch { return }
+                    guard let probe, probe.viewIfLoaded?.window != nil else { return }
+                    probe.apply()
+                }
+            }
+        }
+    }
+
+    static func dismantleUIViewController(_ probe: Probe, coordinator: ()) {
+        probe.pending?.cancel()
     }
 
     final class Probe: UIViewController {
+        var pending: Task<Void, Never>?
         var hidden = false
+        var relayout = ""
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
         override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); apply() }
@@ -29,6 +50,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
         }
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
         func apply() {
+            guard viewIfLoaded?.window != nil else { return }
             guard let tabs = tabBarController ?? sequence(first: parent, next: { $0?.parent }).compactMap({ $0 as? UITabBarController }).first else { return }
             guard tabs.isTabBarHidden != hidden else { return }
             tabs.setTabBarHidden(hidden, animated: false)

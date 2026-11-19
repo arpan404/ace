@@ -147,8 +147,12 @@ test("the next-turn shortcut still works while a tick has focus", async () => {
   const user = userEvent.setup();
   await user.tab();
   const first = screen.getByRole("button", { name: "Audit login" });
-  const mod = keyboardEnv().apple ? "Meta" : "Control";
-  await user.keyboard(`{Shift>}{Alt>}{${mod}>}{ArrowDown}{/${mod}}{/Alt}{/Shift}`);
+  // ⇧⌥⌘↓ on Apple platforms, Alt+PageDown elsewhere.
+  await user.keyboard(
+    keyboardEnv().apple
+      ? "{Shift>}{Alt>}{Meta>}{ArrowDown}{/Meta}{/Alt}{/Shift}"
+      : "{Alt>}{PageDown}{/Alt}",
+  );
   expect(screen.getByLabelText("Next turn presses").textContent).toBe("1");
   // The tick keeps focus: the shortcut is not also a step along the rail.
   expect(document.activeElement).toBe(first);

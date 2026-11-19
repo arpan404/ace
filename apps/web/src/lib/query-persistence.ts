@@ -1,6 +1,7 @@
 import type { ReadSnapshotStorage } from "@ace/client";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import * as z from "zod/mini";
+import { storageUsageGcMs, storageUsageKey, storageUsageQuery } from "./storage-usage-policy.ts";
 
 /*
  * The daemon lookups behind the screens people open most (the project list, the model catalog,
@@ -25,7 +26,9 @@ const keptKeys: readonly { prefix: readonly string[]; exact?: true }[] = [
   { prefix: ["project", "base-refs"] },
   { prefix: ["permissions", "capabilities"] },
   { prefix: ["skills"], exact: true },
+  { prefix: ["spade", "shown"], exact: true },
   { prefix: ["automations", "list"], exact: true },
+  { prefix: storageUsageKey, exact: true },
 ];
 
 /*
@@ -54,6 +57,64 @@ const keptForgeKinds = new Set([
 export const keptForgeLimit = 96;
 /** How long a PR panel's reads stay in memory unwatched, and so in what is kept. */
 export const keptForgeMs = 2 * 60 * 60_000;
+
+/*
+ * Per-thread lookups an open asks for at once: the queue page (`["queue", threadId, revision]`)
+ * and the latest turn's digest (`["thread-turns", threadId, "latest", cursor]`). Only each
+ * thread's newest read of each is kept, under its own allowance. Restored, one is shown as it
+ * was and is unconfirmed (`restoredUnconfirmed`) until the daemon answers it again: a queue read
+ * back from disk is never acted on before that.
+ */
+export const keptThreadLookupLimit = 64;
+/** Which per-thread lookup `key` is, and its thread; undefined for any other key. */
+function threadLookup(key: QueryKey): string | undefined {
+  if (typeof key[1] !== "string") return undefined;
+  if (key[0] === "queue" && key.length === 3 && typeof key[2] === "number")
+    return `queue\u0000${key[1]}`;
+  if (key[0] === "thread-turns" && key.length === 4 && key[2] === "latest")
+    return `latest-turn\u0000${key[1]}`;
+  return undefined;
+}
+
+/** Each value a client restored from disk: the query it was put in, and when it was read. */
+const restoredAt = new WeakMap<QueryClient, WeakMap<object, { hash: string; at: number }>>();
+/** What a view shows of a query: an observer's result, or one read from the cache. */
+export interface ShownQuery {
+  data: unknown;
+  dataUpdatedAt: number;
+  isPlaceholderData: boolean;
+}
+/**
+ * Whether the data a view shows (`shown`: its query's own, or placeholder data carried over from
+ * another key) is still a copy read back from disk that the daemon has not answered since.
+ * Anything that acts on it (a queued message, an approval) waits until this is false. Given an
+ * observer's result, it reads that result's `dataUpdatedAt`, so a view re-renders when a re-read
+ * confirms the copy even if the data that came back is the same.
+ */
+export function restoredUnconfirmed(queries: QueryClient, shown: ShownQuery): boolean {
+  const { data, dataUpdatedAt, isPlaceholderData } = shown;
+  if (typeof data !== "object" || data === null) return false;
+  const restored = restoredAt.get(queries)?.get(data);
+  if (!restored) return false;
+  if (!isPlaceholderData) return dataUpdatedAt === restored.at;
+  // Carried over from the key it was restored under: confirmed only once that one is read again.
+  const query = queries.getQueryCache().get(restored.hash);
+  return query === undefined || query.state.dataUpdatedAt === restored.at;
+}
+
+/**
+ * `restoredUnconfirmed` for a sender deciding as it sends: whether `data` (the value a view
+ * shows) is a copy read back from disk whose query the daemon has not answered since, read from
+ * the cache now, never from a render. Its own query or the one it was carried over from:
+ * either way, the one it was restored under.
+ */
+export function restoredUnconfirmedNow(queries: QueryClient, data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const restored = restoredAt.get(queries)?.get(data);
+  if (!restored) return false;
+  const query = queries.getQueryCache().get(restored.hash);
+  return query === undefined || query.state.dataUpdatedAt === restored.at;
+}
 
 /** Whether `key` names a PR panel read that is kept between sessions. */
 export function keptForgeQuery(key: QueryKey): boolean {
@@ -101,7 +162,7 @@ function withoutRaw(value: unknown): unknown {
 /** Whether a query with `key` is kept between sessions. */
 export function keptQuery(key: QueryKey): boolean {
   if (!PlainKey.safeParse(key).success) return false;
-  if (keptForgeQuery(key)) return true;
+  if (keptForgeQuery(key) || threadLookup(key) !== undefined) return true;
   return keptKeys.some(
     ({ prefix, exact }) =>
       (exact ? key.length === prefix.length : key.length >= prefix.length) &&
@@ -147,18 +208,32 @@ export function queryRecord(
     .getQueryCache()
     .findAll({
       predicate: (query) =>
-        query.state.status === "success" &&
+        (query.state.status === "success" || storageUsageQuery(query.queryKey)) &&
         query.state.data !== undefined &&
         keptQuery(query.queryKey),
     })
     .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
   // PR reads have their own allowance, so opening many PRs never pushes the app's lookups out.
   const forge = kept.filter((query) => keptForgeQuery(query.queryKey)).slice(0, keptForgeLimit);
-  const other = kept.filter((query) => !keptForgeQuery(query.queryKey)).slice(0, keptQueryLimit);
+  // A thread's older queue revisions and turn cursors are never read again: its newest only.
+  const lookups = new Set<string>();
+  const threads = kept
+    .filter((query) => {
+      const lookup = threadLookup(query.queryKey);
+      if (lookup === undefined || lookups.has(lookup)) return false;
+      lookups.add(lookup);
+      return true;
+    })
+    .slice(0, keptThreadLookupLimit);
+  const other = kept
+    .filter(
+      (query) => !keptForgeQuery(query.queryKey) && threadLookup(query.queryKey) === undefined,
+    )
+    .slice(0, keptQueryLimit);
   return {
     version: 1,
     ...stamp,
-    queries: [...other, ...forge].flatMap((query) => {
+    queries: [...other, ...threads, ...forge].flatMap((query) => {
       const key = PlainKey.safeParse(query.queryKey);
       const data = keptForgeQuery(query.queryKey) ? withoutRaw(query.state.data) : query.state.data;
       return key.success ? [{ key: key.data, data, at: query.state.dataUpdatedAt }] : [];
@@ -178,9 +253,17 @@ export function restoreQueries(queries: QueryClient, kept: QueryRecord["queries"
     // A restored PR read outlives the default collection window until its panel opens again.
     if (keptForgeQuery(entry.key))
       queries.getQueryCache().build(queries, { queryKey: entry.key, gcTime: keptForgeMs });
+    if (storageUsageQuery(entry.key))
+      queries.getQueryCache().build(queries, { queryKey: entry.key, gcTime: storageUsageGcMs });
     queries.setQueryData(entry.key, entry.data, { updatedAt: entry.at });
     const hash = queries.getQueryCache().find({ queryKey: entry.key, exact: true })?.queryHash;
     if (hash) restored.add(hash);
+    const data = queries.getQueryData(entry.key);
+    if (hash && threadLookup(entry.key) !== undefined && typeof data === "object" && data) {
+      const held = restoredAt.get(queries) ?? new WeakMap<object, { hash: string; at: number }>();
+      held.set(data, { hash, at: entry.at });
+      restoredAt.set(queries, held);
+    }
   }
   if (restored.size)
     void queries.invalidateQueries({

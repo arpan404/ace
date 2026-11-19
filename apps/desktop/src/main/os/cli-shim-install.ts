@@ -53,6 +53,12 @@ export async function installCliShim(options: CliShimInstall): Promise<CliShimRe
     return { state: "failed", file, message: message(error) };
   }
   try {
+    // Windows: a standalone install's `bin\ace.cmd` launcher is ace's command too; keep it.
+    if (options.platform === "win32") {
+      const found = await existing(file, options.platform);
+      if (found.kind === "file" && found.content === windowsLauncher(options.dataHome))
+        return { state: "unchanged", file, directory };
+    }
     const plan = planCliShim(
       await existing(file, options.platform),
       content,
@@ -109,4 +115,13 @@ function code(error: unknown): unknown {
 }
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The standalone release's launcher for this home on Windows, or undefined if it can't be named. */
+function windowsLauncher(home: string): string | undefined {
+  try {
+    return renderLauncher(home);
+  } catch {
+    return undefined;
+  }
 }

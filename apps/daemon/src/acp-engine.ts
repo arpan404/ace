@@ -1,10 +1,24 @@
 import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
 import { acpModelInstanceId } from "./acp-model-instance.ts";
-import { acpAgentCli, type AgentRegistry } from "@ace/agent-registry";
+import {
+  acpAgentCli,
+  geminiTrustEnv,
+  geminiWorkspaceTrust,
+  readGeminiTrustFacts,
+  type AgentRegistry,
+} from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { AcpIdentity, type McpCapability } from "@ace/protocol";
-import { acpInjection, acpStdioInjection, acpToolListing } from "@ace/mcp-server";
+import {
+  acpInjection,
+  acpStdioInjection,
+  acpClaudeToolListing,
+  acpShowsServerInstructions,
+  acpToolListing,
+  geminiUntrustedGuidance,
+} from "@ace/mcp-server";
+import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
@@ -22,6 +36,8 @@ export function acpEngineOptions(input: {
   accountRegistry?: Services["accountRegistry"];
   userHome?: string;
   capabilities?: McpCapability[];
+  /** The checkout a worktree ace created was made from; undefined for any other folder. */
+  worktreeSource?: (path: string) => string | undefined;
   report(error: unknown): void;
 }): Pick<EngineOptions, "sessionContext"> {
   input.registry.register(
@@ -72,9 +88,54 @@ export function acpEngineOptions(input: {
           env: process.env,
           loginRevision: "default-local",
         };
-      const plan = await input.agents.resolve(identity, account.env);
+      const resolved = await input.agents.resolve(identity, account.env);
       const root = thread.rootAgentId;
       if (!root) throw new Error("ACP MCP caller unavailable");
+      const { cwd, model } = input.store.atomic((db) => {
+        const row = db
+          .prepare("SELECT cwd,model FROM engine_sessions WHERE thread_id=?")
+          .get(threadId);
+        return {
+          cwd: String(row?.cwd ?? ""),
+          model: typeof row?.model === "string" ? row.model : undefined,
+        };
+      });
+      // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
+      // Agent SDK and Antigravity defer, and the rest keep a fixed list. claude-agent-acp runs
+      // Claude Code, which defers only while its tool search is on: the thread's model, the
+      // launch env and settings decide.
+      const cli = acpAgentCli(identity.acpAgentId);
+      // Gemini CLI loads no MCP server, and refuses full access, in a folder it does not trust.
+      // A worktree ace made from a checkout the person trusts gets that trust for this process;
+      // any other untrusted folder fails with instructions for the person to grant trust.
+      const trust =
+        cli === "gemini"
+          ? geminiWorkspaceTrust(
+              await readGeminiTrustFacts({
+                env: resolved.env,
+                userHome: input.userHome ?? homedir(),
+                platform: process.platform,
+                cwd,
+                source: input.worktreeSource?.(cwd),
+              }),
+            )
+          : undefined;
+      if (trust?.state === "untrusted") throw new Error(geminiUntrustedGuidance(cwd, trust.denied));
+      const plan =
+        trust?.state === "inherited"
+          ? { ...resolved, env: { ...resolved.env, [geminiTrustEnv]: "true" } }
+          : resolved;
+      const listing =
+        cli === "claude-acp"
+          ? acpClaudeToolListing(
+              await claudeToolSearchFacts({
+                env: plan.env,
+                cwd,
+                sources: ["user", "project", "local"],
+                model,
+              }),
+            )
+          : acpToolListing(cli);
       const lease = input.mcp.openSession(
         {
           sessionId: `${threadId}:${identity.installationId}`,
@@ -84,13 +145,13 @@ export function acpEngineOptions(input: {
         },
         signal,
       );
-      // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
-      // Agent SDK and Antigravity defer, and the rest keep a fixed list.
-      const cli = acpAgentCli(identity.acpAgentId);
+      // Agents that never show MCP server instructions (Antigravity files them away) get ace's
+      // guidance in their own channel instead.
       const connection = {
         url: input.mcp.url,
         bearer: lease.bearer,
-        listing: acpToolListing(cli),
+        listing,
+        serverInstructions: acpShowsServerInstructions(cli),
         session: lease.session,
       };
       const instance: InstanceInput = {
@@ -99,12 +160,7 @@ export function acpEngineOptions(input: {
         ...identity,
         loginRevision: account.loginRevision,
         executable: plan.command,
-        cwd: input.store.atomic((db) =>
-          String(
-            db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(threadId)?.cwd ??
-              "",
-          ),
-        ),
+        cwd,
         args: [...plan.args],
         // Generic ACP never uses catalog-driven process discovery. Keep the launch
         // environment only on its daemon-local plan, outside model metadata.
@@ -154,7 +210,7 @@ export function acpEngineOptions(input: {
         onSessionMetadata(metadata) {
           if (signal.aborted) return;
           metadataPending = { value: metadata };
-          void drainMetadata();
+          void drainMetadata().catch((error: unknown) => input.report(error));
         },
       };
     },

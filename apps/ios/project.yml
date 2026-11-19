@@ -9,6 +9,11 @@ options:
   bundleIdPrefix: app.ace
   deploymentTarget:
     iOS: "18.0"
+# markit renders Markdown, math and code (Rust behind a Swift package). `bun run markit` puts its
+# released Swift package, with the prebuilt `MarkitCore.xcframework` and licence notices, in Vendor.
+packages:
+  Markit:
+    path: Vendor/Markit
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -24,7 +29,25 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # The ace account backend sign-in reaches (`AceAccountURL` in Info.plist): none in
+    # development and fixture builds, ace's own in Release, as the web and desktop releases do
+    # (`ACE_HOSTED_ACCOUNT_ORIGIN`). Set it on the command line to point a build elsewhere.
+    ACE_ACCOUNT_URL: ""
+    # Remote push (ADR 0106) needs the `aps-environment` entitlement, which only a paid
+    # developer team can sign. Off by default, so CI and free Personal Teams keep signing and
+    # the app runs on local notifications alone. Turn it on with `ACE_PUSH=YES` on the
+    # xcodebuild command line (or in the Ace target's build settings): the app then signs with
+    # `Entitlements/AcePush.entitlements`. See README › Notifications.
+    ACE_PUSH: NO
+    ACE_ENTITLEMENTS_NO: Entitlements/Ace.entitlements
+    ACE_ENTITLEMENTS_YES: Entitlements/AcePush.entitlements
+    # The APNs environment the entitlement names; the app tells each machine which one issued
+    # its token (`AceAPSEnvironment` in Info.plist).
+    ACE_APS_ENVIRONMENT: development
   configs:
+    Release:
+      ACE_ACCOUNT_URL: https://cloud.acehq.dev
+      ACE_APS_ENVIRONMENT: production
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
     Perf:
@@ -37,12 +60,21 @@ targets:
     sources:
       - path: Sources
       - path: Shared
+      # Alert wording and the push decryption, shared with the service extension.
+      - path: Alerts
+      # The handoff queue the share extension and the intents write and the app sends from.
+      - path: Handoff
       - path: Resources
         buildPhase: resources
+    # Entitlements come from `Entitlements/` (CODE_SIGN_ENTITLEMENTS below), chosen by
+    # ACE_PUSH: one app group for the widgets' lock-screen snapshot (`LockSnapshotStore`), the
+    # share extension and intents' handoff queue, and the push key the service extension reads.
     info:
       path: .build/Info.plist
       properties:
         CFBundleDisplayName: ace
+        AceAccountURL: $(ACE_ACCOUNT_URL)
+        AceAPSEnvironment: $(ACE_APS_ENVIRONMENT)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSupportsLiveActivities: true
@@ -63,8 +95,22 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
+        # `ace://` links open a thread, settings or New thread (`AceLink`, `readAceLink`).
+        CFBundleURLTypes:
+          - CFBundleURLName: app.ace.link
+            CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
+        # Long-press the app icon: New thread and New chat (`QuickActions`).
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: app.ace.new-thread
+            UIApplicationShortcutItemTitle: New thread
+            UIApplicationShortcutItemIconSymbolName: square.and.pencil
+          - UIApplicationShortcutItemType: app.ace.new-chat
+            UIApplicationShortcutItemTitle: New chat
+            UIApplicationShortcutItemIconSymbolName: bubble.left
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
+        NSMicrophoneUsageDescription: Dictate a message to an agent.
+        NSSpeechRecognitionUsageDescription: Turn what you say into the words of your message, on this iPhone where it can.
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
@@ -77,8 +123,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: $(ACE_ENTITLEMENTS_$(ACE_PUSH))
     dependencies:
       - target: AceActivity
+      - target: AceShare
+      - target: AceNotificationService
+      - package: Markit
       - sdk: JavaScriptCore.framework
       - sdk: libsqlite3.tbd
   AceActivity:
@@ -96,9 +146,71 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: .build/Activity.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios.activity
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+  # The share sheet's ace: queues a start in the app group and opens the app (`ShareExtension`).
+  AceShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Handoff
+      - path: Shared
+      - path: Sources/Views/AceTheme.generated.swift
+    entitlements:
+      path: .build/Share.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
+    info:
+      path: .build/Share-Info.plist
+      properties:
+        CFBundleDisplayName: ace
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 4
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios.share
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+  # Decrypts a remote push and replaces the gateway's generic text with the alert (ADR 0106).
+  # No JavaScript runtime and no networking: CryptoKit, the app group and `Alerts` only.
+  AceNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: Alerts
+    entitlements:
+      path: .build/NotificationService.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
+    info:
+      path: .build/NotificationService-Info.plist
+      properties:
+        CFBundleDisplayName: ace notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios.notifications
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
   AceTests:
@@ -107,6 +219,15 @@ targets:
     sources:
       - path: Tests
       - path: .build/bridge-tests.js
+        buildPhase: resources
+      # The Noise XX vectors the TypeScript implementation passes, for the native one.
+      - path: ../../packages/secure-channel/fixtures/cacophony.json
+        buildPhase: resources
+      - path: ../../packages/secure-channel/fixtures/snow.json
+        buildPhase: resources
+      # Shared, language-neutral emulator cases (see its README).
+      - path: ../../fixtures/terminal-emulator
+        type: folder
         buildPhase: resources
     dependencies:
       - target: Ace

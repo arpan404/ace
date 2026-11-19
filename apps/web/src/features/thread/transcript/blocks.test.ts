@@ -1,6 +1,8 @@
-import { Item } from "@ace/protocol";
+import { Item, RunId } from "@ace/protocol";
+import { mergeReceipts } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import {
+  blockItems,
   buildBlocks,
   withoutQueued,
   type Block,
@@ -393,32 +395,6 @@ test("an ending tied to a message still in the queue goes with it; the turn befo
   expect(visible.at(-1)).toMatchObject({ kind: "end", runId: "A", latest: true });
 });
 
-test("rows follow the daemon's creation order even when timestamps run backwards", () => {
-  const base = source(
-    [
-      { id: "earlier", role: "user" },
-      { id: "ask", role: "user", run: "turn" },
-      { id: "answer", role: "assistant", run: "turn" },
-    ],
-    { turn: { ...ended("completed"), startedAt: 2 } },
-  );
-  const tool = mcpTool("tool", 3);
-  const blocks = buildBlocks({
-    ...base,
-    order: ["earlier", "ask", "tool", "answer"],
-    turnOf: (id) => (id === tool.id ? "turn" : base.turnOf?.(id)),
-    // Imported history keeps native timestamps; they never reorder the transcript.
-    item: (id) => {
-      const item = id === tool.id ? tool : base.item(id);
-      return item && { ...item, createdAt: 100 - item.createdAt };
-    },
-  });
-  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:ask", "answer"]);
-  expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
-    { outcome: "completed", itemIds: ["tool"] },
-  ]);
-});
-
 test("an admitted first ask stays ahead of intervening earlier messages while awaiting output", () => {
   const base = source(
     [
@@ -447,7 +423,7 @@ const aceInput = (id: string, kind: string, text: string, at: number) =>
     parts: [{ type: "text", text }],
   });
 
-test("Continue after a restart or a limit reads as the person's message; ace's other inputs stay events", () => {
+test("Continue after a restart or a limit is no message of the person's: it reads as its turn's restart or wait row", () => {
   const items = new Map<string, Item>([
     ["resume", aceInput("resume", "limit_resume", "Continue where you left off.", 0)],
     ["restart", aceInput("restart", "restart", "Continue where you left off.", 1)],
@@ -475,8 +451,94 @@ test("Continue after a restart or a limit reads as the person's message; ace's o
   const kinds = new Map(
     blocks.flatMap((block) => ("itemId" in block ? [[block.itemId, block.kind]] : [])),
   );
-  expect(kinds.get("resume")).toBe("user");
-  expect(kinds.get("restart")).toBe("user");
-  expect(kinds.get("legacy")).toBe("event");
+  const moments = blocks.flatMap((block) =>
+    block.kind === "moment" ? [[block.moment, block.itemIds] as const] : [],
+  );
+  // Each run here is its own turn, so each input is its own row.
+  expect(moments).toEqual([
+    ["limit", ["resume"]],
+    ["restart", ["restart"]],
+    ["restart", ["legacy"]],
+  ]);
+  expect(blocks.some((block) => block.kind === "user")).toBe(false);
   expect(kinds.get("done")).toBe("event");
+});
+
+const ask = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    createdAt: at,
+    complete: true,
+    type: "message",
+    role: "user",
+    parts: [{ type: "text", text: id }],
+    origin: { kind: "person", commandId: `send-${id}` },
+    raw: [],
+  });
+const answer = (id: string, run: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: run,
+    createdAt: at,
+    complete: true,
+    type: "message",
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    raw: [],
+  });
+
+test("delegated work reads in the turn it came back in, the same whether or not the turn that launched it is loaded", () => {
+  const items = [
+    ask("launch-ask", 0),
+    { ...delegationLaunch("audit", 1), runId: RunId.parse("first") },
+    answer("launched", "first", 2),
+    ask("continue", 3),
+    { ...settled("settled-audit", 4, ["audit"]), runId: RunId.parse("second") },
+    answer("measured", "second", 5),
+  ];
+  const build = (from: number) =>
+    buildBlocks({
+      order: items.slice(from).map((item) => item.id),
+      item: (id) => items.find((item) => item.id === id),
+      background: new Map(),
+      turnOf: (id) => items.find((item) => item.id === id)?.runId,
+      run: () => ({ state: "completed", trigger: "user", endedAt: 6 }),
+    });
+  const latestTurns = [build(0), build(3)].map((blocks) =>
+    shown(
+      blocks.slice(blocks.findIndex((block) => "itemId" in block && block.itemId === "continue")),
+    ),
+  );
+  // The launch's turn loaded or paged out: the later turn shows its delivered result either way.
+  expect(latestTurns[0]).toContain("settled-audit");
+  expect(latestTurns[1]).toEqual(latestTurns[0]);
+});
+
+test("results delivered back to back read as one row listing every child", () => {
+  const items = [
+    ask("ask", 0),
+    { ...settled("settled-network", 1, ["network-a", "network-b"]), runId: RunId.parse("turn") },
+    { ...settled("settled-startup", 2, ["startup-a", "startup-b"]), runId: RunId.parse("turn") },
+    answer("summary", "turn", 3),
+    { ...settled("settled-late", 4, ["late"]), runId: RunId.parse("turn") },
+  ];
+  const item = (id: string) => items.find((entry) => entry.id === id);
+  const blocks = mergeReceipts(
+    buildBlocks({
+      order: items.map((entry) => entry.id),
+      item,
+      background: new Map(),
+      turnOf: (id) => item(id)?.runId,
+      run: () => ({ state: "active", trigger: "user" }),
+    }),
+    item,
+  );
+  const receipts = blocks.filter((block) => block.kind === "item");
+  // The two back to back are one row; one after the answer stays its own.
+  expect(receipts.map((block) => blockItems(block))).toEqual([
+    ["settled-network", "settled-startup"],
+    ["settled-late"],
+  ]);
 });

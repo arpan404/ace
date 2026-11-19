@@ -1,11 +1,15 @@
-import { afterEach, expect, test } from "vitest";
-import { facts } from "@ace/fake-daemon";
+import { afterEach, expect, test, vi } from "vitest";
+import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
+import { forgetNativeTurnSteps, nativeReadSnapshots } from "./read-snapshots.ts";
+import { nativeStore } from "./snapshot-store-fixture.ts";
+import { facts, seedRestartedTurn } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import {
   connect,
   fixture,
   latest,
   native,
+  pump,
   open,
   reset,
   rows,
@@ -13,6 +17,7 @@ import {
   until,
 } from "./thread-harness.ts";
 
+import { ThreadVisit } from "./thread-visit.ts";
 /*
  * A finished turn's full steps read on demand, a native subagent's lane grouped like the
  * transcript, and moving a queued follow-up, over the real SDK and the fake daemon. No provider
@@ -299,4 +304,188 @@ test("a queued follow-up moves down past the next one, fenced to the queue it sa
   });
   await until(() => queue()?.messages[0]?.text === "Second", "the new order");
   expect(queue()?.messages.map((message) => message.text)).toEqual(["Second", "First"]);
+});
+
+test("a relaunched phone shows its saved tool log while the daemon's steps read is stalled", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "kept", workspaceId: "ace", title: "Kept", provider: "codex" });
+  fake.apply("kept", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    ...reads(3),
+    facts.endTurn("root"),
+  ]);
+  const { call } = nativeStore();
+  const storage = nativeReadSnapshots(call, () => 1_000);
+  const scope = { hostId: "ios-test-host", build: "ios-turn-steps-v1" };
+  const kept = turnStepsStoreIn(async () => storage, scope);
+  const first = open(connect(fake), "kept", undefined, undefined, kept);
+  const head = await until(
+    () => rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null),
+    "a work head",
+  );
+  const ordinal = Number(head.ordinal);
+  first.handle({ type: "steps.open", ordinal, block: "work" });
+  await until(() => latest("thread.steps")?.state === "ready", "first tool log");
+  await expect.poll(() => kept.get(`kept/${ordinal}`)).toBeDefined();
+  await reset();
+
+  const nextStorage = nativeReadSnapshots(call, () => 1_000);
+  const nextKept = turnStepsStoreIn(async () => nextStorage, scope);
+  const client = connect(fake);
+  const request = client.request.bind(client);
+  vi.spyOn(client, "request").mockImplementation((input, options) =>
+    input.type === "turn.steps" ? new Promise(() => {}) : request(input, options),
+  );
+  const next = open(client, "kept", undefined, undefined, nextKept);
+  await until(() => rows("thread.block").some((row) => row.kind === "work"), "reopened thread");
+  next.handle({ type: "steps.open", ordinal, block: "work" });
+  await until(() => latest("thread.steps")?.state === "ready", "restored tool log");
+  const pages = await until(
+    () => native.frames.find((frame) => frame.type === "thread.stepsPage"),
+    "restored rows",
+  );
+  expect((pages.rows as { text: string }[]).map((row) => row.text)).toEqual([
+    "Read file-0.ts",
+    "Read file-1.ts",
+    "Read file-2.ts",
+  ]);
+  await nextKept.set("other/1", { version: 1 });
+  await forgetNativeTurnSteps(call, nextStorage, scope.hostId, "kept");
+  expect(await nextKept.get(`kept/${ordinal}`)).toBeUndefined();
+  expect(await nextKept.get("other/1")).toEqual({ version: 1 });
+  await nextStorage.clear();
+  expect(await nextKept.get("other/1")).toBeUndefined();
+});
+
+test.each([false, true])(
+  "a cache reload reopens its thread unless the phone navigated meanwhile: %s",
+  (moved) => {
+    const fake = fixture();
+    for (const id of ["one", "two"])
+      fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
+    const client = connect(fake);
+    const visit = new ThreadVisit(pump, { leaving() {}, opened() {} });
+    visit.open(client, "one", false);
+    const reload = visit.reloads(client);
+    reload.leave();
+    if (moved) visit.open(client, "two", false);
+    reload.reopen("one");
+    expect(visit.threadId).toBe(moved ? "two" : "one");
+    visit.back();
+  },
+);
+
+test("an opened restarted turn shows its restarts, wait and finished subagents in place among its steps", async () => {
+  const fake = fixture();
+  seedRestartedTurn(fake, "restarted");
+  const thread = open(connect(fake), "restarted");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  // Folded, the head says nothing about the restarts: its moments travel on it, unshown.
+  const work = rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null);
+  const moments = (work?.moments ?? []) as {
+    id: string;
+    event: { text: string; at: number; until: number };
+  }[];
+  expect(moments.map((moment) => moment.event.text)).toEqual([
+    "Restarted twice, continued",
+    "Restarted, continued",
+    "2 subagents finished",
+    "Waited for the usage limit",
+  ]);
+  // Back-to-back restarts and the wait read as spans; one restart and the results as one time.
+  expect(moments.map(({ event }) => event.until > event.at)).toEqual([true, false, false, true]);
+  expect(rows("thread.block").filter((row) => row.kind === "event")).toEqual([]);
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  const header = native.frames.findLast(
+    (frame) => frame.type === "thread.steps" && frame.ordinal === head.ordinal,
+  ) as { log: { kind: string; id: string }[] };
+  const words = new Map(moments.map((moment) => [moment.id, moment.event.text]));
+  const shown = native.frames
+    .filter((frame) => frame.type === "thread.stepsPage" && frame.ordinal === head.ordinal)
+    .flatMap((frame) => frame.rows as { id: string; text: string }[]);
+  const text = new Map(shown.map((row) => [row.id, row.text]));
+  const read = (row: { kind: string; id: string; items?: string[] }) =>
+    row.kind === "moment"
+      ? `moment: ${words.get(row.id)}`
+      : (row.items ?? [row.id]).map((id) => text.get(id)).join(" + ");
+  expect(header.log.map(read)).toEqual([
+    "gh pr list --author @me",
+    "Three PRs are open. Checking their reviews.",
+    "gh pr checks 2106",
+    "moment: Restarted twice, continued",
+    "ace restarted again. Checking which children are still working, the simulator lock, and the open PRs.",
+    "Edit test-on-arpans-mac.md",
+    "moment: Restarted, continued",
+    "gh pr merge 2113 --squash",
+    "moment: 2 subagents finished",
+    "moment: Waited for the usage limit",
+    "bun run bench:stall",
+  ]);
+  // The head's own log, drawn when the daemon can't be read, places them the same way.
+  const loaded = (work?.log ?? []) as { kind: string; id: string }[];
+  expect(loaded.map((row) => row.kind)).toEqual(header.log.map((row) => row.kind));
+});
+
+const shell = (item: string, command: string): Fact[] => [
+  facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } }),
+  facts.toolDone("root", item),
+];
+
+test("a log still open when its turn gathers another restart shows it when the head opens it again", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "resumed", workspaceId: "ace", title: "Resumed", provider: "claude" });
+  fake.apply("resumed", [
+    facts.rootAgent("claude"),
+    { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+    facts.message("root", "ask", "user", "Merge the PR"),
+    ...shell("checks", "gh pr checks 2106"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t1", outcome: "interrupted" },
+  ]);
+  const thread = open(connect(fake), "resumed");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  const header = () =>
+    native.frames.findLast(
+      (frame) => frame.type === "thread.steps" && frame.ordinal === head.ordinal,
+    ) as { log: { kind: string }[] };
+  expect(header().log.map((row) => row.kind)).not.toContain("moment");
+  // ace restarts and the same turn carries on, while its log is still held open.
+  fake.apply("resumed", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "restart-1",
+      draft: {
+        type: "notice",
+        level: "warning",
+        complete: true,
+        code: "restart_interrupted",
+        text: "Interrupted by a restart. Continuing.",
+        raw: [],
+      },
+    },
+    { type: "turn.started", agent: "root", nativeTurnId: "t2", trigger: "restart" },
+    ...shell("merge", "gh pr merge 2106 --squash"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t2", outcome: "completed" },
+  ]);
+  await until(
+    () =>
+      rows("thread.block").some(
+        (row) => row.kind === "work" && (row.moments as unknown[] | undefined)?.length,
+      ),
+    "the head's restart",
+  );
+  const [again] = await heads(1);
+  if (!again) throw new Error("no settled head");
+  expect(again.ordinal).toBe(head.ordinal);
+  thread.handle({ type: "steps.open", ordinal: again.ordinal, block: again.block });
+  await until(
+    () => header().log.some((row) => row.kind === "moment"),
+    "the restart in the opened log",
+  );
 });

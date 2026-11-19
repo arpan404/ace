@@ -66,3 +66,38 @@ export function useTitleCount(count: number): void {
     [],
   );
 }
+
+/**
+ * A system notification while the window is behind, through whichever owner this window has:
+ * the desktop app's (main process) or, in a browser tab that allowed it, the Notification API.
+ * Returns whether one was asked for.
+ */
+export function notifySystem(note: {
+  title: string;
+  body: string;
+  tag: string;
+  open(): void;
+}): boolean {
+  const show = desktopNotifications();
+  if (show) {
+    void show({ title: note.title, body: note.body }).catch(() => {});
+    return true;
+  }
+  return notifyInBrowser(note);
+}
+
+/** The desktop bridge's `notifications.show`, checked before use. */
+function desktopNotifications():
+  | ((request: { title: string; body: string }) => Promise<unknown>)
+  | undefined {
+  if (!inDesktopApp()) return undefined;
+  const ace: unknown = Reflect.get(globalThis, "ace");
+  const notifications: unknown =
+    typeof ace === "object" && ace !== null ? Reflect.get(ace, "notifications") : undefined;
+  const show: unknown =
+    typeof notifications === "object" && notifications !== null
+      ? Reflect.get(notifications, "show")
+      : undefined;
+  if (typeof show !== "function") return undefined;
+  return (request) => Promise.resolve(Reflect.apply(show, notifications, [request]));
+}

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
-import { build, type BuildOptions, type Metafile } from "esbuild";
-import { appEnvironment, desktop, electronBinary, electronBundles, repo } from "./common.ts";
+import { build, type Metafile } from "esbuild";
+import { appEnvironment, desktop, e2eSwitches, electronBinary, electronBundles } from "./common.ts";
 import { serveTestPage } from "./measure/browser-page.ts";
+import { measuredMain, measuredRenderer } from "./measure/build.ts";
 import { table } from "./measure/report.ts";
 import type { Sample } from "./measure/sample.ts";
 import type { ScenarioConfig } from "./measure/scenario.ts";
@@ -41,27 +42,6 @@ const { values: args } = parseArgs({
 const log = (message: string) => console.log(`[measure] ${message}`);
 const out = join(desktop, "dist/measure");
 
-/** Main (through the measurement entry) and preload, as `electronBundles` builds them. */
-async function bundle(outdir: string): Promise<string> {
-  const [main, ...rest] = electronBundles(outdir, process.env);
-  if (!main) throw new Error("No main bundle");
-  const entry = join(desktop, "scripts/measure/entry.ts");
-  const points = main.entryPoints;
-  const measured: BuildOptions =
-    points && !Array.isArray(points)
-      ? { ...main, entryPoints: { ...points, main: entry } }
-      : { ...main, entryPoints: [entry] };
-  const [result] = await Promise.all([
-    build({ ...measured, metafile: true }),
-    ...rest.map((options) => build(options)),
-  ]);
-  const output = Object.entries(result.metafile.outputs).find(
-    ([, value]) => value.entryPoint && resolve(value.entryPoint) === entry,
-  );
-  if (!output) throw new Error("The measurement entry produced no output");
-  return resolve(output[0]);
-}
-
 /** The shipped main bundle: every file, and what loads before any dynamic import. */
 async function mainBundleSize(): Promise<{ totalKb: number; initialKb: number; files: number }> {
   const [main] = electronBundles(join(out, "size"), process.env);
@@ -84,14 +64,6 @@ async function mainBundleSize(): Promise<{ totalKb: number; initialKb: number; f
   return { totalKb: kb(code), initialKb: kb(initial), files: code.length };
 }
 
-function renderer(mode: "fake" | "perf", outdir: string): void {
-  execFileSync(
-    "bun",
-    ["x", "vite", "build", "--mode", mode, "--outDir", join(outdir, "renderer"), "--emptyOutDir"],
-    { cwd: join(repo, "apps/web"), stdio: ["ignore", "ignore", "inherit"] },
-  );
-}
-
 interface Run {
   samples: Sample[];
   marks: Record<string, number> | undefined;
@@ -102,7 +74,7 @@ interface Run {
 async function run(mainFile: string, config: ScenarioConfig): Promise<Run> {
   const userData = await mkdtemp(join(tmpdir(), "ace-measure-"));
   const result: Run = { samples: [], marks: undefined, streamingRate: undefined };
-  const child = spawn(await electronBinary(), [mainFile], {
+  const child = spawn(await electronBinary(), [...e2eSwitches(process.platform), mainFile], {
     stdio: ["ignore", "pipe", "inherit"],
     env: {
       ...appEnvironment(process.env),
@@ -139,10 +111,10 @@ async function run(mainFile: string, config: ScenarioConfig): Promise<Run> {
 const fakeDir = join(out, "fake");
 const perfDir = join(out, "perf");
 log("building main, preload and renderers");
-const [fakeMain, perfMain] = await Promise.all([bundle(fakeDir), bundle(perfDir)]);
+const [fakeMain, perfMain] = await Promise.all([measuredMain(fakeDir), measuredMain(perfDir)]);
 if (!args["skip-renderer"]) {
-  renderer("fake", fakeDir);
-  renderer("perf", perfDir);
+  measuredRenderer("fake", fakeDir);
+  measuredRenderer("perf", perfDir);
 }
 const size = await mainBundleSize();
 const testPage = await serveTestPage();

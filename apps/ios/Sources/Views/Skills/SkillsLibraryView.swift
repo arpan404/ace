@@ -1,114 +1,203 @@
 import SwiftUI
 
+/// Settings › Tools › Skills and plugins: the person's skills grouped by where they live (the
+/// chosen project's, personal, ace's own), New skill, and the installed plugins with the agents
+/// each reaches. Opens on what this phone last saw, read again behind it. Each read keeps its own
+/// failure, so one list failing never hides another's or reports the wrong one.
 struct SkillsLibraryView: View {
     let model: ClientModel
-    @State private var installs: [NativePlugin] = []
-    @State private var policies: [PluginPolicy] = []
-    @State private var components: [PluginComponentRow] = []
-    @State private var reviews: [NativePluginReview] = []
+    @AppStorage("skills.project") private var projectId = ""
+    @State private var projects: [NativeProject] = []
+    @State private var projectProblem: String?
+    @State private var library: SkillLibrary?
+    @State private var libraryProblem: String?
+    @State private var plugins: [PluginAgents]
+    @State private var pluginProblem: String?
+    @State private var reviews: [NativePluginReview]
+    @State private var components: [PluginComponentRow]
     @State private var next: Int?
-    @State private var problem: String?
-    @State private var loading = false
-    @State private var loaded = false
+    @State private var catalogProblem: String?
+    @State private var catalogMoreFailed = false
     @State private var query = ""
+    @State private var creating = false
     @State private var installing = false
-    @State private var removing: NativePlugin?
     @State private var review: PluginReviewRequest?
-    private static let listRead: [String: Any] = ["type": "plugins.list"]
+    @State private var opened: SkillRoute?
+    @State private var made = 0
+    private static let pluginList: [String: Any] = ["type": "pluginRequest", "request": ["type": "plugins.list"]]
+    private static let agentsRead: [String: Any] = ["type": "plugins.native", "op": "plugins"]
     private static let catalogRead: [String: Any] = ["type": "plugins.catalog", "offset": 0, "limit": 50]
 
-    /// Opens on the last plugins and skills this phone saw, read again behind them.
     init(model: ClientModel) {
         self.model = model
-        let list = model.keptPlugin(Self.listRead, expecting: "plugins.list")
+        _plugins = State(initialValue: model.kept(Self.agentsRead, as: PluginAgentsList.self)?.plugins ?? [])
+        _reviews = State(initialValue: model.keptPlugin(["type": "plugins.list"], expecting: "plugins.list")?.reviews ?? [])
         let catalog = model.keptPlugin(Self.catalogRead, expecting: "plugins.catalog")
-        _installs = State(initialValue: list?.installs ?? [])
-        _policies = State(initialValue: list?.availability ?? [])
-        _reviews = State(initialValue: list?.reviews ?? [])
         _components = State(initialValue: catalog?.components ?? [])
         _next = State(initialValue: catalog?.nextOffset)
-        _loaded = State(initialValue: list != nil && catalog != nil)
     }
+
+    private var project: NativeProject? { projects.first { $0.id == projectId } }
+    private var libraryRead: [String: Any] {
+        var read: [String: Any] = ["type": "skills.native", "op": "library"]
+        if let project { read["workspaceId"] = project.id; read["project"] = project.name }
+        return read
+    }
+    private var groups: [SkillGroup] {
+        guard let library else { return [] }
+        guard !query.isEmpty else { return library.groups }
+        return library.groups.compactMap { group in
+            let rows = group.rows.filter { $0.title.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }
+            return rows.isEmpty ? nil : SkillGroup(id: group.id, title: group.title, rows: rows)
+        }
+    }
+
     var body: some View {
         List {
-            Group {
-                Section {
-                    NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", systemImage: "sparkle.magnifyingglass") }
-                        .accessibilityIdentifier("skills.discovery")
-                    if model.canOperate {
-                        Button { installing = true } label: { InsetRow("Install plugin", systemImage: "plus") }.buttonStyle(.plain)
-                    }
-                    ForEach(reviews) { pending in
-                        Button { review = PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id]) } label: {
-                            InsetRow("Review \(pending.name)", systemImage: "checkmark.shield")
-                        }
+            Section {
+                // Always in place, so the rows below never move when the projects arrive.
+                Picker("Project", selection: $projectId) {
+                    Text("None").tag("")
+                    ForEach(projects) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("skills.project")
+                if model.canOperate {
+                    Button { creating = true } label: { AddRow("New skill") }
                         .buttonStyle(.plain)
-                    }
+                        .accessibilityIdentifier("skills.new")
                 }
-                ForEach(installs.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { plugin in
-                    Section {
-                        Text("Version \(plugin.version)").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        if model.canOperate {
-                            let policy = policies.first { $0.name == plugin.name }
-                            Toggle("Enabled", isOn: Binding(get: { policy?.enabled ?? true }, set: { enabled in
-                                mutate(["type": "plugins.availability", "name": plugin.name, "enabled": enabled, "providers": policy?.providers ?? ProviderLabels.ids], expecting: "plugins.availability")
-                            }))
-                            Button("Check for update") { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) }
-                            Button("Remove plugin", role: .destructive) { removing = plugin }
-                        }
-                        ForEach(components.filter { $0.plugin == plugin.name }) { component in
-                            NavigationLink { SkillSourceView(model: model, component: component) } label: {
-                                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                                    LabeledContent(component.title ?? component.name, value: component.kind.capitalized)
-                                    Text(component.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
-                                }
-                            }
-                        }
-                    } header: { InsetHeader(plugin.name) }
-                }
-                if next != nil { Button("Show more skills") { Task { await read(more: true) } }.disabled(loading) }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await read() } } }
             }
             .insetRowBackground()
-            Group {
-                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Reading skills"); Spacer() } }
-                if loaded && installs.isEmpty && problem == nil { ContentUnavailableView("No plugins installed", systemImage: "book", description: Text("Install a plugin from its Git repository to add skills, commands and agents.")) }
+            if let projectProblem {
+                Section { ProblemRow(projectProblem, id: "skills.projects.problem") { Task { await readProjects() } } }
             }
-            .listRowBackground(Color.clear)
+            skills
+            PluginsSection(model: model, plugins: plugins, components: components, reviews: reviews, query: query,
+                           problem: pluginProblem, catalogProblem: catalogProblem, more: next != nil,
+                           install: { installing = true }, review: { review = $0 },
+                           retry: { Task { await readPlugins() } },
+                           loadMore: { Task { await readCatalog(more: true) } },
+                           retryCatalog: { Task { await readCatalog(more: catalogMoreFailed) } })
+            Section {
+                NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", systemImage: nil) }
+                    .accessibilityIdentifier("skills.discovery")
+            }
+            .insetRowBackground()
         }
         .insetGroupedList()
-        .searchable(text: $query, prompt: "Search plugins")
+        .searchBarEdge()
+        .animation(.default, value: library)
+        .animation(.default, value: plugins)
+        .sensoryFeedback(.success, trigger: made)
+        .searchable(text: $query, prompt: "Search skills and plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)
-        .task(id: [model.connection == "ready" ? 1 : 0, model.pluginGeneration(Self.listRead)]) { if model.connection == "ready" { await read() } }
+        .navigationDestination(item: $opened) { route in
+            SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
+        }
+        // Keyed on the project as resolved: a remembered project only resolves once the projects
+        // arrive, and the library must be read again for it then.
+        .readWhenConnected(model, id: project?.id ?? "") {
+            library = model.keptSkillLibrary(libraryRead) ?? library
+            await read()
+        }
+        .task(id: model.readGeneration(libraryRead)) { await readLibrary() }
+        .task(id: model.connection) { await readProjects() }
+        .task(id: model.pluginGeneration(["type": "plugins.list"])) { await readPlugins() }
         .refreshable { await read() }
-        .sheet(isPresented: $installing, onDismiss: { Task { await read() } }) { PluginInstallView(model: model) }
-        .sheet(item: $review, onDismiss: { Task { await read() } }) { PluginReviewView(model: model, request: $0) }
-        .confirmationDialog("Remove plugin?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
-            Button("Remove plugin", role: .destructive) { if let plugin = removing { mutate(["type": "plugins.remove", "name": plugin.name], expecting: "plugins.removed") }; removing = nil }
-        } message: { Text("Its skills, commands and agents will no longer be available to new sessions.") }
+        .sheet(isPresented: $creating) {
+            NewSkillView(model: model, project: project) { route in
+                creating = false; made += 1
+                Task { await readLibrary(); opened = route }
+            }
+        }
+        .sheet(isPresented: $installing, onDismiss: { Task { await readPlugins() } }) { PluginInstallView(model: model) }
+        .sheet(item: $review, onDismiss: { Task { await readPlugins() } }) { PluginReviewView(model: model, request: $0) }
     }
-    private func mutate(_ request: [String: Any], expecting: String) {
-        Task {
-            do { _ = try await model.plugin(request, expecting: expecting); await read() }
-            catch { problem = error.localizedDescription }
+
+    /// The chosen project's skills, personal ones and ace's own: quiet headings over hairline
+    /// rows, a still skeleton while the first read is on its way, then what is there.
+    @ViewBuilder private var skills: some View {
+        if let libraryProblem {
+            Section { ProblemRow(libraryProblem, id: "skills.library.problem") { Task { await readLibrary() } } }
+        } else if library == nil {
+            Section { SkeletonRows(count: 4, label: "Reading skills").listRowInsets(EdgeInsets()) }
+                .listRowBackground(Color.clear)
+        }
+        ForEach(groups) { group in
+            Section {
+                ForEach(group.rows) { row in
+                    // A direct link: Settings' stack is driven by its own typed routes, so a
+                    // value link of another type would never push.
+                    NavigationLink {
+                        SkillPageView(model: model, route: SkillRoute(id: row.id, title: row.title), workspaceId: project?.id, project: project?.name)
+                    } label: { SkillRowLabel(row: row) }
+                    .accessibilityIdentifier("skills.row.\(row.name)")
+                }
+            } header: { InsetHeader(group.title) }
+            .insetRowBackground()
+        }
+        if let library, libraryProblem == nil {
+            if library.groups.isEmpty {
+                Section {
+                    EmptyState(icon: .sparkle, title: "No skills yet")
+                        .padding(.vertical, AceDesign.Space.group)
+                }
+                .listRowBackground(Color.clear)
+            } else if groups.isEmpty, PluginsSection.matching(plugins, components: components, query: query).isEmpty {
+                Section { EmptyState.search(query).padding(.vertical, AceDesign.Space.group) }
+                    .listRowBackground(Color.clear)
+            }
         }
     }
-    private func read(more: Bool = false) async {
-        guard !loading else { return }
-        loading = true; problem = nil
-        defer { loading = false }
+
+    private func read() async {
+        guard model.connection == "ready" else { return }
+        async let skills: Void = readLibrary()
+        async let installed: Void = readPlugins()
+        _ = await (skills, installed)
+    }
+    private func readProjects() async {
+        guard model.connection == "ready", projects.isEmpty else { return }
         do {
-            if !more {
-                let list = try await model.pluginRead(Self.listRead, expecting: "plugins.list")
-                installs = list.installs ?? []; policies = list.availability ?? []; reviews = list.reviews ?? []
-            }
-            let page: [String: Any] = more ? ["type": "plugins.catalog", "offset": next ?? 0, "limit": 50] : Self.catalogRead
+            projects = try await model.allProjects()
+            projectProblem = nil
+        } catch { if !Task.isCancelled { projectProblem = error.localizedDescription } }
+    }
+    private func readLibrary() async {
+        do {
+            library = try await model.skillLibrary(libraryRead)
+            libraryProblem = nil
+        } catch { if !Task.isCancelled { libraryProblem = error.localizedDescription } }
+    }
+    private func readPlugins() async {
+        do {
+            plugins = try await model.read(Self.agentsRead, as: PluginAgentsList.self).plugins
+            pluginProblem = nil
+        } catch { if !Task.isCancelled { pluginProblem = error.localizedDescription } }
+        do {
+            reviews = try await model.pluginRead(["type": "plugins.list"], expecting: "plugins.list").reviews ?? []
+        } catch { if !Task.isCancelled { pluginProblem = error.localizedDescription } }
+        await readCatalog(more: false)
+    }
+    private func readCatalog(more: Bool) async {
+        let page: [String: Any] = more ? ["type": "plugins.catalog", "offset": next ?? 0, "limit": 50] : Self.catalogRead
+        do {
             let catalog = try await model.pluginRead(page, expecting: "plugins.catalog")
             components = (more ? components : []) + (catalog.components ?? []); next = catalog.nextOffset
-            loaded = true
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            catalogProblem = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            catalogProblem = error.localizedDescription
+            catalogMoreFailed = more
+        }
     }
+}
+
+/// A skill to open: its id, and its title for the bar while the page reads.
+struct SkillRoute: Hashable, Identifiable {
+    let id: String
+    let title: String
 }
 
 enum ProviderLabels {

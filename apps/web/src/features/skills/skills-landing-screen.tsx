@@ -1,4 +1,4 @@
-import { CubeIcon } from "@phosphor-icons/react";
+import { CubeIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -21,11 +21,12 @@ export function SkillsLandingScreen() {
     return (
       <ViewListPage
         title="Skills"
+        page="skills"
         fallback={<Navigate to="/skills/$skillId" params={{ skillId: first.id }} replace />}
       />
     );
   return (
-    <Screen title="Skills">
+    <Screen page="skills" title="Skills" namedByPanel>
       {skills.isError ? (
         <EmptyState
           icon={CubeIcon}

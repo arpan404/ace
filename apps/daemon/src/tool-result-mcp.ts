@@ -14,6 +14,8 @@ import type { ScreenManager } from "@ace/screen";
 import type { Store } from "./store.ts";
 import { argumentKey } from "./measurement-correlation.ts";
 import { captureToolResult } from "./tool-result-content.ts";
+
+const ToolErrorCode = z.object({ code: z.string().max(64) });
 interface Runtime {
   store: Store;
   now(): number;
@@ -245,7 +247,7 @@ export function toolResultObserver(runtime: Runtime) {
       let outcome = result.isError ? "failed" : "completed";
       if (result.isError && first?.type === "text") {
         try {
-          const error = z.object({ code: z.string().max(64) }).safeParse(JSON.parse(first.text));
+          const error = ToolErrorCode.safeParse(JSON.parse(first.text));
           if (error.success) outcome = error.data.code;
         } catch {
           /* Registry failures can be plain text. */

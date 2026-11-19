@@ -4,9 +4,10 @@ import { z } from "zod";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 
 /**
- * Before upgrading a database's schema the daemon writes a consistent copy beside it, named
- * `<database>.schema-<old version>.backup`, first under `.partial` (apps/daemon/src/migrations.ts).
- * Nothing reads it again unless a person rolls back by hand, and nothing deletes it.
+ * Older builds wrote a full copy beside a database before upgrading its schema, named
+ * `<database>.schema-<old version>.backup`, first under `.partial`. The daemon now deletes
+ * them when it opens the database (apps/daemon/src/migrations.ts); doctor removes them when
+ * the daemon can't start.
  */
 const BACKUP_NAME = /^([A-Za-z0-9][A-Za-z0-9._-]*\.sqlite)\.schema-(\d{1,6})\.backup(\.partial)?$/;
 /** A `.partial` untouched this long is from an upgrade that was cut short, not one running now. */

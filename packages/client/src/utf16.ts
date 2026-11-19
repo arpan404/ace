@@ -14,3 +14,15 @@ export function decodeUtf16(bytes: Uint8Array, carry: string): { text: string; c
   if (last >= 0xd800 && last <= 0xdbff) return { text: text.slice(0, -1), carry: text.slice(-1) };
   return { text, carry: "" };
 }
+
+/** Replay stored text in the same bounded chunks as a wire read, without splitting a pair. */
+export function* textChunks(text: string): Generator<string> {
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + 128 * 1024, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    yield text.slice(start, end);
+    start = end;
+  }
+}

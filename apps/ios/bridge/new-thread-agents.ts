@@ -21,6 +21,13 @@ export interface Stars {
   problem: string | null;
 }
 
+/** What the picker draws for `current`: its tabs, the agents' rows and the stars. */
+export interface PickerCurrent {
+  provider: string;
+  key: string;
+  account: string;
+}
+
 export function agentsPatch(
   agents: NewThreadAgents,
   choice: NewThreadChoice,
@@ -35,7 +42,31 @@ export function agentsPatch(
   return {
     type: "compose.agents",
     state: "ready",
-    tabs: newThreadTabs(agents, { favorites: stars.keys, current: chosen })
+    ...pickerRows(agents, chosen, choice.provider, preview, stars),
+    start: start.ok
+      ? {
+          provider: start.provider,
+          model: start.model.key,
+          account: start.model.account,
+          effort: start.effort ?? null,
+        }
+      : null,
+  };
+}
+
+/**
+ * The picker's tabs (`newThreadTabs`) and every agent's models in the picker's order, bounded
+ * for the bridge frame. `keep` is a provider listed even when its CLI isn't on the computer.
+ */
+export function pickerRows(
+  agents: NewThreadAgents,
+  current: PickerCurrent | undefined,
+  keep: string | undefined,
+  preview: Preview,
+  stars: Stars,
+) {
+  return {
+    tabs: newThreadTabs(agents, { favorites: stars.keys, current })
       .slice(0, 64)
       .map((tab) => ({
         id: tab.id,
@@ -47,10 +78,10 @@ export function agentsPatch(
       })),
     favorites: stars.keys.slice(0, 512),
     starProblem: stars.problem,
-    providers: newThreadPickerAgents(agents.providers, choice.provider).map((row) => {
+    providers: newThreadPickerAgents(agents.providers, keep).map((row) => {
       const inUse =
-        current.ok && current.provider === row.provider
-          ? { key: current.model.key, account: current.model.account }
+        current?.provider === row.provider
+          ? { key: current.key, account: current.account }
           : undefined;
       const list = newThreadModelList(row.models.slice(0, 200), inUse);
       return {
@@ -76,13 +107,5 @@ export function agentsPatch(
         lead: list.lead,
       };
     }),
-    start: start.ok
-      ? {
-          provider: start.provider,
-          model: start.model.key,
-          account: start.model.account,
-          effort: start.effort ?? null,
-        }
-      : null,
   };
 }

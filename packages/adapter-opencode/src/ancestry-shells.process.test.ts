@@ -53,10 +53,7 @@ it.each(["missing", "exited", "running"])(
       release.resolve();
       await recovered;
       if (status === "running") {
-        expect(h.projection.view.thread.status).toMatchObject({
-          state: "waiting",
-          on: "background_task",
-        });
+        expect(h.projection.view.thread.status).toEqual({ state: "done" });
         expect(
           Object.values(h.projection.view.backgroundTasks).filter(
             (task) => task.status === "running",

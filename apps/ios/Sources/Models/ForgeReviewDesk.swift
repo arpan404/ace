@@ -8,6 +8,9 @@ import Foundation
     private(set) var writing = false
     /// The last write's refusal or lost answer, in the bridge's words; nil after a success.
     private(set) var message: String?
+    /// "Fix with agent": hands a comment's request to the thread on this pull request, false when
+    /// nothing could take it. Nil where the page offers no hand-off.
+    @ObservationIgnored var fix: ((String) async -> Bool)?
 
     init(client: ClientModel, target: ForgePullTarget) {
         self.client = client
@@ -45,6 +48,8 @@ import Foundation
     }
 
     func clearMessage() { message = nil }
+    /// A hand-off or other local step that couldn't be done, in the page's words.
+    func report(_ text: String) { message = text }
 }
 
 /// A text the person writes in a sheet and sends to GitHub: a reply, an edit, a quote reply or a
@@ -63,6 +68,7 @@ struct ForgeCompose: Identifiable {
     var secondary: Choice?
     /// A line's current text, offered as a suggested change.
     var suggestion: String?
+    var suggestionOff: String?
     /// Why it can't be sent, shown in place of the buttons' use.
     var off: String?
 }

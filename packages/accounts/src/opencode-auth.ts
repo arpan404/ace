@@ -12,7 +12,33 @@ export const openCodeLoginChoices = [
   { id: "other", label: "Other provider" },
 ];
 
-const integrationId = /^[a-z0-9_-]{1,64}$/;
+/** Never `-` or `.` first, so an id can't read as a flag or a path ("wafer.ai" is one). */
+const integrationId = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/** The login kinds OpenCode's pre-2.2 `auth.json` held, as its own import reads them. */
+const earlierKinds = new Set(["oauth", "api", "wellknown"]);
+
+/**
+ * The integrations OpenCode's pre-2.2 `auth.json` held a login for. Only names leave: every
+ * value (keys, tokens) is dropped here. OpenCode 2.2 imports this file once, and not at all when
+ * it starts a new database, so a name here without a connection now needs signing in again.
+ */
+export function openCodeEarlierLogins(text: string): ReadonlySet<string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return new Set();
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return new Set();
+  const names = new Set<string>();
+  for (const [name, login] of Object.entries(parsed)) {
+    const kind =
+      typeof login === "object" && login !== null && "type" in login ? login.type : undefined;
+    const id = name.replace(/\/+$/, "");
+    if (typeof kind === "string" && earlierKinds.has(kind) && integrationId.test(id)) names.add(id);
+  }
+  return names;
+}
 
 /** `opencode auth <action>`, aimed at one integration and method when given. */
 export function openCodeAuthArgs(

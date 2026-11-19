@@ -1,7 +1,7 @@
 import { failedActionTitle, failureReason, retainedFailure } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { InputRejected } from "@ace/engine-api";
+import { InputRejected, SteerTargetLost } from "@ace/engine-api";
 import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
@@ -77,6 +77,7 @@ export class IntentDelivery {
         const binding = {
           provider: this.dependencies.repo.requireState(actor.id).config.provider,
           instanceId: this.dependencies.repo.session(actor.id).instanceId,
+          model: this.dependencies.repo.session(actor.id).model,
         };
         await this.dependencies.transitions.execute(actor, intent);
         if (intent.kind === "thread.switch") {
@@ -85,7 +86,8 @@ export class IntentDelivery {
           this.dependencies.invalidateContext(actor.id);
           if (
             binding.provider !== this.dependencies.repo.requireState(actor.id).config.provider ||
-            binding.instanceId !== this.dependencies.repo.session(actor.id).instanceId
+            binding.instanceId !== this.dependencies.repo.session(actor.id).instanceId ||
+            binding.model !== this.dependencies.repo.session(actor.id).model
           )
             this.dependencies.recovery.bindingChanged(actor.id);
         }
@@ -128,11 +130,13 @@ export class IntentDelivery {
         this.dependencies.repo.beginSend(intent, undefined);
         this.dependencies.repo.queue.reconcileUncertainty(actor.id, this.dependencies.clock.now());
       } else if (editableSend && !acknowledged && error instanceof InputRejected) {
-        // Refused unread, so sending it again is safe. A parent agent's message goes back in the
-        // queue for the next turn by itself; anything else waits for the person, as unsent input.
+        // Refused unread, so sending it again is safe. A steer that lost its turn goes back in
+        // the queue as the next message, and the queue says so; a refused queued send would be
+        // refused again at once, so it waits for the person, as unsent input.
         const message = error.message || "The provider refused the message";
-        // Only a steer that lost its turn: a refused queued send would be refused again at once.
-        if (intent.trigger === "parent_agent" && steered) this.requeue(intent, message);
+        // A fenced steer whose run was lost goes back as the next message even when that run had
+        // already ended at the claim (so it never joined a running turn).
+        if (steered || error instanceof SteerTargetLost) this.requeue(intent, message);
         else this.retainInput(intent, message, false);
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
@@ -160,7 +164,9 @@ export class IntentDelivery {
         ].find(
           (cause) =>
             cause instanceof GitError ||
-            (cause instanceof Error && "code" in cause && cause.code === "git_quarantined"),
+            (cause instanceof Error &&
+              "code" in cause &&
+              (cause.code === "git_quarantined" || cause.code === "worktree_missing")),
         );
         const details = openingFailure
           ? {
@@ -220,6 +226,13 @@ export class IntentDelivery {
         this.dependencies.recovery.moveTarget(actor.id, p.instanceId),
       );
     }
+    // The limit's Switch: the same switch the composer makes (a handoff across providers),
+    // then the held turn carries on there.
+    if (p.type === "thread.limit" && p.action === "switch" && p.selection) {
+      await this.dependencies.sessions.close(actor, "user");
+      await this.dependencies.transitions.carryTo(actor, intent, p.selection);
+      this.dependencies.invalidateContext(actor.id);
+    }
     if (!this.dependencies.recovery.owns(actor.id, token)) return;
     const queue = this.dependencies.repo.queue.get(actor.id);
     if (queue.continuation) {
@@ -240,6 +253,7 @@ export class IntentDelivery {
       if (!session) throw new Error("Provider exited before continuation");
       await this.dependencies.sessions.assertWorkspaceAvailable(
         this.dependencies.repo.session(actor.id).cwd,
+        actor.id,
       );
       const key = `input:${intent.command.id}`;
       // A restart continuation tells the agent what died; a limit resume just carries on.
@@ -289,6 +303,7 @@ export class IntentDelivery {
     repo.store.atomic(() => {
       repo.queue.clearUncertain(intent.id);
       repo.pending.requeue(intent, message);
+      repo.steerNotes.fellBack(intent.id);
       repo.beginSend(intent, undefined);
       // Its message no longer belongs to the turn it failed to join; the next run binds it.
       repo.admitInput(intent.command, intent.threadId, undefined, this.dependencies.clock.now());
@@ -305,15 +320,21 @@ export class IntentDelivery {
       this.dependencies.repo.queue.clearUncertain(intent.id);
       this.dependencies.repo.mark(intent, "queued", message);
       this.dependencies.repo.beginSend(intent, undefined);
+      const queue = this.dependencies.repo.queue.get(intent.threadId);
+      // A definite limit owns its recovery controls and deadline. Returning an unread input
+      // to the strip must not turn that hold into a generic delivery failure.
+      const failure = { lastFailure: retainedFailure(message, unavailable, details) };
       this.dependencies.repo.queue.set(
         intent.threadId,
-        {
-          paused: true,
-          reason: unavailable ? "model_unavailable" : "not_sent",
-          lastFailure: retainedFailure(message, unavailable, details),
-          resumeAt: null,
-          timerAction: null,
-        },
+        queue.limited && !unavailable
+          ? failure
+          : {
+              ...failure,
+              paused: true,
+              reason: unavailable ? "model_unavailable" : "not_sent",
+              resumeAt: null,
+              timerAction: null,
+            },
         this.dependencies.clock.now(),
       );
       this.reportFailure(intent, message, "input_queued", details);

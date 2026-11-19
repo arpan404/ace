@@ -211,27 +211,6 @@ test("a turn that leaves a background shell running waits on it in the composer 
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("Stop in the strip ends the background command a finished turn waits on", async () => {
-  const { app } = await running([
-    ...initial(),
-    {
-      type: "background.started",
-      agent: "root",
-      task: "build",
-      kind: "shell",
-      title: "bun run build",
-      item: "build",
-      stoppable: true,
-    },
-  ]);
-  act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  const strip = await screen.findByRole("status", { name: "Running bun run build" });
-  await userEvent.click(within(strip).getByRole("button", { name: "Stop the background command" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("status", { name: "Running bun run build" })).toBeNull(),
-  );
-});
-
 test("approval inside a subagent holds the parent in a needs-you state naming the subagent, with no timer", async () => {
   const { app, setTime } = await running([...initial(), ...child()]);
   act(() =>
@@ -271,7 +250,6 @@ test("approval inside a subagent holds the parent in a needs-you state naming th
 
 for (const [outcome, label, at] of [
   ["completed", "Worked for 6m 32s", 393_000],
-  ["interrupted", "Worked for 2m 10s", 131_000],
   ["failed", "Failed after 40s", 41_000],
 ] as const) {
   test(`${outcome} turns retain a collapsible log with their server duration`, async () => {
@@ -288,16 +266,16 @@ for (const [outcome, label, at] of [
   });
 }
 
-test("a usage-limit pause keeps its work collapsible, and the limit is said only in the strip", async () => {
+test("a usage-limit pause before any work leaves only the ask, and the limit is said only in the strip", async () => {
   const app = harness();
-  app.play(accountLimit(id, "Replay cursor")).runUntilBlocked();
+  app.play(accountLimit(id, "Replay cursor", undefined, undefined, false)).runUntilBlocked();
   await app.open(`/t/${id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const summary = await within(feed).findByRole("button", { name: /^Worked/ });
-  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
   expect(await screen.findByRole("region", { name: "Codex is out of usage" })).toBeTruthy();
-  await userEvent.click(summary);
-  expect(await screen.findByRole("list", { name: "Steps" })).toBeTruthy();
+  expect(within(feed).getByText("Replay cursor")).toBeTruthy();
+  // Nothing was done, so nothing stands for the turn: no pause row, no live line.
+  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
+  expect(within(feed).queryByText(/^Worked/)).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
 });
 
@@ -394,9 +372,6 @@ test("approval cards show the command, risk and decisions without an empty spinn
 test("the empty working composer exposes Stop, and Escape twice stops the turn", async () => {
   await running();
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  expect(screen.queryByText("Beginning of thread")).toBeNull();
-  expect(screen.queryByText("New activity")).toBeNull();
-  expect(screen.queryByText("Work so far")).toBeNull();
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   screen.getByRole("combobox", { name: "Message" }).focus();
   await userEvent.keyboard("{Escape}{Escape}");

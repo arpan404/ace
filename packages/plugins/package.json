@@ -5,19 +5,23 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./catalog": "./src/extension-catalog.ts"
+    "./catalog": "./src/extension-catalog.ts",
+    "./import": "./src/import-pure.ts",
+    "./testing/codex-config": "./src/testing/codex-config.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/plugins.ts"
   },
   "dependencies": {
+    "@ace/files": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "smol-toml": "^1.4.2",
     "yaml": "^2.8.1",
     "zod": "^4.6.5"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

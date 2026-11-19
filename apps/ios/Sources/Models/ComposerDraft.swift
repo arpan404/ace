@@ -2,7 +2,15 @@ import Observation
 import Foundation
 
 @MainActor @Observable final class ComposerDraft {
-    var text = "" { didSet { if text != oldValue { textChanged() } } }
+    var text = "" {
+        didSet {
+            guard text != oldValue else { return }
+            picks.edited(from: oldValue, to: text)
+            textChanged()
+        }
+    }
+    /// The references picked into the words, moved by every edit and kept with them.
+    var picks = ComposerPicks()
     private(set) var saving = false
     @ObservationIgnored private var store: ThreadDrafts?
     @ObservationIgnored private var key: String?
@@ -19,12 +27,13 @@ import Foundation
         self.store = store
         self.key = key
         text = key.flatMap { store?.text(for: $0) } ?? ""
+        picks = key.flatMap { store?.picks(for: $0) } ?? ComposerPicks()
     }
     /// Save what is typed now, without waiting for typing to pause.
     func flush() {
         pendingSave?.cancel()
         pendingSave = nil
-        if let store, let key { store.save(text, for: key) }
+        if let store, let key { store.save(text, picks: picks, for: key) }
     }
 
     /// `files` counts what the message carries besides words: a message of only files can go.
@@ -36,6 +45,12 @@ import Foundation
         if await persist(submittedText, delivery), text == submittedText { text = "" }
     }
 
+    /// Add a reference picked into the words; it is kept once typing pauses, as the words are.
+    func add(_ pick: ComposerPick) {
+        picks.add(pick)
+        textChanged()
+    }
+
     /// Typing saves once it pauses; an emptied composer (a sent message) saves at once, so a
     /// relaunch never offers words that already went.
     private func textChanged() {
@@ -43,7 +58,7 @@ import Foundation
         pendingSave?.cancel()
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             pendingSave = nil
-            store.save(text, for: key)
+            store.save(text, picks: picks, for: key)
             return
         }
         let delay = saveDelay
@@ -51,7 +66,7 @@ import Foundation
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             self.pendingSave = nil
-            store.save(self.text, for: key)
+            store.save(self.text, picks: self.picks, for: key)
         }
     }
 }

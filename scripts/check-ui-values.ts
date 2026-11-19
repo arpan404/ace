@@ -23,16 +23,23 @@ import { readFileSync, writeFileSync } from "node:fs";
  */
 
 const strict = process.argv.includes("--strict");
-// Only live-activity indicators may animate forever (styles/motion.css, "Live activity"): each
-// shows work happening now and moves only transform or opacity.
-const liveKeyframes = new Set([
-  "ace-spin",
-  "aperture-swing",
-  "aperture-drift",
-  "aperture-ratchet",
-  "fx-agent-sweep",
+// Nothing loops forever (styles/motion.css): live state is a still mark. Only the startup mark's
+// breath, an indeterminate progress bar and a live agent's mark in the Summary tree repeat, each
+// only while what it stands for lasts, and a working bot's eyes in Spade (ADR 0127). A bot's
+// character face moves only while it thinks or works, and never under Reduce motion
+// (styles/bot-face.css scopes them to :root:not([data-reduce-motion])).
+const loopingKeyframes = new Set([
   "fx-breathe",
   "fx-sweep",
+  "fx-alive",
+  "fx-spade-look",
+  "fx-spade-blink",
+  "bf-think",
+  "bf-blink-mid",
+  "bf-sway",
+  "bf-dart",
+  "bf-blink",
+  "bf-bob",
 ]);
 for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*.css"], {
   encoding: "utf8",
@@ -43,9 +50,9 @@ for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*
     /\b(?:animation|animation-iteration-count)\s*:[^;{}]*\binfinite\b[^;{}]*/g,
   )) {
     const names = declaration.match(/[a-z][\w-]*/g) ?? [];
-    if (!names.some((name) => liveKeyframes.has(name)))
+    if (!names.some((name) => loopingKeyframes.has(name)))
       throw new Error(
-        `${path}: "${declaration}" runs forever; only live-activity keyframes may (${[...liveKeyframes].join(", ")})`,
+        `${path}: "${declaration}" runs forever; only ${[...loopingKeyframes].join(" and ")} may`,
       );
   }
 }

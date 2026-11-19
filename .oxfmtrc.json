@@ -9,6 +9,10 @@
     ".recordings",
     "**/routeTree.gen.ts",
     "**/*.gen.ts",
-    "docs/protocol"
+    "docs/protocol",
+    "docs/daemon/cli.md",
+    "spade/target/**",
+    "spade/crates/spade-server/shipped/**",
+    "spade/crates/spade-classify/model/REPORT.md"
   ]
 }

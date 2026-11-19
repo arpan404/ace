@@ -6,6 +6,7 @@ import {
   type Question,
 } from "@ace/protocol";
 import { list, object, string, type Data } from "./native.ts";
+const McpServerOrigin = z.object({ name: z.string(), source: z.string() }).passthrough();
 export function requestFor(name: string, input: Data, options: Data): InteractionRequest {
   if (name === "AskUserQuestion")
     return {
@@ -51,10 +52,7 @@ export function requestFor(name: string, input: Data, options: Data): Interactio
     suggestions.length > 0 &&
     options["suppressAlwaysAllowRule"] !== true &&
     [...destinations].every((destination) => labels[destination] !== undefined);
-  const mcp = z
-    .object({ name: z.string(), source: z.string() })
-    .passthrough()
-    .safeParse(options["mcpServer"]);
+  const mcp = McpServerOrigin.safeParse(options["mcpServer"]);
   return {
     kind: "approval",
     title: string(options["title"], string(options["displayName"], name)),

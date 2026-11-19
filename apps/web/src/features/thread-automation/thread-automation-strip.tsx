@@ -8,7 +8,7 @@ import {
   lineText,
   type AutomationLine,
   type LineAction,
-} from "./automation-line.ts";
+} from "@ace/ui-core/automations";
 import { useSetThreadAutomationEnabled, useThreadAutomations } from "./use-thread-automations.ts";
 
 /**

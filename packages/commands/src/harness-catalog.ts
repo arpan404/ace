@@ -27,6 +27,10 @@ const page = z.object({ data: z.array(z.unknown()).max(512) }).passthrough();
 const skills = z.object({
   data: z.array(z.object({ cwd: text, skills: z.array(z.unknown()).max(512) })).max(32),
 });
+const McpServerTools = z.record(
+  z.string(),
+  z.object({ name: text, description: text.optional() }).passthrough(),
+);
 export const HarnessCatalog = z.object({ method: text, result: z.unknown(), cwd: text.optional() });
 /** Pick display and invocation metadata only. Configurations and credentials never enter this catalog. */
 export function harnessCatalog(
@@ -116,9 +120,7 @@ export function harnessCatalog(
         source,
         invocation: { type: "unavailable", reason: "Select an advertised tool from this server" },
       });
-      const tools = z
-        .record(z.string(), z.object({ name: text, description: text.optional() }).passthrough())
-        .safeParse(v.tools);
+      const tools = McpServerTools.safeParse(v.tools);
       if (!tools.success) continue;
       for (const tool of Object.values(tools.data)) {
         if (output.length >= 512) break;

@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     name: "desktop-e2e",
     include: ["e2e/**/*.e2e.ts"],
+    globalSetup: ["e2e/global-setup.ts"],
     testTimeout: 120_000,
     hookTimeout: 240_000,
     maxWorkers: 1,

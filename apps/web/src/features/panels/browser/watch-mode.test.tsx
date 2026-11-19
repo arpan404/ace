@@ -10,6 +10,11 @@ const width = () => {
     max: Number(handle.getAttribute("aria-valuemax")),
   };
 };
+/** Picks a choice from the browser's ⋯ menu, where watch mode is. */
+async function choose(panel: HTMLElement, name: string) {
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
 const strip = (panel: HTMLElement) =>
   within(panel).getByRole("tablist", { name: "Thread panel tabs" });
 
@@ -17,12 +22,13 @@ test("watch mode shows the agent's tab as wide as the panel goes, follows it, an
   const { panel, browser, thread, script } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));
   // The person looks at another tool meanwhile.
-  await userEvent.click(within(strip(panel)).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(strip(panel)).findByRole("tab", { name: /^Changes/, selected: true });
   const before = width().now;
   await userEvent.click(
     within(strip(panel)).getByRole("tab", { name: /settings\/devices|Fixture|localhost/ }),
   );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Watch the agent" }));
+  await choose(panel, "Watch the agent");
   await waitFor(() => expect(width().now).toBe(width().max));
   expect(width().now).toBeGreaterThan(before);
   // The agent opens a tab of its own: watch mode follows it there.
@@ -31,7 +37,9 @@ test("watch mode shows the agent's tab as wide as the panel goes, follows it, an
     browser.tabOpen(thread, "https://shop.example/cart", { agentId: "worker", label: "checkout" });
   });
   await waitFor(() => expect(browser.view(thread)?.url).toBe("https://shop.example/cart"));
-  expect(within(panel).getByRole("button", { name: "Stop watching the agent" })).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  expect(await screen.findByRole("menuitem", { name: "Stop watching the agent" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   // The run ends: the panel is as it was before watching.
   act(() => script.runThrough("root-replied"));
   await waitFor(() => expect(width().now).toBe(before));
@@ -39,12 +47,12 @@ test("watch mode shows the agent's tab as wide as the panel goes, follows it, an
   await waitFor(() => expect(browser.view(thread)?.url).toBe("localhost:5173/settings/devices"));
 });
 
-test("the person leaves watch mode with the same button, back to the earlier layout", async () => {
+test("the person leaves watch mode from the same menu, back to the earlier layout", async () => {
   const { panel, browser, thread } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));
   const before = width().now;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Watch the agent" }));
+  await choose(panel, "Watch the agent");
   await waitFor(() => expect(width().now).toBe(width().max));
-  await userEvent.click(within(panel).getByRole("button", { name: "Stop watching the agent" }));
+  await choose(panel, "Stop watching the agent");
   await waitFor(() => expect(width().now).toBe(before));
 });

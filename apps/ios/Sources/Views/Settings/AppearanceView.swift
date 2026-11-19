@@ -1,38 +1,183 @@
 import SwiftUI
 
-/// Settings › Appearance: System, Light or Dark. Colours saved by the old custom-theme editor
-/// still apply until they're reset here.
+/// Settings › Appearance: mode, theme and accent as picker cards (the app in miniature, in each
+/// choice's own colours), then transcript size, motion and translucency. All kept on this phone.
+/// iOS's own Dynamic Type, Reduce Motion and Reduce Transparency always apply on top. Colours
+/// saved by the old custom-theme editor still win until they're reset here.
 struct AppearanceView: View {
+    /// Fits a custom accent through any connected machine's runtime.
+    var inbox: MachineInbox? = nil
+    @State private var accentProblem: String?
+    @State private var accentRetry = 0
+    @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
     @AppStorage("ace.appearance") private var appearance = "system"
+    @AppStorage(PhoneLook.transcriptKey) private var transcriptSize = "default"
+    @AppStorage(PhoneLook.reduceMotionKey) private var reduceMotion = false
+    @AppStorage(PhoneLook.solidKey) private var solid = false
     @Environment(NativePaletteModel.self) private var palette: NativePaletteModel?
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    private let columns = [GridItem(.adaptive(minimum: AceDesign.Size.tap * 2 + AceDesign.Space.tight), spacing: AceDesign.Space.row)]
 
     var body: some View {
         List {
             Section {
-                ForEach(PhoneAppearance.modes, id: \.id) { mode in
-                    Button { appearance = mode.id } label: {
-                        InsetRow(systemImage: mode.symbol, title: mode.label) {
-                            if appearance == mode.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
-                        }
+                LazyVGrid(columns: columns, spacing: AceDesign.Space.margin) {
+                    ForEach(PhoneAppearance.modes, id: \.id) { mode in
+                        PickerCard(name: mode.label, selected: appearance == mode.id, id: "appearance.\(mode.id)") {
+                            change { appearance = mode.id }
+                        } preview: { modePreview(mode.id) }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(appearance == mode.id ? .isSelected : [])
-                    .accessibilityIdentifier("appearance.\(mode.id)")
                 }
+                .pickerRow()
             } header: { InsetHeader("Mode") }
+            Section {
+                LazyVGrid(columns: columns, spacing: AceDesign.Space.margin) {
+                    ForEach(AceTheme.themeChoices, id: \.id) { theme in
+                        PickerCard(name: theme.name, selected: chosenTheme == theme.id, id: "appearance.theme.\(theme.id)") {
+                            change { palette?.choose(theme: theme.id) }
+                        } preview: { ThemePreview(theme: theme.id, accent: chosenAccent, scheme: scheme) }
+                    }
+                }
+                .pickerRow()
+            } header: { InsetHeader("Theme") }
+            Section {
+                AccentSwatches(theme: chosenTheme, chosen: chosenAccent, scheme: scheme) { accent in
+                    accentProblem = nil
+                    change { palette?.choose(accent: accent) }
+                } custom: {
+                    CustomAccentPicker(inbox: inbox, chosen: chosenAccent == "custom", start: palette?.custom?.colour,
+                                       problem: $accentProblem, retry: accentRetry) { fitted in
+                        change { palette?.choose(custom: fitted) }
+                    }
+                }
+                .pickerRow()
+                if let accentProblem {
+                    ProblemRow(accentProblem, id: "appearance.accent.problem", disabled: !machineReady) { accentRetry += 1 }
+                }
+            } header: { InsetHeader("Accent") } footer: {
+                if !machineReady {
+                    Text("A custom colour needs a connected machine.")
+                }
+            }
+            Section {
+                Picker("Density", selection: Binding(get: { density }, set: { next in change { density = next } })) {
+                    ForEach(AceTheme.densities, id: \.id) { choice in Text(choice.name).tag(choice.id) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("appearance.density")
+            } header: { InsetHeader("Density") }
+            .insetRowBackground()
+            Section {
+                Picker("Transcript size", selection: $transcriptSize) {
+                    ForEach(AceTheme.transcriptSizes, id: \.id) { size in Text(size.name).tag(size.id) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("appearance.transcriptSize")
+            } header: { InsetHeader("Transcript size") }
+            .insetRowBackground()
+            Section {
+                InsetRow(systemImage: nil, title: "Reduce motion") {
+                    Toggle("Reduce motion", isOn: Binding(get: { reduceMotion || systemReduceMotion }, set: { reduceMotion = $0 }))
+                        .labelsHidden().disabled(systemReduceMotion)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("appearance.reduceMotion")
+                InsetRow(systemImage: nil, title: "Translucency") {
+                    Toggle("Translucency", isOn: Binding(get: { !solid && !systemReduceTransparency }, set: { solid = !$0 }))
+                        .labelsHidden().disabled(systemReduceTransparency)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("appearance.translucency")
+            } header: { InsetHeader("Motion and surfaces") } footer: {
+                if systemReduceMotion || systemReduceTransparency { Text("Set by Accessibility in the Settings app.") }
+            }
             .insetRowBackground()
             if let palette, !palette.palette.colours.isEmpty {
                 Section {
-                    Button("Use the standard colours") { palette.reset() }
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                    Button("Use the standard colours") { change { palette.reset() } }
+                        .buttonStyle(.rowAction)
                         .accessibilityIdentifier("appearance.resetColours")
-                } footer: { Text("This phone uses colours from an earlier custom theme.") }
+                } footer: { Text("This iPhone uses colours from an earlier custom theme.") }
                 .insetRowBackground()
             }
         }
         .insetGroupedList()
         .sensoryFeedback(.selection, trigger: appearance)
+        .sensoryFeedback(.selection, trigger: palette?.theme)
+        .sensoryFeedback(.selection, trigger: palette?.accent)
+        .sensoryFeedback(.selection, trigger: transcriptSize)
+        .sensoryFeedback(.selection, trigger: density)
+        .sensoryFeedback(.selection, trigger: reduceMotion)
+        .sensoryFeedback(.selection, trigger: solid)
         .navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// A custom accent is fitted on a machine, so it needs one connected.
+    private var machineReady: Bool { inbox?.sessions.contains(where: { $0.client.connection == "ready" }) == true }
+    private var chosenTheme: String { palette?.theme ?? "ace" }
+    private var chosenAccent: String { palette?.accent ?? "theme" }
+    /// Colour changes fade across the whole window.
+    private func change(_ apply: () -> Void) { LookCrossfade.run(apply) }
+
+    /// System shows the light half beside the dark half; Light and Dark show their own.
+    @ViewBuilder private func modePreview(_ mode: String) -> some View {
+        if mode == "system" {
+            ThemePreview(theme: chosenTheme, accent: chosenAccent, scheme: .light)
+                .overlay {
+                    ThemePreview(theme: chosenTheme, accent: chosenAccent, scheme: .dark)
+                        .mask { GeometryReader { box in Rectangle().frame(width: box.size.width / 2).offset(x: box.size.width / 2) } }
+                }
+        } else {
+            ThemePreview(theme: chosenTheme, accent: chosenAccent, scheme: mode == "dark" ? .dark : .light)
+        }
+    }
+}
+
+/// The accent choices as swatches in the theme's own colours: Theme keeps the theme's accent,
+/// Ink its text colour. The chosen one is ringed, and its name sits under the row.
+private struct AccentSwatches<Custom: View>: View {
+    let theme: String
+    let chosen: String
+    let scheme: ColorScheme
+    let choose: (String) -> Void
+    @ViewBuilder var custom: () -> Custom
+
+    var body: some View {
+        VStack(spacing: AceDesign.Space.tight) {
+            HStack(spacing: AceTheme.Spacing.none) {
+                ForEach(AceTheme.accentChoices, id: \.id) { accent in
+                    Button { choose(accent.id) } label: {
+                        Circle().fill(ThemePreview.colour("accent", theme: theme, accent: accent.id, scheme: scheme))
+                            .frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
+                            .padding(AceDesign.Space.tight)
+                            .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(chosen == accent.id ? 1 : 0) }
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(accent.name)
+                    .accessibilityAddTraits(chosen == accent.id ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityIdentifier("appearance.accent.\(accent.id)")
+                }
+                custom()
+            }
+            Text(chosen == "custom" ? "Custom" : AceTheme.accentChoices.first { $0.id == chosen }?.name ?? "Theme")
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
+                .contentTransition(.opacity)
+                .smoothChange(chosen)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private extension View {
+    /// Picker cards sit on the page itself, not in a filled row.
+    func pickerRow() -> some View {
+        listRowBackground(Color.clear).listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: AceDesign.Space.tight, leading: AceDesign.Space.tight, bottom: AceDesign.Space.tight, trailing: AceDesign.Space.tight))
     }
 }
 
@@ -45,16 +190,45 @@ struct PhoneAppearance: ViewModifier {
         Mode(id: "dark", label: "Dark", symbol: "moon"),
     ]
     static func label(_ id: String) -> String { modes.first { $0.id == id }?.label ?? "System" }
+    static func style(_ id: String) -> UIUserInterfaceStyle { id == "dark" ? .dark : id == "light" ? .light : .unspecified }
 
     @AppStorage("ace.appearance") private var appearance = "system"
     @State private var palette = NativePaletteModel(defaults: .standard)
     func body(content: Content) -> some View {
         content
-            .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
+            // Set on the window, not with `preferredColorScheme`: that leaves an open sheet
+            // (Settings itself) in the old mode and doesn't always return to System.
+            .background { WindowInterfaceStyle(style: Self.style(appearance)) }
             .environment(palette)
             .onAppear { NativePaletteBridge.model = palette }
             // Reading the palette here keeps this root invalidated on save/reset, so every
             // active view re-resolves its colours without resetting navigation identity.
             .onChange(of: palette.palette) { _, _ in NativePaletteBridge.model = palette }
+            .onChange(of: palette.theme) { _, _ in NativePaletteBridge.model = palette }
+            .onChange(of: palette.accent) { _, _ in NativePaletteBridge.model = palette }
+            .modifier(PhoneLookEnvironment())
+    }
+}
+
+/// Applies a light or dark override to the window hosting it, so every screen and every
+/// presented sheet in that window changes at once.
+private struct WindowInterfaceStyle: UIViewRepresentable {
+    let style: UIUserInterfaceStyle
+    func makeUIView(context: Context) -> Probe { Probe() }
+    func updateUIView(_ view: Probe, context: Context) { view.style = style }
+
+    final class Probe: UIView {
+        var style: UIUserInterfaceStyle = .unspecified { didSet { apply() } }
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+        }
+        required init?(coder: NSCoder) { nil }
+        override func didMoveToWindow() { super.didMoveToWindow(); apply() }
+        private func apply() {
+            guard let window, window.overrideUserInterfaceStyle != style else { return }
+            window.overrideUserInterfaceStyle = style
+        }
     }
 }

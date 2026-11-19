@@ -46,7 +46,7 @@ test.each(["claude", "codex", "opencode", "cursor-sdk"] as const)(
             discovery: {
               platform: "linux",
               arch: "x64",
-              nodeVersion: "24.0.0",
+              nodeVersion: "26.0.0",
               resolve(id) {
                 if (!sdk || !installed)
                   throw Object.assign(new Error("Synthetic SDK absence"), {

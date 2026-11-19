@@ -85,13 +85,13 @@ test("requests lead, a snoozed request stays exposed and a failure asks the pers
   expect(result).toEqual({ "Needs you": ["mac/broke", "mac/asks"], Working: ["mac/busy"] });
 });
 
-test("Working puts running trees above waiting ones, most recent first", () => {
+test("Working lists running and waiting trees newest first, as the web's Inbox does", () => {
   const result = sections([
     on("mac", entry("waits", { state: "waiting", on: "background_task" }, now)),
     on("mac", entry("old", { state: "working", agents: 2 }, now - 5 * minute)),
     on("mac", entry("fresh", { state: "working", agents: 1 }, now - minute)),
   ]);
-  expect(result.Working).toEqual(["mac/fresh", "mac/old", "mac/waits"]);
+  expect(result.Working).toEqual(["mac/waits", "mac/fresh", "mac/old"]);
 });
 
 test("snoozed threads list the soonest wake first and return to their group once it passes", () => {
@@ -219,6 +219,18 @@ test("a recovery the person must act on outranks the settled status word", () =>
   expect(inboxStatus(stuck, now)).toEqual({ label: "Not sent", token: "failed" });
 });
 
+test("a thread the person stopped sits in Done, asking nothing, with or without messages it kept", () => {
+  for (const pendingCount of [0, 2]) {
+    const stopped = on(
+      "mac",
+      entry("stopped", { state: "done" }, now, {
+        queue: { revision: 1, paused: true, reason: "stopped", resumeAt: null, pendingCount },
+      }),
+    );
+    expect(sections([stopped])).toEqual({ Done: ["mac/stopped"] });
+  }
+});
+
 test("limited reads in the waiting colour, unresponsive keeps its own, new claims nothing", () => {
   expect(mobileStatus({ state: "limited" })).toEqual({ label: "Limited", token: "waiting" });
   expect(mobileStatus({ state: "unresponsive" })).toEqual({
@@ -237,4 +249,20 @@ test("mobile rows name a canonical question and preserve the working token while
   const waiting = entry("parent", { state: "working", agents: 1 }, now, { live: { waitingOn: 1 } });
   expect(inboxStatus(on("mac", waiting), now)).toEqual({ label: "Waiting on 1", token: "working" });
   expect(sections([on("mac", waiting)])).toEqual({ Working: ["mac/parent"] });
+});
+
+test("the phone's inbox leaves out threads a paired machine's agents delegated to this one", () => {
+  const delegatedFrom = { hostId: "host-a", threadId: "parent-on-a" };
+  const result = sections([
+    on("mac", entry("mine", { state: "working", agents: 1 }, now)),
+    on(
+      "mac",
+      entry("theirs", { state: "needs_you", interactions: 1 }, now, {
+        hasSentMessage: true,
+        delegatedFrom,
+      }),
+    ),
+    on("mac", entry("their-run", { state: "working", agents: 1 }, now, { delegatedFrom })),
+  ]);
+  expect(result).toEqual({ Working: ["mac/mine"] });
 });

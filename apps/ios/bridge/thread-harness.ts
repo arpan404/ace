@@ -1,9 +1,12 @@
+import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { native } from "./test-host.ts";
 import { ClientCore, type Lease, type ReadSnapshotStorage, type ThreadSource } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
+import type { SubagentRetries } from "./subagent-retries.ts";
+import type { QuoteShelf } from "./thread-quotes.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -21,6 +24,14 @@ export const sent: string[] = [];
 export const refuseOnce = { text: "Refuse this once" };
 /** How long the daemon takes to receive a `settings.get` (a slow link), in milliseconds. */
 export const slowSettings = { ms: 0 };
+/** While `gate` is set, the outbox's saves wait for it: a send stays unsaved until then. */
+export const slowSaves: { gate: Promise<void> | undefined } = { gate: undefined };
+/** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
+export const forks = { refuse: false, hold: false, release: () => {} };
+/** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
+export const queueRefusals = { remove: false, edit: false };
+/** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
+export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
 let client: ClientCore | undefined;
 let lease: Lease<ThreadSource> | undefined;
@@ -32,8 +43,16 @@ export async function reset(): Promise<void> {
   stop?.();
   lease?.release();
   await client?.close();
+  // What the ended test queued still flushes on the pump's timer: let it land before clearing,
+  // so none of it arrives as the next test's patches.
+  await pump.drained();
   native.frames.length = 0;
   slowSettings.ms = 0;
+  refuseOnce.text = "Refuse this once";
+  slowSaves.gate = undefined;
+  Object.assign(forks, { refuse: false, hold: false, release: () => {} });
+  Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
+  Object.assign(queueRefusals, { remove: false, edit: false });
   native.calls.clear();
   sent.length = 0;
 }
@@ -41,9 +60,41 @@ export async function reset(): Promise<void> {
 function refusal(text: string): string | undefined {
   const message = JSON.parse(text) as {
     type?: string;
+    requestId?: string;
+    options?: { instance?: string };
     command?: { id?: string; payload?: { type?: string; input?: { text?: string }[] } };
   };
+  if (
+    message.type === "models.list" &&
+    accountModels.fails > 0 &&
+    message.options?.instance === accountModels.instance
+  ) {
+    accountModels.fails -= 1;
+    return JSON.stringify({
+      type: "error",
+      requestId: message.requestId,
+      code: "unavailable",
+      message: "unavailable",
+    });
+  }
   const command = message.type === "command" ? message.command : undefined;
+  if (
+    (command?.payload?.type === "queue.remove" && queueRefusals.remove) ||
+    (command?.payload?.type === "queue.edit" && queueRefusals.edit)
+  )
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "queue_conflict",
+    });
+  if (command?.payload?.type === "thread.fork" && forks.refuse)
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "fork_point_not_found",
+    });
   if (command?.payload?.type !== "thread.send" || command.id?.endsWith(":retry")) return undefined;
   if (command.payload.input?.[0]?.text !== refuseOnce.text) return undefined;
   return JSON.stringify({
@@ -54,8 +105,9 @@ function refusal(text: string): string | undefined {
   });
 }
 
-export function fixture(): FakeDaemon {
-  return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
+/** `clock`: the daemon's time, stamped on every event it sends; the wall clock by default. */
+export function fixture(clock: () => number = Date.now): FakeDaemon {
+  return new FakeDaemon({ clock, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
 /**
@@ -69,7 +121,11 @@ export function connect(
     items,
     readSnapshots,
     held,
-  }: { items?: number; readSnapshots?: ReadSnapshotStorage; held?: Promise<void> } = {},
+  }: {
+    items?: number;
+    readSnapshots?: ReadSnapshotStorage;
+    held?: Promise<void>;
+  } = {},
 ): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
@@ -99,6 +155,14 @@ export function connect(
           if (refused) queueMicrotask(() => deliver?.(refused));
           else if (slowSettings.ms && text.includes('"type":"settings.get"'))
             setTimeout(() => inner.send(text), slowSettings.ms);
+          else if (forks.hold && text.includes('"type":"thread.fork"'))
+            forks.release = () => inner.send(text);
+          else if (
+            accountModels.slowMs &&
+            text.includes('"type":"models.list"') &&
+            text.includes(`"instance":"${accountModels.instance}"`)
+          )
+            setTimeout(() => inner.send(text), accountModels.slowMs);
           else inner.send(text);
         },
         close: () => inner.close(),
@@ -108,6 +172,7 @@ export function connect(
     storage: {
       load: async () => saved,
       save: async (value) => {
+        await slowSaves.gate;
         saved = value;
       },
     },
@@ -125,10 +190,30 @@ export function connect(
   return client;
 }
 
-export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
+export function open(
+  owner: ClientCore,
+  threadId: string,
+  chunks?: ChunkReader,
+  retries?: SubagentRetries,
+  keptSteps?: TurnStepsStore,
+  quotes?: QuoteShelf,
+): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
+  session = new ThreadSession(
+    owner,
+    lease.store,
+    threadId,
+    1,
+    pump,
+    chunks,
+    undefined,
+    undefined,
+    undefined,
+    retries,
+    keptSteps,
+    quotes,
+  );
   return session;
 }
 

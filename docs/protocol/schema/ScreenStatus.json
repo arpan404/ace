@@ -6,7 +6,7 @@
       "type": "boolean"
     },
     "permissions": {
-      "$ref": "https://ace.local/protocol/v1/ScreenPermissions.json"
+      "$ref": "https://ace.local/protocol/v1/DevicePermissions.json"
     },
     "sessions": {
       "maximum": 8,

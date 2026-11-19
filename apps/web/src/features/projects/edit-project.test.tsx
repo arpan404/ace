@@ -60,7 +60,7 @@ function badgeIn(element: HTMLElement) {
 
 const sidebarBadge = () =>
   badgeIn(
-    within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "Projects" })).getByRole("link", {
       name: /Fix the footer/,
     }),
   );
@@ -318,7 +318,7 @@ test("Remove project in the editor stops listing the project and leaves its fold
   await userEvent.click(within(editor).getByRole("button", { name: "Remove project…" }));
 
   const confirm = await screen.findByRole("dialog", { name: "Remove site?" });
-  expect(within(confirm).getByText(/This won't delete any files/)).toBeTruthy();
+  expect(within(confirm).getByText(/Its threads are deleted. No files are./)).toBeTruthy();
   await userEvent.click(within(confirm).getByRole("button", { name: "Remove project" }));
 
   await waitFor(() =>

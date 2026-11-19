@@ -32,22 +32,6 @@ async function pick(select: string, option: string) {
   await userEvent.click(await screen.findByRole("option", { name: option }));
 }
 
-test("a switched-off agent setting stays off after leaving the page and coming back", async () => {
-  await harness().open("/settings/agents");
-  const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
-  expect(worktree.getAttribute("aria-checked")).toBe("true");
-  await userEvent.click(worktree);
-
-  await goTo("Keyboard");
-  await screen.findByRole("heading", { level: 2, name: "Keyboard" });
-  await goTo("Agents");
-  expect(
-    (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("false");
-});
-
 test("the switch preservation setting persists after leaving Agents", async () => {
   const app = harness();
   await app.open("/settings/agents");
@@ -81,7 +65,7 @@ test("follow-ups are stored on the daemon and nothing offers to continue work af
 test("when done threads settle is set in Agents and stored on the daemon", async () => {
   const app = harness();
   await app.open("/settings/agents");
-  expect(await screen.findByText(/Threads that need you never settle/)).toBeTruthy();
+  expect(await screen.findByText(/Threads that need you stay\./)).toBeTruthy();
   await pick("Settle done threads", "After a week");
   await waitFor(() =>
     expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("1w"),
@@ -123,7 +107,11 @@ test("Reset restores the follow-up behavior on every device", async () => {
   await goTo("Advanced");
   await userEvent.click(await screen.findByRole("button", { name: "Reset" }));
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
-  expect(within(dialog).getByText(/Appearance, themes and notifications stay/)).toBeTruthy();
+  expect(
+    within(dialog).getByText(
+      /Appearance, themes, notifications and each device's keyboard shortcuts stay/,
+    ),
+  ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),
@@ -178,7 +166,7 @@ test("offline, daemon settings are disabled and say why; this device's stay edit
   const wrapper = worktree.parentElement;
   await userEvent.hover(wrapper ?? worktree);
   expect(await screen.findByText("Reconnect to change settings stored on ace")).toBeTruthy();
-  await goTo("General");
+  await goTo("Profile");
   expect(
     ((await screen.findByRole("textbox", { name: "Your name" })) as HTMLInputElement).disabled,
   ).toBe(false);

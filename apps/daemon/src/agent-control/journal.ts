@@ -8,6 +8,7 @@ import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "
 import type { Store } from "../store.ts";
 import { DelegationOrigins, type OriginOwner } from "./delegation-origins.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
+import { skippableAtStartup } from "../engine/startup-skip.ts";
 
 export const DelegationReservation = z.object({
   record: DelegationRecord,
@@ -19,6 +20,10 @@ const treeRow = z.object({
   tokens: z.number(),
   cost: z.number(),
 });
+const ParticipantRow = z.object({ root_id: ThreadId, active: z.number() });
+const ActiveParticipantRow = z.object({ thread_id: ThreadId, root_id: ThreadId });
+const SnoozeRow = z.object({ snoozed_until: z.number().nullable() });
+const WakeRow = z.object({ parent_id: ThreadId, due: z.number() });
 /** One writer on Store's transaction boundary; only indexed current rows enter memory. */
 export class DelegationJournal {
   private store: Store;
@@ -26,9 +31,13 @@ export class DelegationJournal {
   private statements = new Map<string, StatementSync>();
   /** The parent turn each delegation generation came from. */
   readonly origins: DelegationOrigins;
-  constructor(store: Store, capacity = 10000) {
+  /** Hears once about each stored row this build can't read; the row is kept and skipped. */
+  private unreadable: ((error: unknown) => void) | undefined;
+  private reported = new Set<string>();
+  constructor(store: Store, capacity = 10000, unreadable?: (error: unknown) => void) {
     this.capacity = z.number().int().min(1).max(10000).parse(capacity);
     this.store = store;
+    this.unreadable = unreadable;
     this.origins = new DelegationOrigins(store);
     store.atomic((db) =>
       db.exec(`
@@ -65,6 +74,7 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegation_reserved_parent ON delegation_reservations(parent_id);
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
       CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
+      CREATE TABLE IF NOT EXISTS delegation_turn_fences (thread_id TEXT PRIMARY KEY, run TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delegation_member_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
@@ -144,7 +154,7 @@ export class DelegationJournal {
     const row = this.sql(
       "SELECT root_id,active FROM delegation_participants WHERE thread_id=?",
     ).get(thread);
-    return row ? z.object({ root_id: ThreadId, active: z.number() }).parse(row) : undefined;
+    return row ? ParticipantRow.parse(row) : undefined;
   }
   activity(thread: ThreadId, active: 0 | 1) {
     this.sql("UPDATE delegation_participants SET active=? WHERE thread_id=? AND active<>?").run(
@@ -158,7 +168,7 @@ export class DelegationJournal {
       "SELECT thread_id,root_id FROM delegation_participants WHERE active=1 ORDER BY thread_id LIMIT 10001",
     )
       .all()
-      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+      .map((row) => ActiveParticipantRow.parse(row));
   }
   /** Children holding a run slot. Created, queued and settled children hold none. */
   running(parent: ThreadId) {
@@ -202,9 +212,24 @@ export class DelegationJournal {
   }
   /** In-flight preparations only; each is released or committed when its owner finishes. */
   reservations() {
-    return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id")
+    return this.sql("SELECT child_id,reservation FROM delegation_reservations ORDER BY child_id")
       .all()
-      .map((row) => this.decodeReservation(row.reservation));
+      .flatMap((row) => {
+        try {
+          return [this.decodeReservation(row.reservation)];
+        } catch (error) {
+          // One row another build wrote never stops agent control: kept, reported, skipped.
+          if (!skippableAtStartup(error)) throw error;
+          const child = String(row.child_id);
+          if (!this.reported.has(child)) {
+            this.reported.add(child);
+            this.unreadable?.(
+              new Error(`Delegation reservation ${child} not read`, { cause: error }),
+            );
+          }
+          return [];
+        }
+      });
   }
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
@@ -261,7 +286,7 @@ export class DelegationJournal {
     const row = this.sql("SELECT snoozed_until FROM agent_thread_metadata WHERE thread_id=?").get(
       thread,
     );
-    return row ? z.object({ snoozed_until: z.number().nullable() }).parse(row) : null;
+    return row ? SnoozeRow.parse(row) : null;
   }
   active() {
     return this.sql(
@@ -405,7 +430,7 @@ export class DelegationJournal {
     const row = this.sql(
       "SELECT parent_id,due FROM delegation_wakes ORDER BY due,parent_id LIMIT 1",
     ).get();
-    return row ? z.object({ parent_id: ThreadId, due: z.number() }).parse(row) : undefined;
+    return row ? WakeRow.parse(row) : undefined;
   }
   deferWake(parent: ThreadId, due: number) {
     this.sql("UPDATE delegation_wakes SET due=? WHERE parent_id=?").run(due, parent);
@@ -480,6 +505,23 @@ export class DelegationJournal {
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
   }
+  /**
+   * A Stop of the thread's turn: that turn (`run`, "" when none ran) delegates nothing more, a
+   * tool call still on its way included. Lifted by the first newer turn, whatever woke it.
+   */
+  fenceTurn(thread: ThreadId, run: string) {
+    this.sql(
+      "INSERT INTO delegation_turn_fences VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET run=excluded.run",
+    ).run(thread, run);
+  }
+  /** The run a Stop fenced, or none. */
+  turnFence(thread: ThreadId): string | undefined {
+    const row = this.sql("SELECT run FROM delegation_turn_fences WHERE thread_id=?").get(thread);
+    return row ? String(row.run) : undefined;
+  }
+  liftTurnFence(thread: ThreadId) {
+    this.sql("DELETE FROM delegation_turn_fences WHERE thread_id=?").run(thread);
+  }
   suppressWake(child: ThreadId) {
     this.sql(
       "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id=?",
@@ -504,12 +546,22 @@ export class DelegationJournal {
       this.sql("SELECT seq FROM delegation_usage_offsets WHERE thread_id=?").get(thread)?.seq ?? 0,
     );
   }
+  /**
+   * Moves the replay position past events that carry nothing to account; never backwards. A
+   * thread whose row is gone keeps no position (the offsets reference threads).
+   */
+  advanceUsageOffset(thread: ThreadId, through: number): void {
+    this.sql(
+      `INSERT INTO delegation_usage_offsets SELECT id,? FROM threads WHERE id=?
+        ON CONFLICT(thread_id) DO UPDATE SET seq=MAX(seq,excluded.seq)`,
+    ).run(through, thread);
+  }
   usageThreads(after: string) {
     return this.sql(`SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>?
         UNION ALL SELECT thread_id,root_id FROM delegation_participants WHERE thread_id>?
         ORDER BY thread_id LIMIT 64`)
       .all(after, after)
-      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+      .map((row) => ActiveParticipantRow.parse(row));
   }
   /** Counters and the replay position share one commit, including incremental samples. */
   account(root: ThreadId, event: Event): void {

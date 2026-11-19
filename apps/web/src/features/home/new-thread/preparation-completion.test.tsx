@@ -2,6 +2,7 @@ import { workbench } from "@ace/fake-daemon";
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
@@ -75,13 +76,13 @@ test("an earlier page's successful save cannot erase or navigate away from a reo
   await userEvent.type(reopened, "Newer preparation");
   await act(async () => gate.resolve());
   await delivered(made, "Original preparation");
-  expect((await message()).textContent).toBe("Newer preparation");
+  expect(composerWords(await message())).toBe("Newer preparation");
   expect(
     screen.getByRole("link", { name: "Newer preparation. Draft, Project relay" }),
   ).toBeTruthy();
   cleanup();
   await made.open("/new?project=relay");
-  expect((await message()).textContent).toBe("Newer preparation");
+  expect(composerWords(await message())).toBe("Newer preparation");
 });
 
 test("typing a second preparation during the first save gives its later files a fresh daemon scope", async () => {
@@ -135,7 +136,7 @@ test("a refused save from an earlier page returns its prompt and file beside the
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading original.txt" })).toBeNull(),
   );
-  await userEvent.type(await message(), "Original preparation");
+  await typeAtEnd(await message(), "Original preparation");
   await readyToSend();
   hold();
   await userEvent.keyboard("{Enter}");
@@ -147,14 +148,14 @@ test("a refused save from an earlier page returns its prompt and file beside the
   await userEvent.type(await message(), "Newer work");
   await act(async () => reject());
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Newer work\n\nOriginal preparation",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "Newer work\n\n[original.txt]Original preparation",
     ),
   );
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
   cleanup();
   await made.open("/new?project=relay");
-  expect((await message()).textContent).toBe("Newer work\n\nOriginal preparation");
+  expect(composerWords(await message())).toBe("Newer work\n\n[original.txt]Original preparation");
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
 });
 
@@ -173,5 +174,5 @@ test("a successful save still promotes an unchanged preparation after its page c
   ).toBeNull();
   cleanup();
   await made.open("/new?project=relay");
-  expect((await message()).textContent).toBe("");
+  expect(composerWords(await message())).toBe("");
 });

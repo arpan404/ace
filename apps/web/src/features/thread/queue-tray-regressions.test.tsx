@@ -2,7 +2,7 @@ import { facts, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { resetQueueEdits } from "./composer/queue-edit.ts";
 
@@ -172,6 +172,50 @@ test("an edit moved beyond the visible page can still be saved from the composer
   );
 });
 
+test("an edit whose message another device rewrote keeps the edit and overwrites only on the next save", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
+  await app.open(`/t/${threadId}`);
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Mine{Enter}");
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  const edit = within(rows()[0] ?? document.body).getByRole("button", {
+    name: "Edit queued message",
+  });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(edit);
+  await waitFor(() => expect(messageBox().textContent).toBe("Mine"));
+  const before = await queue(app);
+  const entry = before.messages[0];
+  if (!entry) throw new Error("missing queued message");
+  await act(async () => {
+    await app.client.command(
+      {
+        type: "queue.edit",
+        threadId,
+        messageId: entry.id,
+        input: [{ type: "text", text: "Theirs" }],
+        expectedRevision: before.revision,
+      },
+      {},
+      "another-device-edit",
+    );
+  });
+  await userEvent.clear(messageBox());
+  await userEvent.type(messageBox(), "Revised{Enter}");
+  // Their words aren't overwritten unseen: the strip shows them and the edit stays.
+  const changed = await screen.findByRole("status", { name: "Changed on another device" });
+  expect(within(changed).getByText("Theirs")).toBeTruthy();
+  expect(messageBox().textContent).toBe("Revised");
+  expect((await queue(app)).messages[0]?.input).toEqual([{ type: "text", text: "Theirs" }]);
+  // Saving again replaces what it says now, on purpose.
+  await userEvent.type(messageBox(), "{Enter}");
+  await waitFor(async () =>
+    expect((await queue(app)).messages[0]?.input).toEqual([{ type: "text", text: "Revised" }]),
+  );
+});
+
 test("a pending keyboard reorder preserves focus deliberately moved to the composer", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
@@ -180,20 +224,27 @@ test("a pending keyboard reorder preserves focus deliberately moved to the compo
   await app.open(`/t/${threadId}`);
   const composer = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(composer, "First{Enter}Second{Enter}");
-  const ready = await screen.findByRole("button", { name: "Reorder queued message 2" });
-  await waitFor(() => expect(ready.getAttribute("aria-disabled")).toBe("false"));
-  act(() => app.daemon.refuseConnections(true));
-  await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  // The connection takes the composer's strip; its queue indicator brings the queue back.
-  await userEvent.click(await screen.findByRole("button", { name: "Show 2 queued messages" }));
   const handle = await screen.findByRole("button", { name: "Reorder queued message 2" });
+  await waitFor(() => expect(handle.getAttribute("aria-disabled")).toBe("false"));
+  // A queue change goes out only on a current copy (offline it is refused). The daemon is slow
+  // to take this one: the person moves the message up, then goes back to the composer and
+  // types while the move is still on its way.
+  const send = app.client.command.bind(app.client);
+  let land: (() => void) | undefined;
+  const slow = vi
+    .spyOn(app.client, "command")
+    .mockImplementation((payload, ...rest) =>
+      payload.type === "queue.move"
+        ? new Promise((resolve) => (land = () => resolve(send(payload, ...rest))))
+        : send(payload, ...rest),
+    );
   handle.focus();
   await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
-  await waitFor(() => expect(rows()[0]?.textContent).toContain("Second"));
+  await waitFor(() => expect(land).toBeDefined());
   await userEvent.click(composer);
   await userEvent.type(composer, "Keep typing");
-  act(() => app.daemon.refuseConnections(false));
-  await waitFor(() => expect(app.client.state).toBe("ready"), { timeout: 8_000 });
+  act(() => land?.());
+  slow.mockRestore();
   await waitFor(async () =>
     expect((await queue(app)).messages.map((message) => message.input)).toEqual([
       [{ type: "text", text: "Second" }],
@@ -203,4 +254,23 @@ test("a pending keyboard reorder preserves focus deliberately moved to the compo
   await waitFor(() => expect(handle.getAttribute("aria-disabled")).toBe("false"));
   expect(document.activeElement).toBe(composer);
   expect(composer.textContent).toBe("Keep typing");
+});
+
+test("the tray says a waiting steer goes in at the next step, and that a refused one fell back", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
+  app.daemon.waitingSteer(threadId, "agent-steer", "Use the cached build", "steer");
+  app.daemon.waitingSteer(threadId, "refused-steer", "Try the other path", "fell_back");
+  await app.open(`/t/${threadId}`);
+  await waitFor(() => expect(rows()).toHaveLength(2));
+  const [waiting, refused] = rows();
+  if (!waiting || !refused) throw new Error("Missing rows");
+  // A steer already on its way offers no Steer: it reads as steering, not as an untouched queue.
+  expect(within(waiting).getByText("Steering at the next step")).toBeTruthy();
+  expect(within(waiting).queryByRole("button", { name: "Steer" })).toBeNull();
+  expect(waiting.getAttribute("aria-label")).toBe("Queued message. Steering at the next step");
+  // A steer that couldn't go in says so, and the person can steer it again.
+  expect(within(refused).getByText("Couldn't steer · sends after this turn")).toBeTruthy();
+  expect(within(refused).getByRole("button", { name: "Steer" })).toBeTruthy();
 });

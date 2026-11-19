@@ -19,7 +19,7 @@ export function PrUnlinkDialog(props: { onUnlink(): Promise<unknown>; onClose():
         <DialogHeader>
           <DialogTitle>Unlink all pull requests?</DialogTitle>
           <DialogDescription>
-            The pull requests stay on GitHub. Their links will be removed from this thread.
+            The pull requests stay on their Git host. Their links will be removed from this thread.
           </DialogDescription>
         </DialogHeader>
         {error !== undefined && (

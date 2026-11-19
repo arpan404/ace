@@ -32,12 +32,10 @@ test("surviving Codex shell output preserves Limited and every held message", as
   const translator = createCodexTranslator({ threadId: ThreadId.parse("test"), rootKey: "root" });
   frames.translate = (frame) =>
     frame.channel === "stdio" ? translator.translate(frame, 1000) : scripted(frame);
-  const h = await fixture(
-    [{ on: "send", frames: [frames.frame(start, task, quota, limit)] }],
-    frames,
-  );
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, task)] }], frames);
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input: text("held") });
+  h.contexts[0]?.onFrame(frames.frame(quota, limit));
   await h.engine.flush();
   const before = h.engine.queue(id);
   h.contexts[0]?.onFrame(native("thread/started", { thread: { id: "native", cwd: h.home } }, 10));
@@ -91,6 +89,7 @@ test("an acknowledged input rejected after quota is never replayed on native res
   );
   const id = await h.create();
   expect(h.engine.queue(id).messages).toHaveLength(0);
+  h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision });
   h.command({ type: "thread.send", threadId: id, input: text("following") });
   await h.engine.flush();
   const replacement = replaceProvider(h, frames, [

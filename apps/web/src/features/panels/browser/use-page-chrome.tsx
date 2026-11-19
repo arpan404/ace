@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { desktopBrowserViews, type BrowserContextAction } from "@/boot/desktop-browser.ts";
 import { useToast } from "@/components/ui/toast.tsx";
+import { windowsPlatform } from "@/lib/keymap.ts";
 import type { BrowserTabView, BrowserView, ForwardedInput, PreviewSource } from "../sources.ts";
 import { requestAnnotate } from "./annotate-request.ts";
 import { useBrowsingHistory } from "./browsing-history.ts";
@@ -11,6 +12,7 @@ import type { PageMenu } from "./page-context-menu.tsx";
 import { pageKey, type PageKey } from "./page-keys.ts";
 import { usePageActions } from "./use-page-actions.ts";
 import { usePageTarget } from "./use-page-target.ts";
+import { useOpenOutside } from "./open-outside.tsx";
 import type { PageTools } from "./use-page-tools.ts";
 import { reason } from "./use-browser-features.ts";
 import { zoomIn, zoomOut } from "@ace/ui-core";
@@ -116,11 +118,13 @@ export function usePageChrome(input: {
     };
   }, []);
 
+  const openOutside = useOpenOutside();
   const pointed = usePageTarget({ source, threadId, tabId: tab?.tabId, openTab });
   const menu: PageMenu = {
     target: pointed.target,
     locate: pointed.locate,
     openLink: pointed.openLink,
+    openOutside,
     copyLink: pointed.copyLink,
     copyImage: pointed.copyImage,
     saveImage: pointed.saveImage,
@@ -154,7 +158,7 @@ export function usePageChrome(input: {
         .catch(() =>
           toast.error({
             title: "Couldn't paste",
-            description: "Clipboard access is blocked in this browser. Use ⌘V in the page.",
+            description: `Clipboard access is blocked in this browser. Use ${windowsPlatform ? "Ctrl+V" : "⌘V"} in the page.`,
           }),
         );
     },

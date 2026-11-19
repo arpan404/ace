@@ -33,7 +33,7 @@ test.each(["claude", "codex", "cursor", "opencode", "acp", "antigravity"] as con
       if (provider === "claude" || provider === "cursor")
         expect(observed.args).toContain("--plugin-dir");
       else if (provider === "codex")
-        expect(observed.args).toContain('plugins."sample@ace".enabled=true');
+        expect(observed.args).toContain("plugins.sample@ace.enabled=true");
       else if (provider === "opencode")
         expect(JSON.parse(observed.config ?? "null")).toMatchObject({
           mcp: { "ace-sample__tools": { type: "local" } },

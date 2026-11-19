@@ -1,0 +1,467 @@
+import type { ClientCore, ThreadSource } from "@ace/client";
+import type { CommandPayload, ExecutionOptions, ProviderKind, ThreadId } from "@ace/protocol";
+import {
+  catalogModelIds,
+  choiceSelection,
+  continuationAttachmentProblem,
+  continuationNote,
+  isBusy,
+  modelChoices,
+  modelKey,
+  modelLabel,
+  selectionInputs,
+  switchNextTurnNote,
+  type ModelChoice,
+  type SwitchQuestion,
+} from "@ace/ui-core";
+import { runsOn, selectionIdentity } from "@ace/ui-core/thread-execution";
+import { z } from "zod";
+import { readAgents, type AgentRead } from "./agent-read.ts";
+import type { Preview } from "./agents.ts";
+import { ModelFavorites, starProblem } from "./model-favorites.ts";
+import { pickerRows } from "./new-thread-agents.ts";
+import {
+  shapeScene,
+  switchOptions,
+  switchPayload,
+  switchPlan,
+  switchRows,
+  type ShapedScene,
+  type SwitchTarget,
+  type SwitchTune,
+} from "./thread-switch.ts";
+
+/*
+ * The open thread's model sheet (`thread.models`): Favorites and one tab per account of every
+ * coding agent set up on the machine, as New thread lists them, each row saying what picking it
+ * does (`thread-switch.ts`). Holds a switch sent from here until the daemon reports it, and a
+ * model the next message continues on in a new thread, so the composer names them meanwhile.
+ */
+
+type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+/** Sends `payload` under `id`: `refused` runs when it isn't saved or the daemon turns it down. */
+export type Dispatch = (payload: CommandPayload, id: string, refused: () => void) => void;
+type Admission = (id: string, ok: boolean, message: string) => void;
+/** Why a move from the sheet didn't go: the person left its thread before it could. */
+const droppedMove = "Couldn't switch model. Choose it again.";
+
+const SettingEntries = z.object({
+  entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
+});
+
+/** What the composer's model control names instead of what the thread runs on. */
+export interface NextModel {
+  provider: ProviderKind;
+  model: string;
+  note: string;
+  continues: boolean;
+}
+
+export class ThreadModelSheet {
+  readonly #client: ClientCore;
+  readonly #store: ThreadSource;
+  readonly #threadId: ThreadId;
+  readonly #signal: AbortSignal;
+  readonly #put: Put;
+  readonly #now: () => number;
+  readonly #preview: Preview;
+  readonly #changed: () => void;
+  readonly #favorites: ModelFavorites;
+  #state = "idle";
+  #read: AgentRead | undefined;
+  #choices: ModelChoice[] = [];
+  #starProblem: string | null = null;
+  #forkOnSwitch: boolean | undefined;
+  /** A switch sent from here, and how the thread stood when it was sent. */
+  #chosen: { choice: ModelChoice; stood: string } | undefined;
+  #continued: ModelChoice | undefined;
+  /**
+   * The effort and speed picked for the switch or continuation held here: sent with it, or,
+   * when picked after the switch went out, handed to the thread's tuning once it moves.
+   */
+  #heldTune: SwitchTune = {};
+  readonly #moved: ((choice: ModelChoice, tune: SwitchTune) => void) | undefined;
+  #sending = false;
+  readonly #files: () => readonly { name: string; mimeType?: string | undefined }[];
+  /** What the rows were last worked out for (`#shape`). */
+  #shaped = "";
+  readonly #fork:
+    | {
+        open(): boolean;
+        picked(): ModelChoice | undefined;
+        choose(choice: ModelChoice | undefined): void;
+      }
+    | undefined;
+
+  constructor(
+    client: ClientCore,
+    store: ThreadSource,
+    threadId: ThreadId,
+    signal: AbortSignal,
+    io: {
+      put: Put;
+      now: () => number;
+      preview: Preview;
+      changed: () => void;
+      /** The files on the message being written, which a new thread's model must read. */
+      files: () => readonly { name: string; mimeType?: string | undefined }[];
+      /**
+       * A fork being written in the composer: the sheet picks its model instead of moving the
+       * thread. `picked` is the fork's model (undefined: what the thread runs).
+       */
+      fork?: {
+        open(): boolean;
+        picked(): ModelChoice | undefined;
+        choose(choice: ModelChoice | undefined): void;
+      };
+      /** A switch from here took effect: what was picked for it since it went out. */
+      moved?: (choice: ModelChoice, tune: SwitchTune) => void;
+    },
+  ) {
+    this.#client = client;
+    this.#store = store;
+    this.#threadId = threadId;
+    this.#signal = signal;
+    this.#put = io.put;
+    this.#now = io.now;
+    this.#preview = io.preview;
+    this.#changed = io.changed;
+    this.#files = io.files;
+    this.#fork = io.fork;
+    this.#moved = io.moved;
+    this.#favorites = new ModelFavorites(client);
+  }
+
+  /** The model the next message continues on in a new thread, if one was picked. */
+  get continued(): ModelChoice | undefined {
+    return this.#continued;
+  }
+
+  /** The session options the new thread starts with, picked with its model. */
+  get continuedOptions(): ExecutionOptions {
+    if (!this.#continued) return {};
+    const tuned = switchOptions(this.#continued, this.#heldTune);
+    return "refused" in tuned ? {} : tuned.options;
+  }
+
+  /** The model a switch or continuation from here waits to run on, and what was picked for it. */
+  held(): { choice: ModelChoice; tune: SwitchTune } | undefined {
+    const choice = this.#continued ?? this.#chosen?.choice;
+    return choice && { choice, tune: this.#heldTune };
+  }
+
+  /** Effort or speed for the held model; false when nothing is held or its model lacks it. */
+  tuneHeld(pick: SwitchTune): boolean {
+    const held = this.held();
+    if (!held) return false;
+    const tune = { ...this.#heldTune, ...pick };
+    if ("refused" in switchOptions(held.choice, tune)) return false;
+    this.#heldTune = tune;
+    this.#changed();
+    return true;
+  }
+
+  /** A message is on its way to start the new thread: nothing else starts one meanwhile. */
+  get sending(): boolean {
+    return this.#sending;
+  }
+
+  /** The message starting the new thread went out. */
+  continuationSending(): void {
+    this.#sending = true;
+  }
+
+  /**
+   * The daemon answered it: started, the composer is back on this thread; refused or never
+   * saved, the continuation stays picked so sending again tries again.
+   */
+  continuationSettled(started: boolean): void {
+    this.#sending = false;
+    if (!started) return;
+    this.#continued = undefined;
+    this.#heldTune = {};
+    this.#changed();
+    this.#publish();
+  }
+
+  /** The input modalities `choice`'s model reads, from the catalog. */
+  modalities(choice: ModelChoice): readonly string[] | undefined {
+    return selectionInputs(this.#read?.catalog.models ?? [], choiceSelection(choice));
+  }
+
+  /** A model or switch picked here, while the daemon hasn't reported it, for the composer. */
+  next(): NextModel | undefined {
+    const held = this.#continued ?? this.#chosen?.choice;
+    if (held)
+      return {
+        provider: held.provider,
+        model: this.#preview(held.model, 128),
+        note: this.#continued ? continuationNote : switchNextTurnNote,
+        continues: this.#continued !== undefined,
+      };
+    const thread = this.#store.thread;
+    if (thread?.switch?.state !== "queued") return undefined;
+    const selection = runsOn(thread);
+    return (
+      selection && {
+        provider: selection.provider,
+        model: "",
+        note: switchNextTurnNote,
+        continues: false,
+      }
+    );
+  }
+
+  /**
+   * The thread changed: a switch sent from here gives way once the daemon reports any move, and
+   * the rows are worked out again only when what they depend on moved.
+   */
+  threadChanged(): void {
+    const stood = this.#stood();
+    const chosen = this.#chosen;
+    if (chosen && chosen.stood !== stood) {
+      // What was picked after the switch went out stays with the model it was picked for.
+      this.#chosen = undefined;
+      this.#moved?.(chosen.choice, this.#heldTune);
+      this.#heldTune = {};
+      this.#changed();
+    }
+    if (this.#state === "ready" && this.#shape() !== this.#shaped) this.#publish();
+  }
+
+  async open(): Promise<void> {
+    if (!this.#store.thread) return;
+    if (this.#state !== "ready") this.#emit("loading");
+    try {
+      const [read, fork] = await Promise.all([
+        readAgents(this.#client, this.#favorites, this.#now()),
+        this.#readForkOnSwitch(),
+      ]);
+      this.#read = read;
+      this.#forkOnSwitch = fork;
+      this.#choices = modelChoices(read.catalog.models, read.agents.picker.accounts, this.#now());
+      this.#state = "ready";
+      this.#publish();
+    } catch {
+      if (this.#signal.aborted || this.#state === "ready") return;
+      this.#emit("failed");
+    }
+  }
+
+  async favorite(key: string): Promise<void> {
+    if (!this.#read) return;
+    try {
+      const canonical = catalogModelIds(this.#read.catalog.models);
+      this.#read.stars = await this.#favorites.toggle(key, canonical);
+      this.#starProblem = null;
+    } catch (error) {
+      this.#starProblem = starProblem(error);
+    }
+    if (this.#state === "ready") this.#publish();
+  }
+
+  /**
+   * The person picked `target` and pressed Done, having answered the row's question when it
+   * asked one (`confirmed`), with the effort and speed picked for it (`tune`). Refused when the
+   * row asks and wasn't confirmed, or the model doesn't offer what `tune` names.
+   */
+  pick(
+    target: SwitchTarget,
+    confirmed: boolean,
+    tune: SwitchTune,
+    requestId: string,
+    send: Dispatch,
+    admit: Admission,
+    read = true,
+  ): void {
+    // The person left this thread: a move for it goes nowhere, and they're told.
+    if (this.#signal.aborted) return admit(requestId, false, droppedMove);
+    const scene = this.#scene();
+    // A move held in the sheet across a reconnect reaches a runtime that hasn't read the models
+    // yet: it reads them once, then decides, rather than losing the move. `pick` checks again
+    // that the person is still here before anything is sent.
+    if (!scene && read && !this.#read && this.#store.thread) {
+      void this.open().then(() =>
+        this.pick(target, confirmed, tune, requestId, send, admit, false),
+      );
+      return;
+    }
+    if (!scene) return admit(requestId, false, "Still reading this thread. Try again.");
+    if (this.#fork?.open()) return this.#pickForFork(scene, target, requestId, admit);
+    if (this.#sending)
+      return admit(requestId, false, "Still starting the new thread. Wait for it to open.");
+    const plan = switchPlan(scene, target);
+    const tuned =
+      plan.kind === "switch" || plan.kind === "continue"
+        ? switchOptions(plan.choice, tune)
+        : { options: {} };
+    if ("refused" in tuned) return admit(requestId, false, tuned.refused);
+    // Rows the person saw may be older than the thread: ask now in the current words.
+    const unasked = (ask: SwitchQuestion) => {
+      this.#publish();
+      this.#put("switchAsk", () => ({ type: "thread.switchAsk", id: requestId, ...target, ask }));
+      admit(requestId, false, "");
+    };
+    switch (plan.kind) {
+      case "stay":
+        return admit(requestId, true, "");
+      case "back":
+        this.#continued = undefined;
+        this.#heldTune = {};
+        break;
+      case "refused":
+        return admit(requestId, false, plan.message);
+      case "continue":
+        if (!confirmed) return unasked(plan.ask);
+        this.#continued = plan.choice;
+        this.#heldTune = tune;
+        break;
+      case "switch": {
+        if (plan.ask && !confirmed) return unasked(plan.ask);
+        const chosen = { choice: plan.choice, stood: this.#stood() };
+        this.#continued = undefined;
+        this.#chosen = chosen;
+        this.#heldTune = tune;
+        send(switchPayload(this.#threadId, plan.choice, tuned.options), requestId, () => {
+          if (this.#chosen !== chosen) return;
+          this.#chosen = undefined;
+          this.#heldTune = {};
+          this.#changed();
+          this.#publish();
+        });
+        this.#changed();
+        this.#publish();
+        return;
+      }
+    }
+    admit(requestId, true, "");
+    this.#changed();
+    this.#publish();
+  }
+
+  /** Any model on any account starts the fork; the thread's own forks on what it runs. */
+  #pickForFork(scene: ShapedScene, target: SwitchTarget, requestId: string, admit: Admission) {
+    const choice = scene.choices.find(
+      (candidate) => candidate.key === target.key && candidate.accountId === target.account,
+    );
+    if (!choice) return admit(requestId, false, "That model isn't offered now. Pick another.");
+    this.#fork?.choose(choice.id === scene.running?.id ? undefined : choice);
+    admit(requestId, true, "");
+    this.#publish();
+  }
+
+  /** The fork was opened or closed, or its model picked: the rows check another one. */
+  forkChanged(): void {
+    if (this.#state === "ready") this.#publish();
+  }
+
+  #stood(): string {
+    const thread = this.#store.thread;
+    return JSON.stringify([
+      selectionIdentity(runsOn(thread)),
+      thread?.switch?.state ?? "",
+      thread?.switch?.at ?? 0,
+    ]);
+  }
+  #busy(): boolean {
+    return isBusy(this.#store.thread?.status);
+  }
+  /** What the rows depend on in the thread: its selection and switch, busyness and route inputs. */
+  #shape(): string {
+    const thread = this.#store.thread;
+    return JSON.stringify([
+      this.#stood(),
+      this.#busy(),
+      thread?.provider ?? "",
+      thread?.backend ?? "",
+      thread?.live?.account ?? "",
+      thread?.execution?.provider ?? "",
+      thread?.execution?.instanceId ?? "",
+    ]);
+  }
+  #scene(): ShapedScene | undefined {
+    const thread = this.#store.thread;
+    if (!thread || !this.#read) return undefined;
+    const files = this.#files();
+    return shapeScene({
+      thread,
+      choices: this.#choices,
+      forkOnSwitch: this.#forkOnSwitch,
+      chosen: this.#chosen?.choice,
+      continued: this.#continued,
+      busy: this.#busy(),
+      carryProblem: (choice) =>
+        files.length
+          ? continuationAttachmentProblem(files, choice, this.modalities(choice))
+          : undefined,
+    });
+  }
+  async #readForkOnSwitch(): Promise<boolean | undefined> {
+    try {
+      const reply = await this.#client.request(
+        { type: "settings.get", key: "threads.forkOnSwitch", scope: { threadId: this.#threadId } },
+        { signal: this.#signal, timeoutMs: 15_000 },
+      );
+      const value = SettingEntries.parse(reply).entries.find(
+        (entry) => entry.key === "threads.forkOnSwitch",
+      )?.value;
+      return typeof value === "boolean" ? value : undefined;
+    } catch {
+      // Unread, the source is preserved: another provider or account continues in a new thread.
+      return undefined;
+    }
+  }
+  #emit(state: string): void {
+    this.#state = state;
+    this.#put("models", () => ({
+      type: "thread.models",
+      state,
+      tabs: [],
+      providers: [],
+      favorites: [],
+      starProblem: null,
+      current: null,
+      rows: {},
+      asks: [],
+    }));
+  }
+  #publish(): void {
+    this.#shaped = this.#shape();
+    this.#put("models", () => {
+      const scene = this.#scene();
+      const read = this.#read;
+      if (!scene || !read) return undefined;
+      const forking = this.#fork?.open() === true;
+      const picked = forking ? (this.#fork?.picked() ?? scene.running) : scene.picked;
+      // A model the catalog doesn't list (retired, custom) is still the one checked, by name.
+      const selection = runsOn(scene.thread);
+      const current = picked
+        ? { provider: picked.provider, key: picked.key, account: picked.accountId }
+        : selection?.model
+          ? {
+              provider: selection.provider,
+              key: modelKey(selection.provider, selection.model),
+              account: selection.instanceId ?? "",
+            }
+          : undefined;
+      const rows = pickerRows(read.agents, current, current?.provider, this.#preview, {
+        keys: read.stars,
+        problem: this.#starProblem,
+      });
+      const targets = rows.providers.flatMap((row) =>
+        row.models.map((model) => ({ key: model.key, account: model.account })),
+      );
+      return {
+        type: "thread.models",
+        state: "ready",
+        ...rows,
+        current: current ?? null,
+        currentLabel:
+          picked || !selection?.model ? "" : this.#preview(modelLabel(selection.model), 128),
+        // Every row starts the fork as it is: nothing to ask, nothing refused.
+        ...(forking ? { rows: {}, asks: [] } : switchRows(scene, targets)),
+        forking,
+      };
+    });
+  }
+}

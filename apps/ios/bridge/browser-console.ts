@@ -45,6 +45,8 @@ export class BrowserConsole {
   #cleared = new Map<string, number>();
   #timer: (() => void) | undefined;
   #reads = 0;
+  #state: "loading" | "ready" | "error" = "loading";
+  #message = "";
   constructor(host: ConsoleHost, execute: (command: BrowserCommand) => Promise<unknown>) {
     this.#host = host;
     this.#execute = execute;
@@ -55,6 +57,8 @@ export class BrowserConsole {
       const newest = this.#entries.findLast((entry) => entry.kind === filter.section)?.at;
       if (newest !== undefined) this.#cleared.set(`${tabId}\u0000${filter.section}`, newest);
     }
+    this.#state = "loading";
+    this.#message = "";
     this.#put(tabId);
     this.#read();
   }
@@ -75,10 +79,17 @@ export class BrowserConsole {
     void this.#execute({ action: "logs", tabId, limit: shownLimit })
       .then((result) => {
         if (read !== this.#reads) return;
+        this.#state = "ready";
+        this.#message = "";
         this.#entries = readBrowserLogs(result);
         this.#put(tabId);
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        if (read !== this.#reads) return;
+        this.#state = "error";
+        this.#message = error instanceof Error ? error.message : "Couldn't read the log.";
+        this.#put(tabId);
+      })
       .finally(() => {
         if (read !== this.#reads || !this.#filter) return;
         this.#timer = this.#host.schedule(pollMs, () => this.#read());
@@ -97,6 +108,8 @@ export class BrowserConsole {
     this.#host.sink.put("browser:logs", () => ({
       type: "browser.logs",
       section: filter.section,
+      state: this.#state,
+      message: preview(this.#message, 512),
       entries: shown.slice(-shownLimit).map((entry, index) => ({
         key: keys[index] ?? String(index),
         level: entry.kind === "console" ? consoleLevel(entry.type) : null,

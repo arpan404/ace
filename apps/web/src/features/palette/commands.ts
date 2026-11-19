@@ -20,15 +20,20 @@ import {
   PushPinSlashIcon,
   TerminalIcon,
   XSquareIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useOpenMarket } from "@/lib/open-market.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
+import { windowsHelpActions } from "@/boot/help-actions.ts";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
-import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
+import { entryRoute, pageTitle, settingsIndex } from "@/features/settings/index.ts";
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { useMachines } from "@/lib/machines.ts";
 import {
   useFocusedScope,
   useScopeWorkspace,
@@ -37,7 +42,7 @@ import {
   type WorkspaceCommand,
 } from "@/lib/workspace/index.ts";
 import { useLayout, type PalettePage } from "@/lib/layout.tsx";
-import { themeIds, themes } from "@/theme/palettes.ts";
+import { themeIds, themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useLiveCommands } from "./live-commands.ts";
 import { useThreadCommands } from "./thread-commands.ts";
@@ -52,6 +57,7 @@ type Destination =
   | "/new"
   | "/usage"
   | "/archived"
+  | "/history"
   | "/settings";
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
@@ -105,7 +111,13 @@ export function usePaletteGroups(
   const newThread = useNewThreadEntry();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
-  const several = directory.projects.length > 1;
+  const machines = useMachines();
+  // More than one project to choose from: here, or on another of the person's machines.
+  const several = directory.projects.length > 1 || machines.length > 1;
+  // Spade and the Marketplace are listed only while Settings › Beta has them on.
+  const spadeShown = useSpadeShown() === true;
+  const marketplace = useBetaEnabled("marketplace") === true;
+  const openMarket = useOpenMarket();
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -158,16 +170,29 @@ export function usePaletteGroups(
       {
         value: "Go to",
         items: [
-          ...views.map((view): PaletteCommand => {
-            const command: PaletteCommand = {
-              id: `go-${view.id}`,
-              label: view.label,
-              icon: "view",
-              run: go(view.to),
-            };
-            if (view.shortcut) command.keys = keymap[view.shortcut].keys;
-            return command;
-          }),
+          ...views
+            .filter((view) => view.id !== "spade" || spadeShown)
+            .map((view): PaletteCommand => {
+              const command: PaletteCommand = {
+                id: `go-${view.id}`,
+                label: view.label,
+                icon: "view",
+                run: go(view.to),
+              };
+              if (view.shortcut) command.keys = keymap[view.shortcut].keys;
+              return command;
+            }),
+          // The Marketplace is a modal over the page, not a view.
+          ...(marketplace
+            ? [
+                {
+                  id: "go-marketplace",
+                  label: "Marketplace",
+                  icon: "view",
+                  run: run(() => openMarket()),
+                } satisfies PaletteCommand,
+              ]
+            : []),
           {
             id: "go-search",
             label: "Search all threads",
@@ -183,7 +208,14 @@ export function usePaletteGroups(
             run: go("/issues"),
           },
           { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
-          { id: "go-usage", label: "Usage", icon: "view", run: go("/usage") },
+          {
+            id: "go-usage",
+            label: "Usage",
+            icon: "view",
+            run: go("/usage"),
+            keys: keymap.goUsage.keys,
+          },
+          { id: "go-history", label: "History", icon: "view", run: go("/history") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",
@@ -324,9 +356,21 @@ export function usePaletteGroups(
         label: entry.title,
         detail: pageTitle(entry.page),
         icon: "view",
-        run: run(() => void navigate({ to: entry.page, hash: entry.id })),
+        run: run(() => void navigate({ ...entryRoute(entry), hash: entry.id })),
       })),
     });
+    // Windows: the menu bar's Help items, which its frameless window doesn't show.
+    const help = windowsHelpActions();
+    if (help)
+      groups.push({
+        value: "Help",
+        items: help.map((action) => ({
+          id: `help-${action.id}`,
+          label: action.label,
+          icon: "action",
+          run: run(() => void action.run().catch(() => {})),
+        })),
+      });
     return groups;
   }, [
     close,
@@ -341,6 +385,9 @@ export function usePaletteGroups(
     push,
     several,
     openSearch,
+    spadeShown,
+    marketplace,
+    openMarket,
   ]);
   return useMemo(
     () =>

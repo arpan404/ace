@@ -37,3 +37,17 @@ Installation persistence is a noncancellable commit phase. Cancellation returns 
 Main's accounts service now registers ACP CLI defaults on the first authorized thread. It retains agent, installation and instance references, profile/version metadata and login revisions. Default instances retain CLI-owned homes and credentials; they do not claim isolated additional accounts. `AccountService.acpEnvironment` supplies account generations, and its local `loginAcp` API uses `AgentRegistry.resolveLogin` for reviewed commands with inherited terminal I/O. Unknown profiles return unsupported. No ACP authenticate call or remote login flow is added.
 
 Bridge child sessions use bilateral canonical negotiation and the exact-version metadata fallback documented by the bridges. They retain source-profile and limited-visibility labels; fixture recording and owner architecture acceptance remain separate gates.
+
+## Gemini folder trust
+
+Before a Gemini ACP session opens, ace reads the selected CLI home's native folder-trust
+settings and rules. An untrusted folder produces a startup error with the Gemini command to
+trust it. An earlier refusal can be changed through `/permissions` in an interactive Gemini
+session in that folder. Retry the turn in ace after changing trust.
+
+A worktree ace created can inherit trust from its source checkout for that process only.
+ace verifies the stored worktree provenance first. A matching rule on the worktree always
+wins, including `DO_NOT_TRUST`. Arbitrary folders and invalid trust files cannot inherit trust.
+ace writes neither the Gemini trust file nor project settings. The process override also lets
+Gemini load the worktree's project configuration, hooks and servers, as native folder trust does.
+See [Gemini's trusted folders documentation](https://geminicli.com/docs/cli/trusted-folders/).

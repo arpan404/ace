@@ -1,14 +1,16 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { HomeData } from "@ace/protocol";
+import { releaseLineOf, type ReleaseLine } from "@ace/service/release-line";
 import type { UpdateStatus } from "../../shared/contract.ts";
 import { repositoryUrl } from "../links.ts";
 import {
-  scheduleChecks,
   UpdateController,
   type CheckOrigin,
-  type CheckSchedule,
+  type RemoteInstruction,
   type UpdateEngine,
 } from "./update-controller.ts";
+import { scheduleChecks, type CheckSchedule } from "./update-schedule.ts";
 
 /** How long `ace update apply` waits for running agents before the update stays ready (ADR 0041). */
 export const updateDrainMs = 5 * 60_000;
@@ -25,12 +27,25 @@ export interface AppUpdatesOptions {
   random(): number;
   /** The clock, in milliseconds. */
   now(): number;
+  /** True while the window is on screen and the computer runs on mains power. */
+  active(): boolean;
+  /** Settles once the daemon first runs: the launch check waits for it. */
+  daemonRunning: Promise<unknown>;
   report(status: UpdateStatus): void;
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
   /** Threads still at work in the daemon this app started; 0 when it runs none. */
   busy(): Promise<number>;
-  prepareQuit(): Promise<void>;
+  /** `spadeMode`: how Spade's swap after the restart treats its running work (ADR 0123). */
+  prepareQuit(spadeMode: "idle" | "now"): Promise<void>;
   quit(): void;
+  /** The line the person chose, or null to follow this build's own (ADR 0177). */
+  chosenLine(): ReleaseLine | null;
+  /** Saves the person's line. */
+  saveLine(line: ReleaseLine): Promise<void>;
+  /** What the home holds, as the daemon last said; undefined until it has. */
+  homeData(): HomeData | undefined;
+  /** What the home holds now, asked of the daemon; undefined when it can't say. */
+  freshHomeData(): Promise<HomeData | undefined>;
   log(level: "info" | "warn", message: string): void;
 }
 
@@ -40,11 +55,15 @@ export interface AppUpdates {
   apply(): Promise<UpdateStatus>;
   download(): Promise<UpdateStatus>;
   install(): Promise<UpdateStatus>;
+  /** An update asked for from another client, through this app's daemon (ADR 0113). */
+  remote(instruction: RemoteInstruction): Promise<UpdateStatus>;
   /** How many agents Restart would stop; undefined when the daemon could not say. */
   busy(): Promise<number | undefined>;
+  /** Update from another line: saved, then checked at once (ADR 0177). */
+  setLine(line: ReleaseLine): Promise<UpdateStatus>;
   /** Background checks, for a build that has a feed. */
   start(): void;
-  /** The app's window opened: check now, unless a check just started. */
+  /** The app's window opened or was focused, or the computer woke: check now after a gap. */
   opened(): void;
 }
 
@@ -60,11 +79,21 @@ const unconfigured: UpdateEngine = {
  * the first check runs (the updater and its YAML parser stay out of startup).
  */
 export function appUpdates(options: AppUpdatesOptions): AppUpdates {
+  const buildLine = releaseLineOf(options.version);
+  const line = () => options.chosenLine() ?? buildLine;
+  // The first build to run picks the line for good (ADR 0177): a beta install stays on Beta
+  // after it updates to a stable release, instead of following that build's line.
+  if (options.chosenLine() === null)
+    void options
+      .saveLine(buildLine)
+      .catch((error: unknown) =>
+        options.log("warn", `Saving the release line failed: ${String(error)}`),
+      );
   let loading: Promise<UpdateEngine> | undefined;
   let loaded: UpdateEngine | undefined;
   const load = () =>
     (loading ??= import("./updates.ts")
-      .then(({ electronUpdateEngine }) => electronUpdateEngine(options))
+      .then(({ electronUpdateEngine }) => electronUpdateEngine({ ...options, line }))
       .then((engine) => (loaded = engine ?? unconfigured)));
   const engine: UpdateEngine = {
     get canInstall() {
@@ -80,6 +109,8 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     engine,
     version: options.version,
     enabled,
+    line,
+    buildLine,
     releaseUrl: (version) => `${repositoryUrl}/releases/tag/v${version}`,
     drain: (waiting) => options.drain(updateDrainMs, waiting),
     busy: options.busy,
@@ -87,6 +118,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     quit: options.quit,
     report: options.report,
     log: options.log,
+    now: options.now,
   });
   let schedule: CheckSchedule | undefined;
   return {
@@ -95,10 +127,23 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     apply: () => controller.apply(),
     download: () => controller.download(),
     install: () => controller.install(),
+    remote: (instruction) =>
+      // A build without the feed has nothing to install.
+      enabled ? controller.remote(instruction) : Promise.resolve(controller.current()),
     busy: () => controller.busy(),
+    async setLine(next) {
+      if (next !== line()) await options.saveLine(next);
+      return controller.lineChanged();
+    },
     start() {
       if (enabled && !schedule)
-        schedule = scheduleChecks(controller, options.timers, options.random, options.now);
+        schedule = scheduleChecks(controller, {
+          timers: options.timers,
+          random: options.random,
+          now: options.now,
+          active: options.active,
+          daemonRunning: options.daemonRunning,
+        });
     },
     opened: () => schedule?.opened(),
   };

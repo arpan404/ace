@@ -14,8 +14,8 @@ import { preview } from "./presentation.ts";
  * How a turn that didn't simply complete ended, and the files a turn changed, as the web's
  * transcript draws them (`turn-end.tsx`, `failed-turn.tsx`, `changed-files.tsx`): the person's
  * Stop as a thin "Interrupted by you" break; a restart as "Interrupted · after 3m"; a failure as
- * one "Turn failed · Composer 2.5 · …" row with the provider's own words behind Details; a usage
- * limit pause as the work it did. Pure over the store.
+ * one "Turn failed · Composer 2.5 · …" row with the provider's own words behind Details. A turn a
+ * usage limit paused has no ending row: it reads as a complete turn. Pure over the store.
  */
 
 type EndBlock = Extract<Block, { kind: "end" }>;
@@ -40,7 +40,6 @@ export function endingRow(store: ThreadSource, block: EndBlock) {
     /** A failure the composer's strip already says (a usage or rate limit): no row here. */
     hidden: false,
   };
-  if (block.ending === "paused") return { ...base, label: ran ? `Worked for ${ran}` : "Worked" };
   if (block.ending === "interrupted")
     return {
       ...base,

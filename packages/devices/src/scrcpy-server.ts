@@ -70,6 +70,9 @@ function open(port: number): Promise<Socket> {
     const socket = connect({ host: "127.0.0.1", port, noDelay: true });
     socket.once("connect", () => {
       socket.off("error", reject);
+      // Startup waits on this socket across awaits before the capture listens to it: a reset
+      // (emulator killed, device unplugged) shows as its close, never as an unheard error.
+      socket.on("error", () => {});
       resolve(socket);
     });
     socket.once("error", reject);
@@ -151,9 +154,12 @@ export async function startScrcpyServer(options: {
     server.stdout.on("data", listen);
     server.stderr.on("data", listen);
     let exited = false;
-    void server.exited.then(() => {
-      exited = true;
-    });
+    // `exited` reports the server's exit and does not reject.
+    void server.exited
+      .then(() => {
+        exited = true;
+      })
+      .catch(() => {});
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
     let first: Socket | undefined;

@@ -1,0 +1,59 @@
+[package]
+name = "spade-sandbox"
+version = "0.1.0"
+description = "Spade's OS sandbox for a bot's commands, its credential deny-list and its egress proxy (ADR 0167)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "sync", "time", "rt", "fs"] }
+tracing.workspace = true
+uuid.workspace = true
+spade-sandbox-windows = { path = "../spade-sandbox-windows" }
+
+[target."cfg(unix)".dependencies]
+# Marks the file descriptors a launch inherits close-on-exec, so an offline or read-only run starts
+# with stdio alone (ADR 0171, amendment 4). Its `fcntl` takes a raw descriptor without `unsafe`.
+nix = { version = "0.28", default-features = false, features = ["fs"] }
+
+[target."cfg(target_os = \"linux\")".dependencies]
+# Linux's sandbox (ADR 0167 decision 1): a Landlock ruleset the launcher applies to its sandbox
+# thread, which starts the command.
+landlock = { version = "0.4.7", optional = true }
+# The seccomp filter and its supervisor's notifications. Links the system's libseccomp (2.5 or
+# later; `libseccomp-dev` to build), which every target distribution ships.
+libseccomp = { version = "0.4.0", optional = true }
+# Carving opens each place relative to its folder without following links (`openat`); the
+# supervisor takes a command's socket (`pidfd_getfd`) and connects or binds it; the launcher's
+# limits, `no_new_privs` and reaping; a dedicated pty per command and the terminal changes the
+# supervisor makes on it.
+rustix = { version = "1.1.6", features = [
+  "fs",
+  "net",
+  "process",
+  "pty",
+  "stdio",
+  "termios",
+  "thread",
+], optional = true }
+# The launcher outlives Ctrl-C and passes on SIGTERM and SIGHUP to the command.
+signal-hook = { version = "0.4.6", optional = true }
+
+[features]
+default = ["landlock"]
+# The Linux sandbox: Landlock, the seccomp network filter and its supervisor. Does nothing on
+# other systems.
+landlock = ["dep:landlock", "dep:libseccomp", "dep:rustix", "dep:signal-hook"]
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
+
+[lints]
+workspace = true

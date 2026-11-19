@@ -1,8 +1,11 @@
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { startFilesRelay } from "../files-relay.ts";
+import { isHostedRelay } from "../relay-account.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import { Resources } from "./resources.ts";
+import { relayHttp } from "../relay-http.ts";
+import { lateMediaRelay } from "../media-relay/port.ts";
 /**
  * The relay connects while the daemon starts, before listener-phase services (sign-in, accounts,
  * context) publish. Each service is therefore read from `options` when a channel uses it; copying
@@ -12,10 +15,17 @@ export async function startRelayTransport(
   options: ServerOptions,
   auth: RemoteAuth,
   relay = options.relay,
+  access: {
+    account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
+    onRefused?: (error: import("@ace/relay").RelayRefusedError) => void;
+    onRegistration?: (registered: boolean) => void;
+    /** Gives up the registration, answered or not (`startFilesRelay`). */
+    signal?: AbortSignal;
+    /** This daemon's `ace-client` name (ADR 0189), for ace's own relay. */
+    aceClient?: string;
+  } = {},
 ) {
   if (!relay) return undefined;
-  if (!options.files && !options.threadFiles && !options.context && !options.providerLogin)
-    throw new Error("Relay file service unavailable");
   const host = await startFilesRelay({
     url: relay.url,
     keys: relay.keys,
@@ -34,6 +44,9 @@ export async function startRelayTransport(
     get threadFiles() {
       return options.threadFiles;
     },
+    get filesNative() {
+      return options.filesNative;
+    },
     get appDevices() {
       return options.devices;
     },
@@ -43,8 +56,14 @@ export async function startRelayTransport(
     get screen() {
       return options.screen;
     },
+    get mediaAcceleration() {
+      return options.mediaAcceleration;
+    },
     get canReadThread() {
       return options.canReadThread;
+    },
+    get mediaDelivery() {
+      return options.mediaDelivery;
     },
     get context() {
       return options.context;
@@ -52,11 +71,30 @@ export async function startRelayTransport(
     get warn() {
       return options.warn;
     },
+    get relayMain() {
+      return options.relayMain;
+    },
+    machineCalls: () => options.machineCalls,
+    transfers: () => options.transferTarget,
+    hostedRelay: isHostedRelay(relay.url, options.remoteConfig?.hostedRelayUrl),
     store: options.store,
     auth,
+    account: options.machineAccount,
+    relayAccount: access.account,
+    onRefused: access.onRefused,
+    onRegistration: access.onRegistration,
+    signal: access.signal,
+    aceClient: access.aceClient,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),
+    http: relayHttp({
+      settings: () => options.settings,
+      handler: () => options.outsideMcpHttp,
+      webhooks: () => options.automationWebhooks,
+    }),
+    // Read when a media ticket comes: ace-media's runtime starts after the relay does.
+    media: lateMediaRelay(() => options.mediaDelivery?.()?.relay, { hostKeys: relay.keys }),
   });
   return { relayHostId: host.hostId, close: () => host.close() };
 }
@@ -65,6 +103,9 @@ export async function startLocalTransports(options: ServerOptions) {
   const lifecycle = new ThreadLifecycle(options);
   options.threadLifecycle = lifecycle;
   resources.own(() => lifecycle.close());
+  // Removing a project deletes its threads the way deleting one thread does.
+  const detach = options.projects?.useThreadDeletion((command) => lifecycle.delete(command));
+  if (detach) resources.own(detach);
   try {
     await lifecycle.start();
   } catch (failure) {

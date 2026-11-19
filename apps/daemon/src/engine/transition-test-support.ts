@@ -13,7 +13,7 @@ import {
   type ProviderKind,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
-import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
+import { InputRejected, type ProviderAdapter, type SessionContext } from "@ace/engine-api";
 import { Engine, AdapterRegistry, Store, type EngineOptions } from "@ace/daemon";
 import { ManualClock, scriptFrames } from "./test-support.ts";
 import type { TransitionIO } from "./transitions.ts";
@@ -35,6 +35,7 @@ export function transitionHarness(
     prepareInput?: EngineOptions["prepareInput"];
     onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
+    reopenOnModelChange?: boolean;
     /** The providers advertise steering; false makes every follow-up queue. */
     steer?: boolean;
     /** When the providers' native steer reaches the model; omitted means immediately. */
@@ -71,6 +72,7 @@ export function transitionHarness(
     closed: boolean;
   }[] = [];
   const inputs: {
+    threadId: ThreadId;
     provider: ProviderKind;
     nativeId: string;
     text: string;
@@ -79,6 +81,8 @@ export function transitionHarness(
     delivery: "queue" | "steer";
   }[] = [];
   const held = new Set<ThreadId>();
+  /** How many of the next steers the provider refuses unread. */
+  let refusedSteers = 0;
   const interrupts: { threadId: ThreadId; cascade: boolean }[] = [];
   /** Each request to background the running tools, with how many inputs the provider had by then. */
   const backgroundRequests: { threadId: ThreadId; inputsBefore: number }[] = [];
@@ -179,16 +183,24 @@ export function transitionHarness(
             ? {}
             : {
                 configure: async (selection: ExecutionSelection) => {
+                  if (options.reopenOnModelChange && selection.model !== entry.selection.model)
+                    return "reopen" as const;
                   if (options.configureFails) throw new Error("Provider configuration failed");
                   entry.selection = selection;
                 },
               }),
           async send(parts: ContentPart[], delivery: "queue" | "steer") {
             if (entry.closed) throw new Error("Session is closed");
+            // Refused unread, as a provider whose turn ended under the steer refuses it.
+            if (delivery === "steer" && refusedSteers > 0) {
+              refusedSteers--;
+              throw new InputRejected("No active turn to steer");
+            }
             const text = parts
               .map((part) => (part.type === "text" ? part.text : "attachment"))
               .join("\n");
             inputs.push({
+              threadId: context.threadId,
               provider,
               nativeId,
               text,
@@ -367,6 +379,9 @@ export function transitionHarness(
     emit,
     command,
     internalCommand,
+    refuseNextSteer() {
+      refusedSteers++;
+    },
     create,
     fork,
     finishedRun,

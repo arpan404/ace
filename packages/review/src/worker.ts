@@ -77,10 +77,16 @@ const service = new ReviewService({
 port.on("message", (input: unknown) => {
   const message = WorkerInput.parse(input);
   if (message.type === "close") {
-    void service.close().then(() => {
-      port.postMessage({ type: "closed" });
-      port.close();
-    });
+    // The main thread waits for "closed": a close that failed still answers it.
+    void service
+      .close()
+      .catch(() => {})
+      .then(() => {
+        port.postMessage({ type: "closed" });
+        port.close();
+      })
+      // A post to a parent that is already gone cannot be reported to it.
+      .catch(() => {});
     return;
   }
   if (message.type === "execution") {
@@ -99,5 +105,8 @@ port.on("message", (input: unknown) => {
       return { commandId: message.command.id, ok: false, error: "review_rejected" };
     }
   };
-  void run().then((result) => port.postMessage({ type: "result", key: message.key, result }));
+  void run()
+    .then((result) => port.postMessage({ type: "result", key: message.key, result }))
+    // A reply to a parent that is already gone cannot be reported to it.
+    .catch(() => {});
 });

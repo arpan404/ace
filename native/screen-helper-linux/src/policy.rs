@@ -1,59 +1,20 @@
 use crate::protocol::{Fault, Result};
-use std::time::Duration;
 
-#[derive(Debug, PartialEq)]
-pub enum Backend {
-    X11,
-    Wayland,
-}
-pub fn backend(
-    selection: Option<&str>,
-    wayland: Option<&str>,
-    display: Option<&str>,
-) -> Result<Backend> {
+/// Live view needs a Wayland session: its portals are how the person shares a window and how
+/// their input reaches it. X11 sessions are not supported.
+pub fn wayland_session(wayland: Option<&str>, display: Option<&str>) -> Result<()> {
     let present = |v: Option<&str>| v.is_some_and(|s| !s.is_empty());
-    match selection {
-        Some("x11") if present(display) => Ok(Backend::X11),
-        Some("wayland") if present(wayland) => Ok(Backend::Wayland),
-        None if present(wayland) => Ok(Backend::Wayland),
-        None if present(display) => Ok(Backend::X11),
-        Some(v) if v != "x11" && v != "wayland" => {
-            Err(Fault::new("not_supported", "Unknown display backend"))
-        }
-        _ => Err(Fault::new(
-            "not_supported",
-            "No display session: set DISPLAY or WAYLAND_DISPLAY; headless capture is unavailable",
-        )),
+    if present(wayland) {
+        return Ok(());
     }
-}
-#[derive(Debug)]
-pub struct DamageGate {
-    dirty: bool,
-    deadline: Duration,
-    interval: Duration,
-}
-impl DamageGate {
-    pub fn new(fps: u32) -> Self {
-        Self {
-            dirty: true,
-            deadline: Duration::ZERO,
-            interval: Duration::from_nanos(1_000_000_000 / u64::from(fps.clamp(1, 30))),
-        }
-    }
-    pub fn damage(&mut self) {
-        self.dirty = true;
-    }
-    pub fn wait(&self, now: Duration) -> Option<Duration> {
-        self.dirty.then(|| self.deadline.saturating_sub(now))
-    }
-    pub fn take(&mut self, now: Duration) -> bool {
-        if !self.dirty || now < self.deadline {
-            return false;
-        }
-        self.dirty = false;
-        self.deadline = now + self.interval;
-        true
-    }
+    Err(Fault::new(
+        "not_supported",
+        if present(display) {
+            "This is an X11 session. ace works on Wayland desktops only: log in to a Wayland session"
+        } else {
+            "No display session: WAYLAND_DISPLAY is not set; headless capture is unavailable"
+        },
+    ))
 }
 pub fn point(x: f64, y: f64, width: u32, height: u32) -> Result<(f64, f64)> {
     if !x.is_finite()
@@ -110,10 +71,13 @@ pub const KDE_WATCH_ONLY: &str = "KDE's remote control shares the whole desktop 
 pub const NO_REMOTE_DESKTOP: &str = "This desktop's screen-sharing portal has no remote control (RemoteDesktop; e.g. xdg-desktop-portal-hyprland or -wlr), so ace can show what you share here but can't send it your clicks or keys. Use the app on the desktop itself; agents act through element ids.";
 
 /// GNOME's portal shares the picked window or screen together with input to it. KDE's would
-/// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's and wlroots'
-/// portals have no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
+/// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's portal (like other
+/// portals without it) has no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
 pub fn portal_route(desktop: &str, offer: &PortalOffer) -> PortalRoute {
-    if desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
+    if desktop
+        .split(':')
+        .any(|name| name.eq_ignore_ascii_case("KDE"))
+    {
         PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY)
     } else if offer.remote_desktop.is_none() {
         PortalRoute::ScreenCastOnly(NO_REMOTE_DESKTOP)
@@ -156,14 +120,49 @@ pub fn stream_matches(asked: u32, source_type: Option<u32>) -> bool {
 }
 
 /// A tree request cannot silently switch the approved capture scope.
-pub fn scoped_target(requested: Option<&crate::protocol::Target>, active: Option<&crate::protocol::Target>) -> Result<()> {
+pub fn scoped_target(
+    requested: Option<&crate::protocol::Target>,
+    active: Option<&crate::protocol::Target>,
+) -> Result<()> {
     if requested.is_some() && requested != active {
-        return Err(Fault::new("target_gone", "Tree target differs from active approved target"));
+        return Err(Fault::new(
+            "target_gone",
+            "Tree target differs from active approved target",
+        ));
     }
     Ok(())
 }
-pub fn element_center(element: &crate::accessibility::Bounds, window: &crate::accessibility::Bounds) -> Result<(f64, f64)> {
-    let x = f64::from(element.x) - f64::from(window.x) + f64::from(element.w) / 2.;
-    let y = f64::from(element.y) - f64::from(window.y) + f64::from(element.h) / 2.;
-    point(x, y, window.w.max(0) as u32, window.h.max(0) as u32)
+
+/// Report the effective route and each device granted by the active sharing session.
+pub fn portal_input_requirements(
+    route: PortalRoute,
+    sharing: bool,
+    devices: u32,
+) -> serde_json::Value {
+    let (state, message) = match route {
+        PortalRoute::ScreenCastOnly(reason) => ("n/a", reason),
+        PortalRoute::RemoteDesktop if !sharing => (
+            "prompt",
+            "Grant pointer and keyboard access in the sharing dialog on this Linux machine.",
+        ),
+        PortalRoute::RemoteDesktop if devices & 3 == 3 => (
+            "ready",
+            "The sharing session grants pointer and keyboard input.",
+        ),
+        PortalRoute::RemoteDesktop => (
+            "blocked",
+            "The sharing session did not grant every input device. Share again and allow the missing devices.",
+        ),
+    };
+    let device_state = |bit| match route {
+        PortalRoute::ScreenCastOnly(_) => "n/a",
+        PortalRoute::RemoteDesktop if !sharing => "prompt",
+        PortalRoute::RemoteDesktop if devices & bit != 0 => "ready",
+        PortalRoute::RemoteDesktop => "blocked",
+    };
+    serde_json::json!([
+        {"kind":"remoteDesktopPortal", "state":state, "title":"Remote desktop input", "message":message},
+        {"kind":"portalPointer", "state":device_state(2), "title":"Shared pointer input", "message":"Pointer input requires the pointer grant in the active RemoteDesktop sharing session."},
+        {"kind":"portalKeyboard", "state":device_state(1), "title":"Shared keyboard input", "message":"Keyboard input requires the keyboard grant in the active RemoteDesktop sharing session."}
+    ])
 }

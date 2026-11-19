@@ -1,7 +1,7 @@
 import { latestInstallation } from "@ace/ui-core/acp-registry";
 import { providerDisplayName } from "@ace/ui-core";
 import type { ClientApi } from "@ace/client";
-import { readRegistry, type RegistryView } from "../acp-registry/registry-data.ts";
+import { readRegistry, type RegistryView } from "@ace/ui-core/acp-registry-data";
 import type { ProviderInstall } from "./backend.ts";
 
 /**

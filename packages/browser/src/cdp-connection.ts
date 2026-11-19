@@ -1,3 +1,4 @@
+import { currentHold, dispatched, within } from "./place-guard.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
@@ -72,12 +73,21 @@ export class CdpConnection {
   ): Promise<unknown> {
     if (this.reason) return Promise.reject(new Error(this.reason));
     const timeoutMs = options.timeoutMs ?? this.options.commandTimeoutMs ?? 60_000;
-    return this.slots.run(() => {
-      const next: CdpSend = (name, values, sessionId) =>
-        this.transmit(name, values, sessionId ?? "", timeoutMs, options.signal, true);
-      const send = this.options.intercept?.send?.(next) ?? next;
-      return send(method, params, options.sessionId);
-    }, options.signal);
+    const scope = currentHold();
+    return this.slots.run(
+      () =>
+        within(scope, () => {
+          // Every command of every session of this connection leaves here, with its slot in
+          // hand: a command held to a place checks it right before the write (place-guard.ts).
+          const next: CdpSend = (name, values, sessionId) =>
+            dispatched(name, values, (command, fields) =>
+              this.transmit(command, fields, sessionId ?? "", timeoutMs, options.signal, true),
+            );
+          const send = this.options.intercept?.send?.(next) ?? next;
+          return send(method, params, options.sessionId);
+        }),
+      options.signal,
+    );
   }
   /** A stable command surface for one flattened target session. */
   session(sessionId: string): BrowserCdp {
@@ -127,7 +137,17 @@ export class CdpConnection {
       const detached = Detached.safeParse(params);
       if (detached.success) this.rejectSession(detached.data.sessionId, "Browser target detached");
     }
-    this.emitters.get(sessionId)?.emit(method, params);
+    const events = this.emitters.get(sessionId);
+    if (!events) return;
+    // Delivery runs inside the browser pipe's data event: a listener that throws costs only
+    // its own handling of this event, never the other listeners or the daemon.
+    for (const listener of events.rawListeners(method)) {
+      try {
+        Reflect.apply(listener, events, [params]);
+      } catch {
+        /* Listeners cannot break delivery. */
+      }
+    }
   }
   close(reason: string): void {
     if (this.reason) return;

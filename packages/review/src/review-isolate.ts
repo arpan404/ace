@@ -1,6 +1,7 @@
 // Node worker_threads.postMessage has no browser targetOrigin.
 /* eslint-disable unicorn/require-post-message-target-origin */
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import {
   Command,
@@ -16,6 +17,8 @@ export interface ReviewWorkerOptions {
   gitBinary?: string;
   createWorker?: (url: URL, options: WorkerOptions) => Worker;
   scheduleRecovery?: (callback: () => void, milliseconds: number) => () => void;
+  /** Schedules the isolate's idle retirement; a real unref'd timer by default. */
+  idleDelay?: (callback: () => void, milliseconds: number) => () => void;
 }
 
 export class ReviewIsolate {
@@ -42,7 +45,7 @@ export class ReviewIsolate {
   ) {
     this.onFailure = privateFailure;
     this.persistent = path !== ":memory:";
-    const create = options.createWorker ?? ((url, init) => new Worker(url, init));
+    const create = options.createWorker ?? ((url, init) => startWorker(url, init));
     this.worker = new IdleWorker(
       new URL("./worker.ts", import.meta.url),
       {
@@ -54,11 +57,13 @@ export class ReviewIsolate {
       },
       {
         spawn: create,
-        delay(callback, milliseconds) {
-          const timer = setTimeout(callback, milliseconds);
-          timer.unref();
-          return () => clearTimeout(timer);
-        },
+        delay:
+          options.idleDelay ??
+          ((callback, milliseconds) => {
+            const timer = setTimeout(callback, milliseconds);
+            timer.unref();
+            return () => clearTimeout(timer);
+          }),
       },
     );
     this.worker.on("error", (error) =>
@@ -73,7 +78,8 @@ export class ReviewIsolate {
       const parsed = WorkerOutput.safeParse(input);
       if (!parsed.success) {
         this.fail(new Error("Invalid review worker response"));
-        void this.close();
+        // close() fails every pending request itself; a failed terminate adds nothing to report.
+        void this.close().catch(() => {});
         return;
       }
       const message = parsed.data;

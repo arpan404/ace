@@ -23,7 +23,7 @@ test("an authorized push never executes repo-configured signing even when the re
   await scalar(repo, "config", "user.signingKey", "test-key");
   // Control: the real local receive-pack advertises a nonce, causing unprotected Git to sign.
   await expect(git(repo, "push", "origin", "HEAD")).rejects.toBeDefined();
-  await expect(access(marker)).resolves.toBeUndefined();
+  await expect(access(marker)).resolves.toBeFalsy();
   await rm(marker);
   const service = new GitService({
     transportProtocols: ["file"],

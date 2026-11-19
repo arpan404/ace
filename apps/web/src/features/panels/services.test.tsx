@@ -9,7 +9,7 @@ import { WithServices } from "./with-services.tsx";
 
 function Loaded() {
   const services = usePanelServices();
-  return <output>{services.diffPrefs.get().mode}</output>;
+  return <output>{services.viewed.get().size}</output>;
 }
 
 test("a failed panel code load shows recovery and a later load publishes shared services to mounted panels", async () => {
@@ -39,10 +39,10 @@ test("a failed panel code load shows recovery and a later load publishes shared 
   const retry = screen.getAllByRole("button", { name: "Try again" })[0];
   if (!retry) throw new Error("Missing panel retry");
   fireEvent.click(retry);
-  await waitFor(() => expect(screen.getAllByText("auto")).toHaveLength(2));
+  await waitFor(() => expect(screen.getAllByText("0")).toHaveLength(2));
   const shared = await panelServices(client);
   const second = await panelServices(client);
-  shared.diffPrefs.set(() => ({ mode: "split", wrap: true, tree: false }));
-  expect(second.diffPrefs.get().mode).toBe("split");
+  shared.viewed.set(() => new Map([["thread", new Map([["a.ts", "v1"]])]]));
+  expect(second.viewed.get().size).toBe(1);
   view.unmount();
 });

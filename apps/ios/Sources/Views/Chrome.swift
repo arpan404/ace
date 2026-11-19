@@ -3,25 +3,73 @@ import SwiftUI
 /// The redesign's shared chrome. System glass draws every floating control on iOS 26; iOS 18
 /// gets the regular material with a hairline edge. Content never sits on glass of its own.
 extension View {
-    /// Glass tinted toward the page, so in dark mode it reads as near-black rather than grey.
-    @available(iOS 26, *) static var darkGlass: Glass { .regular.tint(AceTheme.Colours.background.opacity(0.55)) }
-    /// Glass in `shape`. `interactive` lets iOS 26 react to touches (buttons, capsules).
-    @ViewBuilder func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
-        if #available(iOS 26, *) {
-            self.glassEffect(interactive ? Self.darkGlass.interactive() : Self.darkGlass, in: shape)
-        } else {
-            self.background(.regularMaterial, in: shape)
-                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-        }
+    /// Glass in `shape`: the system's own, untinted, so a floating control reads exactly like
+    /// the bar's buttons beside it. `interactive` lets iOS 26 react to touches (buttons, capsules).
+    func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        modifier(SurfaceGlass(shape: shape, composer: false, interactive: interactive))
     }
+    /// The home screen's bar of places (the phone's tab bar, the iPad sidebar's foot): glass that
+    /// carries the page's colour, so the rows scrolling under it stay out of its words.
+    func barGlass<S: Shape>(in shape: S) -> some View {
+        modifier(BarGlass(shape: shape))
+    }
+    /// Liquid glass for the composer: the system's own, untinted, so the transcript scrolling
+    /// behind it shows through as in the system's own apps.
+    @available(iOS 26, *) static var composerLiquidGlass: Glass { .regular.interactive() }
     /// The composer, its strip and the first message's card: glass the transcript scrolls behind
     /// and shows through, softly blurred, like the system's own bars. iOS 18 gets the thin
     /// material with a hairline edge.
-    @ViewBuilder func composerGlass<S: Shape>(in shape: S) -> some View {
-        if #available(iOS 26, *) {
-            self.glassEffect(Self.darkGlass, in: shape)
+    func composerGlass<S: Shape>(in shape: S) -> some View {
+        modifier(SurfaceGlass(shape: shape, composer: true, interactive: true))
+    }
+}
+
+/// System glass, or the solid card colour with a hairline edge when Translucency is off
+/// (Settings › Appearance). iOS's own Reduce Transparency already turns the system's glass solid.
+private struct SurfaceGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let composer: Bool
+    let interactive: Bool
+    @Environment(\.aceSolidSurfaces) private var solid
+    @Environment(\.inGlassBlock) private var inBlock
+
+    func body(content: Content) -> some View {
+        if inBlock {
+            // Inside the composer's glass block: nothing of its own, never glass on glass.
+            content
+        } else if solid {
+            content.background(AceTheme.Colours.card, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        } else if #available(iOS 26, *) {
+            content.glassEffect(composer ? Content.composerLiquidGlass : .regular.interactive(interactive), in: shape)
         } else {
-            self.background(.thinMaterial, in: shape)
+            content.background(composer ? .thinMaterial : .regularMaterial, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        }
+    }
+}
+
+/// `barGlass`: the system's glass tinted with the page colour; the solid card with a hairline
+/// when Translucency is off; the thick material before iOS 26.
+private struct BarGlass<S: Shape>: ViewModifier {
+    let shape: S
+    /// How much of the page colour the glass carries: enough that a row's words behind it fade
+    /// to a shape, not so much that it stops reading as glass.
+    private static var tint: Double { 0.8 }
+    private static var veil: Double { 0.6 }
+    @Environment(\.aceSolidSurfaces) private var solid
+
+    func body(content: Content) -> some View {
+        if solid {
+            content.background(AceTheme.Colours.card, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        } else if #available(iOS 26, *) {
+            // The tint alone lets a dark page's words through; a veil of the page colour under
+            // the bar's glyphs holds them back in both themes.
+            content.background(AceTheme.Colours.background.opacity(Self.veil), in: shape)
+                .glassEffect(.regular.tint(AceTheme.Colours.background.opacity(Self.tint)).interactive(), in: shape)
+        } else {
+            content.background(.thickMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }
@@ -39,13 +87,13 @@ extension View {
 struct GlassIconButton: View {
     let systemImage: String
     let label: String
-    var size: CGFloat = AceTheme.Dimensions.touchTarget
+    var size: CGFloat = AceDesign.Size.tap
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title3.weight(.medium))
+                .font(.system(size: AceDesign.Size.barIcon))
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: size, height: size)
                 .contentShape(Circle())
@@ -67,13 +115,13 @@ struct PillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .aceFont(AceTheme.Typography.label, relativeTo: .body)
-            .fontWeight(.semibold)
+            .fontWeight(AceDesign.Typeface.strong)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(foreground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             .background(background, in: AceShape.capsule)
-            .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : AceTheme.Opacity.disabled(scheme))
+            .opacity(enabled ? (configuration.isPressed ? AceDesign.Ink.pressed : 1) : AceTheme.Opacity.disabled(scheme))
             .contentShape(AceShape.capsule)
     }
     private var foreground: Color {
@@ -114,4 +162,38 @@ enum StatusSymbol {
     }
     /// Words that ask for the person are loud; work in progress recedes.
     static func isLoud(_ token: String) -> Bool { token == "needsYou" || token == "failed" }
+}
+
+/// A section root's native title (DESIGN.md: the system's own): a large title that collapses as
+/// the list scrolls, the scope under it (iOS 26's subtitle) and, where the scope can change, the
+/// system's title menu holding the pickers.
+struct NativeTitle<Menu: View>: ViewModifier {
+    let title: String
+    let subtitle: String?
+    /// Whether the title opens a menu: one machine with one project needs none.
+    var hasMenu = true
+    @ViewBuilder let menu: () -> Menu
+    func body(content: Content) -> some View {
+        let titled = content
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+        let menued = Group {
+            if hasMenu { titled.toolbarTitleMenu { menu() } } else { titled }
+        }
+        if #available(iOS 26, *), let subtitle, !subtitle.isEmpty {
+            menued.navigationSubtitle(subtitle)
+        } else {
+            menued
+        }
+    }
+}
+
+extension View {
+    func nativeTitle<Menu: View>(_ title: String, subtitle: String? = nil, hasMenu: Bool = true,
+                                 @ViewBuilder menu: @escaping () -> Menu) -> some View {
+        modifier(NativeTitle(title: title, subtitle: subtitle, hasMenu: hasMenu, menu: menu))
+    }
+    func nativeTitle(_ title: String, subtitle: String? = nil) -> some View {
+        modifier(NativeTitle(title: title, subtitle: subtitle, hasMenu: false) { EmptyView() })
+    }
 }

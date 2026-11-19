@@ -6,12 +6,15 @@ struct GlassChoiceItem: Identifiable, Equatable {
     let id: String
     let label: String
     var glyph: Glyph? = nil
+    /// What VoiceOver reads instead of `label` ("Effort, Medium"), and after it ("default").
+    var spoken: String? = nil
+    var spokenValue: String? = nil
 }
 
 /// Exclusive choices in words on one glass capsule (system glass on iOS 26, the regular material
 /// on iOS 18): the chosen one sits on a flat thumb that springs across as the choice moves, as
 /// DESIGN.md's segmented control does. It scrolls sideways when the words don't fit. The model
-/// sheet's tabs and its Effort, Speed and Access use it.
+/// sheet's Effort and Speed and the skill editors use it.
 struct GlassChoice: View {
     let items: [GlassChoiceItem]
     let selection: String?
@@ -28,7 +31,9 @@ struct GlassChoice: View {
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     ForEach(items) { item in segment(item).id(item.id) }
                 }
-                .padding(AceTheme.Spacing.xxs + 1)
+                // Only the thumb slides; the choice it makes takes effect at once.
+                .animation(.default, value: selection)
+                .padding(AceDesign.Space.tight)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .modifier(GlassTrack(interactive: !disabled))
@@ -36,34 +41,34 @@ struct GlassChoice: View {
             .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
             .onAppear { if let selection { scroller.scrollTo(selection, anchor: .center) } }
             .onChange(of: selection) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo(id, anchor: .center) } }
+                if let id { withAnimation { scroller.scrollTo(id, anchor: .center) } }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 
     /// A lifted white thumb in light; in dark, a lighter wash of the ink so it reads on the bar.
-    private var thumbFill: Color { scheme == .dark ? AceTheme.Colours.foreground.opacity(0.16) : AceTheme.Colours.glass }
+    private var thumbFill: Color { AceDesign.Surface.chosen(scheme) }
 
     private func segment(_ item: GlassChoiceItem) -> some View {
         let on = item.id == selection
         return Button {
             guard !on, !disabled else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { select(item.id) }
+            select(item.id)
         } label: {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 switch item.glyph {
-                case .provider(let provider, let quiet)?: ProviderMark(provider: provider, size: 16, quiet: quiet)
-                case .symbol(let name)?: Image(systemName: name).font(.system(size: 13, weight: .semibold))
+                case .provider(let provider, let quiet)?: ProviderMark(provider: provider, size: AceDesign.Size.icon, quiet: quiet)
+                case .symbol(let name)?: Image(systemName: name).font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
                 case nil: EmptyView()
                 }
                 Text(item.label).lineLimit(1)
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .fontWeight(on ? .semibold : .medium)
+            .fontWeight(on ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(on ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: 34)
+            .frame(minHeight: AceDesign.Size.pill)
             .background {
                 if on { AceShape.capsule.fill(thumbFill).matchedGeometryEffect(id: "thumb", in: thumb) }
             }
@@ -71,7 +76,8 @@ struct GlassChoice: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .accessibilityLabel(item.label)
+        .accessibilityLabel(item.spoken ?? item.label)
+        .accessibilityValue(item.spokenValue ?? "")
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("\(idPrefix).\(item.id)")
         .sensoryFeedback(.selection, trigger: on)
@@ -82,8 +88,9 @@ struct GlassChoice: View {
 /// shows on a plain sheet and the lifted thumb reads on it; iOS 18 gets the regular material.
 private struct GlassTrack: ViewModifier {
     let interactive: Bool
+    @Environment(\.aceSolidSurfaces) private var solid
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
+        if #available(iOS 26, *), !solid {
             content.background(AceTheme.Colours.fill, in: AceShape.capsule)
                 .glassEffect(.regular.interactive(interactive), in: AceShape.capsule)
         } else {

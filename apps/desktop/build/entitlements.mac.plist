@@ -5,8 +5,8 @@
   <!-- V8 needs JIT under the hardened runtime. -->
   <key>com.apple.security.cs.allow-jit</key><true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-  <!-- The daemon (on the bundled Node runtime, which inherits these) loads node-pty, koffi
-       and descriptor.node, and koffi opens system libraries; their signatures can differ
+  <!-- The daemon (on the bundled Bun runtime, which inherits these) loads descriptor.node and
+       other native addons, and bun:ffi opens system libraries; their signatures can differ
        from the app's team. -->
   <key>com.apple.security.cs.disable-library-validation</key><true/>
 </dict>

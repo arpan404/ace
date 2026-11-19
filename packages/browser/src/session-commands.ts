@@ -1,3 +1,4 @@
+import type { AgentPointerKind } from "@ace/protocol";
 import { z } from "zod";
 import { pageHistory, traverseHistory, findPageText } from "./page-navigation.ts";
 import {
@@ -32,6 +33,8 @@ import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
+
+const TextResult = z.object({ result: z.object({ value: z.string().max(65536) }) });
 /** The largest screenshot a person's request gets back inline (base64), besides the file. */
 const inlineScreenshotBytes = 3 * 1024 * 1024;
 /** Commands that act on one tab; tab structure, downloads and extensions belong to the thread. */
@@ -83,7 +86,7 @@ interface CommandContext {
   /** The person used the tab within `quietMs`: an agent's multi-step input stops. */
   personBusy?(): boolean;
   /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
-  point?(point: { x: number; y: number }): void;
+  point?(point: { x: number; y: number }, kind?: AgentPointerKind): void;
   /**
    * The agent's cursor in the page, while one is drawn; each resolves once the cursor has
    * landed, so the input that follows happens under it.
@@ -133,8 +136,13 @@ export async function executeBrowserCommand(
           clock: context.options.navigationClock,
           id,
           read: context.read,
+          // Every repetition's input is held to the place the caller checked, as well as timed:
+          // a first Enter that navigates never lets a later one act on the new page.
           input: (interaction, measurementSignal, beforeInput) =>
-            context.run(tabCommand(interaction), actor, measurementSignal, generation, beforeInput),
+            context.run(tabCommand(interaction), actor, measurementSignal, generation, () => {
+              context.beforeInput?.();
+              beforeInput?.();
+            }),
         },
         signal,
       );
@@ -147,8 +155,7 @@ export async function executeBrowserCommand(
       });
       context.read();
       return {
-        text: z.object({ result: z.object({ value: z.string().max(65536) }) }).parse(result).result
-          .value,
+        text: TextResult.parse(result).result.value,
       };
     }
     case "navigation_history":
@@ -158,7 +165,11 @@ export async function executeBrowserCommand(
       return traverseHistory(
         cdp,
         command.direction,
-        () => context.check(actor, signal, generation),
+        // Checked after the history is read, right before the move: the actor and the place.
+        () => {
+          context.check(actor, signal, generation);
+          context.beforeInput?.();
+        },
         context.options.navigationClock,
       );
     case "find_text":
@@ -271,6 +282,7 @@ export async function executeBrowserCommand(
     }
     case "dialog":
       context.check(actor, signal, generation);
+      context.beforeInput?.();
       await context.answer(command.dialogId, command.accept, command.promptText);
       return { ok: true };
     case "upload": {
@@ -292,17 +304,20 @@ export async function executeBrowserCommand(
           : {}),
       });
       dispatch.send();
+      context.beforeInput?.();
       await context.refs.upload(command.ref, files, dispatch.prepare);
       return { ok: true };
     }
     case "focus": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
+      context.beforeInput?.();
       await context.refs.focus(command.ref, dispatch.prepare);
       dispatch.send();
       return { ok: true };
     }
     case "select": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
+      context.beforeInput?.();
       await context.refs.choose(command.ref, command.values, dispatch.prepare);
       dispatch.send();
       return { ok: true };
@@ -311,8 +326,9 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const { point } = await context.refs.target(command.ref, dispatch.prepare);
       dispatch.send();
-      context.point?.(point);
+      context.point?.(point, "move");
       await context.cursor?.point(point);
+      context.beforeInput?.();
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
     }
@@ -322,7 +338,7 @@ export async function executeBrowserCommand(
       const document = context.refs.documentGuard();
       const start = (await context.refs.target(command.ref, from.prepare)).point,
         end = (await context.refs.target(command.toRef, to.prepare)).point;
-      context.point?.(end);
+      context.point?.(end, "drag");
       await context.cursor?.drag(start, end);
       await dragRefs(
         cdp,
@@ -332,7 +348,7 @@ export async function executeBrowserCommand(
           from.send();
           to.send();
           // The person came back mid-drag: the agent lets go rather than drag across them.
-          if (context.personBusy?.()) throw new BrowserActionError("human_active");
+          if (context.personBusy?.()) throw new BrowserActionError("person_busy");
         },
         () => {
           context.check(actor, undefined, generation);
@@ -351,6 +367,7 @@ export async function executeBrowserCommand(
         dispatch.send();
         context.point?.(point);
         await context.cursor?.point(point, true);
+        context.beforeInput?.();
         await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
@@ -517,6 +534,7 @@ export async function executeBrowserCommand(
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();
+      context.beforeInput?.();
       // The person's own browser keeps its cookies and storage from agents unless they allow it.
       if (
         actor.kind === "agent" &&

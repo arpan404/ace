@@ -15,6 +15,7 @@ import {
   cleanups as remoteCleanups,
 } from "./remote-test-support.ts";
 import { startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -68,6 +69,7 @@ it("serves binary files on the authenticated daemon socket alongside normal comm
   await mkdir(root);
   await writeFile(join(root, "binary"), Buffer.from([0, 255, 17]));
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       workspaceRoot: root,
@@ -109,6 +111,7 @@ it("rejects file requests before authentication", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-files-auth-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: home,
       workspaceRoot: home,

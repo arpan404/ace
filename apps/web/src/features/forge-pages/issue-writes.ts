@@ -1,3 +1,5 @@
+import { can, type ForgeCapabilitySource } from "@ace/ui-core";
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
@@ -13,12 +15,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import { failureCode } from "@/lib/forge-read.ts";
+import { inboxKey } from "./inbox-data.ts";
+import { freshenIssueLists } from "./issue-freshen.ts";
 
 const titles: Record<ForgeIssueWrite["action"], string> = {
   create: "Couldn't create the issue",
   comment: "Couldn't post the comment",
   edit: "Couldn't save the issue",
   state: "Couldn't change the issue",
+  labels: "Couldn't change the labels",
+  assignees: "Couldn't change the assignees",
+  milestone: "Couldn't change the milestone",
 };
 
 /** A write the daemon dispatched without hearing back: it may have landed, and is never resent. */
@@ -27,15 +34,33 @@ const uncertain = new Set(["action_outcome_uncertain", "forge_write_uncertain"])
 /**
  * Issue writes through the user's own `gh`: create, comment, edit, close and reopen. Each one
  * has its own command id, which the daemon journals, so a write whose answer was lost is checked
- * against GitHub (`reconcile`) instead of being sent twice. Lists and the issue read again after.
+ * against GitHub (`reconcile`) instead of being sent twice. After each, the issue reads again,
+ * and every list, the Inbox and the sidebar's open issues are brought up to date with it.
  */
-export function useIssueWrites(project: string, repository: ForgeRepository | undefined) {
+export function useIssueWrites(
+  project: string,
+  repository: ForgeRepository | undefined,
+  declaration?: ForgeCapabilitySource,
+) {
   const client = useClient();
   const cache = useQueryClient();
   const toast = useToast();
-  const ready = useConnectionState() === "ready";
+  const connected = useConnectionState() === "ready";
+  const source = useRepositoryCapabilities(project, repository);
+  const ready =
+    connected &&
+    can(declaration?.capabilities !== undefined ? declaration : source, "issues.write");
   const [pending, setPending] = useState(false);
-  const refresh = () => cache.invalidateQueries({ queryKey: ["forge", project, "browse"] });
+  const refresh = async () => {
+    // The issue's own read lands first (it's on screen), then lists take its word for it.
+    await cache.invalidateQueries({ queryKey: ["forge", project, "browse"] });
+    freshenIssueLists(cache, project);
+    await Promise.all(
+      [inboxKey(project), ["forge", project, "openIssues"], ["forge", project, "openWork"]].map(
+        (queryKey) => cache.invalidateQueries({ queryKey }),
+      ),
+    );
+  };
   const reconcile = async (actionId: string): Promise<ForgeIssueAction | undefined> => {
     if (!repository) return undefined;
     try {
@@ -76,6 +101,11 @@ export function useIssueWrites(project: string, repository: ForgeRepository | un
             children: "Check GitHub",
             onClick: () => void reconcile(id).catch(() => {}),
           },
+        });
+      else if (code === "forge_conflict")
+        toast.error({
+          title: "Someone else changed it first",
+          description: "The issue now shows their change. Yours is kept here to save again.",
         });
       else toast.error({ title: titles[input.action], description: actionErrorText(code) });
       return undefined;

@@ -19,6 +19,8 @@ import {
   selectionInputs,
   choiceSelection,
   switchUnsupportedNote,
+  continuationAttachmentProblem,
+  continuationNote,
   threadSwitchRoute,
   threadForkSwitchRoute,
   threadAccessSummary,
@@ -49,7 +51,7 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
-import { continuationAttachmentProblem, continuationNote } from "./continue-in-thread.ts";
+import { useCarryOn } from "./use-carry-on.ts";
 import { readDraft } from "./draft-store.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
@@ -152,6 +154,16 @@ export function ThreadModelControl(props: {
     threadId: ThreadId.parse(props.thread.id),
   });
   const moving = useModelSwitch(props.thread, meta, choices);
+  // Held by a usage limit, a pick with room carries the held work on there at once.
+  const { carryOn } = useCarryOn(props.thread.id);
+  const limitHeld =
+    meta?.status.state === "limited" ||
+    (meta?.queue?.paused === true && meta.queue.reason === "limit");
+  // Held by a usage limit, a model with room that the thread can move to in place carries the
+  // held work on there in one pick: no confirmation, whatever the fork preference says; another
+  // provider gets the usual context handoff.
+  const carries = (choice: ModelChoice) =>
+    limitHeld && !choice.exhausted && !!meta && threadSwitchRoute(meta, choice) === "in_place";
   const online = useConnectionState() === "ready";
   const { selection, unavailable } = useThreadModelAvailability(props.thread.id);
   const current = currentModelChoice(choices, selection);
@@ -166,24 +178,31 @@ export function ThreadModelControl(props: {
     setKnown({ key: selectionKey, choice: current });
   const remembered = known?.key === selectionKey ? known.choice : undefined;
   const shown = current ?? (online ? undefined : remembered) ?? recordedChoice(selection);
-  const tuning = threadTuning({ thread: meta, choice: shown, pending });
-  const { base, options, preset, effort, speed } = tuning;
+  const continuedTo = props.continued?.choice;
+  // What the chip names: a new thread's model, the switch just chosen here, else what the thread
+  // runs on next. Tune against the target, so a pending switch to another provider lists the new
+  // model's own levels at its default instead of the old model's thinking.
+  const target = continuedTo ?? moving.chosen ?? shown;
+  const tuning = threadTuning({ thread: meta, choice: target ?? shown, pending });
+  const { options, preset, effort, speed } = tuning;
   const pick = (next: ExecutionOptions | undefined) =>
     props.next.onChange(next && { identity: selectionKey, options: next });
   // The thread moved since effort or speed was picked: keep what its model still takes.
+  // Reconcile against what it runs on now (`shown`), not a switch target picked here.
   const stale = props.next.pending?.identity !== selectionKey ? props.next.pending : undefined;
   const catalogued = current !== undefined;
   const reconciled = useRef<PendingTurn>(undefined);
   useEffect(() => {
     if (!stale || !shown || !catalogued || reconciled.current === stale) return;
     reconciled.current = stale;
+    const actual = threadTuning({ thread: meta, choice: shown, pending: undefined });
     const { options: kept, dropped } = reconcileNextOptions({
-      base,
+      base: actual.base,
       pending: stale.options,
       efforts: shown.efforts,
-      effortAllowed: effort.reason === undefined,
+      effortAllowed: actual.effort.reason === undefined,
       speeds: shown.speeds,
-      speedAllowed: speed.reason === undefined,
+      speedAllowed: actual.speed.reason === undefined,
     });
     props.next.onChange(kept && { identity: selectionKey, options: kept });
     if (dropped.length)
@@ -192,7 +211,6 @@ export function ThreadModelControl(props: {
         description: "What you picked doesn't apply to the model the thread runs on now.",
       });
   });
-  const continuedTo = props.continued?.choice;
   const { storage } = useLayout();
   const catalogModels = useModelCatalog();
   // Files in the message being written that the new thread's model can't take, said in the
@@ -211,18 +229,24 @@ export function ThreadModelControl(props: {
   const switchTo = (choice: ModelChoice) => {
     setAsking(undefined);
     props.continued?.onChange(undefined);
-    // The chip shows the new model at once. Effort and speed picked for the old one stay until
-    // the switch lands; then they're checked against the new model (a refused switch takes the
-    // choice back and keeps them as they were).
+    if (carries(choice)) {
+      const provider = providerNames[choice.provider];
+      return carryOn({
+        name: choice.account ? `${provider} · ${accountDisplayName(choice.account)}` : provider,
+        model: choice.model,
+        selection: choiceSelection(choice),
+      });
+    }
+    // The chip and its Tune pane switch to the new model at once; a refused switch takes the
+    // choice back. Effort and speed picked for the old model stay held until the switch lands,
+    // then they're checked against the new model.
     moving
       .switchTo(choice)
       .catch((error: unknown) =>
         toast.error({ title: "Couldn't switch the model", description: failureMessage(error) }),
       );
   };
-  // What the chip names: a new thread's model, the switch just chosen here, else what the thread
-  // runs on next.
-  const target = continuedTo ?? moving.chosen ?? shown;
+  // The chip already names the switch target; the controls below tune it.
   const account = target?.account ? accountDisplayName(target.account) : undefined;
   const details = {
     model: target?.model ?? "",
@@ -268,6 +292,8 @@ export function ThreadModelControl(props: {
   const view: ModelControlView = {
     unavailable: unavailable && unavailableModelNotice(unavailable),
     pickerRequest: props.pickerRequest,
+    // Held by a limit, the chip's job is another model: it opens on the list, not effort.
+    listFirst: limitHeld,
     tuneRequest: props.tuneRequest,
     provider: target?.provider,
     label: target?.model,
@@ -283,6 +309,7 @@ export function ThreadModelControl(props: {
           .join(" · ")
       : "Choose a model",
     switching: switchWaits,
+    switchError: meta?.switch?.state === "failed" ? meta.switch.error : undefined,
     offline: online ? undefined : offlineNote,
     modelKey: target?.key,
     instance: target?.accountId || undefined,
@@ -295,9 +322,9 @@ export function ThreadModelControl(props: {
     speed: speed.speed,
     speedReason: speed.reason,
     canReset: optionEffort(options) !== undefined && optionEffort(options) !== preset,
-    accounts: shown?.account
+    accounts: target?.account
       ? choices
-          .filter((choice) => choice.key === shown.key && choice.account)
+          .filter((choice) => choice.key === target.key && choice.account)
           .map((choice) => ({
             id: choice.id,
             label: accountDisplayName(choice.account),
@@ -326,6 +353,10 @@ export function ThreadModelControl(props: {
             const from = continuedTo ?? moving.chosen ?? current;
             const choice = choiceForModel(choices, key, instance ?? from?.accountId);
             if (!choice || choice.id === from?.id) return true;
+            if (carries(choice)) {
+              switchTo(choice);
+              return false;
+            }
             const route = routeOf(choice);
             if (route === "unsupported") return false;
             // Back to what the thread runs on: the new thread is no longer wanted.
@@ -345,6 +376,7 @@ export function ThreadModelControl(props: {
             const choice = choices.find((candidate) => candidate.id === id);
             if (!choice) return;
             if (continuedTo && choice.id === current?.id) props.continued?.onChange(undefined);
+            else if (carries(choice)) switchTo(choice);
             else if (routeOf(choice) === "new_thread") setAsking({ choice, route: "new_thread" });
             else switchTo(choice);
           },

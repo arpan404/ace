@@ -15,6 +15,8 @@ import type {
 } from "@ace/protocol";
 import type { ServiceWire } from "./wire-codec.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
+import { subscribeLockedUse } from "./locked-use-subscription.ts";
+import type { RetryTimers } from "./settings-subscription.ts";
 
 export type { RegistryQuery } from "./api.ts";
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
@@ -97,6 +99,27 @@ export class Client extends ClientCore implements ClientApi {
       (wire) => wire.SettingsResult.parse,
       options,
     );
+  }
+  /** Follow this Mac's locked computer use state; `stop()` ends it. */
+  lockedUseSubscribe(
+    subscriptionId: string,
+    receive: (status: import("@ace/protocol").LockedUseStatus) => void,
+    failed: () => void,
+    timers: RetryTimers,
+  ) {
+    return subscribeLockedUse(this, subscriptionId, receive, failed, timers);
+  }
+  /** Install the locked computer use component (admin). Resolves with `lockedUse.result`. */
+  lockedUseInstall(options: RequestOptions = {}) {
+    return this.request({ type: "lockedUse.install" }, options);
+  }
+  /** Remove the locked computer use component (admin). */
+  lockedUseRemove(options: RequestOptions = {}) {
+    return this.request({ type: "lockedUse.remove" }, options);
+  }
+  /** Reinstall a drifted or failed locked computer use component (admin). */
+  lockedUseRepair(options: RequestOptions = {}) {
+    return this.request({ type: "lockedUse.repair" }, options);
   }
   queuePage(
     payload: { threadId: string; after?: string; expectedRevision?: number; limit?: number },

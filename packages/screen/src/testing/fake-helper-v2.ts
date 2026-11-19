@@ -16,6 +16,25 @@ const nativeReplies = process.env.NATIVE_UI_REPLIES
       .object({ tree: z.unknown(), find: z.unknown() })
       .parse(JSON.parse(await readFile(process.env.NATIVE_UI_REPLIES, "utf8")))
   : undefined;
+/** Windows only: one or two windows owned by an executable-path bundle id. */
+function windowsTargets(bundleId: string) {
+  const second = process.env.MULTIPLE_WINDOWS === "1";
+  return {
+    windows: [
+      { windowId: 1, bundleId, title: `${process.pid}:${active}` },
+      ...(second ? [{ windowId: 2, bundleId, title: "Second window" }] : []),
+    ],
+    displays: [],
+  };
+}
+const interactiveDesktopRequirements = [
+  {
+    kind: "interactiveDesktop",
+    state: "ready",
+    title: "Interactive Windows desktop",
+    message: "The helper can access the interactive input desktop.",
+  },
+];
 let socket: Socket | undefined;
 await rm(endpoint.slice(5), { force: true });
 const server = createServer((client) => {
@@ -104,9 +123,21 @@ lines.on("line", (line) => {
       };
       break;
     case "permissions":
-      data = { screen: "n/a", input: "granted" };
+      // Same shape as the real Windows helper's reply (inspection.rs `permissions`).
+      data = {
+        platform: "win32",
+        screen: "n/a",
+        input: "granted",
+        screenRecording: true,
+        accessibility: true,
+        requirements: interactiveDesktopRequirements,
+      };
       break;
     case "targets":
+      if (process.platform === "win32" && process.env.TARGET_BUNDLE) {
+        data = windowsTargets(process.env.TARGET_BUNDLE);
+        break;
+      }
       data = {
         windows: [{ windowId: 1, bundleId: "dev.ace.test", title: `${process.pid}:${active}` }],
         displays: [],

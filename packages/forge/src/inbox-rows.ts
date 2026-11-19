@@ -118,15 +118,14 @@ export function pollSeconds(header: string | undefined): number {
   return Number.isInteger(value) && value >= 1 ? Math.min(value, 3_600) : 60;
 }
 
+const SubjectStateNode = z.looseObject({
+  __typename: z.string(),
+  state: z.string(),
+  isDraft: z.boolean().optional(),
+});
 /** A pull request's or issue's state as the GraphQL API says it. */
 export function subjectState(node: unknown): ForgeInboxSubjectState | undefined {
-  const parsed = z
-    .looseObject({
-      __typename: z.string(),
-      state: z.string(),
-      isDraft: z.boolean().optional(),
-    })
-    .safeParse(node);
+  const parsed = SubjectStateNode.safeParse(node);
   if (!parsed.success) return undefined;
   const { __typename, state, isDraft } = parsed.data;
   if (__typename === "PullRequest") {

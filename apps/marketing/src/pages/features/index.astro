@@ -1,0 +1,138 @@
+---
+import Closing from "../../components/Closing.astro";
+import Icon from "../../components/Icon.astro";
+import FeatureStory from "../../components/features/FeatureStory.astro";
+import PageIntro from "../../components/site/PageIntro.astro";
+import { features } from "../../content/features.ts";
+import { partGroups } from "../../content/parts.ts";
+import Page from "../../layouts/Page.astro";
+import { tourStory } from "../../scripts/feature-tour.ts";
+import { featuresMeta } from "../../seo/meta.ts";
+import { itemList, schemaFor } from "../../seo/schema.ts";
+
+const path = "/features/";
+const schema = schemaFor(Astro.site);
+const list = itemList(
+  schema,
+  features.map((feature) => ({ name: feature.name, path: `/features/${feature.slug}/` })),
+);
+const tour = tourStory(features, "Every feature of ace");
+// The parts of ace the ten features above don't already tell, for the list after the tour.
+const rest = partGroups.flatMap((group) =>
+  group.parts.filter((part) => !part.href?.startsWith("/features/")),
+);
+---
+
+<Page
+  path={path}
+  title={featuresMeta.title}
+  description={featuresMeta.description}
+  pageType="CollectionPage"
+  schema={[list]}
+>
+  <PageIntro
+    headline="Everything your agents need beyond the terminal"
+    intro="ace gives every coding agent the same powers, whichever CLI runs it: your desktop apps, a real browser, phone simulators, other machines, and a status you can trust."
+    secondary={{ href: "/agents/", label: "Supported agents" }}
+  />
+  <FeatureStory tour={tour} index="Features" />
+
+  <section class="section page rest">
+    <header class="head reveal">
+      <h2 class="section-title">And the rest of ace.</h2>
+      <p class="lede">The parts every thread has, beyond the ten above.</p>
+    </header>
+    <ul class="card reveal">
+      {
+        rest.map((part) => {
+          const text = (
+            <>
+              <span class="name">
+                {part.name}
+                {part.beta && <span class="beta">Beta</span>}
+                {part.href && <Icon name="arrow-right" size={15} />}
+              </span>
+              <span class="body">{part.body}</span>
+            </>
+          );
+          return <li>{part.href ? <a href={part.href}>{text}</a> : <div>{text}</div>}</li>;
+        })
+      }
+    </ul>
+  </section>
+  <Closing />
+</Page>
+
+<style>
+  .rest {
+    display: grid;
+    gap: 24px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .rest {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    }
+
+    .head {
+      position: sticky;
+      top: 96px;
+    }
+  }
+
+  /* Flat rows ruled with hairlines, as the app rules a list. */
+  ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li > * {
+    display: grid;
+    gap: 3px;
+    padding: 14px 14px 15px;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  li > a:hover {
+    background: var(--wash);
+  }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .name :global(svg) {
+    margin-left: auto;
+    color: var(--faint);
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover .name :global(svg) {
+    color: var(--foreground);
+  }
+
+  .beta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--subtle);
+  }
+
+  .body {
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>

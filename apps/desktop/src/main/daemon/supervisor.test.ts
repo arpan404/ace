@@ -1,135 +1,36 @@
 import { describe, expect, it } from "vitest";
-import type { DaemonStatus } from "../../shared/contract.ts";
-import type { LocalDaemon } from "./probe.ts";
-import {
-  DaemonSupervisor,
-  incompatibleDataMessage,
-  newerDataMessage,
-  type DaemonProcess,
-  type SupervisorPorts,
-} from "./supervisor.ts";
-
-const local: LocalDaemon = {
-  origin: "http://127.0.0.1:4242",
-  url: "ws://127.0.0.1:4242/",
-  token: "a".repeat(64),
-};
-
-/** A fake machine: a clock with timers, a process table and a daemon that may answer. */
-function machine() {
-  let now = 0;
-  const timers: { at: number; callback: () => void; cancelled: boolean }[] = [];
-  const children: FakeChild[] = [];
-  const signals: string[] = [];
-  const log: { level: string; message: string; data?: Record<string, unknown> }[] = [];
-  const state = {
-    answering: false,
-    healthy: true,
-    external: false,
-    blockers: 0,
-    maintenance: false,
-    admissionAvailable: true,
-    /** How long the daemon takes to answer a health check (a busy event loop). */
-    healthDelayMs: 0,
-    /** A hung daemon: health requests get no answer and fail at their own timeout. */
-    hung: false,
-    /** Ignores SIGTERM, as a hung daemon does. */
-    ignoresSigterm: false,
-    /** Exits this long after SIGTERM, as a daemon finishing its shutdown does. */
-    sigtermExitMs: 0,
-  };
-  const later = (delayMs: number, callback: () => void) => ports.timers.set(delayMs, callback);
-  class FakeChild implements DaemonProcess {
-    exit:
-      | ((code: number | null, signal: NodeJS.Signals | null, error?: string) => void)
-      | undefined;
-    alive = true;
-    /** A process that never started: signals do nothing and no exit ever follows. */
-    unstarted = false;
-    kill(signal: NodeJS.Signals) {
-      signals.push(signal);
-      if (this.unstarted) return;
-      if (signal === "SIGKILL") this.die(null, signal);
-      else if (!state.healthy || state.ignoresSigterm) return;
-      else if (state.sigtermExitMs) later(state.sigtermExitMs, () => this.die(0));
-      else this.die(null, signal);
-    }
-    onExit(listener: (code: number | null, signal: NodeJS.Signals | null, error?: string) => void) {
-      this.exit = listener;
-    }
-    /** Node's `error` for a binary that could not be executed (ENOENT, EACCES). */
-    failToStart(message: string) {
-      this.unstarted = true;
-      this.alive = false;
-      this.exit?.(null, null, message);
-    }
-    die(code: number | null, signal: NodeJS.Signals | null = null) {
-      if (!this.alive) return;
-      this.alive = false;
-      state.answering = state.external;
-      this.exit?.(code, signal);
-    }
-  }
-  const ports: SupervisorPorts = {
-    spawn() {
-      const child = new FakeChild();
-      children.push(child);
-      return child;
-    },
-    find: async () => (state.answering ? local : undefined),
-    healthy: (_daemon, timeoutMs) =>
-      new Promise((resolve) => {
-        if (state.hung) later(timeoutMs, () => resolve(false));
-        else if (state.healthDelayMs)
-          later(state.healthDelayMs, () => resolve(state.answering && state.healthy));
-        else resolve(state.answering && state.healthy);
-      }),
-    setMaintenance: async (_daemon, on) => {
-      state.maintenance = on;
-      return state.blockers;
-    },
-    blockers: async () => state.blockers,
-    maintenance: async () => {
-      if (!state.admissionAvailable) throw new Error("Admission request timed out");
-      return { draining: state.maintenance };
-    },
-    timers: {
-      set(delayMs, callback) {
-        const timer = { at: now + delayMs, callback, cancelled: false };
-        timers.push(timer);
-        return () => {
-          timer.cancelled = true;
-        };
-      },
-    },
-    now: () => now,
-    log: (level, message, data) => log.push({ level, message, ...(data ? { data } : {}) }),
-  };
-  async function advance(ms: number) {
-    const until = now + ms;
-    for (;;) {
-      await new Promise((resolve) => setImmediate(resolve));
-      const next = timers
-        .filter((timer) => !timer.cancelled && timer.at <= until)
-        .toSorted((a, b) => a.at - b.at)[0];
-      if (!next) break;
-      next.cancelled = true;
-      now = next.at;
-      next.callback();
-    }
-    now = until;
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  return { ports, state, children, signals, log, advance };
-}
-
-function track(supervisor: DaemonSupervisor): DaemonStatus[] {
-  const seen: DaemonStatus[] = [];
-  supervisor.onStatus((status) => seen.push(status));
-  return seen;
-}
+import { DaemonSupervisor, incompatibleDataMessage, newerDataMessage } from "./supervisor.ts";
+import { local, machine, track } from "./supervisor-test-support.ts";
 
 describe("daemon supervisor", () => {
+  it("adopts a daemon that already runs without waiting for the login shell's PATH", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    // The login shell never answers.
+    m.ports.prepareSpawn = () => new Promise(() => {});
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "external" });
+    expect(m.children).toHaveLength(0);
+  });
+
+  it("spawns its own daemon only once the login shell's PATH is known", async () => {
+    const m = machine();
+    const path = Promise.withResolvers<void>();
+    m.ports.prepareSpawn = () => path.promise;
+    const supervisor = new DaemonSupervisor(m.ports);
+    const starting = supervisor.start();
+    await m.advance(1_000);
+    expect(m.children).toHaveLength(0);
+    path.resolve();
+    await starting;
+    expect(m.children).toHaveLength(1);
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+  });
+
   it.each(["external", "app"] as const)(
     "recovers %s readiness after a transient admission timeout and resumes health monitoring",
     async (source) => {
@@ -209,11 +110,23 @@ describe("daemon supervisor", () => {
     const draining = supervisor.drain(5000);
     await m.advance(6000);
     expect(await draining).toBe(false);
+    // The drain lets go of its own hold; the person's pause was never touched.
+    expect(m.state.updateHold).toBe(false);
     expect(m.state.maintenance).toBe(true);
     expect(supervisor.current().paused).toBe(true);
     await supervisor.pause(false);
     expect(m.state.maintenance).toBe(false);
     expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("attaching to a daemon that an update holds doesn't show it as paused by the person", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.updateHold = true; // Started mid-update, or `ace update` is draining it.
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
   });
 
   it("discovers a surviving daemon's pause and lets the user resume it", async () => {
@@ -227,6 +140,57 @@ describe("daemon supervisor", () => {
     await supervisor.pause(false);
     expect(m.state.maintenance).toBe(false);
     expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("a drain's hold never shows as the person's pause in the tray", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.updateHold = true; // `ace update` from a terminal holds admission for its drain.
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("follows a pause and resume made by a paired client on its next health checks", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
+    m.state.maintenance = true; // A phone paused new work over the socket.
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(true);
+    m.state.maintenance = false;
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("follows a paired client's pause from the health check alone, with no admission request", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    // Admission requests fail from here: only the status answer can tell.
+    m.state.admissionAvailable = false;
+    m.state.maintenance = true;
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(true);
+  });
+
+  it("follows a paired client's pause on a daemon whose status predates admission", async () => {
+    const m = machine();
+    m.state.admissionInStatus = false;
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.maintenance = true;
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(true);
   });
 
   it("reports resumed admission after replacing a paused app daemon", async () => {
@@ -412,7 +376,7 @@ describe("daemon supervisor", () => {
 
   it("names a port conflict only for the exit that reported one", async () => {
     const m = machine();
-    const supervisor = new DaemonSupervisor(m.ports);
+    const supervisor = new DaemonSupervisor(m.ports, { safeModeAfter: 10 });
     await supervisor.start();
     m.children.at(-1)?.die(6);
     expect(supervisor.current().cause).toBe("port-in-use");
@@ -457,6 +421,67 @@ describe("daemon supervisor", () => {
       expect(m.signals).toEqual([]);
       expect(m.children).toHaveLength(1);
       expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+    },
+  );
+
+  it.each([
+    ["its own beat", false],
+    ["the app's one main-thread beat", true],
+  ])(
+    "never stops a daemon that answers while the app's own main thread keeps freezing, read from %s",
+    async (_beat, sharedBeat) => {
+      const m = machine({ sharedBeat });
+      const supervisor = new DaemonSupervisor(m.ports);
+      await supervisor.start();
+      m.state.answering = true;
+      await m.advance(300);
+      // The daemon answers every check, in 3 s. The app freezes for 12 to 60 s at a time while a
+      // check is out, as on 1 Nov: its own timeouts and request deadlines fired first on waking,
+      // ahead of the answer waiting unread, and the daemon was killed for it.
+      m.state.healthDelayMs = 3_000;
+      for (const frozenMs of [12_000, 25_000, 40_000, 60_000, 37_000, 45_000]) {
+        // Each check goes out 5 s after the last answer; freeze 1 s into the next one.
+        await m.advance(6_000);
+        await m.freeze(frozenMs);
+      }
+      await m.advance(30_000);
+      expect(m.signals).toEqual([]);
+      expect(m.children).toHaveLength(1);
+      expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+      expect(m.log.filter((entry) => entry.message === "The daemon missed a health check")).toEqual(
+        [],
+      );
+      expect(m.log).toContainEqual(
+        expect.objectContaining({
+          message: "The app froze during a daemon health check; checking again",
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ["its own beat", false],
+    ["the app's one main-thread beat", true],
+  ])(
+    "still stops a daemon that truly stops answering, even after the app froze once, read from %s",
+    async (_beat, sharedBeat) => {
+      const m = machine({ sharedBeat });
+      const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 10_000 });
+      await supervisor.start();
+      m.state.answering = true;
+      await m.advance(300);
+      m.state.hung = true;
+      await m.advance(2_000);
+      await m.freeze(30_000);
+      let waited = 0;
+      while (m.signals.length === 0 && waited < 600_000) {
+        await m.advance(1_000);
+        waited += 1_000;
+      }
+      expect(m.signals).toEqual(["SIGTERM"]);
+      expect(
+        m.log.filter((entry) => entry.message === "The daemon missed a health check").length,
+      ).toBe(3);
     },
   );
 
@@ -570,7 +595,7 @@ describe("daemon supervisor", () => {
     expect(m.log).toContainEqual(
       expect.objectContaining({
         level: "warn",
-        data: { code: 1, signal: null, delayMs: 500, attempt: 1, of: 5 },
+        data: { code: 1, signal: null, delayMs: 500, attempt: 1, of: 5, safeMode: false },
       }),
     );
   });
@@ -749,6 +774,28 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().state).toBe("stopped");
   });
 
+  it.each([
+    ["the first request's reply is lost", 1],
+    ["a later poll fails", 0],
+  ])("a drain that fails because %s lets go of its hold", async (_name, firstFails) => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.blockers = 2;
+    m.state.holdReplyFails = firstFails;
+    const draining = supervisor.drain(5_000);
+    if (!firstFails) {
+      await m.advance(10);
+      m.state.holdReplyFails = 1;
+      await m.advance(1_000);
+    }
+    await expect(draining).rejects.toThrow("timed out");
+    expect(m.state.updateHold).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
   it("drains before an update and reopens admission when work is still running", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports);
@@ -760,12 +807,14 @@ describe("daemon supervisor", () => {
     const draining = supervisor.drain(5_000);
     await m.advance(6_000);
     expect(await draining).toBe(false);
-    expect(m.state.maintenance).toBe(false);
+    expect(m.state.updateHold).toBe(false);
 
     m.state.blockers = 0;
     const drained = supervisor.drain(5_000);
     await m.advance(1_000);
     expect(await drained).toBe(true);
-    expect(m.state.maintenance).toBe(true);
+    // The update keeps its hold until the daemon is replaced; the person's pause stays off.
+    expect(m.state.updateHold).toBe(true);
+    expect(m.state.maintenance).toBe(false);
   });
 });

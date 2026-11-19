@@ -8,6 +8,7 @@ import { ScreenManager } from "@ace/screen";
 import { createDevThread, readConfig, startDaemon } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
 import { ScreenSettings } from "./screen-settings.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const Reply = z.object({
   result: z.object({
@@ -31,6 +32,7 @@ async function fixture() {
     publishArtifact: async () => {},
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
     modelInstances: [],

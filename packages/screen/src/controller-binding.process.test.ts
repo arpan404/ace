@@ -160,3 +160,20 @@ it("a failed external release leaves previous and requested input controllers un
   ).rejects.toThrow("ownership");
   expect((await screen.targets()).windows[0]?.title).toContain(";actions:0;");
 });
+
+it("a person's Simulator view goes to an agent only through a device lease, with no restart", async () => {
+  const host = await manager({ FAKE_V2: "1" });
+  cleanups.push(host.close);
+  await host.screen.enable(true);
+  const view = await host.screen.startHumanDeviceView({
+    kind: "window",
+    bundleId: "com.apple.iphonesimulator",
+    windowId: 1,
+  });
+  const id = view.sessionId;
+  expect(() => host.screen.delegateAgent(id, scope)).toThrow();
+  expect(() => host.screen.controller(id, "agent", owner)).toThrow();
+  host.screen.controller(id, "agent", owner, { authorize() {}, released() {} });
+  expect(host.screen.agentSession(scope)).toBe(id);
+  expect(host.screen.state(id)).toMatchObject({ sessionId: id, lifecycle: "live" });
+});

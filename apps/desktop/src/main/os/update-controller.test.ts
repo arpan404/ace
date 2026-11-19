@@ -1,10 +1,12 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { UpdateStatus } from "../../shared/contract.ts";
+import type { ReleaseLine } from "@ace/service/release-line";
 import {
-  scheduleChecks,
   stalledMessage,
   UpdateController,
+  type UpdateBlocked,
   type UpdateEngine,
+  type UpdateOffer,
 } from "./update-controller.ts";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -17,8 +19,13 @@ function setup(
 ) {
   const reported: UpdateStatus[] = [];
   const effects: string[] = [];
+  const spadeModes: string[] = [];
   let found = options.found;
+  let line: ReleaseLine = "stable";
+  const byLine: Partial<Record<ReleaseLine, UpdateOffer | UpdateBlocked>> = {};
   let checkError: Error | undefined;
+  /** What the guard says when it runs again before a download or an install. */
+  let refusal: UpdateBlocked | undefined;
   let checkGate: Promise<void> | undefined;
   let requests = 0;
   let downloads = 0;
@@ -27,12 +34,16 @@ function setup(
   let failDownload: ((error: Error) => void) | undefined;
   let drainWaiting: ((count: number) => void) | undefined;
   let finishDrain: ((drained: boolean) => void) | undefined;
+  let clock = 0;
+  const logged: string[] = [];
   const engine: UpdateEngine = {
     canInstall: options.canInstall ?? true,
     check: async () => {
       requests += 1;
       if (checkGate) await checkGate;
       if (checkError) throw checkError;
+      const onLine = byLine[line];
+      if (onLine) return onLine;
       return found ? { version: found, notes, olderReleases: 0 } : undefined;
     },
     download: (report) => {
@@ -44,11 +55,15 @@ function setup(
       });
     },
     install: () => effects.push("install"),
+    recheck: () => (refusal ? Promise.resolve(refusal) : undefined),
+    discard: () => effects.push("discard"),
   };
   const controller = new UpdateController({
     engine,
     version: "1.0.0",
     enabled: true,
+    line: () => line,
+    buildLine: "stable",
     releaseUrl: (version) => `https://github.com/arpan404/ace/releases/tag/v${version}`,
     drain: (waiting) => {
       effects.push("drain");
@@ -60,17 +75,23 @@ function setup(
       options.busy instanceof Error
         ? Promise.reject(options.busy)
         : Promise.resolve(options.busy ?? 0),
-    prepareQuit: async () => {
-      effects.push("stop daemon");
+    prepareQuit: async (spadeMode) => {
+      // What the page was last told as the daemon starts to stop.
+      effects.push(reported.at(-1)?.restarting ? "stop daemon (closing said)" : "stop daemon");
+      spadeModes.push(spadeMode);
+      clock += 4_000;
     },
     quit: () => effects.push("quit"),
     report: (status) => reported.push(status),
-    log: () => {},
+    log: (_level, message) => logged.push(message),
+    now: () => clock,
   });
   return {
     controller,
     reported,
     effects,
+    spadeModes,
+    logged,
     states: () => reported.map((status) => status.state),
     now: () => controller.current(),
     progress: (percent: number) => progress?.(percent),
@@ -88,6 +109,11 @@ function setup(
       await settle();
     },
     feed: (version: string | undefined) => (found = version),
+    /** The guard, run again, now refuses (or allows, with undefined) the release. */
+    refuse: (blocked: string | undefined) => (refusal = blocked ? { blocked } : undefined),
+    /** What the feed answers on `name`, whatever `found` says. */
+    lineFeed: (name: ReleaseLine, answer: UpdateOffer | UpdateBlocked) => (byLine[name] = answer),
+    pickLine: (name: ReleaseLine) => (line = name),
     offline: (error: Error | undefined) => (checkError = error),
     feedRequests: () => requests,
     downloads: () => downloads,
@@ -244,7 +270,7 @@ it.each(["same release", "no update", "failure"] as const)(
     await checking;
     await installing;
     await app.controller.install();
-    expect(app.effects).toEqual(["stop daemon", "install"]);
+    expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
   },
 );
 
@@ -254,7 +280,24 @@ it("the person's Restart stops running agents at once instead of waiting for the
   expect(await app.controller.busy()).toBe(2);
   await app.controller.install();
   expect(app.now().state).toBe("installing");
-  expect(app.effects).toEqual(["stop daemon", "install"]);
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
+});
+
+it("after a confirmed Restart Spade pauses its work at once; after apply it waits for idle", async () => {
+  const restart = setup({ found: "1.1.0" });
+  await downloaded(restart);
+  await restart.controller.install();
+  expect(restart.spadeModes).toEqual(["now"]);
+
+  const apply = setup({ found: "1.1.0", drained: true });
+  await downloaded(apply);
+  await apply.controller.apply();
+  expect(apply.spadeModes).toEqual(["idle"]);
+
+  const remote = setup({ found: "1.1.0", drained: true });
+  await downloaded(remote);
+  await remote.controller.remote({ action: "install", mode: "idle", version: "1.1.0" });
+  expect(remote.spadeModes).toEqual(["idle"]);
 });
 
 it("an agent count the daemon can't give is unknown, not zero", async () => {
@@ -273,7 +316,7 @@ it("ace update apply waits for running agents, then stops the daemon before inst
   expect(app.now()).toMatchObject({ state: "installing", waiting: 1 });
   await app.finishDrain(true);
   await applying;
-  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
 it("agents still working at apply's deadline keep the update downloaded and the app running", async () => {
@@ -299,8 +342,10 @@ it("ace update apply finds, downloads and installs in one go", async () => {
     "downloading",
     "downloaded",
     "installing",
+    // Drained: now closing for the restart.
+    "installing",
   ]);
-  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
 it("ace update apply with nothing newer installs nothing later", async () => {
@@ -323,6 +368,8 @@ it("a build without the release feed never asks it", async () => {
     },
     version: "1.0.0",
     enabled: false,
+    line: () => "stable",
+    buildLine: "stable",
     releaseUrl: () => "",
     drain: () => Promise.resolve(true),
     busy: () => Promise.resolve(0),
@@ -330,87 +377,163 @@ it("a build without the release feed never asks it", async () => {
     quit: () => {},
     report: (status) => reported.push(status),
     log: () => {},
+    now: () => 0,
   });
   expect((await controller.check("person")).state).toBe("disabled");
   expect(reported).toEqual([]);
 });
 
-it("background checks ask the feed after launch settles and then periodically, each wait offset at random", async () => {
-  const app = setup();
-  const pending: { delayMs: number; callback: () => void }[] = [];
-  const draws = [0, 0.5, 1];
-  scheduleChecks(
-    app.controller,
-    {
-      set(delayMs, callback) {
-        pending.push({ delayMs, callback });
-        return () => {};
-      },
-    },
-    () => draws.shift() ?? 0,
-    () => 0,
-    { firstMs: 10_000, everyMs: 1_800_000, spread: 0.5, openGapMs: 30_000 },
-  );
-  expect(pending.map((timer) => timer.delayMs)).toEqual([10_000]);
-  expect(app.feedRequests()).toBe(0);
-  pending[0]?.callback();
+it("an update asked for from another client downloads first, then installs once drained", async () => {
+  const app = setup({ found: "1.1.0" });
+  const fetching = app.controller.remote({ action: "download", mode: "idle", version: "1.1.0" });
   await settle();
-  pending[1]?.callback();
+  expect(app.downloads()).toBe(1);
+  await app.finishDownload();
+  await fetching;
+  // Downloaded only: the daemon asks to install once its agents are idle.
+  expect(app.effects).toEqual([]);
+  expect(app.now().state).toBe("downloaded");
+  const installing = app.controller.remote({ action: "install", mode: "idle", version: "1.1.0" });
   await settle();
-  expect(app.feedRequests()).toBe(2);
-  // Each wait is its base plus up to half again, by the random draw.
-  expect(pending.map((timer) => timer.delayMs)).toEqual([10_000, 2_250_000, 2_700_000]);
+  expect(app.effects).toEqual(["drain"]);
+  await app.finishDrain(true);
+  await installing;
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
-/** Scheduled checks on fake timers and a fake clock, for opening the app. */
-function openingApp() {
-  const app = setup();
-  let clock = 0;
-  const pending = new Set<{ delayMs: number; callback: () => void }>();
-  const schedule = scheduleChecks(
-    app.controller,
-    {
-      set(delayMs, callback) {
-        const timer = { delayMs, callback };
-        pending.add(timer);
-        return () => pending.delete(timer);
-      },
-    },
-    () => 0,
-    () => clock,
-    { firstMs: 15_000, everyMs: 60_000, spread: 0.5, openGapMs: 30_000 },
-  );
-  return {
-    app,
-    schedule,
-    advance: (ms: number) => (clock += ms),
-    waits: () => [...pending].map((timer) => timer.delayMs),
-  };
-}
-
-it("opening the app checks for an update at once, without waiting for launch's first check", async () => {
-  const { app, schedule, waits } = openingApp();
-  expect(app.feedRequests()).toBe(0);
-
-  schedule.opened();
-  await settle();
-
-  expect(app.feedRequests()).toBe(1);
-  // The launch timer is replaced: the next check is a full period after this one.
-  expect(waits()).toEqual([60_000]);
+it("an update now from another client stops agents at once without draining", async () => {
+  const app = setup({ found: "1.1.0", busy: 3 });
+  await downloaded(app);
+  await app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
 });
 
-it("opening the app again right after a check asks the feed only once", async () => {
-  const { app, schedule, advance } = openingApp();
-  schedule.opened();
-  await settle();
-  advance(5_000);
-  schedule.opened();
+it("a remote install of a release this app doesn't offer installs nothing", async () => {
+  const app = setup({ found: "1.2.0" });
+  await downloaded(app);
+  await app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
+  expect(app.effects).toEqual([]);
+  expect(app.now()).toMatchObject({ state: "downloaded", version: "1.2.0" });
+});
+
+it("a remote request before the app has checked asks the feed first", async () => {
+  const app = setup({ found: "1.1.0" });
+  const installing = app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
   await settle();
   expect(app.feedRequests()).toBe(1);
+  await app.finishDownload();
+  await installing;
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
+});
 
-  advance(30_000);
-  schedule.opened();
+it("picking the Beta line checks it at once and offers its beta under its own release page", async () => {
+  const app = setup();
+  await app.controller.check("background");
+  const betaPage = "https://github.com/arpan404/ace/releases/tag/ace-1.0.0-beta-1";
+  app.lineFeed("beta", {
+    version: "1.0.0-beta.1",
+    notes: [],
+    olderReleases: 0,
+    releaseUrl: betaPage,
+  });
+  app.pickLine("beta");
+  await app.controller.lineChanged();
+  expect(app.now()).toMatchObject({
+    state: "available",
+    line: "beta",
+    buildLine: "stable",
+    version: "1.0.0-beta.1",
+    releaseUrl: betaPage,
+    blocked: null,
+  });
+  expect(app.states().slice(-2)).toEqual(["checking", "available"]);
+});
+
+it("a line whose release can't read this install's data offers nothing and says why", async () => {
+  const app = setup();
+  const why =
+    "Stable can't read this beta's data yet. You can switch once stable reaches a newer release.";
+  app.lineFeed("stable", { blocked: why });
+  await app.controller.check("person");
+  expect(app.now()).toMatchObject({ state: "current", version: null, blocked: why });
+  // Once the feed has a release that can, the reason goes.
+  app.lineFeed("stable", { version: "1.1.0", notes, olderReleases: 0 });
+  await app.controller.check("background");
+  expect(app.now()).toMatchObject({ state: "available", version: "1.1.0", blocked: null });
+});
+
+it("a line change during a download keeps the download and only names the new line", async () => {
+  const app = setup({ found: "1.1.0" });
+  await app.controller.check("background");
+  void app.controller.download();
+  app.pickLine("beta");
+  await app.controller.lineChanged();
+  expect(app.now()).toMatchObject({ state: "downloading", line: "beta", version: "1.1.0" });
+  expect(app.feedRequests()).toBe(1);
+});
+
+describe("a switch to an older release the guard refuses by install time", () => {
+  const why =
+    "Stable can't read this beta's data yet. You can switch once stable reaches a newer release.";
+
+  it("is dropped instead of restarting, and Settings says why", async () => {
+    const app = setup({ found: "1.1.0" });
+    await downloaded(app);
+    app.refuse(why);
+    await app.controller.install();
+    expect(app.effects).toEqual(["discard"]);
+    expect(app.now()).toMatchObject({ state: "current", version: null, blocked: why });
+  });
+
+  it("is dropped by ace update apply and by an install asked from another client", async () => {
+    for (const ask of [
+      (app: ReturnType<typeof setup>) => app.controller.apply(),
+      (app: ReturnType<typeof setup>) =>
+        app.controller.remote({ action: "install", mode: "idle", version: "1.1.0" }),
+      (app: ReturnType<typeof setup>) =>
+        app.controller.remote({ action: "install", mode: "now", version: "1.1.0" }),
+    ]) {
+      const app = setup({ found: "1.1.0", drained: true });
+      await downloaded(app);
+      app.refuse(why);
+      await ask(app);
+      expect(app.effects).toEqual(["discard"]);
+      expect(app.now()).toMatchObject({ state: "current", blocked: why });
+    }
+  });
+
+  it("is never downloaded when the guard refuses it before the download", async () => {
+    const app = setup({ found: "1.1.0" });
+    await app.controller.check("background");
+    app.refuse(why);
+    await app.controller.download();
+    expect(app.downloads()).toBe(0);
+    expect(app.now()).toMatchObject({ state: "current", blocked: why });
+  });
+});
+
+it("a Restart tells the page ace is closing before the daemon stops, and logs each step's time", async () => {
+  const app = setup({ found: "1.1.0" });
+  await downloaded(app);
+  await app.controller.install();
+  // The page heard "closing" before anything stopped, and it stays that way through the install.
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
+  expect(app.now()).toMatchObject({ state: "installing", restarting: true });
+  expect(app.logged).toEqual([
+    "Restart to update: asked",
+    "Restart to update: stopping the browser backend and the daemon",
+    "Restart to update: stopped in 4000 ms; starting the installer",
+  ]);
+});
+
+it("an update waiting for agents is not yet closing; it says so only once it restarts", async () => {
+  const app = setup({ found: "1.1.0" });
+  await downloaded(app);
+  const applying = app.controller.apply();
   await settle();
-  expect(app.feedRequests()).toBe(2);
+  expect(app.now()).toMatchObject({ state: "installing" });
+  expect(app.now().restarting).toBeUndefined();
+  await app.finishDrain(true);
+  await applying;
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });

@@ -17,6 +17,7 @@ import {
   syncTree,
   syncDirectory,
   withInstallLock,
+  retrySharing,
 } from "./files.ts";
 import { DatabaseInventory, snapshotDatabases, restoreDatabases } from "./migration.ts";
 import type { Fetcher } from "./feed.ts";
@@ -52,14 +53,23 @@ export interface UpdateRequest {
   fetcher: Fetcher;
   ports: UpdatePorts;
   drain: boolean;
+  /**
+   * Stop running agents instead of waiting for them (a person's confirmed "update now", ADR
+   * 0113). Stopping the service interrupts each turn the way a quit does, and the new version
+   * continues them after it starts (ADR 0098).
+   */
+  interrupt?: boolean;
 }
-async function acquire(ports: UpdatePorts, drain: boolean) {
+async function acquire(ports: UpdatePorts, drain: boolean, interrupt = false) {
   const until = ports.now() + 300_000;
   let status = MaintenanceStatus.parse(await ports.maintenance("POST"));
-  while (status.blockers > 0) {
+  // Interrupting, the service stop ends running turns and the new version continues them.
+  const waitFor = (current: typeof status) => !interrupt && current.blockers > 0;
+  while (waitFor(status)) {
     if (!drain || ports.now() >= until) throw new Error("Active threads block update");
     await ports.wait();
-    status = MaintenanceStatus.parse(await ports.maintenance("GET"));
+    // Each poll renews the update's lease, so an interrupted CLI lets go on its own.
+    status = MaintenanceStatus.parse(await ports.maintenance("POST"));
     if (!status.draining) throw new Error("Maintenance lease lost");
   }
   if (!status.draining) throw new Error("Maintenance lease required");
@@ -124,7 +134,7 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       );
       await unpackArchive(archive, staging);
       await durableJson(join(staging, "release.json"), manifest);
-      await acquire(ports, request.drain);
+      await acquire(ports, request.drain, request.interrupt);
       // Persist intent before stopping. A partial snapshot must never replace live data.
       let journal = Journal.parse({
         old,
@@ -156,10 +166,15 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       stopped = false;
       if (!(await ports.health(manifest.version))) throw new Error("Candidate health check failed");
       await durableRemove(join(root, "update.json"));
+      if (process.platform === "win32") {
+        await pruneBestEffort(root, [old, candidate], snapshot);
+        return "updated";
+      }
       // Bound retained artifacts to current and previous after successful health.
       const { readdir } = await import("node:fs/promises");
+      // Spade's binaries (`releases/spade`) have their own pointer and pruning (ADR 0123).
       for (const name of await readdir(join(root, "releases")))
-        if (`releases/${name}` !== old && `releases/${name}` !== candidate)
+        if (name !== "spade" && `releases/${name}` !== old && `releases/${name}` !== candidate)
           await rm(join(root, "releases", name), { recursive: true, force: true });
       await rm(snapshot, { recursive: true, force: true });
       return "updated";
@@ -175,4 +190,22 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await rm(join(root, ".migration-check"), { recursive: true, force: true });
     }
   });
+}
+
+/**
+ * Windows pruning after a committed update: a loaded `.exe` or `.node` cannot be deleted, and
+ * a scanner may hold a file, so whatever stays behind is retried by the next update instead of
+ * failing (and rolling back) this one.
+ */
+async function pruneBestEffort(
+  root: string,
+  keep: readonly string[],
+  snapshot: string,
+): Promise<void> {
+  const { readdir } = await import("node:fs/promises");
+  const stale = (await readdir(join(root, "releases")))
+    .filter((name) => name !== "spade" && !keep.includes(`releases/${name}`))
+    .map((name) => join(root, "releases", name));
+  for (const path of [...stale, snapshot])
+    await retrySharing(() => rm(path, { recursive: true, force: true })).catch(() => {});
 }

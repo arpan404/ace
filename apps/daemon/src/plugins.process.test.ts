@@ -13,6 +13,7 @@ import { PluginServerMessage, type PluginRequest } from "@ace/protocol/plugins";
 import { expect, test } from "vitest";
 import { startDaemon } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const execute = promisify(execFile);
 test("authenticated daemon installation is reviewed, survives restart and supplies materialized adapter overrides", async () => {
@@ -64,7 +65,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     await writeFile(join(repo, "server.js"), "console.log('SESSION_RESOURCE');");
     await git(["add", "."]);
     await git(["commit", "-m", "fixture"]);
-    daemon = await startDaemon({ config: config });
+    daemon = await startDaemon({ config: config, engine: noProviderDiscovery });
     socket = new WebSocket(daemon.url);
     await once(socket, "open");
     const received = once(socket, "message");
@@ -157,7 +158,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     });
     socket.terminate();
     await daemon.close();
-    daemon = await startDaemon({ config: config });
+    daemon = await startDaemon({ config: config, engine: noProviderDiscovery });
     const restarted = await daemon.preparePlugins("claude", join(root, "claude-session"));
     expect(restarted.args).toContain("--plugin-dir");
     expect(

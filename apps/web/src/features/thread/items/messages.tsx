@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { agentName, formatClock, saidAt } from "@ace/ui-core";
-import { GitForkIcon } from "@phosphor-icons/react";
+import { agentName, forkPointOf, formatClock, saidAt, sameForkPoint } from "@ace/ui-core";
+import { GitForkIcon } from "@ace/icons";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -10,7 +10,6 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredCopyAnswer } from "./deferred-review.ts";
 import { messageActions } from "./message-actions.ts";
-import { forkPointOf, sameForkPoint } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
 import { RetryAnswerButton, useRetryPoint } from "../transitions/message-edits.tsx";
 import { useStreaming } from "../transcript/use-streaming.ts";
@@ -43,26 +42,23 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
   const name = subagent ? agentName(subagent, spawn) : undefined;
   const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
-    <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
-      <Prose
-        text={text}
-        thread={{
-          threadId: props.threadId,
-          itemId: item.id,
-          ...(agent?.cwd ? { cwd: agent.cwd } : {}),
-        }}
-        stream={`${props.threadId}/${props.itemId}`}
-        streaming={streaming}
-        tail={
-          streaming && (
-            <span
-              role="status"
-              aria-label="Streaming"
-              className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full bg-current align-[-0.15em] text-muted-foreground"
-            />
-          )
-        }
-      />
+    <div
+      data-part="message-agent"
+      className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word"
+    >
+      {/* Its words, where the person can select a passage to reply to (features/quotes). */}
+      <div data-quotable="">
+        <Prose
+          text={text}
+          thread={{
+            threadId: props.threadId,
+            itemId: item.id,
+            ...(agent?.cwd ? { cwd: agent.cwd } : {}),
+          }}
+          stream={`${props.threadId}/${props.itemId}`}
+          streaming={streaming}
+        />
+      </div>
       {answer.partial && (
         <div className="mt-2 text-xs text-muted-foreground">
           {answer.status === "loading" ? (
@@ -76,7 +72,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
         </div>
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
-        <div className={cn(messageActions("answer"), "absolute top-full left-0")}>
+        <div
+          data-part="message-meta"
+          className={cn(messageActions("answer"), "absolute top-full left-0")}
+        >
           <time
             dateTime={new Date(saidAt(item)).toISOString()}
             className="text-xs text-subtle-foreground"

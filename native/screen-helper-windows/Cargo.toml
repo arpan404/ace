@@ -3,13 +3,19 @@ name = "ace-screen-helper-windows"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.82"
+rust-version = "1.87"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jpeg-encoder = "0.6"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+# ace-media's wire format, codec contract and Media Foundation backend (docs/media/plan.md, E1).
+media-wire = { path = "../media/crates/media-wire" }
+media-ingest = { path = "../media/crates/media-ingest" }
+zeroize = "1"
+media-codec = { path = "../media/crates/media-codec" }
+media-mf = { path = "../media/crates/media-mf" }
 
 [dev-dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }
@@ -33,6 +39,7 @@ windows = { version = "0.58", features = [
   "Win32_System_Ole",
   "Win32_System_Variant",
   "Win32_System_Threading",
+  "Win32_System_RemoteDesktop",
   "Win32_UI_Accessibility",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_HiDpi",
@@ -43,6 +50,19 @@ windows = { version = "0.58", features = [
   "Win32_System_Pipes",
   "Win32_System_IO",
   "Win32_System_StationsAndDesktops",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Performance",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_Storage_EnhancedStorage",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_Storage_Xps",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_Shell_PropertiesSystem",
 ] }
 
 [[bench]]

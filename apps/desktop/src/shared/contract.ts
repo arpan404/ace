@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AceSignInReturnStatus } from "@ace/protocol/ace-account";
 
 /**
  * The contract between the Electron main process and the renderer's `window.ace` bridge.
@@ -8,7 +9,10 @@ import { z } from "zod";
  */
 
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
-export const SocketUrl = z.url().refine((value) => /^wss?:$/.test(new URL(value).protocol));
+// The refine runs even when `z.url()` failed, so it checks the address parses before reading it.
+export const SocketUrl = z
+  .url()
+  .refine((value) => URL.canParse(value) && /^wss?:$/.test(new URL(value).protocol));
 export const AbsolutePath = z
   .string()
   .min(1)
@@ -29,6 +33,14 @@ export const DaemonConnection = z.discriminatedUnion("mode", [
      * remote daemon, whose remembered identity stays the check.
      */
     localHostId: z.string().min(1).max(256).optional(),
+    /**
+     * Only for the daemon on this computer: the host id its home's relay key proves (ADR 0190),
+     * which an enrollment ticket the app hands it is bound to.
+     */
+    localRelayHostId: z
+      .string()
+      .regex(/^[A-Z2-7]{52}$/)
+      .optional(),
   }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),
@@ -47,6 +59,23 @@ export const DaemonState = z.enum([
   "unavailable",
 ]);
 export type DaemonState = z.infer<typeof DaemonState>;
+/**
+ * The step a daemon start is on. `looking`: for a daemon that already runs; `service`: starting
+ * the login service; `launching`: this app's own daemon, before it listens; `lock-wait`: on the
+ * previous daemon's lock, until it closes; `warming`: listening, getting ready to answer;
+ * `admission`: answering, being asked whether it takes new work.
+ */
+export const DaemonStage = z.enum([
+  "looking",
+  "service",
+  "launching",
+  "lock-wait",
+  /** The app's own old daemon, being replaced, does not answer; it gets its whole allowance. */
+  "old-unanswered",
+  "warming",
+  "admission",
+]);
+export type DaemonStage = z.infer<typeof DaemonStage>;
 export const DaemonStatus = z.object({
   state: DaemonState,
   /** Who runs the daemon: this app (a supervised child), a login service, or someone else. */
@@ -55,10 +84,17 @@ export const DaemonStatus = z.object({
   restarts: z.number().int().min(0),
   paused: z.boolean(),
   message: z.string().max(2000).optional(),
-  /** Why the daemon this app started last exited, when the daemon said so by its exit code. */
-  cause: z.enum(["port-in-use"]).optional(),
+  /**
+   * Why the daemon this app started last exited, when the daemon said so by its exit code.
+   * `lock-held`: another ace daemon holds the home (still starting or stopping); the app waits.
+   */
+  cause: z.enum(["port-in-use", "lock-held"]).optional(),
   /** Set while the supervisor restarts a crashed daemon on its own: which try, of how many. */
   retry: z.object({ attempt: z.number().int().min(1), of: z.number().int().min(1) }).optional(),
+  /** Where a start has got to, while the daemon is not yet running (the startup screen says it). */
+  stage: DaemonStage.optional(),
+  /** Set while a crash restart starts the daemon without what kept it from starting (ADR 0175). */
+  safeMode: z.boolean().optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatus>;
 
@@ -148,9 +184,12 @@ export type WindowBackground = z.infer<typeof WindowBackground>;
 /**
  * A chat visualization for its own window: the sandboxed `data:` document the transcript shows.
  */
-/** Largest image the renderer may put on the clipboard, in bytes before base64. */
-export const clipboardImageLimit = 8 * 1024 * 1024;
-/** An image for the system clipboard (an annotated page's screenshot): PNG or JPEG bytes. */
+/**
+ * Largest image the renderer may put on the clipboard, in bytes before base64: the largest
+ * original the image viewer loads, so any image it shows at full size can be copied.
+ */
+export const clipboardImageLimit = 32 * 1024 * 1024;
+/** An image for the system clipboard (a viewed image or a page screenshot): PNG or JPEG bytes. */
 export const ClipboardImage = z.object({
   mimeType: z.enum(["image/png", "image/jpeg"]),
   data: z
@@ -180,6 +219,8 @@ export const DeepLink = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
+  /** `ace://account/signed-in?status=`: the browser back from ace sign-in, with how it ended. */
+  z.object({ kind: z.literal("signed-in"), status: AceSignInReturnStatus }),
 ]);
 export type DeepLink = z.infer<typeof DeepLink>;
 
@@ -194,6 +235,9 @@ export function deepLinkRoute(link: DeepLink): string {
       return "/new";
     case "open-folder":
       return `/new?folder=${encodeURIComponent(link.path)}`;
+    // Profile, where the sign-in started; the app's own claim delivers the session.
+    case "signed-in":
+      return `/settings/profile?signin=${link.status}`;
   }
 }
 
@@ -217,6 +261,14 @@ const Minute = z
 /** Minutes after local midnight; `start > end` wraps past midnight. */
 const QuietHours = z.object({ start: Minute, end: Minute });
 const NotificationToggles = z.partialRecord(NotificationCategory, z.boolean());
+/**
+ * This app's own shortcut rebindings (keymap id to keys, only the rebound ones). The page checks
+ * ids and keys against its keymap; this only bounds the size.
+ */
+const Keybindings = z.record(z.string().min(1).max(64), z.string().min(1).max(64));
+/** ace's release lines (ADR 0177). */
+export const ReleaseLineName = z.enum(["stable", "beta"]);
+
 export const DesktopSettings = z.object({
   /** Keep the daemon and tray running after the last window closes. */
   background: z.boolean().default(true),
@@ -232,6 +284,12 @@ export const DesktopSettings = z.object({
   attention: z.boolean().default(true),
   /** Electron accelerator for the quick composer; off by default. */
   globalShortcut: z.string().max(64).nullable().default(null),
+  /**
+   * Keyboard shortcuts rebound on this app, per device. Null until the app first stores them,
+   * which is when it adopts what the machine's old shared setting held. A damaged value reads
+   * as no rebindings, not as never stored, so the old setting is never adopted twice.
+   */
+  keybindings: Keybindings.nullable().default(null).catch({}),
   /** Keep the machine awake while agents work. */
   preventSleep: z.boolean().default(false),
   /**
@@ -245,6 +303,11 @@ export const DesktopSettings = z.object({
    * Changed only through `cli.setOnPath`, which edits PATH too; never by a settings patch.
    */
   terminalCommand: z.boolean().default(true),
+  /**
+   * The release line this app updates from (ADR 0177): Stable or Beta. Null follows the build's
+   * own line, so a stable build starts on Stable and a beta build on Beta.
+   */
+  updateLine: ReleaseLineName.nullable().default(null).catch(null),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 /**
@@ -264,8 +327,15 @@ export const DesktopSettingsPatch = z.object({
     .optional(),
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
+  keybindings: Keybindings.nullable().optional(),
+  /**
+   * Keyboard shortcuts to store only if the app has none yet: adopting the machine's old shared
+   * setting. Applied in turn with other saves, so it never replaces one made before it.
+   */
+  keybindingsIfUnset: Keybindings.optional(),
   preventSleep: z.boolean().optional(),
   browserDownloads: z.string().min(1).max(4096).nullable().optional(),
+  updateLine: ReleaseLineName.nullable().optional(),
 });
 export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
 
@@ -399,7 +469,8 @@ export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
  * - `downloaded`: ready; the person's Restart stops running agents and restarts at once.
  *   `installing`: restarting; under `ace update apply` it first waits for `waiting` agents.
  * `notes` covers every release newer than this one (newest first; `olderReleases` more on
- * GitHub). `error` says what failed and when; an update on offer stays on offer.
+ * GitHub). `error` says what failed and when; an update on offer stays on offer. `blocked`
+ * says why an older release on the chosen line isn't offered (ADR 0177).
  */
 export const UpdateStatus = z.object({
   state: z.enum([
@@ -421,6 +492,19 @@ export const UpdateStatus = z.object({
   waiting: z.number().int().min(0),
   notes: z.array(UpdateReleaseNote).max(6),
   olderReleases: z.number().int().min(0),
+  /** The line this app updates from now, and the line its own build belongs to (ADR 0177). */
+  line: ReleaseLineName,
+  buildLine: ReleaseLineName,
+  /**
+   * Why the line's release isn't offered: it is older than this version and can't read this
+   * install's data. One sentence; null when nothing is held back.
+   */
+  blocked: z.string().max(400).nullable(),
+  /**
+   * The person's Restart is under way: the app is stopping its daemon and will close and reopen
+   * on the update. Absent from builds that predate it.
+   */
+  restarting: z.boolean().optional(),
   error: z
     .object({
       during: z.enum(["check", "download", "install"]),

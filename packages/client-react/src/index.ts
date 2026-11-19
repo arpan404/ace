@@ -1,8 +1,8 @@
 export { ClientProvider, useClient, useNotifyBatch, useOptionalClient } from "./context.ts";
 export { frameBatch, immediate } from "./batch.ts";
 export type { NotifyBatch } from "./batch.ts";
-export { useSelection, arrayEqual, shallowEqual } from "./selection.ts";
-export { useThreadStore, useSidebarStore } from "./leases.ts";
+export { useSelection, arrayEqual } from "./selection.ts";
+export { OptionalLeaseScope, useThreadRoom, useThreadStore, useSidebarStore } from "./leases.ts";
 export { windowSource } from "./window-source.ts";
 export { ThreadWindowProvider, useThreadWindow } from "./window-context.ts";
 export type { ThreadWindow } from "./window-source.ts";
@@ -23,6 +23,8 @@ export type { HistoryPager } from "./thread.ts";
 export { useAgentTree, agentTree, treeEqual } from "./tree.ts";
 export type { AgentTreeNode } from "./tree.ts";
 export { useInteractions, useInteraction, useItemInteraction } from "./interactions.ts";
+export { useWholeRequest } from "./whole-request.ts";
+export type { WholeRequest } from "./whole-request.ts";
 export {
   useSidebar,
   useSidebarAll,
@@ -33,7 +35,14 @@ export {
   useSidebarThread,
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";
-export { useConnectionState, useIntent, useIntentSender, usePendingSends } from "./intents.ts";
+export {
+  useConnectionGeneration,
+  useDaemonReleaseLine,
+  useConnectionState,
+  useIntent,
+  useIntentSender,
+  usePendingSends,
+} from "./intents.ts";
 export {
   transferStore,
   useProjectTransfer,

@@ -1,0 +1,36 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.status",
+    "source": "source-1",
+    "status": "starting",
+    "reason": "value",
+    "attempts": 1,
+    "acceleration": {
+      "steps": [
+        {
+          "step": "jpeg-decode",
+          "backend": "cpu",
+          "hardware": false,
+          "readbacks": 0,
+          "uploads": 1
+        },
+        {
+          "step": "scale",
+          "backend": "nv",
+          "hardware": true,
+          "readbacks": 0,
+          "uploads": 0
+        },
+        {
+          "step": "encode",
+          "backend": "nv",
+          "hardware": true,
+          "readbacks": 0,
+          "uploads": 0
+        }
+      ],
+      "degraded": false
+    }
+  }
+}

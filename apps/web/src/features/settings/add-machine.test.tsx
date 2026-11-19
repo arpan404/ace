@@ -74,7 +74,12 @@ test.each([false, true])(
     );
     expect(local.getItem("ace.machines")).toBeNull();
     await userEvent.click(await screen.findByRole("button", { name: "Add machine" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add machine" });
+    await userEvent.click(
+      within(await screen.findByRole("dialog", { name: "Add a machine" })).getByRole("button", {
+        name: /^Pair with a code/,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Pair with a code" });
     await userEvent.type(within(dialog).getByLabelText("Pairing link or code"), link.url);
     await userEvent.type(
       within(dialog).getByRole("textbox", { name: "This device's name" }),
@@ -85,11 +90,15 @@ test.each([false, true])(
       await entered;
       await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
       release?.();
-      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Pair with a code" })).toBeNull(),
+      );
       expect(local.getItem("ace.machines")).toBeNull();
       return;
     }
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Pair with a code" })).toBeNull(),
+    );
     expect(
       await within(screen.getByRole("region", { name: "Machines" })).findByText("Office computer"),
     ).toBeTruthy();

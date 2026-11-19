@@ -41,7 +41,7 @@ test("the list shows iOS then Android, running devices first, with runtime and s
 
   expect(rows.map((row) => [row.name, row.detail, row.live])).toEqual([
     ["iPhone 16 Pro", "iOS 18.4 · Running", true],
-    ["Pixel 9", "Android 15 · Off", false],
+    ["Pixel 9", "Android 15 · Shut down", false],
   ]);
 });
 
@@ -68,9 +68,9 @@ test("control is yours only until the lease runs out", () => {
 
 test("an agent driving the device is named in the status", () => {
   expect(deviceControls(iphone, state({ controller: "agent" }), 0).status).toBe(
-    "Running · The agent is in control",
+    "Running · The agent is working here",
   );
-  expect(deviceControls(pixel, undefined, 0).status).toBe("Off");
+  expect(deviceControls(pixel, undefined, 0).status).toBe("Shut down");
 });
 
 test("a pointer on a frame drawn at half size lands on the matching device point", () => {

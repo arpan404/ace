@@ -262,16 +262,20 @@ test("a queued message starts the next turn while a background command keeps run
   );
   const id = await h.create();
   await h.engine.flush();
-  // The provider's turn ended and only the dev server runs: the thread must not read done.
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  // The reply is the result: the build it left running is listed, not waited for (ADR 0116).
+  const running = () => Object.values(view(h.store, id).backgroundTasks)[0];
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(running()?.status).toBe("running");
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
-  const background = Object.values(view(h.store, id).backgroundTasks)[0];
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  const background = running();
   if (!background) throw new Error("Missing task");
+  expect(background.status).toBe("running");
   h.command({ type: "background_task.stop", taskId: background.id });
   await h.engine.flush();
+  expect(running()?.status).toBe("stopped");
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 

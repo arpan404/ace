@@ -8,14 +8,24 @@ export interface Installer {
   nodeMinor?: number;
   npmFlags?: readonly string[];
   bun?: true;
-  brew?: { name: string; cask?: true };
+  /** `alternates` are other names of the same package; the one installed is the one updated. */
+  brew?: { name: string; cask?: true; alternates?: readonly string[] };
   script?: string;
   scriptHome?: string;
   scriptUninstall?: readonly (readonly ["-f" | "-rf", string])[];
   manual?: string;
   registryId?: string;
+  /**
+   * The vendor release channel to install from, when it isn't the default `latest`. Set per
+   * machine by the planner from the vendor's own settings, never from a client payload.
+   */
+  channel?: "stable";
 }
-/** Reviewed allowlist. Never derive commands or packages from registry/client payloads. */
+/**
+ * Reviewed allowlist. Never derive commands or packages from registry/client payloads.
+ * `bun` marks a package Bun can install globally, so an existing Bun install is recognized and
+ * updated with Bun; new installs still prefer npm.
+ */
 export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer>> = {
   codex: {
     binary: "codex",
@@ -32,7 +42,8 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
     package: "@anthropic-ai/claude-code",
     nodeMajor: 22,
     sourceUrl: "https://code.claude.com/docs/en/setup",
-    brew: { name: "claude-code", cask: true },
+    // `claude-code` follows the stable channel, `claude-code@latest` the latest one.
+    brew: { name: "claude-code", cask: true, alternates: ["claude-code@latest"] },
     script: "https://claude.ai/install.sh",
     scriptHome: scriptExecutablePaths.claude,
     scriptUninstall: [
@@ -74,6 +85,7 @@ export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {
   gemini: {
     binary: "gemini",
     package: "@google/gemini-cli",
+    bun: true,
     nodeMajor: 20,
     brew: { name: "gemini-cli" },
     sourceUrl: "https://geminicli.com/docs/get-started/installation/",
@@ -81,18 +93,21 @@ export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {
   "qwen-code": {
     binary: "qwen",
     package: "@qwen-code/qwen-code",
+    bun: true,
     nodeMajor: 22,
     sourceUrl: "https://qwenlm.github.io/qwen-code-docs/en/developers/development/deployment/",
   },
   "claude-acp": {
     binary: "claude-agent-acp",
     package: "@agentclientprotocol/claude-agent-acp",
+    bun: true,
     nodeMajor: 22,
     sourceUrl: "https://github.com/agentclientprotocol/claude-agent-acp/blob/main/README.md",
   },
   "codex-acp": {
     binary: "codex-acp",
     package: "@agentclientprotocol/codex-acp",
+    bun: true,
     nodeMajor: 22,
     sourceUrl: "https://github.com/agentclientprotocol/codex-acp/blob/main/README.md",
   },
@@ -104,6 +119,7 @@ export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {
   auggie: {
     binary: "auggie",
     package: "@augmentcode/auggie",
+    bun: true,
     nodeMajor: 20,
     sourceUrl: "https://www.augmentcode.com/product/cli",
   },

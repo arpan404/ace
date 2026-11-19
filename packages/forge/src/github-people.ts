@@ -64,6 +64,7 @@ const LatestReviews = z.object({
           databaseId: z.number().int().positive().nullable(),
           state: text,
           submittedAt: text.nullable(),
+          commit: z.looseObject({ oid: text }).nullable().optional(),
           author: Person.nullable(),
         })
         .nullable(),
@@ -72,6 +73,7 @@ const LatestReviews = z.object({
 });
 const Reviewers = z.object({
   data: z.object({
+    viewer: z.looseObject({ login }).nullable().optional(),
     repository: z.object({
       viewerPermission: text.nullable(),
       pullRequest: z.object({
@@ -137,6 +139,7 @@ function latestReview(r: z.infer<typeof LatestReviews>["nodes"][number]): ForgeL
       ...(r.author.avatarUrl ? { avatarUrl: r.author.avatarUrl } : {}),
       state,
       submittedAt: r.submittedAt,
+      ...(r.commit && /^[a-fA-F0-9]{40,64}$/.test(r.commit.oid) ? { commitSha: r.commit.oid } : {}),
     },
   ];
 }
@@ -154,9 +157,15 @@ function latestVerdicts(
   const verdicts = new Map(
     opinionated.nodes.flatMap(latestReview).map((r) => [r.login.toLowerCase(), r]),
   );
-  const reviews = latest.nodes
-    .flatMap(latestReview)
-    .map((r) => verdicts.get(r.login.toLowerCase()) ?? r);
+  const reviews = latest.nodes.flatMap(latestReview).map((r) => {
+    // The verdict GitHub counts, at the head of their latest review (what "since your last
+    // review" starts after).
+    const verdict = verdicts.get(r.login.toLowerCase());
+    if (!verdict) return r;
+    // The verdicts map is built for this call, so its entries can take the later head.
+    if (r.commitSha) verdict.commitSha = r.commitSha;
+    return verdict;
+  });
   const listed = new Set(reviews.map((r) => r.login.toLowerCase()));
   return [...reviews, ...[...verdicts.values()].filter((r) => !listed.has(r.login.toLowerCase()))];
 }
@@ -221,12 +230,14 @@ export class GitHubPeople {
   async reviewers(number: number, signal: AbortSignal): Promise<ForgePrReviewers> {
     const { owner, name } = this.#repository;
     const user = "login avatarUrl";
-    const review = "nodes { databaseId state submittedAt author { login avatarUrl } }";
+    const review =
+      "nodes { databaseId state submittedAt commit { oid } author { login avatarUrl } }";
     const response = await this.#api.request("graphql", signal, {
-      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { kind:__typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ ${review} } latestOpinionatedReviews(first:100){ ${review} } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
+      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ viewer { login } repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { kind:__typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ ${review} } latestOpinionatedReviews(first:100){ ${review} } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
       variables: { owner, name, number },
     });
-    const repository = decode(Reviewers, response.body).data.repository;
+    const data = decode(Reviewers, response.body).data;
+    const repository = data.repository;
     const pr = repository.pullRequest;
     const requested = pr.reviewRequests.nodes.flatMap((node): ForgeRequestedReviewer[] => {
       const r = node?.requestedReviewer;
@@ -247,6 +258,7 @@ export class GitHubPeople {
         s ? [{ ...person(s.reviewer), isAuthor: s.isAuthor, isCommenter: s.isCommenter }] : [],
       ),
       author: pr.author?.login ?? null,
+      viewer: data.viewer?.login ?? null,
       canRequest: open && pr.viewerCanUpdate,
       canDismiss: open && write,
     };

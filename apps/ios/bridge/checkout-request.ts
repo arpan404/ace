@@ -17,15 +17,37 @@ export const FilesScope = z.union([
 ]);
 export type FilesScope = z.infer<typeof FilesScope>;
 export const FilesOperation = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("tree") }),
   z.object({ op: z.literal("search"), query: z.string().max(128) }),
+  /** Quick open: what was typed ("app.ts:12"), or nothing for recent and changed files. */
+  z.object({ op: z.literal("quick"), text: z.string().max(256) }),
+  /** A folder's archive before downloading it ("" for the checkout's root). */
+  z.object({ op: z.literal("archive"), path: z.string().max(4096), includeIgnored: z.boolean() }),
   z.object({ op: z.literal("read"), path }),
+  /** A page of a file too large to show whole, from a byte offset (`checkout-pages.ts`). */
+  z.object({
+    op: z.literal("page"),
+    path,
+    offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    version: z.string().min(1).max(256).optional(),
+  }),
   z.object({ op: z.literal("download"), path }),
   z.object({
     op: z.literal("write"),
     path,
     text: z.string().max(checkoutEditLimit),
     expected: z.string().min(1).max(256),
+  }),
+  /**
+   * One part of a file too large to edit whole, saved over the bytes it was read from
+   * (`checkout-part-write.ts`): `offset` and `length` in bytes, at the part's `version`.
+   */
+  z.object({
+    op: z.literal("part.write"),
+    path,
+    offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    length: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    text: z.string().max(checkoutEditLimit),
+    version: z.string().min(1).max(256),
   }),
   z.object({ op: z.enum(["create", "mkdir", "delete"]), path }),
   z.object({ op: z.enum(["rename", "move"]), path, destination: path }),
@@ -41,7 +63,6 @@ export const NativeFilesRequest = z.object({
 });
 export type NativeFilesRequest = z.infer<typeof NativeFilesRequest>;
 
-export const Listing = z.object({ paths: z.array(z.string()), truncated: z.boolean() });
 export const Stat = z.object({
   version: z.string().nullable().optional(),
   size: z.number().optional(),

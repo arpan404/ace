@@ -1,5 +1,6 @@
 import { pluralCount } from "./counts.ts";
-import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import { treeOnlyWaits } from "@ace/projection";
+import type { QueueSnapshot, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
@@ -18,13 +19,19 @@ export type LiveFact =
   | { kind: "asking"; request: string }
   /** A delegated child (or one further down its tree) waits on the person; `agent` names it. */
   | { kind: "child-asking"; agent: string }
-  | { kind: "limited"; until: number | undefined }
+  /** `resumesAt`: the person chose to resume at the reset, and it carries on by itself then. */
+  | { kind: "limited"; until: number | undefined; resumesAt?: number | undefined }
   | { kind: "subagents"; count: number }
   /**
    * Background work holds the thread; `title` is the command of a single shell. A `count` of 0
    * is work the thread holds for but doesn't list.
    */
   | { kind: "watching"; count: number; title: string | undefined }
+  /**
+   * The thread is done and background commands it left running still run (a dev server, ADR
+   * 0109); `title` is the command of a single one.
+   */
+  | { kind: "left-running"; count: number; title: string | undefined }
   | { kind: "tests" };
 
 export interface LiveStatus {
@@ -62,6 +69,12 @@ export function limitedLabel(until: number | undefined, now: number, locale?: st
   return `Limited until ${until - now < 20 * hour ? formatClock(until, locale) : describeWake(until, now, locale)}`;
 }
 
+/** "Resumes at 9:23 PM" (or "Resumes tomorrow 9:23 AM"): a resume at reset the person chose. */
+export function resumesLabel(at: number, now: number, locale?: string): string {
+  const when = at - now < 20 * hour ? formatClock(at, locale) : describeWake(at, now, locale);
+  return /^\d/.test(when) ? `Resumes at ${when}` : `Resumes ${when}`;
+}
+
 /** A live fact in words, with its tone. */
 export function describeLive(fact: LiveFact, now: number, locale?: string): LiveStatus {
   switch (fact.kind) {
@@ -70,7 +83,14 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
     case "child-asking":
       return { label: childAskingLabel(fact.agent), code: undefined, tone: "needs-you" };
     case "limited":
-      return { label: limitedLabel(fact.until, now, locale), code: undefined, tone: "waiting" };
+      return {
+        label:
+          fact.resumesAt !== undefined && fact.resumesAt > now
+            ? resumesLabel(fact.resumesAt, now, locale)
+            : limitedLabel(fact.until, now, locale),
+        code: undefined,
+        tone: "waiting",
+      };
     case "subagents":
       return {
         label: waitingOnSubagentsLabel(fact.count),
@@ -85,6 +105,14 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
             code: undefined,
             tone: "background",
           };
+    case "left-running":
+      return fact.count === 1 && fact.title
+        ? { label: "Done · still running", code: fact.title, tone: "done" }
+        : {
+            label: `Done · ${pluralCount(fact.count, "command", "commands")} still running`,
+            code: undefined,
+            tone: "done",
+          };
     case "tests":
       return { label: "Running tests…", code: undefined, tone: "working" };
   }
@@ -96,14 +124,24 @@ export function liveStatusText(status: LiveStatus): string {
 }
 
 /**
+ * How many named background commands are running, by the exact count (`watchingCount`) rather
+ * than the names list, which keeps only the newest 8. A thread stored before the count existed
+ * has only the list to go by.
+ */
+export function leftRunningCount(live: ThreadRunMetadata | undefined): number {
+  return Math.max(live?.watchingCount ?? 0, live?.watching?.length ?? 0);
+}
+
+/**
  * What a listed thread is doing, from its status and the daemon's live hints, when they say
  * more than the status alone. Undefined for a thread that is simply working, done or new.
  */
 export function threadLiveFact(thread: {
   status: ThreadStatus;
   live?: ThreadRunMetadata | undefined;
+  queue?: Pick<QueueSnapshot, "paused" | "reason" | "resumeAt"> | undefined;
 }): LiveFact | undefined {
-  const { status, live } = thread;
+  const { status, live, queue } = thread;
   switch (status.state) {
     case "needs_you": {
       const request = live?.asking?.[0]?.kind;
@@ -111,8 +149,14 @@ export function threadLiveFact(thread: {
       const child = live?.askingThreads?.[0];
       return child ? { kind: "child-asking", agent: agentName({ name: child.name }) } : undefined;
     }
-    case "limited":
-      return { kind: "limited", until: status.until };
+    case "limited": {
+      // A resume at reset the person chose: the queue holds on the limit with a deadline.
+      const resumesAt =
+        queue?.paused && queue.reason === "limit" && queue.resumeAt !== null
+          ? queue.resumeAt
+          : undefined;
+      return { kind: "limited", until: status.until, ...(resumesAt ? { resumesAt } : {}) };
+    }
     case "working":
       if (live?.waitingOn) return { kind: "subagents", count: live.waitingOn };
       return live?.step === "tests" ? { kind: "tests" } : undefined;
@@ -123,6 +167,17 @@ export function threadLiveFact(thread: {
       const count = Math.max(watching.length, live?.backgroundTaskCount ?? 0);
       return {
         kind: "watching",
+        count,
+        title: count === 1 && watching.length === 1 ? watching[0]?.title : undefined,
+      };
+    }
+    case "done": {
+      // Commands it left running are a quiet fact beside Done, never hidden (ADR 0109).
+      const watching = live?.watching ?? [];
+      const count = leftRunningCount(live);
+      if (!count) return undefined;
+      return {
+        kind: "left-running",
         count,
         title: count === 1 && watching.length === 1 ? watching[0]?.title : undefined,
       };
@@ -207,10 +262,21 @@ export function listTreeFacts(thread: {
 function listRootStand(status: ThreadStatus, live: ThreadRunMetadata | undefined): RootStand {
   if (status.state === "working") {
     if (live?.waitingOn) return "on-tree";
-    const running = live?.runningSubagentCount ?? 0;
-    if (running > 0 && status.agents <= running) return "idle";
+    if (treeOnlyWaits(status, live)) return "idle";
   }
   return rootStand(status);
+}
+
+/**
+ * When a running tree's shown status began, for the time beside it: Waiting since the wait on
+ * its subagents began, Working since its work began. The sidebar row and the composer's strip
+ * both time a status from here, from the daemon's stamps, so a reconnect never moves it.
+ */
+export function liveStatusSince(
+  live: ThreadRunMetadata | undefined,
+  waiting: boolean,
+): number | undefined {
+  return (waiting ? live?.waitingSince : undefined) ?? live?.workingSince;
 }
 
 function rootStand(status: ThreadStatus): RootStand {

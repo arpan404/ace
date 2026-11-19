@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { test } from "vitest";
 import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
 
 const binary = Buffer.from([0, 1, 2, 255, 254, 0, 10, 13]);
@@ -111,3 +112,82 @@ it("copies a folder that isn't a repository, keeping links inside it and droppin
   expect(await readFile(join(there, "latest.md"), "utf8")).toBe("notes\n");
   expect((await readdir(there)).toSorted()).toEqual(["latest.md", "sub"]);
 });
+
+test.runIf(process.platform === "win32")(
+  "on Windows, opens a project there on the same branch, the changes reading in Git as they did here",
+  async () => {
+    const m = await transferMachines();
+    const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
+    await git(path, "switch", "-c", "feature");
+    await writeFile(join(path, "feature.txt"), "committed here only\n");
+    await git(path, "add", "-A");
+    await git(path, "commit", "-m", "feature work");
+    await writeFile(join(path, "README.md"), "hello, edited\n");
+    await rm(join(path, "gone.txt"));
+    await writeFile(join(path, "image.bin"), binary);
+    await writeFile(join(path, ".gitignore"), "secret.env\n");
+    await writeFile(join(path, "secret.env"), "TOKEN=1\n");
+    const before = await status(path);
+    const edit = await git(path, "diff", "--", "README.md");
+    const workspaceId = await m.addProject(m.source, path);
+
+    const receipt = await m.here.command({
+      type: "workspace.transfer",
+      workspaceId,
+      hostId: m.targetHostId,
+      includeChanges: true,
+      includeIgnored: false,
+    });
+    expect(receipt.ok).toBe(true);
+    const transfer = await m.settled();
+    expect(transfer).toMatchObject({ phase: "completed", method: "remote", kind: "project" });
+    const landed = transfer.result;
+    if (!landed) throw new Error("No result");
+    expect(landed.branch).toBe("feature");
+    expect(m.target.daemon.store.getWorkspacePath(landed.workspaceId)).toBe(landed.path);
+    expect(await git(landed.path, "branch", "--show-current")).toBe("feature");
+    expect(await git(landed.path, "log", "-1", "--format=%s")).toBe("feature work");
+    // The edit reads the same in Git there; on disk it has the person's own line endings.
+    expect(await git(landed.path, "diff", "--", "README.md")).toBe(edit);
+    expect((await readFile(join(landed.path, "README.md"), "utf8")).replaceAll("\r\n", "\n")).toBe(
+      "hello, edited\n",
+    );
+    expect(await readFile(join(landed.path, "image.bin"))).toEqual(binary);
+    await expect(readFile(join(landed.path, "gone.txt"))).rejects.toThrow();
+    await expect(readFile(join(landed.path, "secret.env"))).rejects.toThrow();
+    expect((await status(landed.path)).split("\n").toSorted()).toEqual(
+      [" D gone.txt", " M README.md", "?? .gitignore", "?? image.bin"].toSorted(),
+    );
+    expect(await status(path)).toBe(before);
+    expect(await git(path, "for-each-ref", "refs/ace")).toBe("");
+    expect(await readdir(join(m.source.h.home, "daemon", "transfers", "outgoing"))).toEqual([]);
+    expect(await readdir(join(m.target.h.home, "daemon", "transfers", "incoming"))).toEqual([]);
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "on Windows, copies a folder that isn't a repository, leaving its links behind",
+  async () => {
+    const m = await transferMachines();
+    const path = join(m.sourceRoot, "notes");
+    await mkdir(join(path, "sub"), { recursive: true });
+    await writeFile(join(path, "sub", "today.md"), "notes\n");
+    await symlink("sub/today.md", join(path, "latest.md"));
+    await symlink("../../outside", join(path, "escape"));
+    const workspaceId = await m.addProject(m.source, path);
+
+    await m.here.command({
+      type: "workspace.transfer",
+      workspaceId,
+      hostId: m.targetHostId,
+      includeChanges: true,
+    });
+    const transfer = await m.settled();
+    expect(transfer).toMatchObject({ phase: "completed", method: "archive" });
+    const there = transfer.result?.path ?? "";
+    expect(there.startsWith(m.targetRoot)).toBe(true);
+    // ace never asks for the privilege Windows links need: the copy lands without them.
+    expect(await readFile(join(there, "sub", "today.md"), "utf8")).toBe("notes\n");
+    expect((await readdir(there)).toSorted()).toEqual(["sub"]);
+  },
+);

@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeLiveSubscribe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "path": {
+      "maxLength": 2048,
+      "minLength": 4,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.live.subscribe",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "path"
+  ],
+  "type": "object"
+}

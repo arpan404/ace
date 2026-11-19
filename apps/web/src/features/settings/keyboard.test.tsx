@@ -1,9 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { fakeDesktopSettings } from "@/test/desktop-settings.ts";
 import { harness } from "@/test/harness.tsx";
 import { overrideKeyboardEnv } from "@/lib/keybindings.ts";
-afterEach(() => overrideKeyboardEnv(undefined));
+afterEach(() => {
+  overrideKeyboardEnv(undefined);
+  vi.unstubAllGlobals();
+});
 
 import { recordChord } from "./keybindings.ts";
 
@@ -54,11 +58,16 @@ test("rebindings survive leaving Settings › Keyboard, and Reset all restores e
   await harness().open("/settings/keyboard");
   const agents = await shortcut("Summary");
   await userEvent.click(agents);
-  press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
+  press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
-  await userEvent.click(within(nav).getByRole("link", { name: "General" }));
+  // Spade's section has a General page of its own; this is the device's.
+  const general = within(nav)
+    .getAllByRole("link", { name: "General" })
+    .find((link) => link.getAttribute("href") === "/settings/general");
+  if (!general) throw new Error("No link to Settings › General");
+  await userEvent.click(general);
   await userEvent.click(within(nav).getByRole("link", { name: "Keyboard" }));
-  expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+U");
+  expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+Y");
 
   await userEvent.click(screen.getByRole("button", { name: "Reset all shortcuts" }));
   expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
@@ -108,12 +117,16 @@ test("shortcuts are grouped, filterable, and a rebound one is marked", async () 
   expect(within(again).getByRole("img", { name: "Changed" })).toBeTruthy();
 });
 
-test("sequences and plain keys are shown, not recorded; shortcuts say where they work", async () => {
+test("Go to shortcuts are modifier chords that can be rebound; shortcuts say where they work", async () => {
   await harness().open("/settings/keyboard");
   const goTo = await screen.findByRole("region", { name: "Go to" });
-  expect(within(goTo).queryByRole("button", { name: "Go to Home shortcut" })).toBeNull();
-  expect(within(goTo).queryByText("Sequence")).toBeNull();
-  expect(within(goTo).getAllByText("then").length).toBeGreaterThan(0);
+  expect(within(goTo).queryByText("then")).toBeNull();
+  const home = await shortcut("Go to Home");
+  expect(home.textContent).toBe("Alt+Ctrl+H");
+  await userEvent.click(home);
+  press(home, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
+  expect((await shortcut("Go to Home")).textContent).toBe("Alt+Ctrl+Y");
+  expect((await shortcut("Go to Issues")).textContent).toBe("Alt+Ctrl+I");
   const cap = screen.getByLabelText("Stop the working agent shortcut");
   cap.focus();
   expect((await screen.findByRole("tooltip")).textContent).toContain("In the composer");
@@ -147,28 +160,27 @@ test("a conflict can be swapped from the keyboard: Shift+Tab reaches Use anyway"
 });
 
 test("retrying an older refused change never undoes a newer one that was saved", async () => {
+  // The desktop app saves shortcuts in its own settings store, which can refuse a save.
+  const device = fakeDesktopSettings();
   const app = harness();
   await app.open("/settings/keyboard");
+  await waitFor(() => expect(device.stored().keybindings).toEqual({}));
   // A: refused, so it goes back.
-  app.daemon.failRequests("settings.set");
+  device.refuse(true);
   const agents = await shortcut("Summary");
   await userEvent.click(agents);
-  press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
+  press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   await waitFor(async () => expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A"));
 
   // B: saved.
-  app.daemon.restoreRequests();
+  device.refuse(false);
   const settings = await shortcut("Settings");
   await userEvent.click(settings);
   press(settings, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
-  await waitFor(() =>
-    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
-      settings: "shift+mod+y",
-    }),
-  );
+  await waitFor(() => expect(device.stored().keybindings).toEqual({ settings: "shift+mod+y" }));
 
-  // Retry A, refused again: B stays, on screen and on the daemon.
-  app.daemon.failRequests("settings.set");
+  // Retry A, refused again: B stays, on screen and on the device.
+  device.refuse(true);
   await userEvent.click(
     (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
   );
@@ -178,15 +190,15 @@ test("retrying an older refused change never undoes a newer one that was saved",
   expect((await shortcut("Settings")).textContent).toBe("Shift+Ctrl+Y");
   expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
 
-  // Retry A once the daemon takes it: A lands on top of B, not instead of it.
-  app.daemon.restoreRequests();
+  // Retry A once the device takes it: A lands on top of B, not instead of it.
+  device.refuse(false);
   await userEvent.click(
     (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
   );
   await waitFor(() =>
-    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
+    expect(device.stored().keybindings).toEqual({
       settings: "shift+mod+y",
-      agents: "alt+mod+u",
+      agents: "alt+mod+y",
     }),
   );
 });

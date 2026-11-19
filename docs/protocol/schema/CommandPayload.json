@@ -328,7 +328,9 @@
             "resume_now",
             "resume_at_reset",
             "snooze_until_reset",
-            "migrate_now"
+            "migrate_now",
+            "switch",
+            "cancel_resume"
           ],
           "type": "string"
         },
@@ -339,6 +341,9 @@
         },
         "instanceId": {
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "selection": {
+          "$ref": "https://ace.local/protocol/v1/SwitchSelection.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -434,38 +439,7 @@
     {
       "properties": {
         "selection": {
-          "properties": {
-            "acpAgentId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "installationId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "instanceId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "model": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "options": {
-              "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
-            },
-            "provider": {
-              "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-            }
-          },
-          "required": [
-            "provider"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/SwitchSelection.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -514,6 +488,22 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
+          "const": "thread.title.regenerate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
           "const": "thread.unarchive",
           "type": "string"
         }
@@ -526,6 +516,11 @@
     },
     {
       "properties": {
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "force": {
           "type": "boolean"
         },
@@ -611,6 +606,10 @@
         "type": {
           "const": "thread.unsettle",
           "type": "string"
+        },
+        "undo": {
+          "const": true,
+          "type": "boolean"
         }
       },
       "required": [
@@ -657,6 +656,13 @@
               "type": "null"
             }
           ]
+        },
+        "wake": {
+          "enum": [
+            "needs_you",
+            "pr"
+          ],
+          "type": "string"
         }
       },
       "required": [
@@ -1073,6 +1079,24 @@
     },
     {
       "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.root.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "git": {
           "properties": {
             "initialBranch": {
@@ -1233,6 +1257,89 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProjectRepositoriesSetCommand.json"
+    },
+    {
+      "properties": {
+        "identityId": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.link",
+          "type": "string"
+        },
+        "viaMarker": {
+          "const": true,
+          "type": "boolean"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "identityId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "replace": {
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "workspace.identity.marker.write",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "workspace.identity.unlink",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "from": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "into": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "from",
+        "into"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "type": {
           "const": "workspace.git.lock.clear",
@@ -1262,7 +1369,7 @@
     },
     {
       "properties": {
-        "archiveThreads": {
+        "stopRunning": {
           "default": false,
           "type": "boolean"
         },
@@ -1575,7 +1682,8 @@
         },
         "reviewers": {
           "items": {
-            "pattern": "^[\\w-]+$",
+            "maxLength": 100,
+            "pattern": "^[\\w.-]+$",
             "type": "string"
           },
           "maxItems": 100,
@@ -2163,6 +2271,16 @@
         "origin": {
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
         },
+        "runId": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/RunId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -2214,6 +2332,11 @@
     },
     {
       "properties": {
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -2312,6 +2435,11 @@
       "properties": {
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "readWhole": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
         },
         "resolution": {
           "$ref": "https://ace.local/protocol/v1/InteractionResolution.json"

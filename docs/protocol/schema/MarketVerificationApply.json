@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVerificationApply.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "domain": {
+      "maxLength": 253,
+      "minLength": 3,
+      "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+      "type": "string"
+    },
+    "github": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

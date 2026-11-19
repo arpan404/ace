@@ -1,0 +1,20 @@
+[package]
+name = "spade-core"
+version = "0.1.0"
+description = "Spade's pure logic: conversation events, transcript, prompts, spending"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+jiff.workspace = true
+schemars.workspace = true
+serde.workspace = true
+percent-encoding = "2"
+serde_json.workspace = true
+spade-models = { path = "../spade-models" }
+url = "2"
+
+[lints]
+workspace = true

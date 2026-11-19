@@ -1,10 +1,21 @@
-import { ManagedWorktrees } from "../managed-worktrees.ts";
+import { ManagedWorktrees, type ManagedWorktree } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
 import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
-import { storageProtections, storageTree } from "./ownership.ts";
+import {
+  loadProtectionFacts,
+  storageMembers,
+  storageProtections,
+  type ProtectionFacts,
+} from "./ownership.ts";
+import { treeProtections } from "./delegation-trees.ts";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
+
+export interface StorageScan {
+  candidates: OwnedStorageCandidate[];
+  complete: boolean;
+}
 
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -22,24 +33,40 @@ export class StorageInventory {
     queries?: readonly string[],
     going: () => boolean = () => true,
   ): Promise<OwnedStorageCandidate | undefined> {
-    const { store } = this.owner;
     // Measure first: it yields to the loop. Ownership and protections are read after the last
     // await, so the candidate never carries protections older than its size.
-    const bytes = await transcriptBytes(
+    const bytes = await this.measure(id, queries, going);
+    return this.threadCandidate(id, bytes, loadProtectionFacts(this.owner, [id]));
+  }
+  private measure(
+    id: ThreadId,
+    queries: readonly string[] | undefined,
+    going: () => boolean,
+  ): Promise<number | undefined> {
+    const { store } = this.owner;
+    return transcriptBytes(
       (sql) => store.statement(sql),
       id,
       queries ?? store.atomic((db) => transcriptQueries(db)),
       going,
     );
+  }
+  /** Synchronous: callers read `facts` after their last await. */
+  private threadCandidate(
+    id: ThreadId,
+    bytes: number | undefined,
+    facts: ProtectionFacts,
+  ): OwnedStorageCandidate | undefined {
+    const { store } = this.owner;
     const thread = store.getThread(id);
     if (!thread || bytes === undefined) return undefined;
-    const members = storageTree(store, id);
-    const protections = storageProtections(this.owner, members);
+    const members = facts.trees.tree(id);
+    const protections = treeProtections(facts.trees, facts.reasons, members, facts.memo);
     if (thread.archivedAt === undefined && thread.deletedAt === undefined)
       protections.push("not_archived");
     if (
       members.some((member) => {
-        const t = store.getThread(member);
+        const t = facts.threads.get(member);
         return t && t.archivedAt === undefined && t.deletedAt === undefined;
       })
     )
@@ -54,7 +81,7 @@ export class StorageInventory {
       // member would mark the rest recently modified and protect them from later rounds.
       modifiedAt: Math.max(
         ...members.map((member) => {
-          const t = member === id ? thread : store.getThread(member);
+          const t = member === id ? thread : facts.threads.get(member);
           if (!t || (member !== id && t.deletedAt !== undefined)) return 0;
           return Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0);
         }),
@@ -95,14 +122,14 @@ export class StorageInventory {
     const workspace = services.workspaceActions;
     if (!workspace) throw new Error("storage_git_unavailable");
     if (!this.managed.verify(repo, path)) return undefined;
-    const state = await workspace.git.inspectWorktreeCleanup(repo, path);
+    const state = await (this.owner.worktrees ?? workspace.git).inspectWorktreeCleanup(repo, path);
     // Git inspection awaits I/O. Ownership is read afterwards, and apply holds root admission.
     if (!this.managed.verify(repo, path)) return undefined;
-    const { ids, protections, threads } = this.worktreeOwnership(path);
+    const { ids, protections, threads, settledAt, open } = this.worktreeOwnership(path);
     if (state.main) protections.push("main_worktree");
     if (state.locked) protections.push("locked_worktree");
     if (state.dirty) protections.push("uncommitted");
-    if (state.unpushed) protections.push("unpushed");
+    if (state.unpushed && !state.mergedIntoMain) protections.push("unpushed");
     const prs = threads.flatMap((thread) => thread.details?.linkedPrs ?? []);
     const merged =
       prs.length > 0 && prs.every((pr) => pr.state === "merged" && !pr.unverified && !pr.deleted);
@@ -128,7 +155,10 @@ export class StorageInventory {
         ...threads.map((thread) => thread.activityAt ?? thread.updatedAt),
       ),
       threadIds: ids,
-      fingerprint: fingerprint({ state, owners: ids, prs }),
+      ...(settledAt === undefined ? {} : { settledAt }),
+      mergedIntoMain: state.mergedIntoMain,
+      openThreads: open,
+      fingerprint: fingerprint({ state, owners: ids, prs, settledAt, open }),
       protections,
       branch: state.branch,
       removeBranch: merged,
@@ -140,6 +170,8 @@ export class StorageInventory {
         gitFingerprint: state.fingerprint,
         head: state.head,
         branch: state.branch,
+        ...(settledAt === undefined ? {} : { settledAt }),
+        openThreads: open,
       },
     };
   }
@@ -154,14 +186,19 @@ export class StorageInventory {
   }
   worktreeOwnership(path: string) {
     const { store } = this.owner;
-    const ids = [...new Set(this.worktreeOwners(path).flatMap((id) => storageTree(store, id)))];
+    const ids = storageMembers(store, this.worktreeOwners(path));
     const protections = storageProtections(this.owner, ids);
     const threads = ids.flatMap((id) => {
       const thread = store.getThread(id);
       return thread ? [thread] : [];
     });
     if (
-      threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined) ||
+      threads.some(
+        (thread) =>
+          thread.deletedAt === undefined &&
+          thread.archivedAt === undefined &&
+          thread.settledAt === undefined,
+      ) ||
       store
         .statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
         (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`)
@@ -172,7 +209,17 @@ export class StorageInventory {
       .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
     if (reservation) protections.push("cleanup_in_progress");
-    return { ids, protections, threads };
+    // Settled but unarchived threads only free their worktree in the settled cleanup modes.
+    const open = threads.some(
+      (thread) => thread.deletedAt === undefined && thread.archivedAt === undefined,
+    );
+    const settledAt =
+      threads.length && threads.every((thread) => thread.settledAt !== undefined)
+        ? Math.max(
+            ...threads.map((thread) => Math.max(thread.settledAt ?? 0, thread.activityAt ?? 0)),
+          )
+        : undefined;
+    return { ids, protections, threads, settledAt, open };
   }
   async inspect(
     target: StorageTarget,
@@ -212,11 +259,27 @@ export class StorageInventory {
         .all();
       if (threads.length > 256) complete = false;
       const queries = store.atomic((db) => transcriptQueries(db));
+      const measured: [ThreadId, number | undefined][] = [];
+      let stopped = false;
       for (const row of threads.slice(0, 256)) {
-        const candidate = await this.thread(ThreadId.parse(row.id), queries, going);
-        if (candidate) candidates.push(candidate);
-        if (!going()) return { candidates, complete: false };
+        const id = ThreadId.parse(row.id);
+        measured.push([id, await this.measure(id, queries, going)]);
+        if (!going()) {
+          stopped = true;
+          break;
+        }
       }
+      // Ownership and protections for the whole page are read once, after the last
+      // measurement, so no candidate carries protections older than its size.
+      const facts = loadProtectionFacts(
+        this.owner,
+        measured.map(([id]) => id),
+      );
+      for (const [id, bytes] of measured) {
+        const candidate = this.threadCandidate(id, bytes, facts);
+        if (candidate) candidates.push(candidate);
+      }
+      if (stopped) return { candidates, complete: false };
     }
     if (!going()) return { candidates, complete: false };
     if (kinds.has("attachments") && services.context) {
@@ -231,33 +294,46 @@ export class StorageInventory {
     if (kinds.has("worktrees") && services.workspaceActions) {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
-      for (const record of records.slice(0, 256)) {
-        if (!going()) return { candidates, complete: false };
-        try {
-          const candidate = await this.worktree(record.repo, record.path);
-          if (candidate) candidates.push(candidate);
-        } catch {
-          complete = false;
-          candidates.push({
-            id: storageId("worktrees", `${record.repo}:${record.path}`),
-            kind: "worktrees",
-            label: record.path,
-            bytes: 0,
-            modifiedAt: record.created_at,
-            threadIds: [],
-            fingerprint: "unavailable",
-            protections: ["unknown_git_state"],
-            eligibleReason: "orphaned",
-            target: {
-              type: "worktree",
-              repo: record.repo,
-              path: record.path,
-              gitFingerprint: "unavailable",
-              head: null,
-              branch: null,
-            },
-          });
-        }
+      const scan = await this.scanWorktrees(records.slice(0, 256), going);
+      candidates.push(...scan.candidates);
+      complete &&= scan.complete;
+    }
+    return { candidates, complete };
+  }
+
+  /** Inspect only the selected page; ownership and Git checks match reviewed cleanup. */
+  async scanWorktrees(
+    records: readonly ManagedWorktree[],
+    going: () => boolean,
+  ): Promise<StorageScan> {
+    const candidates: OwnedStorageCandidate[] = [];
+    let complete = true;
+    for (const record of records) {
+      if (!going()) return { candidates, complete: false };
+      try {
+        const candidate = await this.worktree(record.repo, record.path);
+        if (candidate) candidates.push(candidate);
+      } catch {
+        complete = false;
+        candidates.push({
+          id: storageId("worktrees", `${record.repo}:${record.path}`),
+          kind: "worktrees",
+          label: record.path,
+          bytes: 0,
+          modifiedAt: record.created_at,
+          threadIds: [],
+          fingerprint: "unavailable",
+          protections: ["unknown_git_state"],
+          eligibleReason: "orphaned",
+          target: {
+            type: "worktree",
+            repo: record.repo,
+            path: record.path,
+            gitFingerprint: "unavailable",
+            head: null,
+            branch: null,
+          },
+        });
       }
     }
     return { candidates, complete };

@@ -1,0 +1,48 @@
+import type { ChangeTap, ThreadReader } from "@ace/client";
+import { subagentInspection } from "@ace/ui-core/mobile";
+import { touchesTree } from "./agents.ts";
+import { preview } from "./presentation.ts";
+import { textBubble } from "./thread-messages.ts";
+import type { RetryAsk } from "./subagent-retries.ts";
+
+type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+
+/**
+ * What the open lane's subagent is, as one coalesced patch (`subagentInspection`): its prompt,
+ * where its branch stands, the requests under it, Stop and Ask parent to retry. Read again only
+ * when the tree, its requests or the thread change; streamed text never reshapes it.
+ */
+export function followLaneInfo(
+  store: ThreadReader,
+  agentId: string,
+  put: Put,
+  now: () => number,
+  asked: () => RetryAsk | "pending" | undefined = () => undefined,
+): ChangeTap {
+  const send = () =>
+    put("laneInfo", () => {
+      const info = subagentInspection(store, agentId, now());
+      if (!info) return { type: "thread.laneInfo", lane: agentId, info: null };
+      const prompt = info.prompt && { at: info.prompt.at, bubble: textBubble(info.prompt.text) };
+      // Already asked about this ending: "Asked", never the button again.
+      const ask = info.retry ? (asked() ?? null) : null;
+      return {
+        type: "thread.laneInfo",
+        lane: agentId,
+        // The prompt is drawn as the person's bubble: its runs, bound and fold, not raw text.
+        info: {
+          ...info,
+          name: preview(info.name, 256),
+          parent: { ...info.parent, name: preview(info.parent.name, 256) },
+          prompt,
+          retry: info.retry && { label: info.retry.label, asked: ask },
+        },
+      };
+    });
+  send();
+  return (keys) => {
+    // A run starting or ending is a new ending for a retry ask.
+    if (keys === "all" || touchesTree(keys) || [...keys].some((key) => key.startsWith("run:")))
+      send();
+  };
+}

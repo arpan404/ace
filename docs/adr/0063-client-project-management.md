@@ -42,9 +42,10 @@ Recheck clone cancellation at that commit boundary; cancellation after commit re
 delay shutdown until the operation timeout.
 
 Removal persists an unregistered marker rather than deleting workspace rows referenced by
-thread history. It never deletes files. Live whole-tree statuses refuse removal unless
-`archiveThreads` is supplied. Explicit archive preserves execution status and ongoing work.
-Re-adding restores registration with the same id. Rename updates thread workspace metadata.
+thread history. It never deletes files. It deletes the project's threads, through the same
+lifecycle as deleting one thread, so no thread keeps a removed project on screen. Live
+whole-tree statuses refuse removal unless `stopRunning` is supplied, which stops them first.
+Re-adding restores registration with the same id, with no threads. Rename updates thread workspace metadata.
 Workspace pushes invalidate project lists; thread events update existing sidebar subscriptions.
 
 Expose `ClientApi.projects` through both in-process and shared-worker clients using the existing
@@ -60,3 +61,12 @@ are not executed; tests run at merge. Only the owner-approved static checks run 
 Git argument and transport choices follow the primary [clone](https://git-scm.com/docs/git-clone),
 [protocol policy](https://git-scm.com/docs/git-config#Documentation/git-config.txt-protocolallow)
 and [init](https://git-scm.com/docs/git-init) references.
+
+## Amendment 2026-11-18: machine links take projects
+
+A link between two of the person's machines (Settings › Fleet, ADR 0078) is not a phone or a
+browser. Its pairing now grants `projects` with `operate`, because the link also carries the
+person's own "Continue on…" and "Open on…" (ADR 0101). Admin still doesn't imply projects, and
+the pairing screen for phones, browsers and other devices still leaves Projects off by default.
+An administrator holding Projects on a machine can allow or stop allowing it for any paired
+device there without pairing again (ADR 0101, "Changing what a link allows").

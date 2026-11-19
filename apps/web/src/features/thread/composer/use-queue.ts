@@ -1,34 +1,58 @@
+import type { ThreadReader } from "@ace/client";
 import { distinctRetainedInputs } from "@ace/projection";
-import { composerInput, editComposerTokens, tokensFromInput } from "@ace/ui-core";
-import { useClient, useThreadMeta } from "@ace/client-react";
 import {
-  CommandId,
-  ThreadId,
-  type CommandPayload,
-  type ContentPart,
-  type QueuePage,
-  type QueuedMessage,
-} from "@ace/protocol";
-import { continueMessage, type QueueAction } from "@ace/ui-core";
+  bubbleContent,
+  contextAfterEdit,
+  inputWithText,
+  tokensFromInput,
+  typedWords,
+} from "@ace/ui-core";
+import { annotationCount } from "@/features/annotations/index.ts";
+import { useClient, useThread } from "@ace/client-react";
+import { type QueuePage, type QueuedMessage } from "@ace/protocol";
+import type { QueueAction } from "@ace/ui-core";
 import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
+import { CommandRefused, failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { changeQueue, queueAction, type QueueChange } from "@/lib/live-actions.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
-import { draftOf, restoreReturnedDraft } from "./returned-draft.ts";
+
+/**
+ * One queue-wide action as its daemon command, fenced to the queue revision read just before
+ * and sent only while the thread's copy is current (`queueAction`); rejects when refused.
+ */
+export function sendQueueAction(
+  client: ReturnType<typeof useClient>,
+  threadId: string,
+  action: QueueAction,
+): Promise<void> {
+  return queueAction(client, threadId, action);
+}
 
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
   tokensFromInput(message.input).text;
 
-/** Replace the text, keep files and images. */
-function withText(input: readonly ContentPart[], text: string): ContentPart[] {
-  const original = tokensFromInput(input);
+/**
+ * A message on its way in one line: its words as the person wrote them (a `/goal` or other
+ * command included) without the blocks only the agent reads, what it replies to and how many
+ * annotations go with it.
+ */
+export function queuedLine(message: Pick<QueuedMessage, "input">): string {
+  const shown = bubbleContent(message.input);
+  const annotations = shown.annotations?.items.length ?? 0;
+  const quotes = shown.quotes?.length ?? 0;
+  // Not `shown.text`: the transcript's clean-up drops a leading slash command.
+  const words = typedWords(shown.parts);
   return [
-    ...composerInput(text, editComposerTokens(original.text, text, original.tokens)),
-    ...input.filter((part) => part.type !== "text" && part.type !== "mention"),
-  ];
+    quotes ? `Replying to ${quotes === 1 ? "1 quote" : `${quotes} quotes`}` : "",
+    words,
+    annotations ? annotationCount(annotations) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**
@@ -58,7 +82,7 @@ export function overlayQueue(
   shown = shown.map((message) => {
     const edit = live.find(([id, e]) => id === message.id && e.kind === "text")?.[1];
     return edit?.kind === "text"
-      ? { ...message, input: withText(message.input, edit.text) }
+      ? { ...message, input: inputWithText(message.input, edit.text) }
       : message;
   });
   const order = live.findLast(([, edit]) => edit.kind === "order")?.[1];
@@ -82,7 +106,10 @@ export interface QueueControls {
   /** Every retained entry with this device's optimistic edits applied. */
   allMessages: readonly QueuedMessage[];
   failed: boolean;
-  /** A command for this message is on its way: its pill waits for it. */
+  /**
+   * A command for this message is on its way, or the queue shown is a kept copy the daemon has
+   * not answered yet: its pill waits.
+   */
   busy(messageId: string): boolean;
   /** A queue-wide action (resume, hold, a limit choice) is on its way. */
   acting: boolean;
@@ -90,14 +117,20 @@ export interface QueueControls {
   loadingMore?: boolean;
   loadMore?(): void;
   remove(message: QueuedMessage): void;
-  /** Remove on the daemon first, then restore the message alongside the person's draft. */
-  takeBack(message: QueuedMessage): void;
   resend(message: QueuedMessage): void;
   move(index: number, step: -1 | 1): void;
   moveTo(index: number, destination: number): void;
   /** Deliver into the running turn now instead of waiting. */
   sendNow(message: QueuedMessage): void;
-  edit(message: QueuedMessage, text: string): Promise<boolean>;
+  /**
+   * New words in place, fenced to the queue revision they were read at (`read`, the page's own
+   * when absent): "conflict" when the message changed since, so nothing was overwritten.
+   */
+  edit(
+    message: QueuedMessage,
+    text: string,
+    read?: number,
+  ): Promise<"saved" | "failed" | "conflict">;
   act(action: QueueAction): void;
 }
 
@@ -106,22 +139,24 @@ export interface QueueControls {
  * on its own pill, with that pill waiting for its command; the others stay usable. Commands are
  * durable and carry the revision they were decided on: when another device got there first the
  * daemon answers `queue_conflict`, the change is taken back, the toast says so, and the page is
- * read again.
+ * read again. While the thread's copy isn't confirmed no change goes at all: the page may be one
+ * kept from before, and a queue-wide action is refused the same way (it reads the queue first).
  */
 export function useQueue(threadId: string): QueueControls {
   const client = useClient();
-  const canSteer = useThreadMeta(threadId)?.capabilities?.steer === true;
+  const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
+  // `unconfirmed`: the page shown is one kept from an earlier session that the daemon hasn't
+  // answered since. It only disables and words the pills (`busy`); `changeQueue` is what refuses
+  // a change decided on such a page, checking `copy` as it sends.
+  const { page, retained, failed, refresh, loadingMore, loadMore, unconfirmed, copy } =
+    useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
   const revision = page?.revision ?? 0;
-  const target = page && {
-    threadId: ThreadId.parse(threadId),
-    expectedRevision: page.revision,
-  };
+
   const put = (id: string, edit: QueueEdit | undefined) =>
     setEdits((all) => {
       const next = new Map(all);
@@ -129,17 +164,41 @@ export function useQueue(threadId: string): QueueControls {
       else next.delete(id);
       return next;
     });
-  /** Show `edit` on the message now; settle it on the receipt, take it back on a refusal. */
+  /**
+   * Show `edit` on the message now; settle it on the receipt, take it back on a refusal. Sent
+   * through `changeQueue`, which refuses it while the thread's copy isn't current or the page is
+   * an unconfirmed kept copy, fenced to the page's revision (or `read`, the revision the person's
+   * edit was read at).
+   */
   const change = async (
     id: string,
     edit: QueueEdit,
-    payload: CommandPayload | undefined,
+    queued: QueueChange,
     failure: string,
+    /** A refusal the caller says itself, with no toast. */
+    quiet: (error: unknown) => boolean = () => false,
+    read?: number,
   ) => {
-    if (!payload || inFlight.current.has(id)) return false;
+    if (!page || inFlight.current.has(id)) return false;
+    const live = changeQueue(
+      client,
+      { threadId, expectedRevision: read ?? page.revision, copy },
+      queued,
+      (payload) => runCommand(client, payload, crypto.randomUUID()),
+    );
+    if (!live.ok) {
+      toast.add({
+        title: `Couldn't ${failure}`,
+        description:
+          live.refused === "unconfirmed_queue"
+            ? "The queue shown is from before. Try again once it's loaded."
+            : "The queue may have changed. Try again once it's confirmed.",
+      });
+      return false;
+    }
     inFlight.current.add(id);
     put(id, edit);
-    return runCommand(client, payload, crypto.randomUUID())
+    return live.sent
       .then(() => {
         // Shown until a page read after this revision lists the result.
         put(id, { ...edit, revision: edit.revision + 1, settled: true });
@@ -147,7 +206,8 @@ export function useQueue(threadId: string): QueueControls {
       })
       .catch((error: unknown) => {
         put(id, undefined);
-        toast.error({ title: `Couldn't ${failure}`, description: failureMessage(error) });
+        if (!quiet(error))
+          toast.error({ title: `Couldn't ${failure}`, description: failureMessage(error) });
         refresh();
         return false;
       })
@@ -172,12 +232,7 @@ export function useQueue(threadId: string): QueueControls {
     void change(
       message.id,
       { kind: "order", order, revision, settled: false },
-      target && {
-        type: "queue.move",
-        ...target,
-        messageId: message.id,
-        after: after === undefined ? null : CommandId.parse(after),
-      },
+      { kind: "move", messageId: message.id, after: after ?? null },
       "move the message",
     );
   };
@@ -188,7 +243,9 @@ export function useQueue(threadId: string): QueueControls {
     retained,
     allMessages,
     failed,
+    // Unconfirmed, every message waits as if a command for it were on its way.
     busy: (id) => {
+      if (unconfirmed) return true;
       const edit = edits.get(id);
       return !!edit && !edit.settled;
     },
@@ -200,39 +257,19 @@ export function useQueue(threadId: string): QueueControls {
       void change(
         message.id,
         { kind: "gone", revision, settled: false },
-        target && { type: "queue.resend", ...target, messageId: message.id },
+        { kind: "resend", messageId: message.id },
         "send the message again",
       ).then(() => refresh()),
     remove: (message) =>
       void change(
         message.id,
         { kind: "gone", revision, settled: false },
-        target && { type: "queue.remove", ...target, messageId: message.id },
+        { kind: "remove", messageId: message.id },
         "remove the message",
       ).then((removed) => {
         // Removed by the person: its message never shows as a bubble either. Only once the
         // daemon has removed it; a refused removal leaves it to be delivered and shown.
         if (removed) dismissSend(storage, message.id);
-      }),
-    takeBack: (message) =>
-      void change(
-        message.id,
-        { kind: "delivering", revision, settled: false },
-        target && { type: "queue.remove", ...target, messageId: message.id },
-        "take back the message",
-      ).then((removed) => {
-        if (!removed) return;
-        dismissSend(storage, message.id);
-        restoreReturnedDraft(
-          storage,
-          `thread:${threadId}`,
-          draftOf({
-            type: "thread.send",
-            threadId: ThreadId.parse(threadId),
-            input: message.input,
-            ...(message.context ? { context: message.context } : {}),
-          }),
-        );
       }),
     move: (index, step) => moveTo(index, index + step),
     moveTo,
@@ -240,67 +277,39 @@ export function useQueue(threadId: string): QueueControls {
       void change(
         message.id,
         { kind: "delivering", revision, settled: false },
-        target && {
-          type: "queue.edit",
-          ...target,
-          messageId: message.id,
-          input: message.input,
-          ...(message.context ? { context: message.context } : {}),
-          delivery: "steer",
-        },
+        { kind: "send-now", messageId: message.id, input: message.input, context: message.context },
         "send it now",
       );
     },
-    edit: (message, text) =>
-      change(
+    edit: async (message, text, read) => {
+      let conflict = false;
+      const saved = await change(
         message.id,
         { kind: "text", text, revision, settled: false },
-        target && {
-          type: "queue.edit",
-          ...target,
+        {
+          kind: "edit",
           messageId: message.id,
-          input: withText(message.input, text),
-          ...(message.context ? { context: message.context } : {}),
+          input: inputWithText(message.input, text),
+          // Its files stay by the same words.
+          context:
+            message.context &&
+            contextAfterEdit(message.context, message.input, inputWithText(message.input, text)),
         },
         "save the message",
-      ),
+        (error) =>
+          (conflict =
+            read !== undefined &&
+            error instanceof CommandRefused &&
+            error.code === "queue_conflict"),
+        read,
+      );
+      return saved ? "saved" : conflict ? "conflict" : "failed";
+    },
     act: (action) => {
       if (action.id === "choose_model" || inFlight.current.has("queue")) return;
       inFlight.current.add("queue");
       setActing(true);
-      void (async () => {
-        const { queue } = await client.request({
-          type: "queue.get",
-          threadId: ThreadId.parse(threadId),
-          limit: 1,
-        });
-        const fresh = { threadId: ThreadId.parse(threadId), expectedRevision: queue.revision };
-        // Continue carries the turn on in the person's words: a restart resumes its native
-        // session (the daemon sends them), anything else is simply their next message.
-        const payload: CommandPayload =
-          action.id === "continue"
-            ? queue.paused && queue.reason === "restart"
-              ? { type: "thread.resume", ...fresh }
-              : {
-                  type: "thread.send",
-                  threadId: fresh.threadId,
-                  input: [{ type: "text", text: continueMessage }],
-                  delivery: "queue",
-                }
-            : action.id === "resume"
-              ? { type: queue.reason === "restart" ? "thread.resume" : "queue.resume", ...fresh }
-              : action.id === "hold"
-                ? { type: "queue.pause", ...fresh }
-                : {
-                    type: "thread.limit",
-                    ...fresh,
-                    action: action.id,
-                    ...("instanceId" in action && action.instanceId
-                      ? { instanceId: action.instanceId }
-                      : {}),
-                  };
-        await runCommand(client, payload, crypto.randomUUID());
-      })()
+      void sendQueueAction(client, threadId, action)
         .catch((error: unknown) => {
           toast.error({ title: "Couldn't do that", description: failureMessage(error) });
           refresh();
@@ -312,3 +321,6 @@ export function useQueue(threadId: string): QueueControls {
     },
   };
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readCanSteer = (reader: ThreadReader) => reader.thread?.capabilities?.steer === true;

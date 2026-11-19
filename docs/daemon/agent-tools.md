@@ -332,7 +332,14 @@ that ace is absent.
 OpenCode also receives a credential-free native readiness plugin through its
 runtime configuration. Session admission waits for the actual native
 `ace_context` registration, because MCP connection status precedes the
-provider's debounced tool reload. The plugin carries no MCP authority, changes
+provider's debounced tool reload. OpenCode 2.2.7 activates plugins after a new
+location already answers requests, so its readiness RPC is briefly unregistered
+(`rpc.unavailable`); ace retries that within the same 10 s budget. If the RPC
+never registers, the session still opens, ace's tools stay unconfirmed, the
+daemon logs an `mcp-readiness-unconfirmed` warning, and each later send or model
+change makes one more readiness call (no retries) without registering ace again.
+Stop, task cancellation and interaction answers never set up or check ace's tools, so
+MCP set-up can never delay or fail them, even in a location ace has not set up yet. The plugin carries no MCP authority, changes
 no user configuration files and is staged in standalone releases. See the
 [isolated CLI results](../research/providers/opencode-ace-tools.md).
 
@@ -342,7 +349,16 @@ catalog reports `connected`, then waits for native tool readiness. The v2 config
 `disabled:false`, `codemode:false`, and `oauth:false`. Code Mode would otherwise
 hide individual tools behind a code-execution tool. No ace bearer is added to
 `OPENCODE_CONFIG_CONTENT`, persisted provider config, or project config. Existing
-user MCP servers are preserved; an `ace` name collision fails admission.
+user MCP servers are preserved; an `ace` name collision fails admission. Within one
+session, calls for the same location share one set-up, so ace's server is added once even
+when a send and an interaction answer arrive together, and pending set-ups count toward the
+128-location limit. Once ace added its own server, a failed connect or readiness check is
+retried on the next send by connecting again, never by adding it again. OpenCode drops runtime
+MCP servers when it rebuilds a location (`location.shutdown`), so ace then forgets that
+location and adds its server again through the collision check; work begun before the
+rebuild records nothing and never adds. OpenCode reports no owner for a server, so an
+`ace` that ace did not add since the rebuild is refused, never adopted: a rebuild racing
+ace's own add can leave that location refusing until the session reopens.
 
 ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
 For providers that advertise only stdio, ACP has no portable private-header

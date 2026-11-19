@@ -43,7 +43,11 @@ export interface ListChange {
 }
 
 /** What happened to a keyed list, so rows can enter, leave and slide instead of jumping. */
-export function diffList(previous: readonly string[], next: readonly string[]): ListChange {
+export function diffList(
+  previous: readonly string[],
+  next: readonly string[],
+  bulkAt: number = bulkChange,
+): ListChange {
   const before = new Set(previous);
   const after = new Set(next);
   const entered = next.filter((key) => !before.has(key));
@@ -55,7 +59,7 @@ export function diffList(previous: readonly string[], next: readonly string[]): 
   const keptAfter = next.filter((key) => before.has(key));
   const reordered = keptBefore.some((key, index) => keptAfter[index] !== key);
   // A list filling up from nothing is a load, not news: nothing rises in.
-  const bulk = previous.length === 0 || entered.length + left.length > bulkChange;
+  const bulk = previous.length === 0 || entered.length + left.length > bulkAt;
   return { entered, left, reordered, bulk };
 }
 

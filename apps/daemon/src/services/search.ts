@@ -20,8 +20,18 @@ export function createSearchSession(context: SocketContext): SocketService {
           .query(message)
           .then(
             (results) => {
-              if (context.connected() && context.authorize("read"))
-                context.send({ type: "search.results", requestId: message.requestId, ...results });
+              if (!context.connected() || !context.authorize("read")) return;
+              // A host thread (ADR 0121) is the daemon's own and never shows up in search.
+              const store = context.options.store;
+              const hits = results.hits.filter(
+                (hit) => store.getThread(hit.threadId)?.host === undefined,
+              );
+              context.send({
+                type: "search.results",
+                requestId: message.requestId,
+                ...results,
+                hits,
+              });
             },
             (error: unknown) => {
               const code =

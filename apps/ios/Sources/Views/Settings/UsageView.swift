@@ -1,261 +1,301 @@
 import SwiftUI
 
-private struct UsageReply: Decodable {
-    struct Result: Decodable {
-        struct Row: Decodable {
-            struct Totals: Decodable {
-                let inputTokens: Double
-                let outputTokens: Double
-                let cachedInputTokens: Double
-                let providerReportedUsd: Double
-                let estimatedUsd: Double
-            }
-            let dimensions: [String: String?]
-            let totals: Totals
-        }
-        let rows: [Row]
-        let truncated: Bool
-        let timezone: String
-        let omittedEvents: Int
-    }
-    let result: Result
-}
-
-/// `usage.limits` (`bridge/usage-limits.ts`): the shared Usage-page limits, worded by
-/// `@ace/ui-core`, for Swift to draw beside the token use.
-private struct UsageLimitsReply: Decodable {
-    struct Pace: Codable, Sendable, Hashable {
-        let label: String
-        let token: String
-    }
-    struct Window: Codable, Sendable, Hashable {
-        let id: String
-        let label: String
-        let leftPercent: Double
-        let resets: String?
-        let resetsAt: Double?
-        let observedAt: Double
-        let stale: Bool
-        let old: Bool
-        let pace: Pace?
-    }
-    struct Account: Codable, Sendable, Hashable {
-        let key: String
-        let label: String
-        let plan: String?
-        let signIn: String?
-        let bankedResets: Double?
-        let bankedExpiresAt: Double?
-        let noSessionWindow: Bool
-        let windows: [Window]
-    }
-    struct Provider: Codable, Sendable, Hashable {
-        let key: String
-        let provider: String
-        let providerLabel: String
-        let accounts: [Account]
-    }
-    let providers: [Provider]
-    let quiet: [String]
-}
-
+/// Settings › Usage: the web Usage page on the phone, over every paired machine or one. Cost
+/// and Tokens over a range with growth against the period before, a daily chart, totals, types
+/// and a breakdown; Limits with what is left of every window, each account under its machine.
+/// Every figure is summed and worded by `@ace/ui-core` through the bridge
+/// (`UsageMachineReads`); a machine that isn't counted is named, never dropped silently.
 struct UsageView: View {
-    private enum Tab: Hashable { case limits, tokens }
-    let model: ClientModel
+    private enum Tab: String, Hashable { case cost, tokens, limits }
+    let inbox: MachineInbox
     @State private var tab = Tab.limits
-    @State private var days = 7
-    @State private var result: UsageReply.Result?
-    @State private var problem: String?
-    @State private var loading = false
+    @State private var days = 30
+    @State private var provider: String?
+    /// One machine's id, or empty for every machine.
+    @State private var scope: String
+    @State private var report: UsageReportReply?
+    @State private var reportProblem: String?
+    @State private var reportLoading = false
     @State private var limits: UsageLimitsReply?
     @State private var limitsProblem: String?
     @State private var limitsLoading = false
-    private static let limitsRead: [String: Any] = ["type": "usage.limits"]
+    @State private var refreshing = false
+    @State private var refreshed = 0
 
-    /// Opens on the last limits this phone saw, read again behind them.
-    init(model: ClientModel) {
-        self.model = model
-        _limits = State(initialValue: model.kept(Self.limitsRead, as: UsageLimitsReply.self))
+    /// Opens on every machine when there are several, else on `machine`, drawing the last
+    /// answers this run saw while it reads again behind them.
+    init(inbox: MachineInbox, machine: String) {
+        self.inbox = inbox
+        let scope = inbox.sessions.count > 1 ? "" : machine
+        _scope = State(initialValue: scope)
+        _limits = State(initialValue: UsageMemo.limits[scope])
     }
+
     var body: some View {
-        List {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                controls
+                Group {
+                    if tab == .limits { limitsPage } else { spendPage }
+                }
+                .padding(.top, AceDesign.Space.related)
+            }
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.related)
+            .padding(.bottom, AceDesign.Space.section)
+            .frame(maxWidth: AceDesign.Size.readable)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AceDesign.Surface.background)
+        .nativeTitle("Usage")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { Task { await refresh() } } label: {
+                    if refreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(refreshing)
+                .accessibilityLabel(refreshing ? "Refreshing" : "Refresh")
+                .accessibilityHint("Asks each machine for current limits and reads usage again")
+                .accessibilityIdentifier("usage.refresh")
+            }
+        }
+        .task(id: readKey) { await read(fresh: false) }
+        // Pull to refresh does what the Refresh button does.
+        .refreshable { await refresh() }
+        .sensoryFeedback(.success, trigger: refreshed)
+    }
+
+    private var scoped: [MachineSession] {
+        let chosen = inbox.sessions.filter { scope.isEmpty || $0.hostId == scope }
+        return chosen.isEmpty ? inbox.sessions : chosen
+    }
+    private var reads: UsageMachineReads { UsageMachineReads(machines: scoped, name: inbox.name) }
+    private var memoKey: String { [scope, String(days), provider ?? ""].joined(separator: "\u{0}") }
+
+    /// Reads again when the view, range, provider or scope changes, when a machine connects or
+    /// drops, and when a machine's kept usage goes out of date.
+    private var readKey: [String] {
+        let machines = scoped.map { session in
+            let base: [String: Any] = tab == .limits ? ["type": "usage.accounts"] : ["type": "usage.part", "days": days]
+            return "\(session.hostId):\(session.client.connection):\(session.client.readGeneration(base))"
+        }
+        let view = tab == .limits ? ["limits"] : ["report", String(days), provider ?? ""]
+        return view + [scope] + machines
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             Picker("View", selection: $tab) {
-                Text("Limits").tag(Tab.limits)
+                Text("Cost").tag(Tab.cost)
                 Text("Tokens").tag(Tab.tokens)
+                Text("Limits").tag(Tab.limits)
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("usage.view")
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-            Group {
-                if tab == .tokens {
-                    tokens
-                } else {
-                    limitsView
+            if tab != .limits {
+                Picker("Range", selection: $days) {
+                    Text("Today").tag(1); Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("usage.range")
+            }
+            if inbox.sessions.count > 1 || (tab != .limits && (report?.providers.count ?? 0) > 1) || provider != nil {
+                HStack(spacing: AceDesign.Space.related) {
+                    if inbox.sessions.count > 1 { machineMenu }
+                    if tab != .limits, let providers = report?.providers, providers.count > 1 || provider != nil {
+                        providerMenu(providers)
+                    }
+                    Spacer(minLength: AceDesign.Space.related)
                 }
             }
-            .insetRowBackground()
-        }
-        .insetGroupedList()
-        .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
-        .task(id: [tab == .limits ? 0 : 1, model.readGeneration(Self.limitsRead)]) {
-            if tab == .limits { await readLimits() } else { await readTokens() }
-        }
-        .task(id: days) { if tab == .tokens { await readTokens() } }
-        .refreshable {
-            if tab == .limits { await readLimits() } else { await readTokens() }
-        }
-    }
-    @ViewBuilder private var tokens: some View {
-        Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-        if loading, result == nil { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
-        ServiceProblem(message: problem)
-        if let result {
-            if result.rows.isEmpty { ContentUnavailableView("No usage in this period", systemImage: "chart.bar").listRowBackground(Color.clear) }
-            ForEach(Array(result.rows.enumerated()), id: \.offset) { _, row in
-                Section {
-                    LabeledContent("Input tokens", value: row.totals.inputTokens.formatted())
-                    LabeledContent("Output tokens", value: row.totals.outputTokens.formatted())
-                    LabeledContent("Cached input", value: row.totals.cachedInputTokens.formatted())
-                    LabeledContent("Reported cost", value: row.totals.providerReportedUsd.formatted(.currency(code: "USD")))
-                    LabeledContent("Estimated cost", value: row.totals.estimatedUsd.formatted(.currency(code: "USD")))
-                } header: { InsetHeader(row.dimensions["provider"]?.flatMap { $0 }?.capitalized ?? "Usage") }
+            if inbox.sessions.count > 1 { coverageLine }
+            if tab != .limits, let filling = report?.filling {
+                Text(filling)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("usage.filling")
             }
-            if result.truncated || result.omittedEvents > 0 { Text("Some records are outside the retained window.") }
-            Text("Dates use \(result.timezone). CLI token counts and estimated cost may differ from billing.")
-                .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         }
     }
-    @ViewBuilder private var limitsView: some View {
-        if limitsLoading, limits == nil {
-            HStack { Spacer(); ProgressView().accessibilityLabel("Reading limits"); Spacer() }.listRowBackground(Color.clear)
+
+    /// Which machines the figures count, in one line. Its row is always there with several
+    /// machines, so nothing below moves while they load; one counted machine leaves it blank,
+    /// as the machine menu already names it.
+    private var coverageLine: some View {
+        let coverage = tab == .limits ? limits?.coverage : report?.coverage
+        let words = coverage.map { $0.line ?? "" }
+            ?? (scoped.count > 1 ? "Reading \(scoped.count) machines" : "Reading \(inbox.name(scoped.first?.hostId ?? scope))")
+        return Text(words)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(coverage?.complete == false ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.slimControl, alignment: .leading)
+            .contentTransition(.opacity)
+            .animation(.default, value: words)
+            .accessibilityIdentifier("usage.coverage")
+    }
+
+    private var machineMenu: some View {
+        Menu {
+            Picker("Machine", selection: $scope) {
+                Text("All machines").tag("")
+                ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
+            }
+        } label: {
+            Text(scope.isEmpty ? "All machines" : inbox.name(scope))
+                .usageCapsule()
         }
-        ServiceProblem(message: limitsProblem)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Machine")
+        .accessibilityIdentifier("usage.machine")
+        .onChange(of: scope) {
+            report = UsageMemo.reports[memoKey]
+            limits = UsageMemo.limits[scope]
+        }
+    }
+
+    private func providerMenu(_ providers: [UsageReportReply.Provider]) -> some View {
+        Menu {
+            Picker("Provider", selection: $provider) {
+                Text("All providers").tag(String?.none)
+                ForEach(providers, id: \.id) { entry in Text(entry.name).tag(Optional(entry.id)) }
+            }
+        } label: {
+            Text(providers.first { $0.id == provider }?.name ?? "All providers")
+                .usageCapsule()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Provider")
+        .accessibilityIdentifier("usage.provider")
+    }
+
+    @ViewBuilder private var spendPage: some View {
+        if let reportProblem {
+            ProblemRow("Couldn't read usage.", detail: reportProblem, id: "usage.problem") { Task { await read(fresh: true) } }
+                .padding(.horizontal, -AceDesign.Space.margin)
+        }
+        if let report {
+            let view = tab == .cost ? report.cost : report.tokens
+            if !view.hasUsage {
+                if report.coverage.complete || reportLoading {
+                    empty("No usage in this range", systemImage: "chart.xyaxis.line")
+                } else {
+                    empty("No usage could be read", systemImage: "chart.xyaxis.line", detail: report.coverage.line)
+                }
+            } else {
+                UsageSpendView(view: view, ledger: report.from.isEmpty ? nil : UsageLedgerContext(
+                    reads: reads, from: report.from, to: report.to, cost: tab == .cost, provider: provider,
+                    generation: scoped.map { "\($0.hostId):\($0.client.connection)" }, refreshed: refreshed))
+            }
+        } else if reportLoading {
+            loading("Reading usage")
+        }
+    }
+
+    @ViewBuilder private var limitsPage: some View {
+        if let limitsProblem {
+            ProblemRow("Couldn't read limits.", detail: limitsProblem, id: "usage.limits.problem") { Task { await read(fresh: true) } }
+                .padding(.horizontal, -AceDesign.Space.margin)
+        }
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
-                ContentUnavailableView("No accounts yet", systemImage: "chart.bar", description: Text("Add an account to see its limits."))
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(limits.providers, id: \.key) { provider in
-                Section {
-                    ForEach(provider.accounts, id: \.key) { account in
-                        LimitAccountRow(account: account)
-                    }
-                } header: {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        ProviderMark(provider: provider.provider, size: 16)
-                        InsetHeader(provider.providerLabel)
-                    }
+                if limits.coverage.complete || limitsLoading {
+                    empty("No accounts yet", systemImage: "chart.bar", detail: "Add an account to see its limits.")
+                } else {
+                    empty("No limits could be read", systemImage: "chart.bar", detail: limits.coverage.line)
                 }
+            } else {
+                UsageLimitsView(limits: limits, redeem: redeem)
             }
-            if !limits.quiet.isEmpty {
-                Text("No limits reported · \(limits.quiet.joined(separator: ", "))")
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            }
+        } else if limitsLoading {
+            loading("Reading limits")
         }
     }
-    private var tokensRead: [String: Any] {
-        let now = Date(timeIntervalSince1970: model.now() / 1000)
-        let start = now.addingTimeInterval(-Double(days - 1) * 86400)
-        let format = Date.ISO8601FormatStyle().year().month().day().dateSeparator(.dash)
-        return ["type": "usage.summary", "query": ["from": start.formatted(format), "to": now.formatted(format), "groupBy": ["provider"], "limit": 100]]
+
+    private func empty(_ title: String, systemImage: String, detail: String? = nil) -> some View {
+        EmptyState(systemImage: systemImage, title: title, line: detail)
+            .frame(maxWidth: .infinity).padding(.top, AceDesign.Space.section)
     }
-    private func readTokens() async {
-        let read = tokensRead
-        if let kept = model.kept(read, as: UsageReply.self) { result = kept.result }
-        loading = true; problem = nil
-        defer { loading = false }
-        do {
-            let reply = try await model.read(read, as: UsageReply.self)
-            result = reply.result
-        } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
+
+    private func loading(_ label: String) -> some View {
+        SkeletonRows(count: 4, label: label)
     }
-    private func readLimits() async {
+
+    private func read(fresh: Bool) async {
+        if tab == .limits { await readLimits(fresh: fresh, refresh: false) } else { await readReport(fresh: fresh) }
+    }
+
+    /// The Refresh button and pull to refresh: every machine in scope asks its CLIs for current
+    /// limits, and the open view reads again.
+    private func refresh() async {
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false; refreshed += 1 }
+        await readLimits(fresh: true, refresh: true)
+        if tab != .limits { await readReport(fresh: true) }
+    }
+
+    private func readReport(fresh: Bool) async {
+        let key = memoKey
+        if report == nil { report = UsageMemo.reports[key] }
+        reportLoading = true; reportProblem = nil
+        defer { reportLoading = false }
+        let problem = await reads.report(days: days, provider: provider, fresh: fresh) { reply in
+            guard !Task.isCancelled else { return }
+            UsageMemo.reports[key] = reply
+            report = reply
+        }
+        if !Task.isCancelled { reportProblem = problem }
+    }
+
+    private func readLimits(fresh: Bool, refresh: Bool) async {
+        let key = scope
         limitsLoading = true; limitsProblem = nil
         defer { limitsLoading = false }
-        do {
-            limits = try await model.read(Self.limitsRead, as: UsageLimitsReply.self)
-        } catch is CancellationError {} catch { if !Task.isCancelled { limitsProblem = error.localizedDescription } }
+        let problem = await reads.limits(fresh: fresh, refresh: refresh) { reply in
+            guard !Task.isCancelled else { return }
+            UsageMemo.limits[key] = reply
+            limits = reply
+        }
+        if !Task.isCancelled { limitsProblem = problem }
+    }
+
+    /// A banked reset goes through the machine whose reading the account shows.
+    private func redeem(_ account: UsageLimitsReply.Account, _ key: String) async throws -> String {
+        guard let instanceId = account.instanceId,
+              let client = account.machineId.flatMap(inbox.client) ?? scoped.first?.client else { throw CancellationError() }
+        let reply = try await client.service(
+            ["type": "usage.useReset", "instanceId": instanceId, "idempotencyKey": key],
+            as: UsageResetReply.self)
+        await readLimits(fresh: true, refresh: false)
+        return reply.words
     }
 }
 
-/// One account's windows with what is left, as the Mac Usage page's Limits view reads them.
-private struct LimitAccountRow: View {
-    let account: UsageLimitsReply.Account
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(account.label)
-                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-            if let plan = account.plan {
-                Text(String(plan.prefix(1)).uppercased() + String(plan.dropFirst()))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            if let banked = account.bankedResets.map(Int.init), banked > 0 {
-                Text(bankedLine(count: banked, expiresAt: account.bankedExpiresAt))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            ForEach(account.windows, id: \.self) { window in
-                LimitWindowRow(window: window)
-            }
-            if let signIn = account.signIn {
-                Text(signIn)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            if account.noSessionWindow {
-                Text("No session (5h) limit reported for this account")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-        }
-        .padding(.vertical, AceTheme.Spacing.xxs)
-        .accessibilityElement(children: .combine)
-    }
-    private func bankedLine(count: Int, expiresAt: Double?) -> String {
-        let resets = count == 1 ? "1 banked reset" : "\(count) banked resets"
-        guard let expiresAt else { return resets }
-        let date = Date(timeIntervalSince1970: expiresAt / 1000).formatted(date: .abbreviated, time: .omitted)
-        return "\(resets) · next expires \(date)"
+/// A filter menu's label: a slim capsule at the segmented controls' height, inside a 44pt tap
+/// area, so it reads as light as the controls above it and is still easy to hit.
+private struct UsageCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(AceDesign.Typeface.body)
+            .lineLimit(1)
+            .foregroundStyle(AceDesign.Ink.primary)
+            .padding(.horizontal, AceDesign.Space.row)
+            .frame(minHeight: AceDesign.Size.slimControl)
+            .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+            .padding(.vertical, (AceDesign.Size.tap - AceDesign.Size.slimControl) / 2)
+            .contentShape(Rectangle())
     }
 }
 
-private struct LimitWindowRow: View {
-    let window: UsageLimitsReply.Window
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(window.label)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if window.stale {
-                    Text("—").foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
-                } else {
-                    Text("\(Int(window.leftPercent))% left")
-                        .monospacedDigit()
-                        .foregroundStyle(window.leftPercent == 0 ? StateStyle.text("failed") : AceTheme.Colours.foreground)
-                }
-            }
-            if window.stale {
-                if let resetsAt = window.resetsAt {
-                    Text("Reset \(relative(resetsAt))")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                Text("Read \(relative(window.observedAt))")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            } else {
-                if let pace = window.pace {
-                    StateLabel(status: StatusDisplay(label: pace.label, token: pace.token))
-                }
-                Text(window.resets ?? "Reset not reported")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                if window.old {
-                    Text("As of \(relative(window.observedAt))")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-    private func relative(_ epochMs: Double) -> String {
-        Date(timeIntervalSince1970: epochMs / 1000).formatted(.relative(presentation: .named))
-    }
+private extension View {
+    func usageCapsule() -> some View { modifier(UsageCapsule()) }
+}
+
+/// The last combined answers this run drew, by scope, so reopening Usage or switching back to a
+/// machine draws at once while it reads again.
+@MainActor enum UsageMemo {
+    static var reports: [String: UsageReportReply] = [:]
+    static var limits: [String: UsageLimitsReply] = [:]
 }

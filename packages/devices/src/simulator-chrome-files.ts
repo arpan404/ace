@@ -1,17 +1,15 @@
 import { join } from "node:path";
 import { z } from "zod";
-import type { DeviceChrome } from "@ace/protocol/devices";
-import {
-  SimulatorChromeFile,
-  SimulatorProfile,
-  simulatorChrome,
-  type ArtReader,
-} from "./simulator-chrome.ts";
+import type { DeviceChrome, DevicePosture } from "@ace/protocol/devices";
+import { SimulatorChromeFile, simulatorChrome, type ArtReader } from "./simulator-chrome.ts";
+import type { BodyPainter } from "./simulator-body.ts";
+import { SimulatorProfile, shownPanel, simulatorPanels } from "./simulator-panels.ts";
 
 /*
  * Finding a Simulator device type's files on this Mac and reading them: `simctl` names the
- * device type's bundle, `plutil` turns its binary profile into JSON, and the chrome bundle it
- * names is looked up under the DeviceKit roots. Every path and process is passed in.
+ * device type's bundle, `plutil` turns its binary profile and capabilities into JSON, and the
+ * chrome bundle the shown screen wears is looked up under the DeviceKit roots. Every path and
+ * process is passed in.
  */
 
 export interface SimulatorChromeSource {
@@ -23,6 +21,8 @@ export interface SimulatorChromeSource {
   readFile(path: string): Promise<Uint8Array | undefined>;
   /** Directories holding `*.devicechrome` bundles, searched in order. */
   chromeRoots: readonly string[];
+  /** Paints a body built from a chrome's pieces; SVG when absent. */
+  paintBody?: BodyPainter;
 }
 
 const DeviceTypes = z.object({
@@ -65,27 +65,36 @@ async function chromeBundle(
 
 /**
  * The look of Simulators of device type `deviceType` (a `com.apple.CoreSimulator.SimDeviceType`
- * identifier), or undefined when this Mac's Xcode doesn't describe it fully.
+ * identifier) on the screen `posture` shows (a foldable's cover or inner panel), or undefined
+ * when this Mac's Xcode doesn't describe it fully.
  */
 export async function readSimulatorChrome(
   source: SimulatorChromeSource,
   deviceType: string,
+  posture?: DevicePosture,
 ): Promise<DeviceChrome | undefined> {
   const types = parsed(DeviceTypes, await source.deviceTypes().catch(() => undefined));
   const bundle = types?.devicetypes.find((type) => type.identifier === deviceType)?.bundlePath;
   if (!bundle) return undefined;
   const resources = join(bundle, "Contents/Resources");
-  const profile = parsed(
-    SimulatorProfile,
-    await source.plistJson(join(resources, "profile.plist")).catch(() => undefined),
+  const plist = (file: string) => source.plistJson(join(resources, file)).catch(() => undefined);
+  const [profileText, capabilitiesText] = await Promise.all([
+    plist("profile.plist"),
+    plist("capabilities.plist"),
+  ]);
+  const profile = parsed(SimulatorProfile, profileText);
+  if (!profile) return undefined;
+  const panel = shownPanel(
+    simulatorPanels(profile, parsed(z.unknown(), capabilitiesText)),
+    posture,
   );
-  if (!profile?.chromeIdentifier) return undefined;
-  const chrome = await chromeBundle(source, profile.chromeIdentifier);
+  if (!panel?.chromeIdentifier) return undefined;
+  const chrome = await chromeBundle(source, panel.chromeIdentifier);
   if (!chrome) return undefined;
   const read: ArtReader = async (from, name) => {
     if (!plainName(name)) return undefined;
     const directory = from === "profile" ? resources : join(chrome.directory, "Contents/Resources");
     return source.readFile(join(directory, `${name}.pdf`));
   };
-  return simulatorChrome(profile, chrome.file, read);
+  return simulatorChrome(panel, chrome.file, read, source.paintBody);
 }

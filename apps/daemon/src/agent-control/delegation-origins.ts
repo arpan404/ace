@@ -1,6 +1,10 @@
 import { ThreadId } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "../store.ts";
+const RunChildRow = z
+  .object({ child_id: ThreadId, generation: z.number().int() })
+  .transform((value) => ({ child: value.child_id, generation: value.generation }));
+const AgentParent = z.object({ parentId: z.string().nullable().optional() });
 
 /**
  * Who each generation of a delegated child belongs to, so an automation run sees and stops
@@ -25,6 +29,7 @@ const Row = z.object({
   kind: z.enum(["turn", "independent", "uncertain"]),
   run_id: z.string().nullable(),
 });
+const NotedRow = Row.extend({ noted_seq: z.number() });
 
 export class DelegationOrigins {
   private store: Store;
@@ -73,7 +78,7 @@ export class DelegationOrigins {
       )
       .get(child, generation);
     if (!row) return undefined;
-    const value = Row.extend({ noted_seq: z.number() }).parse(row);
+    const value = NotedRow.parse(row);
     return {
       kind: value.kind,
       ...(value.run_id === null ? {} : { run: value.run_id }),
@@ -85,14 +90,7 @@ export class DelegationOrigins {
     const statement = this.store.statement(
       "SELECT child_id,generation FROM delegation_origins WHERE parent_id=? AND run_id=? AND kind='turn'",
     );
-    return runs.flatMap((run) =>
-      statement.all(parent, run).map((row) =>
-        z
-          .object({ child_id: ThreadId, generation: z.number().int() })
-          .transform((value) => ({ child: value.child_id, generation: value.generation }))
-          .parse(row),
-      ),
-    );
+    return runs.flatMap((run) => statement.all(parent, run).map((row) => RunChildRow.parse(row)));
   }
   /** Whether generation `generation` of `child` has no owner anyone can establish. */
   uncertain(child: ThreadId, generation: number): boolean {
@@ -181,9 +179,7 @@ export class DelegationOrigins {
     for (let depth = 0; depth < 16; depth++) {
       const row = read.get(parent, current);
       if (!row) return undefined;
-      const value = z
-        .object({ parentId: z.string().nullable().optional() })
-        .safeParse(JSON.parse(z.string().parse(row.value)));
+      const value = AgentParent.safeParse(JSON.parse(z.string().parse(row.value)));
       const above = value.success ? value.data.parentId : undefined;
       if (!above || above === root) return Number(row.seq);
       current = above;

@@ -19,19 +19,19 @@ import Foundation
         }
         self.agent = agent
         self.model = model
-        effort = draft.effort ?? (draft.model == nil ? compose?.start?.effort : nil) ?? model?.defaultEffort
-    }
-
-    /// The fields the model sheet can change, so closing it puts them back.
-    struct Snapshot {
-        let provider: String?, model: String?, account: String?, effort: String?, speed: String?, access: String?
-        init(_ draft: NewThreadDraft) {
-            provider = draft.provider; model = draft.model; account = draft.account
-            effort = draft.effort; speed = draft.speed; access = draft.access
+        // A saved effort belongs to the saved model: when the draft resolves to another one
+        // (another provider, or a catalog that changed), start from the new model's default
+        // instead of carrying stale thinking over.
+        let listed: String?
+        if let id = draft.effort, draft.model == model?.key,
+           model?.efforts.contains(where: { $0.id == id }) == true {
+            listed = id
+        } else if draft.model == nil, let suggestion = compose?.start?.effort,
+                  model?.efforts.contains(where: { $0.id == suggestion }) == true {
+            listed = suggestion
+        } else {
+            listed = nil
         }
-        func restore(_ draft: inout NewThreadDraft) {
-            draft.provider = provider; draft.model = model; draft.account = account
-            draft.effort = effort; draft.speed = speed; draft.access = access
-        }
+        effort = listed ?? model?.defaultEffort
     }
 }

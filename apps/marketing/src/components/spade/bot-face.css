@@ -1,0 +1,201 @@
+/*
+ * Bot faces on /spade/ (BotFace.astro, @ace/ui-core/bot-face): the colour roles for the page's
+ * theme, each pose the page shows (idle, working, needs you, pleased), and their motion. Poses
+ * hold without script or motion; only a working face loops. Blinks, glances and hops come from
+ * scripts/spade-cast.ts as `data-cue` and `data-look`, and only under html.motion.
+ */
+.bot-face {
+  --b: var(--b-dark);
+  --a: var(--a-dark);
+  --bs: var(--bs-dark);
+  --as: var(--as-dark);
+  --bl: var(--bl-dark);
+  --visor: var(--visor-dark);
+  --mask: var(--mask-dark);
+  --blush: var(--blush-dark);
+  --tongue: var(--tongue-dark);
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+
+html[data-theme="light"] .bot-face {
+  --b: var(--b-light);
+  --a: var(--a-light);
+  --bs: var(--bs-light);
+  --as: var(--as-light);
+  --bl: var(--bl-light);
+  --visor: var(--visor-light);
+  --mask: var(--mask-light);
+  --blush: var(--blush-light);
+  --tongue: var(--tongue-light);
+}
+
+/* ---------- Held poses ---------- */
+.bot-face :is(.bf-ey, .bf-pu, .bf-hp, .bf-sp1, .bf-sp2) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.bot-face .bf-hd {
+  transform-box: view-box;
+  transform-origin: 12px 22px;
+}
+
+.bot-face .bf-pu {
+  transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98));
+  transition: transform 180ms var(--ease-out);
+}
+
+/* A look: toward the pointer, or the resting look a drawing gives it (toward what it explains). */
+.bot-face[data-look] .bf-pu {
+  transform: translate(calc(var(--ax) * var(--lx)), calc(var(--ay) * var(--ly)));
+}
+
+.bot-face .bf-lid {
+  transform: translateY(calc(var(--eh) * var(--l0)));
+}
+
+.bot-face :is(.bf-hp, .bf-spark, .bf-sweat, .bf-m-done, .bf-m-fail, .bf-m-wait) {
+  opacity: 0;
+}
+
+.bot-face[data-state="working"] .bf-pu {
+  transform: translate(calc(var(--ax) * 0.45), calc(var(--ay) * 0.7));
+}
+
+.bot-face[data-state="working"] .bf-hd {
+  transform: rotate(2.5deg);
+}
+
+.bot-face[data-state="needs-you"] .bf-pu {
+  transform: translate(calc(var(--ax) * 0.1), calc(var(--ay) * -0.8)) scale(1.24);
+}
+
+.bot-face[data-state="needs-you"][data-look] .bf-pu {
+  transform: translate(calc(var(--ax) * var(--lx)), calc(var(--ay) * var(--ly))) scale(1.24);
+}
+
+.bot-face[data-state="needs-you"] .bf-ey {
+  transform: scale(1.07, 1.12);
+}
+
+.bot-face[data-state="needs-you"] .bf-lid {
+  transform: translateY(calc(var(--eh) * var(--l0) * 0.3));
+}
+
+.bot-face[data-state="needs-you"] .bf-hd {
+  transform: translateY(-0.7px) rotate(7deg);
+}
+
+/* Pleased: a job done, eyes closed in a smile. */
+.bot-face[data-state="done"] .bf-ey {
+  opacity: 0;
+}
+
+.bot-face[data-state="done"] .bf-hp {
+  opacity: 1;
+}
+
+.bot-face:is([data-state="done"], [data-state="needs-you"]) .bf-m-own {
+  opacity: 0;
+}
+
+.bot-face[data-state="done"] .bf-m-done,
+.bot-face[data-state="needs-you"] .bf-m-wait {
+  opacity: 1;
+}
+
+/* ---------- Motion, only with html.motion ---------- */
+
+/* A working face loops while its drawing is on screen. */
+html.motion .is-in .bot-face[data-state="working"] .bf-pu {
+  animation: bf-dart 2.4s var(--ease-out) infinite;
+}
+
+html.motion .is-in .bot-face[data-state="working"] .bf-hd {
+  animation: bf-bob 1.2s ease-in-out infinite;
+}
+
+/* A pleased face hops once as its drawing arrives. */
+html.motion .is-in .bot-face[data-state="done"] .bf-hd {
+  animation: bf-hop 800ms var(--ease-out) 400ms both;
+}
+
+html.motion .is-in .bot-face[data-state="done"] .bf-hp {
+  animation: bf-happy 420ms var(--ease-out) 600ms both;
+}
+
+html.motion .bot-face[data-cue="blink"] .bf-ey {
+  animation: bf-blink 200ms ease-in-out;
+}
+
+html.motion .bot-face[data-cue="hop"] .bf-hd {
+  animation: bf-hop 650ms var(--ease-out) both;
+}
+
+@keyframes bf-dart {
+  0%,
+  22%,
+  100% {
+    transform: translate(calc(var(--ax) * -0.7), calc(var(--ay) * 0.55));
+  }
+
+  27%,
+  47% {
+    transform: translate(calc(var(--ax) * 0.75), calc(var(--ay) * 0.45));
+  }
+
+  52%,
+  72% {
+    transform: translate(calc(var(--ax) * 0.2), calc(var(--ay) * 0.9));
+  }
+}
+
+@keyframes bf-bob {
+  0%,
+  100% {
+    transform: rotate(2.5deg);
+  }
+
+  50% {
+    transform: translateY(0.45px) rotate(2.5deg) scale(1.01, 0.985);
+  }
+}
+
+@keyframes bf-blink {
+  50% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes bf-hop {
+  0%,
+  100% {
+    transform: none;
+  }
+
+  18% {
+    transform: scale(1.07, 0.9);
+  }
+
+  45% {
+    transform: translateY(-2px) scale(0.95, 1.07);
+  }
+
+  70% {
+    transform: scale(1.03, 0.97);
+  }
+}
+
+@keyframes bf-happy {
+  from {
+    opacity: 0;
+    transform: scale(0.8, 0.3);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

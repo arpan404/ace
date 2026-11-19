@@ -42,7 +42,7 @@ test.each(["restart", "not_sent", "model_unavailable", "uncertain"] as const)(
   },
 );
 
-test("a done thread with a stopped empty queue returns needs-human from the CLI", async () => {
+test("a thread the person stopped reads done from the CLI, not needs-human", async () => {
   const f = await daemonFixture();
   try {
     const command = f.controls.delegations.command("stop-parent", {
@@ -60,11 +60,10 @@ test("a done thread with a stopped empty queue returns needs-human from the CLI"
       "--tree",
       "--json",
     ]);
-    expect(output.code, output.stderr).toBe(2);
-    expect(JSON.parse(output.stdout)).toMatchObject({
-      status: "needs-human",
-      tree: [{ attention: "stopped", queue: { pendingCount: 0 } }],
-    });
+    expect(output.code, output.stderr).toBe(0);
+    const result = JSON.parse(output.stdout);
+    expect(result).toMatchObject({ status: "ok", tree: [{ queue: { pendingCount: 0 } }] });
+    expect(result.tree[0].attention).toBeUndefined();
   } finally {
     await f.daemon.close();
   }

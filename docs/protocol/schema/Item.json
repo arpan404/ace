@@ -8,6 +8,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -33,6 +34,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -48,7 +53,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "visualization"
       ],
@@ -60,6 +64,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -88,6 +93,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -100,7 +109,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "image"
       ],
@@ -119,6 +127,7 @@
           "type": "array"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -160,6 +169,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "role": {
           "enum": [
             "user",
@@ -183,7 +196,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "role",
         "parts"
@@ -204,6 +216,7 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -224,23 +237,7 @@
           "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "machine": {
-          "properties": {
-            "machine": {
-              "maxLength": 64,
-              "minLength": 1,
-              "type": "string"
-            },
-            "name": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "machine",
-            "name"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/AgentMachine.json"
         },
         "model": {
           "maxLength": 256,
@@ -285,6 +282,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "role": {
           "maxLength": 1024,
           "type": "string"
@@ -311,7 +312,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "origin",
         "childThreadId",
@@ -331,6 +331,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -367,6 +368,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "results": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
@@ -387,7 +392,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "origin",
         "results",
@@ -401,6 +405,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -426,6 +431,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -448,7 +457,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "text"
       ],
@@ -463,6 +471,7 @@
           "$ref": "https://ace.local/protocol/v1/ToolCall.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -484,6 +493,10 @@
           "maxLength": 256,
           "type": "string"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -496,7 +509,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "call"
       ],
@@ -514,6 +526,7 @@
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -562,6 +575,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -586,7 +603,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "level",
         "text"
@@ -599,6 +615,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -617,8 +634,22 @@
           "maxLength": 256,
           "type": "string"
         },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "summary": {
+          "type": "string"
         },
         "tokensAfter": {
           "maximum": 9007199254740991,
@@ -639,8 +670,61 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "default": true,
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "data": {},
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "type",
+        "data"
       ],
       "type": "object"
     },
@@ -660,6 +744,7 @@
           "type": "integer"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -698,6 +783,10 @@
         "path": {
           "type": "string"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -716,7 +805,6 @@
       "required": [
         "id",
         "createdAt",
-        "complete",
         "type",
         "source",
         "path",

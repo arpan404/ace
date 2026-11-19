@@ -1,29 +1,36 @@
-import type { DaemonStatus } from "../../shared/contract.ts";
+import type { DaemonStage, DaemonStatus } from "../../shared/contract.ts";
 import {
   stopChild,
   terminate,
   trackChild,
   type Child,
-  type DaemonProcess,
   type StopPorts,
   type StopReason,
 } from "./child.ts";
-import { drainForUpdate } from "./drain.ts";
-import { exitDecision, incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
-import type { LocalDaemon } from "./probe.ts";
-import { readAdmission, waitForDaemon } from "./readiness.ts";
+import { drainForReplacement, drainForUpdate } from "./drain.ts";
+import {
+  exitDecision,
+  incompatibleDataMessage,
+  lockHeldMessage,
+  newerDataMessage,
+  safeModeMessage,
+  safeModeRestartMessage,
+} from "./exit-policy.ts";
+import type { AdmissionFacts, LocalDaemon } from "./probe.ts";
+import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
 
 import {
   supervisorDefaults,
+  type OwnedDaemon,
   type SupervisorOptions,
   type SupervisorPorts,
 } from "./supervisor-config.ts";
 
 export type { DaemonProcess } from "./child.ts";
-export { incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
-export type { SupervisorOptions, SupervisorPorts } from "./supervisor-config.ts";
+export { incompatibleDataMessage, lockHeldMessage, newerDataMessage } from "./exit-policy.ts";
+export type { OwnedDaemon, SupervisorOptions, SupervisorPorts } from "./supervisor-config.ts";
 
 type Source = DaemonStatus["source"];
 
@@ -31,6 +38,8 @@ type Source = DaemonStatus["source"];
  * Keeps one daemon available for this ACE_HOME. It reuses a running daemon (another app
  * window, the CLI or the login service) and only spawns its own when none answers. It
  * restarts only the daemon it started, with backoff, and never stops one it did not start.
+ * A daemon an earlier launch of the app started, and left running when it quit, counts as
+ * started by this one (ADR 0186); from another app version it is replaced.
  *
  * Lifecycle requests (`start`, `restart`, `stop` and crash restarts) are transitions run one
  * at a time in order. Each bumps a generation, so slower work from an earlier transition
@@ -45,10 +54,16 @@ export class DaemonSupervisor {
   private status: DaemonStatus = { state: "starting", source: "app", restarts: 0, paused: false };
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
+  /** The child recorded as the app's (`recordOwned`), so a quit leaves it for the next launch. */
+  private recorded: Child | undefined;
   private crashes = 0;
+  /** The next start, and the daemon it starts, leave off what kept failing (ADR 0175). */
+  private safeMode = false;
   private maintenanceRevision = 0;
   private draining = false;
   private runningSince = 0;
+  /** When our daemons first started finding another daemon's lock, while that lasts. */
+  private lockWaitSince: number | undefined;
   /** False once the app asked to stop: nothing may spawn or restart after that. */
   private wanted = false;
   /** `stop()` is final: the app is quitting, so later starts and restarts do nothing. */
@@ -92,10 +107,13 @@ export class DaemonSupervisor {
         stop();
         reject(failure(status));
       });
-      void this.ready().then((daemon) => {
-        stop();
-        resolve(daemon);
-      });
+      // ready() only resolves; a daemon that never comes leaves the status listener to reject.
+      void this.ready()
+        .then((daemon) => {
+          stop();
+          resolve(daemon);
+        })
+        .catch(() => {});
     });
   }
 
@@ -109,6 +127,8 @@ export class DaemonSupervisor {
     if (this.closed) return this.status;
     await this.transition(true, async (generation) => {
       this.crashes = 0;
+      this.safeMode = false;
+      this.lockWaitSince = undefined;
       // A repair starts fresh: the last crash no longer describes what happens next.
       this.status = fresh(this.status);
       await this.stopChild();
@@ -118,12 +138,37 @@ export class DaemonSupervisor {
   }
 
   /**
-   * Stops the daemon this app started (never another one) and anything pending. Final: a
-   * start that was still on its way (the login-shell PATH lookup) does nothing afterwards.
+   * Stops the daemon this app started (never another one) and anything pending: "Quit ace
+   * completely", and an update. Final: a start that was still on its way (the login-shell PATH
+   * lookup) does nothing afterwards.
    */
   stop(): Promise<void> {
     this.closed = true;
     return this.transition(false, async () => {
+      this.update({ state: "stopping" });
+      await this.stopChild();
+      this.daemon = undefined;
+      this.update({ state: "stopped" });
+    });
+  }
+
+  /**
+   * The app quits and leaves its daemon running for the next launch to adopt (ADR 0186): nothing
+   * more starts, restarts or is health-checked, and the daemon and its agents carry on. A daemon
+   * that has not yet taken its home's lock is stopped instead: it has no work yet, and without
+   * its lock no later launch could know it as the app's. Final, as `stop` is.
+   */
+  release(): Promise<void> {
+    this.closed = true;
+    return this.transition(false, async () => {
+      const child = this.child;
+      if (!child || child.done) return;
+      if (this.recorded !== child) await this.record(child);
+      if (this.recorded === child) {
+        this.ports.log("info", "Leaving the daemon running", { pid: child.process.pid });
+        return;
+      }
+      this.ports.log("info", "The daemon had not started yet; stopping it");
       this.update({ state: "stopping" });
       await this.stopChild();
       this.daemon = undefined;
@@ -201,14 +246,27 @@ export class DaemonSupervisor {
     // Our own child is still alive (a second start): wait for it, never adopt it as external.
     const child = this.child;
     if (child && !child.done) return this.awaitChild(generation, child);
-    this.update({ state: this.status.restarts ? "restarting" : "starting" });
+    this.update({
+      state: this.status.restarts ? "restarting" : "starting",
+      stage: this.stageOf("looking"),
+    });
     const existing = await this.ports.find();
     if (this.stale(generation)) return;
     if (existing) {
-      const fromService = (await this.ports.service?.active().catch(() => false)) ?? false;
-      if (!this.stale(generation))
-        await this.running(existing, fromService ? "service" : "external", generation);
-      return;
+      const owned = await this.claimOwned(existing);
+      if (this.stale(generation)) return;
+      if (!owned) return this.adopt(existing, generation);
+      const adopted = this.track(owned.process);
+      // Its record names it already, with the version that started it: a quit leaves it for the
+      // next launch, which adopts it, or replaces it again if this launch did not get to.
+      this.recorded = adopted;
+      if (!owned.replace) {
+        this.ports.log("info", "Adopted the daemon an earlier launch left running", {
+          pid: owned.process.pid,
+        });
+        return this.running(existing, "app", generation);
+      }
+      if (!(await this.replaceOwned(existing, adopted, owned.version, generation))) return;
     }
     if (await this.startService()) {
       const found = await this.waitForDaemon(generation, () => true);
@@ -224,6 +282,11 @@ export class DaemonSupervisor {
         if (found) return this.running(found, "external", generation);
       }
     }
+    this.stage("launching");
+    if (this.ports.prepareSpawn) {
+      await this.ports.prepareSpawn();
+      if (this.stale(generation)) return;
+    }
     let spawned: Child;
     try {
       spawned = this.spawnChild(spawn);
@@ -235,6 +298,111 @@ export class DaemonSupervisor {
     this.awaitChild(generation, spawned);
   }
 
+  private async claimOwned(daemon: LocalDaemon): Promise<OwnedDaemon | undefined> {
+    try {
+      return await this.ports.claimOwned?.(daemon);
+    } catch (error) {
+      this.ports.log("warn", "Could not tell whose the running daemon is", {
+        error: String(error),
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * The app's own daemon from another version still runs (a new app was installed while it ran):
+   * close its admission, give running work the update drain's bound to finish, then stop it so
+   * the bundled one starts. An older daemon never serves a newer app. False when a later
+   * transition took over meanwhile.
+   */
+  private async replaceOwned(
+    daemon: LocalDaemon,
+    child: Child,
+    version: string,
+    generation: number,
+  ): Promise<boolean> {
+    // The startup screen's "waiting for the previous ace to close" is what this is.
+    this.update({ stage: "lock-wait" });
+    this.ports.log(
+      "info",
+      "The daemon an earlier launch left running is another version; replacing it",
+      {
+        pid: child.process.pid,
+        version,
+      },
+    );
+    const outcome = await drainForReplacement(this.ports, daemon, {
+      deadlineMs: this.options.replaceDrainMs,
+      pollMs: 1_000,
+      current: () => !this.stale(generation) && !child.done,
+      answering: (on) => {
+        if (!on)
+          this.ports.log("warn", "The old daemon does not answer; asking again until the bound", {
+            boundMs: this.options.replaceDrainMs,
+          });
+        this.update({ stage: on ? "lock-wait" : "old-unanswered" });
+      },
+    });
+    if (this.stale(generation)) return false;
+    if (outcome === "deadline" && !child.done)
+      this.ports.log(
+        "warn",
+        "Work may still run in the old daemon at the bound; stopping it anyway",
+        {
+          boundMs: this.options.replaceDrainMs,
+        },
+      );
+    await this.stopChild();
+    return !this.stale(generation);
+  }
+
+  /** A daemon this app did not start answers for this home: use it. */
+  private async adopt(daemon: LocalDaemon, generation: number): Promise<void> {
+    const fromService = (await this.ports.service?.active().catch(() => false)) ?? false;
+    if (!this.stale(generation))
+      await this.running(daemon, fromService ? "service" : "external", generation);
+  }
+
+  /**
+   * Our daemon found another daemon's lock on this home. That one is still starting (it
+   * answers once ready, and is adopted) or stopping (it lets go, and ours starts). Neither is
+   * a crash, so no restart is counted; only a lock held past `lockWaitMs` is a failure.
+   */
+  private lockHeld(exit: Record<string, unknown>): void {
+    const now = this.ports.now();
+    this.lockWaitSince ??= now;
+    const waitedMs = now - this.lockWaitSince;
+    this.status = fresh(this.status);
+    if (waitedMs >= this.options.lockWaitMs) {
+      this.lockWaitSince = undefined;
+      this.ports.log("error", "Another ace daemon kept this home's lock; stopped waiting", {
+        ...exit,
+        waitedMs,
+      });
+      this.update({ state: "failed", cause: "lock-held", message: lockHeldMessage });
+      return;
+    }
+    this.ports.log("info", "Another ace daemon holds this home's lock; waiting for it", {
+      ...exit,
+      waitedMs,
+    });
+    // Starting, not failed: a client waiting to connect keeps waiting.
+    this.update({ state: "starting", cause: "lock-held", stage: "lock-wait" });
+    void this.transition(true, (generation) => this.awaitLock(generation)).catch((error: unknown) =>
+      this.ports.log("warn", "Waiting for the other daemon's lock failed", {
+        error: String(error),
+      }),
+    );
+  }
+
+  /** Look for the other daemon for a while, then use it if it answers, or try our own again. */
+  private async awaitLock(generation: number): Promise<void> {
+    await waitForDaemon(this.ports, this.options.lockRetryMs, () => !this.stale(generation));
+    if (this.stale(generation)) return;
+    // Whoever answers now, `bringUp` finds it again and tells whose it is.
+    return this.bringUp(generation);
+  }
+
   private couldNotStart(reason: string): void {
     this.daemon = undefined;
     this.ports.log("error", "The daemon could not start", { reason });
@@ -242,8 +410,13 @@ export class DaemonSupervisor {
     this.update({ state: "failed", message: `The daemon could not start: ${reason}` });
   }
 
-  private spawnChild(spawn: () => DaemonProcess): Child {
-    const child = trackChild(spawn(), (exited, code, signal, error) =>
+  private spawnChild(spawn: NonNullable<SupervisorPorts["spawn"]>): Child {
+    return this.track(spawn({ safeMode: this.safeMode }));
+  }
+
+  /** Supervise `process` as this app's daemon: spawned now, or adopted from an earlier launch. */
+  private track(process: Child["process"]): Child {
+    const child = trackChild(process, (exited, code, signal, error) =>
       this.onChildExit(exited, code, signal, error),
     );
     this.child = child;
@@ -252,16 +425,22 @@ export class DaemonSupervisor {
 
   /** Report the child as running once it answers; kill it if it never does. */
   private awaitChild(generation: number, child: Child): void {
-    void this.waitForDaemon(generation, () => !child.done).then(async (found) => {
-      if (this.stale(generation) || child.done) return;
-      if (found) await this.running(found, "app", generation);
-      else {
-        this.ports.log("error", "The daemon did not become ready; restarting it", {
-          readyTimeoutMs: this.options.readyTimeoutMs,
-        });
-        this.terminate(child, "not-ready");
-      }
-    });
+    void this.waitForDaemon(generation, () => !child.done)
+      .then(async (found) => {
+        if (this.stale(generation) || child.done) return;
+        if (found) {
+          await this.running(found, "app", generation);
+          if (this.daemon === found && !child.done) await this.record(child);
+        } else {
+          this.ports.log("error", "The daemon did not become ready; restarting it", {
+            readyTimeoutMs: this.options.readyTimeoutMs,
+          });
+          this.terminate(child, "not-ready");
+        }
+      })
+      .catch((error: unknown) =>
+        this.ports.log("error", "Waiting for the daemon failed", { error: String(error) }),
+      );
   }
 
   private onChildExit(
@@ -284,14 +463,17 @@ export class DaemonSupervisor {
     }
     this.daemon = undefined;
     this.clearTimer();
-    if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs)
+    if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs) {
       this.crashes = 0;
+      this.safeMode = false;
+    }
     this.runningSince = 0;
     const decision = exitDecision({
       code,
       signal,
       crashes: this.crashes,
       maxRestarts: this.options.maxRestarts,
+      safeModeAfter: this.options.safeModeAfter,
     });
     if (decision.kind === "incompatible-data") {
       this.ports.log(
@@ -303,6 +485,9 @@ export class DaemonSupervisor {
       this.update({ state: "failed", message: incompatibleDataMessage });
       return;
     }
+    if (decision.kind === "lock-held") return this.lockHeld(exit);
+    // Any other exit ends a wait on another daemon's lock.
+    this.lockWaitSince = undefined;
     if (decision.kind === "newer-data") {
       // Its data belongs to a newer build: every restart would refuse it the same way.
       this.ports.log(
@@ -328,27 +513,44 @@ export class DaemonSupervisor {
     }
     const delay = decision.delayMs;
     this.crashes++;
+    this.safeMode = decision.safeMode;
     this.ports.log("warn", `${reason}; restarting in ${delay} ms`, {
       ...exit,
       delayMs: delay,
       attempt: this.crashes,
       of: this.options.maxRestarts,
+      safeMode: decision.safeMode,
     });
     this.update({
       state: "restarting",
       restarts: this.status.restarts + 1,
-      message: reason,
+      message: decision.safeMode ? safeModeRestartMessage : reason,
       retry: { attempt: this.crashes, of: this.options.maxRestarts },
+      ...(decision.safeMode ? { safeMode: true } : {}),
     });
     this.cancelTimer = this.ports.timers.set(delay, () => {
       this.cancelTimer = undefined;
-      void this.start();
+      void this.start().catch((restartError: unknown) =>
+        this.ports.log("warn", "The restart failed", { error: String(restartError) }),
+      );
     });
+  }
+
+  /** Remember the daemon this app spawned as the app's, for the next launch to adopt. */
+  private async record(child: Child): Promise<void> {
+    if (!this.ports.recordOwned) return;
+    try {
+      if (await this.ports.recordOwned(child.process)) this.recorded = child;
+      else this.ports.log("warn", "Could not record the daemon as this app's");
+    } catch (error) {
+      this.ports.log("warn", "Could not record the daemon as this app's", { error: String(error) });
+    }
   }
 
   private async startService(): Promise<boolean> {
     const service = this.ports.service;
     if (!service) return false;
+    this.stage("service");
     try {
       if (!(await service.active())) await service.start();
       return true;
@@ -363,24 +565,41 @@ export class DaemonSupervisor {
       this.ports,
       this.options.readyTimeoutMs,
       () => !this.stale(generation) && alive(),
+      () => this.stage("warming"),
     );
+  }
+
+  /** A start's step, while another daemon's lock is waited out that wait is what it is on. */
+  private stageOf(stage: DaemonStage): DaemonStage {
+    return this.lockWaitSince === undefined ? stage : "lock-wait";
+  }
+
+  /** Say which step a start is on (the startup screen shows it); running clears it. */
+  private stage(stage: DaemonStage): void {
+    if (this.status.state === "running" || this.status.state === "failed") return;
+    const next = this.stageOf(stage);
+    if (this.status.stage !== next) this.update({ stage: next });
   }
 
   private async running(daemon: LocalDaemon, source: Source, generation: number): Promise<void> {
     // A daemon this app started counts only while that child is still alive.
     const live = () =>
       !this.stale(generation) && (source !== "app" || (!!this.child && !this.child.done));
+    if (live()) this.stage("admission");
     const admission = await readAdmission(this.ports, daemon, this.options.readyTimeoutMs, live);
     if (admission.kind === "failed") return this.couldNotStart(admission.reason);
     if (admission.kind === "abandoned" || !live()) return;
     this.daemon = daemon;
+    this.lockWaitSince = undefined;
     this.runningSince = this.ports.now();
     this.status = {
       ...fresh(this.status),
       state: "running",
       source,
       url: daemon.url,
-      paused: admission.draining,
+      paused: admission.paused,
+      // Only a daemon this app started in safe mode runs without anything.
+      ...(this.safeMode && source === "app" ? { message: safeModeMessage } : {}),
     };
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);
@@ -397,8 +616,16 @@ export class DaemonSupervisor {
       failures: healthFailures,
       // The request itself may run past the check's own deadline, so a late answer still
       // counts as one; it ends before the next check could send another.
-      probe: () => this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs),
+      probe: async () => {
+        const answer = await this.ports.health(daemon, healthTimeoutMs + healthIntervalMs);
+        if (answer.healthy)
+          // followAdmission keeps its own request failure and reads it again next check.
+          void this.followAdmission(generation, daemon, answer.admission).catch(() => {});
+        return answer.healthy;
+      },
       timers: this.ports.timers,
+      now: () => this.ports.now(),
+      freezes: this.ports.freezes,
       log: (level, message, data) => {
         if (!this.stale(generation)) this.ports.log(level, message, data);
       },
@@ -417,9 +644,43 @@ export class DaemonSupervisor {
         }
         // Someone else's daemon went away: run our own instead.
         this.ports.log("warn", "The daemon stopped answering health checks", facts);
-        void this.start();
+        void this.start().catch((error: unknown) =>
+          this.ports.log("warn", "The start after an unresponsive daemon failed", {
+            error: String(error),
+          }),
+        );
       },
     });
+  }
+
+  /**
+   * A paired client can pause or resume new work too (`admission.request`), so each health check
+   * reads admission again and the tray follows: from the status answer itself, or with a second
+   * request to a daemon whose status predates it. A pause or drain of our own in flight wins.
+   */
+  private async followAdmission(
+    generation: number,
+    daemon: LocalDaemon,
+    known: AdmissionFacts | undefined,
+  ): Promise<void> {
+    if (this.draining) return;
+    const revision = this.maintenanceRevision;
+    try {
+      const admission = known ?? (await this.ports.maintenance(daemon));
+      // The tray's Pause is the person's own hold; an update or kill-all holds admission apart.
+      const paused = personPaused(admission);
+      if (
+        !this.stale(generation) &&
+        this.daemon === daemon &&
+        revision === this.maintenanceRevision &&
+        !this.draining &&
+        this.status.state === "running" &&
+        paused !== this.status.paused
+      )
+        this.update({ paused });
+    } catch {
+      // The next health check reads it again.
+    }
   }
 
   private stopPorts(): StopPorts {

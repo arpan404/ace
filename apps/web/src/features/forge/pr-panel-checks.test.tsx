@@ -86,7 +86,7 @@ test("the PR panel's checks flip from running to passed on their own while CI ru
   await act(async () => {
     await vi.advanceTimersByTimeAsync(16_000);
   });
-  expect(await screen.findByText("1 check passed")).toBeTruthy();
+  expect((await screen.findAllByText("1 check passed")).length).toBeGreaterThan(0);
   // A background poll neither shows the refresh banner nor holds writes.
   expect(screen.queryByText(/Refreshing GitHub/)).toBeNull();
 });
@@ -94,7 +94,7 @@ test("the PR panel's checks flip from running to passed on their own while CI ru
 test("checks GitHub couldn't read say so in the PR panel instead of claiming none", async () => {
   const app = open(detail({ ci: "unknown" }));
   await openPullRequest(app, { project: "api", number: 42 });
-  expect(await screen.findByText("Checks unavailable")).toBeTruthy();
+  expect((await screen.findAllByText("Checks unavailable")).length).toBeGreaterThan(0);
   expect(screen.queryByText("No checks reported")).toBeNull();
 });
 
@@ -102,10 +102,11 @@ test("a failing check blocks the merge with the blocking gate named, and a refre
   const app = open(detail({ ci: "failure", checks: [{ ...running, status: "failure" }] }));
   await openPullRequest(app, { project: "api", number: 42 });
   const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
-  const blocked = await panel.findByRole<HTMLButtonElement>("button", { name: "Merge blocked" });
-  expect(blocked.disabled).toBe(true);
+  // Words, not a dead button: how many things block it, leading to them.
+  const blocked = await panel.findByRole("button", { name: "Merge blocked · 1 thing" });
+  expect(panel.queryByRole("button", { name: "Squash and merge" })).toBeNull();
   // The tooltip names what blocks it.
-  await userEvent.hover(blocked.parentElement ?? blocked);
+  await userEvent.hover(blocked);
   expect(await screen.findByText(/Checks: 1 failing · 0 ok/, {}, { timeout: 3_000 })).toBeTruthy();
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value: detail() });
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));

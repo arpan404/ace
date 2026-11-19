@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputerTab.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backend": {
+      "const": "user",
+      "type": "string"
+    },
+    "personActive": {
+      "type": "boolean"
+    },
+    "tabId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "tabId",
+    "title",
+    "url"
+  ],
+  "type": "object"
+}

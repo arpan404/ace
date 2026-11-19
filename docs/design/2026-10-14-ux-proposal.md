@@ -171,7 +171,7 @@ Severity: **B** blocker, **M** major, **m** minor. "Principle" is what Codex/t3c
 - **m** Appearance's text contains "Ready." eleven times (theme previews' status text), which a screen reader reads as "Ready. Ready. System Ready. Light …" ([11-settings-appearance](2026-10-14-ux/11-settings-appearance.jpg)).
 - **m** Providers: "Y P W" letter discs per provider (carried from Oct 13; [11-settings-providers](2026-10-14-ux/11-settings-providers.jpg)).
 - **m** Keyboard page is one long table with 50+ rows including an Activity section (2.10).
-- Permissions: General → Access (Read-only / Ask / Auto review / Full access) "Follows your last choice." Matches the owner's provider-native decision. Good.
+- Permissions: General → Access (Read-only / Ask / Auto review / Full access) "Applies to new threads." (2026-11-04: set only here; a thread's chip changes that thread alone) Matches the owner's provider-native decision. Good.
 
 ### 2.9 Narrow window, mobile width, keyboard-only, screen reader
 

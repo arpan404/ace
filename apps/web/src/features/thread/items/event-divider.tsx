@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import { useItem, useThreadMeta, useThread } from "@ace/client-react";
+import { useItem, useThread } from "@ace/client-react";
+import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { Item } from "@ace/protocol";
 import {
   eventCounts,
@@ -17,8 +18,8 @@ import {
   LightningIcon,
   TerminalWindowIcon,
   WarningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { PostedImage } from "@/components/attachment-tiles.tsx";
@@ -30,12 +31,13 @@ import { ErrorRow } from "./error-row.tsx";
 import { NotSentNotice } from "./not-sent-notice.tsx";
 import { RefusalRow } from "./refusal-row.tsx";
 import { SystemRow } from "./system-row.tsx";
+import { SentByLine } from "./sent-by-line.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { VisualizationItem } from "@/features/visualization/index.ts";
 
-const icons: Record<EventIcon, PhosphorIcon> = {
+const icons: Record<EventIcon, GlyphIcon> = {
   restart: ArrowClockwiseIcon,
   resume: ClockCounterClockwiseIcon,
   background: TerminalWindowIcon,
@@ -96,14 +98,23 @@ function useEventCounts(threadId: string, itemId: string): EventCounts | undefin
 /**
  * Anything in the transcript that is neither the person's words nor the agent's answer or
  * work, drawn as `eventView` decides (shared with the native apps): ace's own inputs as quiet
- * rows and cards, errors as one readable row, notices as one quiet line. Never a chat bubble.
+ * rows and cards, errors as one readable row, notices as one quiet line. A message another
+ * thread's agent sent is the one input drawn as a sent bubble, under a line naming its sender.
  */
+/** What an event row reads of its thread: who sent a message, and the provider. */
+const senderFacts = (thread: ThreadRecord) => ({
+  provider: thread.provider,
+  delegatedBy: thread.delegatedBy,
+  startedBy: thread.startedBy,
+  delegatedFrom: thread.delegatedFrom,
+});
+
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const stored = useItem(props.threadId, props.itemId);
-  const thread = useThreadMeta(props.threadId);
+  const thread = useThreadField(props.threadId, senderFacts, shallowEqual);
   const counts = useEventCounts(props.threadId, props.itemId);
   if (!stored || !counts) return null;
-  const view = eventView(stored, counts, thread?.provider);
+  const view = eventView(stored, counts, thread?.provider, thread);
   switch (view.kind) {
     case "none":
       return null;
@@ -117,7 +128,12 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       return <HandoffDivider marker={view.marker} at={view.at} />;
     case "delegation":
       return (
-        <DelegationCard threadId={props.threadId} results={view.results} received={view.received} />
+        <DelegationCard
+          threadId={props.threadId}
+          results={view.results}
+          received={view.received}
+          deliveredAt={stored.createdAt}
+        />
       );
     case "event":
       return (
@@ -125,6 +141,14 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       );
     case "task":
       return <TaskCard prompt={view.prompt} />;
+    case "sent":
+      return (
+        <UserMessage
+          threadId={props.threadId}
+          itemId={props.itemId}
+          sent={{ line: <SentByLine sent={view.sent} />, text: view.text }}
+        />
+      );
     case "system":
       return (
         <SystemRow
@@ -137,7 +161,10 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
               <ArrowsInLineVerticalIcon aria-hidden size={14} />
             )
           }
-        />
+        >
+          {/* What the provider kept of the compacted conversation, folded behind the row. */}
+          {view.summary && <p>{view.summary}</p>}
+        </SystemRow>
       );
     case "notSent":
       return (

@@ -132,6 +132,27 @@
       "additionalProperties": false,
       "properties": {
         "op": {
+          "const": "agents.models",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "query": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
           "const": "agent.status",
           "type": "string"
         },
@@ -200,6 +221,69 @@
       "required": [
         "op",
         "machine"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ParcelName.json"
+        },
+        "note": {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "op": {
+          "const": "data.send",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            },
+            {
+              "const": "parent",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "data.receive",
+          "type": "string"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        },
+        "saveAs": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
       ],
       "type": "object"
     },
@@ -1055,26 +1139,6 @@
         },
         "request": {
           "$ref": "https://ace.local/protocol/v1/AgentAutomationRequest.json"
-        }
-      },
-      "required": [
-        "op",
-        "request"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "properties": {
-        "op": {
-          "const": "offshift",
-          "type": "string"
-        },
-        "request": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftRequest.json"
-        },
-        "runOwner": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         }
       },
       "required": [

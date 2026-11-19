@@ -9,7 +9,7 @@ import {
   MenuLabel,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { isOpen, isPending, type ReviewDraft } from "./drafts.ts";
+import { isOpen, isPending, type ReviewDraft } from "@ace/ui-core/review";
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 

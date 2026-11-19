@@ -40,7 +40,10 @@ type Pending = {
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
-const RpcEnvelope = z.record(z.string(), z.unknown());
+/** A JSON-RPC envelope is any JSON object, read in place: parsing it into a copy buys nothing. */
+function isEnvelope(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 const RpcErrorCode = z.object({ code: z.number().int() });
 /** The JSON-RPC error code a rejected request carries, if the peer answered with one. */
 export function rpcErrorCode(error: unknown): number | undefined {
@@ -238,12 +241,11 @@ export class JsonRpcPeer {
       this.#report(failure);
       return;
     }
-    const parsed = RpcEnvelope.safeParse(raw);
-    if (!parsed.success) {
+    if (!isEnvelope(raw)) {
       this.#options.onMalformed?.(line);
       return;
     }
-    const message = parsed.data;
+    const message = raw;
     const id = message["id"];
     const method = message["method"];
     if (typeof method === "string" && isId(id)) {
@@ -253,9 +255,11 @@ export class JsonRpcPeer {
         return;
       }
       this.#incoming++;
-      void this.#answer({ id, method, params: message["params"] }).finally(() => {
-        this.#incoming--;
-      });
+      void this.#answer({ id, method, params: message["params"] })
+        .finally(() => {
+          this.#incoming--;
+        })
+        .catch((error: unknown) => this.#report(asError(error)));
     } else if (typeof method === "string" && id === undefined) {
       try {
         this.onNotification({ method, params: message["params"] });

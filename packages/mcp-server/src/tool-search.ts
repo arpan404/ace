@@ -42,7 +42,8 @@ const familyWords: Readonly<Record<string, string>> = {
   "ace-computer-use": "computer native app desktop window simulator",
   "ace-threads": "thread conversation history",
   visualize: "visual chart diagram",
-  offshift: "outcome deliver delivery own",
+  "make-a-suit": "suit theme look appearance colour color style restyle",
+  "ace-market": "market marketplace publish listing entry draft install",
 };
 
 /** Each group's words stand in for one another. Stems, as `stem` returns them. */
@@ -66,7 +67,7 @@ const synonymGroups: readonly string[] = [
   "note remember memory knowledge fact",
   "schedule cron recur automation daily weekly periodic timer every",
   "pr pull github",
-  "chart diagram graph mockup visualize render html",
+  "chart diagram graph mockup visualize render html preview",
   "ask question human person user",
   "cancel stop kill abort halt",
   "find search locate query",

@@ -1,5 +1,20 @@
 import { DesignTokensSchema } from "@ace/design-tokens";
 import data from "@ace/design-tokens/tokens.json" with { type: "json" };
+import {
+  accentNames,
+  densityIds,
+  densityNames,
+  phoneDensities,
+  phoneAccentIds,
+  phoneColourRoles,
+  phoneOverrides,
+  rowStatusColours,
+  themeIds,
+  themes,
+  transcriptScale,
+  transcriptSizeIds,
+  transcriptSizes,
+} from "@ace/themes";
 import { readFile, writeFile } from "node:fs/promises";
 
 // Validate the raw JSON here too. A generator must never silently accept an incompatible schema.
@@ -18,9 +33,10 @@ const editableColours = [
   "accent",
   "onAccent",
 ] as const;
-type EditableColour = (typeof editableColours)[number];
-const isEditable = (key: string): key is EditableColour =>
-  (editableColours as readonly string[]).includes(key);
+// Theme roles (`@ace/themes` phoneColourRoles) resolve live too, so a theme switch redraws them.
+const isDynamic = (key: string): boolean =>
+  (editableColours as readonly string[]).includes(key) ||
+  (phoneColourRoles as readonly string[]).includes(key);
 const hex = (value: string | undefined): string => {
   if (value === undefined) throw new Error("Missing token colour value.");
   return value.slice(1);
@@ -49,6 +65,52 @@ const lines = [
       `        "${key}": .init(light: 0x${hex(lightColours[key])}, dark: 0x${hex(darkColours[key])}),`,
   ),
   "    ]",
+  "    /// Each theme's colours under each accent (`@ace/themes` phoneOverrides): theme id → accent",
+  "    /// id → role → pair. A role a theme leaves out keeps its token colour.",
+  "    static let themeOverrides: [String: [String: [String: NativePalette.Pair]]] = [",
+  ...themeIds.flatMap((theme) => [
+    `        "${theme}": [`,
+    ...phoneAccentIds.flatMap((accent) => {
+      const light = phoneOverrides(theme, accent, "light");
+      const dark = phoneOverrides(theme, accent, "dark");
+      const roles = phoneColourRoles.filter((role) => light[role] || dark[role]);
+      if (roles.length === 0) return [`            "${accent}": [:],`];
+      return [
+        `            "${accent}": [`,
+        ...roles.map(
+          (role) =>
+            `                "${role}": .init(light: 0x${hex(light[role] ?? lightColours[role])}, dark: 0x${hex(dark[role] ?? darkColours[role])}),`,
+        ),
+        "            ],",
+      ];
+    }),
+    "        ],",
+  ]),
+  "    ]",
+  "    /// The themes and accents Settings offers, in order, as (id, name).",
+  `    static let themeChoices: [(id: String, name: String)] = [${themeIds.map((id) => `("${id}", "${themes[id].name}")`).join(", ")}]`,
+  `    static let accentChoices: [(id: String, name: String)] = [${phoneAccentIds.map((id) => `("${id}", "${accentNames[id]}")`).join(", ")}]`,
+  "    /// Transcript sizes as (id, name, scale): the scale multiplies the Dynamic Type size.",
+  `    static let transcriptSizes: [(id: String, name: String, scale: CGFloat)] = [${transcriptSizeIds.map((id) => `("${id}", "${transcriptSizes[id].label}", ${transcriptScale(id).toFixed(4)})`).join(", ")}]`,
+  "    /// Density's measures (`@ace/themes` phoneDensities): Compact trims padding, never a tier.",
+  "    struct DensityMetrics: Sendable { let settingsRowHeight: CGFloat; let inboxRowPadding: CGFloat; let inboxLineGap: CGFloat; let transcriptRoom: CGFloat }",
+  "    static let densities: [(id: String, name: String, metrics: DensityMetrics)] = [",
+  ...densityIds.map((id) => {
+    const d = phoneDensities[id];
+    return `        ("${id}", "${densityNames[id]}", DensityMetrics(settingsRowHeight: ${d.settingsRowHeight}, inboxRowPadding: ${d.inboxRowPadding}, inboxLineGap: ${d.inboxLineGap}, transcriptRoom: ${d.transcriptRoom})),`;
+  }),
+  "    ]",
+  "    static func density(_ id: String) -> DensityMetrics { (densities.first { $0.id == id } ?? densities[0]).metrics }",
+  "    /// A role's colour pair in any theme and accent, for previews of choices not on screen.",
+  "    static func pair(_ role: String, theme: String, accent: String) -> NativePalette.Pair? {",
+  "        themeOverrides[theme]?[accent]?[role] ?? tokenPairs[role]",
+  "    }",
+  "    static let tokenPairs: [String: NativePalette.Pair] = [",
+  ...phoneColourRoles.map(
+    (key) =>
+      `        "${key}": .init(light: 0x${hex(lightColours[key])}, dark: 0x${hex(darkColours[key])}),`,
+  ),
+  "    ]",
   "    /// Editable colours resolve through the injected model so saves and resets",
   "    /// invalidate every active view. Semantic colours below stay fixed.",
 ];
@@ -56,7 +118,7 @@ lines.push("    @MainActor enum Colours {");
 for (const key of Object.keys(tokens.schemes.light.colours)) {
   const lightHex = hex(lightColours[key]);
   const darkHex = hex(darkColours[key]);
-  if (isEditable(key)) {
+  if (isDynamic(key)) {
     lines.push(
       `        static var ${key}: Color {`,
       `            let pair = NativePaletteBridge.pair(for: "${key}", light: 0x${lightHex}, dark: 0x${darkHex})`,
@@ -77,10 +139,20 @@ for (const group of ["status", "statusText"] as const) {
   }
   lines.push("    }");
 }
-for (const group of ["spacing", "radii", "dimensions", "elevation"] as const) {
+// Thread-row status icons (`@ace/themes` rowStatusColours), as the web's `--row-status-*`.
+lines.push("    @MainActor enum RowStatus {");
+for (const key of Object.keys(rowStatusColours.light) as (keyof typeof rowStatusColours.light)[]) {
+  const name = key.replace(/-(.)/g, (_, c: string) => c.toUpperCase());
+  lines.push(
+    `        static let ${name} = adaptive(0x${hex(rowStatusColours.light[key])}, 0x${hex(rowStatusColours.dark[key])})`,
+  );
+}
+lines.push("    }");
+for (const group of ["spacing", "dimensions", "elevation"] as const) {
   lines.push(`    enum ${group[0]?.toUpperCase()}${group.slice(1)} {`);
-  for (const [key, value] of Object.entries(tokens[group]))
+  for (const [key, value] of Object.entries(tokens[group])) {
     lines.push(`        static let ${key}: CGFloat = ${value}`);
+  }
   lines.push("    }");
 }
 lines.push("    enum Opacity {");
@@ -105,26 +177,32 @@ lines.push(
   "    struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }",
   "    enum Typography {",
 );
-for (const [key, value] of Object.entries(tokens.typography.typeScale))
+// The phone's five type roles (docs/design/design-language.md §3: large title 34, title 17, body
+// 15, meta 13, caption 11), two weights, under the names views already use. Sizes follow the
+// system's own text styles, so Dynamic Type scales them as it scales the system's.
+const phoneType: Record<string, { size: number; lineHeight: number; weight: number }> = {
+  largeTitle: { size: 34, lineHeight: 41, weight: 600 },
+  wordmark: { size: 34, lineHeight: 41, weight: 600 },
+  title: { size: 17, lineHeight: 22, weight: 600 },
+  body: { size: 17, lineHeight: 22, weight: 400 },
+  rowTitle: { size: 15, lineHeight: 20, weight: 400 },
+  label: { size: 15, lineHeight: 20, weight: 400 },
+  caption: { size: 13, lineHeight: 18, weight: 400 },
+  meta: { size: 13, lineHeight: 18, weight: 400 },
+  code: { size: 13, lineHeight: 18, weight: 400 },
+  small: { size: 11, lineHeight: 13, weight: 400 },
+};
+for (const [key, value] of Object.entries(phoneType))
   lines.push(
-    `        static let ${key} = TypeStyle(size: ${value.size}, lineHeight: ${value.lineHeight}, weight: ${value.weight}, tracking: ${value.letterSpacing})`,
+    `        static let ${key} = TypeStyle(size: ${value.size}, lineHeight: ${value.lineHeight}, weight: ${value.weight}, tracking: 0)`,
   );
 lines.push(`    }
+    /// Two weights: regular, and semibold for what needs the person and emphasis.
     static func fontWeight(_ value: CGFloat) -> Font.Weight {
-        switch value {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        value >= 600 ? .semibold : .regular
     }
     static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
-        let weight: UIFont.Weight = switch style.weight {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        let weight: UIFont.Weight = style.weight >= 600 ? .semibold : .regular
         return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
     }
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
@@ -143,6 +221,7 @@ lines.push(`    }
     @ScaledMetric private var size: CGFloat
     @ScaledMetric private var lineHeight: CGFloat
     @ScaledMetric private var tracking: CGFloat
+    @Environment(\\.transcriptScale) private var scale
 
     init(style: AceTheme.TypeStyle, relativeTo: Font.TextStyle, design: Font.Design) {
         self.style = style
@@ -153,10 +232,16 @@ lines.push(`    }
     }
 
     func body(content: Content) -> some View {
-        content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
-            .tracking(tracking)
-            .lineSpacing(max(AceTheme.Spacing.none, lineHeight - UIFont.systemFont(ofSize: size).lineHeight))
+        let size = size * scale
+        return content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
+            .tracking(tracking * scale)
+            .lineSpacing(max(AceTheme.Spacing.none, lineHeight * scale - UIFont.systemFont(ofSize: size).lineHeight))
     }
+}
+
+extension EnvironmentValues {
+    /// The transcript's size relative to Dynamic Type (Settings › Appearance): 1 everywhere else.
+    @Entry var transcriptScale: CGFloat = 1
 }
 
 extension View {

@@ -32,6 +32,11 @@ const Token = classic.object({
   file: Mention.optional(),
   thread: ThreadRefContextItem.optional(),
   browserTab: BrowserTabContextItem.optional(),
+  /** Where a file was added: its marker, tied to the file again by hash on restore. */
+  attachment: classic
+    .object({ key: classic.number().int().optional(), sha256: classic.string().optional() })
+    .optional()
+    .catch(undefined),
 });
 const Held = classic.object({ sha256: classic.string(), name: classic.string() });
 const Annotated = classic.object({ annotation: BrowserAnnotation, crop: Held.optional() });
@@ -45,6 +50,19 @@ const DraftAnnotationsSchema = classic.object({
   ),
   pages: classic.array(Held.extend({ url: classic.string() })).catch([]),
 });
+/** A passage of an agent message being replied to; an unreadable one is dropped, never the draft. */
+const Quote = classic.object({
+  id: classic.string(),
+  text: classic.string(),
+  before: classic.string(),
+  after: classic.string(),
+});
+const Quotes = classic.array(classic.unknown()).transform((items) =>
+  items.flatMap((value) => {
+    const quote = Quote.safeParse(value);
+    return quote.success ? [quote.data] : [];
+  }),
+);
 /** A kept still is a small inline image, never a link; anything else is dropped, not the file. */
 const DraftFile = Held.extend({
   mimeType: classic.string().max(128).optional().catch(undefined),
@@ -62,6 +80,7 @@ export const ComposerDraftSchema = classic.object({
   mentions: classic.array(classic.string()),
   attachments: classic.array(DraftFile),
   annotations: DraftAnnotationsSchema.optional().catch(undefined),
+  quotes: Quotes.optional().catch(undefined),
 });
 const Entries = z.catch(z.array(z.tuple([z.string(), ComposerDraftSchema])), []);
 const Recent = z.catch(z.array(z.tuple([z.string(), z.array(z.string())])), []);

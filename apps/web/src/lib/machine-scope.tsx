@@ -8,7 +8,8 @@ import { ScopedMachines, useMachines, type Machine } from "./machines.ts";
  * on another's page. This window's daemon keeps the app's cache.
  */
 const caches = new WeakMap<object, QueryClient>();
-function machineCache(client: object, app: QueryClient): QueryClient {
+/** The query cache `MachineScope` keeps for the machine reached through `client`. */
+export function machineCache(client: object, app: QueryClient): QueryClient {
   let cache = caches.get(client);
   if (!cache) {
     cache = new QueryClient({ defaultOptions: app.getDefaultOptions() });

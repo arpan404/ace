@@ -1,0 +1,37 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
+import { SpadeAgentScreen } from "@/features/spade/index.ts";
+
+/**
+ * A bot's conversation; `on` names the machine it runs on when that isn't this one (not
+ * `machine`, which shows the whole window against another machine). With `profile`, its profile
+ * open beside it on that tab; `computer` what its Computer tab shows, `files` and `file` where
+ * its file manager is (`.` for the top).
+ */
+export const Route = createFileRoute("/spade/$agentId")({
+  validateSearch: z.object({
+    on: z.string().optional().catch(undefined),
+    profile: z.enum(["details", "work", "library", "computer"]).optional().catch(undefined),
+    computer: z
+      .enum(["browser", "screen", "terminal", "files", "services", "activity"])
+      .optional()
+      .catch(undefined),
+    files: z.string().optional().catch(undefined),
+    /** With `files`, a file in it opened (a report a file chip opens). */
+    file: z.string().optional().catch(undefined),
+  }),
+  component: function SpadeAgentRoute() {
+    const { agentId } = Route.useParams();
+    const { on, profile, computer, files, file } = Route.useSearch();
+    return (
+      <SpadeAgentScreen
+        agentId={agentId}
+        machine={on}
+        profile={profile}
+        computer={computer}
+        files={files}
+        file={file}
+      />
+    );
+  },
+});

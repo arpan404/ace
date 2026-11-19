@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { nodeVersion } from "@ace/release/node-runtime";
+import { nodeVersion } from "@ace/release/daemon-runtime";
 import { releaseRepository, releaseTag } from "../src/packaging/release-plan.ts";
 import { developerIdIdentities, notaryCredentials } from "../src/packaging/release-signing.ts";
 import { repo } from "./common.ts";
@@ -33,6 +33,19 @@ export function worktreeClean(): boolean {
   return status.ok && status.out === "";
 }
 
+/**
+ * Untracked files git doesn't ignore. A build copies some folders whole (builtin skills, Suits),
+ * so such a file would ship in a build that claims to be its commit's.
+ */
+export function untrackedFiles(): string[] {
+  const status = capture("git", ["status", "--porcelain", "--untracked-files=all"]);
+  if (!status.ok) throw new Error(`git status failed: ${status.out}`);
+  return status.out
+    .split("\n")
+    .filter((line) => line.startsWith("?? "))
+    .map((line) => line.slice(3));
+}
+
 /** Whether GitHub has the commit, so a release tag can point at it. */
 export function pushed(commit: string): boolean {
   capture("git", ["fetch", "--quiet", "origin"]);
@@ -46,6 +59,25 @@ export function githubReady(): boolean {
 
 export function releaseExists(version: string): boolean {
   return capture("gh", ["release", "view", releaseTag(version), "--repo", releaseRepository]).ok;
+}
+
+/**
+ * Whether `tag`'s release is published. A draft doesn't count: the release pipeline (ADR 0188)
+ * creates the draft before its hosts build into it.
+ */
+export function releasePublished(tag: string): boolean {
+  const view = capture("gh", [
+    "release",
+    "view",
+    tag,
+    "--repo",
+    releaseRepository,
+    "--json",
+    "isDraft",
+    "--jq",
+    ".isDraft",
+  ]);
+  return view.ok && view.out === "false";
 }
 
 /** The Developer ID the build will sign with: CSC_NAME when set, else the keychain's only one. */
@@ -74,6 +106,31 @@ export function signingIdentity(env: NodeJS.ProcessEnv): SigningIdentity {
       problem: `Several Developer IDs; set CSC_NAME to one of: ${identities.join(", ")}`,
     };
   return { ok: true, name: identities[0] ?? "" };
+}
+
+/**
+ * Every release carries Spade's server (ADR 0123): a prebuilt `ACE_SPADE_SERVER_BIN`, or cargo
+ * to build it from `spade/`. None releases without it: Spade is hidden at run time (ADR 0139).
+ */
+export function spadeServerCheck(env: NodeJS.ProcessEnv, cargo: boolean): Check {
+  const prebuilt = env.ACE_SPADE_SERVER_BIN;
+  if (prebuilt)
+    return {
+      name: "Spade server",
+      ok: existsSync(prebuilt),
+      detail: existsSync(prebuilt)
+        ? `prebuilt ${prebuilt}`
+        : `ACE_SPADE_SERVER_BIN names a missing file: ${prebuilt}`,
+      for: "any",
+    };
+  return {
+    name: "Spade server",
+    ok: cargo,
+    detail: cargo
+      ? "cargo builds spade from spade/"
+      : "install Rust (spade/rust-toolchain.toml) or set ACE_SPADE_SERVER_BIN",
+    for: "any",
+  };
 }
 
 export interface Check {
@@ -153,6 +210,7 @@ export function releaseChecks(env: NodeJS.ProcessEnv): Check[] {
       "ACE_RELEASE_PUBLIC_KEY_FILE and ACE_RELEASE_PRIVATE_KEY_FILE (tools/release/README.md)",
     for: "daemon",
   });
+  add(spadeServerCheck(env, capture("cargo", ["--version"]).ok));
   add({
     name: `Node ${nodeVersion}`,
     ok: process.versions.node === nodeVersion,

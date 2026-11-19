@@ -103,6 +103,7 @@ test("oversized text history is a bounded preview with lazy complete text reads"
   const part = item.parts[0];
   if (part?.type !== "text" || !part.source) throw new Error("text source");
   expect(part.text.length).toBeLessThanOrEqual(4096);
+  expect(text.endsWith(part.text)).toBe(true);
   let actual = "";
   for await (const chunk of client.text(part.source)) {
     expect(chunk.length).toBeLessThanOrEqual(128 * 1024 + 1);
@@ -115,8 +116,15 @@ test("oversized text history is a bounded preview with lazy complete text reads"
     { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: "suffix" },
   ]);
   await barrier(client, h.thread.id);
+  // The item is still streaming, so its preview is the stream's marked tail and a live delta
+  // extends it, from the same offset, while the source counts the new bytes.
   expect(store.item(item.id)).toMatchObject({
-    parts: [{ text: part.text, source: { bytes: part.source.bytes + 12 } }],
+    parts: [
+      {
+        text: part.text + "suffix",
+        source: { offset: part.source.offset, bytes: part.source.bytes + 12 },
+      },
+    ],
   });
   expect(previous).toMatchObject({ parts: [{ source: { bytes: part.source.bytes } }] });
   const suffix = await client.outputRead({
@@ -181,7 +189,11 @@ test("authoritative text replacement invalidates an active detail read rather th
   const part = item.parts[0];
   if (part?.type !== "text" || !part.source) throw new Error("source");
   const reader = client.text(part.source);
-  expect((await reader.next()).value).toBe("x".repeat(128 * 1024));
+  // The daemon bounds each output read (`outputReadBytes`), so this is a prefix and the read is
+  // still under way when the text is replaced.
+  const first = (await reader.next()).value;
+  expect(typeof first === "string" && first.length > 0 && first.length < 512 * 1024).toBe(true);
+  expect(first).toBe("x".repeat(String(first).length));
   const throughSeq = h.daemon.store.headSeq();
   h.daemon.store.appendEvents(h.thread.id, [
     {

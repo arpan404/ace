@@ -9,11 +9,8 @@ pub enum Code {
     Busy,
     Timeout,
     Internal,
-    WindowAmbiguous,
     KeyUnsupported,
     ModifierUnsupported,
-    NoKeyWindow,
-    DeliveryUnconfirmed,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Error {
@@ -39,6 +36,11 @@ impl Error {
             message,
             phase: None,
         }
+    }
+    pub fn context(self, operation: &str) -> Self {
+        let mut failure = Self::new(self.code, format!("{operation}: {}", self.message));
+        failure.phase = self.phase;
+        failure
     }
     pub fn phase(mut self, phase: &'static str) -> Self {
         self.phase = Some(phase);

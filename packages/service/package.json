@@ -6,10 +6,20 @@
   "exports": {
     ".": "./src/index.ts",
     "./home": "./src/home.ts",
+    "./home-path": "./src/home-path.ts",
+    "./login-path": "./src/login-path.ts",
+    "./launch-log": "./src/launch-log.ts",
     "./exit-codes": "./src/exit-codes.ts",
     "./desktop-update": "./src/desktop-update.ts",
     "./desktop-update-argument": "./src/desktop-update-argument.ts",
-    "./version": "./src/version.ts"
+    "./version": "./src/version.ts",
+    "./client-features": "./src/client-features.ts",
+    "./spade": "./src/spade/index.ts",
+    "./spade-update-mode": "./src/spade-update-mode.ts",
+    "./spade-plan": "./src/spade-plan.ts",
+    "./spade-layout": "./src/spade-layout.ts",
+    "./spade-service": "./src/spade-api.ts",
+    "./release-line": "./src/release-line.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
@@ -17,6 +27,7 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/settings": "workspace:*",
     "@ace/workspace": "workspace:*",
     "tar": "7.5.7",
     "zod": "^4.6.5"
@@ -26,6 +37,6 @@
     "plist": "3.1.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

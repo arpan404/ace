@@ -9,7 +9,10 @@ and its "Allow restoring on future sessions" box is ticked when the app asked fo
 grant. It has no accessible Cancel button, so cancelling closes its window through KWin, as the
 person closing the dialog would.
 
-Usage as a script: python3 portal_dialog.py approve <window title> | cancel | is-open | dump
+GNOME's keyboard dialog ("Remote Desktop", asked for typing in front) shares only once the person
+turns on "Allow Remote Interaction"; allow_keyboard does that and presses Share.
+
+Usage as a script: python3 portal_dialog.py approve <window title> | allow-keyboard | cancel | is-open | dump
 """
 import os
 import sys
@@ -22,9 +25,9 @@ gi.require_version("Atspi", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Atspi, Gio, GLib  # noqa: E402  # pyright: ignore[reportAttributeAccessIssue]
 
-# Window titles of the screen-sharing dialogs, lower case: GNOME's, then KDE's ScreenCast chooser
-# and its RemoteDesktop chooser.
-TITLES = ("share screen", "remote control requested")
+# Window titles of the portal's dialogs, lower case: GNOME's screen sharing and remote desktop,
+# then KDE's ScreenCast chooser and its RemoteDesktop chooser.
+TITLES = ("share screen", "remote desktop", "remote control requested")
 KDE_RESTORE = "Allow restoring on future sessions"
 
 
@@ -122,6 +125,49 @@ def approve(window_title: str, remember: bool = True, wait: float = 10.0) -> boo
     return False
 
 
+def allow_keyboard(wait: float = 10.0) -> bool:
+    """Answers GNOME's Remote Desktop dialog as the person allowing the keyboard: turns on
+    "Allow Remote Interaction" (Remember This Selection stays checked), then presses Share."""
+    if not is_open(wait):
+        return False
+    switch = None
+    deadline = time.time() + wait
+    while switch is None and time.time() < deadline:
+        dialog = _dialog()
+        switch = _find_with_action(dialog, "switch", "Allow Remote Interaction", "toggle") if dialog else None
+        time.sleep(0.2)
+    if switch is None or not _press(switch, "toggle"):
+        return False
+    share = _find(_dialog(), "button", "Share")
+    while share is not None and not share.get_state_set().contains(Atspi.StateType.SENSITIVE):
+        if time.time() > deadline:
+            return False
+        time.sleep(0.2)
+    if share is None or not _press(share, "click"):
+        return False
+    while _dialog() is not None:
+        if time.time() > deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def _find_with_action(node, role: str, name: str, action: str, depth: int = 0):
+    """Like _find, for the element of that role and name that has the action (GTK nests a
+    switch inside a row of the same name)."""
+    if node is None or depth > 40:
+        return None
+    if node.get_role_name() == role and node.get_name() == name:
+        names = [Atspi.Action.get_action_name(node, i).lower() for i in range(Atspi.Action.get_n_actions(node))]
+        if action in names:
+            return node
+    for index in range(node.get_child_count()):
+        found = _find_with_action(node.get_child_at_index(index), role, name, action, depth + 1)
+        if found:
+            return found
+    return None
+
+
 def _close_with_kwin() -> bool:
     """Closes KDE's dialog window through a one-off KWin script, as the person closing it would."""
     script = """
@@ -201,6 +247,8 @@ if __name__ == "__main__":
         if not ok:
             print(f"No window titled {sys.argv[2]!r} to pick; the portal's windows:", file=sys.stderr)
             dump(sys.stderr)
+    elif command == "allow-keyboard":
+        ok = allow_keyboard()
     elif command == "cancel":
         ok = cancel()
     elif command == "is-open":

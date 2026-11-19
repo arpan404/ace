@@ -8,6 +8,11 @@ import { z } from "zod";
 const hex = /^[0-9a-fA-F]{6}$/;
 const Label = z.looseObject({ name: z.string().max(256), color: z.unknown().optional() });
 const Person = z.looseObject({ login: z.string().max(100), avatar_url: z.unknown().optional() });
+const AvatarPerson = z.looseObject({
+  login: z.string().max(100),
+  avatar_url: z.string().max(4096).optional().catch(undefined),
+  avatarUrl: z.string().max(4096).optional().catch(undefined),
+});
 
 /** Each label's colour by name, for the labels GitHub gave one. */
 export function labelColors(labels: readonly unknown[]): Record<string, string> {
@@ -32,13 +37,7 @@ export function logins(people: readonly unknown[] | undefined): string[] {
 export function avatars(people: readonly unknown[]): Record<string, string> {
   const found: Record<string, string> = {};
   for (const value of people) {
-    const person = z
-      .looseObject({
-        login: z.string().max(100),
-        avatar_url: z.string().max(4096).optional().catch(undefined),
-        avatarUrl: z.string().max(4096).optional().catch(undefined),
-      })
-      .safeParse(value);
+    const person = AvatarPerson.safeParse(value);
     const url = person.success ? (person.data.avatar_url ?? person.data.avatarUrl) : undefined;
     if (person.success && url) found[person.data.login] = url;
   }

@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideScope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "threads:read",
+    "threads:start",
+    "threads:message",
+    "threads:stop",
+    "browser",
+    "computer"
+  ],
+  "type": "string"
+}

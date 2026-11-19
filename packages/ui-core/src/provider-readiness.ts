@@ -180,6 +180,9 @@ const quiet = (state: ReadinessState, label: string, detail?: string): Readiness
   more: [],
 });
 
+/** Turned off in ace's Settings: nothing runs, signs in or lists models until it's turned on. */
+export const turnedOffView: ReadinessView = quiet("off", "Turned off");
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /**
@@ -190,8 +193,9 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
  */
 export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): ReadinessView {
   const name = providerNames[row.provider];
+  // Turned off first: ace doesn't check a turned-off CLI, so its installation is unknown.
+  if (row.enabled === false) return turnedOffView;
   if (row.installed === false) return quiet("not_installed", "Not installed", row.installHint);
-  if (row.enabled === false) return quiet("off", "Turned off");
   if (row.installed === true && row.versionCheck?.status === "too_old") {
     const cli = providerCli(row.provider);
     const product = cli ? cliRequirements[cli].name : name;

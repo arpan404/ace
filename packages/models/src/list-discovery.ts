@@ -33,7 +33,8 @@ export async function discoverListedModels(
     maxOutputBytes: 4 * 1024 * 1024,
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stops awaited below report a tree that survives one.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   try {
@@ -81,6 +82,13 @@ const PiReply = z
       .passthrough(),
   })
   .passthrough();
+const PiState = z
+  .object({
+    model: z.object({ provider: z.string(), id: z.string() }).nullish(),
+    thinkingLevel: z.string().nullish(),
+  })
+  .passthrough();
+const PiSuccess = z.object({ success: z.literal(true), data: z.unknown() }).passthrough();
 async function piModels(
   proc: SupervisedProcess,
   instance: ModelInstance,
@@ -94,13 +102,7 @@ async function piModels(
       ...new Map(models.map((model) => [model.provider, providerSource(model.provider)])).values(),
     ],
   });
-  const state = z
-    .object({
-      model: z.object({ provider: z.string(), id: z.string() }).nullish(),
-      thinkingLevel: z.string().nullish(),
-    })
-    .passthrough()
-    .parse(await piRequest(proc, "get_state", "ace-models-state"));
+  const state = PiState.parse(await piRequest(proc, "get_state", "ace-models-state"));
   signal.throwIfAborted();
   return models.map((native) =>
     CatalogModel.parse({
@@ -137,10 +139,7 @@ async function piRequest(
       )
         return;
       try {
-        const reply = z
-          .object({ success: z.literal(true), data: z.unknown() })
-          .passthrough()
-          .parse(data);
+        const reply = PiSuccess.parse(data);
         proc.stdout.removeListener("line", receive);
         resolve(command === "get_available_models" ? PiReply.parse(data) : reply.data);
       } catch (error) {
@@ -149,10 +148,13 @@ async function piRequest(
       }
     };
     proc.stdout.on("line", receive);
-    void proc.exited.then(() => {
-      proc.stdout.removeListener("line", receive);
-      reject(new Error("Pi metadata process exited before listing"));
-    });
+    // The promise below settles its own failure; a late exit only rejects it.
+    void proc.exited
+      .then(() => {
+        proc.stdout.removeListener("line", receive);
+        reject(new Error("Pi metadata process exited before listing"));
+      })
+      .catch(() => {});
     proc.stdin.write(JSON.stringify({ type: command, id }) + "\n", (error) => {
       if (error) reject(error);
     });

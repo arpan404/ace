@@ -7,14 +7,22 @@ import { expect, it } from "vitest";
 
 const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
 type Reply = { match: string; text: string };
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** Drive `ace triage` in a real PTY, answering each screen as it appears. */
 async function drive(input: { args: string[]; stubs: Record<string, string>; replies: Reply[] }) {
   const root = await mkdtemp(join(tmpdir(), "ace-wizard-"));
   const home = join(root, "data");
   await mkdir(home, { mode: 0o700 });
+  // Each stub CLI is a shell script running its body on this runtime. A marker goes before the
+  // arguments because Bun drops a `--` that directly follows the script path; the body removes it.
   for (const [name, body] of Object.entries(input.stubs)) {
-    await writeFile(join(root, name), `#!${process.execPath}\n${body}\n`);
+    const script = join(root, `${name}.mjs`);
+    await writeFile(script, `process.argv.splice(2, 1);\n${body}\n`);
+    await writeFile(
+      join(root, name),
+      `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} stub "$@"\n`,
+    );
     await chmod(join(root, name), 0o700);
   }
   const env = Object.fromEntries(

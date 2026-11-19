@@ -152,6 +152,7 @@ test("a pending switch prioritizes the target and keeps the former model in its 
     },
   });
   expect(chip.textContent).toContain(view.label);
+  expect(chip.textContent).toContain("Pending");
   expect(chip.textContent).not.toContain("Another enormous former model name");
   expect(chip.getAttribute("aria-description")).toBe("From former model on the next turn");
 });
@@ -166,4 +167,10 @@ test("the full identity survives offline and pending-switch tooltip context", as
   expect(tooltip.textContent).toContain(view.tip);
   expect(tooltip.textContent).toContain("Offline");
   expect(tooltip.textContent).toContain("Previously Former full model");
+});
+
+test("a failed switch keeps the actual model visible and names the failed operation", () => {
+  const { chip } = draw({ switchError: "The source provider could not close" });
+  expect(chip.textContent).toContain(view.label);
+  expect(chip.textContent).toContain("Switch failed");
 });

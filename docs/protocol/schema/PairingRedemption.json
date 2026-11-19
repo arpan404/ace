@@ -7,6 +7,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "installId": {
+      "$ref": "https://ace.local/protocol/v1/InstallId.json"
+    },
     "name": {
       "maxLength": 256,
       "minLength": 1,

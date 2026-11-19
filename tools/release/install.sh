@@ -33,14 +33,20 @@ if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$scratch/artif
 mkdir "$scratch/artifact"
 # The trusted installer pins this archive independently of the downloaded manifest.
 tar -xzf "$scratch/artifact.tar.gz" -C "$scratch/artifact"
+# The values travel in the environment: the runtime is Bun, which drops the first argument after
+# -e code when it runs as node.
+ACE_VERIFY_MANIFEST="$scratch/manifest.json" ACE_VERIFY_SIGNATURE="$scratch/signature.txt" \
+ACE_VERIFY_KEY="$scratch/key.pem" ACE_VERIFY_TARGET="$target" ACE_VERIFY_SHA="$actual" \
 "$scratch/artifact/bin/node" -e '
 const fs = require("node:fs"), crypto = require("node:crypto");
-const [manifest, signature, key, target, sha] = process.argv.slice(1);
+const { ACE_VERIFY_MANIFEST: manifest, ACE_VERIFY_SIGNATURE: signature, ACE_VERIFY_KEY: key,
+  ACE_VERIFY_TARGET: target, ACE_VERIFY_SHA: sha } = process.env;
+if (!manifest || !signature || !key || !target || !sha) throw new Error("Release verification input missing");
 const bytes = fs.readFileSync(manifest), sig = Buffer.from(fs.readFileSync(signature, "utf8").trim(), "base64");
 if (sig.length !== 64 || !crypto.verify(null, bytes, crypto.createPublicKey(fs.readFileSync(key)), sig)) throw new Error("Release signature rejected");
 const data = JSON.parse(bytes.toString());
 if (data.target !== target || data.sha256 !== sha) throw new Error("Release target or checksum mismatch");
-' "$scratch/manifest.json" "$scratch/signature.txt" "$scratch/key.pem" "$target" "$actual"
+'
 cp "$scratch/manifest.json" "$scratch/artifact/release.json"
 "$scratch/artifact/bin/node" "$scratch/artifact/ace.mjs" install-artifact "$scratch/artifact"
 printf 'Installed. Run ace status using the installed launcher.\n'

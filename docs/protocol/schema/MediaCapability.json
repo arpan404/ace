@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaCapability.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backend": {
+      "maxLength": 32,
+      "type": "string"
+    },
+    "codec": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "hardware": {
+      "type": "boolean"
+    },
+    "maxHeight": {
+      "maximum": 4294967295,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "maxWidth": {
+      "maximum": 4294967295,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "maxLength": 32,
+      "type": "string"
+    },
+    "step": {
+      "maxLength": 32,
+      "type": "string"
+    },
+    "zeroCopy": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "step",
+    "backend",
+    "hardware",
+    "zeroCopy",
+    "state",
+    "maxWidth",
+    "maxHeight"
+  ],
+  "type": "object"
+}

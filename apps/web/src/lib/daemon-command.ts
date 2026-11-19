@@ -23,6 +23,8 @@ const refusals: Record<string, string> = {
   thread_deleting: "It's already being stopped and deleted.",
   thread_cleanup_pending: "Its agents haven't stopped yet. ace will finish deleting it.",
   snooze_in_past: "That time has already passed.",
+  snooze_not_live: "It isn't working any more, so there's nothing to wait for.",
+  snooze_no_pr: "It has no pull request to watch.",
   queue_conflict: "Another device changed the queue. Here is the latest.",
   message_already_claimed: "The agent already took that message.",
   uncertain_delivery:
@@ -49,6 +51,9 @@ const refusals: Record<string, string> = {
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",
+  thread_changed: "This thread changed since you looked. Look again.",
+  stale_copy: "What this shows isn't up to date yet. Try again once it is.",
+  unfenced: "Open the thread and try again there.",
   fork_tree_is_live: "Wait for all agents in the fork to finish, then try again.",
   source_tree_is_live: "Wait for all agents in the parent to finish before including code changes.",
   source_thread_not_found: "The parent thread is gone. Keep the summary in this thread.",

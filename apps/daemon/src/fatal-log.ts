@@ -49,19 +49,45 @@ export function installFatalLogFlush(
   };
 }
 
+/** How many unhandled-rejection lines one minute may write before the rest are only counted. */
+const rejectionLinesPerMinute = 20;
+
 /**
- * Last resort for a rejection nobody caught. A transient store failure (busy, or a live batch
- * still retrying) heals on its own, so it is logged and the daemon keeps every agent running.
- * Anything else is rethrown and stays fatal, through the same uncaught-error path as before.
+ * Last resort for a rejection nobody caught. It is logged and the daemon keeps running: by the
+ * time a rejection goes unhandled, the code that made it has already finished, so no state is
+ * left half-changed, and ending the daemon would stop every agent for one missed `.catch`.
+ * A transient store failure (busy, or a full disk that heals) gets its own line. A storm of
+ * rejections writes at most `rejectionLinesPerMinute` lines a minute, then says how many it
+ * skipped. Thrown errors stay fatal (`installFatalLogFlush`): one can stop code mid-change.
  */
 export function installRejectionGuard(
   events: RejectionEvents,
   log: { log(level: "error", message: string, data?: unknown): void },
   transient: (reason: unknown) => boolean,
+  now: () => number,
 ): () => void {
+  let windowStart = Number.NEGATIVE_INFINITY;
+  let written = 0;
+  let skipped = 0;
   const rejected = (reason: unknown) => {
-    if (!transient(reason)) throw reason;
-    log.log("error", "Unhandled store failure; continuing", logError(reason));
+    const at = now();
+    if (at - windowStart >= 60_000) {
+      if (skipped > 0)
+        log.log("error", "Unhandled rejections not logged", logFields([["count", skipped]]));
+      windowStart = at;
+      written = 0;
+      skipped = 0;
+    }
+    if (written >= rejectionLinesPerMinute) {
+      skipped++;
+      return;
+    }
+    written++;
+    log.log(
+      "error",
+      transient(reason) ? "Unhandled store failure; continuing" : "Unhandled rejection; continuing",
+      logError(reason),
+    );
   };
   events.on("unhandledRejection", rejected);
   return () => events.off("unhandledRejection", rejected);

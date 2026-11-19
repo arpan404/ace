@@ -7,6 +7,7 @@ import type { DesktopDaemon, DesktopDaemonStatus } from "@/boot/desktop.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { createStartup, useStartupHold, useStartupShell } from "@/lib/startup/startup.tsx";
 import { startupSlowMs } from "@/lib/startup/startup-state.ts";
+import { startupStepLongMs } from "@/lib/startup/startup-activity.ts";
 import { StartupPending } from "./startup-pending.tsx";
 
 /** Timers and frames the test runs by hand. */
@@ -67,7 +68,7 @@ test("boot shows the mark, never the app's skeleton, and cross-fades once the fi
   expect(covering()).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe("");
   elapse(startupSlowMs);
-  expect(screen.getByRole("status").textContent).toBe("Starting ace…");
+  expect(screen.getByRole("status").textContent).toBe("Connecting to ace");
 
   // Connected: the app mounts underneath while its thread is still loading.
   view.rerender(
@@ -126,7 +127,7 @@ test("a desktop daemon that fails to start says so, with Try again and View logs
   await user.click(screen.getByRole("button", { name: "Try again" }));
   expect(asked).toEqual(["logs", "restart"]);
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(screen.getByRole("status").textContent).toBe("Starting ace…");
+  expect(screen.getByRole("status").textContent).toBe("Starting ace");
 });
 
 test("a screen that takes over at boot is not hidden behind the startup screen", () => {
@@ -140,4 +141,66 @@ test("a screen that takes over at boot is not hidden behind the startup screen",
   elapse(450);
   expect(document.querySelector('[data-slot="startup-screen"]')).toBeNull();
   expect(screen.getByRole("heading", { name: "Connect to ace" })).toBeTruthy();
+});
+
+test("a Suit that makes pages see-through still can't let the app show through the startup cover", () => {
+  const { startup } = clock();
+  // What a scene Suit writes so its backdrop shows behind every page.
+  const suitCss = document.createElement("style");
+  suitCss.textContent =
+    '[data-part="page"]{opacity:0.4;background:transparent}[data-part]{visibility:hidden}';
+  document.head.append(suitCss);
+  try {
+    render(
+      <AppFrame environment={{}} startup={startup}>
+        <StartupPending />
+      </AppFrame>,
+    );
+    const cover = covering();
+    expect(cover).toBeTruthy();
+    const style = getComputedStyle(cover as Element);
+    expect(style.opacity).not.toBe("0.4");
+    expect(style.visibility).not.toBe("hidden");
+    expect(style.backgroundColor).not.toBe("transparent");
+    // The Suit still dresses the startup page itself.
+    expect(cover?.querySelector('[data-part="page"][data-variant="startup"]')).toBeTruthy();
+  } finally {
+    suitCss.remove();
+  }
+});
+
+const status = () => screen.getByRole("status").textContent;
+
+test("the startup screen names the step the desktop reports, and says when one runs long", async () => {
+  const { startup, elapse } = clock();
+  let emit: ((status: DesktopDaemonStatus) => void) | undefined;
+  const daemon: DesktopDaemon = {
+    status: async () => ({ state: "starting", stage: "looking" }),
+    onStatus(listener) {
+      emit = listener;
+      return () => {};
+    },
+    restart: async () => ({ state: "restarting" }),
+    diagnose: async () => [],
+  };
+  render(
+    <AppFrame environment={{}} startup={startup} daemon={daemon}>
+      <StartupPending />
+    </AppFrame>,
+  );
+  await act(async () => {});
+  elapse(startupSlowMs);
+  expect(status()).toBe("Looking for ace's background service");
+
+  act(() => emit?.({ state: "starting", stage: "lock-wait" }));
+  expect(status()).toBe("Waiting for the previous ace to close");
+  elapse(startupStepLongMs);
+  expect(status()).toBe(
+    "The previous ace is taking a while to close; ace starts as soon as it does",
+  );
+
+  act(() => emit?.({ state: "starting", stage: "warming" }));
+  expect(status()).toBe("Getting your threads ready");
+  act(() => emit?.({ state: "running" }));
+  expect(status()).toBe("Connecting to ace");
 });

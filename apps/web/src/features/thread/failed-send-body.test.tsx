@@ -117,19 +117,15 @@ test("the Summary never lists a failed send as queued or says it sends when the 
   // The thread still waits on the retained message; the failed item alone stands for it.
   await waitFor(() => expect(work.textContent).not.toMatch(/queued message/i));
   expect(work.textContent).not.toMatch(/when the agent is free/);
-  expect(within(work).queryByRole("region", { name: "Background" })).toBeNull();
 });
 
 test("the Summary counts only what waits behind a failed send, waiting for it", async () => {
   await failedStart({ behind: "also check the logs" });
   const work = await openWorkPanel();
-  const background = await within(work).findByRole("region", { name: "Background" });
   expect(
-    within(background).getByRole("listitem", {
-      name: "1 queued message: waits for the message that wasn't sent",
-    }),
+    await within(work).findByText("1 queued message · waits for the message that wasn't sent"),
   ).toBeTruthy();
-  expect(background.textContent).not.toMatch(/when the agent is free/);
+  expect(work.textContent).not.toMatch(/when the agent is free/);
 });
 
 test("Try again sends the kept message: it joins the transcript and the agent starts", async () => {
@@ -143,21 +139,63 @@ test("Try again sends the kept message: it joins the transcript and the agent st
   expect((await queued(app)).messages).toEqual([]);
 });
 
-test("Edit takes the failed message back into the composer and out of the queue", async () => {
-  const { app, item } = await failedStart();
+const words = (message: { input: readonly { type: string; text?: string }[] }) =>
+  message.input.map((part) => part.text ?? "").join("");
+
+test("Edit sends the failed message's new words, and the one behind it waits as queued, never not sent", async () => {
+  const { app, item } = await failedStart({ behind: "then the tests" });
   await userEvent.click(within(item).getByRole("button", { name: "Edit" }));
+  const composer = screen.getByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(composer.textContent).toBe("hi"));
+  await userEvent.type(composer, " there{Enter}");
+  // The edit released the hold: the new words went to the agent, which is working on them.
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Message not sent" })).toBeNull(),
   );
-  await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("hi"),
+  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(
+    await within(screen.getByRole("feed", { name: "Transcript" })).findByText("hi there"),
+  ).toBeTruthy();
+  await waitFor(async () =>
+    expect((await queued(app)).messages.map(words)).toEqual(["then the tests"]),
   );
+  expect(screen.queryByText("Not sent")).toBeNull();
+});
+
+test("when another device edits the failed message first, it sends theirs and this edit stays in the composer", async () => {
+  const { app, item } = await failedStart();
+  await userEvent.click(within(item).getByRole("button", { name: "Edit" }));
+  const composer = screen.getByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(composer.textContent).toBe("hi"));
+  const page = await queued(app);
+  const changed = await app.client.command({
+    type: "queue.edit",
+    threadId: id,
+    expectedRevision: page.revision,
+    messageId: CommandId.parse("queued-hi"),
+    input: [{ type: "text", text: "hello from the laptop" }],
+  });
+  expect(changed.ok).toBe(true);
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Message not sent" })).toBeNull(),
+  );
+  await userEvent.type(composer, " there{Enter}");
+  expect(await screen.findByText("That message already left the queue")).toBeTruthy();
+  expect(composer.textContent).toBe("hi there");
+  expect(
+    await within(screen.getByRole("feed", { name: "Transcript" })).findByText(
+      "hello from the laptop",
+    ),
+  ).toBeTruthy();
   expect((await queued(app)).messages).toEqual([]);
 });
 
-test("Remove drops the failed message without sending it", async () => {
+test("Remove asks first, then drops the failed message without sending it", async () => {
   const { app, item } = await failedStart();
   await userEvent.click(within(item).getByRole("button", { name: "Remove" }));
+  const confirm = await screen.findByRole("dialog", { name: "Remove this message?" });
+  expect((await queued(app)).messages.map((message) => message.id)).toEqual(["queued-hi"]);
+  await userEvent.click(within(confirm).getByRole("button", { name: "Remove message" }));
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Message not sent" })).toBeNull(),
   );

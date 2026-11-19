@@ -81,6 +81,13 @@
     "modelsAvailable": {
       "type": "boolean"
     },
+    "nativeTools": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativeToolStatus.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "path": {
       "maxLength": 4096,
       "minLength": 1,
@@ -123,6 +130,9 @@
     "state": {
       "const": "not_configured",
       "type": "string"
+    },
+    "toolSource": {
+      "$ref": "https://ace.local/protocol/v1/NativeToolSource.json"
     },
     "updateAvailable": {
       "type": "boolean"

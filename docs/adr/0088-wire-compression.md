@@ -44,7 +44,111 @@ client needs an app change.
 (`hello.compression`) gets allowlisted JSON messages of 1 KiB or more deflated alone, before
 encryption, as a separate fragment kind; inflation is capped at the logical message limit.
 
+**Machine calls: never compressed.** `POST /v1/machine-calls` between daemons (ADR 0078) sends
+every body as it is. Free text an agent writes (a thread's title, step, last line and result, a
+failure message, a notice) can't be declared free of secrets: one child may report a callback URL
+with a token in it while another child in the same status answer carries text an attacker wrote,
+and both would share one compression context. Every status answer carries such text, and every
+describe answer carries names the person chose (the machine's and its projects'), which are not
+fixed vocabulary or ids; nothing left was worth compressing. Compressing status answers of 1 KiB
+or more (a busy parent's sixteen children shrank more than fourfold in tests) was built and given up for this
+rule. A future body of only fixed vocabulary and ids may be compressed if it is described by a
+strict shape whose every string is one of those.
+
 **HTTP: br/gzip for renderer text files.** `.html`, `.js`, `.css` and `.svg` files of at least 1 KiB
 are compressed once per file version and kept in memory (32 MiB, least recently used out), on both
 listeners; the cost is paid once, not per request. Attachments, icons and images are already
 compressed or are served by byte range, and access JSON is tiny, so they stay identity.
+
+## Sending less before compressing (2026-11-14)
+
+On a 3G link a second carries about 50 KB, so what is sent matters as much as how it is
+compressed. Storage does not change: provider data is still kept in full. Only clients that ask
+get the shorter shapes; every other client gets exactly what it got before.
+
+**Hello trim `raw-on-demand`.** Items whose raw payloads clients only show, in the raw-frames
+view, come without them and marked `rawOmitted: true`, in snapshots, item pages and windows, turn
+steps and live `item.created` / `item.updated` events. Clients read some raw payloads for what a
+step says or whether it shows, so those stay: notices (refusals, delivery errors, screen steps,
+retries, diagnostics, native stderr), MCP and custom tool calls (ace's own tools' results,
+arguments and measurements), and messages whose raw changes what the projection's readers say
+of them (a provider's system message the transcript hides, the native identity that folds a
+replayed answer into the first, a legacy provider notice's source). For messages the rule asks
+those readers with and without the raw, so it follows them. The rule is `rawShownOnly` in
+`packages/projection/src/wire-trim.ts`. A view reads the payloads with `item.raw`
+(`{threadId, itemId, from}` → the stored `raw`, or a tool call's `call.raw`, oldest first, from
+`from`, as many as fit 1 MiB and at least one, with `next` while more remain), under the same
+checks as reading the item: read scope and a thread the device may read. Each reply names the
+version of the payloads it is of (`revision`: the item's creation and the sequence of the write
+that last replaced its body, `item_heads.raw_seq`; only an upsert rewrites raw payloads, and it
+sets that in the same write). A continuation of another version answers `changed` with none,
+before any payload is read, and the reader starts again, so no list mixes two versions. A page
+takes entries one at a time from SQLite (`json_each`, which yields them in order, so no sort or
+temporary b-tree) and decodes only those it sends; SQLite still parses the stored item and walks
+its array up to the page's start. An
+entry larger than 256 KiB comes with its long fields cut, each ending with its full length, so no
+reply passes the limit; storage keeps it whole. The raw view's reads are one state machine
+(`apps/web/src/features/thread/items/raw-reads.ts`): one read at a time, whoever wants it, with
+"Show more" disabled while one is out; a change to the step during a read marks it stale and
+exactly one read from the start follows, at once when the step has finished and at most every
+1.5 s while it runs; a refresh replaces the pages shown when it lands; a view that is gone
+starts nothing. It says a running step's payloads
+may not be final.
+
+**Hello framing `short-deltas`.** An events message names its thread once (`threadId`) and
+carries each streamed delta as `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`. The
+event id is left out: clients order, dedupe and resume by `seq`, and nothing reads a delta's id;
+a reader gives it `~<seq>`. Deltas of several threads in one message go whole.
+
+Live events are serialised once for every connection. Each event keeps at most one trimmed
+encoding beside the whole one (`event-encodings.ts`): an item event without its shown-only raw,
+or a delta in short form; no event is both. Every connection that takes it shares it.
+
+**Holding deltas on a slow link.** Streamed deltas wait to share a frame: 16 ms on loopback and
+on a remote link that keeps up, 100 ms on a remote socket with 8 KiB or more queued, 250 ms past
+64 KiB. The daemon has no per-socket round-trip measure, so the queued backlog (`bufferedAmount`,
+or a relayed channel's held bytes) is the signal, kept in one per-socket estimate
+(`apps/daemon/src/link-estimate.ts`, `linkEstimate(socket)`) that other daemon code can read.
+Only messages made entirely of streamed deltas wait; anything else (an approval, a question, a
+status, a completion, a reply) goes at once and takes what is held with it.
+
+**Security.** `item.raw` is allowlisted for compression: it carries the same provider payloads
+snapshots and pages carried, compressed, before this trim, and no ace credential. Every message
+is still compressed alone.
+
+Measured on the recorded fixtures (`apps/daemon/bench/wire-trims.ts`): the largest snapshot
+deflates to 6.2 KB instead of 15.9 KB, its 200-item page to 5.4 KB instead of 15.1 KB; a delta's
+events message is 218 B instead of 314 B; `item.updated` loses 53% of its bytes; in a burst on a
+slow remote link, 23 deltas share a frame instead of 7. Frames under the 1 KiB threshold would
+shrink about a third if deflated alone; lowering the relay threshold, and a shared dictionary,
+are left for later.
+
+## Replies that can hold up an urgent message (2026-11-15)
+
+The outbox sends a reply whole before anything queued behind it, and what it has written sits in
+the socket and the link until delivered, so the largest single reply a client can ask for sets
+how long an approval, a Stop's acknowledgement or a send's receipt waits behind it. On 3g-slow
+(400 kbit/s, 400 ms round trip) one 0.94 MB `item.raw` reply held them for 6.3 s and one
+`output.read` for 7.3 s (`apps/daemon/bench/head-of-line.ts`).
+
+Paged reads are now bounded by what they put on the link, about 22 KB, about one more round trip
+there (`apps/daemon/src/reply-bounds.ts`):
+
+- `item.raw` pages carry at most 64 KiB of raw JSON (about 22 KB deflated). A stored entry (data
+  inline up to 64 KiB) goes whole, alone when it fills a page, so a reply carries at most 72 KiB;
+  an entry larger than that has its long fields cut, as before. The raw view reads on by itself,
+  16 pages per batch, one read in flight, so urgent messages pass between pages; "Show more"
+  reads the next batch.
+- `output.read` returns at most 16 KiB of output per read: it goes as base64, which barely
+  deflates, so that is about 22 KiB of JSON on the link. Readers go on from `nextOffset`.
+
+A table-driven test (`reply-bounds.process.test.ts`) reads each bounded handler's largest data
+through a real socket and fails on any reply over its bound or any content lost. Item pages and
+windows, turn steps, the snapshot window (1 MiB each) and entity pages are not bounded this way
+yet: a page smaller than an item would show it reduced, so they need the same reading on and a
+whole-item read first.
+
+### Whole-reply bound (2026-11-15)
+
+- An `item.raw` reply's ceiling (`itemRawReplyBytes`, 72 KiB) is on the whole reply as sent,
+  envelope included.

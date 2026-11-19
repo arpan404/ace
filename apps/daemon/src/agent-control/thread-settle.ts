@@ -4,7 +4,7 @@ import type { Store } from "../store.ts";
 import { controlCommandId } from "./command-id.ts";
 
 /**
- * An agent's settle is the person's Settle. A thread still working (an agent settling its own
+ * Agent settling respects the person's auto-settle opt-out. A thread still working (an agent settling its own
  * thread always is) settles once it is done, so the agent can ask before its turn ends. A
  * thread waiting on the person stays in front of them.
  */
@@ -12,6 +12,12 @@ export function settleThread(store: Store, threadId: ThreadId, at: number): Agen
   return store.atomic(() => {
     const thread = store.getThread(threadId);
     if (!thread || thread.deletedAt !== undefined) return { ok: false, code: "not_found" };
+    if (thread.autoSettle === false)
+      return {
+        ok: false,
+        code: "not_ready",
+        hint: "The person turned off auto-settle for this thread. Leave it for them to settle.",
+      };
     const state = thread.status.state;
     if (state === "working" || state === "waiting") {
       store.appendEvents(

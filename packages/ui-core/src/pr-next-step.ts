@@ -37,6 +37,11 @@ export const prStepLabels: Partial<Record<PrNextStep, string>> = {
   merge: "Merge",
 };
 
+/** The row doesn't say where its review or its checks stand, so it can't be ready. */
+export function prStatusUnknown(row: Pick<ForgePrRow, "ci" | "reviewDecision">): boolean {
+  return row.reviewDecision === undefined || row.ci === undefined || row.ci === "unknown";
+}
+
 /** What a local check run says about a PR's current head: only a settled check counts. */
 export type LocalCheckResult = "passed" | "failed" | "running" | undefined;
 
@@ -72,9 +77,13 @@ export function prNextStep(input: PrNextStepInput): PrNextStep {
   if (owned && failing) return "fix";
   if (owned && row.reviewDecision === "CHANGES_REQUESTED") return "address";
   if (owned && row.behind) return "update";
-  const approved = row.reviewDecision === "APPROVED" || row.reviewDecision == null;
+  // Only a known answer counts: null is "no review required", absent is unknown; a host
+  // that didn't report checks is unknown too, never passing.
+  const approved = row.reviewDecision === "APPROVED" || row.reviewDecision === null;
+  const passing = row.ci === "success" || row.ci === "none";
   const running = row.ci === "pending" || input.local === "running";
-  if (approved && !failing && !running && !row.conflicting && !row.behind) return "merge";
+  if (approved && passing && !failing && !running && !row.conflicting && !row.behind)
+    return "merge";
   return "wait";
 }
 

@@ -7,7 +7,7 @@ import { sample, startPhase } from "./sample.ts";
 
 /** What the driver (`scripts/measure-memory.ts`) asks this run to do, from the env. */
 export const ScenarioConfig = z.object({
-  scenario: z.enum(["startup", "lifecycle", "browser", "streaming"]),
+  scenario: z.enum(["startup", "open", "lifecycle", "browser", "streaming"]),
   hiddenMs: z.number(),
   streamMs: z.number(),
   settleMs: z.number(),

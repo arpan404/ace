@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 /** A wide window whose person asked for less motion. */
 const reducedMotion = (query: string) =>
   ({
@@ -20,7 +20,7 @@ async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -41,7 +41,7 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
   const fading = within(threads()).getByText("Invoice PDF locale fallback");
   expect(fading.closest("[inert]")).not.toBeNull();
 
-  // Once the exit has played the card is gone and the list is one row shorter.
+  // Once the exit has played the card is gone, and the list is one row shorter.
   await waitFor(() =>
     expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull(),
   );

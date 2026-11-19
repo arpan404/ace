@@ -32,7 +32,13 @@ export class EncodePacer {
   private lastEncode = -Infinity;
   /** The picture on screen has had its sharper encode since the page last changed. */
   private settled = true;
+  /** The newest frame was skipped: it waits for a slot, as the page may send no other. */
+  private skipped = false;
   constructor(fps: number) {
+    this.fps = fps;
+  }
+  /** A new frame rate from the next slot: the link stepped it (`video-scale.ts`). */
+  retime(fps: number): void {
     this.fps = fps;
   }
   /** A keyframe is owed; it goes with the next frame the gap allows. */
@@ -41,12 +47,25 @@ export class EncodePacer {
   }
   /** A captured frame arrived; `busy` is the encoder still working through earlier frames. */
   frame(now: number, busy: boolean): PaceDecision {
-    if (busy) return "skip";
+    if (busy) return this.skip();
     if (this.keyDue(now)) return this.encoded(now, true);
     // Frames arrive on the display's clock with some jitter: one up to half a 60 Hz frame
     // before its slot still takes it, so 30 fps out of 60 Hz doesn't fall to every third frame.
-    if (now < this.nextAt - 8) return "skip";
+    if (now < this.nextAt - 8) return this.skip();
     return this.encoded(now, false);
+  }
+  /**
+   * No frame came since one was skipped: whether to encode that last one now, its slot having
+   * come and the encoder free. Without it the change it shows would wait for the next one.
+   */
+  catchUp(now: number, busy: boolean): boolean {
+    if (!this.skipped || busy || now < this.nextAt - 8) return false;
+    this.encoded(now, false);
+    return true;
+  }
+  private skip(): PaceDecision {
+    this.skipped = true;
+    return "skip";
   }
   /** No frame came for a while: whether to encode the last one again as an owed keyframe. */
   still(now: number, lastFrameAt: number, busy: boolean): boolean {
@@ -62,6 +81,7 @@ export class EncodePacer {
     if (!idle || this.settled || this.keyDue(now)) return false;
     if (now - lastFrameAt < settleMs || now - this.lastEncode < settleMs) return false;
     this.settled = true;
+    this.skipped = false;
     this.lastEncode = now;
     this.nextAt = Math.max(this.nextAt, now + 1000 / this.fps - 8);
     return true;
@@ -76,6 +96,7 @@ export class EncodePacer {
     this.nextAt = Math.max(this.nextAt + interval, now + interval - 8);
     this.lastEncode = now;
     this.settled = false;
+    this.skipped = false;
     if (!key) return "delta";
     this.lastKey = now;
     this.owed = false;
@@ -97,5 +118,43 @@ export class EncoderWatchdog {
   }
   stalled(now: number): boolean {
     return this.waitingSince !== undefined && now - this.waitingSince >= stallMs;
+  }
+}
+
+/** A tab capture with no picture yet asks Chrome for one after this long, and again as often. */
+export const refreshPictureMs = 500;
+/** A tab capture with still no picture this long after it opened has failed. */
+export const firstPictureMs = 5_000;
+
+export type FirstPictureStep = "wait" | "refresh" | "failed";
+
+/**
+ * Watches a tab capture for its first picture. Chrome's tab capture sends one picture when it
+ * starts and then only when the page paints; under load that first one can be lost, and a still
+ * page then sends nothing, so the encoders have no picture to make a keyframe of and every
+ * viewer waits forever. The capture asks Chrome for a picture (`refresh`) until one comes, and
+ * gives up (`failed`, once) after `firstPictureMs`: it ends, and the daemon opens another.
+ */
+export class FirstPicture {
+  private openedAt: number;
+  private askedAt: number;
+  private settled = false;
+  constructor(openedAt: number) {
+    this.openedAt = openedAt;
+    this.askedAt = openedAt;
+  }
+  /** A picture came: nothing more to watch. */
+  arrived(): void {
+    this.settled = true;
+  }
+  step(now: number): FirstPictureStep {
+    if (this.settled) return "wait";
+    if (now - this.openedAt >= firstPictureMs) {
+      this.settled = true;
+      return "failed";
+    }
+    if (now - this.askedAt < refreshPictureMs) return "wait";
+    this.askedAt = now;
+    return "refresh";
   }
 }

@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/InboxBand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "pinned",
+    "needs-you",
+    "running",
+    "unseen",
+    "idle",
+    "listed"
+  ],
+  "type": "string"
+}

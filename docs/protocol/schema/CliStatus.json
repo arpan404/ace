@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "additionalProperties": {},
+      "properties": {
+        "account": {
+          "properties": {
+            "email": {
+              "type": "string"
+            },
+            "signedIn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "signedIn"
+          ],
+          "type": "object"
+        },
+        "admission": {
+          "$ref": "https://ace.local/protocol/v1/MaintenanceStatus.json"
+        },
+        "needsYou": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "ready": {
+          "const": true,
+          "type": "boolean"
+        },
+        "running": {
+          "const": true,
+          "type": "boolean"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": "development",
+              "type": "string"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/ReleaseVersion.json"
+            }
+          ]
+        },
+        "working": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "running",
+        "version"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CliDaemonDown.json"
+    }
+  ]
+}

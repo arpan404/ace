@@ -11,27 +11,27 @@
     },
     "limit": {
       "default": 10,
-      "description": "Items per page, 1 to 50.",
+      "description": "Items per page.",
       "maximum": 50,
       "minimum": 1,
       "type": "integer"
     },
     "maxBytes": {
       "default": 8192,
-      "description": "With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.",
+      "description": "With streamId: page size.",
       "maximum": 16384,
       "minimum": 1,
       "type": "integer"
     },
     "offset": {
       "default": 0,
-      "description": "With streamId: 0 to start, then the previous page's nextOffset, unchanged.",
+      "description": "With streamId: 0, then each nextOffset unchanged.",
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
     },
     "streamId": {
-      "description": "Read a truncated part's retained output instead of the transcript.",
+      "description": "Read a truncated part's output instead.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

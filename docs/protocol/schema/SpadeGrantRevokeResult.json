@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeGrantRevokeResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "type": "string"
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "spade.grant.revoke.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "revoked"
+  ],
+  "type": "object"
+}

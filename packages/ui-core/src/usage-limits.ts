@@ -1,6 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountView } from "./accounts.ts";
 import { formatCountdown } from "./time.ts";
+import { joinNames } from "./join-names.ts";
 
 /*
  * The Usage page's limits, account first: each provider's accounts, each listed once with its
@@ -29,13 +30,31 @@ export interface AccountWindow {
   observedAt: number;
   /** Its reset has passed since that reading: what is left now is unknown until the next one. */
   stale: boolean;
+  /**
+   * Where an even pace would be now, as a share LEFT (100 at the window's start, 0 at its reset):
+   * the bar's even-pace tick. Undefined without the window's length and reset time.
+   */
+  evenLeftPercent: number | undefined;
+  /** When it runs out at the pace so far, if that is before it resets; else null. */
+  runsOutAt: number | null;
+  /** When the window began (its reset less its length); null without both. */
+  startsAt: number | null;
+  /**
+   * The share left when it resets, if use carries on at its pace so far: the bar's marker. Null
+   * when it runs out first, or without the window's length and reset time.
+   */
+  leftAtReset: number | null;
 }
 
 export interface AccountLimits {
   key: string;
   account: AccountView;
+  /** The machine it was read on; "Mac and Studio" for one account signed in on both. */
   environment: string;
+  /** The machine whose reading is shown (the freshest), which a banked reset goes through. */
   environmentId?: string | undefined;
+  /** Every machine that reported this account, by name. */
+  environments: string[];
   /** Banked resets the provider reports; undefined when it doesn't report them. */
   bankedResets: number | undefined;
   bankedExpiresAt: number | null;
@@ -64,6 +83,12 @@ export interface UsageLimits {
   providers: ProviderLimits[];
   /** Providers with accounts but no live limits, by name: one quiet line. */
   quiet: string[];
+  /**
+   * Accounts of one provider on several machines that ace can't tell apart or together (no
+   * sign-in reported), so each machine's is listed: "Can't tell whether the Claude Code
+   * accounts on Mac and Studio are the same; each is listed."
+   */
+  unsure: string[];
 }
 
 const minute = 60_000;
@@ -99,16 +124,98 @@ export function limitPace(
   return "on_pace";
 }
 
-const sessionProviders = new Set(["codex", "claude"]);
+/** The window's length and how far into it `now` is, as a share; undefined when unknown. */
+function elapsedShare(
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): { length: number; share: number } | undefined {
+  if (resetsAt === null || durationMins === undefined || durationMins <= 0) return undefined;
+  const length = durationMins * minute;
+  return { length, share: Math.min(1, Math.max(0, 1 - (resetsAt - now) / length)) };
+}
+
+/** The even-pace tick as a share left: 100 when the window starts, 0 when it resets. */
+export function evenLeftPercent(
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | undefined {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  return elapsed === undefined ? undefined : Math.round((1 - elapsed.share) * 100);
+}
+
+/**
+ * When a window runs out if use carries on at its pace so far (used share over elapsed time).
+ * Null when it would last until its reset, when it hasn't run long enough to say (five minutes),
+ * when nothing is used yet, or without its length and reset time. Already out: `now`.
+ */
+export function windowRunsOutAt(
+  usedPercent: number,
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | null {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  if (elapsed === undefined || resetsAt === null) return null;
+  if (usedPercent >= 100) return now;
+  const ran = elapsed.share * elapsed.length;
+  if (usedPercent <= 0 || ran < 5 * minute) return null;
+  const at = now + ((100 - usedPercent) / usedPercent) * ran;
+  return at < resetsAt ? Math.round(at) : null;
+}
+
+/**
+ * The share left when a window resets, if use carries on at its pace so far (used share over
+ * elapsed time). Null when it runs out before then, without its length and reset time, or before
+ * it has run five minutes; the share left now when nothing is used yet.
+ */
+export function projectedLeft(
+  usedPercent: number,
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | null {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  if (elapsed === undefined || resetsAt === null) return null;
+  if (usedPercent <= 0) return 100;
+  const ran = elapsed.share * elapsed.length;
+  if (ran < 5 * minute) return null;
+  const atReset = 100 - usedPercent - (usedPercent / ran) * (resetsAt - now);
+  return atReset <= 0 ? null : Math.round(atReset);
+}
+
+/**
+ * Providers whose every plan has a five-hour session, so an account without one is worth saying.
+ * Not Claude: its Ultra plan may have none.
+ */
+const sessionProviders = new Set(["codex"]);
+
+/** The same login on another machine: provider, agent and who it is signed in as. */
+function identity(account: AccountView): string | undefined {
+  const who = account.signedInAs?.trim().toLowerCase();
+  return who ? `${account.provider}:${account.acpAgentId ?? ""}:${who}` : undefined;
+}
+
+const freshness = (account: AccountView) =>
+  Math.max(account.quota.observedAt, ...account.windows.map((window) => window.observedAt ?? 0));
 
 /**
  * Group accounts with reported windows by provider, in the order they first appear. Windows past
  * their reset stay, marked stale, so an old reading reads as old instead of vanishing. A
- * provider whose accounts report no window joins the quiet line instead.
+ * provider whose accounts report no window joins the quiet line instead. One login reported by
+ * several machines is listed once, with the freshest reading and every machine's name; its
+ * limits are the provider's, not the machine's, so they are never counted twice.
  */
 export function usageLimits(accounts: readonly UsageAccount[], now: number): UsageLimits {
   const groups = new Map<string, ProviderLimits>();
   const silent = new Map<string, string>();
+  const shared = new Map<string, { entry: AccountLimits; machines: Set<string> }>();
+  /** Per provider: the machines with an account listed, and whether any had no sign-in. */
+  const spread = new Map<
+    string,
+    { label: string; machines: Map<string, string>; unnamed: boolean }
+  >();
   for (const { account, environment, environmentId } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
     const windows = account.windows;
@@ -129,33 +236,91 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       };
       groups.set(key, group);
     }
-    group.accounts.push({
-      key: `${environmentId ?? environment}\0${account.id}`,
-      environmentId,
-      account,
-      environment,
-      bankedResets: account.resetCredits?.available,
-      bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
-      plan: account.plan,
-      signIn: account.usageSignIn,
-      windows: windows.map((window) => {
-        const stale = window.resetsAt !== null && window.resetsAt <= now;
-        return {
-          id: window.id,
-          label: window.label,
-          leftPercent: leftPercent(window.usedPercent),
-          resetsAt: window.resetsAt,
-          pace: stale
-            ? undefined
-            : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
-          observedAt: window.observedAt ?? account.quota.observedAt,
-          stale,
-        };
-      }),
-      noSessionWindow:
-        sessionProviders.has(account.provider) &&
-        !windows.some((window) => window.label === "Session (5h)"),
-    });
+    const machine = environmentId ?? environment;
+    const reach = spread.get(key) ?? {
+      label: account.providerLabel,
+      machines: new Map<string, string>(),
+      unnamed: false,
+    };
+    reach.machines.set(machine, environment);
+    const who = identity(account);
+    if (!who) reach.unnamed = true;
+    spread.set(key, reach);
+    const entry = accountLimits(account, environment, environmentId, now);
+    const twin = who ? shared.get(who) : undefined;
+    if (twin && !twin.machines.has(machine)) {
+      const environments = [...twin.entry.environments, environment];
+      const kept = freshness(account) > freshness(twin.entry.account) ? entry : twin.entry;
+      const merged = {
+        ...kept,
+        key: twin.entry.key,
+        environments,
+        environment: joinNames(environments),
+      };
+      group.accounts[group.accounts.indexOf(twin.entry)] = merged;
+      twin.entry = merged;
+      twin.machines.add(machine);
+      continue;
+    }
+    group.accounts.push(entry);
+    if (who && !twin) shared.set(who, { entry, machines: new Set([machine]) });
   }
-  return { providers: [...groups.values()], quiet: [...new Set(silent.values())] };
+  const unsure = [...spread.values()].flatMap((reach) =>
+    reach.unnamed && reach.machines.size > 1
+      ? [
+          `Can't tell whether the ${reach.label} accounts on ${joinNames([...reach.machines.values()])} are the same; each is listed.`,
+        ]
+      : [],
+  );
+  return {
+    providers: [...groups.values()],
+    quiet: [...new Set(silent.values())],
+    unsure,
+  };
+}
+
+/** A window's length from its label when the provider doesn't say (Gemini's daily quota). */
+const labelMins: Record<string, number> = { "Session (5h)": 300, Daily: 1440, Weekly: 10080 };
+
+function accountLimits(
+  account: AccountView,
+  environment: string,
+  environmentId: string | undefined,
+  now: number,
+): AccountLimits {
+  const windows = account.windows;
+  return {
+    key: `${environmentId ?? environment}\0${account.id}`,
+    environmentId,
+    account,
+    environment,
+    environments: [environment],
+    bankedResets: account.resetCredits?.available,
+    bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
+    plan: account.plan,
+    signIn: account.usageSignIn,
+    windows: windows.map((window) => {
+      const stale = window.resetsAt !== null && window.resetsAt <= now;
+      const mins = window.windowDurationMins ?? labelMins[window.label];
+      return {
+        id: window.id,
+        label: window.label,
+        leftPercent: leftPercent(window.usedPercent),
+        resetsAt: window.resetsAt,
+        pace: stale ? undefined : limitPace(window.usedPercent, window.resetsAt, mins, now),
+        observedAt: window.observedAt ?? account.quota.observedAt,
+        stale,
+        evenLeftPercent: stale ? undefined : evenLeftPercent(window.resetsAt, mins, now),
+        runsOutAt: stale ? null : windowRunsOutAt(window.usedPercent, window.resetsAt, mins, now),
+        startsAt:
+          window.resetsAt !== null && mins !== undefined && mins > 0
+            ? window.resetsAt - mins * minute
+            : null,
+        leftAtReset: stale ? null : projectedLeft(window.usedPercent, window.resetsAt, mins, now),
+      };
+    }),
+    noSessionWindow:
+      sessionProviders.has(account.provider) &&
+      !windows.some((window) => window.label === "Session (5h)"),
+  };
 }

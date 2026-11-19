@@ -1,6 +1,10 @@
 import { useClient } from "@ace/client-react";
 import { Button } from "@/components/ui/button.tsx";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { channelEndpoint } from "@/boot/main-machine.ts";
+import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { persistReview } from "./changes/review-store.ts";
@@ -10,6 +14,12 @@ import { PanelServicesContext, panelServices, usePanelServiceLoad } from "./serv
 export function WithServices(props: { children: ReactNode; quiet?: boolean }) {
   const client = useClient();
   const state = usePanelServiceLoad();
+  const endpoint = channelEndpoint(useDaemonConnection().endpoint);
+  // A browser view's media connection reaches a relay-only daemon through the relay.
+  useEffect(() => {
+    const relay = mediaRelayFor(endpoint);
+    if (relay && typeof client.onStream === "function") mediaFor(client).relayWith(relay);
+  }, [client, endpoint]);
   const { storage } = useLayout();
   if (state.status === "failed")
     return (

@@ -80,7 +80,7 @@ it("lenient envelope parsing preserves unknown fields and keeps receiving after 
     malformed: string[] = [];
   const rpc = new JsonRpcPeer(
     child(
-      `require('node:readline').createInterface({input:process.stdin}).once('line',line=>{const m=JSON.parse(line);console.log('[]');console.log(JSON.stringify({id:m.id,jsonrpc:'future',result:{custom:[1,'x']},extension:{nested:true}}));});`,
+      `require('node:readline').createInterface({input:process.stdin}).once('line',line=>{const m=JSON.parse(line);console.log('[]');console.log('42');console.log('"text"');console.log(JSON.stringify({id:m.id,jsonrpc:'future',result:{custom:[1,'x']},extension:{nested:true}}));});`,
     ),
     {
       onFrame: (direction, frame) => {
@@ -91,9 +91,11 @@ it("lenient envelope parsing preserves unknown fields and keeps receiving after 
   );
   try {
     expect(await rpc.request("echo")).toEqual({ custom: [1, "x"] });
-    expect(malformed).toEqual(["[]"]);
+    expect(malformed).toEqual(["[]", "42", '"text"']);
     expect(raw).toEqual([
       [],
+      42,
+      "text",
       { id: 1, jsonrpc: "future", result: { custom: [1, "x"] }, extension: { nested: true } },
     ]);
   } finally {

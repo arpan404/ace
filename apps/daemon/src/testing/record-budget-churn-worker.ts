@@ -1,11 +1,9 @@
-import { setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
+import { fullGc } from "./full-gc.ts";
 import { RecordBudget } from "../engine/record-cache.ts";
 
-// Run in a fresh Node process: reports the heap one long-lived section keeps after caching far
+// Run in a fresh process: reports the heap one long-lived section keeps after caching far
 // more distinct keys than the budget holds, and how many entries clearing it found.
-setFlagsFromString("--expose-gc");
-const gc = runInNewContext("gc") as () => void;
+const gc = fullGc();
 const keys = Number(process.argv[2] ?? 200_000);
 const budget = new RecordBudget(64, 1 << 20);
 const section = budget.section<number>();

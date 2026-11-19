@@ -1,4 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
+import type { ForgeKind } from "@ace/protocol/forge";
 import type { Brand } from "./brand-art/index.gen.ts";
 import { acpAgentBrands, acpRegistryId } from "./acp-agents.ts";
 import { providerDisplayName, providerNames } from "./providers.ts";
@@ -6,8 +7,9 @@ import { providerDisplayName, providerNames } from "./providers.ts";
 export { acpAgentBrands, acpRegistryId } from "./acp-agents.ts";
 
 /*
- * Which brand mark stands for a provider, an ACP agent or a model family. The marks are LobeHub
- * Icons (MIT, see NOTICE), and the OpenAI Blossom from OpenAI's own brand kit, turned into path
+ * Which brand mark stands for a provider, an ACP agent, a model family or a Git host. The marks
+ * are LobeHub Icons (MIT, see NOTICE) and a few from their makers' own brand kits (the OpenAI
+ * Blossom; GitLab, Bitbucket, Gitea, GitBucket and Forgejo), turned into path
  * data by `scripts/provider-icons.ts`; a provider or agent with no mark gets `brand: undefined`
  * and the renderer draws ace's neutral agent glyph. Never draw a lookalike of someone's logo.
  *
@@ -29,6 +31,20 @@ export const providerBrands: Record<ProviderKind, Brand | undefined> = {
   antigravity: "antigravity",
   pi: "pi",
   acp: undefined,
+};
+
+/**
+ * The mark each Git host provider shows. Cursor Origin is Cursor's hosted Git service and carries
+ * Cursor's mark: Cursor publishes no separate one for it.
+ */
+export const forgeBrands: Record<ForgeKind, Brand | undefined> = {
+  github: "github",
+  origin: "cursor",
+  gitlab: "gitlab",
+  gitbucket: "gitbucket",
+  bitbucket: "bitbucket",
+  gitea: "gitea",
+  forgejo: "forgejo",
 };
 
 const modelFamilies: readonly [RegExp, Brand, string][] = [

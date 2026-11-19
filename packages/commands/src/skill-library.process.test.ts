@@ -1,11 +1,14 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
   readFile,
   readlink,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -13,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult } from "@ace/protocol";
-import { SkillLibrary } from "./index.ts";
+import { SkillLibrary, openCommandChild, type SkillLibraryOptions } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -27,7 +30,7 @@ const skillText = (name: string, extra = "") =>
   `---\nname: ${name}\n# kept comment\ndescription: The ${name} skill\n${extra}---\n# ${name} title\n\nDo the ${name} work.\n`;
 
 /** A home laid out like the owner's: one shared folder linked into Claude, plus copies. */
-async function fixture() {
+async function fixture(extra: Partial<SkillLibraryOptions> = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-library-")));
   const home = join(root, "home");
   const project = join(root, "project");
@@ -54,6 +57,7 @@ async function fixture() {
     workspace: (id) => (id === "project" ? project : undefined),
     builtinDirectory: shipped,
     id: () => `t${++sequence}`,
+    ...extra,
   });
   cleanups.push(async () => {
     await library.close();
@@ -253,4 +257,171 @@ test("subscribers hear about skills added outside ace", async () => {
   } finally {
     stop();
   }
+});
+
+test("deleting refuses a folder swapped for one with the same SKILL.md, and puts its links back", async () => {
+  const { home } = await fixture();
+  const canonical = join(home, ".agents/skills/research");
+  const text = await readFile(join(canonical, "SKILL.md"), "utf8");
+  let armed = false;
+  let sequence = 0;
+  const library = new SkillLibrary({
+    homes: {
+      home,
+      claude: join(home, ".claude"),
+      codex: join(home, ".codex"),
+      opencode: join(home, ".config/opencode"),
+      cursor: join(home, ".cursor"),
+      pi: join(home, ".pi/agent"),
+    },
+    workspace: () => undefined,
+    id: () => `d${++sequence}`,
+    async openChild(directory, name, flags, owner) {
+      if (armed && name === ".claude") {
+        // While its links are being removed, someone replaces the folder with another holding
+        // the same SKILL.md and a script of its own.
+        armed = false;
+        await rename(canonical, join(home, ".agents/skills/.research-old"));
+        await put(join(canonical, "SKILL.md"), text);
+        await put(join(canonical, "scripts/run.sh"), "echo mine");
+      }
+      return openCommandChild(directory, name, flags, owner);
+    },
+  });
+  cleanups.push(() => library.close());
+  const research = await named(library, "research");
+  armed = true;
+  const result = await library.request({
+    op: "delete",
+    id: research.id,
+    expectedHash: research.hash,
+  });
+  expect(result).toMatchObject({ kind: "error", code: "conflict" });
+  // The replacement is untouched, and Claude's link to the skill is back.
+  expect(await readFile(join(canonical, "scripts/run.sh"), "utf8")).toBe("echo mine");
+  expect((await lstat(join(home, ".claude/skills/research"))).isSymbolicLink()).toBe(true);
+  expect(await realpath(join(home, ".claude/skills/research"))).toBe(canonical);
+});
+
+test("a subscriber hears one change for the whole first walk, not one per skill found", async () => {
+  const { home, library } = await fixture();
+  for (let i = 0; i < 24; i++)
+    await put(join(home, `.agents/skills/bulk-${i}/SKILL.md`), skillText(`bulk-${i}`));
+  const changed = vi.fn();
+  const stop = library.subscribe(undefined, changed);
+  try {
+    await vi.waitFor(() => expect(changed).toHaveBeenCalled(), 10_000);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(changed).toHaveBeenCalledTimes(1);
+  } finally {
+    stop();
+  }
+});
+
+test("a watched listing is answered from memory, ace's own changes show at once, and the watch outlives its page", async () => {
+  // Watch events and recovery polls never arrive, so only the cache can explain a stale answer.
+  const expiries: (() => void)[] = [];
+  const { home, library } = await fixture({
+    watch: () => () => {},
+    schedule: () => () => {},
+    linger: (run) => {
+      expiries.push(run);
+      return () => {};
+    },
+  });
+  const changed = vi.fn();
+  let stop = library.subscribe(undefined, changed);
+  await vi.waitFor(() => expect(changed).toHaveBeenCalled(), 10_000);
+  const names = async () => (await list(library)).map((e) => e.name);
+  expect(await names()).toContain("research");
+  await put(join(home, ".agents/skills/unheard/SKILL.md"), skillText("unheard"));
+  expect(await names()).not.toContain("unheard");
+  // A change made through ace reads the disk throughout and drops the cache.
+  const made = await library.request({
+    op: "create",
+    scope: { kind: "personal" },
+    name: "made-here",
+    description: "Made in ace",
+    body: "Do it.",
+    manual: false,
+    agents: ["claude"],
+  });
+  expect(made.kind).toBe("skill");
+  expect(await names()).toEqual(expect.arrayContaining(["made-here", "unheard"]));
+  // Leaving and coming back inside the linger keeps the same watch, so the cache still holds.
+  stop();
+  await put(join(home, ".agents/skills/later/SKILL.md"), skillText("later"));
+  stop = library.subscribe(undefined, changed);
+  expect(await names()).not.toContain("later");
+  stop();
+  // Once the linger runs out the watch is gone and the next listing reads the disk.
+  for (const expire of expiries.splice(0)) expire();
+  expect(await names()).toContain("later");
+});
+
+test("a skill's files are listed with sizes and hashes, and one is read by its path", async () => {
+  const { home, library } = await fixture();
+  const folder = join(home, ".agents/skills/research");
+  await put(join(folder, "references/guide.md"), "# Guide\n");
+  await put(join(folder, "scripts/run.sh"), "#!/bin/sh\necho hi\n");
+  await chmod(join(folder, "scripts/run.sh"), 0o755);
+  await put(join(folder, ".hidden/secret"), "no");
+  await put(join(folder, "big.bin"), "x".repeat(1024 * 1024 + 1));
+  await symlink("/etc/hosts", join(folder, "hosts"));
+  const research = await named(library, "research");
+
+  const listed = await library.request({ op: "files", id: research.id });
+  expect(listed).toEqual({
+    kind: "files",
+    id: research.id,
+    files: [
+      {
+        path: "references/guide.md",
+        size: 8,
+        hash: createHash("sha256").update("# Guide\n").digest("hex"),
+        executable: false,
+      },
+      expect.objectContaining({ path: "scripts/run.sh", executable: true }),
+    ],
+    omitted: [
+      { path: "big.bin", reason: "too_large" },
+      { path: "hosts", reason: "not_a_file" },
+    ],
+  });
+
+  const read = await library.request({ op: "files", id: research.id, path: "scripts/run.sh" });
+  if (read.kind !== "file") throw new Error(JSON.stringify(read));
+  expect(Buffer.from(read.content, "base64").toString()).toBe("#!/bin/sh\necho hi\n");
+  expect(read.file).toMatchObject({ path: "scripts/run.sh", executable: true, size: 18 });
+});
+
+test("a skill's file is never read through a link, a hidden folder or a plugin", async () => {
+  const { home, library } = await fixture({
+    pluginSkills: async () => [{ plugin: "tools", name: "linted", description: "Lint it" }],
+  });
+  const folder = join(home, ".agents/skills/research");
+  await put(join(folder, ".hidden/secret"), "no");
+  await symlink("/etc/hosts", join(folder, "hosts"));
+  const research = await named(library, "research");
+  for (const path of ["hosts", ".hidden/secret", "SKILL.md", "missing.md"])
+    expect(await library.request({ op: "files", id: research.id, path })).toMatchObject({
+      kind: "error",
+      code: "not_found",
+    });
+  const plugin = await named(library, "linted");
+  expect(await library.request({ op: "files", id: plugin.id })).toMatchObject({
+    kind: "error",
+    code: "read_only",
+  });
+});
+
+test("only personal skills the person wrote are publishable, each with its real folder", async () => {
+  const { home, library } = await fixture();
+  const publishable = await library.publishable();
+  const research = publishable.find((each) => each.entry.name === "research");
+  expect(research?.folder).toBe(join(home, ".agents/skills/research"));
+  const names = publishable.map((each) => each.entry.name);
+  // A builtin, a project's and one linked in from outside the agents' folders aren't publishable.
+  for (const not of ["visualize", "release", "elsewhere"]) expect(names).not.toContain(not);
+  expect(publishable.every((each) => each.entry.scope === "personal")).toBe(true);
 });

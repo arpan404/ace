@@ -77,6 +77,10 @@ interface Entry {
 }
 interface Held {
   scope: Scope;
+  /** Held only while there is spare room: a thread the person opens may take it. */
+  optional: boolean;
+  /** The store it reads, so a change of priority can tell whether it holds the same one. */
+  store: object;
   release(): void;
   unobserve(): void;
   read(keys: Iterable<string>): Patch[];
@@ -104,7 +108,19 @@ const isServicePush = (message: ServerMessage) =>
   (!internal.has(message.type) &&
     (message.type === "catalog.changed" ||
       message.type === "history.operation.progress" ||
+      // A Spade live stream answers a one-way subscribe: no request waits for its frames.
+      message.type === "spade.live.frame" ||
+      message.type === "spade.live.ended" ||
       !("requestId" in message && message.requestId)));
+
+/** A Spade upload the daemon opened (`spade.http.open`): its result comes later. */
+const isUploadOpen = (value: unknown): value is { type: "spade.http.open"; requestId: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  "type" in value &&
+  value.type === "spade.http.open" &&
+  "requestId" in value &&
+  typeof value.requestId === "string";
 
 /** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
 const isChannelRequest = (input: unknown) => {
@@ -150,6 +166,11 @@ export class ClientHost {
   get clients(): number {
     return this.#entries.size;
   }
+  /** Whether any tab this worker serves is on screen; true while none has said otherwise. */
+  visible(): boolean {
+    for (const tab of this.#tabs) if (tab.visible) return true;
+    return this.#tabs.size === 0;
+  }
   /** @internal */
   join(tab: Tab, config: unknown): Entry {
     const target = this.#options.target(config);
@@ -162,7 +183,8 @@ export class ClientHost {
       entry.linger = undefined;
       if (!entry.tabs.size) {
         entry.unwatch();
-        void entry.client.close();
+        // close() never rejects: a snapshot it cannot write is dropped.
+        void entry.client.close().catch(() => {});
       }
       entry = undefined;
     }
@@ -182,10 +204,29 @@ export class ClientHost {
         linger: undefined,
       };
       const selection = client.connectionState();
-      created.unwatch = selection.subscribe(() => {
+      const stopState = selection.subscribe(() => {
         if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
+      const stopPath = client.activePath().subscribe(() => {
+        for (const member of created.tabs) member.connection();
+      });
+      // A move to another path ends what the daemon kept for the old socket, as a drop does.
+      let socket = client.connectionGeneration().getSnapshot();
+      const stopSocket = client.connectionGeneration().subscribe(() => {
+        const next = client.connectionGeneration().getSnapshot();
+        if (next === socket) return;
+        const moved = socket !== undefined && next !== undefined;
+        socket = next;
+        if (!moved) return;
+        created.generation++;
+        for (const member of created.tabs) member.connection(true);
+      });
+      created.unwatch = () => {
+        stopState();
+        stopPath();
+        stopSocket();
+      };
       this.#entries.set(target.key, created);
       entry = created;
     }
@@ -206,7 +247,8 @@ export class ClientHost {
       if (entry.tabs.size) return;
       if (this.#entries.get(entry.key) === entry) this.#entries.delete(entry.key);
       entry.unwatch();
-      void entry.client.close();
+      // close() never rejects: a snapshot it cannot write is dropped.
+      void entry.client.close().catch(() => {});
     });
   }
   #scheduleSweep(): void {
@@ -249,6 +291,7 @@ class Tab {
   #stopMessages: (() => void) | undefined;
   #wantsStreams = false;
   #stopStreams: (() => void) | undefined;
+  #stopRoom: (() => void) | undefined;
   #visible = true;
   #dropped = false;
   #stopLock: (() => void) | undefined;
@@ -273,6 +316,10 @@ class Tab {
       this.drop();
     }
   }
+  /** Whether this tab says it is on screen. */
+  get visible(): boolean {
+    return this.#visible;
+  }
   /** Whether this tab has been silent too long to be alive; a tab with a lock never is. */
   silentSince(now: number, silence: number, hiddenSilence: number): boolean {
     if (this.#stopLock) return false;
@@ -288,14 +335,29 @@ class Tab {
     });
     return !this.#dropped;
   }
-  connection(): void {
+  /** Tell the tab how the connection stands; `moved` when it moved to another socket. */
+  connection(moved = false): void {
     const client = this.#entry?.client;
     if (!client) return;
-    if (client.state !== "ready") this.#channels?.reset();
+    if (moved || client.state !== "ready") this.#channels?.reset();
+    const generation = client.connectionGeneration().getSnapshot();
+    const standing = client.standingChallenge?.().getSnapshot();
     this.#post({
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
+      ...pathOf(client),
+      ...(generation === undefined ? {} : { generation }),
+      ...(standing
+        ? {
+            standing: {
+              host: standing.host,
+              nonce: standing.nonce,
+              device: standing.device,
+              ...(standing.binding === undefined ? {} : { binding: standing.binding }),
+            },
+          }
+        : {}),
     });
   }
   #receive(data: unknown): void {
@@ -348,7 +410,7 @@ class Tab {
     }
     switch (message.t) {
       case "lease":
-        return this.#lease(client, message.lease, message.scope);
+        return this.#lease(client, message.lease, message.scope, message.optional === true);
       case "release":
         return this.#release(message.lease);
       case "call":
@@ -400,21 +462,56 @@ class Tab {
     this.#entry = entry;
     this.#watchMessages();
     this.#watchStreams();
+    this.#watchRoom();
     entry.started.then(
       () => this.#post({ t: "attached", idPrefix: entry.client.commandId() }),
       (error: unknown) => this.#post({ t: "attached", error: errorShape(error) }),
     );
     this.connection();
   }
-  #lease(client: Client, lease: number, scope: Scope): void {
-    if (this.#leases.has(lease)) return;
+  /** Tell the tab how much spare room optional leases have, now and whenever it changes. */
+  #watchRoom(): void {
+    const client = this.#entry?.client;
+    this.#stopRoom?.();
+    if (!client) return;
+    const room = client.threadRoom();
+    const send = () => this.#post({ t: "room", room: room.getSnapshot() });
+    this.#stopRoom = room.subscribe(send);
+    send();
+  }
+  #lease(client: Client, lease: number, scope: Scope, optional: boolean): void {
+    const existing = this.#leases.get(lease);
+    if (existing) {
+      if (optional === existing.optional || scope.kind !== "thread") return;
+      // Its priority changed: hold it the new way before letting go of the old, so the thread
+      // stays held across the swap and the tab keeps the store it reads.
+      let next: { store: object; release(): void };
+      try {
+        next = client.thread(scope.threadId, { optional });
+      } catch {
+        return;
+      }
+      if (next.store === existing.store) {
+        existing.release();
+        existing.release = next.release;
+        existing.optional = optional;
+        return;
+      }
+      // The optional store already gave its room away: start over on the one now held.
+      this.#release(lease);
+      this.#lease(client, lease, scope, optional);
+      next.release();
+      return;
+    }
     let held: Held;
     try {
       if (scope.kind === "thread") {
-        const subscription = client.thread(scope.threadId);
+        const subscription = client.thread(scope.threadId, { optional });
         const store = subscription.store;
         held = {
           scope,
+          optional,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => threadPatches(store, keys, held.sent),
@@ -428,6 +525,8 @@ class Tab {
         const store = subscription.store;
         held = {
           scope,
+          optional: false,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => sidebarPatches(store, keys),
@@ -471,6 +570,17 @@ class Tab {
       this.#flushing = undefined;
       this.#flush();
     });
+  }
+  /**
+   * Send the changes waiting for the next frame now: a call's reply never reaches the tab ahead
+   * of the changes the call made (a page of older threads is in the tab's list once
+   * `threadsMore` resolves there).
+   */
+  #flushNow(): void {
+    if (!this.#flushing) return;
+    this.#flushing();
+    this.#flushing = undefined;
+    this.#flush();
   }
   #flush(): void {
     if (this.#visible) this.#flushPending();
@@ -544,11 +654,19 @@ class Tab {
     this.#intents.set(id, selection.subscribe(send));
     send();
   }
+  /** Spade uploads this tab opened whose result hasn't come yet. */
+  #uploads = new Set<string>();
   #watchMessages(): void {
     const client = this.#entry?.client;
     if (!client || !this.#wantsMessages || this.#stopMessages) return;
     try {
       this.#stopMessages = client.onMessage((message) => {
+        // An upload's result follows its spade.http.open, after the tab's request resolved:
+        // it goes only to the tab that opened the upload.
+        if (message.type === "spade.http.result") {
+          if (this.#uploads.delete(message.requestId)) this.#post({ t: "message", message });
+          return;
+        }
         if (isServicePush(message)) this.#post({ t: "message", message });
       });
     } catch {
@@ -586,8 +704,11 @@ class Tab {
                   ? this.#sidebar(client)
                   : client,
               );
+      if (method === "request" && isUploadOpen(value)) this.#uploads.add(value.requestId);
+      this.#flushNow();
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
+      this.#flushNow();
       this.#post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.#calls.delete(call);
@@ -641,7 +762,8 @@ class Tab {
     try {
       this.#iterators.set(call, iterateArgs(client, method, args, controller.signal));
       this.#calls.set(call, controller);
-      void this.#next(call);
+      // #next posts its own read failure to the tab.
+      void this.#next(call).catch(() => {});
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });
     }
@@ -690,8 +812,11 @@ class Tab {
     this.#stopMessages = undefined;
     this.#stopStreams?.();
     this.#stopStreams = undefined;
+    this.#stopRoom?.();
+    this.#stopRoom = undefined;
     for (const controller of this.#calls.values()) controller.abort();
-    for (const call of this.#iterators.keys()) void this.#stop(call);
+    // #stop swallows the iterator's own end failure.
+    for (const call of this.#iterators.keys()) void this.#stop(call).catch(() => {});
     this.#flushing?.();
     this.#flushing = undefined;
   }
@@ -707,4 +832,10 @@ class Tab {
     this.#host.forget(this);
     this.#entry = undefined;
   }
+}
+
+/** The machine path a client's connection uses, when it moves between paths (ADR 0114). */
+function pathOf(client: { activePath(): { getSnapshot(): string | undefined } }) {
+  const path = client.activePath().getSnapshot();
+  return path ? { path } : {};
 }

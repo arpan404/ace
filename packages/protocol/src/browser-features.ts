@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentPointer } from "./cowork.ts";
 const id = z.string().min(1).max(256);
 export const BrowserDialog = z.object({
   dialogId: id,
@@ -6,6 +7,12 @@ export const BrowserDialog = z.object({
   type: z.enum(["alert", "confirm", "prompt", "beforeunload"]),
   message: z.string().max(4096),
   defaultPrompt: z.string().max(4096).optional(),
+  /**
+   * The address of the page that raised it, as the browser reported it with the dialog: a held
+   * answer (ADR 0171 amendment 3) is checked against it, since the page's own script can't run
+   * while the dialog is open.
+   */
+  url: z.string().max(8192).optional(),
 });
 export type BrowserDialog = z.infer<typeof BrowserDialog>;
 /**
@@ -96,6 +103,10 @@ export const BrowserTab = z.object({
   inUse: BrowserTabActor.optional(),
   /** Where the agent using this tab last pointed. */
   pointer: BrowserAgentPointer.optional(),
+  /** The agent's latest action in this tab, in CSS viewport pixels, with its kind (ADR 0143). */
+  agentPointer: AgentPointer.optional(),
+  /** The person used this tab within the last 3 s; agents' page input waits meanwhile. */
+  personActive: z.boolean().optional(),
   lifecycle: BrowserTabLifecycle.optional(),
   /**
    * An agent kept this tab as a deliverable or handoff. Other tabs an agent opened are

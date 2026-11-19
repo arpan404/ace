@@ -30,7 +30,9 @@ export { useScriptConfigurations } from "./files/script-configurations.ts";
 export {
   loadCreateFile,
   loadAuthTerminal,
+  loadStandaloneTerminal,
   loadThreadBrowser,
+  loadBotBrowser,
   loadFloatingBrowsers,
   DeferredFileDiffBlock,
   DeferredFileTree,
@@ -45,8 +47,17 @@ export { useMentionTabs, type MentionTab } from "./browser/mention-tabs.ts";
 
 export { freshView, fileHeight, type FileView } from "./changes/file-view.ts";
 export { useFileViews } from "./changes/file-views.ts";
+/** How diffs draw, shared by every diff viewer, and the View menu that changes it. */
+export { useDiffPrefs, type DiffPrefs } from "./changes/diff-prefs.ts";
+export { diffLayout } from "./changes/diff-layout.ts";
+export { DiffViewMenu } from "./changes/diff-view-menu.tsx";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
+/** What a terminal shows and types into, for a terminal outside the workspace. */
+export type { TerminalEvent, TerminalInfo, TerminalSource } from "./sources.ts";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
 export { useAutomaticPip } from "./browser/pip-setting.ts";
 export { useRevealAgentPages } from "./browser/reveal-setting.ts";
+export { useConnectionStatsShown } from "./browser/connection-stats.ts";
+export { useExtensionsShown } from "./browser/extensions-menu.tsx";
+export { browserEngineChoices, browserEngineLabel } from "./browser/engine-words.ts";

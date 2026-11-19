@@ -11,8 +11,6 @@ configure({ asyncUtilTimeout: 10000 });
 const coldStart = "Cap cold-start replay at 200 events";
 /** A tool tab with a steady title: the thread's Logs (⌃⇧L). */
 const web = "Logs";
-/** The cold-start totals belong to the last completed turn. */
-const changes = "Changes";
 
 async function openColdStart(storage = memoryKeyValue()) {
   const app = harness({ storage });
@@ -42,17 +40,17 @@ async function launch(panel: HTMLElement, tool: string) {
   await userEvent.click(within(tools).getByRole("button", { name: new RegExp(`^${tool}`) }));
 }
 
-test("the side panel starts on Summary, Changes and Files, and + opens a new tab that becomes the tool picked", async () => {
+test("the side panel starts on Summary, and + opens a new tab that becomes the tool picked", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files"]);
+  expect(tabNames(panel)).toEqual(["Summary"]);
 
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   expect(selected(panel).textContent).toBe("New tab");
   await launch(panel, "Logs");
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "New tab", web]);
+  expect(tabNames(panel)).toEqual(["Summary", "New tab", web]);
 });
 
 test("a thread's tabs stay with it and come back on return", async () => {
@@ -61,27 +59,24 @@ test("a thread's tabs stay with it and come back on return", async () => {
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
 
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   // This thread's panel has its own tabs: the other thread's Logs stay with it.
-  await waitFor(async () =>
-    expect(tabNames(await sidePanel())).toEqual(["Summary", changes, "Files"]),
-  );
+  await waitFor(async () => expect(tabNames(await sidePanel())).toEqual(["Summary"]));
 
   await userEvent.keyboard("{Meta>}[[{/Meta}");
   await screen.findByRole("heading", { level: 1, name: coldStart });
   expect(selected(await sidePanel()).textContent).toBe(web);
 });
 
-test("keyboard Back and Forward walk thread history, with the arrows in the header while the sidebar shows", async () => {
+test("keyboard Back and Forward walk thread history, with the arrows in the top bar while the sidebar shows", async () => {
   await openColdStart();
-  const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: "Forward" })).toBeTruthy();
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Forward" })).toBeTruthy();
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   await userEvent.keyboard("{Meta>}[[{/Meta}");
@@ -98,7 +93,7 @@ test("tabs survive a reload with the one that was showing", async () => {
 
   await openColdStart(storage);
   const panel = await sidePanel();
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual(["Summary", "Devices"]);
   expect(selected(panel).textContent).toBe("Devices");
 });
 
@@ -108,7 +103,7 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", web, "Devices"]);
+  expect(tabNames(panel)).toEqual(["Summary", web, "Devices"]);
 
   within(panel).getByRole("tab", { name: "Devices" }).focus();
   await userEvent.keyboard("{ArrowLeft}");
@@ -116,17 +111,17 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   expect(document.activeElement?.textContent).toBe(web);
 
   await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices", web]);
-  expect(screen.getByText(`${web} moved to position 5 of 5`)).toBeTruthy();
+  expect(tabNames(panel)).toEqual(["Summary", "Devices", web]);
+  expect(screen.getByText(`${web} moved to position 3 of 3`)).toBeTruthy();
 
   await userEvent.keyboard("{Delete}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual(["Summary", "Devices"]);
   expect(selected(panel).textContent).toBe("Devices");
   expect(document.activeElement?.textContent).toBe("Devices");
 
   // Pinned tools close too; the launcher opens them again.
   await userEvent.keyboard("{Home}{Delete}");
-  expect(tabNames(panel)).toEqual([changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual(["Devices"]);
 });
 
 test("dragging a tab onto another puts it beside that one", async () => {
@@ -149,7 +144,7 @@ test("dragging a tab onto another puts it beside that one", async () => {
   fireEvent.dragStart(tab(web), { dataTransfer });
   fireEvent.dragOver(tab("Devices"), { dataTransfer, clientX: 10 });
   fireEvent.drop(tab("Devices"), { dataTransfer });
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices", web]);
+  expect(tabNames(panel)).toEqual(["Summary", "Devices", web]);
   // Reordering doesn't change which tab shows.
   expect(selected(panel).textContent).toBe("Devices");
 });
@@ -201,8 +196,91 @@ test("hiding the side panel keeps its tabs, and the header then keeps only its t
 
   await userEvent.click(toggle);
   const back = await sidePanel();
-  expect(tabNames(back)).toEqual(["Summary", changes, "Files", web]);
+  expect(tabNames(back)).toEqual(["Summary", web]);
   expect(selected(back).textContent).toBe(web);
+});
+
+/** Whether `nodes` come in this order in the document. */
+const inOrder = (nodes: HTMLElement[]) =>
+  nodes.every(
+    (node, at) =>
+      at === 0 ||
+      !!(nodes[at - 1]!.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
+  );
+
+test("docked open, the panel's strip is the top bar above it: tabs, +, full view, then the toggle", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  // The column's part of the bar keeps the title and its own tools; the panel's are above it.
+  const header = within(screen.getByRole("banner"));
+  expect(header.getByRole("heading", { level: 1, name: coldStart })).toBeTruthy();
+  expect(header.queryByRole("button", { name: "Right panel" })).toBeNull();
+  expect(header.queryByRole("tab")).toBeNull();
+  // One strip, no second row: the tabs, +, full view and the toggle at the far right.
+  expect(within(panel).getAllByRole("tablist")).toHaveLength(1);
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  expect(within(tabs).getByRole("tab", { name: /Summary/, selected: true })).toBeTruthy();
+  const toggle = within(panel).getByRole("button", { name: "Right panel" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    inOrder([
+      tabs,
+      within(panel).getByRole("button", { name: "New tab" }),
+      within(panel).getByRole("button", { name: "Full view" }),
+      toggle,
+    ]),
+  ).toBe(true);
+});
+
+test("resizing the docked panel moves the top bar's split with its edge", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  const handle = within(panel).getByRole("separator", { name: "Resize thread panel" });
+  handle.focus();
+  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+  const width = Number(handle.getAttribute("aria-valuenow"));
+  // The strip is the panel's own top row, so its left edge is the panel's at every width.
+  expect(panel.style.width).toBe(`${width}px`);
+  expect(within(panel).getByRole("tablist", { name: "Thread panel tabs" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Right panel" })).toBeTruthy();
+});
+
+/** The top bar's short rules where two of the app's parts meet. */
+const boundaries = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-boundary]")].map(
+    (marker) => marker.dataset.boundary,
+  );
+
+test("the top bar marks where the sidebar, the column and a docked panel meet, and only while both sides are there", async () => {
+  await openColdStart();
+  expect(boundaries()).toEqual(["sidebar"]);
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  expect(boundaries()).toEqual(["sidebar", "panel"]);
+  // The panel's marker heads its strip, at the panel's edge.
+  expect(panel.querySelector("[data-boundary]")?.getAttribute("data-boundary")).toBe("panel");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(boundaries()).toEqual(["sidebar"]);
+
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  await waitFor(() => expect(boundaries()).toEqual([]));
+});
+
+test("closing the docked panel from its strip takes the strip away and leaves focus on the header's toggle", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  within(panel).getByRole("button", { name: "Right panel" }).focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(screen.queryByRole("tablist", { name: "Thread panel tabs" })).toBeNull();
+  const toggle = within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  await waitFor(() => expect(document.activeElement).toBe(toggle));
 });
 
 test("from the keyboard alone: Shift+F10 opens a tab's menu, which can open it in full view", async () => {
@@ -225,13 +303,14 @@ test("a closed tab comes back where it was with Reopen closed tab", async () => 
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", web, "Devices"]);
+  expect(tabNames(panel)).toEqual(["Summary", web, "Devices"]);
   within(panel).getByRole("tab", { name: web }).focus();
   await userEvent.keyboard("{Delete}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual(["Summary", "Devices"]);
 
-  await userEvent.keyboard("{Control>}{Alt>}{Shift>}t{/Shift}{/Alt}{/Control}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", web, "Devices"]);
+  // Off Apple platforms, as here, Reopen is Ctrl+Alt+Shift+Z: with T it is New tab.
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}z{/Shift}{/Alt}{/Control}");
+  expect(tabNames(panel)).toEqual(["Summary", web, "Devices"]);
   expect(selected(panel).textContent).toBe(web);
 });
 
@@ -241,13 +320,19 @@ test("full view gives the panel the work area; the way back restores the convers
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "Full view" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  // The header's navigation moves into the panel's strip.
-  expect(within(panel).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
+  // The panel's strip takes the whole top bar: the column's header steps aside, and the strip
+  // ends with the panel's toggle.
+  expect(screen.queryByRole("banner")).toBeNull();
+  expect(within(panel).getByRole("button", { name: "Right panel" })).toBeTruthy();
+  // Back and forward stay in the sidebar's top row while it shows, and lead the strip once not.
+  expect(within(panel).queryByRole("button", { name: "Back" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(await within(panel).findByRole("button", { name: "Back" })).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: coldStart }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
   expect(within(panel).getByRole("button", { name: "Full view" })).toBeTruthy();
+  expect(screen.getByRole("banner")).toBeTruthy();
 });
 
 test("with terminals set to open in the side panel, ⌘J shows the thread's terminal as its tab, and the panel's width is kept across a reload", async () => {
@@ -280,7 +365,7 @@ test("with terminals set to open in the side panel, ⌘J shows the thread's term
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab offers an address, tools and suggested sites, and opens another Files tab in its place", async () => {
+test("New tab offers an address, tools and suggested sites, and opens a Files tab in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
@@ -290,7 +375,7 @@ test("New tab offers an address, tools and suggested sites, and opens another Fi
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(selected(panel).textContent).toBe("Files");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Files"]);
+  expect(tabNames(panel)).toEqual(["Summary", "Files"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {
@@ -332,7 +417,7 @@ test("the command palette pins the showing tab and reopens the tab closed last",
   await within(panel).findByRole("tab", { name: "Logs", selected: true });
 
   await fromPalette("pin logs", /^Pin Logs/);
-  await waitFor(() => expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Logs"]));
+  await waitFor(() => expect(tabNames(panel)).toEqual(["Summary", "Logs"]));
   await fromPalette("unpin", /^Unpin Logs/);
 
   within(panel).getByRole("tab", { name: "Logs" }).focus();
@@ -346,7 +431,9 @@ test("Files keeps its filter across repeated panel hide and reopen", async () =>
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
-  await userEvent.click(within(panel).getByRole("tab", { name: "Files" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  const tools = await within(panel).findByRole("list", { name: "Tools" });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   const filter = await within(panel).findByRole("searchbox", {
     name: "Find files in the checkout",
   });

@@ -12,6 +12,7 @@ export async function diff(
   from: DiffSide,
   to: DiffSide,
   maxPatchBytes: number,
+  paths: readonly string[] = [],
 ): Promise<DiffResult> {
   if (!Number.isSafeInteger(maxPatchBytes) || maxPatchBytes < 0)
     throw new GitError("invalid_argument", "maxPatchBytes must be a non-negative integer");
@@ -49,6 +50,9 @@ export async function diff(
     "--dst-prefix=b/",
     "--line-prefix=",
   ];
+  // Literal pathspecs: a path is never read as a glob or as pathspec magic.
+  const pathspecs = paths.map((path) => `:(literal)${path}`);
+  if (repository.cli.platform === "win32") windowsOrderFile(args);
   const metadata = await repository.cli.call(root, [
     ...args,
     "--raw",
@@ -58,6 +62,7 @@ export async function diff(
     a,
     b,
     "--",
+    ...pathspecs,
   ]);
   const files = parseDiff(metadata.stdout);
   await classifyBinaries(repository, root, files);
@@ -71,7 +76,7 @@ export async function diff(
     if (files.some((file) => file.entry.binary)) [a, b] = await textTrees(repository, root, files);
     const patch = await repository.cli.call(
       root,
-      [...args, "--patch", "--unified=3", "--inter-hunk-context=0", "-z", a, b, "--"],
+      [...args, "--patch", "--unified=3", "--inter-hunk-context=0", "-z", a, b, "--", ...pathspecs],
       {
         captureBytes: maxPatchBytes - prefix.length,
       },
@@ -84,4 +89,11 @@ export async function diff(
     patch: patchOutput({ stdout: bytes, truncated, stderr: "", exitCode: 0 }),
     truncated,
   };
+}
+
+/** Windows: Git for Windows maps `/dev/null` itself; Node's `\\.\nul` reaches it as `//./nul`. */
+function windowsOrderFile(args: string[]): void {
+  const order = args.indexOf(`-O${devNull}`);
+  if (order < 0) throw new GitError("git_failed", "Diff order file argument missing");
+  args[order] = "-O/dev/null";
 }

@@ -70,6 +70,10 @@ function useRemembered<T>(store: Remembered<T>): T {
 
 /** The devices used lately on this machine, newest first. */
 export const useRecentUses = () => useRemembered(recent);
+/** Forget the devices used lately, so Recent starts empty. */
+export function clearDeviceUses(): void {
+  recent.set(() => []);
+}
 /** Remember that this person opened a device now. */
 export function noteDeviceUse(id: string, at: number): void {
   recent.set((uses) => rememberUse(uses, id, at));

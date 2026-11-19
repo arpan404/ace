@@ -1,9 +1,6 @@
 import type { ForgePrRow } from "@ace/protocol";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
-import { DiffStat } from "@/components/diff-stat.tsx";
-import { StateBadge } from "@/components/forge-marks.tsx";
-import { PersonAvatar } from "@/components/person-avatar.tsx";
-import { hairlineGrid } from "@/components/ui/rules.ts";
+import { ArrowLeftIcon } from "@ace/icons";
+import { prWords } from "@ace/ui-core";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useBackLabel } from "@/components/back-label.tsx";
@@ -15,23 +12,25 @@ export type PrSeed = Pick<
 > &
   Partial<Pick<ForgePrRow, "additions" | "deletions">>;
 
-const gates = ["Checks", "Reviews", "Conflicts", "Branch"];
-const tabs = ["Summary", "Timeline", "Code"];
-const files = [
-  { path: 46, bar: 64 },
-  { path: 38, bar: 44 },
-  { path: 52, bar: 36 },
-  { path: 30, bar: 28 },
-  { path: 42, bar: 20 },
-  { path: 34, bar: 14 },
-];
+const tabs = ["Summary", "Timeline", "Code", "Checks"];
+/** A branch name, as the loaded header sets it. */
+const branch = "rounded-sm bg-fill-strong px-1.5 py-0.5 font-mono text-xs text-foreground";
+const stateFill = {
+  open: "bg-status-done",
+  draft: "bg-subtle-foreground",
+  merged: "bg-status-waiting",
+  closed: "bg-status-failed",
+} as const;
+/** Two blockers, their quotes as widths of the column (%). */
+const blockers = [82, 64];
+const about = ["Reviewers", "Assignee", "Labels"];
 
 /**
- * A pull request's page while it loads, built like the page: back, title, state, author and
- * branches, the checkout command and size, the four merge gates, the tabs, then the Summary's
- * reviewers, changed files and description. Fixed words (gate names, tabs, headings) show for
- * real; what a list row already told us shows for real too; the rest are placeholders the size
- * and shape of what replaces them: pills, avatar circles, file rows with their bars.
+ * A pull request's page while it loads, built like the page: back, title, the state line
+ * (state, author and branches), the tabs, then the Summary's merge status and description
+ * beside the sidebar. Fixed words (tabs, headings) show for real; what a
+ * list row already told us shows for real too; the rest are placeholders the size and shape of
+ * what replaces them.
  */
 export function PrPageSkeleton(props: {
   number: number;
@@ -43,10 +42,12 @@ export function PrPageSkeleton(props: {
   const { seed } = props;
   const backLabel = useBackLabel("Pull requests");
   const merged = seed?.state === "merged";
+  // Only an open PR has blockers; with no seed, the likely case is open.
+  const open = !seed || seed.state === "open" || seed.state === "draft";
   return (
-    <LoadingRegion label={`pull request #${props.number}`} className="flex flex-col">
+    <LoadingRegion label={`pull request #${props.number}`} className="@container/pr flex flex-col">
       <div className={props.readable}>
-        <header className="px-[var(--forge-gutter,1rem)] pt-6">
+        <header className="px-[var(--forge-gutter,1rem)] pt-4 pb-3">
           {props.onBack && (
             <div className="mb-2 flex min-h-8 items-center">
               <button
@@ -76,68 +77,44 @@ export function PrPageSkeleton(props: {
           <div className="mt-2 flex min-h-6 flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
             {seed ? (
               <>
-                <StateBadge kind="pr" state={seed.state} />
-                <PersonAvatar name={seed.author} url={seed.authorAvatarUrl} />
-                <span className="font-medium text-foreground/85">{seed.author}</span>
+                <span
+                  className={cn(
+                    "inline-flex h-6.5 items-center rounded-full px-2.5 text-ui font-medium text-background",
+                    stateFill[seed.state],
+                  )}
+                >
+                  {prWords[seed.state]}
+                </span>
+                <span className="font-semibold text-foreground">{seed.author}</span>
                 {seed.baseBranch && seed.headBranch ? (
                   <>
                     <span>{merged ? "merged into" : "wants to merge into"}</span>
-                    <span className="font-mono text-xs text-foreground/85">{seed.baseBranch}</span>
+                    <span className={branch}>{seed.baseBranch}</span>
                     <span>from</span>
-                    <span className="font-mono text-xs text-foreground/85">{seed.headBranch}</span>
+                    <span className={branch}>{seed.headBranch}</span>
                   </>
                 ) : null}
               </>
             ) : (
               <>
-                <Skeleton className="h-6 w-16 rounded-full" />
+                <Skeleton className="h-3 w-12" />
                 <Skeleton className="size-4 rounded-full" />
-                <Skeleton className="h-3 w-20" />
-                <Skeleton className="h-3 w-64" />
+                <Skeleton className="h-3 w-64 max-w-[60%]" />
               </>
             )}
           </div>
-          <div className="mt-3 flex min-w-0 items-center gap-3 pb-3">
-            <Skeleton className="h-5 w-80 max-w-[60%] rounded-xs" />
-            <span className="ml-auto text-xs tabular-nums">
-              {seed?.additions !== undefined && seed.deletions !== undefined ? (
-                <DiffStat additions={seed.additions} deletions={seed.deletions} />
-              ) : (
-                <Skeleton className="h-3 w-24" />
-              )}
-            </span>
-          </div>
         </header>
-        <div
-          aria-hidden
-          className={cn(
-            hairlineGrid,
-            "grid-cols-4 border-t border-border @max-[30rem]/pr:grid-cols-2",
-          )}
-        >
-          {gates.map((gate) => (
-            <span
-              key={gate}
-              className="flex flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 first:pl-[var(--forge-gutter,1rem)]"
-            >
-              <span className="text-meta text-subtle-foreground">{gate}</span>
-              <span className="flex h-4 items-center gap-1.5">
-                <Skeleton className="size-1.5 rounded-full" />
-                <Skeleton className="h-3 w-16" />
-              </span>
-            </span>
-          ))}
-        </div>
       </div>
-      <div aria-hidden className="border-y border-border py-2">
+      <div aria-hidden className="border-b border-border">
         <div className={cn("flex items-center px-[var(--forge-gutter,1rem)]", props.readable)}>
-          <span className="-ml-2 flex items-center gap-0.5">
+          <span className="-ml-2 flex items-center gap-1">
             {tabs.map((tab, index) => (
               <span
                 key={tab}
                 className={cn(
-                  "inline-flex h-7 items-center rounded-md px-2 text-ui text-muted-foreground",
-                  index === 0 && "bg-active font-medium text-foreground",
+                  "relative inline-flex h-10 items-center px-2 text-ui text-muted-foreground",
+                  index === 0 &&
+                    "font-medium text-foreground before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-foreground",
                 )}
               >
                 {tab}
@@ -147,39 +124,44 @@ export function PrPageSkeleton(props: {
         </div>
       </div>
       <div aria-hidden className={props.readable}>
-        <div className="space-y-3 px-[var(--forge-gutter,1rem)] pt-2">
-          <div className="flex min-h-8 items-center gap-1.5">
-            <Skeleton className="size-5 rounded-full" />
-            <Skeleton className="size-5 rounded-full" />
-            <Skeleton className="h-3 w-24" />
-          </div>
-          <section className="space-y-1.5">
-            <h3 className="flex h-8 items-center text-xs font-medium text-muted-foreground">
-              Changes
-            </h3>
-            <ul>
-              {files.map((file) => (
-                <li key={`${file.path}-${file.bar}`} className="flex h-7 items-center gap-3">
-                  <Skeleton className="h-3" style={{ width: `${file.path}%` }} />
-                  <Skeleton
-                    className="ml-auto h-1.5 rounded-full @max-[30rem]/pr:hidden"
-                    style={{ width: file.bar }}
-                  />
-                  <Skeleton className="h-3 w-20" />
-                </li>
+        <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-5 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15.5rem] @min-[50rem]/pr:gap-8">
+          <div className="min-w-0 space-y-5">
+            <section className="rounded-lg border border-border bg-background">
+              <div className="flex min-h-10 items-center gap-2 rounded-t-lg border-b border-border bg-surface-1 px-3.5">
+                <Skeleton className="size-4 rounded-full" />
+                <Skeleton className="h-3 w-36" />
+              </div>
+              <div className="flex flex-col gap-2 px-4 py-3.5">
+                <Skeleton className="h-3 w-[92%]" />
+                <Skeleton className="h-3 w-[86%]" />
+                <Skeleton className="h-3 w-[48%]" />
+              </div>
+            </section>
+            <section className="divide-y divide-border-soft rounded-lg border border-border bg-background">
+              {(open ? blockers : [60]).map((width) => (
+                <div key={width} className="flex gap-3 px-4 py-3.5">
+                  <Skeleton className="size-5.5 shrink-0 rounded-full" />
+                  <span className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+                    <Skeleton className="h-3 w-48" />
+                    <Skeleton className="h-3" style={{ width: `${width}%` }} />
+                  </span>
+                </div>
               ))}
-            </ul>
-          </section>
-          <section className="space-y-1.5">
-            <h3 className="flex h-8 items-center text-xs font-medium text-muted-foreground">
-              Description
-            </h3>
-            <div className="flex flex-col gap-2 pt-1">
-              <Skeleton className="h-3 w-[92%]" />
-              <Skeleton className="h-3 w-[86%]" />
-              <Skeleton className="h-3 w-[48%]" />
-            </div>
-          </section>
+            </section>
+          </div>
+          <div className="min-w-0">
+            {about.map((term) => (
+              <div key={term} className="border-b border-border py-3 first:pt-0 last:border-b-0">
+                <p className="flex h-6 items-center text-xs font-semibold text-muted-foreground">
+                  {term}
+                </p>
+                <div className="mt-1 flex h-6 items-center gap-1.5">
+                  <Skeleton className="size-4 rounded-full" />
+                  <Skeleton className="h-3 w-28" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </LoadingRegion>

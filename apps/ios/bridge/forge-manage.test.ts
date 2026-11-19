@@ -1,4 +1,5 @@
 import "./test-host.ts";
+import type { CommandPayload, CommandResult } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { ManageReply, ManageWriteReply } from "./forge-manage.ts";
 import type { NewPrCompareReply, NewPrContextReply, NewPrCreateReply } from "./forge-new-pr.ts";
@@ -60,6 +61,47 @@ test("moving to another milestone and locking are pinned to the version seen; a 
     reason: "Resolved",
     unlock: true,
   });
+});
+
+test("a pull request moves between draft, ready, closed and open as GitHub allows, each from the version seen", async () => {
+  const { ask } = await connected();
+  const open = await manage(ask, 233);
+  expect(open.state).toBe("open");
+  expect(open.lifecycle.map((each) => each.kind)).toEqual([
+    "draft",
+    "close",
+    "update.merge",
+    "update.rebase",
+  ]);
+  expect(open.lifecycle.find((each) => each.kind === "close")?.label).toBe("Close pull request");
+  expect((await apply(ask, 233, open.version, { kind: "draft" })).ok).toBe(true);
+  const draft = await manage(ask, 233);
+  expect(draft.state).toBe("draft");
+  expect(draft.lifecycle.map((each) => each.kind)).toEqual(["ready", "close"]);
+  expect((await apply(ask, 233, draft.version, { kind: "close" })).ok).toBe(true);
+  const closed = await manage(ask, 233);
+  expect(closed.state).toBe("closed");
+  expect(closed.lifecycle.map((each) => each.kind)).toEqual(["reopen"]);
+  // The page's own header reads it too, not only the manage section.
+  const page = (await ask({ type: "forge.pull", project: "ace", number: 233 })) as PullReply;
+  expect(page.state.word).toBe("Closed");
+  // The version from before closing no longer matches: reopening against it is refused.
+  expect(await apply(ask, 233, draft.version, { kind: "reopen" })).toMatchObject({ ok: false });
+  expect((await apply(ask, 233, closed.version, { kind: "reopen" })).ok).toBe(true);
+  expect((await manage(ask, 233)).state).toBe("open");
+});
+
+test("a pull request's title, description and labels read as GitHub has them and change in one edit", async () => {
+  const { ask } = await connected();
+  const before = await manage(ask, 233);
+  // #233 lets this account change its text and labels, not its base or assignees.
+  expect(before.editable).toEqual(["title", "body", "labels"]);
+  const edit = { title: "Phone triage", body: "Triaged on the phone.", labels: ["mobile"] };
+  const reply = await apply(ask, 233, before.version, { kind: "edit", changes: edit });
+  expect(reply.ok).toBe(true);
+  const after = await manage(ask, 233);
+  expect(after.metadata).toMatchObject(edit);
+  expect(after.metadata.baseBranch).toBe(before.metadata.baseBranch);
 });
 
 test("a lifecycle write whose answer is lost is unconfirmed and sent only once", async () => {
@@ -131,5 +173,90 @@ test("a new pull request opens from a branch, and asking again for the same bran
     ok: true,
     number: opened.number,
     message: "These branches already have an open pull request.",
+  });
+});
+
+test("a new pull request can be given reviewers, assignees, labels and a milestone, chosen from the repository's", async () => {
+  const { ask } = await connected();
+  const context = (await ask({ type: "forge.newpr.context", project: "ace" })) as NewPrContextReply;
+  expect(context.details?.people).toEqual(["you", "dana", "mira", "sam"]);
+  expect(context.details?.labels[0]).toEqual({
+    name: "bug",
+    color: "d73a4a",
+    description: "Something isn't working",
+  });
+  expect(context.details?.milestones).toEqual([
+    { number: 3, title: "October polish", due: "Due Oct 31, 2026" },
+    { number: 4, title: "Mobile beta", due: "Due Nov 20, 2026" },
+    { number: 5, title: "Later", due: null },
+  ]);
+  // GitHub takes at most ten assignees; the sheet stops there.
+  expect(context.details?.most).toEqual({ reviewers: 100, assignees: 10, labels: 100 });
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: false,
+    reviewers: ["mira"],
+    assignees: ["you", "dana"],
+    labels: ["web", "docs"],
+    milestone: 4,
+  })) as NewPrCreateReply;
+  expect(opened).toMatchObject({ ok: true, message: "" });
+  const pr = await manage(ask, opened.number ?? 0);
+  expect(pr.metadata).toMatchObject({ labels: ["web", "docs"], assignees: ["you", "dana"] });
+  expect(pr.milestone?.title).toBe("Mobile beta");
+});
+
+test("a new pull request without details opens as before", async () => {
+  const { ask } = await connected();
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: true,
+  })) as NewPrCreateReply;
+  expect(opened.ok).toBe(true);
+  const pr = await manage(ask, opened.number ?? 0);
+  expect(pr.metadata).toMatchObject({ labels: [], assignees: [] });
+  expect(pr.milestone).toBeNull();
+});
+
+test("a pull request GitHub opened without all its details says which one opened and what it lost", async () => {
+  // GitHub opens it, then refuses a label: the daemon says so in the create's code.
+  let daemonCommand: ((payload: CommandPayload) => Promise<CommandResult>) | undefined;
+  const { ask, client } = await connected(undefined, undefined, async (payload) => {
+    if (!daemonCommand) throw new Error("not connected");
+    const result = await daemonCommand(payload);
+    return payload.type === "forge.hosted.pr.create" && result.ok
+      ? { ...result, code: "forge_pr_details_incomplete" }
+      : result;
+  });
+  daemonCommand = (payload) => client.command(payload);
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: false,
+    labels: ["web"],
+  })) as NewPrCreateReply;
+  expect(opened).toMatchObject({ ok: true, number: expect.any(Number) });
+  expect(opened.notice).toEqual({
+    title: `Opened pull request #${opened.number}`,
+    detail:
+      "The pull request is open, but GitHub didn't take all of its reviewers, labels, assignees or milestone: set them on its page.",
+    warning: true,
   });
 });

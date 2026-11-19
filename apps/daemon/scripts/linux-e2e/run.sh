@@ -4,18 +4,18 @@
 # session is a throwaway desktop with its own D-Bus, runtime directory and app state.
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
-#   apps/daemon/scripts/linux-e2e/run.sh [x11|wayland|hyprland|sway|headless|all] [extra vitest args]
-#   apps/daemon/scripts/linux-e2e/run.sh [kde-wayland|kde-x11|kde] [extra vitest args]
-# Needs: cargo, Xvfb, openbox, at-spi2-core, dbus, gnome-calculator, gnome-text-editor, xterm,
-# xdpyinfo, xdotool, ffmpeg (decodes the live view); for wayland gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for
-# the AppArmor profile when the kernel restricts user namespaces (it is removed afterwards).
-# The KDE sessions (native/screen-helper-linux/tests/computer/kde-session.sh) need kwin-wayland,
-# kwin-x11, plasma-workspace, xdg-desktop-portal-kde, kcalc, kwrite, konsole, gir1.2-atspi-2.0,
-# and on a machine without a GPU sudo to load vgem (KWin casts the screen only with OpenGL).
+#   apps/daemon/scripts/linux-e2e/run.sh [wayland|kde|hyprland|headless|all] [extra vitest args]
+# Needs: cargo, at-spi2-core, dbus, gnome-calculator, gnome-text-editor, xterm (listed as an
+# installed terminal agents must not reach), ffmpeg (decodes the live view), gnome-shell,
+# pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for the AppArmor profile when the kernel
+# restricts user namespaces (it is removed afterwards).
+# kde (native/screen-helper-linux/tests/computer/kde-session.sh) needs kwin-wayland,
+# plasma-workspace, xdg-desktop-portal-kde, kcalc, kwrite, konsole, gir1.2-atspi-2.0, and on a
+# machine without a GPU sudo to load vgem (KWin casts the screen only with OpenGL).
 # hyprland (Omarchy's desktop) needs hyprland, xdg-desktop-portal-hyprland, waybar, mako,
-# hypridle, kcalc, the vkms kernel module and sudo to load it; sway needs sway,
-# xdg-desktop-portal-wlr and the same apps (wlroots-session.sh). `all` leaves both out.
-# Environment: ACE_E2E_DISPLAY (X display number, default 51), ACE_E2E_APPARMOR_PROFILE
+# hypridle, kcalc, the vkms kernel module and sudo to load it (hyprland-session.sh). `all` is
+# wayland and headless.
+# Environment: ACE_E2E_APPARMOR_PROFILE
 # (default ace-chromium-e2e), ACE_E2E_CHROME_HOME (where the pinned Chrome is kept, default
 # ~/.cache/ace-linux-e2e), ACE_E2E_LOGS (session logs, default a new temp directory).
 # ACE_E2E_XDPH_PREFIX (hyprland: an xdg-desktop-portal-hyprland install prefix to use instead
@@ -67,7 +67,7 @@ stop_jobs() {
 }
 
 # The live-view fixture (a window that reports the input reaching it), launched as a desktop
-# launcher would so X11 and GNOME both name it dev.ace.LiveViewFixture. Its log is the suite's.
+# launcher would so the desktop names it dev.ace.LiveViewFixture. Its log is the suite's.
 fixture() {
   export ACE_E2E_FIXTURE_LOG="$logs/fixture.jsonl"
   : >"$ACE_E2E_FIXTURE_LOG"
@@ -75,31 +75,7 @@ fixture() {
     python3 "$root/apps/daemon/scripts/linux-e2e/live-view-fixture.py" >"$logs/fixture.log" 2>&1 &
 }
 
-# Inside dbus-run-session: one desktop, its apps, then the suite.
-inner_x11() {
-  local display=$1
-  shift
-  Xvfb ":$display" -screen 0 1600x1000x24 -nolisten tcp >"$logs/xvfb.log" 2>&1 &
-  export DISPLAY=":$display" XDG_SESSION_TYPE=x11
-  wait_for 10 xdpyinfo
-  dbus-update-activation-environment DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_DATA_DIRS \
-    >/dev/null 2>&1 || true
-  openbox >"$logs/openbox.log" 2>&1 &
-  /usr/libexec/at-spi-bus-launcher --launch-immediately >"$logs/at-spi.log" 2>&1 &
-  sleep 0.5
-  gnome-calculator >"$logs/calculator.log" 2>&1 &
-  gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
-  fixture
-  sleep 3
-  # A terminal takes focus, so the apps sit in the background as an agent usually finds them.
-  xterm >"$logs/xterm.log" 2>&1 &
-  sleep 1
-  local status=0
-  run_suite x11 "$@" 2>&1 || status=$?
-  stop_jobs
-  return $status
-}
-
+# Inside dbus-run-session: GNOME Shell, its apps, then the suite.
 inner_wayland() {
   unset DISPLAY
   export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=GNOME GDK_BACKEND=wayland
@@ -130,17 +106,15 @@ inner_wayland() {
   return $status
 }
 
-# Inside kde-session.sh (KDE Plasma 6 on KWin, Wayland or X11): KDE's apps, then the suite.
+# Inside kde-session.sh (KDE Plasma 6 on KWin): KDE's apps, then the suite.
 inner_kde() {
-  local kind=$1
-  shift
   local note="$XDG_DATA_HOME/ace-e2e-note.txt"
   mkdir -p "$XDG_DATA_HOME"
   printf 'hello\n' >"$note"
   kcalc >"$logs/kcalc.log" 2>&1 &
   kwrite "$note" >"$logs/kwrite.log" 2>&1 &
   # The fixture is GTK 4, whose Vulkan renderer crashes at start on Mesa's software Vulkan
-  # over vgem (in the device-select layer), as on the wlroots sessions' vkms.
+  # over vgem (in the device-select layer), as on the Hyprland session's vkms.
   export GSK_RENDERER=cairo
   fixture
   sleep 3
@@ -149,27 +123,25 @@ inner_kde() {
   sleep 2
   local status=0
   # The suites pick KDE's apps from XDG_CURRENT_DESKTOP=KDE, which kde-session.sh sets.
-  run_suite "$kind" "$@" 2>&1 || status=$?
+  run_suite wayland "$@" 2>&1 || status=$?
   stop_jobs
   return $status
 }
 
-# shellcheck source=wlroots-session.sh
-. "$root/apps/daemon/scripts/linux-e2e/wlroots-session.sh"
+# shellcheck source=hyprland-session.sh
+. "$root/apps/daemon/scripts/linux-e2e/hyprland-session.sh"
 
-# Inside dbus-run-session: Hyprland or Sway (wlroots-session.sh), the test's GTK and Qt apps,
-# then the suite.
-inner_wlroots() { # <hyprland|sway> [vitest args]
-  local which=$1
-  shift
-  "${which}_session" 1600x1000
+# Inside dbus-run-session: Hyprland (hyprland-session.sh), the test's GTK and Qt apps, then the
+# suite.
+inner_hyprland() {
+  hyprland_session 1600x1000
   gnome-calculator >"$logs/calculator.log" 2>&1 &
   gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
   kcalc >"$logs/kcalc.log" 2>&1 &
   sleep 4
   local status=0
-  run_suite "$which" "$@" 2>&1 || status=$?
-  wlroots_windows "$which"
+  run_suite hyprland "$@" 2>&1 || status=$?
+  hyprctl clients >"$logs/clients.txt" 2>&1 || true
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
   return $status
@@ -181,15 +153,9 @@ case "${1:-}" in
     inner_kde "$@"
     exit $?
     ;;
-  __hyprland | __sway)
-    which=${1#__}
+  __hyprland)
     shift
-    inner_wlroots "$which" "$@"
-    exit $?
-    ;;
-  __x11)
-    shift
-    inner_x11 "$@"
+    inner_hyprland "$@"
     exit $?
     ;;
   __wayland)
@@ -201,7 +167,6 @@ esac
 
 mode=${1:-all}
 [ $# -gt 0 ] && shift
-display=${ACE_E2E_DISPLAY:-51}
 profile=${ACE_E2E_APPARMOR_PROFILE:-ace-chromium-e2e}
 chrome_home=${ACE_E2E_CHROME_HOME:-$HOME/.cache/ace-linux-e2e}
 export XDG_DATA_DIRS=${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
@@ -262,17 +227,7 @@ session() { # <mode> [vitest args]: one session with a private runtime dir, stat
   local status=0
   echo "=== $which (logs: $logs)"
   case $which in
-    x11)
-      if [ -e "/tmp/.X11-unix/X$display" ]; then
-        echo "Display :$display is taken; set ACE_E2E_DISPLAY" >&2
-        return 1
-      fi
-      XDG_RUNTIME_DIR=$runtime XDG_CONFIG_HOME=$state/config XDG_STATE_HOME=$state/state \
-        XDG_CACHE_HOME=$state/cache XDG_DATA_HOME=$state/data \
-        XDG_DATA_DIRS=$fixture_data:$XDG_DATA_DIRS \
-        dbus-run-session -- "$self" __x11 "$display" "$@" 2>>"$logs/session.log" || status=$?
-      ;;
-    wayland | hyprland | sway)
+    wayland | hyprland)
       [ "$which" = hyprland ] && hyprland_device
       XDG_RUNTIME_DIR=$runtime XDG_CONFIG_HOME=$state/config XDG_STATE_HOME=$state/state \
         XDG_CACHE_HOME=$state/cache XDG_DATA_HOME=$state/data \
@@ -283,14 +238,13 @@ session() { # <mode> [vitest args]: one session with a private runtime dir, stat
       (unset DISPLAY WAYLAND_DISPLAY && XDG_SESSION_TYPE=tty run_suite headless "$@") ||
         status=$?
       ;;
-    kde-wayland | kde-x11)
+    kde)
       # kde-session.sh makes its own runtime dir, state dirs and bus.
-      XDG_DATA_DIRS=$fixture_data:$XDG_DATA_DIRS \
-        ACE_KDE_LOGS=$logs ACE_KDE_DISPLAY=$display "$kde_session" "${which#kde-}" \
-        "$self" __kde "${which#kde-}" "$@" 2>>"$logs/session.log" || status=$?
+      XDG_DATA_DIRS=$fixture_data:$XDG_DATA_DIRS ACE_KDE_LOGS=$logs "$kde_session" \
+        "$self" __kde "$@" 2>>"$logs/session.log" || status=$?
       ;;
     *)
-      echo "Unknown session: $which (x11, wayland, hyprland, sway, headless, kde-wayland, kde-x11, kde or all)" >&2
+      echo "Unknown session: $which (wayland, kde, hyprland, headless or all)" >&2
       status=2
       ;;
   esac
@@ -301,10 +255,9 @@ session() { # <mode> [vitest args]: one session with a private runtime dir, stat
 }
 
 kde_session="$root/native/screen-helper-linux/tests/computer/kde-session.sh"
-if [ "$mode" = all ] || [ "$mode" = kde ]; then
+if [ "$mode" = all ]; then
   failed=()
-  sessions=(x11 wayland headless)
-  [ "$mode" = kde ] && sessions=(kde-wayland kde-x11)
+  sessions=(wayland headless)
   for which in "${sessions[@]}"; do session "$which" "$@" || failed+=("$which"); done
   if [ ${#failed[@]} -gt 0 ]; then
     echo "Failed sessions: ${failed[*]}" >&2

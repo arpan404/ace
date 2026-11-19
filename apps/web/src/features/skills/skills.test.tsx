@@ -4,6 +4,8 @@ import { configure, fireEvent, act, screen, waitFor, within } from "@testing-lib
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { listGroup } from "@/test/list-groups.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -54,21 +56,21 @@ test("Skills opens on the first skill with its source from the plugin", async ()
   await open("/skills");
 
   expect(await screen.findByRole("heading", { level: 2, name: "Code review" })).toBeTruthy();
-  const source = await screen.findByText("Source file", { exact: true });
-  await userEvent.hover(source);
-  expect(await screen.findByRole("tooltip", { name: "skills/code-review/SKILL.md" })).toBeTruthy();
-  // The rendered instructions, not the folded raw Markdown beneath them.
+  // The source file's path reads under its label (#1528 shows row descriptions, not tooltips).
+  expect(await screen.findByText("Source file", { exact: true })).toBeTruthy();
   const section = within(screen.getByRole("region", { name: "Source" }));
+  expect(section.getByText("skills/code-review/SKILL.md", { exact: true })).toBeTruthy();
+  // The rendered instructions, not the folded raw Markdown beneath them.
   await userEvent.click(section.getByText("Read source", { exact: true }));
   expect(
     await section.findByText(/Review the changes since a fixed point/, { selector: "p" }),
   ).toBeTruthy();
 });
 
-test("searching matches the plugin a skill ships with, and a miss offers to clear the search", async () => {
+test("searching matches the plugin a skill ships with, and a miss says so until × clears it", async () => {
   await open("/skills");
   await screen.findByRole("navigation", { name: "Skills catalog" });
-  const search = screen.getByRole("searchbox", { name: "Search skills" });
+  const search = await openPanelSearch("Search skills");
 
   await userEvent.type(search, "PR");
   await waitFor(() => expect(within(catalog()).queryByText("Test-driven development")).toBeNull());
@@ -81,8 +83,8 @@ test("searching matches the plugin a skill ships with, and a miss offers to clea
 
   await userEvent.clear(search);
   await userEvent.type(search, "zzzz");
-  expect(await screen.findByText('Nothing matches "zzzz".')).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(await screen.findByText("No skills match.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Close search" }));
   expect(within(catalog()).getByText("Release notes")).toBeTruthy();
 });
 
@@ -110,7 +112,7 @@ test("a group folds under its heading and searching opens every group", async ()
   await waitFor(() =>
     expect(within(catalog()).queryByRole("link", { name: /^Engineering reviewer/ })).toBeNull(),
   );
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search skills" }), "review");
+  await userEvent.type(await openPanelSearch("Search skills"), "review");
   expect(within(catalog()).getByRole("link", { name: /^Engineering reviewer/ })).toBeTruthy();
 });
 
@@ -200,8 +202,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
 
   expect(await screen.findByRole("heading", { level: 2, name: "Sentry" })).toBeTruthy();
   expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
-  const plugins = within(catalog()).getByRole("list", { name: "Plugins" });
-  expect(await within(plugins).findByText("Sentry")).toBeTruthy();
+  expect(await listGroup(catalog(), /^Plugins ·/).findByText("Sentry")).toBeTruthy();
   expect(within(catalog()).getByText("Triage issue")).toBeTruthy();
 });
 

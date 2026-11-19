@@ -166,6 +166,7 @@ describe("JSON-RPC stdio", () => {
       (error: unknown) => String(error),
     );
     await closed;
+    // A small request, as most are: Bun's stream reports it written while its sink fails later.
     const write = rpc.request("write").then(
       () => "resolved",
       (error: unknown) => String(error),

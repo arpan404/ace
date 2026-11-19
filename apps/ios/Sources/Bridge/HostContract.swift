@@ -13,7 +13,11 @@ enum HostContract {
 
     /// Clock, ids, entropy, text, bytes and URL parsing, as `aceHost` members.
     static func stateless() -> [String: Any] {
-        let now: @convention(block) () -> Double = { Date().timeIntervalSince1970 * 1000 }
+        // Whole epoch milliseconds, as `Date.now()` and the Node host give: the bridge builds
+        // protocol Timestamps (integers) from it, and a fraction fails their validation.
+        let now: @convention(block) () -> Double = { (Date().timeIntervalSince1970 * 1000).rounded(.down) }
+        // For timing work: the device's uptime in milliseconds, with its fractions, never a date.
+        let monotonicMs: @convention(block) () -> Double = { ProcessInfo.processInfo.systemUptime * 1000 }
         let uuid: @convention(block) () -> String = { UUID().uuidString.lowercased() }
         let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
         let randomBytes: @convention(block) (Int) -> JSValue = { count in
@@ -46,9 +50,10 @@ enum HostContract {
             HostTrace.add("js:" + name, seconds: ms / 1000, bytes: Int(bytes))
         }
         let functions: [String: Any] = [
-            "now": now, "uuid": uuid, "random": random, "randomBytes": randomBytes, "utf8Length": utf8Length,
+            "now": now, "monotonicMs": monotonicMs, "uuid": uuid, "random": random, "randomBytes": randomBytes, "utf8Length": utf8Length,
             "previewHead": previewHead, "previewTail": previewTail, "latin1Base64": latin1Base64,
             "parseURL": parseURL, "trace": trace,
+            "video": ["decoders": ({ VideoCapabilities.decoders } as @convention(block) () -> [String])],
         ]
         return functions.merging(NativeBytes.functions()) { current, _ in current }
     }
@@ -81,7 +86,9 @@ struct HostRequest: Sendable {
 extension HostError {
     /// The contract's error code for a failed operation (`HostErrorCode`).
     static func code(of error: any Error) -> String {
-        switch error as? HostError {
+        // Account grants: network trouble retries; signed out or refused stops the machine.
+        if let grant = error as? AccountGrantError { return grant == .unavailable ? "offline" : "invalid" }
+        return switch error as? HostError {
         case .storage: "storage"
         case .identity: "identity"
         case .unsupported: "unsupported"

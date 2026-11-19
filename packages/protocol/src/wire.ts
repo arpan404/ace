@@ -1,5 +1,15 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
+import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
+import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { MediaConnectRequest, MediaConnectResult } from "./media-connection.ts";
+import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
+import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
+import {
+  MachineUpdateChanged,
+  MachineUpdateRequest,
+  MachineUpdateResult,
+} from "./machine-update.ts";
 import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
@@ -60,6 +70,7 @@ import {
   IconsReadResponse,
 } from "./turn-steps.ts";
 import { AvatarsResolveRequest, AvatarsResolveResponse } from "./avatars.ts";
+import { ItemRawRequest, ItemRawResponse } from "./item-raw.ts";
 import {
   HostIdentityRequest,
   HostIdentityResult,
@@ -67,8 +78,15 @@ import {
   MachinesResult,
 } from "./machines.ts";
 import { FleetRequest, FleetResult } from "./fleet.ts";
+import { OutsideRequest, OutsideResult, OutsideState } from "./outside-clients.ts";
+import { LockedUseRequest, LockedUseServerMessage } from "./locked-use.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
-import { AutomationRequest, AutomationResponse } from "./automations.ts";
+import {
+  AutomationRequest,
+  AutomationResponse,
+  AutomationWebhookRequest,
+  AutomationWebhookResponse,
+} from "./automations.ts";
 import {
   TerminalRequest,
   TerminalCredit,
@@ -77,6 +95,13 @@ import {
 } from "./terminal-client.ts";
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
+import {
+  SuitClientMessage,
+  SuitReportMessage,
+  SuitServerMessage,
+  SuitWatchMessage,
+} from "./suits.ts";
+import { MarketClientMessage, MarketServerMessage } from "./marketplace.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
 import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
@@ -94,12 +119,31 @@ import {
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
+  MachineRelayAnswer,
+  MachineRelayCall,
+  MachineRelayCancel,
+  MachineRelayTransfer,
+} from "./machine-relay.ts";
+import {
   CommandsList,
   CommandsResolve,
   CommandsListResult,
   CommandsResolveResult,
 } from "./command-library.ts";
 import { SkillsRequest, SkillsResult, SkillsUnsubscribe, SkillsChanged } from "./skill-library.ts";
+import { SpadeClientMessage, SpadeServerMessage } from "./spade.ts";
+import {
+  SpadeMachinesRequest,
+  SpadeMachinesResult,
+  SpadeRemoteRequest,
+  SpadeRemoteResult,
+} from "./spade-remote.ts";
+import {
+  SpadeComputerDrive,
+  SpadeComputerDriveResult,
+  SpadeComputerGet,
+  SpadeComputerResult,
+} from "./spade-computer.ts";
 import { z } from "zod";
 import { CoreClientMessage, CoreServerMessage } from "./wire-core.ts";
 
@@ -112,6 +156,7 @@ export {
   CommandStatusState,
   CoreClientMessage,
   CoreServerMessage,
+  PairingLinkProof,
   coreClientTypes,
   coreServerTypes,
   DeliveryEvent,
@@ -121,6 +166,7 @@ export {
   SnapshotView,
   SubscriptionScope,
   ThreadListEntry,
+  ThreadReadCursor,
   ThreadListView,
   ThreadView,
 } from "./wire-core.ts";
@@ -170,11 +216,13 @@ import {
   NotificationMessage,
   NotificationFeedRequest,
   NotificationFeedResult,
+  NotificationAck,
 } from "./notifications.ts";
 
 import {
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
@@ -193,11 +241,15 @@ import {
 export const ClientMessage = z.discriminatedUnion("type", [
   CliRequest,
   StorageRequest,
+  AdmissionRequest,
+  AppUpdateRequest,
+  MachineUpdateRequest,
   UserBrowserSettings,
   WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
   TurnStepsRequest,
+  ItemRawRequest,
   IconsResolveRequest,
   IconsReadRequest,
   AvatarsResolveRequest,
@@ -205,8 +257,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
   HostIdentityRequest,
+  ...MachineCodeRequest.options,
+  PairRedeem,
   MachinesRequest,
   FleetRequest,
+  OutsideRequest,
+  ...LockedUseRequest.options,
   TransfersRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
@@ -214,6 +270,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...OnboardingRequest.options,
   PreviewRequest,
   ...AutomationRequest.options,
+  AutomationWebhookRequest,
   ...ActivityReadsRequest.options,
   VerifyRequest,
   QueueGet,
@@ -227,12 +284,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
+  SuitClientMessage,
+  SuitReportMessage,
+  SuitWatchMessage,
+  MarketClientMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,
   PermissionCapabilitiesRequest,
   ContextRequest,
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
@@ -245,6 +307,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSeries,
   UsageSessionTotals,
   ...FilesClientMessage.options,
+  MachineRelayCall,
+  MachineRelayCancel,
+  MachineRelayTransfer,
   CommandsList,
   CommandsResolve,
   PromptFilesRequest,
@@ -252,11 +317,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CatalogUnsubscribe,
   SkillsRequest,
   SkillsUnsubscribe,
+  ...SpadeClientMessage.options,
+  SpadeMachinesRequest,
+  SpadeRemoteRequest,
+  SpadeComputerGet,
+  SpadeComputerDrive,
   ...AccountsRequest.options,
   ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
+  MediaConnectRequest,
   ScreenClientMessage,
   ScreenAck,
   DeviceClientMessage,
@@ -274,6 +345,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationSettings,
   NotificationSnooze,
   NotificationFeedRequest,
+  NotificationAck,
 
   ...CoreClientMessage.options,
 ]);
@@ -281,12 +353,19 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
+  AdmissionResult,
+  AdmissionChanged,
+  AppUpdateResult,
+  AppUpdateChanged,
+  MachineUpdateResult,
+  MachineUpdateChanged,
   UserBrowserSettingsResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,
   TurnsPageResponse,
   ItemsWindowResponse,
   TurnStepsResponse,
+  ItemRawResponse,
   IconsResolveResponse,
   IconsReadResponse,
   AvatarsResolveResponse,
@@ -294,8 +373,14 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
   HostIdentityResult,
+  MachineCodeResult,
+  PairResult,
+  ChannelClose,
   MachinesResult,
   FleetResult,
+  OutsideResult,
+  OutsideState,
+  ...LockedUseServerMessage.options,
   TransfersResult,
   TransferProgress,
   ProvidersResult,
@@ -308,6 +393,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   PreviewResult,
   PreviewSuggestions,
   AutomationResponse,
+  AutomationWebhookResponse,
   ActivityReadsResult,
   ActivityReadsChanged,
   VerifyResult,
@@ -325,6 +411,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TerminalResult,
   TerminalOutput,
   PluginServerMessage,
+  ...SuitServerMessage.options,
+  ...MarketServerMessage.options,
   DiagnosticsHealthResult,
   DiagnosticsResult,
   PermissionCapabilitiesResult,
@@ -342,6 +430,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
+  MachineRelayAnswer,
   CommandsListResult,
   CommandsResolveResult,
   PromptFilesResponse,
@@ -349,12 +438,18 @@ export const ServerMessage = z.discriminatedUnion("type", [
   CatalogChanged,
   SkillsResult,
   SkillsChanged,
+  ...SpadeServerMessage.options,
+  SpadeMachinesResult,
+  SpadeRemoteResult,
+  SpadeComputerResult,
+  SpadeComputerDriveResult,
   ...AccountsResponse.options,
   ProviderAccountsResult,
   ...CursorAuthEvent.options,
   SearchQueryResponse,
   SearchStatusResponse,
   SearchErrorResponse,
+  MediaConnectResult,
   ...ScreenServerMessage.options,
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,

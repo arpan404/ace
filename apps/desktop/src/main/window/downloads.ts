@@ -24,13 +24,14 @@ export function installMainWindowDownloads(options: {
     "will-download",
     (_event: ElectronEvent, item: DownloadItem, webContents: WebContents) => {
       if (webContents !== options.contents) return;
+      // A dialog that fails leaves the download to Electron's own downloads folder.
       void (async () => {
         const chosen = await options.dialog.choosePath(
           join(options.downloadsDir, item.getFilename() || "download"),
         );
         if (!chosen || options.contents.isDestroyed()) item.cancel();
         else item.setSavePath(chosen);
-      })();
+      })().catch(() => {});
     },
   );
 }

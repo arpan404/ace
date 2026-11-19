@@ -1,11 +1,14 @@
+import { SuitCornerOrnaments } from "@/theme/suits/suit-ornament.tsx";
 import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
+import { ThreadPreviewProvider } from "@/lib/thread-preview.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
+import { UsageLink } from "@/components/usage-bars.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
-import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { Outlet, useParams, useRouter, useRouterState } from "@tanstack/react-router";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
 import {
   DeleteConfirmationHost,
@@ -19,18 +22,32 @@ import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
   OpenWorkWarmup,
+  ThreadHoverPreview,
   ThreadLeaveProvider,
   ThreadStepKeys,
   ThreadsSidebar,
   useSeenWhileOpen,
 } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
+import { MarketHost, MarketRailButton } from "@/features/marketplace/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
-import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
+import {
+  AppSidebar,
+  GlobalHotkeys,
+  SidebarFrame,
+  ShortcutHost,
+  PageOnScreenContext,
+  SpadePlace,
+} from "@/features/shell/index.ts";
+import type { SuitPage } from "@ace/protocol/suit-parts";
+import { pageForRoutes } from "./route-page.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
+import { AppliedSuitBackdrop, SuitLiveChecks, SuitScenesProvider } from "@/features/suits/index.ts";
+import { layoutAttributes } from "@/theme/suits/suit-layout.ts";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -38,18 +55,31 @@ const FloatingBrowsers = lazy(loadFloatingBrowsers);
 const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
 
 /**
- * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
+ * The frame (the window's top bar, the rail and the current place's panel, on the sidebar colour)
+ * and the selected view on its raised canvas.
  * `data-connection` carries the daemon connection's state. While the daemon is unreachable
- * (`data-live-held`, live-motion.ts) live spinners pause and dim, since nothing they stand for
- * can arrive (no layout changes); while it connects or starts they keep moving.
+ * (`data-live-held`, live-motion.ts) live indicators dim, since nothing they stand for can
+ * arrive (no layout changes); while it connects or starts they stay at full strength.
  */
 export function AppShell() {
   const shell = useRouteFocus();
+  // While a Suit's scene draws, the canvas lets it through (`canvas.ts`).
+  const [sceneShowing, setSceneShowing] = useState(false);
   useSeenWhileOpen();
   const connection = useConnectionState();
+  // A Suit's layout as attributes the shell's parts read (styles/suit-layout.css).
+  const layout = layoutAttributes(useSuitLayout());
+  // The page on screen as `data-page`, so a Suit can style any part on one page: the routed
+  // screen's own word for it (a chat), else its route's (route-page.ts).
+  const [shownPage, setShownPage] = useState<SuitPage | undefined>(undefined);
+  const routedPage = useRouterState({
+    select: (state) => pageForRoutes(state.matches.map((match) => match.routeId)),
+  });
   // The startup screen stays over the shell until its route has resolved and every view has
   // its first data, then cross-fades to it: boot never shows a skeleton.
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
+  // The thread on screen, whose run finishing a Suit's celebration may mark.
+  const openThreadId = useParams({ strict: false }).threadId;
   useDesktopUpdates();
   return (
     <TransferOpenerProvider>
@@ -57,72 +87,91 @@ export function AppShell() {
         <ProjectsHost>
           <SignInHost>
             <AddAccountHost>
-              <div
-                ref={shell}
-                data-connection={connection}
-                data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
-                className={cn(
-                  // Focus belongs to the inner panes; the shell must never become a scrollport.
-                  // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
-                  "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
-                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
-                )}
-              >
-                <a
-                  href="#main"
-                  // The desktop's macOS traffic lights cover the window's top-left corner.
-                  className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
-                >
-                  Skip to content
-                </a>
-                <SidebarFrame
-                  sidebar={
-                    <LocalBoundary label="the sidebar">
-                      <ShellSidebar />
+              <SuitScenesProvider openThreadId={openThreadId}>
+                <PageOnScreenContext value={setShownPage}>
+                  <div
+                    ref={shell}
+                    data-part="app"
+                    data-page={shownPage ?? routedPage}
+                    data-connection={connection}
+                    data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
+                    data-suit-scene={sceneShowing ? "" : undefined}
+                    {...layout}
+                    className={cn(
+                      // Focus belongs to the inner panes; the shell must never become a scrollport.
+                      // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
+                      // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
+                      // Under `data-live-held`, motion.css dims the live indicators.
+                      // `isolate`: a Suit's scene sits just over the frame colour, under everything else.
+                      "relative isolate flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
+                    )}
+                  >
+                    {/* A Suit's scene, behind the sidebar and the transcript. */}
+                    <AppliedSuitBackdrop onShowing={setSceneShowing} />
+                    {/* Answers an agent's live check of the Suit on screen. */}
+                    <SuitLiveChecks />
+                    <SuitCornerOrnaments />
+                    <a
+                      href="#main"
+                      // The desktop's macOS traffic lights cover the window's top-left corner.
+                      className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+                    >
+                      Skip to content
+                    </a>
+                    <SidebarFrame
+                      sidebar={
+                        <LocalBoundary label="the sidebar">
+                          <ShellSidebar />
+                        </LocalBoundary>
+                      }
+                    >
+                      <ThreadLeaveProvider>
+                        <ThreadPreviewProvider value={ThreadHoverPreview}>
+                          <PullRequestViewProvider value={PullRequestTab.Component}>
+                            <Outlet />
+                          </PullRequestViewProvider>
+                        </ThreadPreviewProvider>
+                      </ThreadLeaveProvider>
+                    </SidebarFrame>
+                    <LocalBoundary label="the command palette" fallback={null}>
+                      <CommandPalette />
                     </LocalBoundary>
-                  }
-                >
-                  <ThreadLeaveProvider>
-                    <PullRequestViewProvider value={PullRequestTab.Component}>
-                      <Outlet />
-                    </PullRequestViewProvider>
-                  </ThreadLeaveProvider>
-                </SidebarFrame>
-                <LocalBoundary label="the command palette" fallback={null}>
-                  <CommandPalette />
-                </LocalBoundary>
-                <LocalBoundary label="search" fallback={null}>
-                  <SearchHost />
-                </LocalBoundary>
-                <LocalBoundary label="the project picker" fallback={null}>
-                  <MoveToProjectHost />
-                </LocalBoundary>
-                <LocalBoundary label="the machine chooser" fallback={null}>
-                  <TransferHost />
-                </LocalBoundary>
-                <LocalBoundary label="the delete confirmation" fallback={null}>
-                  <DeleteConfirmationHost />
-                </LocalBoundary>
-                <LocalBoundary label="the shortcuts sheet" fallback={null}>
-                  <ShortcutHost />
-                </LocalBoundary>
-                <LocalBoundary label="keyboard shortcuts" fallback={null}>
-                  <ShellHotkeys />
-                  <ThreadStepKeys />
-                </LocalBoundary>
-                <LocalBoundary label="notifications" fallback={null}>
-                  <Notifier />
-                </LocalBoundary>
-                <LocalBoundary label="picture in picture" fallback={null}>
-                  <Suspense fallback={null}>
-                    <FloatingBrowsers />
-                  </Suspense>
-                </LocalBoundary>
-                <LocalBoundary label="open work" fallback={null}>
-                  <OpenWorkWarmup />
-                </LocalBoundary>
-              </div>
+                    <LocalBoundary label="search" fallback={null}>
+                      <SearchHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="the Marketplace" fallback={null}>
+                      <MarketHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="the project picker" fallback={null}>
+                      <MoveToProjectHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="the machine chooser" fallback={null}>
+                      <TransferHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="the delete confirmation" fallback={null}>
+                      <DeleteConfirmationHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="the shortcuts sheet" fallback={null}>
+                      <ShortcutHost />
+                    </LocalBoundary>
+                    <LocalBoundary label="keyboard shortcuts" fallback={null}>
+                      <ShellHotkeys />
+                      <ThreadStepKeys />
+                    </LocalBoundary>
+                    <LocalBoundary label="notifications" fallback={null}>
+                      <Notifier />
+                    </LocalBoundary>
+                    <LocalBoundary label="picture in picture" fallback={null}>
+                      <Suspense fallback={null}>
+                        <FloatingBrowsers />
+                      </Suspense>
+                    </LocalBoundary>
+                    <LocalBoundary label="open work" fallback={null}>
+                      <OpenWorkWarmup />
+                    </LocalBoundary>
+                  </div>
+                </PageOnScreenContext>
+              </SuitScenesProvider>
             </AddAccountHost>
           </SignInHost>
         </ProjectsHost>
@@ -134,17 +183,17 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar's GitHub button with its counts, loaded after the first paint. */
+/** Code review's place in the rail with its counts, loaded after the first paint. */
 const ForgeButtonWithCounts = deferredComponent(() =>
   import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
 
-/** The GitHub button beside Settings, lit while Inbox, Pull requests or Issues is open. */
+/** Code review in the rail, the current place while Inbox, Pull requests or Issues is open. */
 function ForgeNav(props: { forgeOpen: boolean }) {
   // Until its code (and the lists it reads) arrives, the button shows without counts.
   const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
   return (
-    <LocalBoundary label="GitHub button" fallback={plain}>
+    <LocalBoundary label="Code review button" fallback={plain}>
       <Suspense fallback={plain}>
         <ForgeButtonWithCounts.Component active={props.forgeOpen} />
       </Suspense>
@@ -153,9 +202,58 @@ function ForgeNav(props: { forgeOpen: boolean }) {
 }
 const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and the GitHub button. */
+/** Usage's place in the rail with its bars and card, loaded after the first paint. */
+const UsagePlaceLoaded = deferredComponent(() =>
+  import("@/features/usage/index.ts").then((m) => m.UsagePlace),
+);
+
+/** Usage in the rail's foot; until its code arrives, a plain link with empty bars. */
+function UsageNav(props: { current: boolean }) {
+  const plain = <UsageLink current={props.current} />;
+  return (
+    <LocalBoundary label="Usage button" fallback={plain}>
+      <Suspense fallback={plain}>
+        <UsagePlaceLoaded.Component current={props.current} />
+      </Suspense>
+    </LocalBoundary>
+  );
+}
+const usageNav = (current: boolean) => <UsageNav current={current} />;
+
+/** Spade's place in the rail with its needs-you dot, loaded after the first paint. */
+const SpadeRailPlaceLoaded = deferredComponent(() =>
+  import("@/features/spade/index.ts").then((m) => m.SpadeRailPlace),
+);
+
+/** Spade in the rail; until its code arrives, the plain mark. */
+function SpadeNav(props: { current: boolean; to: string; search: object }) {
+  const plain = <SpadePlace current={props.current} last={props} />;
+  return (
+    <LocalBoundary label="Spade button" fallback={plain}>
+      <Suspense fallback={plain}>
+        <SpadeRailPlaceLoaded.Component {...props} />
+      </Suspense>
+    </LocalBoundary>
+  );
+}
+const spadeNav = (current: boolean, to: string, search: object) => (
+  <SpadeNav current={current} to={to} search={search} />
+);
+
+/** The Marketplace in the rail: it opens its modal over the page. */
+const marketNav = <MarketRailButton />;
+
+/** The sidebar with what other slices own: the thread list, Code review's, Usage's and Spade's places. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} forge={forgeNav} />;
+  return (
+    <AppSidebar
+      threads={threads}
+      forge={forgeNav}
+      usage={usageNav}
+      spade={spadeNav}
+      market={marketNav}
+    />
+  );
 }
 
 function ShellHotkeys() {

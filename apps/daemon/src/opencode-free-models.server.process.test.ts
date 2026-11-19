@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { z } from "zod";
@@ -22,6 +22,9 @@ const zero = { input: 0, output: 0, cache: { read: 0, write: 0 } };
 async function setup(onTestFinished: (close: () => Promise<void>) => void, connections = "[]") {
   const home = await mkdtemp(join(tmpdir(), "ace-free-models-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
+  // The stub CLI starts with `#!/usr/bin/env node`. Bun's folder has no `node`, so this one
+  // names whichever runtime runs the tests (Bun acts as Node when started under that name).
+  await symlink(process.execPath, join(home, "node"));
   // Run the double in place: it imports the adapter's contract by relative path.
   const executable = fileURLToPath(
     new URL("../../../packages/adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
@@ -59,7 +62,7 @@ test("OpenCode lists and resolves free Zen models without auth, and reports read
   const { home, executable, env, catalog } = await setup(onTestFinished);
   const statuses = new ProviderStatuses(
     {
-      env: { ...env, PATH: `${home}:${dirname(process.execPath)}` },
+      env: { ...env, PATH: home },
       overrides: { opencode: executable },
       modelsAvailable: () => hasUnauthenticatedOpenCodeModels(catalog),
     },

@@ -1,11 +1,6 @@
 import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import {
-  EyeSlashIcon,
-  GlobeSimpleIcon,
-  SpeakerHighIcon,
-  SpeakerSlashIcon,
-} from "@phosphor-icons/react";
+import { EyeSlashIcon, GlobeSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { useCallback, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -57,7 +52,7 @@ export function BrowserTabMark(props: { scope: string; tab: WorkspaceTab; classN
         <span
           role="img"
           aria-label={`${worker} is using this tab`}
-          // The tab's title sweeps like a live step's words while the agent drives (motion.css).
+          // The tab's title reads in foreground ink while the agent drives (motion.css).
           data-agent-driving=""
           className={box}
         >

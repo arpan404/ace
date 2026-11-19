@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as Database } from "@ace/provider-kit/sqlite";
 import type { UsageUpdated } from "@ace/protocol";
+import type { UsageEvent } from "./events.ts";
 
 export { UsageSessionTotal as SessionTotal } from "@ace/protocol";
 import {
@@ -8,6 +10,7 @@ import {
   UsageSessionTotalsQuery as SessionTotalsRequest,
 } from "@ace/protocol";
 export { SessionTotalPage, SessionTotalsRequest };
+const ColumnInfo = z.object({ name: z.string() });
 /** Inclusive estimates retain inherited baselines without contributing to agent/day rollups. */
 export class SessionTotals {
   private readonly upsert;
@@ -22,7 +25,7 @@ export class SessionTotals {
       CREATE INDEX IF NOT EXISTS usage_session_thread ON usage_session_totals(thread, at);`);
     if (
       ![...db.prepare("PRAGMA table_info(usage_session_totals)").iterate()].some(
-        (row) => z.object({ name: z.string() }).parse(row).name === "write1h",
+        (row) => ColumnInfo.parse(row).name === "write1h",
       )
     )
       db.exec("ALTER TABLE usage_session_totals ADD COLUMN write1h INTEGER NOT NULL DEFAULT 0");
@@ -63,5 +66,36 @@ export class SessionTotals {
   }
   delete(thread: string): void {
     this.remove.run(thread);
+  }
+}
+
+/**
+ * One thread's inclusive totals folded from its own compact samples, by the rule the projection
+ * keeps (`observe` per sample, then `list`), in a database that lives for this fold. Samples are
+ * added a slice at a time, so the caller can yield between slices and nothing holds the whole
+ * thread; it writes nothing, so it can answer while the replay is behind. Close it when done.
+ */
+export class SessionTotalsFold {
+  private readonly db = new Database(":memory:");
+  private readonly totals: SessionTotals;
+  private readonly request: z.infer<typeof SessionTotalsRequest>;
+  constructor(query: unknown) {
+    this.request = SessionTotalsRequest.parse(query);
+    this.totals = new SessionTotals(this.db);
+  }
+  add(events: Iterable<UsageEvent>): void {
+    for (const { threadId, at, payload } of events)
+      if (
+        threadId === this.request.thread &&
+        payload.type === "usage.updated" &&
+        (payload.usageScope === "provider_session" || payload.usageScope === "model_session")
+      )
+        this.totals.observe(threadId, at, payload);
+  }
+  list() {
+    return this.totals.list(this.request);
+  }
+  close(): void {
+    this.db.close();
   }
 }

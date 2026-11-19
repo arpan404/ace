@@ -2,7 +2,7 @@ import { accountName, providerDisplayName } from "@ace/ui-core";
 import { blockedUntil } from "@ace/accounts/availability";
 import type { AccountSummary } from "@ace/protocol/accounts";
 import type { Fact } from "@ace/core";
-import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
+import { CommandId, QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
@@ -19,7 +19,7 @@ import type { FakeQueued, ThreadHost } from "./thread-host.ts";
  * facts to apply and marks the queue dirty so the daemon publishes `queue.updated`.
  */
 
-type QueueCommand = Extract<
+export type QueueCommand = Extract<
   CommandPayload,
   {
     type:
@@ -51,6 +51,10 @@ export function isQueueCommand(payload: CommandPayload): payload is QueueCommand
 
 const fail = (error: string): ThreadCommandOutcome => ({ ok: false, error });
 
+/** ace's input when a turn resumes after a usage limit, as the daemon words it. */
+const limitResumeText =
+  "ace is resuming after a provider usage limit. Continue the interrupted task from native history.";
+
 function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null) {
   host.queue.paused = true;
   host.queue.reason = reason;
@@ -61,8 +65,7 @@ function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null)
 type FakeQueuedHold = NonNullable<ThreadHost["queue"]["reason"]>;
 
 function limitedUntil(host: ThreadHost): number | undefined {
-  const status = host.view.thread.status;
-  return status.state === "limited" ? status.until : undefined;
+  return host.state.agents[host.state.rootKey ?? "root"]?.limited?.until;
 }
 
 export function queueCommand(
@@ -77,6 +80,17 @@ export function queueCommand(
     "messageId" in payload ? host.queued.findIndex((m) => m.key === payload.messageId) : -1;
   const message = index >= 0 ? host.queued[index] : undefined;
   if ("messageId" in payload && !message) return fail("message_already_claimed");
+  // As the daemon: removing or editing the message a failed send kept at the head releases the
+  // hold, so the head (edited, or the one behind it) is tried in order.
+  const releasesHold =
+    index === 0 &&
+    host.queue.paused &&
+    (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable");
+  const release = () => {
+    host.queue.paused = false;
+    host.queue.reason = null;
+    host.queue.lastFailure = null;
+  };
   switch (payload.type) {
     case "queue.resend": {
       if (!message || message.state !== "uncertain") return fail("message_not_uncertain");
@@ -120,6 +134,7 @@ export function queueCommand(
       }
       host.queued[index] = edited;
       host.queueDirty = true;
+      if (releasesHold) release();
       return { ok: true, facts: [] };
     }
     case "queue.move": {
@@ -136,16 +151,7 @@ export function queueCommand(
     case "queue.remove":
       host.queued.splice(index, 1);
       host.queueDirty = true;
-      // As the daemon: removing the last message a failed send kept releases that hold.
-      if (
-        host.queue.paused &&
-        (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable") &&
-        host.queued.length === 0
-      ) {
-        host.queue.paused = false;
-        host.queue.reason = null;
-        host.queue.lastFailure = null;
-      }
+      if (releasesHold) release();
       return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
     case "queue.pause":
       hold(host, "manual", null);
@@ -165,6 +171,96 @@ export function queueCommand(
           return fail("reset_time_unknown");
         hold(host, payload.action === "resume_at_reset" ? "limit" : "snooze", reset);
         return { ok: true, facts: [] };
+      }
+      if (payload.action === "cancel_resume") {
+        // As the daemon: back to the plain limit, nothing sent at the reset.
+        if (!host.queue.paused || host.queue.reason !== "limit" || host.queue.resumeAt === null)
+          return fail("no_scheduled_resume");
+        hold(host, "limit", null);
+        return { ok: true, facts: [] };
+      }
+      if (payload.action === "switch") {
+        const to = payload.selection;
+        const root = host.state.rootKey;
+        if (!to) return fail("switch_selection_required");
+        // The daemon publishes the switch; another provider gets the conversation as a context
+        // handoff (its marker is the transcript's usual "Context handoff" row), then the held
+        // turn carries on there with ace's continue.
+        const from = {
+          provider: host.view.thread.provider,
+          ...(host.view.thread.live?.model ? { model: host.view.thread.live.model } : {}),
+        };
+        const toSide = { provider: to.provider, ...(to.model ? { model: to.model } : {}) };
+        // A turn the limit held mid-run ended there, as the daemon's provider reports it.
+        const paused: Fact[] =
+          root !== undefined && host.state.agents[root]?.activeRun
+            ? [
+                {
+                  type: "turn.ended",
+                  agent: root,
+                  outcome: "failed",
+                  error: { kind: "quota", message: "Usage limit reached" },
+                },
+              ]
+            : [];
+        const handoff: Fact[] =
+          root === undefined || to.provider === from.provider
+            ? []
+            : [
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `handoff:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [
+                      {
+                        type: "text",
+                        text: `<ace_context_handoff source_thread="${host.id}">\nContext handoff.\n</ace_context_handoff>`,
+                      },
+                    ],
+                    origin: {
+                      kind: "handoff",
+                      commandId: CommandId.parse(commandId),
+                      from,
+                      to: toSide,
+                      sources: [from],
+                      lossy: true,
+                    },
+                  },
+                },
+              ];
+        const resumed: Fact[] =
+          root === undefined
+            ? []
+            : [
+                // As the daemon: the resumed run is ace's, started after the limit.
+                {
+                  type: "turn.started",
+                  agent: root,
+                  nativeTurnId: `turn-${commandId}`,
+                  trigger: "limit_resume",
+                },
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `input:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [{ type: "text", text: limitResumeText }],
+                    origin: { kind: "limit_resume", commandId: CommandId.parse(commandId) },
+                  },
+                },
+              ];
+        // The paused turn's end, then the switch's commit with its handoff, then the turn once
+        // its session opens: each a moment after the one before, as in the daemon.
+        return { ok: true, facts: [...paused, ...releaseHold(host)], after: [handoff, resumed] };
       }
       if (payload.action === "migrate_now") {
         const root = host.state.rootKey;
@@ -193,7 +289,8 @@ export function queueCommand(
 
 /** A rate limit holds the queue until the person chooses what to do. */
 export function holdOnLimit(host: ThreadHost): void {
-  if (host.view.thread.status.state === "limited" && !host.queue.paused) hold(host, "limit", null);
+  if (host.state.agents[host.state.rootKey ?? "root"]?.limited && !host.queue.paused)
+    hold(host, "limit", null);
 }
 
 /** One `queue.get` page: up to `limit` messages after `after`, oldest first. */
@@ -228,6 +325,7 @@ export function queuePage(
             context: m.context,
             delivery: m.delivery,
             state: m.state,
+            fellBack: m.fellBack,
             requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
           }
         : {
@@ -235,6 +333,7 @@ export function queuePage(
             input: m.input,
             delivery: m.delivery,
             state: m.state,
+            fellBack: m.fellBack,
             requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
           },
     ),

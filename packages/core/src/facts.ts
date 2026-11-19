@@ -3,6 +3,7 @@ import type {
   UsageMetadata,
   AgentActivity,
   AgentFidelity,
+  AgentMachine,
   AgentOrigin,
   AgentStatus,
   BackgroundTask,
@@ -86,6 +87,8 @@ export type Fact =
       role?: string;
       model?: string;
       background?: boolean;
+      /** A delegated child on another paired machine: where it runs. */
+      machine?: AgentMachine;
     }
   | {
       type: "agent.linked";
@@ -167,8 +170,14 @@ export type Fact =
       internal?: true;
       stoppable: boolean;
       outputPath?: string;
+      /** The provider never resumes the agent when this task ends (ADR 0109). */
+      wakesAgent?: false;
+      /** The provider takes no new prompt while it runs (ADR 0116). */
+      blocksPrompts?: true;
       raw?: RawPayload[];
     }
+  /** The ports a running task's processes listen on now; empty when none (ADR 0109). */
+  | { type: "background.listening"; task: Key; ports: number[] }
   | {
       type: "background.ended";
       task: Key;
@@ -221,7 +230,14 @@ export type Fact =
        * the person's Try again, Edit or Remove, not for the agent. Engine source only.
        */
       held?: boolean;
+      /**
+       * The engine's queue is paused by a Stop: its retained input sends only when the person
+       * resumes it, so nothing is waiting to send by itself (ADR 0052). Engine source only.
+       */
+      stopped?: boolean;
     }
+  /** The thread's work moved to another machine (ADR 0191); null when it runs here again. */
+  | { type: "thread.moved"; to: Extract<ThreadStatus, { state: "moved" }>["to"] | null }
   | { type: "tick" };
 
 export type AgentSeenFact = Extract<Fact, { type: "agent.seen" }>;

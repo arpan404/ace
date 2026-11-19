@@ -3,7 +3,9 @@ import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { machineWhere } from "@/boot/main-machine.ts";
 import { DaemonForm } from "@/features/connect/index.ts";
+import { settingRow } from "./settings-index.ts";
 
 const stateLabels = {
   connecting: "Connecting",
@@ -14,18 +16,10 @@ const stateLabels = {
   fatal: "Disconnected",
 } as const;
 
-/** The address without its scheme or path: what the person typed when they connected. */
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
-}
-
 /**
- * Which computer this window talks to, and a way to point it elsewhere. It belongs to this
- * device: another window may use another computer. Diagnostics live under Advanced.
+ * Settings › Fleet › In this window: which computer this window talks to, and a way to point it
+ * elsewhere. It belongs to this window, not a machine: another window may use another computer.
+ * Diagnostics live under Advanced.
  */
 export function DaemonSettings() {
   const connection = useDaemonConnection();
@@ -33,12 +27,11 @@ export function DaemonSettings() {
   const [editing, setEditing] = useState(false);
   const fake = connection.mode === "fake";
   return (
-    <SettingSection label="Connection" scope="device">
+    <SettingSection label="In this window" scope="device">
       <SettingRow
-        id="daemon.connection"
-        title="Computer connection"
+        {...settingRow("daemon.connection")}
         description={
-          fake ? "Demo data in this page" : `${stateLabels[state]} · ${hostOf(connection.url)}`
+          fake ? "Demo data in this page" : `${stateLabels[state]} · ${machineWhere(connection)}`
         }
       >
         {!fake && (

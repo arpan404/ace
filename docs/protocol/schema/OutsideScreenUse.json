@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideScreenUse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "apps": {
+      "items": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "grantId": {
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "grantId",
+    "name",
+    "apps"
+  ],
+  "type": "object"
+}

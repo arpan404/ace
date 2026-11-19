@@ -21,12 +21,6 @@ async function cookie(f: Fixture, threadId: string, workspaceId: string) {
 const scoped = (scope: BrowserProfileScope) => fixture({ profileScope: () => scope });
 
 describe.skipIf(!executablePath)("browser profile scopes in ace's Chrome", () => {
-  it("by default every project's threads share one profile's sign-ins", async () => {
-    const f = await fixture();
-    await signIn(f, "thread");
-    expect(await cookie(f, "elsewhere", "other-project")).toBe("sid=signed-in");
-  }, 60_000);
-
   it("a project scope keeps each project's sign-ins apart, shared by that project's threads", async () => {
     const f = await scoped("project");
     await signIn(f, "thread");

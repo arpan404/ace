@@ -24,7 +24,6 @@ struct DeviceScreen: View {
     /// Opened on its own (from a transcript step): leaving closes the Devices view too.
     var closesView = false
     @Environment(\.scenePhase) private var scene
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var typing = false
     @State private var text = ""
     @State private var sheet: DeviceSheet?
@@ -35,6 +34,9 @@ struct DeviceScreen: View {
     @State private var seen: Int?
     @State private var autoStarted = false
     @State private var handle = DeviceSurfaceHandle()
+    /// This phone's viewing choices: the screen without its drawn hardware, and the stream's stats.
+    @AppStorage("ace.devices.screenOnly") private var screenOnly = false
+    @AppStorage("ace.devices.streamStats") private var showStats = false
     @FocusState private var fieldFocused: Bool
     private var devices: DevicesModel { model.devices }
     private var info: DeviceScreenInfo? { devices.view?.device.flatMap { $0.id == deviceId ? $0 : nil } }
@@ -43,7 +45,7 @@ struct DeviceScreen: View {
     var body: some View {
         stage
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background.ignoresSafeArea())
             .threadTitle(info?.name ?? name, subtitle: info?.subtitle ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -54,6 +56,12 @@ struct DeviceScreen: View {
             .task(id: info?.live == true && scene == .active) {
                 if info?.live == true, scene == .active { await devices.watchPictures(model, deviceId: deviceId) }
             }
+            .task(id: showStats && info?.live == true && scene == .active) {
+                guard showStats, info?.live == true, scene == .active else { return }
+                await sampleStats()
+            }
+            .animation(.default, value: screenOnly)
+            .animation(.default, value: showStats)
             .onChange(of: info?.running == true && info?.live == false && info?.busy == false) { _, idle in autoStart(idle) }
             .onChange(of: info?.activity?.sequence) { _, _ in showActivity() }
             .onAppear { seen = info?.activity?.sequence }
@@ -77,16 +85,18 @@ struct DeviceScreen: View {
             if let info {
                 let size = screenSize ?? CGSize(width: info.screen.width, height: info.screen.height)
                 let geometry = size.width > size.height ? info.frame.landscape : info.frame.portrait
-                let room = CGSize(width: proxy.size.width - AceTheme.Spacing.xxl * 2, height: proxy.size.height - AceTheme.Spacing.lg * 2)
+                let room = CGSize(width: proxy.size.width - AceDesign.Space.group * 2, height: proxy.size.height - AceDesign.Space.margin * 2)
                 // The body's turn, as `bodyTurn` (@ace/ui-core) reads it for a Simulator: the
                 // picture's own rotation, else a landscape picture means turned to the right.
                 let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
                 Group {
-                    if info.framed == true {
+                    if info.framed == true || screenOnly {
                         // The picture wears the device's own bezel: one frame, not two.
                         stageScreen(info, size: size)
                             .aspectRatio(size, contentMode: .fit)
+                            .clipShape(screenOnly && info.framed != true ? AceDesign.Shape.block : AnyShape(Rectangle()))
                             .frame(maxWidth: room.width, maxHeight: room.height)
+                            .transition(.opacity)
                     } else if let look = chromeLook(info, picture: size) {
                         DeviceChromeFrameView(look: look, turn: turn, room: room, enabled: canDrive, press: { key($0) }) {
                             stageScreen(info, size: size)
@@ -98,8 +108,11 @@ struct DeviceScreen: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    if showStats, info.live { StreamStatsCard(stats: devices.stats?.deviceId == deviceId ? devices.stats : nil).transition(.opacity) }
+                }
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel("Loading \(name)")
+                SkeletonPage(label: "Loading \(name)")
             }
         }
     }
@@ -107,10 +120,12 @@ struct DeviceScreen: View {
     /// The live picture (or what the device is doing) inside whichever frame draws it.
     @ViewBuilder private func stageScreen(_ info: DeviceScreenInfo, size: CGSize) -> some View {
         ZStack {
+            // The device's own screen, dark whatever the app's scheme: content, not chrome.
             Color.black
             if info.live {
-                DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
+                DeviceSurface(next: { devices.live.nextPicture() }, poster: { devices.live.nextPoster() }, interactive: canDrive, handle: handle,
+                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 },
+                              sampler: devices.live.sampler) { from, to in
                     devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
                 }
                 ripple(size)
@@ -118,7 +133,7 @@ struct DeviceScreen: View {
                 idle(info)
             }
         }
-        .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
+        .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceDesign.Space.group) }
     }
 
     /// The device's real look, when the bridge sent one and its screen is the picture's shape.
@@ -133,13 +148,13 @@ struct DeviceScreen: View {
 
     /// Over the dark screen when it isn't streaming: what the device is doing, and the next step.
     @ViewBuilder private func idle(_ info: DeviceScreenInfo) -> some View {
-        VStack(spacing: AceTheme.Spacing.md) {
+        VStack(spacing: AceDesign.Space.row) {
             if let problem = info.problem ?? devices.problem, problem.permission != nil {
                 Text(problem.message).multilineTextAlignment(.center)
                 idleButton("Open settings") { operate(["op": "permissions.request", "permission": problem.permission ?? ""], device: false) }
                 idleButton("Try again") { operate(["op": "start", "fps": 60]) }
             } else if info.busy {
-                ProgressView().tint(.white)
+                WorkingMark()
                 Text(info.where)
             } else if info.cleanupRequired {
                 Text("The live view didn't stop cleanly.")
@@ -152,13 +167,14 @@ struct DeviceScreen: View {
                 idleButton("Boot") { boot() }
             }
         }
-        .aceFont(AceTheme.Typography.body, relativeTo: .body)
-        .foregroundStyle(Color.white.opacity(0.8))
-        .padding(AceTheme.Spacing.lg)
+        .aceFont(AceDesign.TextRole.rowTitle)
+        .foregroundStyle(AceDesign.Ink.muted)
+        .padding(AceDesign.Space.margin)
+        // Words over the device's dark screen take the dark scheme's ink.
+        .environment(\.colorScheme, .dark)
     }
     private func idleButton(_ title: String, run: @escaping () -> Void) -> some View {
-        Button(title, action: run).buttonStyle(.borderless)
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).foregroundStyle(.white)
+        Button(title, action: run).buttonStyle(.secondaryAction)
             .disabled(!model.canOperate || devices.busy)
     }
 
@@ -166,9 +182,8 @@ struct DeviceScreen: View {
     @ViewBuilder private func ripple(_ size: CGSize) -> some View {
         if let caption, let x = caption.x, let y = caption.y, size.width > 0, size.height > 0 {
             GeometryReader { proxy in
-                Circle().strokeBorder(AceTheme.Status.working, lineWidth: 2)
-                    .background(Circle().fill(AceTheme.Status.working.opacity(0.2)))
-                    .frame(width: 44, height: 44)
+                Circle().strokeBorder(AceDesign.Status.working, lineWidth: AceDesign.Size.ring)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .position(x: proxy.size.width * min(max(x / size.width, 0), 1), y: proxy.size.height * min(max(y / size.height, 0), 1))
             }
             .allowsHitTesting(false)
@@ -178,14 +193,14 @@ struct DeviceScreen: View {
 
     @ViewBuilder private var activityCaption: some View {
         if let caption {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                if !caption.provider.isEmpty { ProviderMark(provider: caption.provider, size: 13) }
+            HStack(spacing: AceDesign.Space.tight) {
+                if !caption.provider.isEmpty { ProviderMark(provider: caption.provider, size: AceDesign.Size.icon) }
                 Text(caption.caption).lineLimit(1)
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-            .aceGlass(in: AceShape.capsule)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.primary)
+            .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
+            .aceGlass(in: AceDesign.Shape.control)
             .transition(.opacity)
             .accessibilityLabel("Agent action: \(caption.caption)")
             .accessibilityIdentifier("devices.activity")
@@ -195,11 +210,11 @@ struct DeviceScreen: View {
     private func showActivity() {
         guard let activity = info?.activity, activity.sequence != seen else { return }
         seen = activity.sequence
-        withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { caption = activity }
+        withAnimation { caption = activity }
         Task {
             try? await Task.sleep(for: .seconds(2))
             if caption?.sequence == activity.sequence {
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.exitCurve) { caption = nil }
+                withAnimation { caption = nil }
             }
         }
     }
@@ -211,42 +226,49 @@ struct DeviceScreen: View {
     @ViewBuilder private var strip: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             if typing, canDrive {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     TextField("Type on the device", text: $text)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .focused($fieldFocused).submitLabel(.send).onSubmit(type)
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: AceShape.capsule)
-                .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
+                .aceGlass(in: AceDesign.Shape.control)
+                .padding(.horizontal, AceDesign.Space.row).padding(.bottom, AceDesign.Space.tight)
                 .accessibilityIdentifier("devices.keyboard")
             }
             // What went wrong with the last request, in the device's words, until the next one.
             if let problem = devices.problem, problem.permission == nil || info?.live == true {
                 Text(problem.text)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.xs)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                     .accessibilityIdentifier("devices.problem")
             }
+            if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
+                Text(degraded)
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+                    .accessibilityIdentifier("devices.degraded")
+            }
             if let info, !info.control.sentence.isEmpty {
-                HStack(spacing: AceTheme.Spacing.md) {
+                // Who controls it: one sentence and its one word, as a request strip reads.
+                HStack(spacing: AceDesign.Space.row) {
                     Text(info.control.sentence)
-                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                        .aceFont(AceDesign.TextRole.action)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if model.canOperate, let title = controlTitle(info.control.action) {
                         Button(title) { Task { await control(info.control) } }
-                            .buttonStyle(.borderless)
-                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .foregroundStyle(AceTheme.Colours.foreground).fontWeight(.semibold)
+                            .buttonStyle(.textAction(.prominent))
                             .disabled(devices.busy || model.connection != "ready")
                             .accessibilityIdentifier("devices.control")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.xl).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("devices.strip")
             }
@@ -290,9 +312,29 @@ struct DeviceScreen: View {
             }
             .disabled(!canDrive).accessibilityIdentifier("devices.type")
             DeviceMenu(info: info, canOperate: model.canOperate && model.connection == "ready", canDrive: canDrive, busy: devices.busy,
+                       screenOnly: $screenOnly, showStats: $showStats,
                        open: { sheet = $0 }, key: key, operate: { operate($0) }, boot: boot,
                        screenshot: { if let image = handle.snapshot() { sheet = .screenshot(image) } },
                        shutdown: { confirmShutdown = true })
+        }
+    }
+
+    /// While the stats show: about once a second, what the stream did goes to the bridge to be
+    /// worded; leaving stops the counting and forgets the stats.
+    private func sampleStats() async {
+        let sampler = devices.live.sampler
+        sampler.enabled = true
+        defer {
+            sampler.enabled = false
+            devices.stats = nil
+            model.action(["type": "native.devices.stats", "deviceId": deviceId, "stop": true, "now": Date().timeIntervalSince1970 * 1000])
+        }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(1))
+            if Task.isCancelled { return }
+            let (batch, now) = sampler.drain()
+            model.action(["type": "native.devices.stats", "deviceId": deviceId, "now": now,
+                          "drawn": batch.drawn, "received": batch.received, "keyframes": batch.keyframes])
         }
     }
 

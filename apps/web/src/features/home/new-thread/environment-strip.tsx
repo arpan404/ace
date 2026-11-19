@@ -1,6 +1,6 @@
 import type { WorktreeBase } from "@ace/protocol";
 import { baseName } from "@ace/ui-core";
-import { CaretDownIcon, GitBranchIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, GitBranchIcon } from "@ace/icons";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -11,6 +11,7 @@ import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
 import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const divider = <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />;
 
@@ -26,6 +27,11 @@ export function NewThreadEnvironment(props: {
   onMode(mode: WorkMode): void;
   /** Why this project can't have a worktree ("Not a Git repository"), when it can't. */
   noWorktree?: string | undefined;
+  /**
+   * The machine the project is copied from on send, when this one doesn't have it yet: its
+   * branches aren't here to choose from, so it starts from the default branch.
+   */
+  copyFrom?: string | undefined;
   branches: BaseRefs;
   base: WorktreeBase | undefined;
   onBase(base: WorktreeBase): void;
@@ -73,13 +79,20 @@ export function NewThreadEnvironment(props: {
               />
             </label>
           </Tip>
-          {worktree && (
+          {props.copyFrom !== undefined && (
+            <>
+              {divider}
+              <span className="min-w-0 truncate px-2">Copied from {props.copyFrom} when sent</span>
+            </>
+          )}
+          {worktree && props.copyFrom === undefined && (
             <>
               {divider}
               <Popover open={choosing} onOpenChange={setChoosing}>
                 <Tip label="The branch it starts from" side="top">
                   <PopoverTrigger
                     aria-label={`Start from: ${base}`}
+                    {...part("select", undefined, "branch")}
                     className={cn(composerStrip, "max-w-48 text-foreground")}
                   >
                     <GitBranchIcon

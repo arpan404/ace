@@ -58,6 +58,18 @@ describe("app shortcuts while an embedded page has focus", () => {
     expect(forwarded(press("k", "KeyK", { control: true }), "darwin")).toEqual([]);
   });
 
+  it("forwards the keys the app binds on Windows and Linux where they differ from the Mac's", () => {
+    // The side panel is Ctrl+Alt+B there (Ctrl+Shift+B is the Browser).
+    expect(forwarded(press("b", "KeyB", { control: true, alt: true }), "win32")).toEqual([
+      { type: "keyDown", keyCode: "B", modifiers: ["control", "alt"] },
+      { type: "keyUp", keyCode: "B", modifiers: ["control", "alt"] },
+    ]);
+    // Ubuntu keeps Ctrl+Alt+T for a terminal, so New tab adds Shift.
+    const newTab = press("T", "KeyT", { control: true, alt: true, shift: true });
+    expect(forwarded(newTab, "linux")).toHaveLength(2);
+    expect(forwarded(press("t", "KeyT", { control: true, alt: true }), "linux")).toEqual([]);
+  });
+
   it("leaves typing and the page's own shortcuts to the page", () => {
     for (const input of [
       press("k", "KeyK"),

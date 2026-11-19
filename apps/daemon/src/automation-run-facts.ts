@@ -1,3 +1,4 @@
+import { holdsThread } from "@ace/core";
 import { isAgentProse } from "@ace/projection";
 import { Run, type ThreadId } from "@ace/protocol";
 import { z } from "zod";
@@ -119,7 +120,7 @@ export function activeRootRun(
 
 /** Native work the turn began in its own thread that is still open. */
 export interface TurnWork {
-  /** Running background tasks that hold the thread open (never ambient helpers). */
+  /** Running background tasks that hold the thread open (`holdsThread`, ADR 0109). */
   tasks: { id: string; stoppable: boolean }[];
   /** Runs of the thread's other agents (native subagents) still going. */
   agentRuns: { agentId: string; runId: string }[];
@@ -138,6 +139,9 @@ const TaskValue = z.object({
   status: z.string(),
   ambient: z.boolean().optional(),
   stoppable: z.boolean().optional(),
+  kind: z.enum(["shell", "monitor", "subagent", "other"]).catch("other"),
+  internal: z.literal(true).optional(),
+  blocksPrompts: z.literal(true).optional(),
 });
 const RunValue = z.object({ agentId: z.string(), state: z.string() });
 const OwnedValue = z.object({ agentId: z.string() });
@@ -200,16 +204,33 @@ export function readTurnWork(
         }));
     const ours = (agentId: string, seq: number) =>
       owned.has(agentId) || (agentId === rootAgentId && inTurn(seq));
+    const runs = open("runs");
+    // Each agent's latest run: commands it left running after a turn that completed are over
+    // for the run, as for the thread (ADR 0116).
+    const latest = new Map<string, { seq: number; state: string }>();
+    for (const { value, seq } of runs) {
+      const run = RunValue.safeParse(value);
+      if (!run.success) continue;
+      const prior = latest.get(run.data.agentId);
+      if (!prior || seq > prior.seq) latest.set(run.data.agentId, { seq, state: run.data.state });
+    }
     const tasks = open("backgroundTasks").flatMap(({ id, value, seq }) => {
       const task = TaskValue.safeParse(value);
-      return task.success &&
-        task.data.status === "running" &&
-        !task.data.ambient &&
-        ours(task.data.agentId, seq)
-        ? [{ id, stoppable: task.data.stoppable === true }]
-        : [];
+      if (!task.success || task.data.status !== "running") return [];
+      const { ambient = false, kind, internal, blocksPrompts, agentId } = task.data;
+      const holds = holdsThread(
+        {
+          ambient,
+          kind,
+          ...(internal ? { internal } : {}),
+          ...(blocksPrompts ? { blocksPrompts } : {}),
+        },
+        latest.get(agentId)?.state === "completed" &&
+          (rootAgentId === undefined || latest.get(rootAgentId)?.state === "completed"),
+      );
+      return holds && ours(agentId, seq) ? [{ id, stoppable: task.data.stoppable === true }] : [];
     });
-    const agentRuns = open("runs").flatMap(({ id, value }) => {
+    const agentRuns = runs.flatMap(({ id, value }) => {
       const run = RunValue.safeParse(value);
       return run.success && run.data.state === "active" && owned.has(run.data.agentId)
         ? [{ agentId: run.data.agentId, runId: id }]

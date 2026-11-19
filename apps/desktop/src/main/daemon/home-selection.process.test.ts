@@ -15,7 +15,7 @@ import { HOME_FORMAT_FILE, prepareDaemonHome, resolveDaemonHome } from "@ace/ser
 import type { LogData } from "../log/desktop-log.ts";
 import { cliShimMarker } from "../os/cli-shim.ts";
 import { installCliShim } from "../os/cli-shim-install.ts";
-import { checkUserData, desktopUserData, legacyFolders } from "../user-data.ts";
+import { desktopUserData } from "../user-data.ts";
 import { logFreshStart } from "./fresh-start-log.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
 
@@ -147,9 +147,5 @@ describe("the desktop's daemon home and data folder", () => {
 
     expect(await readdir(user)).toEqual([".ace"]);
     expect(await readFile(join(home, HOME_FORMAT_FILE), "utf8")).toBe(marker);
-    const data = desktopUserData({ explicit: undefined, appData: appData() });
-    expect(checkUserData(data, legacyFolders({ appData: appData(), homedir: user }))).toBe(
-      undefined,
-    );
   });
 });

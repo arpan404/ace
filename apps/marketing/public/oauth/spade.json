@@ -1,0 +1,11 @@
+{
+  "client_id": "https://acehq.dev/oauth/spade.json",
+  "client_name": "Spade",
+  "client_uri": "https://acehq.dev",
+  "logo_uri": "https://acehq.dev/icon-192.png",
+  "redirect_uris": ["http://127.0.0.1/v1/connectors/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

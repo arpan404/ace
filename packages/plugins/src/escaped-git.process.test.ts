@@ -169,3 +169,144 @@ if (process.argv.includes('init')) {
     }
   },
 );
+
+import { windowsGitStandIn, windowsProcessGone } from "./test-support.ts";
+
+// Windows counterparts: Git runs as a Node stand-in through the real Windows Git spawn, and the
+// helper's pid must be gone once the operation settles.
+const onWindows = process.platform === "win32";
+test.runIf(onWindows).each([
+  ["timeout", "stderr", "."],
+  ["normal exit", "stderr", "."],
+  ["timeout", "stderr", "private/nested"],
+  ["normal exit", "stderr", "private/nested"],
+  ["timeout", "stdout", "."],
+  ["normal exit", "stdout", "."],
+  ["timeout", "stdout", "private/nested"],
+  ["normal exit", "stdout", "private/nested"],
+] as const)(
+  "on Windows a detached Git helper ends after %s while holding %s in %s",
+  async (mode, pipe, directory) => {
+    const f = await fixture();
+    let manager: PluginManager | undefined;
+    let pid: number | undefined;
+    const pidFile = join(f.root, "escaped-pid");
+    try {
+      const script = join(f.root, "escaped.cjs");
+      await writeFile(
+        script,
+        `require('node:fs').mkdirSync(${JSON.stringify(directory)}, { recursive: true });
+process.chdir(${JSON.stringify(directory)}); process.send(process.pid); setInterval(() => {}, 1000);`,
+      );
+      const standIn = await windowsGitStandIn(
+        f.root,
+        "git-standin",
+        `const { spawn } = require('node:child_process');
+const child = spawn(process.execPath, [${JSON.stringify(script)}], { detached: true, stdio: ['ignore', '${pipe === "stdout" ? "inherit" : "ignore"}', '${pipe === "stderr" ? "inherit" : "ignore"}', 'ipc'] });
+child.once('message', (pid) => { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(pid)); process.stdout.write('helper ready', () => { process.stdout.end(); child.disconnect(); child.unref(); ${mode === "normal exit" ? "process.exit(1);" : ""} }); });`,
+      );
+      const runtime = gitRuntime();
+      const ready = Promise.withResolvers<void>();
+      let expire: (() => void) | undefined;
+      const draining = Promise.withResolvers<() => void>();
+      manager = await PluginManager.open({
+        root: join(f.root, "manager"),
+        now: () => 0,
+        id: () => "escaped",
+        git: {
+          ...runtime,
+          spawn(options) {
+            const child = runtime.spawn({
+              ...standIn(options),
+              scheduleDrain(callback) {
+                draining.resolve(callback);
+                return () => {};
+              },
+            });
+            child.stdout.once("data", () => ready.resolve());
+            return child;
+          },
+          schedule(callback) {
+            expire = callback;
+            return () => {};
+          },
+        },
+      });
+      const preparing = manager.prepare({ repository: f.repo, ref: "main", name: "sample" });
+      const rejection = expect(preparing).rejects.toThrow();
+      await ready.promise;
+      pid = z.coerce
+        .number()
+        .int()
+        .positive()
+        .parse(await readFile(pidFile, "utf8"));
+      if (mode === "timeout") {
+        if (!expire) throw new Error("Missing timeout");
+        expire();
+      } else {
+        (await draining.promise)();
+      }
+      await rejection;
+      expect(await windowsProcessGone(pid)).toBe(true);
+    } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      manager?.close();
+      await f.close();
+    }
+  },
+);
+
+test.runIf(onWindows).each([".", "private/nested"])(
+  "on Windows successful Git preparation ends closed-pipe detached helpers in %s",
+  async (directory) => {
+    const f = await fixture();
+    let manager: PluginManager | undefined;
+    let pid: number | undefined;
+    const pidFile = join(f.root, "closed-pipes-pid");
+    try {
+      const script = join(f.root, "closed-pipes.cjs");
+      await writeFile(
+        script,
+        `require('node:fs').mkdirSync(${JSON.stringify(directory)}, { recursive: true });
+process.chdir(${JSON.stringify(directory)}); process.send(process.pid); setInterval(() => {}, 1000);`,
+      );
+      const standIn = await windowsGitStandIn(
+        f.root,
+        "git-proxy",
+        `const { spawn, execFileSync } = require('node:child_process');
+function git() { execFileSync('git', process.argv.slice(2), { stdio: 'inherit' }); }
+if (process.argv.includes('init')) {
+  const child = spawn(process.execPath, [${JSON.stringify(script)}], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  child.once('message', pid => { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(pid)); child.disconnect(); child.unref(); git(); });
+} else git();`,
+      );
+      const runtime = gitRuntime();
+      manager = await PluginManager.open({
+        root: join(f.root, "isolated"),
+        now: () => 0,
+        id: () => "closed-pipes",
+        git: { ...runtime, spawn: (options) => runtime.spawn(standIn(options)) },
+      });
+      const review = await manager.prepare({ repository: f.repo, ref: "main", name: "sample" });
+      expect(review.name).toBe("sample");
+      pid = z.coerce
+        .number()
+        .int()
+        .positive()
+        .parse(await readFile(pidFile, "utf8"));
+      expect(await windowsProcessGone(pid)).toBe(true);
+    } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      manager?.close();
+      await f.close();
+    }
+  },
+);

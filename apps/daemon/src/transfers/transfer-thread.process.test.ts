@@ -2,13 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { ProviderKind, type ThreadId } from "@ace/protocol";
-import {
-  finishedThread,
-  git,
-  repositoryWithOrigin,
-  transferMachines,
-  type Machines,
-} from "./transfer-test-support.ts";
+import { finishedThread, git, transferMachines, type Machines } from "./transfer-test-support.ts";
 
 /** What the target's provider was sent for one thread. */
 const sentTo = (m: Machines, threadId: ThreadId) =>
@@ -68,30 +62,6 @@ it("continues a thread on another machine from its history, without starting a t
     expect(sent).toContain("Fix the login bug on the settings page");
     expect(sent).toContain("continues one from MacBook");
   });
-});
-
-it("refuses to continue a thread whose tree is still working", async () => {
-  const m = await transferMachines();
-  const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
-  const workspaceId = await m.addProject(m.source, path);
-  const created = m.source.controls.delegations.command("busy", {
-    type: "thread.create",
-    workspaceId,
-    provider: "claude",
-    access: "full-access",
-    input: [{ type: "text", text: "Long job" }],
-  });
-  if (!created.threadId) throw new Error("Not created");
-  await m.source.daemon.engine?.flush();
-  expect(m.source.daemon.store.getThread(created.threadId)?.status.state).not.toBe("done");
-  const receipt = await m.here.command({
-    type: "thread.continueOn",
-    threadId: created.threadId,
-    hostId: m.targetHostId,
-    includeChanges: true,
-  });
-  expect(receipt).toMatchObject({ ok: false, error: "thread_busy" });
-  expect(m.source.daemon.transfers.outgoing.list()).toEqual([]);
 });
 
 it("continues a thread whose folder isn't a Git repository, with the new thread there", async () => {

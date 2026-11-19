@@ -118,6 +118,18 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "methods": {
+      "items": {
+        "enum": [
+          "merge",
+          "squash",
+          "rebase"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
     "queue": {
       "anyOf": [
         {

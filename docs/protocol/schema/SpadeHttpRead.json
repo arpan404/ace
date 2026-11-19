@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpRead.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "index": {
+      "maximum": 63,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.http.read",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "index"
+  ],
+  "type": "object"
+}

@@ -97,7 +97,11 @@ test("a background shell prevents workspace switching after its foreground turn 
       }),
     ).rejects.toThrow("thread_tree_is_live");
     expect(changed).toBe(false);
-    expect(h.store.getThread(id)?.status.state).not.toBe("done");
+    // The replied thread reads done (ADR 0116), yet its shell still runs in this checkout.
+    expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+    expect(
+      Object.values(h.store.snapshotThread(id)?.backgroundTasks ?? {}).map((entry) => entry.status),
+    ).toEqual(["running"]);
   } finally {
     await h.close();
   }

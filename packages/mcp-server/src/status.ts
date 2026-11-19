@@ -8,8 +8,11 @@ export const guideTopics = [
   "ace-threads",
   "ace-computer-use",
 ] as const;
-/** Every family a tool can belong to: the guides above and offshift, loaded only on request. */
-export const toolFamilies = [...guideTopics, "offshift"] as const;
+/**
+ * Every family a tool can belong to: the guides above, and guides the always-on text leaves out
+ * to stay short. Those still reach agents as native skills and as `guide` topics.
+ */
+export const toolFamilies = [...guideTopics, "make-a-suit"] as const;
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];
@@ -17,8 +20,25 @@ export type StatusReader = (caller: McpAttribution) => {
   project?: { id: string; name: string };
   /** False hides `ask`: the provider has its own ask tool and this is not a child thread. */
   askAvailable?: boolean;
+  /** Registered tools unavailable until their backing service is offered. */
+  unavailableTools?: readonly string[];
+  /**
+   * When set, the only tools this caller is offered, by bare name: listed, found and callable
+   * (directly or through `tools_call`). Everything else is withheld whatever its group.
+   */
+  onlyTools?: readonly string[];
   disabled?: Partial<Record<McpCapability, string>>;
+  /** Why the groups off for this caller are off, where the defaults would mislead. */
+  offReasons?: GroupOffReasons;
 };
+
+/**
+ * Why a group is off when nothing disabled it. `unregistered`: this server registers no tool in
+ * the group. That means the daemon isn't running it, except on a server built with a fixed
+ * subset (the external MCP endpoint), which says so. `withheld`: the group is registered but
+ * the caller's lease doesn't carry it.
+ */
+export type GroupOffReasons = { unregistered?: string; withheld?: string };
 
 /**
  * MCP server instructions: the always-on part of ace's guidance, kept under about 315 tokens.
@@ -29,28 +49,38 @@ export type StatusReader = (caller: McpAttribution) => {
 export function aceGuidance(groups?: readonly string[], tools?: readonly string[]): string {
   const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
   // The background engine's tool where the daemon runs it (macOS, Linux); else the older
-  // session tools' (Windows, or no engine helper).
+  // session tools' (Windows, or no engine helper). With only devices, the guide opens the
+  // simulator tools.
   const nativeApps =
-    tools && !tools.includes("screen_state") && tools.includes("screen_open_app")
-      ? "screen_open_app"
-      : "screen_state";
+    !tools || tools.includes("screen_state")
+      ? "screen_state"
+      : tools.includes("screen_open_app")
+        ? "screen_open_app"
+        : "guide ace-computer-use";
+  // macOS pictures whole displays; an agent's own screencapture lacks Screen Recording.
+  const wholeScreen =
+    has("screen") && (!tools || tools.includes("screen_display"))
+      ? " displays: screen_display;"
+      : "";
   return [
-    "ace is the app running this session. Your shell, file and web tools work as usual; ace's tools do what only ace can. Use them when:",
-    "- you start work in an existing project: context first;",
+    "ace runs this session. Your shell, file and web tools work as usual; use ace's for what only ace can:",
+    "- you start in an existing project: context first;",
     has("agents")
-      ? "- work splits into independent or parallel parts: delegate (instead of your provider's subagent tool), then wait;"
+      ? "- independent or parallel parts: delegate (not your own subagent tool), then wait;"
       : "",
     has("browser")
-      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot; the person watches; console and network logs are there;"
+      ? "- you changed a UI or localhost page: browser_open, then browser_snapshot; the person watches;"
       : "",
     "- visuals or images: guide visualize first;",
     "- after gh pr create or finding the PR: thread_link_pr;",
     has("thread_control")
-      ? "- the person wants a separate thread in any project: thread_start; to settle a finished one, this one too: thread_control settle;"
+      ? "- the person wants a separate thread in any project: thread_start; settle only when they explicitly ask: thread_control settle;"
       : "",
-    has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
+    has("screen", "devices")
+      ? `- the person names a native app or simulator: ${nativeApps};${wholeScreen}`
+      : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
-    `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}; offshift loads Offshift, to own a coding outcome end to end.`,
+    `How-tos and more tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
   ]
     .filter(Boolean)
@@ -64,15 +94,18 @@ export function mcpStatusGroups(
   registered: ReadonlySet<McpCapability>,
   capabilities: readonly McpCapability[],
   disabled?: Partial<Record<McpCapability, string>>,
+  reasons: GroupOffReasons = {},
 ): McpStatus["groups"] {
   return [
     { name: "thread", enabled: true },
     ...McpCapability.options.map((name) => {
       const reason =
         disabled?.[name] ??
-        (!registered.has(name) ? "This ace daemon is not running this tool group." : undefined) ??
+        (!registered.has(name)
+          ? (reasons.unregistered ?? "This ace daemon is not running this tool group.")
+          : undefined) ??
         (!capabilities.includes(name)
-          ? "ace does not offer this tool group to this provider session."
+          ? (reasons.withheld ?? "ace does not offer this tool group to this provider session.")
           : undefined);
       return reason === undefined ? { name, enabled: true } : { name, enabled: false, reason };
     }),

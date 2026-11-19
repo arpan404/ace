@@ -41,6 +41,34 @@ export class CipherState {
     this.#nonce++;
     return result;
   }
+  /**
+   * A copy of the key and next nonce, for a holder that must survive losing its memory (a
+   * hibernated relay). `new CipherState(key, nonce)` resumes it. Copies hold the live key.
+   */
+  snapshot(): { key: Uint8Array; nonce: bigint } {
+    if (this.#closed || !this.#key) throw new Error("No cipher key");
+    return { key: this.#key.slice(), nonce: this.#nonce };
+  }
+  /**
+   * The relay key hand-over (docs/media/plan.md, "Key hand-over"): writes the key at `keyOffset`
+   * and the next nonce, a big-endian u64, at `nonceOffset`, straight into the caller's block, then
+   * destroys this state. No other copy of the key is made here; the caller wipes the block.
+   */
+  exportInto(block: Uint8Array, keyOffset: number, nonceOffset: number): void {
+    const fits = (offset: number, length: number) =>
+      Number.isInteger(offset) && offset >= 0 && offset + length <= block.length;
+    if (this.#closed || !this.#key) throw new Error("No cipher key");
+    if (!fits(keyOffset, 32) || !fits(nonceOffset, 8)) throw new Error("Export outside the block");
+    // Checked before anything is written: an overlap would put the nonce over key bytes.
+    if (keyOffset < nonceOffset + 8 && nonceOffset < keyOffset + 32)
+      throw new Error("Key and nonce ranges overlap");
+    block.set(this.#key, keyOffset);
+    new DataView(block.buffer, block.byteOffset, block.byteLength).setBigUint64(
+      nonceOffset,
+      this.#nonce,
+    );
+    this.destroy();
+  }
   rekey(): void {
     this.#check(0);
     if (!this.#key) throw new Error("No cipher key");

@@ -1,3 +1,4 @@
+import { useClock, useSeconds } from "@/lib/time.ts";
 import {
   ArrowUUpLeftIcon,
   BookOpenIcon,
@@ -9,10 +10,10 @@ import {
   KeyboardIcon,
   RecordIcon,
   TextAaIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { DevicePosture } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
-import { useEffect, useState, type RefObject } from "react";
+import { useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { railDivider } from "@/components/ui/rules.ts";
 import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
@@ -30,19 +31,13 @@ export const railKeys = {
 
 /** How long a recording has run, ticking each second while it does. */
 function useRecordingTime(recording: boolean): string | undefined {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!recording) return;
-    const started = Date.now();
-    const tick = () => setElapsed(Date.now() - started);
-    const first = setTimeout(tick, 0);
-    const timer = setInterval(tick, 1000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [recording]);
-  return recording ? formatElapsed(elapsed) : undefined;
+  const now = useSeconds(recording);
+  const clock = useClock();
+  const [started, setStarted] = useState(() => (recording ? clock() : undefined));
+  if (recording !== (started !== undefined)) setStarted(recording ? clock() : undefined);
+  return recording
+    ? formatElapsed(started === undefined ? 0 : Math.max(0, now - started))
+    : undefined;
 }
 
 /** A foldable device's postures, as its hardware shows them: shut, half open, flat. */

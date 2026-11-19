@@ -1,0 +1,16 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "record.done",
+    "recording": "source-1",
+    "parts": [
+      {
+        "path": "value",
+        "index": 1,
+        "bytes": 1,
+        "durationMs": 1,
+        "gaps": 1
+      }
+    ]
+  }
+}

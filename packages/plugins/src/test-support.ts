@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { PluginManager } from "./index.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import type { ByteProcessOptions } from "@ace/provider-kit/process-bytes";
 
 const execute = promisify(execFile);
 export const sampleManifest = {
@@ -110,4 +112,30 @@ export async function fingerprint(path: string): Promise<string> {
   return createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
+}
+/**
+ * Windows runs no shebang stand-ins: write the Node source as a script that a Git spawn override
+ * launches with this Node binary, so the real Windows Git spawn (Job, tree stop) still runs it.
+ */
+export async function windowsGitStandIn(root: string, name: string, source: string) {
+  const script = join(root, `${name}.cjs`);
+  await writeFile(script, `${source}\n`);
+  return (options: ByteProcessOptions): ByteProcessOptions => ({
+    ...options,
+    command: process.execPath,
+    args: [script, ...options.args],
+  });
+}
+/** Whether a Windows pid has exited within a short grace period (ESRCH, never EPERM). */
+export async function windowsProcessGone(pid: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+      throw error;
+    }
+    await delay(25);
+  }
+  return false;
 }

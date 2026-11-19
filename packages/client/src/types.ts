@@ -1,15 +1,46 @@
 import type { Credential } from "./credentials.ts";
-import type { DeviceId, HostId } from "@ace/protocol";
+import type { DeviceId, HostId, InstallId } from "@ace/protocol";
 
+/** A refusal one path heard (a 4xxx close from the relay or the daemon). */
+export interface PathRefusal {
+  code: number;
+  reason: string;
+}
 export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  /** The socket closed, with its close code and the peer's reason when it gave one. */
-  close(code: number, reason?: string): void;
+  /**
+   * The socket closed, with its close code and the peer's reason when it gave one. A race of
+   * paths that ends as a drop passes `refused` when a path was refused: why it can't connect
+   * while it retries.
+   */
+  close(code: number, reason?: string, refused?: PathRefusal): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;
+  /**
+   * Message compression this transport undoes, sent as `hello.compression` (a relay route
+   * inflates deflated bulk JSON). Absent: the hello asks for none.
+   */
+  readonly compression?: readonly string[];
+  /**
+   * Flow control this transport takes part in, sent as `hello.flowControl` (a relay route
+   * returns credit as it reads). Absent: the hello asks for none.
+   */
+  readonly flowControl?: readonly string[];
+  /**
+   * The credential this transport opened with (a relay attempt fetches its own grant or ticket
+   * to dial): its hello carries this one rather than the route's, so concurrent attempts on
+   * one route never take each other's.
+   */
+  credential?(): Promise<Credential>;
+  /**
+   * The open socket's channel binding (ADR 0190): a relay stream's Noise handshake hash,
+   * base64url. Absent on a transport with no secure channel of its own (loopback, a pinned TLS
+   * path), where a proof names `none`.
+   */
+  channelBinding?(): string | undefined;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;
@@ -70,6 +101,17 @@ export interface DiagnosticEvent {
 }
 export interface ClientOptions {
   deviceId: DeviceId;
+  /**
+   * This app install's id (ADR 0115), sent in each hello so the machine knows every path and
+   * every credential of this install as one device. Older daemons ignore it.
+   */
+  installId?: InstallId;
+  /**
+   * This install's other device ids on this machine (ADR 0115): a paired machine also reached
+   * through the ace account is one device under two ids, its pairing's and its account
+   * device's. Work saved under either one is this connection's.
+   */
+  deviceAliases?: readonly DeviceId[];
   /** Pin a directory entry before subscriptions or durable intents can replay. */
   expectedHostId?: HostId;
   transport(): Transport;
@@ -82,24 +124,66 @@ export interface ClientOptions {
     options: RequestOptions,
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
+  /**
+   * A fresh ace account device grant, for an account device (ADR 0111). An account socket stays
+   * open only while its grant lasts, so the connection sends a new one on each open socket
+   * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
+   */
+  grant?(): Promise<string>;
+  /**
+   * The daemon or the relay refused `grant`, a device grant this connection presented, in a
+   * hello or a refresh. Always that exact grant: an ordinary drop or timeout never calls it. An
+   * app that keeps grants drops it if it is still the kept one, and returns true when it had
+   * been kept for reuse: the connection then tries once more with a fresh grant instead of
+   * stopping. False or absent: the refusal is final, as before.
+   */
+  grantRefused?(grant: string): boolean;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints
-   * before the daemon answers (ADR 0030). None: views start empty.
+   * before the daemon answers (ADR 0030). Adapters with deletePrefix plus a supplied clock also
+   * keep opened history pages and expanded text (ADR 0105). None: views start empty.
    */
   readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
   scheduler: Scheduler;
   random(): number;
   id(): string;
-  /** Wall-clock milliseconds for `connectionInfo()` timestamps; without it they are left out. */
+  /** Wall-clock milliseconds for connection timestamps and durable history expiry. */
   now?(): number;
+  /**
+   * Milliseconds on a clock that never goes backwards (`performance.now()` in a browser, a
+   * native host's uptime clock), for liveness deadlines: the heartbeat and wake probes (ADR
+   * 0150). It must be monotonic; a wall clock is not (it jumps when the device's time is set).
+   * The heartbeat still never lets time it reads go backwards. A clock that pauses while the
+   * device sleeps is fine: each wake measures its own deadline from then. None:
+   * `performance.now()`.
+   */
+  monotonic?(): number;
   /** Where connection drops and recoveries are reported. None: they go unreported. */
   report?(event: DiagnosticEvent): void;
   limits?: Partial<Limits>;
+  /**
+   * A thread's first snapshot carries only its newest items, at most `items` in at most `bytes`,
+   * so it paints after one small message; the client then subscribes again for the full
+   * snapshot, which replaces it. Status, agents, approvals and queue always arrive whole. None: the
+   * daemon's full snapshot. A daemon that predates the field sends the full one anyway.
+   */
+  openTail?: OpenTail;
 }
+export interface OpenTail {
+  items: number;
+  bytes: number;
+}
+/** A screenful: what an app's first paint of a thread needs, about 48 KB at most. */
+export const screenTail: OpenTail = { items: 30, bytes: 48 * 1024 };
 export interface Limits {
   intents: number;
   threads: number;
+  /**
+   * Thread subscriptions kept free for what the person opens: an optional lease (a view that
+   * shows more when there is room, like the Summary's delegated threads) never takes one of them.
+   */
+  threadReserve: number;
   requests: number;
   frameBytes: number;
   /** Aggregate retained UTF-16 bytes across fragment assemblies. */
@@ -113,8 +197,16 @@ export interface Limits {
   text: number;
   listeners: number;
   requestMs: number;
-  /** Cold startup may outlive an ordinary read; never extend this deadline on progress. */
+  /**
+   * The longest a connect may wait: for a daemon that said `starting`, whose cold start may
+   * outlive an ordinary read. Never extended on progress.
+   */
   handshakeMs: number;
+  /**
+   * Each other stage of a connect (the socket opening; the hello waiting for its welcome) gets
+   * this long, or four times what it took last time on a slower link, at most `handshakeMs`.
+   */
+  handshakeStageMs: number;
   heartbeatMs: number;
   retryBaseMs: number;
   retryCapMs: number;
@@ -132,6 +224,7 @@ export interface Limits {
 export const defaultLimits: Limits = {
   intents: 256,
   threads: 32,
+  threadReserve: 8,
   requests: 256,
   frameBytes: 2 * 1024 * 1024,
   fragmentBytes: 64 * 1024 * 1024,
@@ -144,6 +237,7 @@ export const defaultLimits: Limits = {
   listeners: 4096,
   requestMs: 15000,
   handshakeMs: 120_000,
+  handshakeStageMs: 30_000,
   heartbeatMs: 15000,
   retryBaseMs: 250,
   retryCapMs: 30000,

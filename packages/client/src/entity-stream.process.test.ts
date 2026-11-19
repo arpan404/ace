@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
 import { Interaction } from "@ace/protocol";
-import { setup, ready, when } from "./test-support.ts";
+import { sharedDaemon, ready, when } from "./test-support.ts";
 // Mutation cases: drop oversized first entries; send an oversized generic reply; omit
 // fragment reassembly or break request correlation on reconnect. Not executed (tests run at merge).
+const harness = sharedDaemon();
+
 test("a settled megabyte plan remains readable through paging before and after reconnect", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     const markdown = "# Settled plan\n" + "x".repeat(1_100_000);
     const interaction = Interaction.parse({
@@ -62,7 +64,7 @@ test("a settled megabyte plan remains readable through paging before and after r
 test.each(["bytes", "aggregate", "timeout"])(
   "an incomplete snapshot hitting its %s budget reconnects safely",
   async (budget) => {
-    const h = await setup();
+    const h = await harness();
     try {
       const { client, faults, scheduler } = h.make({
         limits: { fragmentBytes: 3000, fragmentMs: 1000 },

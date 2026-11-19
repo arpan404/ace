@@ -3,7 +3,8 @@ import type { ContextResult } from "@ace/protocol";
 /*
  * The daemon's context service (`context.request`: uploads, attachments, draft scopes) in plain
  * words, on every client. A refusal names what the person can do next; a code without a phrase
- * keeps the daemon's own message.
+ * keeps the daemon's own message. `quota` has none: the daemon names which limit was hit (one
+ * file's size, one message's total, or the disk guard) and what to do about it.
  */
 
 type Result = ContextResult["result"];
@@ -14,8 +15,6 @@ const phrases: Partial<Record<ContextFailure["code"], string>> = {
   invalid_image: "That image can't be read.",
   forbidden: "This device may not add files to the thread.",
   not_found: "This thread or attachment is no longer available.",
-  quota:
-    "Attachment limit reached. Open Attachments from the thread menu and remove files you no longer need.",
   unsupported: "This attachment operation is unavailable. Update ace and try again.",
   invalid_request: "Couldn't manage the attachment. Try again.",
 };

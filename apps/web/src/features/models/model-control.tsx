@@ -1,6 +1,7 @@
+import "@/styles/model-control.css";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
-import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, ClockIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -55,6 +56,7 @@ export function ModelControl(props: {
     view.offline,
     switching?.from && `Previously ${switching.from}`,
     switching?.description,
+    view.switchError && `Switch failed: ${view.switchError}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -77,6 +79,8 @@ export function ModelControl(props: {
         <PopoverTrigger
           disabled={view.disabled}
           aria-label={view.ariaLabel}
+          data-part="model-picker"
+          data-state={view.disabled ? "disabled" : showing ? "open" : undefined}
           aria-description={switching?.description}
           onPointerEnter={warm}
           onFocus={warm}
@@ -118,7 +122,13 @@ export function ModelControl(props: {
               </span>
             )}
             {switching && (
-              <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+              <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <ClockIcon aria-hidden size={12} />
+                Pending
+              </span>
+            )}
+            {view.switchError && (
+              <span className="shrink-0 text-xs text-status-failed">Switch failed</span>
             )}
             <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
           </span>
@@ -145,7 +155,7 @@ export function ModelControl(props: {
           <DeferredModelPopover.Component
             view={view}
             actions={props.actions}
-            initialPane={requested && !tuneRequested ? "picker" : "tune"}
+            initialPane={(requested || view.listFirst) && !tuneRequested ? "picker" : "tune"}
             onClose={() => changeOpen(false)}
           />
         </Suspense>

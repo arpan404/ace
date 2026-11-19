@@ -8,7 +8,7 @@ import { PullRequestPage } from "@/features/forge-pages/index.ts";
  * the project's own (`github.com/acme/ace`); `back` is the list's address it was opened from.
  */
 const Search = z.object({
-  tab: z.catch(z.optional(z.enum(["summary", "timeline", "code"])), undefined),
+  tab: z.catch(z.optional(z.enum(["summary", "timeline", "code", "checks"])), undefined),
   repo: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(512))), undefined),
   back: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
 });

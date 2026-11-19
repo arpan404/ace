@@ -44,15 +44,40 @@ export async function desktopConnection(scope: object = globalThis): Promise<Des
   return parsed.success ? { kind: "target", target: parsed.data } : { kind: "none" };
 }
 
+/**
+ * The target the desktop expects its daemon to have, at once, without waiting for it to answer
+ * (its home's token and identity, at the address it runs on or was last at). The page can open on
+ * what it kept for that daemon while it starts; the hand-off (`desktopConnection`) still decides.
+ * Undefined in a browser, on a desktop build without it, or when there's no telling.
+ */
+export async function desktopExpected(
+  /** The address this window was last handed, if it kept one. */
+  remembered: string | undefined,
+  scope: object = globalThis,
+): Promise<DaemonTarget | undefined> {
+  const daemon = daemonBridge(scope);
+  if (!daemon || typeof daemon.expected !== "function") return undefined;
+  try {
+    const parsed = DaemonTarget.safeParse(await daemon.expected(remembered));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The desktop's view of its daemon (`DaemonStatus` in apps/desktop), as far as the web uses it. */
 export interface DesktopDaemonStatus {
   state: string;
   paused?: boolean;
   message?: string | undefined;
   /** Why the desktop's own daemon last exited, when its exit code said so. */
-  cause?: "port-in-use" | undefined;
+  cause?: "port-in-use" | "lock-held" | undefined;
   /** Set while the desktop restarts its crashed daemon on its own. */
   retry?: { attempt: number; of: number } | undefined;
+  /** The step a start is on (`DaemonStage` in apps/desktop); absent once it runs. */
+  stage?: string | undefined;
+  /** A crash restart is starting the daemon in safe mode. */
+  safeMode?: boolean | undefined;
 }
 
 /** One check of `ace doctor --json`: what the "Run diagnostics" button shows. */
@@ -159,14 +184,53 @@ export function reloadApp(
  * The desktop's clipboard for images (PNG or JPEG as base64), which works without the page
  * having focus or a user gesture; undefined in a browser or a desktop build that predates it.
  */
-export function desktopImageClipboard(
+export function desktopImageClipboard(scope: object = globalThis):
+  | {
+      /** The most image bytes the desktop clipboard takes, when the bridge says. */
+      limit: number | undefined;
+      writeImage(image: { mimeType: "image/png" | "image/jpeg"; data: string }): Promise<void>;
+    }
+  | undefined {
+  const clipboard = record(record(Reflect.get(scope, "ace"))?.clipboard);
+  const write = call(clipboard, "writeImage");
+  if (!write) return undefined;
+  const limit = clipboard?.imageLimit;
+  return {
+    limit: typeof limit === "number" && limit > 0 ? limit : undefined,
+    writeImage: async (image) => {
+      try {
+        await write(image);
+      } catch (error) {
+        throw new Error(bridgeMessage(error) || "The desktop app couldn't copy the image", {
+          cause: error,
+        });
+      }
+    },
+  };
+}
+
+/**
+ * The desktop's capture of its own window as a JPEG (base64), for a Suit's live check;
+ * undefined in a browser, which can't capture a page without asking the person, or in a
+ * desktop build that predates it. The answer crossed the bridge, so it is checked here.
+ */
+export function desktopWindowCapture(
   scope: object = globalThis,
 ):
-  | { writeImage(image: { mimeType: "image/png" | "image/jpeg"; data: string }): Promise<void> }
+  | ((request: {
+      maxWidth: number;
+      quality: number;
+    }) => Promise<{ data: string; width: number; height: number } | undefined>)
   | undefined {
-  const write = call(record(record(Reflect.get(scope, "ace"))?.clipboard), "writeImage");
-  if (!write) return undefined;
-  return { writeImage: async (image) => void (await write(image)) };
+  const capture = call(record(record(Reflect.get(scope, "ace"))?.window), "capture");
+  if (!capture) return undefined;
+  return async (request) => {
+    const answer = record(await capture(request));
+    const { data, width, height } = answer ?? {};
+    if (typeof data !== "string" || typeof width !== "number" || typeof height !== "number")
+      return undefined;
+    return { data, width, height };
+  };
 }
 
 /** A bridge method, bound to its object, if the bridge has it. */
@@ -202,11 +266,14 @@ function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
     state: status.state,
     paused: status.paused === true,
     message: typeof status.message === "string" ? status.message : undefined,
-    cause: status.cause === "port-in-use" ? status.cause : undefined,
+    cause:
+      status.cause === "port-in-use" || status.cause === "lock-held" ? status.cause : undefined,
     retry:
       typeof retry?.attempt === "number" && typeof retry.of === "number"
         ? { attempt: retry.attempt, of: retry.of }
         : undefined,
+    stage: typeof status.stage === "string" ? status.stage.slice(0, 32) : undefined,
+    safeMode: status.safeMode === true ? true : undefined,
   };
 }
 

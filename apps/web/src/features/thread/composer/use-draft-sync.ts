@@ -26,10 +26,14 @@ export function useDraftSync(args: {
   keepsAttachments: boolean;
   /** Take a draft's text in place. */
   take(draft: ComposerDraft): void;
+  /** Tie a stored or other window's draft's file markers to the chips here. */
+  link(draft: ComposerDraft): ComposerDraft;
   /** Remount on a draft whose files differ. */
   replace(draft: ComposerDraft): void;
   /** Take another window's browser annotations along with its words. */
   takeAnnotations(annotations: ComposerDraft["annotations"]): void;
+  /** Take another window's quotes along with its words. */
+  takeQuotes(quotes: ComposerDraft["quotes"]): void;
   onDraftChange?: ((draft: ComposerDraft) => void) | undefined;
   ownsDraft?: (() => boolean) | undefined;
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
@@ -43,6 +47,8 @@ export function useDraftSync(args: {
     setTheirs(undefined);
     args.take(next);
   };
+  // A draft from storage or another window: its markers find their files by hash.
+  const takeStored = (next: ComposerDraft) => take(args.link(next));
   const saved = useDraftPersistence(
     draftKey,
     current,
@@ -54,7 +60,8 @@ export function useDraftSync(args: {
       )
         return void setTheirs(draft);
       args.takeAnnotations(draft.annotations);
-      if (!otherFiles(draft)) return void take(draft);
+      args.takeQuotes(draft.quotes);
+      if (!otherFiles(draft)) return void takeStored(draft);
       args.replace(draft);
       return "replace";
     },
@@ -83,7 +90,8 @@ export function useDraftSync(args: {
     if (!draftKey) return false;
     const written = writeDraft(storage, draftKey, next);
     args.takeAnnotations(next.annotations);
-    if (!otherFiles(next)) take(next);
+    args.takeQuotes(next.quotes);
+    if (!otherFiles(next)) takeStored(next);
     else {
       saved.drop();
       args.replace(next);
@@ -106,7 +114,7 @@ export function useDraftSync(args: {
     take,
     /** Use another window's version: in place, or by remounting when its files differ. */
     apply: (next: ComposerDraft) => {
-      if (!otherFiles(next)) return take(next);
+      if (!otherFiles(next)) return takeStored(next);
       saved.drop();
       args.replace(next);
     },

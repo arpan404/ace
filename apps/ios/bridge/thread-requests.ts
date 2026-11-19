@@ -6,8 +6,10 @@ import {
   elicitationContent,
   elicitationForm,
 } from "@ace/ui-core";
+import { planReviewLine } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { preview } from "./presentation.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 
 /*
  * The agent's other requests, besides approvals and questions: a plan to approve or send back,
@@ -48,6 +50,13 @@ function planRow(request: Extract<Request, { kind: "plan_review" }>) {
       text: preview(todo.content, 512),
       status: todo.status,
     })),
+
+    /** The strip's one line: "Plan ready · Kill-all filters · 3 steps" (`planReviewLine`). */
+    line: planReviewLine({
+      title: request.title,
+      markdown: request.markdown,
+      todos: request.todos,
+    }),
   };
 }
 
@@ -110,13 +119,18 @@ export function requestRow(request: Request) {
 /**
  * The canonical resolution for a request card, or undefined when the choice doesn't fit the
  * request: plan feedback must say what should change; a form is accepted only with values that
- * pass its schema, and a consent page only when it has a safe address.
+ * pass its schema, and a consent page only when it has a safe address. A summarized request
+ * (ADR 0157) takes only a decline.
  */
 export function requestResolution(
   interaction: Interaction | undefined,
   answer: RequestAnswer,
 ): Resolution | undefined {
   if (interaction?.state !== "pending") return undefined;
+  return phoneAnswer(interaction, resolutionFor(interaction, answer));
+}
+
+function resolutionFor(interaction: Interaction, answer: RequestAnswer): Resolution | undefined {
   const request = interaction.request;
   if (answer.kind === "plan") {
     if (request.kind !== "plan_review") return undefined;

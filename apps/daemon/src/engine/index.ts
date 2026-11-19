@@ -1,18 +1,24 @@
+import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
+import * as liveMove from "./live-move.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
-import { liveAceCall } from "./ace-approvals.ts";
+import { aceCaller, liveAceCall, withinAgent } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
+import { GuestThreads } from "./guest-threads.ts";
+import { HostThreads } from "./host-threads.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
+import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
+import { personRefusal } from "./guest-admission.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -24,21 +30,19 @@ import {
   type CommandResult,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
-import { AccessError, type PermissionSettings } from "./permissions.ts";
+import { AccessError } from "./permissions.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { ProviderKind, ThreadId } from "@ace/protocol";
-import type { PrepareInput } from "./input.ts";
-import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
+import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
-import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
+import { ThreadTransitions } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { timeOrderedIds } from "../time-ordered-id.ts";
-import { type IdSource } from "@ace/core";
 import { SteerLane } from "./steer-lane.ts";
 import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
@@ -58,9 +62,10 @@ import {
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
 import { SettledTrees } from "./settled-trees.ts";
+import { backgroundPortsHost, type BackgroundPortsHost } from "./background-ports.ts";
 import {
   defaultProviderIdleMs,
-  providerProcessState,
+  listProviderProcesses,
   releaseRequest,
   releasedThread,
   type ProviderProcess,
@@ -68,60 +73,7 @@ import {
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
-export interface EngineOptions {
-  waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
-  onModelUnavailable?(
-    provider: import("@ace/protocol").ProviderKind,
-    model: string,
-    instance?: string,
-  ): void;
-  onCommandEvent?(event: import("./provider-command-metadata.ts").ProviderCommandEvent): void;
-  models?: import("@ace/models").ModelCatalogApi;
-  worktreeGit?: WorktreeGit;
-  /** The person's message that named a thread, for generating its title once. */
-  onNamingPrompt?(threadId: ThreadId, input: readonly import("@ace/protocol").ContentPart[]): void;
-  permissionSettings?: PermissionSettings;
-  providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
-  selectInstance?: (
-    provider: string,
-    backend?: import("@ace/engine-api").ProviderBackend,
-  ) => string | undefined;
-  transitions?: TransitionIO;
-  prepareInput?: PrepareInput;
-  recovery?: RecoveryPorts;
-  preferences?: Partial<RecoveryPreferences>;
-  limits?: Partial<EngineLimits>;
-  beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
-  /** `runCommands` is false when the thread's access is Read-only: no setup script runs. */
-  prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
-  assertWorkspaceAvailable?(cwd: string): Promise<void>;
-  machine?: { host: string; name: string };
-  sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
-  ids?: IdSource;
-  threadId?: () => string;
-  commandId?: () => string;
-  registry?: AdapterRegistry;
-  clock?: EngineClock;
-  /** Durable batching latency is independent of the status/recovery clock. */
-  batchScheduler?: Pick<EngineClock, "setTimer">;
-  idleMs?: number;
-  silenceMs?: number;
-  onError?: (error: unknown) => void;
-  /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
-  onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;
-  onSessionOpenFailure?: (
-    thread: ThreadId,
-    details: import("@ace/protocol").ProviderErrorDetails,
-    route?: import("./session-open-route.ts").SessionOpenRoute,
-  ) => void;
-  onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
-  aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
-  mcp?: (
-    threadId: ThreadId,
-    agentId: string,
-    lifetime: AbortSignal,
-  ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
-}
+export type { EngineOptions } from "./engine-options.ts";
 export class Engine {
   private readonly models: EngineModels;
   private readonly waitForProvider: EngineOptions["waitForProvider"];
@@ -133,6 +85,10 @@ export class Engine {
   private admissions: CreationAdmissions;
   private selectInstance: EngineOptions["selectInstance"];
   private repo: EngineRepository;
+  /** Provider-less threads holding remote tool use from other machines (ADR 0105). */
+  readonly guests: GuestThreads;
+  /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
+  readonly hosts: HostThreads;
   private registry: AdapterRegistry;
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
@@ -172,8 +128,8 @@ export class Engine {
     this.waitForProvider = options.waitForProvider;
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
-    const worktreeGit =
-      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
+    // One guard lookup per rename, never reused across renames.
+    const worktreeGit = () => options.worktreeGit ?? worktreeGitScope(executeGit, process.env);
     this.nextThreadId = options.threadId ?? timeOrderedIds();
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
@@ -184,6 +140,12 @@ export class Engine {
       options.aceToolAction,
       () => this.clock.now(),
     );
+    this.hosts = new HostThreads(this.repo, () => this.clock.now());
+    this.guests = new GuestThreads(
+      this.repo,
+      () => this.clock.now(),
+      (id) => this.wake(id),
+    );
     if (options.onNamingPrompt) this.repo.onNamingPrompt = options.onNamingPrompt;
     this.repo.reclaim = (retiring) =>
       reclaimIdleSlot(
@@ -191,6 +153,7 @@ export class Engine {
           repo: this.repo,
           actors: () => this.actors.entries(),
           closing: (id) => this.sessions.isClosing(id),
+          held: (id) => this.fenced(id),
           retire: (id) => this.controls.wake(id),
         },
         retiring,
@@ -224,6 +187,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
@@ -234,6 +198,7 @@ export class Engine {
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
+      fenced: (id) => this.fenced(id),
       wake: (id) => this.wake(id),
       released: (id) => {
         this.releaseDormant(id);
@@ -269,6 +234,10 @@ export class Engine {
         if (!this.repo.quiescent(this.repo.requireState(id)))
           throw new Error("Transition tree has unsettled work");
       },
+      (command) =>
+        this.repo.store.recordCommand(command.id, command.deviceId, () =>
+          this.internalHandler.handle(command, commandContext(this.repo.store)),
+        ),
     );
     this.delivery = new IntentDelivery({
       repo: this.repo,
@@ -278,7 +247,7 @@ export class Engine {
       recovery: this.recovery,
       prepareInput: options.prepareInput,
       beforeSend: async (threadId, commandId) => {
-        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit);
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit());
         await options.beforeSend?.(threadId, commandId);
       },
       transitions: this.transitions,
@@ -370,7 +339,7 @@ export class Engine {
         )
       )
         this.meters.observe(state, events, at, this.repo.session(state.threadId).instanceId);
-      this.actors.get(state.threadId)?.observeInputs(events);
+      this.actors.get(state.threadId)?.observeInputs(facts, events);
       this.recovery.observe(state, facts, events, at);
     };
     const handler = engineHandler(
@@ -397,6 +366,7 @@ export class Engine {
             ? { commandId: command.id, ok: false, error: "engine_starting" }
             : store.atomic(
                 () =>
+                  (this.fence && liveMove.fenceCommand(command, this.fence)) ??
                   this.hostInteractionHandler?.(command) ??
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
@@ -404,7 +374,16 @@ export class Engine {
               ),
     };
     this.handler = {
-      handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
+      handle: (command, context) => {
+        const payload = command.payload;
+        if ("threadId" in payload && payload.threadId) {
+          // A Spade bot's hidden session runs only the turns Spade asks for (ADR 0133).
+          const host = store.getThread(ThreadId.parse(payload.threadId))?.host;
+          const refused = personRefusal(command.id, payload, host);
+          if (refused) return refused;
+        }
+        return this.internalHandler.handle(personCommand(command), context);
+      },
     };
     // A thread whose stored state cannot be read is left out of startup, never the daemon.
     const unreadable = (id: ThreadId, error: unknown) =>
@@ -422,14 +401,16 @@ export class Engine {
         (id) => this.wake(id),
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
+        options.previousProcessesUnverified === true,
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences || options.models) {
+    if (options.recovery?.preferences || options.models || options.providersActivated) {
       this.readyPromise = (async () => {
+        await options.providersActivated;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
-        models.migrateCachedDefaults();
+        models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
         for (const id of this.pendingSettles) this.stopSettled(id);
@@ -444,7 +425,10 @@ export class Engine {
   private stopSettled(id: ThreadId): void {
     if (this.closing) return;
     if (!this.readyState) this.pendingSettles.add(id);
-    else if (this.repo.state(id)) void this.settledTrees.stop(id, this.settleFailed);
+    else if (this.repo.state(id))
+      void this.settledTrees
+        .stop(id, this.settleFailed)
+        .catch((error: unknown) => this.report(error));
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {
@@ -453,6 +437,27 @@ export class Engine {
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
   }
+  private fence?: Parameters<typeof liveMove.fenceCommand>[1];
+  /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
+  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
+  bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
+    this.fence = fence;
+  }
+  /** Why the thread takes no new work here while it moves (ADR 0191); none while it may. */
+  ownershipRefusal(id: ThreadId) {
+    return this.fence?.(id);
+  }
+  readonly liveMove = liveMove.api(
+    () => this.repo,
+    () => this.clock.now(),
+    {
+      // The fence lifted: what it held dispatches, given a slot first.
+      released: (id) => {
+        this.wakeQueued();
+        this.wake(id);
+      },
+    },
+  );
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;
@@ -498,6 +503,10 @@ export class Engine {
       this.actors.set(id, actor);
     }
     return actor;
+  }
+  /** Rediscovers a provider with no adapter yet, as a command for it would, before admission. */
+  async ensureProvider(provider: ProviderKind): Promise<void> {
+    await this.waitForProvider?.(provider);
   }
   providerAvailability(provider: ProviderKind) {
     if (!this.registry.has(provider)) return { installed: false, auth: "unknown" as const };
@@ -594,7 +603,8 @@ export class Engine {
         : { instanceId: this.targetInstance(provider, selection) }),
     });
   }
-  private targetInstance(
+  /** Resolve the account a launch will use, before creating any thread or provider work. */
+  targetInstance(
     provider: ProviderKind,
     selection?: Partial<import("@ace/protocol").AgentSelection>,
   ) {
@@ -710,10 +720,22 @@ export class Engine {
     transferId: string,
     hold: { title: string } | { status: "completed" | "failed" | "stopped" },
   ): void {
+    this.externalHold(threadId, agentId, `ace-transfer:${transferId}`, hold);
+  }
+  /**
+   * Work ace runs for an agent outside its provider (a transfer, a command job on another
+   * machine) holds its thread open as a stoppable background row until ace ends it. A stop is
+   * routed by `bindExternalTaskStop`.
+   */
+  externalHold(
+    threadId: ThreadId,
+    agentId: import("@ace/protocol").AgentId,
+    task: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
     const state = this.repo.requireState(threadId);
     const agent = state.indexes.agentKeysById[agentId];
-    if (!agent) throw new Error("Unknown transfer owner");
-    const task = `ace-transfer:${transferId}`;
+    if (!agent) throw new Error("Unknown background owner");
     this.repo.apply(
       threadId,
       [
@@ -766,26 +788,11 @@ export class Engine {
   }
   /** Live provider processes per thread, for `ace status`; bounded by live actors. */
   providerProcesses(): ProviderProcess[] {
-    const processes: ProviderProcess[] = [];
-    for (const actor of this.actors.values()) {
-      const state = providerProcessState({
-        session: Boolean(actor.session),
-        closing: this.sessions.isClosing(actor.id),
-        idleSince: actor.idleSince,
-        idleDue: actor.idleDue,
-      });
-      const provider = this.repo.state(actor.id)?.config.provider;
-      if (!state || !provider) continue;
-      const releaseAt = actor.releaseAt();
-      processes.push({
-        threadId: actor.id,
-        provider,
-        state,
-        ...(actor.idleSince === undefined ? {} : { idleSince: actor.idleSince }),
-        ...(state === "idle-warm" && releaseAt !== undefined ? { releaseAt } : {}),
-      });
-    }
-    return processes;
+    return listProviderProcesses(
+      this.actors.values(),
+      (id) => this.sessions.isClosing(id),
+      (id) => this.repo.state(id)?.config.provider,
+    );
   }
   private requestRelease(id: ThreadId, request: "release" | "withdraw"): void {
     const actor = this.actors.get(id);
@@ -800,8 +807,16 @@ export class Engine {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
+  /** Where the background command port probe reads and reports (ADR 0109). */
+  backgroundPorts(): BackgroundPortsHost {
+    return backgroundPortsHost(
+      this.repo,
+      () => this.clock.now(),
+      (id) => this.actors.get(id)?.schedule(),
+    );
+  }
   /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
-  bindExternalTaskStop(prefix: string, stop: (id: string) => void): void {
+  bindExternalTaskStop(prefix: string, stop: (id: string, threadId: ThreadId) => void): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
@@ -809,9 +824,10 @@ export class Engine {
       const key = this.repo.nativeEntity(owner, "tasks", command.payload.taskId);
       if (!key?.startsWith(prefix)) return;
       const task = this.repo.state(owner)?.tasks[key];
-      if (task?.status !== "running")
+      // A hold that lost contact (`unknown`, ADR 0052) can still be stopped: that ends it for good.
+      if (task?.status !== "running" && task?.status !== "unknown")
         return { commandId: command.id, ok: false, error: "task_not_stoppable" };
-      stop(key.slice(prefix.length));
+      stop(key.slice(prefix.length), owner);
       return { commandId: command.id, ok: true };
     });
   }
@@ -827,14 +843,39 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
+  /**
+   * The run (turn) an agent's tool call belongs to now: its own active run, else the root's.
+   * Undefined when nothing is running, so no turn-scoped work can be approved.
+   */
+  activeRun(threadId: ThreadId, agentId: string): string | undefined {
+    const state = this.repo.state(threadId);
+    if (!state) return undefined;
+    const key = state.indexes.agentKeysById[agentId];
+    const own = key === undefined ? undefined : state.agents[key]?.activeRun;
+    return (
+      own ?? (state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.activeRun)
+    );
+  }
+  /** The agent making a live call to ace's `tool` with matching arguments (`aceCaller`). */
+  aceCaller(threadId: ThreadId, tool: string, matches: (args: unknown) => boolean) {
+    const state = this.repo.state(threadId);
+    return state ? aceCaller(state, tool, matches) : undefined;
+  }
+  /** Whether `agentId` is `ancestorId` or under it in the thread's agent tree. */
+  withinAgent(threadId: ThreadId, agentId: string, ancestorId: string): boolean {
+    const state = this.repo.state(threadId);
+    return state ? withinAgent(state, agentId, ancestorId) : false;
+  }
   openHostApproval(
     threadId: ThreadId,
     key: string,
     request: import("@ace/protocol").InteractionRequest,
     raw: import("@ace/protocol").RawPayload[],
+    /** The agent it is about, such as a child on another machine; the root when not in the tree. */
+    about?: string,
   ) {
     const state = this.repo.requireState(threadId);
-    const agent = state.rootKey ?? "root";
+    const agent = about !== undefined && state.agents[about] ? about : (state.rootKey ?? "root");
     // A host approval (one mirrored from another machine) raised while one of ace's own tools
     // runs reads on that tool's row.
     const item =
@@ -853,6 +894,21 @@ export class Engine {
     const interaction = this.repo.requireState(threadId).interactions[key];
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
+  }
+  /** A host operation failed after its command was accepted: show the error in the thread. */
+  hostError(threadId: ThreadId, key: string, text: string): void {
+    this.hostNotice(threadId, key, text, "error");
+  }
+  /** What a host operation the person ran did, as a notice in the thread. */
+  hostNotice(threadId: ThreadId, key: string, text: string, level: "info" | "error"): void {
+    this.actor(threadId).apply([
+      {
+        type: "item.upsert",
+        agent: this.repo.requireState(threadId).rootKey ?? "root",
+        item: key,
+        draft: { type: "notice", level, text, complete: true },
+      },
+    ]);
   }
   resolveHostApproval(
     threadId: ThreadId,
@@ -880,7 +936,10 @@ export class Engine {
     this.recovery.discardKeepingStop(id);
   }
   cancelDelegatedInputs(id: ThreadId): void {
-    cancelDelegatedInputs(this.repo, id, this.clock.now());
+    for (const released of cancelDelegatedInputs(this.repo, id, this.clock.now())) {
+      this.releaseDormant(released);
+      queueMicrotask(() => this.wake(released));
+    }
   }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);
@@ -937,11 +996,19 @@ export class Engine {
       this.sessions.isClosing(id)
     );
   }
+  /** Whether this thread has engine state: none once its data was purged, or if it never ran. */
+  hasState(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined;
+  }
   cleanupThreads(id: ThreadId): ThreadId[] {
     return this.liveness.tree(id);
   }
   liveWork(id: ThreadId): LiveWork {
     return this.liveness.live(id);
+  }
+  /** Provider work runs or is lost track of, even after a reply that reads done (ADR 0116). */
+  runsProviderWork(id: ThreadId): boolean {
+    return this.liveness.providerWork(id);
   }
   /** Called after the durable cleanup fence has denied all new execution. */
   stopForDeletion(id: ThreadId): Promise<void> {
@@ -1124,8 +1191,59 @@ export class Engine {
   resuming(id: ThreadId): boolean {
     return this.repo.state(id) !== undefined && this.repo.pending.recovering(id);
   }
+  /**
+   * The thread's root turn ended on a usage limit: nothing runs or retries until it resumes. A
+   * provider retrying a rate limit inside a live turn is still working.
+   */
+  endedOnLimit(id: ThreadId): boolean {
+    const state = this.repo.state(id);
+    const root = state?.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    return (
+      root?.limited !== undefined &&
+      !root.activeRun &&
+      !root.retry &&
+      state !== undefined &&
+      Object.keys(state.indexes.runningTasks).length === 0 &&
+      Object.keys(state.indexes.pendingInteractions).length === 0 &&
+      Object.values(state.agents).every((record) => !record.activeRun && !record.retry)
+    );
+  }
+  /** Work in the thread's local tree goes on, or ace will carry it on by itself. */
+  treeActive(id: ThreadId): boolean {
+    return this.liveness.active(id) || this.resuming(id) || this.limitContinues(id);
+  }
+  /**
+   * ace carries the limited thread on by itself: a resume or account move is scheduled at reset,
+   * or its limit policy is still loading and may schedule one.
+   */
+  limitContinues(id: ThreadId): boolean {
+    if (this.repo.state(id) === undefined) return false;
+    const queue = this.repo.queue.get(id);
+    return (
+      (queue.resumeAt !== null &&
+        (queue.timerAction === "resume" || queue.timerAction === "migrate")) ||
+      this.recovery.policyLoading(id)
+    );
+  }
+  /** `listener` hears each thread whose limit policy finished loading. */
+  onLimitPolicy(listener: (id: ThreadId) => void): () => void {
+    return this.recovery.onPolicyLoaded(listener);
+  }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
+  }
+  /**
+   * Whether account limits must stay fresh: a thread waits on one, or work runs or is about to
+   * (a session opening, an admitted send, queued input, a delegated child working). An idle
+   * session left open after its turn doesn't count.
+   */
+  limitsMatter(): boolean {
+    for (const actor of this.actors.values()) {
+      const live = this.liveness.live(actor.id);
+      if (live.agentsRunning || live.operationsRunning || this.liveness.providerWork(actor.id))
+        return true;
+    }
+    return this.repo.queue.limited().length > 0;
   }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {
@@ -1138,7 +1256,7 @@ export class Engine {
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
-      if (this.repo.reserve(id)) this.wake(id);
+      if (!this.fenced(id) && this.repo.reserve(id)) this.wake(id);
   }
   private releaseDormant(id: ThreadId): void {
     const actor = this.actors.get(id);
@@ -1150,11 +1268,13 @@ export class Engine {
     )
       return;
     const queue = this.repo.queue.get(id);
+    // A fenced thread holds no slot for work it won't run here (ADR 0191).
     if (
-      this.repo.pending.recovery(id) ||
-      this.repo.pending.transition(id) ||
-      this.repo.pending.controls(id).length ||
-      (!queue.paused && !queue.limited && this.repo.pending.message(id))
+      !this.fenced(id) &&
+      (this.repo.pending.recovery(id) ||
+        this.repo.pending.transition(id) ||
+        this.repo.pending.controls(id).length ||
+        (!queue.paused && !queue.limited && this.repo.pending.message(id)))
     )
       return;
     if (actor && !actor.poisoned && !actor.backlog().frames) {
@@ -1200,7 +1320,7 @@ export class Engine {
       !actor.session &&
       (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
         ? pendingControls.filter((intent) => intent.kind === "thread.interrupt")
-        : pendingControls;
+        : liveMove.admittedControls(pendingControls, this.fenced(actor.id));
     for (const intent of controls) {
       if (this.closing) return;
       const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1237,6 +1357,7 @@ export class Engine {
       return;
     }
     if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
+    if (this.fenced(actor.id)) return this.releaseDormant(actor.id);
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1246,7 +1367,7 @@ export class Engine {
       (!guard || guard === change.commandId) &&
       !this.repo.pending.awaiting(actor.id) &&
       !this.repo.pending.recovering(actor.id) &&
-      this.repo.quiescent(this.repo.requireState(actor.id))
+      switchReady(this.repo, change)
     ) {
       await this.delivery.run(actor, change);
       this.wake(actor.id);
@@ -1306,6 +1427,7 @@ export class Engine {
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
+    if (this.fenced(actor.id)) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
     await this.steerLane.run(actor);

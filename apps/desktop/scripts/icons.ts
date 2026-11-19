@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { betaIcon } from "../src/packaging/beta-icon.ts";
 import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
 
 /**
@@ -16,8 +17,14 @@ import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
  *   indexes (it has no 1024 px directory, so a lone 1024 px icon is never found);
  * - `resources/trayTemplate.png` and `trayTemplate@2x.png`: black and alpha only, which macOS
  *   treats as a template image and tints for the menu bar;
+ * - `resources/trayColor.png` and `trayColor@2x.png`: the app tile at tray size, for Linux
+ *   panels and the Windows taskbar, which never tint tray icons;
  * - the web app's `public/favicon.png` (from `public/favicon.svg`, for browsers without SVG
  *   favicons) and `public/apple-touch-icon.png` (from `brand/apple-touch-icon.svg`).
+ *
+ * `node apps/desktop/scripts/icons.ts --beta <dir>` renders only `<dir>/icon.icns`, the beta
+ * build's Dock icon: the same master with its corner peeled back over orange (ADR 0177). `package.ts` runs it while
+ * a beta packages; its output is never committed.
  *
  * The installed Electron rasterizes: each size is drawn from the vector at that size, never
  * scaled down from a larger bitmap. The outputs are committed; rerun this after editing an SVG.
@@ -107,8 +114,31 @@ app.whenReady().then(async () => {
 
 if (process.platform !== "darwin") throw new Error("icons.ts needs macOS for iconutil");
 
+const betaAt = process.argv.indexOf("--beta");
+const betaOut = betaAt === -1 ? undefined : process.argv[betaAt + 1];
+if (betaAt !== -1 && !betaOut) throw new Error("--beta needs the folder to write icon.icns in");
+
 const work = await mkdtemp(join(tmpdir(), "ace-icons-"));
 try {
+  if (betaOut) await renderBeta(betaOut);
+  else await renderAll();
+} finally {
+  await rm(work, { recursive: true, force: true });
+}
+
+async function renderBeta(out: string): Promise<void> {
+  const beta = betaIcon(await readFile(join(build, "icon.svg"), "utf8"));
+  const set = join(work, "icon.iconset");
+  await rasterize(
+    iconset.map(([name, size]) => ({ svg: beta, size, out: join(set, name), template: false })),
+    work,
+  );
+  await mkdir(out, { recursive: true });
+  execFileSync("iconutil", ["-c", "icns", set, "-o", join(out, "icon.icns")], { stdio: "inherit" });
+  console.log(`[icons] ${join(out, "icon.icns")}`);
+}
+
+async function renderAll(): Promise<void> {
   const icon = await readFile(join(build, "icon.svg"), "utf8");
   const tray = await readFile(join(build, "tray.svg"), "utf8");
   const favicon = await readFile(join(web, "public", "favicon.svg"), "utf8");
@@ -130,6 +160,9 @@ try {
     })),
     { svg: tray, size: 18, out: join(resources, "trayTemplate.png"), template: true },
     { svg: tray, size: 36, out: join(resources, "trayTemplate@2x.png"), template: true },
+    // The colour tile for trays that never tint their icons: Linux panels and Windows' taskbar.
+    { svg: icon, size: 24, out: join(resources, "trayColor.png"), template: false },
+    { svg: icon, size: 48, out: join(resources, "trayColor@2x.png"), template: false },
     { svg: favicon, size: 64, out: join(web, "public", "favicon.png"), template: false },
     { svg: touch, size: 180, out: join(web, "public", "apple-touch-icon.png"), template: false },
   ];
@@ -139,6 +172,4 @@ try {
   });
   for (const job of jobs) if (!job.out.startsWith(set)) console.log(`[icons] ${job.out}`);
   console.log(`[icons] ${join(build, "icon.icns")}`);
-} finally {
-  await rm(work, { recursive: true, force: true });
 }

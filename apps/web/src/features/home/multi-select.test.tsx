@@ -11,7 +11,7 @@ import { undoWindowMs } from "@/features/organize/use-thread-actions.ts";
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).getByRole("link", { name: title });
 const gone = (title: RegExp) => within(threads()).queryByRole("link", { name: title }) === null;
 const bar = () => screen.getByRole("toolbar", { name: "Selected threads" });
@@ -20,7 +20,7 @@ async function openHome() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openHome>>;
@@ -39,7 +39,7 @@ async function openWithIdle() {
   ] as const)
     createIdleTask(app.daemon, { id, workspaceId: "relay", title, provider: "codex" });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -60,43 +60,72 @@ async function pick(title: RegExp, keys: "{Meta>}" | "{Shift>}") {
 test("⌘-click picks rows without opening them, Shift-click takes the rows between", async () => {
   const app = await openHome();
   const opened = window.location.pathname;
-  await pick(/^Approval sheet/, "{Meta>}");
-  await pick(/^Backpressure/, "{Shift>}");
+  await pick(/^Dedupe thread events/, "{Meta>}");
+  await pick(/^Backpressure on broadcast/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  expect(await screen.findByText("5 selected")).toBeTruthy();
-  expect(card(/^Retry budget.*, selected/)).toBeTruthy();
+  // In the Inbox's order: the dedupe and the install page run, then the fan-out, done with its
+  // soak test left running (ADR 0116), then the invoice fallback.
+  expect(await screen.findByText("3 selected")).toBeTruthy();
+  expect(card(/^Rewrite the install page.*, selected/)).toBeTruthy();
   expect(
-    within(threads()).queryByRole("link", { name: /^Partial refunds.*, selected/ }),
+    within(threads()).queryByRole("link", { name: /^Invoice PDF locale fallback.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
-  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 5 threads" }));
+  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 3 threads" }));
   await waitFor(() =>
     expect(
-      [
-        "thread-sheet-rotate",
-        "thread-retry-budget",
-        "thread-dedupe",
-        "thread-install-page",
-        "thread-fan-out",
-      ].map((id) => listed(app, id)?.pinned),
-    ).toEqual([true, true, true, true, true]),
+      ["thread-dedupe", "thread-install-page", "thread-fan-out"].map(
+        (id) => listed(app, id)?.pinned,
+      ),
+    ).toEqual([true, true, true]),
   );
+  expect(listed(app, "thread-pdf-locale")?.pinned).toBeUndefined();
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
 test("bulk Archive archives every picked thread without asking, and one Undo restores them", async () => {
   const app = await openHome();
-  await pick(/^Backpressure/, "{Meta>}");
+  // The install page's agent still works: one archive of many never stops to ask about it.
+  await pick(/^Rewrite the install page/, "{Meta>}");
   await pick(/^Invoice PDF/, "{Meta>}");
   await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
 
-  await waitFor(() => expect(gone(/^Backpressure/) && gone(/^Invoice PDF/)).toBe(true));
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(gone(/^Rewrite the install page/) && gone(/^Invoice PDF/)).toBe(true));
+  expect(screen.queryByRole("dialog", { name: "Archive a running thread?" })).toBeNull();
+  await waitFor(() => expect(listed(app, "thread-install-page")?.archivedAt).toBeDefined());
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined());
+  await waitFor(() => expect(listed(app, "thread-install-page")?.archivedAt).toBeUndefined());
   await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined());
+});
+
+test("bulk Archive with a thread that left a command running asks first, and Archive archives them all", async () => {
+  const app = await openHome();
+  // The fan-out replied with its soak test still running (ADR 0116): archiving stops it.
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  expect(within(ask).getByText("Archiving stops 1 command they left running.")).toBeTruthy();
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
+
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined());
+});
+
+test("cancelling a bulk Archive that would stop a command keeps every thread", async () => {
+  const app = await openHome();
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
 });
 
 test("cancelling a bulk Delete keeps every thread", async () => {
@@ -125,8 +154,15 @@ test("a picked row's context menu acts on every picked thread", async () => {
 });
 
 test("X picks the focused row, Shift+↓ extends the pick, and Escape lets it go", async () => {
-  await openHome();
-  card(/^Approval sheet/).focus();
+  await openWithIdle();
+  // relay's two quiet threads sit next to each other: start from the upper one.
+  const upper = within(threads())
+    .getAllByRole("link")
+    .find((link) =>
+      /^(Tidy the README|Sketch the docs index)/.test(link.getAttribute("aria-label") ?? ""),
+    );
+  if (!upper) throw new Error("No quiet relay thread");
+  upper.focus();
   await userEvent.keyboard("x");
   expect(await screen.findByText("1 selected")).toBeTruthy();
   await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}");
@@ -187,7 +223,7 @@ test("threads deleted in bulk never come back: not after a while, not after a re
   // A fresh window on the same daemon: the list arrives without them.
   cleanup();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true);
   expect(listed(app, "thread-docs-index")).toBeUndefined();
   expect(listed(app, "thread-readme")).toBeUndefined();

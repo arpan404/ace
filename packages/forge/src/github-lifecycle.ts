@@ -28,6 +28,33 @@ import {
 } from "./github-lifecycle-schemas.ts";
 import { ReadBudget } from "./read-budget.ts";
 const text = z.string().max(65_536);
+const StackedOnto = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequests: z.object({
+        nodes: z.array(z.looseObject({ number: z.number().int().positive() })).max(10),
+      }),
+    }),
+  }),
+});
+const GraphqlData = z.object({ data: z.record(z.string(), z.unknown()) });
+const Fields = z.record(z.string(), z.unknown());
+const ResolvedLabel = z.object({ id: text, name: text });
+const ResolvedUser = z.object({ id: text, login: text });
+const RevertAck = z.object({
+  revertPullRequest: z.object({ number: z.number().int().positive() }),
+});
+const HeadAck = z.object({ pullRequest: z.object({ headRefOid: text }) });
+const MarkedPrs = z
+  .array(
+    z.looseObject({
+      number: z.number().int().positive(),
+      body: text.nullable(),
+      title: text,
+    }),
+  )
+  .max(100);
+const BehindBy = z.looseObject({ behind_by: z.number().int().nonnegative() });
 function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) throw new ForgeError("invalid_data");
@@ -65,18 +92,9 @@ export class GitHubLifecycle {
       { owner: this.#repository.owner, name: this.#repository.name, branch },
       signal,
     );
-    return decode(
-      z.object({
-        data: z.object({
-          repository: z.object({
-            pullRequests: z.object({
-              nodes: z.array(z.looseObject({ number: z.number().int().positive() })).max(10),
-            }),
-          }),
-        }),
-      }),
-      response.body,
-    ).data.repository.pullRequests.nodes.map((pr) => pr.number);
+    return decode(StackedOnto, response.body).data.repository.pullRequests.nodes.map(
+      (pr) => pr.number,
+    );
   }
   async #snapshotQuery(number: number, signal: AbortSignal) {
     const variables = { owner: this.#repository.owner, name: this.#repository.name, number };
@@ -221,7 +239,7 @@ export class GitHubLifecycle {
     // Names remain literal GraphQL strings and cannot expand repository scope.
     const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${labels.map((l, i) => `l${i}:label(name:${JSON.stringify(l)}){id name}`).join(" ")} id} ${assignees.map((u, i) => `u${i}:user(login:${JSON.stringify(u)}){id login}`).join(" ")}}`;
     const result = decode(
-      z.object({ data: z.record(z.string(), z.unknown()) }),
+      GraphqlData,
       (
         await this.#graphql(
           query,
@@ -230,19 +248,19 @@ export class GitHubLifecycle {
         )
       ).body,
     ).data;
-    const repo = decode(z.record(z.string(), z.unknown()), result.repository);
+    const repo = decode(Fields, result.repository);
     if (changes.labels)
       resolved.labels = labels.map((name, i) => {
         // GitHub answers null for a name it doesn't have.
         if (repo[`l${i}`] === null) throw new ForgeError("unprocessable");
-        const label = decode(z.object({ id: text, name: text }), repo[`l${i}`]);
+        const label = decode(ResolvedLabel, repo[`l${i}`]);
         if (label.name !== name) throw new ForgeError("conflict");
         return { id: label.id, name: label.name };
       });
     if (changes.assignees)
       resolved.assignees = assignees.map((login, i) => {
         if (result[`u${i}`] === null) throw new ForgeError("unprocessable");
-        const user = decode(z.object({ id: text, login: text }), result[`u${i}`]);
+        const user = decode(ResolvedUser, result[`u${i}`]);
         if (user.login.toLowerCase() !== login.toLowerCase()) throw new ForgeError("conflict");
         return { id: user.id, login: user.login };
       });
@@ -361,23 +379,14 @@ export class GitHubLifecycle {
       dispatch,
     );
     try {
-      const data = decode(
-        z.object({ data: z.record(z.string(), z.unknown()) }),
-        response.body,
-      ).data;
+      const data = decode(GraphqlData, response.body).data;
       if (action.kind === "revert") {
-        const result = decode(
-          z.object({ revertPullRequest: z.object({ number: z.number().int().positive() }) }),
-          data[mutation],
-        );
+        const result = decode(RevertAck, data[mutation]);
         const revertPr = { repository: this.#repository, number: result.revertPullRequest.number };
         if (revertPr.number === number) throw new ForgeError("invalid_data");
         return { outcome: "accepted", headSha: snapshot.headSha, revertPr };
       }
-      const result = decode(
-        z.object({ pullRequest: z.object({ headRefOid: text }) }),
-        data[mutation],
-      );
+      const result = decode(HeadAck, data[mutation]);
       const current = await this.snapshot(number, signal);
       if (action.kind.startsWith("update.") && current.headSha !== result.pullRequest.headRefOid)
         return { outcome: "head_changed", headSha: current.headSha };
@@ -429,18 +438,7 @@ export class GitHubLifecycle {
       for (let page = 0; endpoint && page < 20; page++) {
         const response = await this.#api.request(endpoint, signal);
         budget.add(response.bytes);
-        const prs = decode(
-          z
-            .array(
-              z.looseObject({
-                number: z.number().int().positive(),
-                body: text.nullable(),
-                title: text,
-              }),
-            )
-            .max(100),
-          response.body,
-        );
+        const prs = decode(MarkedPrs, response.body);
         const found = prs.filter(
           (pr) =>
             pr.body?.includes(lifecycleWriteMarker(operationId)) &&
@@ -469,7 +467,7 @@ export class GitHubLifecycle {
         return { outcome: "head_changed", headSha: current.headSha };
       if (current.headSha === before.headSha) return null;
       const compare = decode(
-        z.looseObject({ behind_by: z.number().int().nonnegative() }),
+        BehindBy,
         (
           await this.#api.request(
             `repos/${this.#repository.owner}/${this.#repository.name}/compare/${before.baseSha}...${current.headSha}`,

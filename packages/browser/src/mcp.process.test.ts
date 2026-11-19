@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
-import { McpScope } from "@ace/protocol";
+import { BrowserState, McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
-import { executablePath, fixture, textRef, toolPort } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, textRef, toolPort } from "./test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const Text = z.object({
@@ -106,9 +106,123 @@ it("refuses an act whose fields do not fit its action before touching the page",
   }
 });
 
+it("an act carries the place its caller's gate checked through to the tab's command", async () => {
+  const executed: unknown[] = [];
+  const tab = { tabId: "t1", url: "https://docs.example/", title: "" };
+  const f = agent({
+    open: async () => tab,
+    tab: async () => tab,
+    state: () => BrowserState.parse({ threadId: "thread", status: "open" }),
+    execute: async (_caller, command) => {
+      executed.push(command);
+      return { ok: true };
+    },
+    screenshot: unused,
+    close: unused,
+  });
+  try {
+    const expected = { tabId: "t1", url: "https://docs.example/" };
+    const result = await f.call("browser_act", { action: "press", key: "Enter", expect: expected });
+    expect(textOf(result)).not.toContain("invalid_arguments");
+    expect(executed).toEqual([expect.objectContaining({ action: "press", expect: expected })]);
+    // Closing a tab carries it too, to the tab command.
+    executed.length = 0;
+    await f.call("browser_tabs", { action: "close", tabId: "t1", expect: expected });
+    expect(executed).toEqual([
+      expect.objectContaining({ action: "tabs", operation: "close", expect: expected }),
+    ]);
+  } finally {
+    f.close();
+  }
+});
+
+it("every browser tool that takes expect carries it to the command it runs", async () => {
+  const executed: Record<string, unknown>[] = [];
+  const tab = { tabId: "t1", url: "https://docs.example/", title: "" };
+  const f = agent({
+    open: async () => tab,
+    tab: async () => tab,
+    state: () => BrowserState.parse({ threadId: "thread", status: "open" }),
+    execute: async (_caller, command) => {
+      executed.push(command);
+      return { ok: true };
+    },
+    screenshot: unused,
+    close: unused,
+  });
+  // The smallest valid call of each tool that takes `expect`; a new one must be added here.
+  const minimal: Record<string, Record<string, unknown>> = {
+    browser_act: { action: "press", key: "Enter" },
+    browser_evaluate: { expression: "1" },
+    browser_history: { direction: "back" },
+    browser_measure: { observeMs: 1, filmstrip: false },
+    browser_tabs: { action: "close", tabId: "t1" },
+  };
+  const expected = { tabId: "t1", url: "https://docs.example/" };
+  const taking: string[] = [];
+  try {
+    for (const name of f.registry.names()) {
+      const schema = z
+        .object({ properties: z.record(z.string(), z.unknown()).optional() })
+        .parse(f.registry.inputSchema(name, f.lease.principal) ?? {});
+      if (schema.properties?.["expect"] === undefined) continue;
+      taking.push(name);
+      const args = minimal[name];
+      if (!args) throw new Error(`${name} takes expect: add its smallest call to this test`);
+      executed.length = 0;
+      await f.call(name, { ...args, expect: expected });
+      expect(
+        executed.map((command) => command["expect"]),
+        `${name} drops expect before it runs`,
+      ).toContainEqual(expected);
+    }
+    expect(taking.toSorted()).toEqual(Object.keys(minimal).toSorted());
+  } finally {
+    f.close();
+  }
+});
+
+it("tells agents the tab works at a person's phone viewport, in tab lists and screenshots", async () => {
+  const phone = {
+    tabId: "t1",
+    url: "https://shop.test/",
+    title: "Shop",
+    emulation: {
+      width: 390,
+      height: 700,
+      deviceScaleFactor: 3,
+      mobile: true,
+      touch: true,
+      by: "human" as const,
+    },
+  };
+  const f = agent({
+    open: unused,
+    tab: async () => ({ tabId: "t1", url: phone.url, title: phone.title }),
+    state: () =>
+      BrowserState.parse({ threadId: "thread", url: phone.url, closed: false, tabs: [phone] }),
+    execute: async () => ({ tabs: [{ ...phone, current: true }], tabId: "t1" }),
+    screenshot: async () => ({ bytes: new Uint8Array([1, 2, 3]) }),
+    close: unused,
+  });
+  try {
+    const device = { width: 390, height: 700, mobile: true, touch: true, setBy: "person" };
+    expect(jsonOf(await f.call("browser_tabs", { action: "list" }))).toMatchObject({
+      tabs: [{ tabId: "t1", device }],
+    });
+    const shot = (await f.call("browser_screenshot", {})) as {
+      content: { type: string; text?: string }[];
+    };
+    const note = shot.content.find((part) => part.type === "text")?.text ?? "{}";
+    expect(JSON.parse(note)).toMatchObject({ device });
+  } finally {
+    f.close();
+  }
+});
+
 describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   it("opens a page, reads compact refs and acts on them", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       expect(jsonOf(await f.call("browser_open", { url: page.url }))).toMatchObject({
@@ -153,7 +267,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("keeps a large page under budget, says it was cut, and narrows by scope or role", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: `${page.url}/big` });
@@ -188,7 +302,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("performs every act kind through one tool", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     const output = () => page.evaluate("document.getElementById('out').textContent");
     try {
@@ -244,7 +358,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("an agent works in a tab of its own by tabId, and closing it leaves the first tab", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     const Tabs = z.object({
       tabs: z.array(
@@ -315,7 +429,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("lists history entries, moves through them and reports navigation after an act", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: `${page.url}/controls` });
@@ -345,7 +459,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("tells the agent which call recovers from a stale ref or a closed browser", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: page.url });

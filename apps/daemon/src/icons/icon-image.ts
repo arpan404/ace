@@ -8,7 +8,12 @@ let decoder: Promise<typeof import("sharp")> | undefined;
 let decoding = Promise.resolve();
 let queued = 0;
 
-function safeSvg(bytes: Buffer): boolean {
+/**
+ * Whether an SVG is safe to decode: no scripts, embedded documents, images, style sheets or
+ * references outside itself. An app icon installed on this machine may also carry inline
+ * `style` attributes (GNOME's do); a downloaded or a repository's icon may not.
+ */
+function safeSvg(bytes: Buffer, installed = false): boolean {
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -18,9 +23,10 @@ function safeSvg(bytes: Buffer): boolean {
   text = text.replace(/<!--[\s\S]*?-->/g, "").replace(/<\?xml\s[\s\S]*?\?>/g, "");
   return (
     /^\s*<svg(?:\s|>)/i.test(text) &&
-    !/<!|<\?|<(?:[\w.-]+:)?(?:script|foreignObject|image|style)\b|\bxml:base\s*=|\bstyle\s*=|\bon\w+\s*=|\b(?:xlink:)?href\s*=\s*["'](?!#)|\burl\s*\(\s*["']?(?!#)/i.test(
+    !/<!|<\?|<(?:[\w.-]+:)?(?:script|foreignObject|image|style)\b|\bxml:base\s*=|\bon\w+\s*=|\b(?:xlink:)?href\s*=\s*["'](?!#)|\burl\s*\(\s*["']?(?!#)/i.test(
       text,
-    )
+    ) &&
+    (installed || !/\bstyle\s*=/i.test(text))
   );
 }
 
@@ -32,6 +38,17 @@ type Input = Buffer | { raw: Buffer; width: number; height: number };
  */
 export async function rasterPng(input: Input, svg = false): Promise<Buffer | null | undefined> {
   if (svg && Buffer.isBuffer(input) && !safeSvg(input)) return null;
+  return decode(input);
+}
+
+/** An app icon installed on this machine (a Linux icon theme's PNG or SVG) as a PNG. */
+export async function installedIconPng(bytes: Buffer): Promise<Buffer | null | undefined> {
+  const markup = bytes.subarray(0, 64).toString("utf8").trimStart().startsWith("<");
+  if (markup && !safeSvg(bytes, true)) return null;
+  return decode(bytes);
+}
+
+async function decode(input: Input): Promise<Buffer | null | undefined> {
   if (queued >= 8) return undefined;
   queued++;
   const previous = decoding;

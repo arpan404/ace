@@ -113,6 +113,7 @@ export class FakePrPeople {
           return person ? [{ ...person, isAuthor: false, isCommenter: login === "priya" }] : [];
         }),
       author,
+      viewer: "you",
       canRequest: open,
       canDismiss: open,
     };

@@ -41,7 +41,7 @@ function database(path: string, version: number) {
   db.close();
 }
 
-/** The pre-upgrade copy the daemon writes beside a database before migrating it. */
+/** The pre-upgrade copy older builds wrote beside a database before migrating it. */
 function upgradeBackup(dataDir: string, version: number): string {
   const path = join(dataDir, `events.sqlite.schema-${version}.backup`);
   database(path, version);

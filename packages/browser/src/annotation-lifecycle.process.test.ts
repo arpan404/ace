@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { annotationFixture, executablePath } from "./annotation-test-support.ts";
+import { sharedAnnotationFixture, executablePath } from "./annotation-test-support.ts";
 
 const test = it.skipIf(!executablePath);
 const overlayPresent = "document.querySelector('ace-annotation-layer') !== null";
 
 test("navigating ends annotate mode and the next document has no overlay", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await f.pin(person, "p.lead", "Keep");
   await person.execute({ action: "navigate", url: `${f.origin}/next` });
@@ -22,7 +22,7 @@ test("navigating ends annotate mode and the next document has no overlay", async
 }, 60_000);
 
 test("the page cannot reach the overlay's binding, and its synthetic clicks are ignored", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   expect(
     await person.evaluate(
@@ -39,7 +39,7 @@ test("the page cannot reach the overlay's binding, and its synthetic clicks are 
 }, 60_000);
 
 test("agents never annotate, and a second person's annotate mode replaces the first's for them alone", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   await expect(
     f.service.execute("thread", { action: "annotate", operation: "start" }),
   ).rejects.toThrow();
@@ -68,7 +68,7 @@ test("agents never annotate, and a second person's annotate mode replaces the fi
 const Snapshot = z.object({ nodes: z.array(z.object({ name: z.string(), role: z.string() })) });
 
 test("agent snapshots describe the page without the annotate overlay", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await f.pin(person, "p.lead", "Shorter");
   // Leave an editor open as well, so every overlay surface is on screen.
@@ -83,7 +83,7 @@ test("agent snapshots describe the page without the annotate overlay", async () 
 }, 60_000);
 
 test("a disconnected or stopping person leaves no overlay behind", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await person.execute({ action: "annotate", operation: "stop" });
   expect(await person.event("ended")).toMatchObject({ reason: "stopped" });

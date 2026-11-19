@@ -53,8 +53,9 @@ export function PageSourceDialog(props: { source: PageSource | undefined; onClos
 }
 
 /**
- * Clear browsing data: what goes, for which browser, and a danger action with focus on Cancel.
- * In ace's Chrome every thread shares the profile, so it says so.
+ * Clear browsing data: what goes, and a danger action with focus on Cancel. Clearing acts on
+ * the browser profile the thread uses, which other threads share unless Settings › Browser ›
+ * Browser profile gives each thread its own (or new browsers are private), so it says so.
  */
 export function ClearDataDialog(props: {
   open: boolean;
@@ -63,16 +64,19 @@ export function ClearDataDialog(props: {
   onClear(): Promise<boolean>;
 }) {
   const [busy, setBusy] = useState(false);
-  const shared = props.engine === "headless";
+  // ace's Chrome can't list every site with stored data: storage goes for this thread's sites.
+  const what =
+    props.engine === "headless"
+      ? "every cookie and the cache in the browser profile this thread uses, site storage of the sites open in this thread, and this thread's history"
+      : "cookies, the cache and site storage in the browser profile this thread uses, and this thread's history";
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Clear browsing data?</DialogTitle>
           <DialogDescription>
-            {shared
-              ? "Signs you out of sites in ace's Chrome, which every thread shares: cookies and the cache go everywhere, and site storage goes for the sites open in this thread. This thread's history goes too."
-              : "Signs you out of sites in this thread's browser: its cookies, cache, site storage and history go."}
+            Clears {what}. Threads that share this profile are signed out too. Settings › Browser ›
+            Browser profile decides whether threads share one.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

@@ -90,7 +90,9 @@ test("real failed tests report nested cleanup causes with bounded output and ret
     process.execPath,
     [join(repository, "node_modules/vitest/vitest.mjs"), "run", "--config", config],
     {
-      cwd: repository,
+      // Not the repository: Vitest looks for Bun's `native` frames as files in the working
+      // directory, and the repository's native/ folder would be read as one.
+      cwd: root,
       env: process.env,
       maxBuffer: 2 * 1024 * 1024,
       timeout: PROCESS_TEST_TIMEOUT,

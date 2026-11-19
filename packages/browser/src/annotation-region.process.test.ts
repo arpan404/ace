@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { BrowserAnnotationCapture } from "@ace/protocol";
 import {
-  annotationFixture,
+  sharedAnnotationFixture,
   executablePath,
   isMarkerColour,
   pixel,
@@ -10,7 +10,7 @@ import {
 const test = it.skipIf(!executablePath);
 
 async function onRegionPage() {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = f.connect("person");
   await person.subscribe();
   await person.execute({ action: "navigate", url: `${f.origin}/region` });

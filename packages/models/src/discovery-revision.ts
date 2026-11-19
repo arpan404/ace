@@ -1,6 +1,6 @@
 import type { CatalogModel, ModelSource } from "@ace/protocol";
 import { createHash } from "node:crypto";
-import { connectedOpenCodeProviders } from "./opencode-connections.ts";
+import { connectedOpenCodeProviders, impliedOpenCodeProviders } from "./opencode-connections.ts";
 import { discoverListedModels } from "./list-discovery.ts";
 import {
   spawnSupervised,
@@ -17,13 +17,22 @@ export function connectionRevision(
 ): string {
   const values =
     provider === "opencode"
-      ? sources
-          // Free Zen appears in served metadata without an auth-list connection.
-          .filter((source) => source.requiresAuth !== false)
+      ? openCodeConnectionSources(sources)
           .map((source) => JSON.stringify([source.kind, source.id, source.label, source.service]))
           .toSorted()
       : models.map((model) => `${model.nativeProviderId ?? ""}/${model.id}`).toSorted();
   return createHash("sha256").update(JSON.stringify(values)).digest("hex");
+}
+
+/**
+ * The connections a catalog's sources stand for. A Console login counts as Go-connected whether
+ * or not its account serves Go, so the auth-list probe and the discovered catalog agree.
+ */
+function openCodeConnectionSources(sources: readonly ModelSource[]): ModelSource[] {
+  // Free Zen appears in served metadata without an auth-list connection.
+  const connected = sources.filter((source) => source.requiresAuth !== false);
+  const implied = impliedOpenCodeProviders(new Map(connected.map((source) => [source.id, source])));
+  return [...connected, ...implied.values()];
 }
 export function createModelRevisionProbe(
   spawn: (options: SpawnOptions) => SupervisedProcess = spawnSupervised,

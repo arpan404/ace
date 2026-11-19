@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/StartedBy.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The thread whose agent started this top-level thread through ace.",
+  "minLength": 1,
+  "type": "string"
+}

@@ -1,5 +1,7 @@
 import { hasUnresponsiveAncestor } from "@ace/core";
+import { threadOwnershipTable } from "../thread-ownership-table.ts";
 import { streamFacts } from "./stream-facts.ts";
+import { streamedFactsBytes } from "./fact-bytes.ts";
 import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
@@ -38,12 +40,26 @@ import { decodeSnapshot } from "./snapshot.ts";
 import { readRawBlob } from "./raw.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
+import { SteerNotes } from "./steer-notes.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 import { indexEngineRecords } from "../engine-record-indexes.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
 import { AttachmentCorrelations } from "./attachment-correlations.ts";
+
+// Cursor SDK frame shapes, decoded per frame: built once, since Zod compiles a parser per schema.
+const CursorGeneration = z.object({ generation: z.string().min(1).max(512) });
+const CursorBlob = z.object({
+  kind: z.literal("blob"),
+  body: z.object({
+    id: z.string(),
+    offset: z.number(),
+    text: z.string().optional(),
+    done: z.boolean().optional(),
+  }),
+});
+const LooseFrameData = z.object({}).loose();
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
@@ -54,6 +70,7 @@ export class EngineRepository {
   private capture: StatementSync;
   private metadata: SessionMetadata;
   readonly queue: QueueStore;
+  readonly steerNotes: SteerNotes;
   readonly inputs: InputJournal;
   readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
@@ -116,6 +133,8 @@ export class EngineRepository {
     this.capture = store.atomic((_db) =>
       this.store.statement("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
     );
+    // Before the queue: its snapshot reads which steers fell back.
+    this.steerNotes = new SteerNotes(store);
     this.queue = new QueueStore(store);
     store.atomic((db) =>
       db.exec(
@@ -128,6 +147,10 @@ export class EngineRepository {
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((_db) => new TransitionReadiness(_db, now));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
+    // Read by `runnableThreads`, which leaves threads moving to another machine out (ADR 0191).
+    store.atomic((db) => {
+      db.exec(threadOwnershipTable);
+    });
     this.admissionStatements = store.atomic((_db) => ({
       has: this.store.statement(
         "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
@@ -348,7 +371,7 @@ export class EngineRepository {
       )
     )
       return false;
-    const bytes = Buffer.byteLength(JSON.stringify(facts));
+    const bytes = streamedFactsBytes(facts);
     if (bytes > 512 * 1024) return false;
     this.store.prepareLiveWrite(bytes);
     const events = streamFacts(snapshot, facts, now, this.ids);
@@ -545,10 +568,22 @@ export class EngineRepository {
   engineQueueFact(id: ThreadId): Extract<Fact, { type: "queue.changed" }> | undefined {
     const count = this.queuedCount(id);
     const held = count > 0 && this.queue.heldOnFailedSend(id);
+    const stopped = count > 0 && !held && this.queue.stoppedByPerson(id);
     const state = this.state(id);
-    if (state && state.queueSources.engine === count && (state.queueHeld ?? false) === held)
+    if (
+      state &&
+      state.queueSources.engine === count &&
+      (state.queueHeld ?? false) === held &&
+      (state.queueStopped ?? false) === stopped
+    )
       return undefined;
-    return { type: "queue.changed", source: "engine", count, ...(held ? { held } : {}) };
+    return {
+      type: "queue.changed",
+      source: "engine",
+      count,
+      ...(held ? { held } : {}),
+      ...(stopped ? { stopped } : {}),
+    };
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
@@ -655,24 +690,12 @@ export class EngineRepository {
       this.backend(id) !== "cursor-sdk"
     )
       return;
-    const generation = z
-      .object({ generation: z.string().min(1).max(512) })
-      .parse(frame.data).generation;
-    const blob = z
-      .object({
-        kind: z.literal("blob"),
-        body: z.object({
-          id: z.string(),
-          offset: z.number(),
-          text: z.string().optional(),
-          done: z.boolean().optional(),
-        }),
-      })
-      .safeParse(frame.data);
+    const generation = CursorGeneration.parse(frame.data).generation;
+    const blob = CursorBlob.safeParse(frame.data);
     // Shared raw storage already owns chunk bytes. Hydration needs only ordered provenance.
     const data = blob.success
       ? {
-          ...z.object({}).loose().parse(frame.data),
+          ...LooseFrameData.parse(frame.data),
           body: {
             id: blob.data.body.id,
             offset: blob.data.body.offset,

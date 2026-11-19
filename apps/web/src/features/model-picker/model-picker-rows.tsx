@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
-import type { ModelProblem, PickerModel } from "@ace/ui-core";
+import { isSignInProblem, type ModelProblem, type PickerModel } from "@ace/ui-core";
 import { isPlainCliLogin, providerNames, freeModelMarker } from "@ace/ui-core";
 import {
   CaretRightIcon,
@@ -9,13 +9,14 @@ import {
   MagnifyingGlassIcon,
   StarIcon,
   WarningCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SignInButton } from "@/features/sign-in/index.ts";
 
 /*
@@ -115,6 +116,11 @@ export function ModelRow(props: {
         <div
           role="option"
           id={props.id}
+          {...part(
+            "menu-item",
+            model.unavailable ? "disabled" : props.current && "checked",
+            "option",
+          )}
           aria-selected={props.current}
           aria-disabled={model.unavailable ? true : undefined}
           data-disabled={model.unavailable ? "" : undefined}
@@ -198,6 +204,7 @@ export function LegacyToggle(props: {
     <div
       role="option"
       id={props.id}
+      {...part("menu-item", props.expanded ? "open" : "closed", "submenu")}
       aria-selected={false}
       aria-expanded={props.expanded}
       aria-controls={props.controls}
@@ -229,13 +236,8 @@ export function LegacyToggle(props: {
   );
 }
 
-/** Discovery problems that signing in fixes: not set up or signed out. */
-const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_expired"]);
-
 /** Whether signing in is the fix, so the account's own row can offer it instead. */
-export function isSignInProblem(problem: ModelProblem): boolean {
-  return problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code);
-}
+export { isSignInProblem };
 
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
@@ -302,6 +304,7 @@ export function PickerEmpty(props: { query: string; favorites: boolean }) {
   return (
     <div
       role="status"
+      {...part("empty-state", undefined, "inline")}
       className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center"
     >
       {props.favorites && !props.query.trim() ? (

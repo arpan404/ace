@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, test } from "vitest";
 import { copyHome } from "./copy-home.ts";
 import { prepareOutput } from "./paths.ts";

@@ -1,6 +1,8 @@
+import { useSeconds } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
 import type {
+  AgentPointer,
   DeviceActivity,
   DeviceInput,
   DeviceOperation,
@@ -25,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDeviceSession, type DeviceSession } from "./device-session.ts";
+import { channelEndpoint, throughAccount } from "@/boot/main-machine.ts";
 
 const enabledResult = (data: unknown): boolean =>
   typeof data === "object" && data !== null && "enabled" in data && data.enabled === true;
@@ -42,24 +45,13 @@ function problem(error: unknown): DeviceProblem {
   return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
 }
 
-/** The wall clock, ticking once a second while `active` so a control lease counts down. */
-function useSeconds(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const tick = () => setNow(Date.now());
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [active]);
-  return now;
-}
-
 export interface DevicesView {
   connected: boolean;
   loading: boolean;
   /** Set when the channel closed on an error; the panel offers to reconnect. */
   failure: DeviceProblem | undefined;
+  /** The machine was opened through the ace account: there is no devices channel to it. */
+  throughAccount: boolean;
   enabled: boolean;
   rows: DeviceRow[];
   /** Missing SDKs or tools discovery reported. */
@@ -77,6 +69,13 @@ export interface DevicesView {
   holder: { threadId: string; agentId: string } | undefined;
   /** The last thing an agent did on the selected device. */
   activity: DeviceActivity | undefined;
+  /** The agent using it waits: the person's input on it is recent (cowork, ADR 0143). */
+  personActive: boolean;
+  /** Where the agent using it last acted, in device points. */
+  agentPointer: AgentPointer | undefined;
+  /** What the selected device's live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: DeviceState["acceleration"];
+  stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
 }
@@ -88,7 +87,7 @@ export interface DevicesView {
  */
 export function useDevices(threadId: string, deviceId?: string) {
   const { endpoint } = useDaemonConnection();
-  const { session, snapshot, reconnect } = useDeviceSession(endpoint);
+  const { session, snapshot, reconnect } = useDeviceSession(channelEndpoint(endpoint));
   const [enabledLocally, setEnabled] = useState<boolean | undefined>();
   const [pending, setPending] = useState(0);
   const [downloadingTools, setDownloadingTools] = useState(false);
@@ -117,7 +116,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     snapshot.enabled ??
     (snapshot.states.length
       ? snapshot.states.some((entry) => entry.enabled)
-      : (enabledLocally ?? false));
+      : (enabledLocally ?? true));
   const notice = state?.recordingNotice;
   useEffect(() => {
     if (notice && notice !== noticed.current) notify({ title: notice });
@@ -206,6 +205,7 @@ export function useDevices(threadId: string, deviceId?: string) {
   };
 
   const view: DevicesView = {
+    throughAccount: throughAccount(endpoint),
     connected,
     loading: !snapshot.inventoryLoaded,
     failure: connected
@@ -232,6 +232,10 @@ export function useDevices(threadId: string, deviceId?: string) {
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,
+    personActive: state?.controller === "agent" && state.personActive === true,
+    agentPointer: state?.controller === "agent" ? state.agentPointer : undefined,
+    acceleration: state?.acceleration,
+    stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [
         entry.device.id,
@@ -265,7 +269,20 @@ export function useDevices(threadId: string, deviceId?: string) {
       target &&
       act(async () => {
         autoStarted.current.add(target);
-        await withControl({ op: "boot", deviceId: target });
+        try {
+          await withControl({ op: "boot", deviceId: target });
+        } catch (error) {
+          // The list may be stale (booted in Xcode since it was read): read it again, and a
+          // device that is running after all needs no boot.
+          await run({ op: "list" });
+          await run({ op: "states" });
+          const read = session?.client.getSnapshot();
+          // A device's session state is newer than the inventory, as in the list's rows.
+          const found =
+            read?.states.find((entry) => entry.device.id === target)?.device ??
+            read?.devices.find((entry) => entry.id === target);
+          if (found?.state !== "booted") throw error;
+        }
         await run({ op: "start", deviceId: target, fps: 60 });
       }),
     /** Read the inventory and every device's state again. */
@@ -337,11 +354,15 @@ export function useDevices(threadId: string, deviceId?: string) {
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the
      * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.
      * Input while in control skips the pending count: a drag must not re-render the whole tab.
+     * While an agent uses the device in cowork, the person's input goes straight in with no
+     * claim of control (the agent waits while it is recent, ADR 0143).
      */
     input: async (input: DeviceInput): Promise<void> => {
       if (!target) return;
+      const shared = state?.controller === "agent" && state.sharing !== "exclusive";
       try {
-        if (!controls?.inControl) await withControl({ op: "input", deviceId: target, input });
+        if (!controls?.inControl && !shared)
+          await withControl({ op: "input", deviceId: target, input });
         else {
           if (failed) setFailed(undefined);
           if (!session) throw new DeviceClientError("disconnected", "Devices are offline");

@@ -32,6 +32,11 @@
       "minimum": 0,
       "type": "integer"
     },
+    "cursor": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "id": {
       "maxLength": 200,
       "minLength": 1,
@@ -56,26 +61,6 @@
     "preview": {
       "maxLength": 300,
       "type": "string"
-    },
-    "run": {
-      "properties": {
-        "outcome": {
-          "enum": [
-            "stopped",
-            "blocked",
-            "delivered"
-          ],
-          "type": "string"
-        },
-        "phase": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
-        }
-      },
-      "required": [
-        "outcome",
-        "phase"
-      ],
-      "type": "object"
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/NotificationStatus.json"

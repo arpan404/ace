@@ -18,6 +18,9 @@ export type OptionalCapability =
   /** `trace`: totals of spans the script times itself (diagnostics only). */
   | "trace";
 
+/** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
+export type KeptValueKey = "review" | "files" | "runAlerts";
+
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";
 
@@ -54,12 +57,47 @@ export interface HostOperations {
   /** The bridge's kept service reads. */
   "storage.reads.load": { input: null; body: never };
   "storage.reads.save": { input: null; body: string };
+  /** The browser's device toolbar per tab (`@ace/ui-core/browser-device-settings`). */
+  "storage.devices.load": { input: null; body: never };
+  "storage.devices.save": { input: null; body: string };
+  /** Failed sends the person took back or discarded (`apps/ios/bridge/dismissed-sends.ts`). */
+  "storage.dismissed.load": { input: null; body: never };
+  "storage.dismissed.save": { input: null; body: string };
+  /**
+   * Small per-device values the shared logic keeps between launches, by key: "review" (Changes
+   * comments and viewed marks), "files" (recent and open files). "" when nothing is kept.
+   */
+  "storage.value.load": { input: { key: KeptValueKey }; body: never };
+  /** A plain replace; native code bounds each value at 1 MiB. */
+  "storage.value.save": { input: { key: KeptValueKey }; body: string };
+  /** Each thread's side panel on a tablet (`@ace/ui-core/tablet-workspace`). */
+  "storage.workspace.load": { input: null; body: never };
+  "storage.workspace.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */
   "snapshot.get": { input: string; body: never };
   "snapshot.set": { input: { key: string }; body: string };
   "snapshot.clear": { input: null; body: never };
+  /**
+   * A thread kept as rows (ADR 0105), keyed like `snapshot.get`: answers "" for a miss, else the
+   * head's JSON and then each item's JSON, one per line.
+   */
+  "snapshot.thread.get": { input: string; body: never };
+  /**
+   * One thread write, all or nothing. `body` is the head's JSON and then the JSON of each item in
+   * `ids`, one per line. `removed` items are deleted; `replace` deletes every item first.
+   */
+  "snapshot.thread.put": {
+    input: { key: string; settled: boolean; ids: string[]; removed: string[]; replace: boolean };
+    body: string;
+  };
+  /** Everything kept: a JSON array of `{key, kind, used, bytes, settled}`. */
+  "snapshot.index": { input: null; body: never };
+  /** Lets the named records and threads go. */
+  "snapshot.drop": { input: { keys: string[] }; body: never };
+  /** How many bytes the snapshot store takes on disk, as decimal text. */
+  "snapshot.size": { input: null; body: never };
   /** Keychain, limited by native code to the keys this runtime may touch. */
   "secret.get": { input: string; body: never };
   "secret.set": { input: { key: string; token: string }; body: never };
@@ -72,25 +110,119 @@ export interface HostOperations {
     input: { method: string; path: string; body?: string | undefined; token?: string | undefined };
     body: never;
   };
-  /** Debug fixture only: the loopback daemon's credential. */
+  /**
+   * The hello's credential: an account machine's current device grant (`{"grant": …}`), or, in
+   * the debug fixture only, the loopback daemon's.
+   */
   credential: { input: null; body: never };
+  /**
+   * An account machine's next device grant, fetched now, never one kept from an earlier
+   * connection: sent on an open socket before its grant runs out (ADR 0114). `{"grant": …}`.
+   */
+  "credential.fresh": { input: null; body: never };
+  /**
+   * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
+   * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
+   * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code
+   * draws and acknowledges only what came that way, with that generation, holds what comes while
+   * pending (bounded), starts its decoder over on another generation, and ignores an update
+   * older (by `revision`) than the one it holds. It decides nothing else.
+   */
+  "media.delivery": {
+    input: {
+      view: "browser" | "screen" | "device";
+      source: string;
+      generation: number;
+      /**
+       * Counts up with every `media.delivery` this script sends, in the order it sent them: native
+       * code ignores one older than the update it holds. A generation may come back (a failed
+       * subscribe falls back to the delivery it replaced), so the order is this, not the generation.
+       */
+      revision: number;
+      path: string | null;
+      /**
+       * The poster this subscribe's reply brought back, as native code named it in the reply
+       * (`media.poster.jpeg`, a token: the JPEG itself never enters the script). Native code
+       * shows it only for this source and generation, until the first live picture.
+       */
+      poster: string | null;
+    };
+    body: never;
+  };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
+  /**
+   * A file the shared logic saves to the device a chunk at a time (a checkout file or a folder's
+   * archive), so its bytes never pile up in the script. `open` starts an empty file named `name`
+   * in the app's temporary storage under the script's `id` (a uuid), replacing any left there.
+   */
+  "download.open": { input: { id: string; name: string }; body: never };
+  /**
+   * Base64 bytes added at `offset`, which must equal the file's current length; anything else
+   * fails "invalid", so a repeated or skipped chunk never corrupts the file.
+   */
+  "download.append": { input: { id: string; offset: number }; body: string };
+  /** The file is complete: answers its absolute path, for the share sheet or Save to Files. */
+  "download.finish": { input: { id: string }; body: never };
+  /** Removes the file (stopped, failed, or shared and done with). Absent is fine. */
+  "download.discard": { input: { id: string }; body: never };
   /** An access runtime's single result. */
   "access.result": { input: null; body: string };
+  /**
+   * Base64 bytes appended at `offset` to the device's copy of a file being saved (a browser
+   * download); `done` closes it so the platform can offer it. `offset` 0 starts the file again.
+   */
+  "file.write": {
+    input: { id: string; name: string; offset: number; done: boolean };
+    body: string;
+  };
+  /** Deletes the device's copy of a file being saved, whole or partial (a failed or cancelled save). */
+  "file.discard": { input: { id: string; name: string }; body: never };
+  /**
+   * A captured image (base64 body) staged as a message file; answers its `Picked` JSON
+   * (`localId`, `name`, `mimeType`, `bytes`, `sha256`).
+   */
+  "capture.stage": { input: { name: string; mimeType: string }; body: string };
 }
 export type HostOperation = keyof HostOperations;
 
-/** Socket actions the script asks for; native answers through `aceSocket`. */
-export type SocketAction = "open" | "send" | "close";
+/**
+ * Socket actions the script asks for; native answers through `aceSocket`. `send` is one text
+ * message; `bytes` one binary message, its value base64 (a media connection's hello).
+ */
+export type SocketAction = "open" | "send" | "bytes" | "close";
+
+/**
+ * What `socket(id, "open", value)` opens: "" for the runtime's own daemon socket, or this as JSON
+ * for a media connection (ADR 0147 §4). `url` is the `media.connect` address of ace-media's
+ * listener, held by native code to the runtime's own trust (the daemon's pinned WSS). Without
+ * it, or whenever the runtime reaches its machine through the relay, native code opens a relay
+ * stream with the `media` purpose. Native code only carries the connection: the ticket, hello,
+ * acks and reconnecting stay in the script. Stream pieces arriving on it go to the native live
+ * views exactly as the daemon socket's do.
+ */
+export interface MediaSocketOpen {
+  media: { url?: string };
+}
 
 /** What native code installs as `globalThis.aceHost` before the bundle runs. */
 export interface NativeHost {
+  /** Native video codecs, preferred first; absent hosts use H.264. */
+  readonly video?: { decoders(): string[] };
   readonly version: number;
   readonly capabilities: readonly OptionalCapability[];
 
   // Clock, identity and entropy.
+  /**
+   * Epoch milliseconds, whole, as `Date.now()`: protocol Timestamps are built from it. Never for
+   * timing work: it can't tell a sub-millisecond span from none, and it moves with the wall clock.
+   */
   now(): number;
+  /**
+   * Milliseconds on a monotonic clock, with fractions (`performance.now()`, the device's uptime):
+   * for measuring how long work takes, never for a date. Its zero is arbitrary.
+   */
+  monotonicMs(): number;
   uuid(): string;
   /** Uniform in [0, 1). */
   random(): number;
@@ -151,6 +283,7 @@ export interface HostEntries {
 /** Every function a host must have, checked once when the bundle starts. */
 export const requiredFunctions = [
   "now",
+  "monotonicMs",
   "uuid",
   "random",
   "randomBytes",

@@ -2,13 +2,25 @@ import type { Thread } from "@ace/protocol";
 
 type QueueState = NonNullable<Thread["queue"]>;
 
-/** Recovery needs a person even when the previous turn completed successfully. */
+/**
+ * Recovery needs a person even when the previous turn completed successfully. The person's own
+ * Stop asks nothing of them: the turn is done and already seen (ADR 0052), so it is never
+ * attention, with or without the messages it kept.
+ */
 export function threadAttention(thread: Pick<Thread, "queue">): string | undefined {
   const queue = thread.queue;
   if (!queue?.paused || !queue.reason || queue.resumeAt !== null) return undefined;
   if (queue.reason === "manual" && !queue.pendingCount) return undefined;
-  if (queue.reason === "limit" || queue.reason === "snooze") return undefined;
+  if (queue.reason === "limit" || queue.reason === "snooze" || queue.reason === "stopped")
+    return undefined;
   return queue.reason;
+}
+
+/** The person's own Stop ended the thread's latest turn, and nothing has run since. */
+export function stoppedByPerson(thread: {
+  queue?: Pick<QueueState, "paused" | "reason"> | undefined;
+}): boolean {
+  return thread.queue?.paused === true && thread.queue.reason === "stopped";
 }
 
 /**

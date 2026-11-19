@@ -1,5 +1,6 @@
 import type { AgentStatus, ThreadId, ThreadStatus } from "@ace/protocol";
-import type { ThreadState } from "./state.ts";
+import { lookup, type ThreadState } from "./state.ts";
+import { taskHoldsThread } from "./status-inputs.ts";
 
 /** A summary agent follows its independently owned thread, never its parent's process. */
 export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): AgentStatus {
@@ -29,9 +30,15 @@ export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): A
       return { state: "failed", error: { kind: "provider", message: "Delegated thread failed" } };
     case "done":
       return { state: "idle" };
+    // Its work goes on on another machine: still waited on, never read as finished here.
+    case "moved":
+      return { state: "blocked", on: "upstream", refs: [threadId] };
   }
 }
-/** Result wakes can run beside external children, but never beside local provider work. */
+/**
+ * Result wakes can run beside external children, but never beside local provider work. Commands
+ * the agent left running after its final reply (ADR 0116) don't count: they no longer hold it.
+ */
 export function readyForChildResults(state: ThreadState): boolean {
   if (state.queueSources.provider > 0) return false;
   for (const record of Object.values(state.agents)) {
@@ -41,7 +48,10 @@ export function readyForChildResults(state: ThreadState): boolean {
   }
   return (
     Object.keys(state.indexes.pendingInteractions).length === 0 &&
-    Object.keys(state.indexes.runningTasks).length === 0 &&
+    Object.keys(state.indexes.runningTasks).every((key) => {
+      const task = lookup(state.tasks, key);
+      return task === undefined || !taskHoldsThread(state, task);
+    }) &&
     Object.keys(state.indexes.liveTools).length === 0
   );
 }

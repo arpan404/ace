@@ -4,6 +4,7 @@ import { useEffectEvent } from "react";
 import type { useAttachments } from "./attachments.tsx";
 import { withAnnotations } from "@/features/annotations/index.ts";
 import type { useComposerAnnotations } from "./use-composer-annotations.ts";
+import type { DraftQuotesState } from "@/features/quotes/index.ts";
 import type { Draft } from "./draft.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
 import { mergeReturnedDraft, restoreReturnedDraft } from "./returned-draft.ts";
@@ -31,6 +32,8 @@ export function useComposerSubmit(args: {
   attachments: ReturnType<typeof useAttachments>;
   /** Browser annotations waiting in the draft; they travel after the words. */
   annotations: ReturnType<typeof useComposerAnnotations>;
+  /** Passages of the agent's messages it replies to; their block goes before the words. */
+  quotes: DraftQuotesState;
   saved: ReturnType<typeof useDraftPersistence>;
   draftKey: string | undefined;
   storage: KeyValueStorage | undefined;
@@ -46,6 +49,7 @@ export function useComposerSubmit(args: {
   const { current, attachments, saved, draftKey, storage } = args;
   const restore = useEffectEvent((before: ReturnedDraft, draft: Draft) => {
     const next = mergeReturnedDraft(current, before);
+    args.quotes.replace(next.quotes);
     saved.discard();
     if (draftKey) writeDraft(storage, draftKey, next);
     if (draft.files.restore) {
@@ -60,15 +64,33 @@ export function useComposerSubmit(args: {
       tokens: withTypedCommand(current.text, current.tokens ?? [], args.entries),
       attachments: attachments.ready,
     });
+    const { positions, ...parts } = content;
     const annotated = args.annotations.handOff();
+    const quoted = args.quotes.handOff();
+    // The quoted block goes before the words, so each file's offset counts it too.
+    const lead = quoted?.part.type === "text" ? quoted.part.text.length : 0;
+    const keys = attachments.items.map((item) => item.key);
+    const files = attachments.handOff();
     const message = withAnnotations(
-      { input: content.input, files: attachments.handOff() },
+      {
+        // What it replies to reads first, then the person's words.
+        input: quoted ? [quoted.part, ...content.input] : content.input,
+        files: {
+          ...files,
+          local: files.local.map((file, index) => {
+            const at = positions.get(keys[index] ?? Number.NaN);
+            return at === undefined ? file : Object.assign({}, file, { at: at + lead });
+          }),
+        },
+      },
       annotated,
       (image) => image,
     );
     const draft: Draft = {
-      text: current.text,
-      ...content,
+      ...parts,
+      attachments: parts.attachments.map((file) =>
+        file.at === undefined ? file : Object.assign({}, file, { at: file.at + lead }),
+      ),
       // Annotated tabs travel as context, so the agent gets each marker's element in its tab.
       threadRefs: [...content.threadRefs, ...(annotated?.items ?? [])],
       input: message.input,
@@ -84,6 +106,7 @@ export function useComposerSubmit(args: {
       mentions: current.mentions,
       attachments: attachments.ready,
       annotations: annotated?.returned,
+      quotes: quoted?.returned,
     };
     saved.hold();
     args.clear();

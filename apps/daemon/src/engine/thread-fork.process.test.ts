@@ -162,11 +162,29 @@ test("a finished run can fork while its source background task remains live", as
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.store.getThread(source)?.status).toMatchObject({
-    state: "waiting",
-    on: "background_task",
-  });
+  // The source replied; its build is left running, never ended by the fork (ADR 0116).
+  expect(h.store.getThread(source)?.status).toEqual({ state: "done" });
+  expect(
+    Object.values(h.store.snapshotThread(source)?.backgroundTasks ?? {}).map(
+      (entry) => entry.status,
+    ),
+  ).toEqual(["running"]);
   expect(h.store.listThreads()).toHaveLength(2);
+  // The fork runs: its provider gets the input and its turn completes beside the live build.
+  const fork = h.store.listThreads().find((thread) => thread.id !== source)?.id;
+  if (!fork) throw new Error("Missing fork");
+  expect(h.inputs.filter((entry) => entry.threadId === fork).map((entry) => entry.text)).toEqual([
+    expect.stringContaining("branch"),
+  ]);
+  expect(Object.values(h.store.snapshotThread(fork)?.runs ?? {}).map((run) => run.state)).toEqual([
+    "completed",
+  ]);
+  expect(h.store.getThread(fork)?.status).toEqual({ state: "done" });
+  expect(
+    Object.values(h.store.snapshotThread(source)?.backgroundTasks ?? {}).map(
+      (entry) => entry.status,
+    ),
+  ).toEqual(["running"]);
 });
 
 test("a provider supporting whole-session forks uses native history at the latest finished run", async () => {

@@ -1,0 +1,9 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.picture",
+    "source": "source-1",
+    "ageMs": 1,
+    "epoch": 1
+  }
+}

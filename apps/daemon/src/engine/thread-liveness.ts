@@ -6,7 +6,23 @@ import type { IntentWorkers } from "./workers.ts";
 import type { Recovery } from "./recovery.ts";
 import type { Sessions } from "./sessions.ts";
 import { lostWork } from "./lost-work.ts";
+import { runsProviderWork } from "./transition-history.ts";
 import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
+
+/** A thread and every delegated child thread under it on this machine, parents first. */
+export function threadTree(
+  repo: Pick<import("./repository.ts").EngineRepository, "state">,
+  id: ThreadId,
+): ThreadId[] {
+  const ids = new Set<ThreadId>([id]);
+  for (const owner of ids) {
+    const state = repo.state(owner);
+    for (const record of Object.values(state?.agents ?? {}))
+      // A child on another machine lives there; its machine's own tree owns it.
+      if (record.agent.childThreadId && !record.agent.machine) ids.add(record.agent.childThreadId);
+  }
+  return [...ids];
+}
 import { threadAttention } from "@ace/projection";
 
 /** Live engine work in a thread tree; durable records alone never count. */
@@ -53,13 +69,7 @@ export class ThreadLiveness {
    * child count, so this walks the whole tree; each thread is visited once.
    */
   tree(id: ThreadId): ThreadId[] {
-    const ids = new Set<ThreadId>([id]);
-    for (const owner of ids) {
-      const state = this.ports.repo.state(owner);
-      for (const record of Object.values(state?.agents ?? {}))
-        if (record.agent.childThreadId) ids.add(record.agent.childThreadId);
-    }
-    return [...ids];
+    return threadTree(this.ports.repo, id);
   }
   /** Children first, so a parent sees its children's settled statuses. */
   async reconcileTree(id: ThreadId): Promise<void> {
@@ -121,6 +131,30 @@ export class ThreadLiveness {
         operationsRunning++;
     }
     return { agentsRunning, operationsRunning };
+  }
+  /** The workspace fence's provider-work check for one thread (`runsProviderWork`). */
+  providerWork(id: ThreadId): boolean {
+    const state = this.ports.repo.state(id);
+    return state !== undefined && runsProviderWork(state);
+  }
+  /**
+   * Something in the thread's local tree goes on: a turn runs or retries, a background task
+   * runs, a request waits on a person, or an input is being sent. Facts alone count, so work
+   * that started without a new run (a late background start) is seen too.
+   */
+  active(id: ThreadId): boolean {
+    const { repo } = this.ports;
+    return this.tree(id).some((owner) => {
+      const state = repo.state(owner);
+      return (
+        repo.pending.running(owner) ||
+        repo.sessionOpening(owner) ||
+        (state !== undefined &&
+          (Object.keys(state.indexes.runningTasks).length > 0 ||
+            Object.keys(state.indexes.pendingInteractions).length > 0 ||
+            Object.values(state.agents).some((record) => record.activeRun || record.retry)))
+      );
+    });
   }
   /** Called after the durable cleanup fence has denied all new execution. */
   stop(id: ThreadId): Promise<void> {
@@ -203,6 +237,20 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
   const state = repo.state(id);
   if (!state) return false;
   return repo.store.atomic(() => {
+    // Repair older stopped threads whose queue stopped but whose quota badge never did.
+    if (repo.queue.get(id).reason === "stopped") {
+      const cleared: Fact[] = Object.entries(state.agents)
+        .filter(([, record]) => record.limited && !record.externalStatus)
+        .map(([agent]) => ({ type: "limit.cleared", agent }));
+      if (cleared.length) {
+        repo.queue.set(
+          id,
+          { limited: false, resetAt: null, resumeAt: null, timerAction: null },
+          at,
+        );
+        repo.apply(id, cleared, at);
+      }
+    }
     const interrupted = !state.processExit && lostWork(state, 0, undefined, at) !== undefined;
     if (interrupted) {
       repo.apply(

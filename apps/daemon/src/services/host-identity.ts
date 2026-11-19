@@ -1,7 +1,8 @@
 import { computerName } from "../computer-name.ts";
 import { hostname } from "node:os";
-import { HostIdentity } from "@ace/protocol";
+import { HostIdentity, HostPlatform } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { machinePaths } from "../machine-paths.ts";
 
 /** A bounded settings read. Provider discovery and other hosts are never consulted. */
 export function createHostIdentitySession({
@@ -10,9 +11,12 @@ export function createHostIdentitySession({
   connected,
   send,
   fail,
+  access,
 }: SocketContext): SocketService {
   let pending = false;
   const defaultName = options.hostName ? Promise.resolve(options.hostName) : computerName();
+  // Only the three systems clients know; any other is left out, as an older daemon would.
+  const platform = HostPlatform.safeParse(options.platform ?? process.platform).data;
   return {
     handle(message) {
       if (message.type !== "host.identity") return false;
@@ -23,6 +27,7 @@ export function createHostIdentitySession({
         return true;
       }
       pending = true;
+      // The read answers its own failure below.
       void (async () => {
         try {
           const name = (await options.settings?.get("host.displayName"))?.value;
@@ -34,17 +39,32 @@ export function createHostIdentitySession({
             ...(icon && icon.provenance !== "defaults" ? { icon: icon.value } : {}),
             hostname: hostname(),
             version: options.version ?? "development",
+            ...(platform ? { platform } : {}),
           });
           if (connected() && authorize("read"))
-            send({ type: "host.identity.result", requestId: message.requestId, identity });
+            send({
+              type: "host.identity.result",
+              requestId: message.requestId,
+              identity,
+              ...currentPaths(access),
+            });
         } catch {
           if (connected())
             fail("unavailable", "Identity read failed", false, { requestId: message.requestId });
         } finally {
           pending = false;
         }
-      })();
+      })().catch(() => {});
       return true;
     },
   };
+}
+
+/** Where else this machine answers (ADR 0114); omitted when the daemon serves no network. */
+function currentPaths(access: SocketContext["access"]) {
+  const status = access?.remoteStatus?.();
+  if (!status) return {};
+  const pairing = access?.pairing();
+  const paths = machinePaths(status, pairing?.fingerprint);
+  return paths.length ? { paths } : {};
 }

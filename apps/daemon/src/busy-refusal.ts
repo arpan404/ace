@@ -1,5 +1,7 @@
 import type { ServerMessage } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
+import type { MarketServerMessage } from "@ace/protocol/marketplace";
 
 /**
  * A command the daemon turned away at capacity admitted nothing and saved no receipt. Sent as a
@@ -8,8 +10,8 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
  * carry a forge action record stay receipts, as that record is their outcome.
  */
 export function busyRefusal(
-  message: ServerMessage | PluginServerMessage,
-): ServerMessage | PluginServerMessage {
+  message: ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage,
+): ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage {
   if (
     message.type !== "commandResult" ||
     message.code !== "action_not_dispatched" ||

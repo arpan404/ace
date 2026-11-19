@@ -1,16 +1,38 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import {
   Project,
+  ProjectIdentityId,
   ProjectBadgeStyle,
   ProjectDefaults,
   ProjectNote,
   ThreadId,
+  type ProjectRepositoryConfig,
   type WorkspaceId,
   type WorkspaceChanged,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
+import {
+  decodeIdentity,
+  identityColumns,
+  identityJoin,
+  identityOf,
+  mergeIdentity,
+  migrateProjectIdentity,
+  resolveIdentity,
+  setIdentity,
+} from "./project-identity.ts";
+import {
+  decodeRemoteKey,
+  keepApart,
+  migrateRemoteKeys,
+  remoteKeyColumns,
+  remoteKeyJoin,
+} from "./project-remote-key.ts";
+import { retireThread, type DeletionPolicy } from "./thread-gone.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
@@ -41,11 +63,29 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
   if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
   if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
+  // A project's saved repository choices (ADR 0120); NULL is "no choices".
+  if (!columns.has("repositories"))
+    db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
+  migrateProjectIdentity(db);
+  migrateRemoteKeys(db);
+}
+
+/**
+ * Whether a workspace is Spade's own hidden project (ADR 0121): an empty folder, never a
+ * repository, which no list shows and nothing reads Git or forge data from.
+ */
+export function isSpadeProject(store: Pick<Store, "statement">, id: string): boolean {
+  return (
+    store.statement("SELECT kind FROM workspace_metadata WHERE workspace_id=?").get(id)?.kind ===
+    "spade"
+  );
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
-export const projectSelect =
-  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
+export const projectSelect = `SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind,${identityColumns},
+  ${remoteKeyColumns},
+  (SELECT opened_at FROM workspace_recent wr WHERE wr.workspace_id=w.id) AS openedAt
+  FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${identityJoin} ${remoteKeyJoin}`;
 
 /** What a project edit changes besides its name; each omitted field keeps the saved value. */
 export interface ProjectEdit {
@@ -64,9 +104,12 @@ export class ProjectStorage {
   private store: Store;
   private now: () => number;
   private listeners = new Set<(change: WorkspaceChanged) => void>();
-  constructor(store: Store, now: () => number) {
+  private newIdentity: () => string;
+  /** `newIdentity` mints logical project ids (ADR 0180): a new registration's, an unlink's. */
+  constructor(store: Store, now: () => number, newIdentity: () => string = randomUUID) {
     this.store = store;
     this.now = now;
+    this.newIdentity = newIdentity;
   }
   subscribe(listener: (change: WorkspaceChanged) => void): () => void {
     this.listeners.add(listener);
@@ -109,6 +152,9 @@ export class ProjectStorage {
           db.prepare("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?").get(existingId),
         );
       const id = existingId ?? this.store.createWorkspace(path, name, this.now());
+      // A registration ace makes now starts its own logical project; an older one keeps none.
+      if (existingId === undefined && identityOf(db, id) === undefined)
+        setIdentity(db, id, ProjectIdentityId.parse(this.newIdentity()), "created", this.now());
       db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(path, id);
       if (icon !== undefined || defaultIcon !== undefined)
         this.saveMetadata(db, id, { icon, defaultIcon });
@@ -141,6 +187,20 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change: "added", workspaceId: workspace.id, workspace });
     return workspace;
   }
+  /**
+   * Register Spade's folder as its hidden `spade` project (ADR 0121), registered again if it was
+   * removed. Clients never see it: it is left out of every list and announces no change.
+   */
+  registerSpade(path: string): WorkspaceId {
+    return this.store.atomic((db) => {
+      const id = this.store.createWorkspace(path, "Spade", this.now());
+      db.prepare(
+        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'spade') ON CONFLICT(workspace_id) DO UPDATE SET kind='spade'",
+      ).run(id);
+      db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
+      return id;
+    });
+  }
   /** Unregister a project without touching its threads; a chat's last thread already went. */
   forget(id: WorkspaceId): void {
     this.store
@@ -165,7 +225,7 @@ export class ProjectStorage {
       db
         .prepare(`${projectSelect} WHERE w.id>? AND NOT EXISTS
       (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
-      ORDER BY w.id LIMIT ?`)
+      AND coalesce(m.kind,'')<>'spade' ORDER BY w.id LIMIT ?`)
         .all(after ?? "", limit + 1)
         .map(decodeProjectRow),
     );
@@ -236,6 +296,99 @@ export class ProjectStorage {
     const notes = change(project.notes ?? []);
     return notes ? this.update(id, project.name, { notes }) : undefined;
   }
+  /** Replace the project's repository choices (ADR 0120) and tell every client to read them. */
+  setRepositories(
+    id: WorkspaceId,
+    config: ProjectRepositoryConfig | null,
+    expected?: ProjectRepositoryConfig | null,
+  ): Project {
+    const workspace = this.store.atomic(() => {
+      this.get(id);
+      new ProjectRepositoryConfigs(this.store).set(id, config, expected);
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
+  }
+  /**
+   * Put the registration in logical project `identity`; the same one again changes nothing.
+   * `marker`: the person confirmed the folder's marker (ADR 0181).
+   */
+  link(
+    id: WorkspaceId,
+    identity: ProjectIdentityId,
+    source: "linked" | "marker" = "linked",
+  ): Project {
+    const { workspace, changed } = this.store.atomic((db) => {
+      const before = this.get(id);
+      // An id merged here into another is that other one here.
+      const target = resolveIdentity(db, identity);
+      if (before.identity?.id === target) return { workspace: before, changed: false };
+      setIdentity(db, id, target, source, this.now());
+      return { workspace: this.get(id), changed: true };
+    });
+    if (changed)
+      this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
+  }
+  /** Whether `other` stands here for logical project `id`: it or an id merged into it. */
+  sameIdentity(other: string, id: ProjectIdentityId): boolean {
+    const parsed = ProjectIdentityId.safeParse(other);
+    return parsed.success && this.store.atomic((db) => resolveIdentity(db, parsed.data)) === id;
+  }
+  /** The registration's logical project id, minting one (`created`) when it has none. */
+  ensureIdentity(id: WorkspaceId): ProjectIdentityId {
+    let minted = false;
+    const identity = this.store.atomic((db) => {
+      const kept = this.get(id).identity?.id;
+      if (kept) return kept;
+      const fresh = ProjectIdentityId.parse(this.newIdentity());
+      setIdentity(db, id, fresh, "created", this.now());
+      minted = true;
+      return fresh;
+    });
+    if (minted) this.announce(id);
+    return identity;
+  }
+  /** Tell every client a registration changed, after a write elsewhere (a transfer's identity). */
+  announce(id: WorkspaceId): void {
+    const workspace = this.get(id);
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+  }
+  /**
+   * Split the registration off into a fresh logical project; its old one's aliases stay. It is
+   * never grouped by remote again (ADR 0189): only a link puts it back with other checkouts.
+   */
+  unlink(id: WorkspaceId): Project {
+    const workspace = this.store.atomic((db) => {
+      this.get(id);
+      setIdentity(db, id, ProjectIdentityId.parse(this.newIdentity()), "created", this.now());
+      keepApart(db, id);
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
+  }
+  /** Merge logical project `from` into `into` here, in one transaction (`mergeIdentity`). */
+  merge(from: ProjectIdentityId, into: ProjectIdentityId): void {
+    const changed = this.store.atomic((db) =>
+      mergeIdentity(db, from, into, this.now()).flatMap((workspaceId) => {
+        const row = db
+          .prepare(
+            `${projectSelect} WHERE w.id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)`,
+          )
+          .get(workspaceId);
+        return row ? [decodeProjectRow(row)] : [];
+      }),
+    );
+    for (const workspace of changed)
+      this.emit({
+        type: "workspace.changed",
+        change: "updated",
+        workspaceId: workspace.id,
+        workspace,
+      });
+  }
   rename(id: WorkspaceId, name: string): Project {
     return this.update(id, name, {}, "renamed");
   }
@@ -280,7 +433,40 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change, workspaceId: id, workspace });
     return workspace;
   }
-  remove(id: WorkspaceId, archiveThreads: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
+  /**
+   * The project's threads that removal deletes. Refuses while one still runs, unless the person
+   * chose to stop them, and while a worktree change holds the project's folder.
+   */
+  threadsToDelete(
+    id: WorkspaceId,
+    stopRunning: boolean,
+    hasOwnedWork: (id: ThreadId) => boolean,
+  ): ThreadId[] {
+    const workspace = this.get(id);
+    this.store.workspaceReservations.assertAvailable(
+      this.store.workspaceReservations.workspaceRoot(id, workspace.path),
+    );
+    const threads: ThreadId[] = [];
+    this.forThreads(id, (threadId) => {
+      const thread = this.store.getThread(threadId);
+      if (!thread || thread.deletedAt !== undefined) return;
+      if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
+        throw new ProjectError("workspace_threads_running");
+      threads.push(threadId);
+    });
+    return threads;
+  }
+  /**
+   * Stop listing the project and delete what is left of its threads, so none of them keeps it
+   * on screen. Its threads were already deleted through the thread lifecycle where it runs; one
+   * that started since is refused while it runs unless the person chose to stop running ones.
+   */
+  remove(
+    id: WorkspaceId,
+    stopRunning: boolean,
+    hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
+  ): void {
     this.store.atomic((db) => {
       const workspace = this.get(id);
       this.store.workspaceReservations.assertAvailable(
@@ -289,23 +475,44 @@ export class ProjectStorage {
       this.forThreads(id, (threadId) => {
         const thread = this.store.getThread(threadId);
         if (!thread || thread.deletedAt !== undefined) return;
-        if (
-          !archiveThreads &&
-          (!["new", "done", "failed"].includes(thread.status.state) || hasOwnedWork(threadId))
-        )
+        if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
           throw new ProjectError("workspace_threads_running");
-        if (archiveThreads && thread.archivedAt === undefined)
-          this.store.appendEvents(
-            threadId,
-            [{ type: "thread.updated", archivedAt: this.now() }],
-            this.now(),
-          );
+        retireThread(this.store, threadId, this.now(), policy, `project-removed:${id}:${threadId}`);
       });
       db.prepare(
         "INSERT INTO workspace_unregistered VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET removed_at=excluded.removed_at",
       ).run(id, this.now());
     });
     this.emit({ type: "workspace.changed", change: "removed", workspaceId: id });
+  }
+  /**
+   * Delete threads left in removed projects, which removal once kept (archived). They kept a
+   * removed project in the task list's project filter with nothing to manage it from. One that
+   * still runs is left until a later start finds it settled. Returns the next page's cursor.
+   */
+  deleteLeftoverThreads(
+    after: string,
+    hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
+  ): string | undefined {
+    const rows = this.store
+      .statement(
+        `SELECT t.id FROM threads t JOIN workspace_unregistered u ON u.workspace_id=t.workspace_id
+        LEFT JOIN workspace_metadata m ON m.workspace_id=t.workspace_id
+        WHERE t.id>? AND coalesce(m.kind,'')<>'chat'
+        AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY t.id LIMIT 64`,
+      )
+      .all(after)
+      .map((row) => ThreadId.parse(row.id));
+    this.store.atomic(() => {
+      for (const threadId of rows) {
+        const thread = this.store.getThread(threadId);
+        if (!thread || thread.deletedAt !== undefined) continue;
+        if (running(thread.status.state, hasOwnedWork(threadId))) continue;
+        retireThread(this.store, threadId, this.now(), policy, `project-leftover:${threadId}`);
+      }
+    });
+    return rows.length === 64 ? rows[63] : undefined;
   }
   private forThreads(id: WorkspaceId, visit: (id: ThreadId) => void): void {
     let after = "";
@@ -323,11 +530,22 @@ export class ProjectStorage {
   }
 }
 
-const storedRow = Project.extend({
+/** A thread still working, or one whose terminals or previews still run. */
+const running = (state: string, ownsWork: boolean) =>
+  ownsWork || !["new", "done", "failed"].includes(state);
+
+const storedRow = Project.omit({ identity: true, remoteKey: true }).extend({
   kind: Project.shape.kind.nullable().catch(null),
   badge: z.unknown().optional(),
   defaults: z.unknown().optional(),
   notes: z.unknown().optional(),
+  openedAt: z.number().nonnegative().nullable().optional().catch(null),
+  identityId: z.unknown().optional(),
+  identitySource: z.unknown().optional(),
+  identityAliases: z.unknown().optional(),
+  remoteKeyRemotes: z.unknown().optional(),
+  remoteKeySubpath: z.unknown().optional(),
+  remoteKeyApart: z.unknown().optional(),
 });
 
 /** A saved JSON column, or undefined when it is empty or no longer reads as `schema`. */
@@ -343,7 +561,22 @@ function stored<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
 
 /** Projects omit unset optional fields rather than adding null fields to their wire shape. */
 export function decodeProjectRow(row: unknown): Project {
-  const { badge, defaults, notes, kind, ...project } = storedRow.parse(row);
+  const {
+    badge,
+    defaults,
+    notes,
+    kind,
+    openedAt,
+    identityId,
+    identitySource,
+    identityAliases,
+    remoteKeyRemotes,
+    remoteKeySubpath,
+    remoteKeyApart,
+    ...project
+  } = storedRow.parse(row);
+  const identity = decodeIdentity({ identityId, identitySource, identityAliases });
+  const remoteKey = decodeRemoteKey({ remoteKeyRemotes, remoteKeySubpath, remoteKeyApart });
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
   const style = stored(ProjectBadgeStyle, badge);
@@ -355,5 +588,8 @@ export function decodeProjectRow(row: unknown): Project {
     ...(style ? { badge: style } : {}),
     ...(preferences ? { defaults: preferences } : {}),
     ...(facts?.length ? { notes: facts } : {}),
+    ...(identity ? { identity } : {}),
+    ...(remoteKey ? { remoteKey } : {}),
+    ...(typeof openedAt === "number" ? { openedAt } : {}),
   };
 }

@@ -5,7 +5,8 @@ import {
   type AttachmentCleanupEntry,
 } from "./retention.ts";
 import { hasThumbnail } from "./attachment-bytes.ts";
-import { beginUpload } from "./upload-admission.ts";
+import { beginUpload, formatLimit } from "./upload-admission.ts";
+import { allAttachments, listAttachmentPage } from "./attachment-list.ts";
 import { BlobLeases, type BlobLease } from "./blob-leases.ts";
 import { constants } from "node:fs";
 import { chmod, mkdir, open, rename, rm, stat, opendir } from "node:fs/promises";
@@ -27,6 +28,13 @@ import { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./up
 export { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./upload-options.ts";
 
 type Result = ContextResult["result"];
+const DraftRow = z.object({
+  device: z.string(),
+  workspace: z.string(),
+  expires: z.number(),
+  adopted: z.string().nullable(),
+});
+const BlobHashes = z.array(BlobHash).max(64);
 export class UploadStore {
   private metadata: Metadata;
   private options: UploadOptions;
@@ -47,11 +55,6 @@ export class UploadStore {
         "invalid_request",
         "Limits must be positive integers",
       );
-    requireContext(
-      this.limits.threadEntries <= 256,
-      "invalid_request",
-      "Thread reference cap cannot exceed wire limit",
-    );
     this.metadata = new Metadata(join(options.root, "context.sqlite"), options.signal);
     this.metadata.run(
       "CREATE TABLE IF NOT EXISTS blob_retention(hash TEXT PRIMARY KEY,changed INTEGER NOT NULL)",
@@ -116,14 +119,7 @@ export class UploadStore {
   }
   async draftWorkspace(device: string, id: string): Promise<string> {
     const row = this.metadata.get("SELECT * FROM drafts WHERE id=?", id);
-    const draft = z
-      .object({
-        device: z.string(),
-        workspace: z.string(),
-        expires: z.number(),
-        adopted: z.string().nullable(),
-      })
-      .safeParse(row);
+    const draft = DraftRow.safeParse(row);
     requireContext(
       draft.success && draft.data.device === device && draft.data.expires > this.options.now(),
       "not_found",
@@ -143,14 +139,6 @@ export class UploadStore {
       const row = this.metadata.get("SELECT adopted FROM drafts WHERE id=?", draftId);
       if (row?.adopted === thread) return;
       requireContext(row?.adopted === null, "forbidden", "Draft already adopted");
-      const source = this.metadata.usage(draftId);
-      const target = this.metadata.usage(thread);
-      requireContext(
-        source.bytes + target.bytes <= this.limits.threadBytes &&
-          source.count + target.count <= this.limits.threadEntries,
-        "quota",
-        "Thread quota exceeded",
-      );
       requireContext(
         !this.metadata.get("SELECT 1 FROM uploads WHERE thread=? AND done=0 LIMIT 1", draftId),
         "busy",
@@ -219,13 +207,6 @@ export class UploadStore {
         );
         return { hash, name: z.string().parse(row.name), bytes: blob.bytes };
       });
-      const target = this.metadata.usage(thread);
-      requireContext(
-        target.bytes + held.reduce((total, file) => total + file.bytes, 0) <=
-          this.limits.threadBytes && target.count + held.length <= this.limits.threadEntries,
-        "quota",
-        "Thread quota exceeded",
-      );
       this.metadata.transaction(() => {
         for (const file of held) {
           this.metadata.run("INSERT INTO refs VALUES(?,?,?)", thread, file.hash, file.name);
@@ -310,8 +291,7 @@ export class UploadStore {
       }
       if (op.op === "attachment.list" || op.op === "attachment.release") {
         await this.authorized(device, op.threadId);
-        if (op.op === "attachment.list")
-          return { kind: "attachments", attachments: this.list(op.threadId) };
+        if (op.op === "attachment.list") return listAttachmentPage(this.metadata, op);
         this.release(op.threadId, op.sha256);
         return { kind: "ok" };
       }
@@ -402,18 +382,9 @@ export class UploadStore {
       return { kind: "upload", uploadId: row.id, offset: row.offset, bytes: row.bytes };
     });
   }
+  /** Every file the scope holds, oldest first; for internal sweeps, never sent on the wire. */
   private list(thread: string): Attachment[] {
-    return this.metadata
-      .all(
-        "SELECT b.metadata,r.name FROM refs r JOIN blobs b USING(sha256) WHERE r.thread=? ORDER BY r.sha256 LIMIT 256",
-        thread,
-      )
-      .map((row) =>
-        Attachment.parse({
-          ...Attachment.parse(JSON.parse(z.string().parse(row.metadata))),
-          name: row.name,
-        }),
-      );
+    return allAttachments(this.metadata, thread);
   }
   private release(thread: string, hash: string): void {
     this.metadata.transaction(() => this.removeReference(thread, hash));
@@ -513,7 +484,11 @@ export class UploadStore {
       else await rename(candidate, this.path(row.sha256));
     }
     await chmod(this.path(row.sha256), 0o400);
+    // On Windows 0o400 sets the read-only attribute, which would block retention's later delete.
+    if (process.platform === "win32") await chmod(this.path(row.sha256), 0o600);
     const directory = await open(join(this.options.root, "blobs"), "r");
+    // Windows can't flush a directory handle (EPERM); NTFS journals the new directory entry itself.
+    if (process.platform === "win32") Object.assign(directory, { sync: async () => {} });
     try {
       await directory.sync();
     } finally {
@@ -584,7 +559,7 @@ export class UploadStore {
   }
   /** Atomically validate and pin every reference before asynchronous preparation. */
   async acquire(device: string, thread: string, hashes: readonly string[]): Promise<BlobLease> {
-    const parsed = z.array(BlobHash).max(64).parse(hashes);
+    const parsed = BlobHashes.parse(hashes);
     return this.serialize(async () => {
       await this.authorized(device, thread);
       const blobs = parsed.map((hash) => {
@@ -606,7 +581,7 @@ export class UploadStore {
         );
         return { attachment: Attachment.parse({ ...blob, name }), path: this.path(hash) };
       });
-      return this.leases.acquire(blobs);
+      return this.leases.acquire(thread, blobs);
     });
   }
   async acquireMessage(
@@ -620,7 +595,7 @@ export class UploadStore {
         lease.blobs.reduce((sum, blob) => sum + blob.attachment.bytes, 0) <=
           this.limits.messageBytes,
         "quota",
-        `Attachments exceed the ${this.limits.messageBytes} byte message limit. Remove files or send them in separate messages.`,
+        `These files add up to more than the ${formatLimit(this.limits.messageBytes)} one message can carry. Send some of them in a separate message.`,
       );
       return lease;
     } catch (error) {

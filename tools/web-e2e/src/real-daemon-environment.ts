@@ -20,6 +20,9 @@ export function realDaemonEnvironment(
       )
     )
       env[key] = value;
+  // Bun applies BUN_OPTIONS (a --preload, say) to every Bun process before its first line, the
+  // daemon's included; none inherited from the caller may reach it.
+  delete env.BUN_OPTIONS;
   return {
     ...env,
     ACE_HOME: home,

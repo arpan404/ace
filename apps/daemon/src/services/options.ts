@@ -16,15 +16,28 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /**
+   * A daemon the app started on a saved PATH (`login-path-handoff.ts`): provider discovery, and
+   * so restart recovery and sessions, waits for its final PATH, and environments copied at
+   * start take it.
+   */
+  loginPath?: import("../login-path-handoff.ts").LoginPath;
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
+  /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */
+  storageWatch?: Pick<
+    import("../storage-watch.ts").StorageWatchOptions,
+    "delay" | "levels" | "intervals"
+  >;
   /** Event-loop stall measurement clock; tests drive drift without sleeping. */
   loopClock?: import("../loop-monitor.ts").LoopClock;
   /** Main-thread stall watchdog timing; tests shorten it. */
-  stallTiming?: Partial<import("../stall-watchdog.ts").StallWatchdogTiming>;
+  stallTiming?: Partial<import("@ace/diagnostics/stall").StallWatchdogTiming>;
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   /** Automatic data-retention pass timing; tests shorten it. */
   retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;
+  /** Automatic space reclaim timing; tests shorten it. */
+  spaceReclaimTiming?: import("../storage/space-reclaim-policy.ts").SpaceReclaimTiming;
   diagnostics?: {
     doctor(): Promise<import("@ace/protocol").DiagnosticReport>;
     toolchains(): Promise<import("@ace/protocol").Toolchain[]>;
@@ -32,7 +45,12 @@ export type DaemonOptions = {
   accounts?: Pick<
     import("../account-management.ts").AccountManagementOptions,
     "env" | "discovery" | "terminal"
-  >;
+  > & {
+    /** How saved account homes are checked at startup; tests stall one at the fs boundary. */
+    homeChecks?: import("@ace/accounts").HomeCheckOptions;
+    /** When a session's wait for a silent home is mentioned, and when it gives up. */
+    homeWait?: { noticeMs?: number; limitMs?: number };
+  };
   providerStatus?: import("../provider-status.ts").ProviderStatusOptions;
   /** Local metadata process boundary, never accepted from socket clients. */
   modelDiscovery?: import("@ace/models").DiscoveryOptions;
@@ -68,14 +86,27 @@ export type DaemonOptions = {
   machines?: {
     transport?: import("../machines/transport.ts").MachineTransport;
     pollMs?: number;
+    /** Stop attempts and lease for children there (ADR 0052); the defaults are the ADR's. */
+    stopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
+    leaseMs?: number;
     /** Redeems another machine's pairing link when Settings links to it. */
     redeem?: import("../machines/fleet-links.ts").FleetLinkDeps["redeem"];
+  };
+  /** Data between agents (ADR 0182): the relay dialer, the pinned request and the pull pace. */
+  parcels?: {
+    connectRelay?: import("../machines/relay-link.ts").RelayLinkDeps["connect"];
+    pinned?: import("../parcels/link.ts").ParcelLinkDeps["pinned"];
+    pollMs?: number;
   };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
+  /** The computer-use engine to use with `screen` instead of the bundled helper's (tests). */
+  computer?: import("@ace/screen").ComputerClient;
   devices?: DevicesService;
   commands?: DaemonCommandIntegration;
+  /** Test seams for hosting Spade (ADR 0121). */
+  spade?: import("./spade.ts").DaemonSpadeOptions;
   config?: Config;
   /** Explicit owner-approved local bindings, also available through admin registry.bind. */
   acpBindings?: readonly import("@ace/agent-registry").LocalBinding[];
@@ -99,11 +130,21 @@ export type DaemonOptions = {
   modelInstances?: readonly InstanceInput[];
   workload?: HealthOptions["workload"];
   browser?: Omit<BrowserServiceOptions, "dataDir" | "onArtifact">;
+  /** Outside MCP clients (ADR 0122), for tests: how client metadata is fetched, request lifetime. */
+  outsideClients?: {
+    fetchClientMetadata?: import("../external-mcp/oauth/cimd.ts").MetadataFetch;
+    requestTtlMs?: number;
+  };
   /** "Use my Chrome" overrides for tests: where browsers keep native hosts, and which Node runs one. */
   userBrowser?: Partial<
     Pick<import("../user-browser.ts").UserBrowserOptions, "home" | "node" | "extraHostDirs">
   >;
   preview?: DaemonPreviewOptions;
+  /**
+   * The account grant keys that give the person's standing, for tests on an account backend of
+   * their own (ADR 0190). `ace start` never sets it: a real daemon trusts `shippedGrantKeys`.
+   */
+  personGrantKeys?: import("@ace/account-grant").GrantKeySet | undefined;
   review?: DaemonReviewOptions;
   history?: DaemonHistoryOptions;
 };

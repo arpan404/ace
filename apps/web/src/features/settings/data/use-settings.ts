@@ -19,6 +19,8 @@ import { accessSource } from "./access-source.ts";
 import { daemonSettingsBackend } from "./daemon-backend.ts";
 import { settingKeys, type SettingDef } from "./setting-keys.ts";
 import { useAllMachinesClients } from "./all-machines.ts";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import type { SettingsKey, SettingsValues } from "@ace/protocol";
 
 const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeAccessModule = typeof import("./access-fake.ts");
@@ -57,7 +59,7 @@ function useBackendFactory(): (client: ClientApi) => SettingsBackend {
     let backend = backends.get(client);
     if (!backend) {
       const gaps = module ? withBrowserClock(module) : unavailableGaps();
-      const access = accessSource(connection.endpoint, gaps);
+      const access = accessSource(client, gaps);
       backend = daemonSettingsBackend(client, { access, defaults });
       backends.set(client, backend);
     }
@@ -218,6 +220,28 @@ export function useSettingControl<T>(setting: SettingDef<T>, title: string): Set
   };
 }
 
+/**
+ * A row's control for a daemon setting watched on its own key, outside the shared mirror (which
+ * holds at most 32 keys): loaded once the daemon answers, with the same reported write.
+ */
+export function useWatchedSettingControl<K extends SettingsKey>(
+  key: K,
+  title: string,
+): Omit<SettingControl<SettingsValues[K] | undefined>, "set"> & {
+  set(next: SettingsValues[K]): void;
+} {
+  const [value, set] = useDaemonSetting(key);
+  const write = useSettingWrite(title);
+  const offline = useConnectionState() !== "ready";
+  return {
+    value,
+    loaded: value !== undefined,
+    offline,
+    pending: write.pending,
+    set: (next: SettingsValues[K]) => write.run(() => set(next)),
+  };
+}
+
 /** Request/response reads. Live values never enter the Query cache; these are one-off lists. */
 export const settingsQueries = {
   providers: (backend: SettingsBackend) => ({
@@ -240,11 +264,14 @@ export const settingsQueries = {
 export function useRemoteStatus() {
   const backend = useSettingsBackend();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
-  const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
-  const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const lan = useSettingControl(settingKeys.remoteLan, "Local network");
+  const tailscale = useSettingControl(settingKeys.remoteTailscale, "Tailscale");
+  const relayOn = useSettingControl(settingKeys.remoteRelay, "Relay");
+  const relay = useSettingControl(settingKeys.relayUrl, "Your own relay");
+  const values = [enabled, lan, tailscale, relayOn, relay];
   return useQuery({
-    queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
-    enabled: enabled.loaded && transport.loaded && relay.loaded,
+    queryKey: ["settings", "remote-status", ...values.map((control) => control.value)],
+    enabled: values.every((control) => control.loaded),
     staleTime: 0,
     queryFn: () => backend.remoteStatus(),
     retry: false,

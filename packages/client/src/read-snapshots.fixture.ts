@@ -1,7 +1,12 @@
 import { expect } from "vitest";
 import { createThreadView } from "@ace/projection";
-import { CoreClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
-import { ClientCore, type ReadSnapshotStorage, type TransportEvents } from "./index.ts";
+import { ClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
+import {
+  ClientCore,
+  type ClientOptions,
+  type ReadSnapshotStorage,
+  type TransportEvents,
+} from "./index.ts";
 
 export const thread = Thread.parse({
   id: "thread",
@@ -29,9 +34,10 @@ export function view(title = "Cached", seq = 10) {
   return result;
 }
 /** A current read record of `snapshot`, as a client would have written it. */
-export const record = (snapshot: ReturnType<typeof view> = view()) => ({
+export const record = (snapshot: ReturnType<typeof view> = view(), databaseId?: string) => ({
   version: 2,
   view: snapshot,
+  ...(databaseId ? { databaseId } : {}),
 });
 /** A finished root message. */
 export const finished = (id: string, text: string) =>
@@ -86,16 +92,22 @@ export function memory() {
 export function harness(
   storage: ReadSnapshotStorage,
   threads = 32,
-  options: { host?: string | undefined } = { host: hostId },
+  options: {
+    host?: string | undefined;
+    now?: () => number;
+    /** Where queued work is kept; nothing is kept when absent. */
+    outbox?: ClientOptions["storage"];
+  } = { host: hostId },
 ) {
   let socket: TransportEvents | undefined;
   let nextId = 0;
-  const sent: ReturnType<typeof CoreClientMessage.parse>[] = [];
+  const sent: ReturnType<typeof ClientMessage.parse>[] = [];
   const scheduled = new Set<{ ms: number; callback: () => void }>();
   const client = new ClientCore({
     deviceId: DeviceId.parse("device"),
     readSnapshots: storage,
-    storage: { load: async () => null, save: async () => {} },
+    ...(options.now ? { now: options.now } : {}),
+    storage: options.outbox ?? { load: async () => null, save: async () => {} },
     credential: async () => "a".repeat(64),
     random: () => 0.5,
     id: () => `id-${++nextId}`,
@@ -116,19 +128,20 @@ export function harness(
         events.open();
       },
       send(text) {
-        sent.push(CoreClientMessage.parse(JSON.parse(text)));
+        sent.push(ClientMessage.parse(JSON.parse(text)));
       },
       close() {},
     }),
   });
   const deliver = (message: unknown) => socket?.message(JSON.stringify(message));
-  const closeSocket = (code: number) => socket?.close(code);
+  const closeSocket = (code: number, reason?: string) => socket?.close(code, reason);
   return {
     client,
     sent,
     deliver,
     closeSocket,
-    async start() {
+    /** Meet the daemon; `databaseId`, when given, is the database its welcome names. */
+    async start(databaseId?: string) {
       await client.start();
       await expect.poll(() => sent.some((message) => message.type === "hello")).toBe(true);
       deliver({
@@ -136,10 +149,11 @@ export function harness(
         hostId,
         protocolVersion: 1,
         headSeq: 10,
+        ...(databaseId ? { databaseId } : {}),
       });
       await expect.poll(() => client.state).toBe("ready");
     },
-    async reconnect(headSeq: number) {
+    async reconnect(headSeq: number, databaseId?: string) {
       const hellos = sent.filter((message) => message.type === "hello").length;
       socket?.close(1006);
       client.reconnectNow();
@@ -151,8 +165,24 @@ export function harness(
         hostId,
         protocolVersion: 1,
         headSeq,
+        ...(databaseId ? { databaseId } : {}),
       });
       await expect.poll(() => client.state).toBe("ready");
+    },
+    /**
+     * The latest subscription of `kind` (of `threadId`, when given), once it is sent: a thread
+     * waits for its kept record before it subscribes.
+     */
+    async subscribed(kind: "thread" | "threads", threadId?: string) {
+      const matches = (message: (typeof sent)[number]) =>
+        message.type === "subscribe" &&
+        message.scope.kind === kind &&
+        (threadId === undefined ||
+          (message.scope.kind === "thread" && message.scope.threadId === threadId));
+      await expect.poll(() => sent.some(matches)).toBe(true);
+      const wire = sent.findLast(matches);
+      if (!wire || wire.type !== "subscribe") throw new Error("No subscription");
+      return wire;
     },
     wire(kind: "thread" | "threads") {
       const wire = sent.findLast(
@@ -160,6 +190,14 @@ export function harness(
       );
       if (!wire || wire.type !== "subscribe") throw new Error("No subscription");
       return wire;
+    },
+    /** Run every scheduled job due within `ms`. */
+    elapse(ms: number) {
+      for (const job of scheduled)
+        if (job.ms <= ms) {
+          scheduled.delete(job);
+          job.callback();
+        }
     },
     flush() {
       for (const job of scheduled)

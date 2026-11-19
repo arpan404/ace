@@ -17,12 +17,14 @@ export function installationGate(
   return () =>
     (gate ??= new Promise<void>((resolve) => {
       const cancel = delay(resolve, waitMs);
+      // The gate holds for at most the wait: a check that fails opens it like one that ends.
       void checked
         .catch(() => {})
         .then(() => {
           cancel();
           resolve();
-        });
+        })
+        .catch(() => {});
     }));
 }
 

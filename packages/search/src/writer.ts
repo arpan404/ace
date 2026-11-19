@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Event, Thread } from "@ace/protocol";
 import { SearchKind } from "@ace/protocol";
 import { acceptsDelta } from "@ace/projection";
-import { appendWindow, capText, itemText, windowText } from "./text.ts";
+import { FIELD_CAP, appendWindow, capText, itemText, windowText } from "./text.ts";
 import { outputText, sourceText, type OutputReader } from "./output.ts";
 import { StoredText, storeText } from "./encoding.ts";
 
@@ -20,6 +20,16 @@ const Stage = z.object({
   head: StoredText,
   tail: StoredText,
   size: z.number(),
+});
+/** What a delta needs to append past the cap, without the head. */
+const StagedTail = Stage.pick({
+  id: true,
+  kind: true,
+  tool_kind: true,
+  size: true,
+  tail: true,
+}).extend({
+  plain_head: z.number(),
 });
 const Document = Stage.omit({ head: true, tail: true, size: true, tool_kind: true }).extend({
   body: z.string(),
@@ -154,12 +164,32 @@ export class SearchWriter {
       );
     } else if (p.type === "item.delta") {
       const value = this.sql
-        .get("SELECT * FROM search_stage WHERE thread=? AND item=?")
+        .get(
+          "SELECT id,kind,tool_kind,size,tail,substr(head,1,1)='t' AS plain_head FROM search_stage WHERE thread=? AND item=?",
+        )
         .get(event.threadId, p.itemId);
       if (!value) return;
-      const row = Stage.parse(value);
-      if (row.kind === "thread" || !acceptsDelta(row.kind, p.field, row.tool_kind ?? undefined))
+      const staged = StagedTail.parse(value);
+      if (
+        staged.kind === "thread" ||
+        !acceptsDelta(staged.kind, p.field, staged.tool_kind ?? undefined)
+      )
         return;
+      // Past the cap only the tail moves. appendWindow changes the head only to seed an empty
+      // tail from it or to trim half a character from its end, which a head stored plain (well
+      // formed) never has; otherwise the head is neither read nor rewritten.
+      if (staged.size >= FIELD_CAP && staged.tail && staged.plain_head === 1) {
+        const window = appendWindow({ head: "", tail: staged.tail, size: staged.size }, p.append);
+        this.sql.run(
+          "UPDATE search_stage SET tail=?,size=?,dirty_since=CASE WHEN dirty=0 THEN ? ELSE dirty_since END,dirty=1 WHERE id=?",
+          storeText(window.tail),
+          window.size,
+          event.seq,
+          staged.id,
+        );
+        return;
+      }
+      const row = Stage.parse(this.sql.get("SELECT * FROM search_stage WHERE id=?").get(staged.id));
       const window = appendWindow(row, p.append);
       this.sql.run(
         "UPDATE search_stage SET head=?,tail=?,size=?,dirty_since=CASE WHEN dirty=0 THEN ? ELSE dirty_since END,dirty=1 WHERE id=?",

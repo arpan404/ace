@@ -5,22 +5,55 @@ import BackgroundTasks
 /// Installs the notification delegate, categories and the background refresh task at launch,
 /// which iOS requires before launch finishes.
 final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let coordinator = NotificationCoordinator()
+    let coordinator = NotificationAppDelegate.makeCoordinator()
+
+    /// The app's notifications. A `--spike-unpaired` launch keeps its settings in scratch defaults
+    /// and touches nothing outside the process: no lock screen or widgets, no app group, no
+    /// background connections.
+    private static func makeCoordinator() -> NotificationCoordinator {
+        guard SpikeConfiguration.unpaired else { return NotificationCoordinator(lockScreenEdges: .system, pushed: .appGroup) }
+        return NotificationCoordinator(defaults: UnpairedScratch.defaults, connectInBackground: { _ in [] }, lockScreenEdges: .inert)
+    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories(NotificationActionID.categories)
+        // Nothing registered for a fresh-install fixture: categories, background refresh and push
+        // would write the app's real defaults and register with iOS.
+        if SpikeConfiguration.unpaired { return true }
+        center.setNotificationCategories(NotificationCategories.remember(nil, defaults: .standard))
         BackgroundRefresh.register(coordinator)
+        coordinator.requestPushToken = { application.registerForRemoteNotifications() }
         return true
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    // Remote push (ADR 0106). iOS gives a token on every registration and it can change; each
+    // machine's sync carries it with this phone's push key.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        // Without the app group (an unsigned build) the extension couldn't decrypt: no address.
+        guard let key = try? PushKeyStore.appGroup?.loadOrCreate() else { return }
+        coordinator.registeredForPush(PushRegistration(token: deviceToken, environment: .current, key: key))
+    }
+    /// No `aps-environment` (a free team, or `ACE_PUSH` off), or no network: local alerts carry on.
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        coordinator.registeredForPush(nil)
+    }
+    // The completion-handler forms, called back on the main thread: UIKit's handlers update the
+    // app's snapshot and must run there. The async forms are resumed off the main thread when the
+    // method isn't on the main actor, and UIKit stops the app (a tapped notification crashed it).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let info = notification.request.content.userInfo
         let threadId = info[NotificationKeys.threadId] as? String
         let hostId = info[NotificationKeys.hostId] as? String
-        return await MainActor.run { coordinator.presentation(for: threadId, hostId: hostId) }
+        let banner = info[NotificationKeys.banner] as? String != "0"
+        let access = info[NotificationKeys.accessRequestId] as? String
+        Task { @MainActor in
+            if let access { completionHandler(coordinator.accessPresentation(access, hostId: hostId)); return }
+            completionHandler(coordinator.presentation(for: threadId, hostId: hostId, banner: banner))
+        }
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         let action = response.actionIdentifier
         let id = response.notification.request.identifier
         var info: [String: String] = [:]
@@ -28,7 +61,11 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
             if let key = key as? String, let value = value as? String { info[key] = value }
         }
         let values = info
-        await coordinator.respond(action: action, notificationId: id, info: values)
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        Task { @MainActor in
+            await coordinator.respond(action: action, notificationId: id, info: values, text: text)
+            completionHandler()
+        }
     }
 }
 

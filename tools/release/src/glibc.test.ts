@@ -81,12 +81,12 @@ describe("Linux runtime floor", () => {
     ).toBeUndefined();
   });
 
-  it("accepts binaries at the Debian 11 floor and names the ones built on a newer host", async () => {
+  it("accepts binaries at the Debian 12 floor and names the ones built on a newer host", async () => {
     const root = await mkdtemp(join(tmpdir(), "ace-glibc-"));
     roots.push(root);
     await mkdir(join(root, "node_modules/node-pty/build/Release"), { recursive: true });
     const old = join(root, "node_modules/node-pty/build/Release/pty.node");
-    await writeFile(old, sharedObject({ "libc.so.6": ["GLIBC_2.17", "GLIBC_2.31"] }));
+    await writeFile(old, sharedObject({ "libc.so.6": ["GLIBC_2.17", "GLIBC_2.36"] }));
     await writeFile(join(root, "README"), "not a binary, long enough to read the header of");
     await assertLinuxRuntimeFloor([root]);
 

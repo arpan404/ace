@@ -10,6 +10,8 @@ import { openAppServer } from "./app-server.ts";
  * endpoint only; no model turn runs and no quota is spent. The result is the read's own object,
  * for the account registry to decode like any other rate-limit report.
  */
+const ResetReply = z.object({ outcome: AccountResetOutcome });
+
 type UsageOptions = {
   executable: string;
   env: NodeJS.ProcessEnv;
@@ -37,7 +39,7 @@ export function consumeCodexReset(
       { idempotencyKey: options.idempotencyKey },
       { signal: options.signal },
     );
-    return z.object({ outcome: AccountResetOutcome }).parse(result).outcome;
+    return ResetReply.parse(result).outcome;
   });
 }
 

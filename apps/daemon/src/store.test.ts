@@ -485,7 +485,8 @@ it("incremental sidebar membership and payloads share a snapshot during an exter
   let removed = false;
   const statements = vi.spyOn(f.store, "statement").mockImplementation((sql) => {
     const prepared = statement(sql);
-    if (!sql.startsWith("SELECT threads.id") || !sql.includes("AND NOT")) return prepared;
+    // The membership read: the sidebar facts, from the facts table or evaluated from threads.
+    if (!sql.startsWith("SELECT ") || !sql.includes(" AS settled,")) return prepared;
     const all = prepared.all.bind(prepared);
     const rows = vi.spyOn(prepared, "all").mockImplementation((...params) => {
       const result = all(...params);
@@ -508,4 +509,36 @@ it("incremental sidebar membership and payloads share a snapshot during an exter
   } finally {
     statements.mockRestore();
   }
+});
+
+it("text deltas leave the thread as it was while the next thread change still lands", () => {
+  const h = setup();
+  const { store, thread } = h;
+  store.appendEvents(thread.id, [{ type: "item.created", item: message("m1", "Hello") }], 5);
+  const before = store.readThread(thread.id);
+  store.appendEvents(
+    thread.id,
+    [
+      {
+        type: "item.delta",
+        itemId: message("m1").id,
+        agentId: message("m1").agentId,
+        field: "text",
+        append: " there",
+      },
+      {
+        type: "item.delta",
+        itemId: message("m1").id,
+        agentId: message("m1").agentId,
+        field: "text",
+        append: "!",
+      },
+    ],
+    9,
+  );
+  expect(store.readThread(thread.id)).toEqual(before);
+  store.appendEvents(thread.id, [{ type: "thread.updated", title: "Renamed" }], 12);
+  expect(store.readThread(thread.id)).toMatchObject({ title: "Renamed", updatedAt: 12 });
+  h.reopen();
+  expect(h.store.readThread(thread.id)).toMatchObject({ title: "Renamed", updatedAt: 12 });
 });

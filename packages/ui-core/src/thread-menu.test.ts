@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+import { BackgroundTaskId, type ThreadStatus } from "@ace/protocol";
+import {
+  archiveStopsQuestion,
+  deleteQuestion,
+  leftRunningCommands,
+  runningWork,
+  stopAndDeleteQuestion,
+  threadMenu,
+  threadMenuLabels,
+} from "./thread-menu.ts";
+
+const done: ThreadStatus = { state: "done" };
+const working: ThreadStatus = { state: "working", agents: 3 };
+const flags = { settled: false, unread: false, pinned: false };
+
+describe("thread menu", () => {
+  it("offers settling only once the tree stops working, and unsettling once settled", () => {
+    expect(threadMenu({ status: done }, flags)).toContain("settle");
+    expect(threadMenu({ status: working }, flags)).not.toContain("settle");
+    const settled = threadMenu({ status: working }, { ...flags, settled: true });
+    expect(settled).toContain("unsettle");
+    expect(settled).not.toContain("settle");
+  });
+
+  it("toggles read, pin and auto-settle by the thread's own state", () => {
+    const fresh = threadMenu({ status: done }, flags);
+    expect(fresh).toEqual(expect.arrayContaining(["unread", "pin", "auto-settle-off"]));
+    const organised = threadMenu(
+      { status: done, autoSettle: false },
+      { ...flags, unread: true, pinned: true },
+    );
+    expect(organised).toEqual(expect.arrayContaining(["read", "unpin", "auto-settle-on"]));
+    expect(organised).not.toContain("unread");
+  });
+
+  it("restores an archived thread instead of archiving it, and always ends with delete", () => {
+    const listed = threadMenu({ status: done }, flags);
+    const archived = threadMenu({ status: done, archivedAt: 5 }, flags);
+    expect(listed).toContain("archive");
+    expect(archived).toContain("restore");
+    expect(archived).not.toContain("archive");
+    expect(archived.at(-1)).toBe("delete");
+    expect(threadMenuLabels.delete).toBe("Delete thread");
+  });
+});
+
+describe("delete question", () => {
+  it("deletes a finished thread plainly", () => {
+    const question = deleteQuestion([{ title: "Fix login", status: done }]);
+    expect(question).toMatchObject({ title: "Delete thread?", confirm: "Delete", force: false });
+    expect(question.message).toBe("“Fix login” will be permanently deleted.");
+  });
+
+  it("stops running agents first and says how many", () => {
+    const question = deleteQuestion([
+      { title: "A", status: working },
+      { title: "B", status: { state: "needs_you", interactions: 1 } },
+      { title: "C", status: done },
+    ]);
+    expect(question).toMatchObject({ title: "Delete 3 threads?", confirm: "Stop and delete" });
+    expect(question.force).toBe(true);
+    expect(question.running).toBe("4 agents running. Running work will stop before deletion.");
+  });
+});
+
+describe("stop and delete", () => {
+  it("asks again to stop what still runs before deleting", () => {
+    expect(stopAndDeleteQuestion(["Fix login"])).toMatchObject({
+      title: "Delete thread?",
+      confirm: "Stop and delete",
+      force: true,
+    });
+    expect(stopAndDeleteQuestion(["A", "B"]).message).toMatch(/^2 threads will be permanently/);
+  });
+});
+
+describe("running work", () => {
+  it("names what keeps running before an archive hides it", () => {
+    expect(runningWork({ status: done })).toBeUndefined();
+    expect(runningWork({ status: { state: "needs_you", interactions: 1 } })).toBe(
+      "It's waiting for you.",
+    );
+  });
+});
+
+describe("archiving stops what was left running", () => {
+  const relay = { id: BackgroundTaskId.parse("relay"), title: "bun run dev:relay" };
+  it("counts commands only a done thread left running", () => {
+    expect(leftRunningCommands({ status: done, live: { watching: [relay, relay] } })).toBe(2);
+    expect(leftRunningCommands({ status: done })).toBe(0);
+    // Nine running: the names stop at eight, the count doesn't.
+    const eight = Array.from({ length: 8 }, () => relay);
+    expect(leftRunningCommands({ status: done, live: { watching: eight, watchingCount: 9 } })).toBe(
+      9,
+    );
+    // The newest eight ended and the oldest runs on: no name left, still one to stop.
+    expect(leftRunningCommands({ status: done, live: { watchingCount: 1 } })).toBe(1);
+    expect(archiveStopsQuestion([{ title: "A", leftRunning: 1 }])).toBeDefined();
+    expect(
+      leftRunningCommands({
+        status: { state: "waiting", on: "background_task" },
+        live: { watching: [relay] },
+      }),
+    ).toBe(0);
+  });
+
+  it.each([
+    [[{ title: "A", leftRunning: 0 }], undefined],
+    [
+      [{ title: "A", leftRunning: 1 }],
+      { title: "Archive thread?", message: "Archiving stops 1 command it left running." },
+    ],
+    [
+      [{ title: "A", leftRunning: 2 }],
+      { title: "Archive thread?", message: "Archiving stops 2 commands it left running." },
+    ],
+    [
+      [
+        { title: "A", leftRunning: 1 },
+        { title: "B", leftRunning: 0 },
+        { title: "C", leftRunning: 2 },
+      ],
+      { title: "Archive 3 threads?", message: "Archiving stops 3 commands they left running." },
+    ],
+    [
+      [
+        { title: "A", leftRunning: 0 },
+        { title: "B", leftRunning: 0 },
+      ],
+      undefined,
+    ],
+  ])("asks before archiving %j only when it would stop a command", (threads, question) => {
+    expect(archiveStopsQuestion(threads)).toEqual(question);
+  });
+});

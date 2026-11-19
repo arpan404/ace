@@ -10,17 +10,17 @@ struct EndingLine: View {
     var body: some View {
         switch ending.kind {
         case "interrupted" where !ending.automatic:
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Spacing.xxl, height: AceTheme.Dimensions.border)
+            HStack(spacing: AceDesign.Space.related) {
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Space.group, height: AceTheme.Dimensions.border)
                 Text(ending.label)
-                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Spacing.xxl, height: AceTheme.Dimensions.border)
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Space.group, height: AceTheme.Dimensions.border)
             }
-            .font(.caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
+            .font(AceDesign.Typeface.caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore).accessibilityLabel(ending.label)
             .accessibilityIdentifier("turn.end")
         case "interrupted":
-            LogRowBox { AceIcon(.stopCircle, size: 14, relativeTo: .footnote) } title: { Text(ending.label) }
+            LogRowBox { AceIcon(.stopCircle, size: AceDesign.Size.glyphMeta, relativeTo: .footnote) } title: { Text(ending.label) }
                 .accessibilityElement(children: .combine).accessibilityIdentifier("turn.end")
         case "paused":
             PausedWork(ending: ending, row: row, thread: thread)
@@ -36,11 +36,11 @@ private struct FailedTurnRow: View {
     let ending: BlockRow.Ending
     @State private var open = false
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                AceIcon(.warningCircle, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.StatusText.failed)
-                    .frame(minWidth: AceTheme.Spacing.xl)
-                (Text(ending.label).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                AceIcon(.warningCircle, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.StatusText.failed)
+                    .frame(minWidth: AceDesign.Size.lead)
+                (Text(ending.label).fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
                     + Text(ending.message.isEmpty ? "" : " · \(ending.message)").foregroundStyle(AceTheme.Colours.mutedForeground))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !ending.details.isEmpty {
@@ -50,10 +50,10 @@ private struct FailedTurnRow: View {
                         .accessibilityIdentifier("turn.failed.details")
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.tight)
             if open {
-                Text(ending.details).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text(ending.details).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
                     .rowDetailIndent()
             }
@@ -73,7 +73,6 @@ private struct PausedWork: View {
         let key = "paused:\(row.items.first ?? "")"
         let open = thread.disclosures.isOpen(key)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Hairline()
             Button { thread.disclosures.toggle(key) } label: { LogRowBox(open: open) { Text(ending.label) } }
                 .buttonStyle(.plain).accessibilityValue(open ? "Expanded" : "Collapsed")
             if open, let log = row.log {
@@ -88,20 +87,21 @@ private struct PausedWork: View {
 struct ChangedFilesRow: View {
     let files: BlockRow.Files
     let open: () -> Void
+    @Environment(\.displayScale) private var displayScale
     var body: some View {
-        ChipFlow(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+        ChipFlow(spacing: AceDesign.Space.tight, scale: displayScale) {
             ForEach(files.chips) { chip in
                 Button(action: open) {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         Text(chip.name).lineLimit(1).truncationMode(.middle).foregroundStyle(AceTheme.Colours.foreground)
-                        HStack(spacing: AceTheme.Spacing.xs) {
+                        HStack(spacing: AceDesign.Space.tight) {
                             Text("+\(chip.added)").foregroundStyle(AceTheme.StatusText.done)
                             Text("−\(chip.removed)").foregroundStyle(AceTheme.StatusText.failed)
                         }
                     }
                     .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
+                    .padding(.horizontal, AceDesign.Space.related)
+                    .frame(minHeight: AceDesign.Space.group + AceDesign.Space.tight)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
                     .contentShape(Rectangle())
                 }
@@ -113,7 +113,7 @@ struct ChangedFilesRow: View {
                     .buttonStyle(.plain)
                     .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
+                    .frame(minHeight: AceDesign.Space.group + AceDesign.Space.tight)
             }
         }
         .accessibilityElement(children: .contain)
@@ -123,34 +123,95 @@ struct ChangedFilesRow: View {
 }
 
 /// Lays chips out in rows, wrapping to the next row when one runs out of width.
+///
+/// A flow must lay out the same rows where SwiftUI places it as it reported: placed on the
+/// screen's pixels, a flow whose last chip wrapped would be a row taller than it said, and the
+/// layout would swap between the two widths (#2051). So packing always uses one capacity, the
+/// width rounded down to the pixel grid, and the reported width is the widest row rounded up to
+/// it, which never passes the capacity. Each chip is measured once at its own size (a row clamps
+/// one wider than itself), and the rows for the last capacity asked are kept.
 struct ChipFlow: Layout {
     var spacing: CGFloat
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
-        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
-        let width = rows.map(\.width).max() ?? 0
-        return CGSize(width: min(width, proposal.width ?? width), height: height)
+    /// The screen's pixels per point (`displayScale`), for the pixel grid.
+    var scale: CGFloat
+    struct Row: Equatable { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+    /// The chips' own sizes and the rows for the last capacity asked; cleared when the chips change.
+    struct Cache {
+        private(set) var sizes: [CGSize] = []
+        private var measured = false
+        private var last: (capacity: CGFloat, rows: [Row])?
+        /// The rows at `capacity`. The chips are measured (`measure`) only the first time.
+        mutating func rows(capacity: CGFloat, spacing: CGFloat, measure: () -> [CGSize]) -> [Row] {
+            if let last, last.capacity == capacity { return last.rows }
+            if !measured { sizes = measure(); measured = true }
+            let rows = ChipFlow.rows(sizes, capacity: capacity, spacing: spacing)
+            last = (capacity, rows)
+            return rows
+        }
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let rows = arranged(capacity: Self.capacity(proposal.width ?? .infinity, scale: scale), subviews: subviews, cache: &cache)
+        return Self.reported(Self.size(of: rows, spacing: spacing, scale: scale), proposal: proposal.width)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let capacity = Self.capacity(bounds.width, scale: scale)
+        let rows = arranged(capacity: capacity, subviews: subviews, cache: &cache)
         var y = bounds.minY
-        for row in arrange(width: bounds.width, subviews: subviews) {
+        for row in rows {
             var x = bounds.minX
             for index in row.indexes {
-                let size = subviews[index].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
-                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
-                x += min(size.width, bounds.width) + spacing
+                let size = cache.sizes[index]
+                let width = min(size.width, capacity)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(width: width, height: size.height))
+                x += width + spacing
             }
             y += row.height + spacing
         }
     }
-    private struct Row { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
-    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+    /// The flow's leading edge is its bounds' own. Without this, SwiftUI places every chip to
+    /// merge their guides each time the feed's leading-aligned stack asks.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    private func arranged(capacity: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
+        cache.rows(capacity: capacity, spacing: spacing) {
+            PerfCounters.bump("chips.measure")
+            return subviews.map { $0.sizeThatFits(.unspecified) }
+        }
+    }
+
+    /// What `sizeThatFits` returns for chips of `sizes` at a proposed width. Pure.
+    static func fit(_ sizes: [CGSize], proposal: CGFloat?, spacing: CGFloat, scale: CGFloat) -> (size: CGSize, rows: [Row]) {
+        let rows = rows(sizes, capacity: capacity(proposal ?? .infinity, scale: scale), spacing: spacing)
+        return (reported(size(of: rows, spacing: spacing, scale: scale), proposal: proposal), rows)
+    }
+    /// The room rows pack into at `width`: the width rounded down to the pixel grid.
+    static func capacity(_ width: CGFloat, scale: CGFloat) -> CGFloat {
+        guard width.isFinite, scale > 0 else { return width }
+        // Within a millionth of a pixel is on it: a width SwiftUI computed is never rounded down a whole pixel.
+        return (width * scale + 1e-6).rounded(.down) / scale
+    }
+    /// The size rows take: their widest rounded up to the pixel grid (never past their capacity,
+    /// which is on it), and their heights with the spacing between them.
+    static func size(of rows: [Row], spacing: CGFloat, scale: CGFloat) -> CGSize {
+        let widest = rows.map(\.width).max() ?? 0
+        let width = scale > 0 ? (widest * scale - 1e-6).rounded(.up) / scale : widest
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: max(0, width), height: height)
+    }
+    private static func reported(_ size: CGSize, proposal: CGFloat?) -> CGSize {
+        CGSize(width: min(size.width, proposal ?? size.width), height: size.height)
+    }
+    /// Chips of `sizes` in rows of at most `capacity`: a chip wider than the row takes one of its
+    /// own, at the row's width. Pure.
+    static func rows(_ sizes: [CGSize], capacity: CGFloat, spacing: CGFloat) -> [Row] {
         var rows: [Row] = []
         var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
-            let item = min(size.width, width)
-            if !row.indexes.isEmpty, row.width + spacing + item > width {
+        for (index, size) in sizes.enumerated() {
+            let item = min(size.width, capacity)
+            if !row.indexes.isEmpty, row.width + spacing + item > capacity {
                 rows.append(row)
                 row = Row()
             }
@@ -172,10 +233,10 @@ struct QuietLink: View {
         Button(action: action) {
             QuietRow(icon: icon) {
                 Text(title).lineLimit(1)
-                AceIcon(.caretRight, size: 12, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
                 Spacer(minLength: AceTheme.Spacing.none)
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.related)
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }

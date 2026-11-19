@@ -1,3 +1,4 @@
+import { openResources } from "./open-resources.ts";
 import { Worker } from "node:worker_threads";
 import { probeOutput } from "@ace/provider-kit/process";
 import { createReadStream } from "node:fs";
@@ -34,7 +35,7 @@ export function deferred<T>() {
 export const measuredHealth: HealthRuntime = {
   createDelay: () => monitorEventLoopDelay({ resolution: 20 }),
   memory: process.memoryUsage,
-  resources: process.getActiveResourcesInfo,
+  resources: openResources,
   sqlite: (path, signal) => sqliteSizes(path, signal, controlledSqlite),
   schedule: () => noop,
   deadlineMs: 1000,

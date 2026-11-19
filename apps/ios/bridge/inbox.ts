@@ -1,7 +1,21 @@
-import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
-import { settledTotal, type HomeSort } from "@ace/ui-core";
+import {
+  retryOf,
+  type ChangeTap,
+  type ClientCore,
+  type PendingSend,
+  type SidebarSource,
+} from "@ace/client";
+import {
+  eventSnoozeBackstopMs,
+  placeReader,
+  settledTotal,
+  type HomeSort,
+  type ThreadPlace,
+} from "@ace/ui-core";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
+  isChatThread,
   snoozePresets,
   unsentStatus,
   unsentText,
@@ -12,10 +26,27 @@ import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { followAccounts } from "./inbox-accounts.ts";
-import { inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
+import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
+import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
+import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+import { followAgentUse } from "./inbox-agent-use.ts";
+import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
+import { settleSend } from "./send-recovery.ts";
+import { ManageAction, runManage } from "./inbox-manage.ts";
+
+/**
+ * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
+ * before the daemon confirms them, and the machine's sort.
+ */
+export type InboxFollow = (() => void) &
+  PlaceContext & {
+    dismissed?: DismissedSends;
+    /** Narrows the Chats tab by title; empty lists every chat. */
+    chatQuery?: (query: string) => void;
+  };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -56,9 +87,28 @@ const longestWait = 2 ** 31 - 1;
  * (`inbox-checkpoint.ts`).
  */
 
-function inboxThread(store: SidebarSource, machineId: string, id: string): InboxThread | undefined {
-  const entry = store.thread(id);
-  return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed === true };
+/**
+ * Each thread with its place: the daemon's, or the shared rule's (`placeReader`) on this
+ * phone's clock and seen baseline for one without (an older daemon, a pin or move not yet
+ * confirmed), so the phone places as the web does.
+ */
+function inboxThread(
+  store: SidebarSource,
+  organizer: InboxOrganizer,
+  id: string,
+  place: (entry: ThreadListEntry) => ThreadPlace | undefined,
+): InboxThread | undefined {
+  const entry = organizer.entry(id);
+  const machineId = organizer.machineId;
+  return (
+    entry && {
+      key: id,
+      machineId,
+      entry,
+      unconfirmed: store.unconfirmed === true,
+      place: place(entry),
+    }
+  );
 }
 
 /**
@@ -78,10 +128,16 @@ export function followInbox(
   save?: (checkpoint: string) => void,
   /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
   lastSort?: HomeSort,
-): () => void {
+  /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
+  dismissed: DismissedSends = keepNone,
+): InboxFollow {
   const store = owner.threads().store;
+  const organizer = inboxOrganizer(owner, machineId, clock);
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
+  // The daemon socket, which changes with every reconnect even when a drop and its recovery
+  // coalesce into one "ready": what the phone read on an older socket is out of date.
+  const socket = owner.connectionGeneration();
   const online = () => connection.getSnapshot() === "ready";
   // Results that finished before this phone started following count as seen.
   const baseline = clock.now();
@@ -93,10 +149,14 @@ export function followInbox(
     baseline,
     accounts: accounts.views(),
     sortBy: sort.current(),
+    use: agentUse.current(),
   });
+  /** Places on this moment's clock and sort; entries the daemon placed are only read. */
+  const placer = () =>
+    placeReader({ fallback: { baseline, now: clock.now(), sortBy: sort.current() } });
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
-      const thread = inboxThread(store, machineId, id);
+      const thread = inboxThread(store, organizer, id, placer());
       return {
         type: "inbox.row",
         id,
@@ -109,12 +169,24 @@ export function followInbox(
           : null,
       };
     });
+  const putConnection = () =>
+    pump.put("connection", () => ({
+      type: "connection",
+      state: connection.getSnapshot(),
+      generation: generation.current(),
+      socket: socket.getSnapshot(),
+    }));
   /** Whether the phone has been sent a list yet; until then it keeps what it last showed. */
   let shown = false;
   // A fresh account list re-issues every row, so provider marks gain or lose their bubble.
   const accounts = followAccounts(owner, () => {
     if (!shown) return;
     for (const id of store.ids) row(id);
+  });
+  // A browser or Mac app an agent starts or stops driving re-issues that thread's row.
+  const agentUse = followAgentUse(owner, (ids) => {
+    if (!shown) return;
+    for (const id of ids) if (store.ids.includes(id)) row(id);
   });
   const checkpoint = followCheckpoint(
     clock,
@@ -145,27 +217,69 @@ export function followInbox(
   const sections = () => {
     if (!shown) return;
     if (save) checkpoint.touch();
+    chatLayout();
     pump.put("inbox:sections", () => {
       const now = clock.now();
       const threads: InboxThread[] = [];
+      const place = placer();
       for (const id of store.ids) {
-        const thread = inboxThread(store, machineId, id);
+        const thread = inboxThread(store, organizer, id, place);
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));
-      const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
+      // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
+      const chats = threads.some(isChatThread);
+      const unsent = sends
+        .getSnapshot()
+        .filter(
+          (send) => !dismissed.has(send.commandId) && !owner.pendingSend(retryOf(send.commandId)),
+        )
+        .map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
-      return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
-        settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
-        sortBy: sort.current(),
-      });
+      // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
+      const projects = chats ? threads.filter((thread) => !isChatThread(thread)) : threads;
+      return inboxLayout(
+        projects,
+        unsent,
+        now,
+        (store.homeWindow ?? store.window)?.before != null,
+        {
+          settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
+          sortBy: sort.current(),
+          // A copy read back from disk claims no dots until the daemon confirms it.
+          attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
+        },
+      );
     });
   };
+  let chatQuery = "";
+  // Its own reader, read at delivery like the inbox's sections.
+  const chatLayout = () =>
+    pump.put("chats:sections", () => {
+      const chats: InboxThread[] = [];
+      const place = placer();
+      for (const id of store.ids) {
+        const thread = inboxThread(store, organizer, id, place);
+        if (thread && isChatThread(thread)) chats.push(thread);
+      }
+      return chatsLayout(chats, clock.now(), baseline, chatQuery);
+    });
   const pending = (id: string) =>
     pump.put(`pending:${id}`, () => {
-      const send = owner.pendingSend(id);
-      return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
+      // A send sent again stands aside for its newer attempt, the one to act on.
+      const send =
+        dismissed.has(id) || owner.pendingSend(retryOf(id)) ? undefined : owner.pendingSend(id);
+      return {
+        type: "pending",
+        id,
+        row: send
+          ? {
+              ...pendingRow(send, connection.getSnapshot()),
+              busy: owner.sendOps.current(id) ?? null,
+            }
+          : null,
+      };
     });
   /** The thread ids the phone holds rows for, so one that leaves the list loses only its row. */
   let listed = new Set<string>();
@@ -212,9 +326,24 @@ export function followInbox(
   };
   const stops = [
     accounts.stop,
+    agentUse.stop,
+    // A pin or move shows on its row, and moves it, before the daemon confirms it.
+    organizer.observe((id) => {
+      if (!shown) return;
+      row(id);
+      sections();
+    }),
     store.observe(change),
     owner.observePendingSends((id) => {
       pending(id);
+      // A retry joining or going re-sends the attempt it stands for.
+      if (id.endsWith(":retry")) pending(id.slice(0, -":retry".length));
+      sections();
+    }),
+    owner.sendOps.observe((id) => pending(id)),
+    dismissed.observe((id) => {
+      if (id !== undefined) pending(id);
+      else for (const send of sends.getSnapshot()) pending(send.commandId);
       sections();
     }),
     // The connection patch is produced here, beside the rows that share its fence, so a
@@ -223,11 +352,7 @@ export function followInbox(
     // flip (welcome before its snapshot, catch-up, error) re-issues every row with its
     // current confirmation even when the thread content itself did not change.
     connection.subscribe(() => {
-      pump.put("connection", () => ({
-        type: "connection",
-        state: connection.getSnapshot(),
-        generation: generation.current(),
-      }));
+      putConnection();
       const nowFresh = isConfirmed(store, online());
       if (fresh && !nowFresh) generation.bump();
       const flipped = nowFresh !== fresh;
@@ -238,14 +363,26 @@ export function followInbox(
       }
       for (const send of sends.getSnapshot()) pending(send.commandId);
     }),
+    // A move to another socket with no state change (another path, ADR 0114) is still news.
+    socket.subscribe(putConnection),
   ];
   change("all");
-  return () => {
-    for (const stop of stops) stop();
+  const stop = () => {
+    for (const each of stops) each();
     sort.stop();
     checkpoint.stop();
     arm(undefined);
   };
+  const narrowChats = (query: string) => {
+    chatQuery = query.trim();
+    sections();
+  };
+  return Object.assign(stop, {
+    organizer,
+    sortBy: () => sort.current(),
+    dismissed,
+    chatQuery: narrowChats,
+  });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -256,8 +393,16 @@ function pendingRow(send: PendingSend, connection: string) {
     state: send.state,
     waiting: send.waiting,
     text: preview(unsentText(send), 8192),
+    /** Why it wasn't sent, behind Details; empty when the SDK kept no reason. */
+    detail: send.state === "failed" && send.error ? preview(send.error, 2048) : "",
+    /** Files and images on it: an edit changes its words and keeps them. */
+    files:
+      send.payload.input.filter((part) => part.type !== "text" && part.type !== "mention").length +
+      (send.payload.context?.attachments?.length ?? 0),
     label: status.label,
     token: status.token,
+    /** Git's cleanup fence stopped it: a stale lock the person may clear. */
+    fenced: send.error === "git_quarantined",
   };
 }
 
@@ -269,10 +414,27 @@ const InboxAction = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("snooze"),
     threadId: ThreadId,
-    preset: z.enum(["hour", "tomorrow", "monday"]),
+    /** A time preset, or an event the daemon wakes it on (the row's `snoozeEvents`). */
+    preset: z.enum(["hour", "tomorrow", "monday", "needs_you", "pr"]),
   }),
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
+  /** A title the person typed; surrounding space goes, and an empty one is refused. */
+  z.object({ kind: z.literal("rename"), threadId: ThreadId, title: z.string().max(1024) }),
+  /** Named again from its opening request, as a new thread is. */
+  z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** The Chats tab's search: chats whose title matches, or every chat when empty. */
+  z.object({ kind: z.literal("chatsQuery"), query: z.string().max(1024) }),
+  /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
+  z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
+  z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
+  /** Edit of a failed send: its full words, then new words saved in place in the outbox. */
+  z.object({ kind: z.literal("sendWords"), commandId: z.string().min(1).max(256) }),
+  z.object({
+    kind: z.literal("editSend"),
+    commandId: z.string().min(1).max(256),
+    text: z.string().max(100_000),
+  }),
 ]);
 
 function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
@@ -286,6 +448,16 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
     case "unsettle":
       return { type: "thread.unsettle", threadId: action.threadId };
     case "snooze": {
+      // An event snooze keeps a backstop time, so nothing sleeps for good; the daemon refuses
+      // one that doesn't fit the thread. A timestamp is whole milliseconds, and the phone's
+      // clock counts fractions of one.
+      if (action.preset === "needs_you" || action.preset === "pr")
+        return {
+          type: "thread.snooze",
+          threadId: action.threadId,
+          until: Math.floor(now) + eventSnoozeBackstopMs,
+          wake: action.preset,
+        };
       const until = snoozePresets(now).find((preset) => preset.id === action.preset)?.until;
       return until === undefined
         ? undefined
@@ -293,18 +465,43 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
     }
     case "wake":
       return { type: "thread.snooze", threadId: action.threadId, until: null };
+    case "rename": {
+      const title = action.title.trim();
+      return title && title.length <= 256
+        ? { type: "thread.rename", threadId: action.threadId, title }
+        : undefined;
+    }
+    case "retitle":
+      return { type: "thread.title.regenerate", threadId: action.threadId };
     default:
       return undefined;
   }
 }
 
-/** Organization goes through the SDK's durable outbox: admission first, the receipt later. */
+/**
+ * Organization goes through the SDK's durable outbox: admission first, the receipt later. Pins
+ * and moves show at once through `inbox`, what `followInbox` returned.
+ */
 export function inboxAction(
   owner: ClientCore,
   raw: unknown,
   requestId: string,
   pump: PatchSink,
+  inbox?: PlaceContext & {
+    dismissed?: DismissedSends;
+    chatQuery?: (query: string) => void;
+  },
 ): void {
+  const place = PlaceAction.safeParse(raw);
+  if (place.success && inbox) {
+    void runPlace(inbox, place.data, requestId, pump);
+    return;
+  }
+  const manage = ManageAction.safeParse(raw);
+  if (manage.success && inbox) {
+    void runManage(inbox.organizer, manage.data, requestId, pump);
+    return;
+  }
   const parsed = InboxAction.safeParse(raw);
   if (!parsed.success) {
     pump.put(`admission:${requestId}`, () => ({
@@ -316,6 +513,19 @@ export function inboxAction(
     return;
   }
   const action = parsed.data;
+  if (
+    action.kind === "dismissSend" ||
+    action.kind === "restoreSend" ||
+    action.kind === "sendWords" ||
+    action.kind === "editSend"
+  ) {
+    void settleSend(owner, action, requestId, pump, inbox?.dismissed);
+    return;
+  }
+  if (action.kind === "chatsQuery") {
+    inbox?.chatQuery?.(action.query);
+    return;
+  }
   if (action.kind === "more") {
     void owner.threadsMore().catch(() =>
       pump.put("error", () => ({
@@ -325,5 +535,15 @@ export function inboxAction(
     );
     return;
   }
-  void dispatchCommand(owner, payloadOf(action, host.now()), requestId, pump);
+  const payload = payloadOf(action, host.now());
+  if (!payload && action.kind === "rename") {
+    pump.put(`admission:${requestId}`, () => ({
+      type: "admission",
+      id: requestId,
+      ok: false,
+      message: "Give the thread a name of at most 256 characters.",
+    }));
+    return;
+  }
+  void dispatchCommand(owner, payload, requestId, pump);
 }

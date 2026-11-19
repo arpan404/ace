@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { afterEach, expect, test } from "vitest";
 import { prepareDaemonHome } from "@ace/service";
 import { exitCodes } from "./cli/output.ts";

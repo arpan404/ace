@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { DeviceScope } from "@ace/protocol";
 import { findExecutable } from "@ace/provider-kit/discovery";
@@ -30,7 +30,9 @@ export const remoteAccessPorts: RemoteAccessPorts = {
     try {
       return {
         "remote.enabled": (await settings.get("remote.enabled")).value,
-        "remote.transport": (await settings.get("remote.transport")).value,
+        "remote.lan": (await settings.get("remote.lan")).value,
+        "remote.tailscale": (await settings.get("remote.tailscale")).value,
+        "remote.relay": (await settings.get("remote.relay")).value,
         "remote.relayUrl": (await settings.get("remote.relayUrl")).value,
       };
     } finally {
@@ -41,6 +43,10 @@ export const remoteAccessPorts: RemoteAccessPorts = {
   network: systemNetwork,
   pairedDevices: (context) => countPairedDevices(join(context.config.dataDir, "events.sqlite")),
 };
+// Windows looks for the installed tailscale.exe exactly as the daemon does.
+if (process.platform === "win32")
+  remoteAccessPorts.tailscale = async (context) =>
+    (await import("../tailscale-command.ts")).findTailscaleExe(context.env);
 
 const DeviceRow = z.object({ scopes: z.string() });
 const Scopes = z.array(DeviceScope);

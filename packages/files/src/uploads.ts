@@ -1,7 +1,10 @@
 import { UploadPublication } from "./upload-publication.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
-import { lstat, open, rename, rm } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { posix } from "node:path";
+import { windowsReplace } from "./filesystem.ts";
+import { publishReplacement } from "./replacement.ts";
 import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
 import { Catalog, UploadRecord, UploadReceipt } from "./catalog.ts";
 import {
@@ -9,10 +12,18 @@ import {
   hashFile,
   newId,
   openUpload,
+  observed,
   writeAll,
   replacementMode,
 } from "./filesystem.ts";
-import { CHUNK_SIZE, codeOf, FileError, version, type FilesOptions } from "./types.ts";
+import {
+  CHUNK_SIZE,
+  checkVersion,
+  codeOf,
+  FileError,
+  version,
+  type FilesOptions,
+} from "./types.ts";
 
 export class Uploads {
   private readonly safe: SafeRoot;
@@ -180,9 +191,30 @@ export class Uploads {
         throw new FileError("CONFLICT", "Upload changed before publication");
       await target.verify();
       await verify();
+      // The version was checked when the commit began; preparing took awaits since, in which
+      // an outside writer may have saved over the file. Check again just before replacing it,
+      // so that save is refused rather than lost. The unpublished temp stays resumable.
+      if (record.expected !== null)
+        checkVersion(await observed(this.safe, record.path), record.expected);
       const temp = join(dirname(target.path), record.temp);
+      if (process.platform === "win32" && record.expected !== null) {
+        await windowsReplace(temp, target.path);
+        await target.verify();
+        const completed = this.publication.complete(publishing, sha256);
+        await this.publication.finishPermissions(completed);
+        return record.path;
+      }
+      // An outside save that lands after the check above is kept, and the commit refused.
       if (record.expected === null) await this.exclusive.move(temp, target.path);
-      else await rename(temp, target.path);
+      else
+        await publishReplacement({
+          exclusive: this.exclusive,
+          temp,
+          identity: record.identity,
+          destination: target.path,
+          expected: record.expected,
+          id: record.id,
+        });
       await target.verify();
       const completed = this.publication.complete(publishing, sha256);
       await this.publication.finishPermissions(completed);
@@ -268,6 +300,13 @@ export class Uploads {
         signal?.throwIfAborted();
         if (entry.type !== "file") continue;
         const record = debt.get(basename(entry.path));
+        if (record && process.platform === "win32") {
+          // Workspace paths keep `/` separators; win32 `join` would turn them into `\`.
+          const destination = posix.join(posix.dirname(entry.path), posix.basename(record.path));
+          if (await removeAt(record, destination)) debt.delete(record.temp);
+          if (!debt.size) break;
+          continue;
+        }
         if (record && (await removeAt(record, join(dirname(entry.path), basename(record.path)))))
           debt.delete(record.temp);
         if (!debt.size) break;

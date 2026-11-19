@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -30,7 +31,8 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).toReversed()) await step();
 });
 async function temp() {
-  const root = await mkdtemp(join(tmpdir(), "ace-unpack-"));
+  // macOS hands out a folder reached through /var's link; the pinned open needs its real path.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-unpack-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   // dest sits two levels down so `..` and `../..` both land in folders this test watches.
   const outside = join(root, "outside");
@@ -160,4 +162,67 @@ it("writes into the folder the caller holds open even when its path is swapped f
   } finally {
     await held.close();
   }
+});
+
+const windows = process.platform === "win32";
+
+it.runIf(windows)(
+  "Windows: refuses member names with backslashes, drives or streams, writing nothing",
+  async () => {
+    for (const name of ["..\\..\\escaped", "sub\\..\\..\\escaped", "C:escaped", "a:stream"]) {
+      const t = await refuses([{ name, content: "escaped" }]);
+      expect(await readdir(t.destination)).toEqual([]);
+      expect((await readdir(t.outside)).toSorted()).toEqual(["dest"]);
+    }
+  },
+);
+
+it.runIf(windows)("Windows: refuses names Windows can't hold as unsafe entries", async () => {
+  for (const name of ["CON", "nul.txt", "trailing.", "trailing ", "a?b"]) {
+    const t = await refuses([{ name, content: "x" }]);
+    expect(await readdir(t.destination)).toEqual([]);
+  }
+});
+
+it.runIf(windows)(
+  "Windows: refuses a second member whose name differs only in case, keeping the first",
+  async () => {
+    const t = await refuses([
+      { name: "Same.txt", content: "first" },
+      { name: "same.TXT", content: "second" },
+    ]);
+    expect(await readdir(t.destination)).toEqual(["Same.txt"]);
+    expect(await readFile(join(t.destination, "Same.txt"), "utf8")).toBe("first");
+  },
+);
+
+it.runIf(windows)(
+  "Windows: folds member names the way NTFS does, so σ and ς collide but ß and ss don't",
+  async () => {
+    const t = await refuses([
+      { name: "σ.txt", content: "first" },
+      { name: "ς.txt", content: "second" },
+    ]);
+    expect(await readdir(t.destination)).toEqual(["σ.txt"]);
+    expect(await readFile(join(t.destination, "σ.txt"), "utf8")).toBe("first");
+    const both = await temp();
+    await craft(both.archive, [
+      { name: "ß.txt", content: "sharp" },
+      { name: "ss.txt", content: "double" },
+    ]);
+    await unpackArchive(both.archive, both.destination);
+    expect((await readdir(both.destination)).toSorted()).toEqual(["ss.txt", "ß.txt"]);
+  },
+);
+
+it.runIf(windows)("Windows: checks links inside the folder and then leaves them out", async () => {
+  const t = await temp();
+  await craft(t.archive, [
+    { name: "a.txt", content: "a" },
+    { name: "d", type: "directory" },
+    { name: "d/back", type: "symlink", linkname: "../a.txt" },
+  ]);
+  expect(await unpackArchive(t.archive, t.destination)).toEqual({ entries: 2 });
+  expect((await readdir(t.destination)).toSorted()).toEqual(["a.txt", "d"]);
+  expect(await readdir(join(t.destination, "d"))).toEqual([]);
 });

@@ -2,6 +2,7 @@ import { rankFolders } from "@ace/project-picker";
 import {
   displayPath,
   fuzzyPositions,
+  isPathInput,
   parseFolderQuery,
   pathInput,
   type FolderQuery,
@@ -12,7 +13,7 @@ import { projectFailure, projectReads } from "./project-commands.ts";
 import {
   useFolderListing,
   useFolderSearchQuery,
-  useHostHome,
+  useHomeFolder,
   useRecentFolders,
   type HostHome,
 } from "./use-folders.ts";
@@ -50,18 +51,22 @@ function namePositions(query: string, name: string): number[] {
  */
 export function useFolderSearch(options: { machine: Machine; text: string }) {
   const { machine, text } = options;
-  const home: HostHome | undefined = useHostHome(machine).data;
+  const homeRead = useHomeFolder(machine);
+  const home: HostHome | undefined = homeRead.home;
   const query: FolderQuery = useMemo(
     () => parseFolderQuery(text, home?.path, home?.start),
     [text, home],
   );
+  // An empty box, `~` or `./` needs the home folder (and where browsing starts) to mean anything.
+  const needsHome = text.trim() === "" || (isPathInput(text) && query.kind === "search");
+  const homeState = needsHome ? homeRead.state : "ready";
   const only = useMemo(() => [machine], [machine]);
   const { isProject } = useRecentFolders(only);
   const words = query.kind === "search" ? query.text : "";
   const browsing = query.kind === "path" ? query.directory : words ? undefined : home?.start;
   const showHidden = query.kind === "path" && query.segment.startsWith(".");
   const listing = useFolderListing(machine, browsing, showHidden);
-  const found = useFolderSearchQuery(machine, words, words !== "");
+  const found = useFolderSearchQuery(machine, words, words !== "" && !needsHome);
 
   const sections = useMemo((): FolderSection[] => {
     const row = (
@@ -137,6 +142,7 @@ export function useFolderSearch(options: { machine: Machine; text: string }) {
   return {
     /** The machine these folders are on. */
     machineId: machine.id,
+    machineName: machine.name,
     client: machine.client,
     query,
     home,
@@ -144,7 +150,13 @@ export function useFolderSearch(options: { machine: Machine; text: string }) {
     rows: visible.flatMap((section) => section.rows),
     /** The folder being browsed (path mode, or where browsing starts). */
     browsing,
-    loading: listing.loading || (words !== "" && found.isFetching),
+    loading:
+      homeState === "loading" ||
+      listing.loading ||
+      (!needsHome && words !== "" && found.isFetching),
+    /** The home folder couldn't be read, and the box needs it; `retryHome` reads it again. */
+    homeFailed: homeState === "failed",
+    retryHome: homeRead.retry,
     /** The folder's later folders couldn't be read; `retry` reads them. */
     restFailed: browsing !== undefined && listing.restFailed,
     /** The folder has more folders than are read (5,000). */

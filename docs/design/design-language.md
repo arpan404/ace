@@ -1,0 +1,167 @@
+# ace design language
+
+What ace looks and feels like on every surface: desktop, web, iPhone (and later Android). It is the layer above [DESIGN.md](../../DESIGN.md): this file says **who ace is and the rules every platform shares**; DESIGN.md turns them into the desktop and web tokens and components; the iOS section below turns them into SwiftUI. When a platform file and this one disagree about a principle, this one wins.
+
+## 1. Who ace is
+
+ace is a calm control room for many agents working at once. The person glances, decides and leaves. So the interface is:
+
+- **Quiet.** Nothing asks for attention unless the person is needed. Work in progress is visible, never loud.
+- **Precise.** Every element states something true and current about the agents. If it only decorates or explains the UI, it goes.
+- **Native.** On each platform ace feels like the best app built for that platform, not a port. Same language, native grammar.
+- **Premium through restraint.** Few values, repeated everywhere. Consistency is what reads as quality.
+
+ace never copies another product's look. It is recognisably itself: grey ink, one coloured status icon, provider marks in their own colours, Spade's face.
+
+## 2. Principles
+
+1. **State, not chrome.** Show what the person acts on: what needs them, what is running, what finished. No labels for things an icon already says, no descriptions of the UI.
+2. **One colour job.** Colour means state. Everything else is grey ink in a few tiers. Provider marks keep their brand colours (at 80% in lists); project identity is ink.
+3. **Words, not chrome.** A status strip is one short sentence plus its actions (a request strip's are buttons, §4). No icons on buttons, no timer glyphs, no tints, no badges where a word works.
+4. **No boxes in boxes.** Group with space, weight and one surface step. Never a card inside a card; never a bordered box inside a strip or sheet.
+5. **One place per fact.** Each state shows in exactly one place (the row, the strip, or the transcript), never repeated.
+6. **Still, not busy.** Nothing loops forever. Live work is a still icon and a running time. Motion only confirms an action or moves something into place.
+7. **Correct before pretty.** Never show an agent as done while any part of its tree works or waits.
+8. **Fewer values, everywhere.** Every radius, gap, size, colour and curve comes from the token set. A one-off value is a bug.
+
+## 3. Foundations (shared across platforms)
+
+### Ink and colour
+
+- **Ink tiers:** foreground (read this) → muted (secondary) → subtle (meta: time, branch, counts) → faint (decorative only, never words).
+- **Status colours** (the only hues in lists), one per state, used only on the status icon and the one sentence that states it:
+
+  | State                                 | Dark      | Light     | Icon                                  |
+  | ------------------------------------- | --------- | --------- | ------------------------------------- |
+  | Needs you (model, approval, question) | #EDB250   | #AD7200   | sparkle · raised hand · question mark |
+  | Failed                                | #F47670   | #C93A33   | warning circle                        |
+  | Working                               | #7E9FD6   | #3D63A6   | dashed circle (still)                 |
+  | Waiting on agents                     | #A08FD4   | #6A55A8   | dashed circle with the count          |
+  | Other wait (queue, recovery)          | #A08FD4   | #6A55A8   | countdown clock                       |
+  | Usage limit                           | muted ink | muted ink | gauge, no time                        |
+  | Background work                       | #7E8692   | #6B7380   | terminal window                       |
+  | Finished, not seen                    | #6CBF8C   | #2E7D4F   | check circle                          |
+  | Idle / seen                           | —         | —         | no icon, age only                     |
+
+- **One accent** for the primary action (send, approve, the selected tab's fill) and, in a Spade conversation, the person's own bubble: the one use that marks who is speaking, the same in every conversation. A bot is known by its face, never by a colour. Never decorative.
+- Light and dark are equal citizens; every colour is checked at 3:1 against its surface.
+
+### Type
+
+One family per platform (Inter/SF on desktop and web, SF Pro on iOS), five roles, two weights (regular, semibold). Mono only for code, commands, paths and branches.
+
+| Role        | Use                                       |
+| ----------- | ----------------------------------------- |
+| Large title | A place's name (Projects, Chats, Search)  |
+| Title       | Thread titles, message text, sheet titles |
+| Body        | Row titles, answers, settings labels      |
+| Meta        | Project, branch, time, counts             |
+| Caption     | Tooltips, tiny labels                     |
+
+Bold only for emphasis in prose. Rows show attention by brightness alone: what needs the person in full ink, what rests in the muted ink, never by weight.
+
+### Space
+
+A 4-point grid. One side margin per platform (16 on iPhone). Fixed row heights so lists look combed. Group with gaps (8 related, 24 between groups), not dividers.
+
+### Shape
+
+- **Rounded, never sharp, never mixed.** Each platform has a short shape scale and nothing outside it.
+- **Concentric always:** a shape inside another follows its curve (inner radius = outer radius − inset).
+- **Desktop and web:** the scale in DESIGN.md §2 (4 / 6 / 8 / 12 / 18 / full), with full roundness for pills, Send/Stop, tabs and status marks. Spade is the softer room inside ace's frame: its bubbles and cards take 18, its icon buttons are circles and its buttons pills ([spade.md](spade.md)); the frame around it keeps its own shapes.
+- **iPhone:** full roundness (see §5).
+
+### Materials
+
+Three surfaces only: **background** (flat, where content lives), **glass** (only for things that float over content: tab bar, composer capsule, header buttons, menus), **raised** (sheets, dialogs, anything that holds content above the page). Never glass on glass; never glass on a scrolling area, except what floats over a transcript as the composer does (a Spade conversation's pill).
+
+### Iconography
+
+ace draws its own icons ([ADR 0156](../adr/0156-ace-draws-its-own-icons.md)): one modern set, clean and rounded inside and out, each icon recognisable by its own outline at 16px. The iPhone draws the same set, from assets generated out of `@ace/icons`. One weight per context; status icons filled. Provider marks are the providers' own logos. Spade's mark (round head, two egg eyes, −4° tilt, white eyes in every theme) is the only character in the app. ace's own glyphs are drawn from one shared geometry (`@ace/design-tokens/glyphs`), generated for the phone: the agent cursor, "the Pebble", in the person's accent with its outline and soft shadow, marks computer use; browser use is the globe with the pointer resting on it, in the working colour.
+
+### Motion
+
+Confirm, don't entertain. Only transform and opacity animate. A haptic on send, approve and tab change (iPhone). Respect Reduce Motion. Nothing loops except a startup breath, an indeterminate progress bar, a live agent's provider mark (`.fx-alive`: that mark is the row's only status, so its breath is how work under way reads without a spinner or a timer glyph) and a working Spade bot's eyes (its face is its status, ADR 0127), each only while what it stands for lasts. On iPhone, motion is the system's own: navigation, sheets, lists and scroll-edge bars move as they do in Apple's apps, and anything else uses the system's default spring. ace adds motion only where the system has none. Desktop and web arrive with one spring and leave faster than they came.
+
+### Voice
+
+Plain, short, specific. Say what happened and what the person can do: "Codex is out of usage until 9:23 PM", "Claude Code wants to run a command". No internal words (daemon, lease, settle, worktree internals), no exclamation marks, no "please", no marketing. Name buttons by their action ("Allow", "Resume at reset"), never "OK".
+
+## 4. Shared patterns
+
+- **Thread row:** project · status icon (and time for live work) / title (regular weight; full ink when the person is needed) / branch · PR · another machine · provider mark. No status words. The provider mark carries the account's badge only when there is more than one account for that provider.
+- **Lists:** one flat list per tab (Inbox · Snoozed · Settled), ordered pinned → needs you → running → finished unseen → idle. No section labels.
+- **The composer capsule:** the bottom of a thread is one capsule spanning the column, holding + on its leading side, then the field and one trailing button, so the words get the full width (the + moved inside, owner 2026-11-08). The button is the microphone while the field is empty and nothing runs, Send once there are words or chips, and Stop while the tree works and the field is empty; a typed message still steers or queues. Wrapped words grow the capsule into a rounded shape concentric with its button, up to five lines, then it scrolls. Above it, on the field's left edge: the chips on the next message (files, comments, drawings) as plain capsules, and over them the live pills, one row that scrolls sideways: the status first ("Working · 4m 12s", "Waiting on 2", "Out of usage until 9:23 PM"), then what else is live ("2 subagents", "1 command", "2 queued", "Pursuing goal · 182K tokens · 3 checks", the goal's progress quieter than its state, as the web's goal strip reads). A pill is a glass capsule floating over the transcript, the row drawn as one glass group, with its still icon in the state's colour and its words in ink; a pill that opens something (the agent tree, the queue, the goal) is a button. Nothing shows when idle. A request strip takes the pills' place. The model is not here: it lives in the thread's title (decided 2026-11-04; pills replaced the live line 2026-11-08).
+- **Request strip:** leads with the provider mark or status icon, one sentence, at most one line of detail (a command in mono, truncated in the middle); several waiting show "1 of 3". Its answers are real buttons, not text actions (owner, 2026-11-16): the way on ("Allow once", "Try again") is the prominent one, glass where the platform has it, and the rest ("Deny", "Always allow") are secondary buttons, each at least a full tap tall with space between them, so Deny never sits against Allow. A lone answer sits at the sentence's end; several go on a line of their own, stacked when they don't fit. Tapping the request's words opens its details. Anything long (a plan, a question with options) opens in a sheet. The hold strip and the not-sent strip answer the same way.
+- **Transcript:** the person's message as a bubble; the agent's work folded under "Worked for 3m 12s"; the agent's last message shown in full. Handoffs, stops and limits are one quiet line each. While subagents or a background command are live and the pill on screen names them, they show only there; their transcript row appears once they have ended, as the record. When the pill doesn't show or doesn't name them, their row stays, so live work never leaves view (owner, 2026-11-16).
+- **Empty and loading:** every list has one quiet empty state (a sentence and at most one action) and skeleton rows while loading. Never a spinner in the middle of nothing.
+
+## 5. iPhone
+
+The iPhone app speaks the same language with native iOS 26 grammar.
+
+### Shape: full roundness
+
+- **Every control is a capsule:** buttons, pills, chips, tabs, the segmented control, the search field, the composer's text field, + and Send/Stop, strip actions.
+- **Every container is concentric with the screen:** the composer capsule once it wraps, strips, sheets, floating bars and grouped lists use iOS 26 concentric shapes (`ConcentricRectangle` / container-concentric corners) so their curves run parallel to the device's corners.
+- **Nested content** inside a container is concentric with it, ending in a capsule at the smallest level (a code line inside a strip, an image inside a message).
+- No small fixed radius anywhere.
+
+### Type
+
+The iPhone uses iOS's own type scale (owner, 2026-11-15): SF Pro, each role one of the system's text styles at that style's default size, so Dynamic Type scales ace's text exactly as it scales the system's. The roles live in `AceDesign.TextRole` and each names its own style; a view never pairs a role with another style.
+
+| Role (`TextRole`)                                              | Text style  | Size at the default text size |
+| -------------------------------------------------------------- | ----------- | ----------------------------- |
+| Large title (drawn by the system's bar)                        | Large Title | 34, bold                      |
+| Header, an inline bar title (`header`, `navTitle`)             | Headline    | 17, semibold                  |
+| Message, answer, row title (`message`, `answer`, `rowTitle`)   | Body        | 17                            |
+| Strip sentence, segment, action (`segment`, `action`)          | Subheadline | 15                            |
+| Meta, step (`meta`, `step`)                                    | Footnote    | 13                            |
+| Time, code, the bar's subtitle (`time`, `code`, `navSubtitle`) | Caption     | 12                            |
+| Branch, tiny labels (`branch`, `caption`)                      | Caption 2   | 11                            |
+
+The navigation bar's large and inline titles are the system's own, never restyled. Bar buttons are the system's too: a plain button or menu with an icon in a toolbar item, sized and given its glass by iOS, and their glyphs keep the default size at accessibility text sizes (a long press shows them in the Large Content Viewer). The home bar draws ace's own icons at one size, filled while their tab is chosen; Spade's is its whole face, the same chosen or not.
+
+### Materials
+
+- Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer capsule, the request strip, Scroll to end, header buttons, the iPad sidebar's places. The live pills are glass too, grouped as one material, and nothing paints a band behind the thread's foot: the transcript scrolls on under the pills, a strip and the composer capsule and shows through their glass (owner, 2026-11-08). Never glass on glass.
+- Sheets use the system sheet with detents; menus are system menus; context menus replace inline action rows.
+
+### Structure
+
+- **Tab bar:** ace draws its own (`HomeBar`), in the same system as the iPad sidebar's foot, since the system's bar takes only one-colour still images and its own see-through glass. One glass capsule holds the places, Projects (the thread list, as the web rail names it) · Chats · Spade · Search, each glyph over its name, the chosen one on a filled capsule; New thread (New chat on Chats) sits apart in a round capsule of its own. The glass carries the page's colour so rows passing under it don't compete with its words. It sits at the foot of each place's first page and steps away for a pushed page, Select mode and the keyboard. Spade's tab is there while a machine shows Spade, in its slot between Chats and Search (`HomeTabs.showsSpade`), never as a "coming soon" screen; its face moves its eyes while any Spade bot works.
+- **Compose:** New thread at the home bar's end on a phone, on every iOS; in a regular window, a glass button in the Threads and Chats headers.
+- **Header:** large title that collapses on scroll; the scope or a connection problem shows under it only while it applies. On the right, one glass capsule: the scope menu (machine, project, sort, Select) and compose. The system's title menu is not used: it draws no chevron beside a large title. Threads has Inbox · Snoozed · Settled under the title; Chats is its own tab.
+- **Avatar:** at the leading edge of the header's bar, ahead of the title, with the glass capsule alone on the right (owner, 2026-11-11). The person's avatar as a bare round button, as Apple's apps that lead with the account draw it: the ace account's picture, else their initials on a quiet fill, else a person glyph. It opens one system menu, as the web's account menu: the person first (name, and the account's email or "Not signed in"), opening Profile; then Archived threads and Settings. Signing in and out lives on Profile. Settings stays among Search's Places too.
+- **Rows:** an Inbox row is three lines, led by its project. A snoozed or settled thread is one line, as a chat is and as the web draws them: the provider's mark, the title, then its work (pull request, lines changed) at the right; a snoozed row with no work says when it wakes there. A row that needs the person shows its status mark there instead. Every one-line row is the same height.
+- **Pinned controls:** a control that stays under a title (Inbox · Snoozed · Settled, Search's filters, the pull request chips) is a system bar in the navigation bar's own region, never an overlay or a painted fade. Rows pass under it behind the system's hard scroll edge, which shows once they have scrolled, so a large title at rest stays sharp. The needs-you line scrolls with the list.
+- **Search:** replaces More and the web's command palette. Its field shows under the title as the tab opens, and a second tap on Search focuses it. Empty, it shows Places as a grid of tiles, each ace's glyph over its name (Pull requests with its open count, Issues, Automations, Skills, Usage, History, Archived, Machines, Settings), then Recent threads and Recent searches, as the web's search opens. Typed, it lists actions (each saying where it goes), threads, projects, pull requests and messages, in the web palette's order; with every machine unreachable it says Search is offline instead of No results. Places open in a sheet; Settings holds every machine tool.
+- **iPad and wide windows:** the list sits beside the thread; the sidebar's foot carries the places in the web rail's order (Projects, Chats, Search, then Pull requests, Automations, Skills, Settings) as bare glyphs on one glass capsule, in place of the tab bar: the same glass, glyphs, chosen fill and Spade face as the phone's bar.
+- **Thread:** the system's own title, and under it (the system's subtitle) where it is and what runs it: the project's name, then the model and its effort ("billing-reconciliation-service · Opus 5.5 · Med"). The system cuts the line to the room the bar leaves; nothing is computed by hand. A chat shows the model alone; where the model can't be changed (view only, archived) the line is "project · branch". The title opens the system's title menu: the project's mark, its name and the branch first, opening the checkout's Work sheet (a menu's header draws no mark, so this is its row, with the mark drawn as its picture); then "Model, effort and speed…", which opens one sheet with Effort and Speed as segmented rows above the model list, and Access; then the thread's own actions. On the bar's trailing side is ⋯ alone (beside the iPad's side panel, its toggle too), so the title has the bar's width at every text size. ⋯ is one system menu: on a phone with changes it leads with the page not showing (Changes with its file count, or Chat), then Files, Terminal and Browser as one row of the menu, three across (beside the iPad's panel: Changes, Files, Terminal and Browser, opening as its tabs), then inline sections: Agents (a chat's Browser after it), Find, Turns and Attachments; Rename, Fork from the last turn and Bring back to parent; the tools (Summary, Work, Run and preview, Logs, Devices, Computer use, Skills and tools, Open in, Reload); Continue on and the row's organize actions, Delete in red; Stop all agents in red. Chat and Changes are also a swipe apart (2026-11-16, #2169: the page buttons in the bar left the title too little room). Under the title comes the transcript, then the composer capsule.
+- **Inner pages and sheets** (Work, Devices, Start a device, Bring back to parent, Logs, the agent tree): cardless (owner, 2026-11-08). A page opens with what it is about in the header role and one meta line under it (Work: the project, then "arpan-mbp · Worktree", then the folder in mono). A problem comes next as one `ProblemRow`: one sentence in its status colour, at most a line of why, then its way out as a button under them. Then groups: a quiet heading in the meta role over rows split by hairlines that start at the margin (`QuietSection`), never a filled or bordered box. Actions are controls, not words ([ADR 0184](../adr/0184-iphone-actions-are-controls.md), owner 2026-11-17): the one way forward is a prominent glass button, the others secondary glass buttons, and an action that is a list row draws its words in the action colour (`Ink.action`: the theme's accent when it has a hue and reads at 4.5:1 on a grouped row, else a blue that does), never the body ink and never muted. The system red marks only an action that loses something. An add row (`AddRow`) is a plus and its words in the action colour. At accessibility text sizes a grouped row stacks: the title wraps across the row and its value or control goes under it. A row that opens a page ends in the faint caret. Paths, branches and commands are mono; nothing else is. Settings keeps the system's grouped list.
+- **Scroll to end:** a round glass caret centred over the composer's foot on the Chat page, shown whenever the transcript's end is more than a few points out of view (or the rows held stop short of it) and gone at the end. It floats over the foot, never part of its height, so showing it moves nothing; a feed following a streaming answer keeps itself at the end, so the button never flickers.
+
+### Interaction
+
+- 44-point tap targets, always.
+- Long-press for secondary actions (copy, fork, time), swipe for row actions (pin, snooze, settle).
+- Haptics on send, approve, tab change and pull to refresh.
+- Motion is the system's. Push and pop, sheets and their detents, menus, list inserts, removals and moves, swipe actions and tab switches are the system's own, with nothing added. Where ace animates, it uses the default spring: a strip or a pill arriving, a disclosure opening, the scroll to the end. A segmented control slides its thumb; what it switches changes at once. Chat and Changes picked from ⋯ show their page at once; a swipe between the two follows the finger. Rows highlight on press and never shrink. Changing counts use the system's numeric text transition.
+- Nothing animates as a turn streams: streaming text, timers and counts change in place.
+- Under Reduce Motion, things that would travel fade in place instead.
+- Dynamic Type and VoiceOver: every status icon has its meaning as its accessibility label.
+
+### Tokens
+
+All values live in one Swift design file (shape, spacing, type, surfaces, motion), generated where possible from the shared token source. Views never hard-code a value.
+
+## 6. Desktop and web
+
+DESIGN.md is the full spec: shell, rail, panels, tokens, components and the review checklist. It follows this file's principles and foundations; its shape scale is the desktop's short radius scale with full roundness for pills and status marks.
+
+## 7. How decisions land
+
+- A new pattern is drawn as a mockup first and approved before it's built.
+- A decision the owner makes is recorded here (principles and foundations) or in DESIGN.md (desktop specifics), the same day.
+- Every UI review checks the change against §2 and the platform's section; a one-off value or a box in a box fails review.

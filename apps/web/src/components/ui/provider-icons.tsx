@@ -1,5 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
 import { providerDisplayName, type Brand, type BrandArt, type BrandPath } from "@ace/ui-core";
+import type { ProviderIconChoice } from "@ace/ui-core/provider-icons";
 import { useEffect, useId, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "./tooltip.tsx";
@@ -22,10 +23,11 @@ import { Tip } from "./tooltip.tsx";
  * size meanwhile, so nothing shifts when the mark arrives.
  */
 
-type Catalog = typeof import("@ace/ui-core/provider-icons");
+/** The brand tables, loaded with the first mark on screen. */
+export type BrandTables = typeof import("@ace/ui-core/provider-icons");
 
 // Static, bounded by the brand list: the tables once loaded and each mark drawn so far.
-let catalog: Catalog | undefined;
+let catalog: BrandTables | undefined;
 let catalogLoading: Promise<void> | undefined;
 let version = 0;
 const marks = new Map<Brand, BrandArt>();
@@ -87,18 +89,46 @@ export interface ProviderIconProps {
 
 /** A provider, ACP agent or model-family mark at a whole-pixel size. */
 export function ProviderIcon(props: ProviderIconProps) {
+  return (
+    <BrandMark
+      {...props}
+      choose={(tables) => tables.providerIcon(props)}
+      fallbackLabel={providerDisplayName(props.provider, props.acpAgentId)}
+    />
+  );
+}
+
+/** How a mark is drawn, whatever it stands for. */
+export interface BrandMarkProps {
+  size?: ProviderIconProps["size"];
+  variant?: ProviderIconProps["variant"];
+  label?: string | undefined;
+  decorative?: boolean | undefined;
+  className?: string | undefined;
+}
+
+/**
+ * Draws the mark `choose` picks from the brand tables once they load. Every mark (provider,
+ * agent, model family, Git host) draws through here, so they load, size and theme alike.
+ */
+export function BrandMark(
+  props: BrandMarkProps & {
+    choose(tables: BrandTables): ProviderIconChoice;
+    /** The name read to assistive tech until the tables load. */
+    fallbackLabel: string;
+  },
+) {
   // Reads module state that only grows, by version; nothing worth memoising.
   "use no memo";
   useSyncExternalStore(subscribe, () => version);
   const gradientId = useId();
-  const choice = catalog?.providerIcon(props);
+  const choice = catalog ? props.choose(catalog) : undefined;
   const size = props.size ?? 12;
   const color = props.variant !== "mono";
   const brand = choice?.brand;
   const art = brand && marks.get(brand);
   const paths = art ? (color ? (art.color ?? art.mono) : art.mono) : undefined;
-  const label =
-    props.label ?? choice?.label ?? providerDisplayName(props.provider, props.acpAgentId);
+  const label = props.label ?? choice?.label ?? props.fallbackLabel;
   useEffect(() => load(brand), [brand]);
   return (
     <svg

@@ -1,13 +1,11 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
-import { useAccountViews } from "@/lib/account-views.ts";
-import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
-import { Link } from "@tanstack/react-router";
-import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
-import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
+import { useState } from "react";
+import { ProviderListRow } from "@/features/provider-setup/index.ts";
+import { SettingNote } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { AddAcpAgentRow } from "./add-acp-agent.tsx";
+import { AcpAgents } from "./acp-registry/registry-section.tsx";
+import { listState, latestVersion } from "./provider-list-state.ts";
+import { ProvidersGroup } from "./providers-group.tsx";
 import {
   isMissing,
   updateAvailable,
@@ -15,13 +13,22 @@ import {
   type ProviderEntry,
 } from "./provider-entries.ts";
 
+const toneInk = {
+  ready: undefined,
+  idle: undefined,
+  action: "text-status-needs-you",
+  problem: "text-status-failed",
+} as const;
+
 /**
- * Settings → Providers: every coding agent on this computer as one calm row in columns (its
- * mark and name, its state, at most the one action it needs, its accounts), each opening its
- * own page. Agents that aren't installed sit in a group below, with the way to add an ACP agent.
+ * Settings → Providers: every coding agent on this computer as one row (mark, name, version,
+ * its state and accounts in words, the one action it needs), each opening its own page; then
+ * the ACP agents ace can install, from the registry, on the page itself.
  */
 export function ProviderSettings() {
   const { entries, query } = useProviderEntries();
+  // Bumped by Update all; each row with an update waiting runs it.
+  const [updateAll, setUpdateAll] = useState(0);
   if (query.isPending)
     return <ListSkeleton label="providers" shape="row" rows={5} className="mt-10" />;
   if (!entries)
@@ -34,85 +41,59 @@ export function ProviderSettings() {
       </p>
     );
   const installed = entries.filter((entry) => !isMissing(entry));
-  const missing = entries.filter(isMissing);
+  const updates = installed.filter(hasUpdate).length;
   return (
     <>
-      <SettingSection label="Installed providers">
+      <ProvidersGroup
+        label="Installed"
+        aside={installed.length || undefined}
+        actions={
+          updates > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setUpdateAll((count) => count + 1)}>
+              Update all
+            </Button>
+          )
+        }
+      >
         {installed.length ? (
-          installed.map((entry) => <ProviderRow key={entry.id} entry={entry} />)
+          installed.map((entry) => (
+            <InstalledRow key={entry.id} entry={entry} updateAll={updateAll} />
+          ))
         ) : (
-          <SettingNote>
-            No coding agents found yet. Install one below, then check again.
-          </SettingNote>
+          <SettingNote>No coding agents on this computer yet.</SettingNote>
         )}
-      </SettingSection>
-      <SettingSection label="Available to install">
-        {missing.map((entry) => (
-          <ProviderRow key={entry.id} entry={entry} />
-        ))}
-        <AddAcpAgentRow>Add an ACP agent…</AddAcpAgentRow>
-      </SettingSection>
+      </ProvidersGroup>
+      <AcpAgents entries={entries} />
     </>
   );
 }
 
-/** The name opens preferences; the primary action stays on this screen. */
-function ProviderRow(props: { entry: ProviderEntry }) {
+const hasUpdate = (entry: ProviderEntry) =>
+  updateAvailable(entry) || entry.view?.primary === "update";
+
+function InstalledRow(props: { entry: ProviderEntry; updateAll: number }) {
   const { install, row, view } = props.entry;
-  const accounts = useAccountViews();
-  const own = accounts.data?.filter(
-    (account) =>
-      account.provider === install.kind &&
-      (install.kind !== "acp" || account.acpAgentId === install.acpAgentId),
-  );
+  const state = listState(props.entry);
   return (
-    <div role="group" aria-label={install.name} className="py-1">
-      <ProviderSetupRow
-        columns
-        provider={install.kind}
-        acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
-        instance={install.instance}
-        name={install.name}
-        missing={isMissing(props.entry)}
-        view={view}
-        updateAvailable={updateAvailable(props.entry)}
-        secondary={
-          !isMissing(props.entry) && (
-            // Right-aligned on whichever line it lands, so the chevron keeps the row's edge.
-            <span className="ml-auto flex items-center gap-3">
-              {/* Accounts only where the row has room for them; the provider's page lists them. */}
-              <span className="hidden items-center gap-1 @[34rem]:flex">
-                {own?.map((account) => (
-                  <AccountBadge key={account.id} account={account} focusable />
-                ))}
-              </span>
-              <Tip label={`Open ${install.name}`}>
-                <Link
-                  to="/settings/providers/$provider"
-                  params={{ provider: props.entry.id }}
-                  aria-label={`Open ${install.name}`}
-                  className="rounded-xs text-subtle-foreground focus-ring"
-                >
-                  <CaretRightIcon aria-hidden size={14} />
-                </Link>
-              </Tip>
-            </span>
-          )
-        }
-        title={
-          <Link
-            to="/settings/providers/$provider"
-            params={{ provider: props.entry.id }}
-            aria-label={install.name}
-            className="inline-flex items-center gap-2 font-medium hover:underline"
-          >
-            {install.name}
-            <span className="hidden text-xs font-normal sm:flex text-subtle-foreground">
-              {row?.version ?? install.version}
-            </span>
-          </Link>
-        }
-      />
-    </div>
+    <ProviderListRow
+      installed
+      provider={install.kind}
+      acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
+      instance={install.instance}
+      name={install.name}
+      missing={false}
+      readiness={view}
+      updateAvailable={updateAvailable(props.entry)}
+      latest={latestVersion(props.entry)}
+      page={props.entry.id}
+      version={row?.version ?? install.version}
+      updateAll={props.updateAll}
+      sub={
+        <>
+          <span className={toneInk[state.tone]}>{state.text}</span>
+          {state.accounts && <> · {state.accounts}</>}
+        </>
+      }
+    />
   );
 }

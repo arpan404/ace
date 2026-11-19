@@ -14,6 +14,15 @@ enum ActivityTime {
         style.locale = locale
         return Duration.seconds(whole).formatted(style)
     }
+    /// Work under way, to the second, as the desktop row counts it (`formatElapsed`): "38s",
+    /// "1m 34s", "1h 2m".
+    static func running(since start: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start).rounded()))
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m \(seconds % 60)s" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
     /// A row's age at rest: "now" under a minute, then "9m", "2h", "3d"; a week or more is the
     /// short date.
     static func age(since start: Date, now: Date, locale: Locale = .current) -> String {

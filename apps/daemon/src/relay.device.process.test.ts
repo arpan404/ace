@@ -123,8 +123,18 @@ async function fixture() {
   for (const relative of ["platform-tools/adb", "emulator/emulator"]) {
     const path = join(sdk, relative);
     await mkdir(join(path, ".."), { recursive: true });
-    // A fake native process stays alive on its supervised stdin, without native tools.
-    await writeFile(path, `#!${process.execPath}\nprocess.stdin.resume();\n`);
+    // A fake native process stays alive on its supervised stdin, without native tools. The fake
+    // emulator exits once the fake `adb emu kill` marks its console port, as a real one would.
+    await writeFile(
+      path,
+      `#!${process.execPath}
+const { existsSync } = require("node:fs");
+process.stdin.resume();
+const port = process.argv[process.argv.indexOf("-port") + 1];
+const killed = ${JSON.stringify(join(root, "killed-emulator-"))} + port;
+if (process.argv.includes("-port")) setInterval(() => existsSync(killed) && process.exit(0), 20);
+`,
+    );
     await chmod(path, 0o700);
   }
   const store = new Store(join(root, "store.sqlite"));
@@ -151,6 +161,7 @@ async function fixture() {
         [...active.keys()].map((serial) => `${serial} device`).join("\n");
     else if (command.endsWith("emu avd name")) stdout = `${active.get(args[1] ?? "")}\nOK\n`;
     else if (command.endsWith("wait-for-device")) active.set(args[1] ?? "", "Tablet");
+    else if (command.endsWith("emu kill")) await writeFile(join(root, `killed-${args[1]}`), "");
     else if (command.includes("input")) inputs.push(command);
     return { stdout, stderr: "", code: 0 };
   };

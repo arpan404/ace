@@ -3,9 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import * as z from "zod/mini";
 import { OnMachine } from "@/features/home/index.ts";
 import { ThreadView } from "@/features/thread/index.ts";
-import { loadMarkdown } from "@/components/markdown/load.ts";
-import { scheduleMathWarmup } from "@/components/markdown/math-warm.ts";
-import { warmThread } from "@/lib/thread-warmer.ts";
+import { loadMarkitProse } from "@/components/markdown/load.ts";
+import { warmRouteThread } from "@/lib/thread-warmer.ts";
 
 /**
  * `/t/<id>?item=<id>` opens a canonical item or pending interaction.
@@ -26,16 +25,13 @@ export const Route = createFileRoute("/_home/t/$threadId")({
   // once the first message mounts. The KaTeX chunk starts alongside at idle, so the two
   // downloads overlap instead of running one after the other. Not awaited, so the thread
   // never waits on either.
-  // Preloaded when a link to the thread is pointed at, focused or touched: follow the thread
-  // from then, so opening it paints its messages rather than waiting for the daemon's answer.
+  // The thread is followed from here too, preloaded (a link pointed at, focused or touched) or
+  // opened (a click, or the page loaded at its address): its saved copy and the daemon's
+  // snapshot then load alongside the route's code instead of after it has run.
   loaderDeps: ({ search }) => ({ machine: search.machine }),
-  loader: ({ context, params, preload, deps }) => {
-    void loadMarkdown().catch(() => {});
-    scheduleMathWarmup();
-    // A thread being started has no daemon id yet (`pending:<command>`): nothing to follow.
-    // Another machine's thread is followed by its own client once the view mounts.
-    if (preload && !deps.machine && !params.threadId.startsWith("pending:"))
-      warmThread(context.client, params.threadId);
+  loader: ({ context, params, deps }) => {
+    void loadMarkitProse().catch(() => {});
+    warmRouteThread(context.client, params.threadId, deps.machine);
   },
   component: ThreadRoute,
 });
@@ -44,7 +40,7 @@ function ThreadRoute() {
   const { threadId } = Route.useParams();
   const { seq, q, item, machine } = Route.useSearch();
   return (
-    <OnMachine machine={machine} title="Thread">
+    <OnMachine machine={machine} title="Thread" page="thread">
       <ThreadView
         key={`${machine ?? ""}:${threadId}`}
         threadId={threadId}

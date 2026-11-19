@@ -5,14 +5,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { ThreadId, Thread } from "@ace/protocol";
-import { setup, ready } from "./test-support.ts";
+import { sharedDaemon, ready } from "./test-support.ts";
 
 async function* source(bytes: Uint8Array) {
   for (let offset = 0; offset < bytes.length; offset += 65536)
     yield bytes.subarray(offset, offset + 65536);
 }
+const harness = sharedDaemon();
+
 test("binary files round-trip in bounded chunks in the thread workspace without a global workspace root", async () => {
-  const f = await setup();
+  const f = await harness();
   try {
     const { client } = f.make();
     await promisify(execFile)("git", ["init", f.directory]);
@@ -97,7 +99,7 @@ test("binary files round-trip in bounded chunks in the thread workspace without 
 });
 
 test("closing a partial file download releases its channel and rejected digests never replace a destination", async () => {
-  const f = await setup();
+  const f = await harness();
   try {
     const { client } = f.make();
     await promisify(execFile)("git", ["init", f.directory]);
@@ -135,7 +137,7 @@ test("closing a partial file download releases its channel and rejected digests 
 });
 
 test("timed-out file opens release channels even when the ready response never reaches the client", async () => {
-  const f = await setup();
+  const f = await harness();
   try {
     await promisify(execFile)("git", ["init", f.directory]);
     await writeFile(join(f.directory, "source.dat"), Buffer.alloc(10, 7));
@@ -178,7 +180,7 @@ test("timed-out file opens release channels even when the ready response never r
 });
 
 test("upload sources wait for a durable acknowledgement before producing the next binary chunk", async () => {
-  const f = await setup();
+  const f = await harness();
   try {
     await promisify(execFile)("git", ["init", f.directory]);
     const { client, faults } = f.make();

@@ -12,9 +12,22 @@ import { removeStaleOverlays } from "./annotation-install.ts";
 import { consoleEntry } from "./console-entry.ts";
 import { certificateErrors } from "./certificate-errors.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
+import { BrowserActionError } from "./action-error.ts";
 
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 const Crashed = z.object({ crashes: z.number().int().optional(), reason: z.string().optional() });
+const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
+const Viewport = z.object({ width: z.number().positive(), height: z.number().positive() });
+const DialogOpening = z.object({
+  type: BrowserDialog.shape.type,
+  message: z.string(),
+  defaultPrompt: z.string().optional(),
+  url: z.string().optional(),
+});
+const WebSocketCheck = z.object({ id: z.string(), url: z.string() });
+const FrameTarget = z.object({ aceTabId: z.string().optional() });
+const Popup = z.object({ url: z.string().max(8192), tabId: z.string().optional() });
+const OpenedTab = z.object({ tabId: z.string() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 interface Tab {
   state: BrowserTab;
@@ -23,6 +36,11 @@ interface Tab {
   guard?: Guard;
   release(): void;
   ready: Promise<void>;
+  /**
+   * Settles once the tab is set up (its origin guard installed) and the session was told of it:
+   * a command may reach it from then on. Rejects if the tab goes first or its setup fails.
+   */
+  announced: PromiseWithResolvers<void>;
   viewport: { width: number; height: number };
   dialog?: BrowserDialog;
   status: ReturnType<typeof pageStatus>;
@@ -107,29 +125,21 @@ export class EmbeddedTabs {
     }
     if (method === "ace.printRequested") this.request.print?.(tab.state.tabId);
     if (method === "ace.audio") {
-      const audio = z.object({ audible: z.boolean(), muted: z.boolean() }).safeParse(params);
+      const audio = Audio.safeParse(params);
       if (audio.success) {
         tab.audio = audio.data;
         this.request.changed?.();
       }
     }
     if (method === "ace.viewport") {
-      const parsed = z
-        .object({ width: z.number().positive(), height: z.number().positive() })
-        .safeParse(params);
+      const parsed = Viewport.safeParse(params);
       if (parsed.success) {
         tab.viewport = parsed.data;
         this.request.changed?.();
       }
     }
     if (method === "Page.javascriptDialogOpening") {
-      const parsed = z
-        .object({
-          type: BrowserDialog.shape.type,
-          message: z.string(),
-          defaultPrompt: z.string().optional(),
-        })
-        .safeParse(params);
+      const parsed = DialogOpening.safeParse(params);
       if (parsed.success) {
         tab.dialog = BrowserDialog.parse({
           dialogId: `${tab.state.tabId}-dialog-${++this.sequence}`,
@@ -137,6 +147,7 @@ export class EmbeddedTabs {
           ...parsed.data,
           message: parsed.data.message.slice(0, 4096),
           defaultPrompt: parsed.data.defaultPrompt?.slice(0, 4096),
+          url: parsed.data.url?.slice(0, 8192),
         });
         this.request.changed?.();
       }
@@ -147,7 +158,7 @@ export class EmbeddedTabs {
     if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument")
       this.request.navigation(event.data.tabId);
     if (method === "ace.webSocketRequested") {
-      const check = z.object({ id: z.string(), url: z.string() }).safeParse(params);
+      const check = WebSocketCheck.safeParse(params);
       if (check.success)
         void this.request
           .allowed(check.data.url)
@@ -181,7 +192,7 @@ export class EmbeddedTabs {
     await this.update(state);
   }
   private frame = (raw: unknown) => {
-    const target = z.object({ aceTabId: z.string().optional() }).safeParse(raw);
+    const target = FrameTarget.safeParse(raw);
     if (target.success && (!target.data.aceTabId || target.data.aceTabId === this.activeId))
       this.entries.get(this.activeId)?.events.emit("Page.screencastFrame", raw);
   };
@@ -189,9 +200,7 @@ export class EmbeddedTabs {
     this.entries.get(this.activeId)?.events.emit("ace.permissionDenied", raw);
   };
   private popup = (raw: unknown) => {
-    const parsed = z
-      .object({ url: z.string().max(8192), tabId: z.string().optional() })
-      .safeParse(raw);
+    const parsed = Popup.safeParse(raw);
     if (!parsed.success || this.stopped) return;
     const id = parsed.data.tabId ?? this.activeId;
     const tab = this.entries.get(id);
@@ -211,6 +220,7 @@ export class EmbeddedTabs {
     for (const [id, tab] of this.entries)
       if (!tab.discarded && !state.tabs.some((entry) => entry.tabId === id)) {
         this.unbind(tab);
+        tab.announced.reject(new BrowserActionError("tab_not_found"));
         this.entries.delete(id);
       }
     for (const item of state.tabs) {
@@ -241,6 +251,7 @@ export class EmbeddedTabs {
         events,
         release: this.takeReservation(),
         ready: Promise.resolve(),
+        announced: pending(),
         status: pageStatus(cdp, () => this.request.changed?.()),
         certificates: certificateErrors(cdp, () => this.request.changed?.()),
         viewport: item.viewport ?? { width: 1280, height: 720 },
@@ -264,8 +275,21 @@ export class EmbeddedTabs {
       })();
     }
     this.activeId = state.activeTabId;
-    await Promise.all([...this.entries.values()].map((tab) => tab.ready));
+    try {
+      await Promise.all([...this.entries.values()].map((tab) => tab.ready));
+    } catch (error) {
+      for (const tab of this.entries.values())
+        tab.announced.reject(new BrowserActionError("backend_changed"));
+      throw error;
+    }
     this.request.changed?.();
+    // Every listed tab is set up and the session has its runtime: commands waiting may go.
+    for (const tab of this.entries.values()) tab.announced.resolve();
+  }
+  /** Waits until a command may reach this tab: see `Tab.announced`. */
+  ready(tabId: string): Promise<void> {
+    const tab = this.entries.get(tabId);
+    return tab ? tab.announced.promise : Promise.reject(new BrowserActionError("tab_not_found"));
   }
   /** Ends a tab's guards and listeners and gives back its place in the daemon's tab budget. */
   private unbind(tab: Tab): void {
@@ -296,6 +320,7 @@ export class EmbeddedTabs {
         events,
         release: () => {},
         ready: Promise.resolve(),
+        announced: settled(),
         status: pageStatus(cdp, () => {}),
         certificates: certificateErrors(cdp, () => {}),
         viewport: { width: 1280, height: 720 },
@@ -458,7 +483,7 @@ export class EmbeddedTabs {
     const state = decodeNativeTabs(raw)?.state;
     if (!state) return this.activeId;
     await this.update(state);
-    const opened = z.object({ tabId: z.string() }).safeParse(raw);
+    const opened = OpenedTab.safeParse(raw);
     return opened.success && this.entries.has(opened.data.tabId)
       ? opened.data.tabId
       : this.activeId;
@@ -519,7 +544,23 @@ export class EmbeddedTabs {
     this.root.off("Page.screencastFrame", this.frame);
     this.root.off("ace.popupRequested", this.popup);
     this.root.off("ace.permissionDenied", this.permission);
-    for (const tab of this.entries.values()) this.unbind(tab);
+    for (const tab of this.entries.values()) {
+      this.unbind(tab);
+      tab.announced.reject(new BrowserActionError("browser_closed"));
+    }
     this.inspection.clear();
   }
+}
+
+/** A tab's announcement still to come; a rejection nobody waits for is not an error. */
+function pending(): PromiseWithResolvers<void> {
+  const announced = Promise.withResolvers<void>();
+  announced.promise.catch(() => {});
+  return announced;
+}
+/** A listed tab with nothing left to set up (one held while discarded). */
+function settled(): PromiseWithResolvers<void> {
+  const announced = pending();
+  announced.resolve();
+  return announced;
 }

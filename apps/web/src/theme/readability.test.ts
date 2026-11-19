@@ -1,9 +1,15 @@
 import { expect, test } from "vitest";
-import { accentIds, type AccentChoice } from "./accent.ts";
-import { statusDistance } from "./accent-fit.ts";
-import { contrastRatio, deltaE, parseOpaqueColor } from "./colour.ts";
+import {
+  accentIds,
+  type AccentChoice,
+  statusDistance,
+  contrastRatio,
+  deltaE,
+  parseOpaqueColor,
+  themeIds,
+  type Scheme,
+} from "@ace/themes";
 import { themeDeclarations } from "./css.ts";
-import { themeIds, type Scheme } from "./palettes.ts";
 
 /*
  * The theme proposal's contrast tables, checked on what the page actually receives: every theme
@@ -18,7 +24,7 @@ const rgb = (value: string | undefined) => {
 };
 const ratio = (a: string | undefined, b: string | undefined) => contrastRatio(rgb(a), rgb(b));
 
-/** Page, sidebar, cards, floating layers, hover, active and code: where text is drawn. */
+/** Page, sidebar, cards, floating layers, hover, active, code and the chat's surfaces: where text is drawn. */
 const surfaces = [
   "--background",
   "--sidebar",
@@ -27,6 +33,10 @@ const surfaces = [
   "--hover",
   "--active",
   "--code",
+  "--chat-bubble",
+  "--chat-raised",
+  "--chat-well",
+  "--chat-code",
 ];
 const text = ["--foreground", "--muted-foreground", "--subtle-foreground", "--ring-text"];
 const statusWords = [
@@ -85,6 +95,24 @@ test("status marks, the accent and its label stand out in every theme", () => {
     }
 });
 
+test("each thread-row status colour stands out on the sidebar, its hover and the open row, in every theme", () => {
+  const marks = [
+    "--row-status-needs-you",
+    "--row-status-failed",
+    "--row-status-working",
+    "--row-status-waiting",
+    "--row-status-background",
+    "--row-status-finished",
+  ];
+  // The sidebar's panel is a mix of the page and the sidebar colour, so it lies between them.
+  const rows = ["--background", "--sidebar", "--hover", "--active"];
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([id, scheme, below(tokens, marks, rows, 3)]).toEqual([id, scheme, []]);
+    }
+});
+
 test("a danger button's label reads at AA on its fill at rest, hovered and pressed, in every theme", () => {
   for (const id of themeIds)
     for (const scheme of schemes) {
@@ -120,6 +148,23 @@ test("code and diff text read at AA on the code background and on added and remo
           ...below(tokens, ["--diff-add-text"], ["--diff-add"], 4.5),
           ...below(tokens, ["--diff-del-text"], ["--diff-del"], 4.5),
         ],
+      ]).toEqual([id, scheme, []]);
+    }
+});
+
+test("+/− counts read at AA wherever lists and headers draw them, in every theme", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([
+        id,
+        scheme,
+        below(
+          tokens,
+          ["--diff-add-text", "--diff-del-text"],
+          ["--background", "--sidebar", "--panel", "--surface-1", "--hover"],
+          4.5,
+        ),
       ]).toEqual([id, scheme, []]);
     }
 });
@@ -180,4 +225,60 @@ test("working, needs-you, done and failed never look like the accent, whatever a
         );
         expect([id, scheme, choice, near]).toEqual([id, scheme, choice, []]);
       }
+});
+
+test("the person's bubble reads at AA for its text, meta text and inline code on every accent, theme and scheme", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes)
+      for (const choice of accentChoices) {
+        const tokens = themeDeclarations(id, scheme, choice);
+        expect([
+          id,
+          scheme,
+          choice,
+          [
+            ...below(tokens, ["--chat-mine-foreground", "--chat-mine-meta"], ["--chat-mine"], 4.5),
+            ...below(tokens, ["--chat-mine-foreground"], ["--chat-mine-code"], 4.5),
+          ],
+        ]).toEqual([id, scheme, choice, []]);
+      }
+});
+
+test("the person's bubble is the accent, the same in every conversation, and Ink's is solid ink", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect(tokens["--chat-mine"]).toBe(tokens["--ring"]);
+    }
+  for (const scheme of schemes) {
+    const tokens = themeDeclarations("ace", scheme);
+    expect(tokens["--chat-mine"]).toBe(tokens["--foreground"]);
+  }
+});
+
+// The raised card is told apart by its edge and lift; its fill eases back where quiet text needs it.
+test("the bot's bubble stands off the page and its code well off the bubble, in every theme", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      const off = (a: string, b: string) => deltaE(rgb(tokens[a]), rgb(tokens[b]));
+      const flat = [
+        ...(off("--chat-bubble", "--background") < 2 ? ["bubble on page"] : []),
+        ...(off("--chat-code", "--chat-bubble") < 2 ? ["code in bubble"] : []),
+      ];
+      expect([id, scheme, flat]).toEqual([id, scheme, []]);
+    }
+});
+
+test("a face's needs-you, failed and off dots stand out on the list, its hover and the open row", () => {
+  const dots = ["--face-dot-needs-you", "--face-dot-failed", "--face-dot-off"];
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([id, scheme, below(tokens, dots, ["--sidebar", "--hover", "--active"], 3)]).toEqual([
+        id,
+        scheme,
+        [],
+      ]);
+    }
 });

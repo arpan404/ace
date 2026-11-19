@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { Agent, EventPayload, type ThreadId } from "@ace/protocol";
 import { usageSnapshotKey } from "@ace/projection";
-import { setup, ready, when, barrier } from "./test-support.ts";
+import { sharedDaemon, ready, when, barrier } from "./test-support.ts";
 
 function rootAgent(threadId: ThreadId, cwd: string) {
   return Agent.parse({
@@ -17,8 +17,10 @@ function rootAgent(threadId: ThreadId, cwd: string) {
   });
 }
 
+const harness = sharedDaemon();
+
 test("agent activity and multiple model snapshots survive live delivery and snapshot reconnect separately", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     const root = EventPayload.parse({
       type: "usage.updated",
@@ -118,7 +120,7 @@ test("agent activity and multiple model snapshots survive live delivery and snap
 });
 
 test("usage before agent metadata survives snapshots while a daemon cache is live", async () => {
-  const h = await setup();
+  const h = await harness();
   h.daemon.store.acquireThread(h.thread.id);
   try {
     h.daemon.store.appendEvents(h.thread.id, [
@@ -160,7 +162,7 @@ test("usage before agent metadata survives snapshots while a daemon cache is liv
 test.each([false, true])(
   "unlinked activity snapshots stay bounded and keep retained agent usage with a live cache %s",
   async (cached) => {
-    const h = await setup();
+    const h = await harness();
     if (cached) h.daemon.store.acquireThread(h.thread.id);
     try {
       h.daemon.store.appendEvents(h.thread.id, [
@@ -206,7 +208,7 @@ test.each([false, true])(
 test.each([false, true])(
   "pre-linkage usage and context snapshots obey their byte budgets with a live cache %s",
   async (cached) => {
-    const h = await setup();
+    const h = await harness();
     if (cached) h.daemon.store.acquireThread(h.thread.id);
     try {
       h.daemon.store.appendEvents(

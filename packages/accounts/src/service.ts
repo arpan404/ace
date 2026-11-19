@@ -16,6 +16,8 @@ import { pickInstance } from "./scheduler.ts";
 import { migrateSession, noMigrationLease, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
 import { ProviderLoginFailure } from "./login-failure.ts";
+import { awaitAccountHomes } from "./home-wait.ts";
+import { realAfter } from "./home-checks.ts";
 export type AccountAdapterFactory = Pick<
   ProviderAdapter,
   "provider" | "capabilities" | "createTranslator" | "backend"
@@ -55,12 +57,15 @@ export class AccountService {
     });
   }
   private registry: AccountRegistry;
+  private freshen: ((signal: AbortSignal) => Promise<void>) | undefined;
   private now: () => number;
   private timeZone: string;
   private safety: MigrationSafety;
   private env: NodeJS.ProcessEnv;
   private cursorEnv: NodeJS.ProcessEnv;
   private resolveAcpLogin: AcpLoginResolver | undefined;
+  private after: (ms: number, run: () => void) => () => void;
+  private homeWait: { noticeMs?: number; limitMs?: number };
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
   /** Session copies reading or writing each account's home. A sign-in waits for them. */
@@ -75,8 +80,18 @@ export class AccountService {
     cursorEnv?: NodeJS.ProcessEnv;
     safety?: MigrationSafety;
     resolveAcpLogin?: AcpLoginResolver;
+    /**
+     * Before a session picks its account by quota: limits read again when they are old, waiting a
+     * few seconds at most and never past `signal`. Pinned and selected accounts don't wait.
+     */
+    freshen?: (signal: AbortSignal) => Promise<void>;
+    /** Runs `run` after `ms`; returns a cancel. Times a session's wait for a silent home. */
+    after?: (ms: number, run: () => void) => () => void;
+    /** When a wait for a silent home is mentioned, and when it gives up. */
+    homeWait?: { noticeMs?: number; limitMs?: number };
   }) {
     this.registry = options.registry;
+    this.freshen = options.freshen;
     this.now = options.now;
     this.timeZone = options.timeZone;
     // Libraries can mutate process.env after startup (sharp adds VIPSHOME). A moving
@@ -86,6 +101,17 @@ export class AccountService {
     this.cursorEnv = { ...(options.cursorEnv ?? options.env) };
     this.resolveAcpLogin = options.resolveAcpLogin;
     this.safety = options.safety ?? noMigrationLease;
+    this.after = options.after ?? realAfter;
+    this.homeWait = options.homeWait ?? {};
+  }
+  /**
+   * The daemon's PATH became final after this service copied its environment: a daemon the
+   * app started on a saved PATH gets the login shell's before any session opens. Every later
+   * session, sign-in and ACP environment launches with `path`.
+   */
+  usePath(path: string): void {
+    this.env = { ...this.env, PATH: path };
+    this.cursorEnv = { ...this.cursorEnv, PATH: path };
   }
   isChangingAccount(id: string): boolean {
     return this.migrating.has(id);
@@ -135,6 +161,7 @@ export class AccountService {
   async loginAcp(instanceId: string, signal?: AbortSignal) {
     const instance = this.registry.get(instanceId)?.instance;
     if (!instance || instance.provider !== "acp") throw new Error("Unknown ACP instance");
+    if (this.registry.isChecking(instanceId)) throw new Error("Account folder hasn't answered yet");
     if (this.writers.has(instanceId) || this.migrating.has(instanceId))
       throw new Error("Instance is busy");
     this.migrating.add(instanceId);
@@ -151,6 +178,8 @@ export class AccountService {
   /** Daemon-local environment and login generation, resolved by immutable identity. */
   acpEnvironment(input: AcpIdentity): { env: NodeJS.ProcessEnv; loginRevision: string } {
     const identity = AcpIdentity.parse(input);
+    if (this.registry.isChecking(identity.instanceId))
+      throw new Error("Account folder hasn't answered yet");
     const chosen = this.registry.get(identity.instanceId)?.instance;
     if (
       !chosen ||
@@ -162,22 +191,23 @@ export class AccountService {
     return { env: instanceEnv(chosen, this.env), loginRevision: chosen.loginRevision ?? "0" };
   }
   preferredCursorInstance(): string | undefined {
-    return (
-      this.registry.selectedProvider("cursor") ??
-      this.registry.selectedCursorSdk() ??
-      pickInstance(
-        { provider: "cursor", role: "worker", estimatedLoad: 1 },
-        this.registry
-          .list()
-          .filter(
-            (a) =>
-              !a.instance.implicit &&
-              !this.registry.isPending(a.instance.id) &&
-              !this.migrating.has(a.instance.id),
-          ),
-        this.now(),
-      )?.id
-    );
+    const chosen = this.registry.selectedProvider("cursor") ?? this.registry.selectedCursorSdk();
+    if (chosen) return chosen;
+    // A pick among accounts some of which haven't answered could land on the wrong one.
+    if (this.registry.checkingIds("cursor").length)
+      throw new Error("Cursor account folders are still being checked");
+    return pickInstance(
+      { provider: "cursor", role: "worker", estimatedLoad: 1 },
+      this.registry
+        .list()
+        .filter(
+          (a) =>
+            !a.instance.implicit &&
+            !this.registry.isPending(a.instance.id) &&
+            !this.migrating.has(a.instance.id),
+        ),
+      this.now(),
+    )?.id;
   }
   /** Register this adapter with the engine instead of the unbound native adapter. */
   bindAdapter(
@@ -241,6 +271,8 @@ export class AccountService {
       if (this.migrating.has(id))
         return refused("That account is signing in or changing. Try again when it finishes.");
     const counted = [from.id, to.id];
+    if (this.registry.isChecking(from.id) || this.registry.isChecking(to.id))
+      return refused("That account's folder hasn't answered yet. Try again in a moment.");
     for (const id of counted) this.copies.set(id, (this.copies.get(id) ?? 0) + 1);
     try {
       await this.registry.validateHome(from);
@@ -286,6 +318,23 @@ export class AccountService {
       throw new Error("An Antigravity session needs the account it runs on");
     const provider =
       adapter.provider === "antigravity" ? "acp" : AccountProvider.parse(adapter.provider);
+    // Work bound to an account waits for its own home's check; a pick by quota waits for every
+    // candidate's, so a folder that hasn't answered never hands its work to another account.
+    const waiting = (
+      assignment.instanceId ? [assignment.instanceId] : this.registry.checkingIds(adapter.provider)
+    ).filter((id) => this.registry.isChecking(id));
+    await awaitAccountHomes({
+      waiting: waiting.map((id) => ({ id, label: this.registry.get(id)?.instance.label ?? id })),
+      checked: (id) => this.registry.checked(id),
+      signal: context.signal,
+      after: this.after,
+      ...this.homeWait,
+      ...(context.onAccountWait ? { onWaiting: context.onAccountWait } : {}),
+    });
+    // Choosing by quota: an old reading may hold an account that has room again, or miss one that
+    // has none. Bounded by the freshener; a slow CLI never holds the turn longer.
+    if (!assignment.instanceId && provider !== "acp" && this.freshen)
+      await this.freshen(context.signal).catch(() => {});
     const chosen = assignment.instanceId
       ? this.registry.get(assignment.instanceId)?.instance
       : pickInstance(
@@ -473,7 +522,8 @@ export class AccountService {
                   session.configure?.(execution) ?? Promise.resolve(),
               }
             : {}),
-          send: (input, delivery, intent, origin) => session.send(input, delivery, intent, origin),
+          send: (input, delivery, intent, origin, fence) =>
+            session.send(input, delivery, intent, origin, fence),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

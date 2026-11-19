@@ -6,6 +6,17 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "commitSha": {
+      "anyOf": [
+        {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "id": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,

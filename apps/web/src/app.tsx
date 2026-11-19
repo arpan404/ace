@@ -6,7 +6,7 @@ import type { MachinePool } from "@ace/client-worker/machines";
 import { ClientProvider, type NotifyBatch } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
@@ -21,8 +21,13 @@ import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { disposePanelServices, loadAuthTerminal } from "@/features/panels/index.ts";
 import { organizerFor } from "@/features/organize/index.ts";
 import { AuthTerminalProvider } from "@/features/sign-in/index.ts";
+import { AceAccountProvider } from "@/features/ace-account/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { createAppRouter } from "./router.ts";
+import { SuitLibraryProvider, suitTransportFor } from "@/theme/suits/suit-library.tsx";
+import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { directOrigin } from "@/boot/main-machine.ts";
 
 /** A provider CLI's sign-in terminal: its code and renderer load when someone opens one. */
 const AuthTerminal = deferredComponent(() => loadAuthTerminal().then((m) => m.default));
@@ -78,30 +83,45 @@ export function App(props: {
   client: ClientApi;
   queryClient?: QueryClient;
   storage?: KeyValueStorage | undefined;
+  /** Storage for this window alone that outlives a reload (session storage). */
+  windowStorage?: KeyValueStorage | undefined;
   history?: RouterHistory;
   /** When store changes reach React; the browser entry batches them per animation frame. */
   batch?: NotifyBatch;
   /** The user's other machines (ADR 0059); pickers that target a machine offer them. */
   machines?: MachinePool | undefined;
   ensureMachines?: (() => Promise<MachinePool>) | undefined;
+  /** The daemon's Suit library; tests pass their own. */
+  suits?: SuitTransport | undefined;
 }) {
   useEffect(() => () => disposePanelServices(props.client), [props.client]);
+  // The Suit's scene and fonts load from the daemon's own HTTP routes, when this page can dial it.
+  const daemonOrigin = directOrigin(useDaemonConnection().endpoint);
+  const suitTransport = useMemo(
+    () => props.suits ?? suitTransportFor(props.client, daemonOrigin),
+    [props.suits, props.client, daemonOrigin],
+  );
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() => {
+    // Another machine's project (`machine/project`) is none of this daemon's to narrow to.
     const project = organizerFor(props.storage).getState().project;
-    void props.client.threadsWindow(project ? { project } : {});
+    void props.client.threadsWindow(project && !project.includes("/") ? { project } : {});
     return createAppRouter({ client: props.client, queryClient }, props.history);
   });
   return (
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>
         <SourceControlCache client={props.client} />
-        <LayoutProvider storage={props.storage}>
+        <LayoutProvider storage={props.storage} windowStorage={props.windowStorage}>
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
-              <AuthTerminalProvider value={AuthTerminal.Component}>
-                <RouterProvider router={router} />
-              </AuthTerminalProvider>
+              <AceAccountProvider>
+                <SuitLibraryProvider transport={suitTransport}>
+                  <AuthTerminalProvider value={AuthTerminal.Component}>
+                    <RouterProvider router={router} />
+                  </AuthTerminalProvider>
+                </SuitLibraryProvider>
+              </AceAccountProvider>
             </MachinePoolProvider>
           </MachinePoolFactoryProvider>
         </LayoutProvider>

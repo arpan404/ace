@@ -1,19 +1,40 @@
 import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { mismatchedBinaries, type Arch } from "@ace/release/native-arch";
-import { dist } from "./common.ts";
+import { dist as builtDist } from "./common.ts";
+import { koffiBinary, koffiLicense, mainProcessNeedsKoffi } from "./koffi.ts";
 
 /**
- * Never ship a package whose native code cannot run: each required piece must be present,
- * and no staged binary may be built for another architecture.
+ * Never ship a package whose native code cannot run: each required piece must be present and
+ * runnable, and no staged binary may be built for another architecture. Checks the build in
+ * `dist` for `platform` (this machine's build by default).
  */
-export async function verifyNatives(arch: Arch): Promise<void> {
-  const ptyRoot = join(dist, "daemon/node_modules/node-pty");
-  // Windows runs no local daemon yet (no descriptor.node), so it ships no runtime either.
+export async function verifyNatives(
+  arch: Arch,
+  platform: NodeJS.Platform = process.platform,
+  dist = builtDist,
+): Promise<void> {
+  const executable = (folder: string, name: string) =>
+    join(dist, folder, platform === "win32" ? `${name}.exe` : name);
+  // The daemon runs these directly, so a lost mode bit would show only on a user's machine.
+  const executables = [
+    executable("media", "ace-media"),
+    executable("files", "ace-files"),
+    join(dist, "bin", platform === "win32" ? "rg.exe" : "rg"),
+  ];
+  // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
   const required = [
-    join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
-    ...(process.platform === "win32"
-      ? []
+    ...executables,
+    // The Windows main process's tree stop and Job Objects bind kernel32 through it.
+    ...(mainProcessNeedsKoffi(platform)
+      ? [
+          koffiBinary(join(dist, "node_modules"), platform, arch),
+          koffiLicense(join(dist, "node_modules")),
+        ]
+      : []),
+    ...(platform === "win32"
+      ? [join(dist, "runtime", "node.exe"), join(dist, "daemon/descriptor.node")]
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
@@ -22,19 +43,15 @@ export async function verifyNatives(arch: Arch): Promise<void> {
         ]),
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
-  const pty = [
-    join(ptyRoot, "build/Release/pty.node"),
-    join(ptyRoot, "prebuilds", `${process.platform}-${arch}`, "pty.node"),
-  ];
-  if (!pty.some((path) => existsSync(path))) problems.push(`missing node-pty for ${arch}`);
-  const koffi = join(dist, "daemon/node_modules/@koromix", `koffi-${process.platform}-${arch}`);
-  if (existsSync(join(dist, "daemon/node_modules/koffi")) && !existsSync(koffi))
-    problems.push(`missing ${koffi}`);
+  if (platform !== "win32")
+    for (const path of executables)
+      if (existsSync(path) && ((await stat(path)).mode & 0o111) === 0)
+        problems.push(`${path} is not executable`);
   for (const found of await mismatchedBinaries(
-    ["daemon", "bin", "helpers", "runtime"]
+    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade", "media", "files"]
       .map((name) => join(dist, name))
       .filter((path) => existsSync(path)),
-    process.platform,
+    platform,
     arch,
   ))
     problems.push(`${found.path} is ${found.arches.join("+")}, not ${arch}`);

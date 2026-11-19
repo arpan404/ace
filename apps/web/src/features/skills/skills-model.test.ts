@@ -1,10 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  PluginNameInput,
-  PluginRepository,
-  skillCatalog,
-  suggestedPluginName,
-} from "./skills-model.ts";
+import { skillCatalog } from "./skills-model.ts";
 
 const install = (name: string) => ({
   name,
@@ -35,21 +30,4 @@ test("a component is on only while its plugin is on for at least one provider", 
     ["plugin~tools", false],
   ]);
   expect(catalog[1]?.description).toBe("Version 1.2.0 · 1 skill");
-});
-
-test("a GitHub owner/name becomes its git URL; URLs and local paths pass through", () => {
-  expect(PluginRepository.parse(" getsentry/sentry-mcp ")).toBe(
-    "https://github.com/getsentry/sentry-mcp.git",
-  );
-  expect(PluginRepository.parse("git@github.com:acme/tools.git")).toBe(
-    "git@github.com:acme/tools.git",
-  );
-  expect(PluginRepository.parse("/Users/me/plugins")).toBe("/Users/me/plugins");
-  expect(PluginRepository.safeParse("not a repo").success).toBe(false);
-});
-
-test("the plugin name is suggested from the repository and must be a marketplace name", () => {
-  expect(suggestedPluginName("https://github.com/getsentry/Sentry_MCP.git")).toBe("sentry-mcp");
-  expect(PluginNameInput.parse("Sentry")).toBe("sentry");
-  expect(PluginNameInput.safeParse("two--dashes").success).toBe(false);
 });

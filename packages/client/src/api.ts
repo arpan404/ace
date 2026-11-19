@@ -3,6 +3,7 @@ import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,
@@ -27,6 +28,7 @@ import type {
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
+import type { ReadRequest, WholeRequestInput } from "./whole-request.ts";
 import type { StreamMessage } from "@ace/browser/stream";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
@@ -84,6 +86,15 @@ export type ClientCoreApi = Omit<
   "attachmentBytes" | "projects" | "transfers" | "downloadFile" | "uploadFile"
 >;
 
+/** What a socket's proof of the person's standing names (`ClientApi.standingChallenge`). */
+export interface StandingChallenge {
+  host: string;
+  nonce: string;
+  /** The relay stream's Noise handshake hash; undefined on a socket with no channel of its own. */
+  binding: string | undefined;
+  device: string;
+}
+
 export interface ClientApi {
   /** Resolve a content id on this connection. Never use a global daemon URL. */
   attachmentBytes(
@@ -95,19 +106,75 @@ export interface ClientApi {
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
+  /**
+   * The daemon socket the client speaks over: a number that changes with every new socket (each
+   * welcome, and each move to another path, ADR 0114), undefined while not ready. Whatever the
+   * daemon keeps per socket (terminal and browser streams, service subscriptions) ends with the
+   * socket, so a holder re-attaches when this changes, and ignores what the old socket still
+   * sends under the ids it used there. Thread and sidebar views follow on their own.
+   */
+  connectionGeneration(): Selection<number | undefined>;
+  /**
+   * The release line the daemon's build belongs to, as its welcome said (`beta`, `stable`, ADR
+   * 0177); undefined while not ready, or from a daemon that doesn't say.
+   */
+  releaseLine?(): Selection<string | undefined>;
+  /**
+   * What a proof of the person's standing on the current socket must name (ADR 0190): the
+   * daemon's host id, the nonce its welcome gave this socket, the socket's channel binding and
+   * this client's device id. Undefined while not ready, or from a daemon that predates it.
+   */
+  standingChallenge?(): Selection<StandingChallenge | undefined>;
+  /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */
+  activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
+  /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
+  usePaths?(paths: import("./multipath.ts").Multipath): void;
+  /**
+   * The one link estimate the client keeps: the active path's smoothed round trip in ms, when
+   * it last took a sample and which path it is for, from the path planner's pings (ADR 0114).
+   * Read it when needed; it changes as pongs arrive. Undefined with a single route, while
+   * connecting, or before the first pong.
+   */
+  linkEstimate?(): import("./multipath.ts").LinkEstimate | undefined;
   intent(id: string): Selection<Intent | undefined>;
   pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
+  /** One kept send, as `pendingSends` lists it, read now. */
+  pendingSend(id: string): PendingSend | undefined;
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Retry with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void>;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps: import("./send-ops.ts").SendOps;
   start(): Promise<void>;
   close(): Promise<void>;
   networkOnline(online: boolean): void;
   reconnectNow(): void;
-  thread(id: string): Lease<ThreadSource>;
+  /**
+   * The page may have been away (the computer slept, the tab came back, the network changed):
+   * a ready socket must answer a ping at once or is replaced, and a waiting reconnect runs now
+   * instead of after its backoff (`Connection.wake`).
+   */
+  wake?(): void;
+  /**
+   * Hold a thread. `optional` holds take only spare room (`threadRoom`) and give it up for a
+   * thread held in the foreground; refused or given up, the store's error reads `no_room`.
+   */
+  thread(id: string, options?: { optional?: boolean | undefined }): Lease<ThreadSource>;
+  /** Thread subscriptions an optional hold may still take; changes as holds come and go. */
+  threadRoom?(): Selection<number>;
   threads(): Lease<SidebarSource>;
   /**
    * The store `thread(id)` would lease, if one is cached, without taking a lease: a view paints
    * it on its first render, before the lease reconciles it. It may be behind (`syncing`).
    */
   cachedThread?(id: string): ThreadSource | undefined;
+  /**
+   * The store of a thread this client still has, leased or cached, without making it the most
+   * recently used: for checks that must not themselves keep a thread cached.
+   */
+  peekThread?(id: string): ThreadReader | undefined;
   /** Likewise for `threads()`. */
   cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {
@@ -129,11 +196,15 @@ export interface ClientApi {
     input: Q,
     options?: RequestOptions,
   ): Promise<ServiceResponse<Q>>;
-  /** Uncorrelated service messages (such as `settings.changed`); call the result to stop. */
+  /**
+   * Uncorrelated service messages (such as `settings.changed`); call the result to stop. A closed
+   * client hears nothing more: it takes the listener without error and never calls it.
+   */
   onMessage(listener: (message: ServerMessage) => void): () => void;
   /**
    * Binary stream messages (a browser frame's JPEG as bytes); call the result to stop. Absent
-   * where the client can't receive them, so a viewer asks for frames as JSON instead.
+   * where the client can't receive them, so a viewer asks for frames as JSON instead. Like
+   * `onMessage`, a closed client takes the listener and never calls it.
    */
   onStream?(listener: (message: StreamMessage) => void): () => void;
   /**
@@ -150,6 +221,11 @@ export interface ClientApi {
   turnsPage(input: TurnsPageInput, options?: RequestOptions): Promise<TurnsPageResponse>;
   /** A bounded jumped window. Never changes the leased live tail. */
   itemsWindow(input: ItemsWindowInput, options?: RequestOptions): Promise<ItemsWindowResponse>;
+  /** Optional stale, read-only disk access. Never proves current state or sends a request. */
+  cachedItemsWindow?(
+    input: ItemsWindowInput,
+    options?: RequestOptions,
+  ): Promise<CachedItemsWindow | undefined>;
   threadSearch(input: ThreadSearchInput, options?: RequestOptions): Promise<ThreadSearchResponse>;
   threadCatchUp(
     input: ThreadCatchUpInput,
@@ -175,6 +251,12 @@ export interface ClientApi {
     payload: { streamId: string; offset: number; limit: number },
     options?: RequestOptions,
   ): Promise<OutputData>;
+  /**
+   * The whole request of an interaction its thread sends summarized (`truncated`, ADR 0157).
+   * Fails as `daemon` with the daemon's code when it can't be read here (`read_denied`,
+   * `interaction_not_found`, `request_not_whole_here`), `stale` when it kept changing.
+   */
+  readInteraction(input: WholeRequestInput, options?: RequestOptions): Promise<ReadRequest>;
   text(source: TextSource, options?: TextReadOptions): AsyncGenerator<string>;
   output(
     payload: { streamId: string; offset: number; limit: number },

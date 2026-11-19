@@ -178,6 +178,9 @@ export async function createPreviewGateway(options: GatewayOptions) {
     server.once("error", reject);
     server.listen(options.port ?? 0, options.host, () => {
       server.removeListener("error", reject);
+      // A listening server still reports failed accepts (EMFILE when descriptors run out) as
+      // error events. They cost that connection only, never the daemon.
+      server.on("error", () => {});
       resolve();
     });
   });
@@ -237,6 +240,30 @@ export async function createPreviewGateway(options: GatewayOptions) {
      */
     mintDeviceLink(input: { port: number; device: string }) {
       return link(input.port, (host) => auth.mintFor(host, input.device));
+    },
+    /**
+     * Asks the authority again about every open preview stream and ends those it no longer
+     * accepts; requests already past authentication are refused too. For a change the owner can
+     * only describe as "something changed", such as a replaced credential.
+     */
+    async revalidate() {
+      revocationGeneration++;
+      const verdicts = new Map<string, Promise<boolean>>();
+      const checks: Promise<void>[] = [];
+      for (const entry of byPort.values())
+        for (const [cancel, work] of entry.active) {
+          let verdict = verdicts.get(work.device);
+          if (!verdict) {
+            verdict = options.authority.isPaired(work.device).catch(() => false);
+            verdicts.set(work.device, verdict);
+          }
+          checks.push(
+            verdict.then((paired) => {
+              if (!paired) cancel();
+            }),
+          );
+        }
+      await Promise.all(checks);
     },
     revokeDevice(deviceId: string) {
       revocationGeneration++;

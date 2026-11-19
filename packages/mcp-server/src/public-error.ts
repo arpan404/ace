@@ -21,6 +21,7 @@ export const PublicToolCode = z.enum([
   "invalid_html",
   "invalid_image",
   "image_unavailable",
+  "image_not_saved",
   "invalid_data",
   "execution_failed",
   "provider_unavailable",
@@ -39,13 +40,17 @@ export const PublicToolCode = z.enum([
   "human_active",
   "human_private",
   "needs_person",
+  "person_driving",
+  "person_busy",
   "browser_paused",
   "browser_closed",
   "backend_changed",
+  "place_changed",
   "queue_full",
   "tab_not_found",
   "tab_limit",
   "tab_crashed",
+  "tab_unavailable",
   "element_unavailable",
   "not_visible",
   "not_hittable",
@@ -89,6 +94,7 @@ export const PublicToolCode = z.enum([
   "machine_disconnected",
   "transfers_off",
   "tool_unavailable",
+  "call_directly",
   "thread_not_found",
   "thread_busy",
   "request_conflict",
@@ -173,8 +179,8 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
   },
   invalid_html: {
-    message: "The page has unsupported content and was not published",
-    hint: "Fix each problem in issues, then call html_render again with the corrected page.",
+    message: "The page has unsupported content; nothing was published or rendered",
+    hint: "Fix each problem in issues, then call the tool again with the corrected page.",
   },
   invalid_image: {
     message: "The bytes are not a PNG, JPEG, WebP or GIF image and were not shown",
@@ -183,6 +189,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   image_unavailable: {
     message: "The image file could not be read",
     hint: "Pass the path of a regular file, not a symbolic link, at most 8 MiB. A relative path starts at your working directory.",
+  },
+  image_not_saved: {
+    message: "The image could not be saved to this thread",
+    hint: "detail says why, in words to pass on. A full or busy attachment store clears as turns finish or older attachments are removed; retry once after that, otherwise tell the person.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",
@@ -202,7 +212,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   account_unavailable: {
     message: "Provider account is unavailable",
-    hint: "Retry with another provider from models, or without naming an account; the person fixes logins and quota.",
+    hint: "detail says why: the account is at its limit (and until when), signed out, or no account has that name. Name another account or provider from models, or omit accountId; the person fixes logins and quota.",
   },
   admission_closed: {
     message: "Daemon is not accepting agent work",
@@ -252,6 +262,14 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     message: "The person keeps agents out of this tab",
     hint: "Use another tab (browser_tabs open for a new one), or ask the person to let agents into this one.",
   },
+  person_driving: {
+    message: "The person is driving this computer",
+    hint: "They took over your browser and screen. Don't retry or work around it: carry on with work that needs neither, or end your turn saying where you were. You'll be told what they did when they hand back.",
+  },
+  person_busy: {
+    message: "The person is using this right now; nothing was done",
+    hint: "They kept working in the same tab, app or device for a minute. Try again shortly, or work in another tab or app meanwhile.",
+  },
   needs_person: {
     message: "This page needs the person",
     hint: "The tab shows a certificate warning that only the person may proceed past. Tell them; they choose in ace's Browser panel. Navigate elsewhere or wait until they have.",
@@ -268,6 +286,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     message: "Browser backend changed during command",
     hint: "Call browser_snapshot for fresh refs before retrying.",
   },
+  place_changed: {
+    message: "The page or app changed since the step was checked",
+    hint: "Nothing more was done. Look at it again (browser_snapshot or screen_state), then act.",
+  },
   queue_full: {
     message: "Browser command queue full",
     hint: "Wait for the pending commands to finish before retrying.",
@@ -279,6 +301,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   tab_crashed: {
     message: "Browser tab crashed",
     hint: "The page crashed repeatedly and stays down. Reload it (browser_history direction reload) or navigate it to bring it back.",
+  },
+  tab_unavailable: {
+    message: "The browser tab could not be shown",
+    hint: "Idle tab did not come back; other tabs work. Snapshot first: a multi-step command may be part done. Redo only the rest; tell the person if it lasts.",
   },
   tab_limit: {
     message: "Browser tab limit reached",
@@ -403,6 +429,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   sdk_missing: {
     message: "Device SDK is unavailable",
     hint: "Ask the user to install and configure Xcode or Android SDK on the daemon host.",
+  },
+  call_directly: {
+    message: "Call this tool by its own name",
+    hint: "Your client asks the person before this tool, and tools_call would skip that ask. It is in your tool list: call it as mcp__ace__<name> with the same arguments.",
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",

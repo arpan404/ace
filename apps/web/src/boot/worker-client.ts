@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { RemoteClient, type PortLike, type WorkerHandle } from "@ace/client-worker";
 import type { DaemonTarget } from "./connection-settings.ts";
 import { diagnosticsReporter } from "./diagnostics.ts";
+import { browserInstallId } from "./install-id.ts";
 import { tabLiveness } from "./web-locks.ts";
 import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 
@@ -15,7 +16,12 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   const worker = workerPort();
   if (!worker) return undefined;
   const key = outboxKey({ ...target, deviceId });
-  const config: WorkerTarget = { ...target, deviceId, seed: readLegacy(key) };
+  const config: WorkerTarget = {
+    ...target,
+    deviceId,
+    installId: browserInstallId(),
+    seed: readLegacy(key),
+  };
   const liveness = tabLiveness();
   return new RemoteClient(worker.port, config, {
     workerFailure: worker.failure,
@@ -52,8 +58,47 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   });
 }
 
+type SpawnedClientWorker = WorkerHandle & {
+  port: PortLike;
+  failure: NonNullable<WorkerHandle["failure"]>;
+};
+
 let sharedFailed = false;
-function workerPort(): (WorkerHandle & { port: PortLike }) | undefined {
+/** A worker started ahead of the first client (`startClientWorker`), not yet handed to one. */
+let early: SpawnedClientWorker | undefined;
+
+/**
+ * Start the client worker now, ahead of the connection gate: its script, and the service
+ * schemas it loads at once, then download while the page's own code runs and React renders,
+ * instead of after the gate's first commit. The worker does nothing until a client attaches
+ * and says which daemon to reach (it only ever answers a tab), so nothing about the connection
+ * is decided here; the first `createWorkerClient` takes this worker. A failure before then is
+ * kept and reported to that client. One the gate doesn't claim at once (it asks the person
+ * first) waits, idle, for the client it creates later.
+ */
+export function startClientWorker(): void {
+  if (early) return;
+  const worker = (early = spawnWorker());
+  if (!worker) return;
+  const { failure } = worker;
+  let failed = false;
+  const stop = failure.watch(() => (failed = true));
+  const watch = failure.watch;
+  failure.watch = (lost) => {
+    stop();
+    if (!failed) return watch(lost);
+    queueMicrotask(lost);
+    return () => {};
+  };
+}
+
+function workerPort(): SpawnedClientWorker | undefined {
+  const waiting = early;
+  early = undefined;
+  return waiting ?? spawnWorker();
+}
+
+function spawnWorker(): SpawnedClientWorker | undefined {
   // Vite bundles each worker from these literal constructor calls.
   if (!sharedFailed && typeof SharedWorker === "function") {
     try {

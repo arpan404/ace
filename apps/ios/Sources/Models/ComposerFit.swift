@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// How tall the composer's text is. Unfocused, it is as tall as its text (one line when empty).
-/// Focused, it opens to a writing height of a few lines so there is room to write; text taller
+/// Focused, it opens to two lines so there is room to write; text taller
 /// than that keeps its own height. Nothing grows past `maxLines`, where the text scrolls.
 struct ComposerFit: Equatable {
     /// One line of text at the current type size.
@@ -10,16 +10,11 @@ struct ComposerFit: Equatable {
     let inset: CGFloat
     /// The one-line composer's height: a touch target.
     let minimum: CGFloat
-    /// Accessibility type sizes open to fewer lines, so the writing height leaves room for the
-    /// transcript above the keyboard.
-    var largeType = false
-
-    static let writingLines: CGFloat = 3
-    static let largeTypeWritingLines: CGFloat = 2
+    static let writingLines: CGFloat = 2
     static let maxLines: CGFloat = 5
 
     var maximum: CGFloat { max(minimum, line * Self.maxLines + inset) }
-    var writing: CGFloat { min(maximum, max(minimum, line * (largeType ? Self.largeTypeWritingLines : Self.writingLines) + inset)) }
+    var writing: CGFloat { min(maximum, max(minimum, line * Self.writingLines + inset)) }
 
     /// The text view's height for text that needs `content` points.
     func height(content: CGFloat, focused: Bool) -> CGFloat {

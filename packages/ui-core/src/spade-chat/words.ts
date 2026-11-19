@@ -1,0 +1,279 @@
+import type { SpadeStatus } from "@ace/protocol";
+import type { SpadeFailureKind } from "./wire.ts";
+
+/*
+ * Spade's states and tools in words. Tool names are Spade's own (`web_search`) or an ace tool
+ * it reaches through MCP; one this table doesn't know reads by its name.
+ */
+
+interface ToolWords {
+  /** "search the web": after "Spade wants to". */
+  base: string;
+  /** "Searching the web": the Working line. */
+  doing: string;
+  /** "Searched the web": a call that ran. */
+  done: string;
+}
+
+const tools: Record<string, ToolWords> = {
+  web_search: { base: "search the web", doing: "Searching the web", done: "Searched the web" },
+  web_fetch: { base: "read a web page", doing: "Reading a web page", done: "Read a web page" },
+  todo: { base: "update its plan", doing: "Updating its plan", done: "Updated its plan" },
+  tool_search: { base: "look for a tool", doing: "Looking for a tool", done: "Looked for a tool" },
+  skill_search: {
+    base: "look for a skill",
+    doing: "Looking for a skill",
+    done: "Looked for a skill",
+  },
+  call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
+  ask_user: {
+    base: "ask you a question",
+    doing: "Asking you a question",
+    done: "Asked you a question",
+  },
+  skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
+  skill_propose: {
+    base: "suggest a skill",
+    doing: "Writing a skill",
+    done: "Suggested a skill",
+  },
+  skill_feedback: {
+    base: "note how a skill worked",
+    doing: "Noting how a skill worked",
+    done: "Noted how a skill worked",
+  },
+  // Its workspace (ADR 0130).
+  shell: { base: "run a command", doing: "Running a command", done: "Ran a command" },
+  workspace_list: {
+    base: "look through its files",
+    doing: "Looking through its files",
+    done: "Looked through its files",
+  },
+  workspace_read: { base: "read a file", doing: "Reading a file", done: "Read a file" },
+  workspace_search: {
+    base: "search its files",
+    doing: "Searching its files",
+    done: "Searched its files",
+  },
+  workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
+  workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
+  // Its notes (ADR 0128).
+  memory_save: { base: "save a note", doing: "Saving a note", done: "Saved a note" },
+  memory_update: { base: "update a note", doing: "Updating a note", done: "Updated a note" },
+  memory_forget: { base: "forget a note", doing: "Forgetting a note", done: "Forgot a note" },
+  memory_search: {
+    base: "search its notes",
+    doing: "Searching its notes",
+    done: "Searched its notes",
+  },
+  bot_message: {
+    base: "message another bot",
+    doing: "Messaging another bot",
+    done: "Messaged another bot",
+  },
+  routine_save: { base: "save a routine", doing: "Saving a routine", done: "Saved a routine" },
+  routine_delete: {
+    base: "delete a routine",
+    doing: "Deleting a routine",
+    done: "Deleted a routine",
+  },
+  send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
+  research: { base: "research", doing: "Researching", done: "Researched" },
+  // ADR 0152.
+  helper: {
+    base: "hand work to a helper",
+    doing: "Helpers working",
+    done: "Handed work to a helper",
+  },
+  delegate: {
+    base: "hand work to agents",
+    doing: "Handing work to agents",
+    done: "Handed work to agents",
+  },
+  wait: { base: "wait for agents", doing: "Waiting for agents", done: "Waited for agents" },
+  // ace's own tools, reached through its MCP endpoint.
+  ace_threads_list: { base: "list your threads", doing: "Listing threads", done: "Listed threads" },
+  ace_thread_read: { base: "read a thread", doing: "Reading a thread", done: "Read a thread" },
+  ace_thread_status: {
+    base: "check a thread",
+    doing: "Checking a thread",
+    done: "Checked a thread",
+  },
+  ace_thread_run: { base: "start a thread", doing: "Starting a thread", done: "Started a thread" },
+  ace_thread_send: {
+    base: "send a message to a thread",
+    doing: "Sending a message to a thread",
+    done: "Sent a message to a thread",
+  },
+  screen_state: {
+    base: "look at a screen",
+    doing: "Looking at a screen",
+    done: "Looked at a screen",
+  },
+  screen_act: {
+    base: "use an app on the screen",
+    doing: "Using an app on the screen",
+    done: "Used an app",
+  },
+  screen_apps: { base: "list open apps", doing: "Listing open apps", done: "Listed open apps" },
+  browser_open: { base: "open a web page", doing: "Opening a web page", done: "Opened a web page" },
+  browser_act: { base: "use a web page", doing: "Using a web page", done: "Used a web page" },
+  notify: { base: "send you a notification", doing: "Notifying you", done: "Notified you" },
+  ace_task_control: {
+    base: "control a task",
+    doing: "Controlling a task",
+    done: "Controlled a task",
+  },
+};
+
+/** `ace__thread_start` or `ace_thread_start` → "thread start". */
+function plainName(name: string): string {
+  const last = (name.split("__").at(-1) ?? name).replace(/^ace_/, "");
+  return last.replaceAll(/[_-]+/g, " ").trim() || name;
+}
+
+export function spadeToolWords(name: string): ToolWords {
+  // ace's tools arrive under its server's name (`ace__screen_act`).
+  const known = tools[name] ?? tools[name.split("__").at(-1) ?? name];
+  if (known) return known;
+  const plain = plainName(name);
+  return { base: `use ${plain}`, doing: `Using ${plain}`, done: `Used ${plain}` };
+}
+
+/** The approval's one sentence: "Spade wants to send an email." `who`: the bot asking. */
+export function spadeApprovalSentence(name: string, who = "Spade"): string {
+  return `${who} wants to ${spadeToolWords(name).base}.`;
+}
+
+/** What the Spade place says about Spade itself, and whether it offers Turn on. */
+export interface SpadeStateLine {
+  sentence: string;
+  /** Spade is ready for requests. */
+  ready: boolean;
+  /** The setting is off, so the person can turn it on. */
+  canTurnOn: boolean;
+}
+
+/**
+ * `enabled` is the `spade.enabled` setting (undefined while it loads). With it on, the daemon's
+ * status says the rest: starting, running, or why it is off or stopped.
+ */
+export function spadeStateLine(
+  status: SpadeStatus | undefined,
+  enabled: boolean | undefined,
+): SpadeStateLine {
+  if (enabled === false) return { sentence: "Spade is off.", ready: false, canTurnOn: true };
+  if (!status) return { sentence: "Checking Spade…", ready: false, canTurnOn: false };
+  switch (status.state) {
+    case "ready":
+      return { sentence: "Spade is running.", ready: true, canTurnOn: false };
+    case "starting":
+      return { sentence: "Spade is starting.", ready: false, canTurnOn: false };
+    case "off":
+      return {
+        sentence: status.reason ?? "Spade is off.",
+        ready: false,
+        canTurnOn: enabled === undefined && !status.reason,
+      };
+    case "failed":
+      return {
+        sentence: status.reason ? `Spade stopped. ${status.reason}` : "Spade stopped.",
+        ready: false,
+        canTurnOn: false,
+      };
+  }
+}
+
+/** Spade's reason while its keychain read waits on the person (`spade/src/startup.rs`). */
+const keychainWait = "waiting for the keychain";
+
+/**
+ * While Spade runs but still waits on its setup, one sentence on what the person should do, in
+ * the words of the platform it runs on. Undefined once it is set up, or while it isn't running.
+ */
+export function spadeSetupSentence(status: SpadeStatus | undefined): string | undefined {
+  if (status?.state !== "ready" || !status.setup) return undefined;
+  const { reason, platform } = status.setup;
+  if (reason !== keychainWait) return `Spade is still starting: ${reason}.`;
+  switch (platform) {
+    case "darwin":
+      return "Spade is waiting for the keychain. Look for a macOS prompt and choose Always Allow.";
+    case "win32":
+      return "Spade is waiting for Windows Credential Manager. Look for a Windows prompt and allow it.";
+    case "linux":
+      return "Spade is waiting for the keyring. Look for a prompt to unlock it and enter your password.";
+    default:
+      return "Spade is waiting for the keychain. Look for a prompt asking to allow it.";
+  }
+}
+
+/** Background jobs that wait on ace's agents: a delegation, or a wait for agents already out. */
+const agentJobs = new Set(["delegate", "wait"]);
+
+const agentsWord = (count: number) => `${count} ${count === 1 ? "agent" : "agents"}`;
+
+/**
+ * The Working line while background jobs run. Agents come first: "Waiting for 2 agents" when
+ * every delegation says how many tasks it handed out, else "Waiting for agents"; other jobs
+ * by their tool ("Researching in the background", "… and 1 more").
+ */
+export function spadeJobsLine(jobs: readonly { name: string; agents: number | undefined }[]) {
+  const agents = jobs.filter((job) => agentJobs.has(job.name));
+  const others = jobs.filter((job) => !agentJobs.has(job.name));
+  const background = (list: typeof others) => {
+    const words = spadeToolWords(list[0]?.name ?? "").doing;
+    return list.length > 1
+      ? `${words} and ${list.length - 1} more in the background`
+      : `${words} in the background`;
+  };
+  if (!agents.length) return background(others);
+  const delegations = agents.filter((job) => job.name === "delegate");
+  const counted = delegations.length > 0 && delegations.every((job) => job.agents !== undefined);
+  const total = delegations.reduce((sum, job) => sum + (job.agents ?? 0), 0);
+  const waiting = counted ? `Waiting for ${agentsWord(total)}` : "Waiting for agents";
+  return others.length
+    ? `${waiting}, and ${background(others).replace(/^\w/, (c) => c.toLowerCase())}`
+    : waiting;
+}
+
+/** The quiet line when a background job ends. */
+export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stopped"): string {
+  if (outcome === "stopped") {
+    if (name === "delegate") return "Stopped the agents";
+    if (name === "wait") return "Stopped waiting for agents";
+    const doing = spadeToolWords(name).doing;
+    return `Stopped ${doing.charAt(0).toLowerCase()}${doing.slice(1)}`;
+  }
+  const failed = outcome === "failed";
+  if (name === "delegate") return failed ? "The agents' work failed" : "The agents finished";
+  if (name === "wait") return failed ? "Couldn't wait for the agents" : "Done waiting for agents";
+  const words = spadeToolWords(name);
+  return failed ? `Couldn't ${words.base} in the background` : `${words.done} in the background`;
+}
+
+/**
+ * A failed reply in plain words, by its kind (`reply_failed`): what failed, naming the endpoint
+ * by the name the person gave it ("the endpoint" when it isn't known), then what to do about it.
+ * The endpoint's own words stay with Details and the activity log.
+ */
+export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | undefined): string {
+  // A name stays as the person wrote it; only the stand-in starts a sentence capitalised.
+  const name = endpoint ?? "the endpoint";
+  const subject = endpoint ?? "The endpoint";
+  switch (kind) {
+    case "unreachable":
+      return `Couldn't reach ${name}. Check it's running and online, then try again.`;
+    case "key":
+      return `${subject} refused the key. Replace it in Settings › Models, then try again.`;
+    case "rate_limited":
+      return `${subject} is limiting requests right now. Wait a moment, then try again.`;
+    case "model":
+      return endpoint
+        ? `The model on ${endpoint} failed to answer. Try again, or see Details.`
+        : "The model failed to answer. Try again, or see Details.";
+    case "no_model":
+      return "There's no model set up to answer. Set one up, then try again.";
+    case "other":
+      return "Couldn't finish this reply. Try again, or see Details.";
+  }
+}

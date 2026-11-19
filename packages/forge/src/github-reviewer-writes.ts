@@ -21,6 +21,7 @@ const Review = z.looseObject({
   state: text,
   user: z.looseObject({ login: text }).nullable().optional(),
 });
+const NumberedPr = z.looseObject({ number: z.number().int().positive() });
 /** A review that stands as a verdict until the next one; comments and drafts don't. */
 const verdicts = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
 /** Only a verdict can be dismissed: comments and pending reviews have nothing to take back. */
@@ -113,6 +114,6 @@ export class GitHubReviewerWrites {
       action.kind === "reviewers.request" ? "POST" : "DELETE",
       dispatch,
     );
-    decode(z.looseObject({ number: z.number().int().positive() }), response.body);
+    decode(NumberedPr, response.body);
   }
 }

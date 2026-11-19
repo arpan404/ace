@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "files-watch"
+description = "Watches a checkout root and reports coalesced change batches"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cap-std = "4"
+files-safe = { path = "../files-safe" }
+globset = "0.4"
+notify = "8"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "CFArray",
+  "CFString",
+] }
+objc2-core-services = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "dispatch2",
+  "FSEvents",
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_Threading",
+] }

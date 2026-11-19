@@ -1,0 +1,223 @@
+import type { RequestListener, Server } from "node:http";
+import { SettingsError } from "@ace/settings";
+import { remoteListener, systemNetwork, urlHost, type RemoteListener } from "./network.ts";
+import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
+import { sniListener, type SniListener, type SniListenerOptions } from "./sni-listener.ts";
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
+import type { ServerOptions } from "./server-options.ts";
+import type { DirectPlan } from "./remote-policy.ts";
+import { directAdvertisement, type DirectNetwork, type Resolved } from "./remote-direct-policy.ts";
+
+export type DirectResolution = Partial<Record<DirectNetwork, Resolved>>;
+
+/** Why a direct network can't start, in words the person can act on. */
+function failureMessage(network: DirectNetwork): string {
+  if (network === "tailscale") return "Start Tailscale on this computer, then try again.";
+  return process.platform === "win32"
+    ? "Couldn't find this computer's LAN address. Connect it to a network, or set ACE_ADVERTISE_HOST to its LAN address, then try again."
+    : "Couldn't prepare encrypted LAN access. Check your network and OpenSSL installation, then try again.";
+}
+
+/**
+ * The direct listener for LAN and Tailscale. Both run as one HTTPS listener: on the LAN it binds
+ * every address (Tailscale's included), on Tailscale alone only the 100.x address. A network
+ * that fails leaves the other serving; it never falls back to the LAN on its own.
+ */
+export function remoteDirect(deps: {
+  options: Pick<ServerOptions, "remoteConfig" | "network" | "now" | "runtime" | "log">;
+  http: RequestListener;
+  attach: (server: Server) => void;
+  /** Drops the sockets of the listener being closed. */
+  disconnect: () => void;
+  /** Pairing links naming the old address or key stop working. */
+  clearPending: () => void;
+  /** Makes the HTTPS listener; `sniListener` unless a test slows its bind. */
+  listener?: (options: SniListenerOptions) => SniListener;
+}) {
+  const { options } = deps;
+  const makeListener = deps.listener ?? sniListener;
+  let listener: SniListener | undefined;
+  let bindHost: string | undefined;
+  let port: number | undefined;
+  let trusted: TrustedCertificate | undefined;
+  let advertised: string | undefined;
+  let fingerprint: string | undefined;
+  let serving: DirectPlan = { lan: false, tailscale: false };
+  let last: DirectResolution = {};
+  let errors: Partial<Record<DirectNetwork, string>> = {};
+  /** Set by `close`, for good: nothing opens after it, and a bind still under way is closed. */
+  let closed = false;
+
+  const resolveOne = async (network: DirectNetwork): Promise<RemoteListener | Error> => {
+    const config = options.remoteConfig;
+    if (!config) return new Error("Remote access is unavailable");
+    try {
+      const remote = await remoteListener({ ...config, listen: network }, options.network);
+      return remote ?? new Error("Remote access is unavailable");
+    } catch (failure) {
+      return failure instanceof Error ? failure : new Error(String(failure));
+    }
+  };
+  const stopTrusted = () => {
+    trusted?.stop();
+    trusted = undefined;
+  };
+  const takeDown = async (withdrawLinks: boolean) => {
+    const open = listener;
+    listener = undefined;
+    if (open && withdrawLinks) deps.clearPending();
+    if (open) deps.disconnect();
+    stopTrusted();
+    if (open) await open.close();
+    bindHost = undefined;
+    port = undefined;
+    advertised = undefined;
+    fingerprint = undefined;
+    serving = { lan: false, tailscale: false };
+  };
+  return {
+    /**
+     * Each wanted network's address, read before anything is taken down. A network that is
+     * serving keeps its last address when a read fails: a check that fails never closes it.
+     */
+    async resolve(plan: DirectPlan): Promise<DirectResolution> {
+      const resolution: DirectResolution = {};
+      for (const network of ["lan", "tailscale"] as const) {
+        if (!plan[network]) continue;
+        const read = await resolveOne(network);
+        const previous = last[network];
+        resolution[network] =
+          read instanceof Error && serving[network] && previous && !(previous instanceof Error)
+            ? previous
+            : read instanceof Error
+              ? new SettingsError("io", failureMessage(network))
+              : read;
+      }
+      return resolution;
+    },
+    /**
+     * Opens, moves, re-advertises or closes the listener to serve what `resolution` allows. A
+     * listener that can't open is reported in `errors`, never thrown.
+     */
+    async commit(resolution: DirectResolution): Promise<void> {
+      if (closed) return;
+      last = resolution;
+      errors = {};
+      for (const network of ["lan", "tailscale"] as const) {
+        const read = resolution[network];
+        if (read instanceof Error) errors[network] = read.message;
+      }
+      const target = directAdvertisement(resolution);
+      if (!target) return takeDown(true);
+      if (listener && bindHost !== target.host) {
+        await takeDown(true);
+        // Closed while the old listener went: no certificate and no new listener start.
+        if (closed) return;
+      }
+      const name = target.tailnetName;
+      if (trusted?.name !== name) {
+        stopTrusted();
+        trusted = name
+          ? trustedCertificate({
+              name,
+              fetch: (host) => (options.network ?? systemNetwork).certificate(host),
+              now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
+              delay: options.runtime?.delay ?? systemDeliveryRuntime.delay,
+              log: (failure) => options.log?.(failure),
+            })
+          : undefined;
+      }
+      if (!listener) {
+        // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
+        // client (and every client until it arrives) gets ace's own, pinned certificate.
+        const server = makeListener({
+          tls: {
+            ...target.identity,
+            minVersion: "TLSv1.2",
+            SNICallback: (servername, done) => done(null, trusted?.select(servername)),
+          },
+          requests: deps.http,
+          delay: options.runtime?.delay ?? systemDeliveryRuntime.delay,
+          log: (error) => options.log?.(error),
+        });
+        deps.attach(server.http);
+        let bound: number;
+        try {
+          bound = await server.listen(target.host, target.port);
+        } catch {
+          // The port is taken or the address went away: these networks fail; relays go on.
+          await server.close();
+          stopTrusted();
+          for (const network of ["lan", "tailscale"] as const)
+            if (target.serves[network])
+              errors[network] =
+                `Couldn't listen on port ${target.port}. Free it or set ACE_REMOTE_PORT, then try again.`;
+          return;
+        }
+        // Closed while binding: `close` found no listener, and closing a server before its bind
+        // lands doesn't stop it, so the bind that landed closes here.
+        if (closed) {
+          stopTrusted();
+          await server.close();
+          return;
+        }
+        port = bound;
+        listener = server;
+        bindHost = target.host;
+      }
+      // Links name the address and key being replaced; a link for an address no longer
+      // advertised is withdrawn.
+      if (listener && advertised !== undefined && advertised !== target.advertisedHost)
+        deps.clearPending();
+      advertised = target.advertisedHost;
+      fingerprint = target.identity.fingerprint;
+      serving = target.serves;
+    },
+    /** What links name: the ts.net host only while browsers would trust it there. */
+    connection(): { origin: string; fingerprint: string } | undefined {
+      if (!listener || advertised === undefined || port === undefined || !fingerprint) return;
+      const name = trusted?.active() ? trusted.name : undefined;
+      return { origin: `https://${name ?? urlHost(advertised)}:${port}`, fingerprint };
+    },
+    /** Each network's address while it serves, for status. */
+    address(network: DirectNetwork): string | undefined {
+      const read = last[network];
+      if (!serving[network] || !read || read instanceof Error || port === undefined) return;
+      const name = network === "tailscale" && trusted?.active() ? trusted.name : undefined;
+      return `https://${name ?? urlHost(read.advertisedHost)}:${port}`;
+    },
+    /**
+     * What the person can fix on a network that serves: browsers won't trust the Tailscale
+     * address until Tailscale issues its certificate, and why it hasn't.
+     */
+    warnings(): Partial<Record<DirectNetwork, string>> {
+      const problem = serving.tailscale ? trusted?.problem() : undefined;
+      return problem ? { tailscale: problem.slice(0, 256) } : {};
+    },
+    /**
+     * Before a pairing link is made: fetch a Tailscale certificate that failed again now, waiting
+     * up to `waitMs`, so the link names the ts.net host as soon as the person fixed the cause.
+     */
+    refreshCertificate: (waitMs: number) =>
+      serving.tailscale && trusted ? trusted.retry(waitMs) : Promise.resolve(),
+    /**
+     * The ts.net name and port while Tailscale serves with its browser-trusted certificate, for
+     * outside MCP clients on the tailnet (ADR 0122); undefined otherwise.
+     */
+    tailnet(): { name: string; port: number } | undefined {
+      if (!listener || !serving.tailscale || port === undefined || !trusted?.active()) return;
+      return { name: trusted.name, port };
+    },
+    serving: () => serving,
+    errors: () => errors,
+    open: () => listener !== undefined,
+    /**
+     * Closes the listener for good; a bind still under way closes as it finishes. Links stay
+     * valid: stopping the daemon replaces no address.
+     */
+    close: () => {
+      closed = true;
+      return takeDown(false);
+    },
+  };
+}

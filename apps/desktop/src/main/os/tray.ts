@@ -1,22 +1,24 @@
 import { Menu, Tray, nativeImage, type NativeImage } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
-import type { WorkSummary } from "../link/thread-watch.ts";
+import { noWork, type WorkSummary } from "../link/thread-watch.ts";
 
 export interface TrayActions {
   open(): void;
   pause(paused: boolean): void;
   quitAll(): void;
+  /** Quits and stops the daemon too. */
+  quitCompletely(): void;
 }
 
 /**
  * The menu-bar (macOS) or notification-area icon while ace keeps running in the background:
- * daemon status, the needs-you count, Open, Pause new work, and Quit (which also stops a
- * daemon this app started).
+ * daemon status, the needs-you count, Open, Pause new work, Quit (the daemon this app started
+ * keeps running, ADR 0186) and Quit ace completely (it stops too).
  */
 export class StatusTray {
   private tray: Tray | undefined;
   private status: DaemonStatus | undefined;
-  private summary: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private summary: WorkSummary = noWork;
   /** What the tray shows now; a status or summary update that changes none of it is skipped. */
   private shown: string | undefined;
   private actions: TrayActions;
@@ -65,13 +67,16 @@ export class StatusTray {
         : `Daemon ${this.status.state}`
       : "Starting…";
     const running = this.status?.state === "running";
-    const shown = JSON.stringify([state, needsYou, paused, running]);
+    // A running daemon carries a message only when it runs without something (safe mode).
+    const note = running ? this.status?.message : undefined;
+    const shown = JSON.stringify([state, needsYou, paused, running, note]);
     if (shown === this.shown) return;
     this.shown = shown;
     if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: state, enabled: false },
+        ...(note ? [{ label: note, enabled: false }] : []),
         { label: needsYou ? `${needsYou} need you` : "Nothing needs you", enabled: false },
         { type: "separator" },
         { label: "Open ace", click: () => this.actions.open() },
@@ -82,6 +87,7 @@ export class StatusTray {
         },
         { type: "separator" },
         { label: "Quit ace", click: () => this.actions.quitAll() },
+        { label: "Quit ace completely", click: () => this.actions.quitCompletely() },
       ]),
     );
   }
@@ -92,10 +98,20 @@ export class StatusTray {
  * gets the colour app tile, see `appPaths().trayIcon`).
  */
 function icon(path: string): NativeImage {
+  if (process.platform === "win32") return windowsIcon(path);
   const image = nativeImage.createFromPath(path);
   if (image.isEmpty()) return fallbackIcon();
   if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
+}
+
+/** Windows: the colour app tile (`appPaths().trayIcon`) at the notification area's size. */
+function windowsIcon(path: string): NativeImage {
+  const image = nativeImage.createFromPath(path);
+  // The slot is 16 px (more at higher scales, drawn from the 2x image).
+  return image.isEmpty()
+    ? fallbackIcon()
+    : image.resize({ width: 16, height: 16, quality: "best" });
 }
 
 /** An 18 pt ring drawn at 2x, so a missing image file never leaves the tray without an icon. */

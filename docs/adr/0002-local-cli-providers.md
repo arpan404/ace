@@ -1,6 +1,9 @@
 # 0002: Providers are reached only through the user's local CLIs
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-02. Status: accepted. Narrowly amended by
+[ADR 0119](0119-spade-endpoint-keys.md): Spade keeps the API keys of endpoints the person adds in the
+OS keychain; CLI logins are unchanged. Amended by
+[ADR 0140](0140-spade-cloud.md): Spade Cloud brokers connector app sign-ins and stores no tokens.
 
 ## Context
 
@@ -146,12 +149,59 @@ A declared meter is advisory unless its declaration says a full window refuses a
 (`holds`): it is shown on the Usage page but never holds queued messages or picks a migration
 target (ADR 0053's definite-signal rule). The shipped sources are all advisory:
 
-| Source                             | Endpoint                                                                                                                        | Confirmed against                                                                           |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Cursor                             | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage` with the keychain token; plan from `cursor-agent about --format json` | cursor-agent 2026.10.01 bundle (`src/usage-data.ts`), a read-only call with a signed-in CLI |
-| Gemini CLI (ACP `official:gemini`) | `cloudcode-pa.googleapis.com` `v1internal:loadCodeAssist` then `v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json` | Gemini CLI 0.43 bundle (`CodeAssistServer`, `refreshUserQuota`)                             |
-| OpenCode                           | `opencode.ai/zen/go/v1/usage` with the `opencode-go` key from `opencode.db` or `auth.json`                                      | a read-only call with a signed-in OpenCode 2.0.29                                           |
+| Source                             | Endpoint                                                                                                                                                         | Confirmed against                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Cursor                             | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage` with the keychain token; plan from `cursor-agent about --format json`                                  | cursor-agent 2026.10.01 bundle (`src/usage-data.ts`), a read-only call with a signed-in CLI             |
+| Gemini CLI (ACP `official:gemini`) | `cloudcode-pa.googleapis.com` `v1internal:loadCodeAssist` then `v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json`                                  | Gemini CLI 0.43 bundle (`CodeAssistServer`, `refreshUserQuota`)                                         |
+| OpenCode                           | `opencode.ai/zen/go/v1/usage` with the `opencode-go` key, or an OpenCode Console login's access token and org id (403: no Go), from `opencode.db` or `auth.json` | a read-only call with a signed-in OpenCode 2.0.29 (key); OpenCode 2.2.6 binary (`UsageLimits`, Console) |
 
 Antigravity is not shipped: `agy -p /usage --output-format json` could not be confirmed
 against an installed `agy`, nor where its login is kept. Its entry is one declaration once the
 command's answer has been checked.
+
+## Amendment: ace's push gateway
+
+Date: 2026-10-27. Approved by the owner. ace may operate one hosted service, the push gateway
+of [ADR 0106](0106-ios-remote-push-gateway.md), because only ace's Apple team key can wake the
+shipped iOS app. It forwards end-to-end encrypted alerts from a person's own daemon to APNs and
+holds only ace's APNs key and its own sealing key. It sees device tokens, daemon public keys,
+timing and size, never provider credentials, prompts, code, transcripts or alert text, and it
+stores nothing. Every other clause of this ADR stands: providers are still reached only through
+the person's own CLIs, and no other part of ace is hosted.
+
+## Amendment: public model prices
+
+Date: 2026-11-01. Approved by the owner. The local usage worker may fetch
+LiteLLM's public `model_prices_and_context_window.json` from
+`https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`.
+It sends only conditional HTTP validators, never credentials, model ids, usage,
+prompts or other user data. Redirects are refused. This is a public metadata read,
+not provider inference, hosting or a credential proxy.
+
+The worker fetches only on usage ingestion, when a used model has no downloaded
+price or its own fetched-at time is at least three days old. `PRICE_MAX_AGE_MS`
+is the single expiry constant. There is no periodic or startup fetch. Requests
+are limited to one per hour across restarts; concurrent attempts coalesce and
+failures back off. Conditional validators are sent when all requested models
+are cached. A newly encountered model needs a body, so that request omits the
+validators. Requests time out in five seconds.
+
+The full response is parsed transiently in the worker; only models observed in
+usage are normalized and retained, with recent and most-used models first.
+`usage-price-cache.json` under the daemon's data directory stores per-model
+prices and fetched-at times, never the downloaded catalogue. A validated
+replacement is written to a temporary file then renamed atomically. Expired
+entries stay usable until replaced. A failed, malformed or partial download
+leaves the cache file byte-for-byte unchanged and logs one fixed line. Attempt
+limits/backoff live separately in `usage-price-cache.json.attempts`, so failure
+bookkeeping cannot alter good cached prices. SQLite pricing history also stores
+only models seen in usage. The bundled snapshot remains the offline fallback.
+Set `"fetchPrices": false` in `usage-settings.json` in that directory and restart
+the daemon to use only bundled prices, ignoring the downloaded cache.
+
+## Amendment: Bitbucket through bkt
+
+Accepted 2026-11-10 by the repo owner. For Bitbucket only, "the user's own installed, logged-in
+CLI" includes the vetted third-party `bkt` CLI, because Atlassian ships none for Bitbucket. `bkt`
+owns sign-in and keeps the credential in the OS keychain; ace never sees it. See
+[ADR 0118](0118-bitbucket-through-bkt.md).

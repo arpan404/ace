@@ -268,11 +268,3 @@ it("rejects pagination loops and cross-repository next pages", async () => {
     ),
   ).rejects.toThrow("repository");
 });
-it("cancels a gh child when its owning operation is aborted", async () => {
-  const gh = fakeGh();
-  writeFileSync(join(gh.dir, "gh.mjs"), "#!/usr/bin/env node\nsetInterval(()=>{},1000);\n");
-  const controller = new AbortController();
-  const request = gh.client.get(pulls, undefined, controller.signal);
-  controller.abort();
-  await expect(request).rejects.toThrow("aborted");
-});

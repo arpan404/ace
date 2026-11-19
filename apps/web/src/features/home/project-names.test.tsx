@@ -40,12 +40,12 @@ function app() {
 
 test("Home's task rows and the thread header name the project, not its id", async () => {
   await app().open("/");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = await screen.findByRole("navigation", { name: "Projects" });
   const card = await within(nav).findByRole("link", {
     name: /^Rotate the signing keys\..*Project billing/,
   });
-  // The task's context line shows the project's name, never its opaque id.
-  expect(within(card).getByText("billing")).toBeTruthy();
+  // The row's top line names its project, never by its opaque id.
+  expect(card.textContent).toContain("billing");
   expect(within(nav).queryByText(billing.id)).toBeNull();
 
   await userEvent.click(card);

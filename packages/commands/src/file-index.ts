@@ -1,5 +1,6 @@
 import { basename, dirname, join, relative, sep } from "node:path";
-import type { Stats } from "node:fs";
+import { DirectoryListingTruncated } from "./posix.ts";
+import type { CommandStat as Stats } from "./posix-calls.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { FileRecovery, statVersion } from "./recovery.ts";
 import { parseMarkdown, parseOpenCodeConfig, parseCodexAgent } from "./parse.ts";
@@ -26,6 +27,12 @@ interface Scan {
   count: number;
   replaced: boolean;
   ended: boolean;
+  /**
+   * A skill's own folder (it holds a SKILL.md): only that file is a definition (ADR 0103), so its
+   * references, scripts and assets are never inspected. Folders without one are grouping folders
+   * (Codex's `.system`) and are still walked.
+   */
+  skillOnly: boolean;
 }
 export interface DiscoveryMetrics {
   fileReads: number;
@@ -42,6 +49,7 @@ export class FileIndex {
   }
   private readonly catalog: CommandCatalog;
   private readonly io: CommandFileIo;
+  private stopped = false;
   private readonly recovery: FileRecovery;
   private readonly roots: readonly RegisteredRoot[];
   private readonly nodes = new Map<string, Node>();
@@ -49,6 +57,13 @@ export class FileIndex {
   private readonly references = new Map<string, number>();
   private readonly jobs = new Map<string, Job>();
   private readonly scans = new Map<string, Scan>();
+  /**
+   * Paths whose calls failed without an answer, retried by the recovery loop until they are
+   * read, listed to the end or removed. A path whose metadata never changed, such as a listing
+   * that failed partway, would otherwise wait for the next watcher event. Their diagnostics stay
+   * until then, so a retry that fails again changes nothing and the loop backs off.
+   */
+  private readonly unanswered = new Map<string, Job>();
   private readonly watch: (root: RegisteredRoot, path: string) => void;
   private readonly unwatch: (root: RegisteredRoot, path: string) => void;
   private readonly missing: (root: RegisteredRoot) => Promise<void>;
@@ -122,6 +137,7 @@ export class FileIndex {
     const id = this.sources.get(slot);
     if (id) this.removeSource(id);
     this.sources.delete(slot);
+    this.unanswered.delete(slot);
   }
   private async stopScan(slot: string): Promise<void> {
     const scan = this.scans.get(slot);
@@ -151,6 +167,7 @@ export class FileIndex {
     const slot = key(job.root, job.path),
       node = this.nodes.get(slot);
     await this.stopScan(slot);
+    this.unanswered.delete(slot);
     const child = node?.children?.keys().next().value;
     if (child !== undefined) {
       node?.children?.delete(child);
@@ -180,13 +197,18 @@ export class FileIndex {
     const stat = await this.io.stat(root, path);
     if (!stat) {
       if (path === root.path) {
-        this.recovery.track(path, undefined);
+        this.recovery.trackMissing(path);
         await this.missing(root);
       }
       this.queue({ ...job, kind: "remove" });
       return;
     }
     const previous = this.nodes.get(slot);
+    // Windows stamps times from a clock that ticks about every 16 ms, so a folder changed in the
+    // same tick as its last scan keeps its version. Without a scan in flight, rescan it anyway;
+    // a rescan only enqueues children it hasn't seen, so surviving files aren't reread.
+    if (process.platform === "win32" && previous && stat.isDirectory() && !this.scans.has(slot))
+      previous.version = "";
     if (previous?.version === statVersion(stat)) {
       // A duplicate invalidation may replace the queued scan continuation.
       if (this.scans.has(slot)) this.queue({ ...job, kind: "scan" });
@@ -212,6 +234,12 @@ export class FileIndex {
       node.generation++;
       await this.stopScan(slot);
       this.watch(root, path);
+      const skillOnly =
+        root.skill === true &&
+        depth >= 1 &&
+        // A probe that fails only costs the old full walk of this folder.
+        (await this.io.stat(root, join(path, "SKILL.md")).catch(() => undefined))?.isFile() ===
+          true;
       try {
         const reader = await this.io.directory(root, path);
         this.scans.set(slot, {
@@ -221,12 +249,11 @@ export class FileIndex {
           count: 0,
           replaced,
           ended: false,
+          skillOnly,
         });
         this.queue({ ...job, kind: "scan" });
       } catch {
-        node.version = "";
-        this.recovery.track(path, undefined);
-        this.report(root, path, "Cannot scan commands directory");
+        this.unavailable(job, "Cannot scan commands directory");
       }
       return;
     }
@@ -277,10 +304,14 @@ export class FileIndex {
             : parseMarkdown(read.text, { ...ctx, format: root.format });
       if (!this.replaceSource(id, parsed)) {
         this.report(root, path, "Catalog admission limit exceeded");
+        this.unanswered.delete(slot);
         return;
       }
       this.sources.set(slot, id);
+      this.unanswered.delete(slot);
     } catch {
+      // Closing cancels calls in flight; the cached definitions stay as they are.
+      if (this.stopped) return;
       const node = this.nodes.get(slot);
       if (node) node.version = "";
       this.recovery.track(path, undefined);
@@ -300,6 +331,10 @@ export class FileIndex {
           if (++scan.count > 2048) {
             await this.stopScan(slot);
             this.report(job.root, job.path, "Directory entry limit exceeded");
+            return;
+          }
+          if (scan.skillOnly && name !== "SKILL.md") {
+            this.queue(job);
             return;
           }
           const path = join(job.path, name);
@@ -323,29 +358,70 @@ export class FileIndex {
         }
       }
       this.queue(job);
-    } catch {
+    } catch (error) {
       await this.stopScan(slot);
-      this.report(job.root, job.path, "Cannot scan commands directory");
+      if (error instanceof DirectoryListingTruncated)
+        this.report(job.root, job.path, "Directory entry limit exceeded");
+      else this.unavailable(job, "Cannot scan commands directory");
     }
   }
+  /** Discovery stops advancing at once; queued work is dropped and nothing new starts. */
+  stop(): void {
+    this.stopped = true;
+    this.jobs.clear();
+  }
   async step(): Promise<boolean> {
-    for (let count = 0; count < 32; count++) {
+    for (let count = 0; count < 32 && !this.stopped; count++) {
       const next = this.jobs.entries().next().value;
       if (!next) break;
       const [slot, job] = next;
       this.jobs.delete(slot);
-      if (job.kind === "inspect") await this.inspect(job);
-      else if (job.kind === "remove" || job.kind === "replace") await this.remove(job);
-      else await this.scan(job);
+      try {
+        if (job.kind === "inspect") await this.inspect(job);
+        else if (job.kind === "remove" || job.kind === "replace") await this.remove(job);
+        else await this.scan(job);
+      } catch {
+        this.unavailable(job, "Command folder stopped responding");
+      }
     }
     return this.pending;
+  }
+  /**
+   * A call that failed without an answer, such as one into a folder that stopped responding,
+   * costs only its own path. Discovery goes on with the rest; the path is retried from
+   * `retryUnanswered` and, through an unknown version, the recovery ring, until it answers.
+   */
+  private unavailable(job: Job, message: string): void {
+    // Closing cancels calls in flight; that is no news about the folder.
+    if (this.stopped) return;
+    const slot = key(job.root, job.path);
+    const node = this.nodes.get(slot);
+    if (node) node.version = "";
+    this.recovery.track(job.path, undefined);
+    // A removal that failed retries quietly; anything else says why its commands are missing.
+    if (job.kind === "inspect" || job.kind === "scan") this.report(job.root, job.path, message);
+    // Past the cap a path still has the recovery ring, which notices it answer or go missing.
+    if (this.unanswered.has(slot) || this.unanswered.size < 256)
+      this.unanswered.set(slot, { ...job, kind: job.kind === "scan" ? "inspect" : job.kind });
+  }
+  /** Queue up to `limit` paths still waiting on an answer, oldest first, for one more try. */
+  retryUnanswered(limit = 32): void {
+    const due = [...this.unanswered].slice(0, limit);
+    for (const [slot, job] of due) {
+      // To the back, so a folder that never answers can't starve the others.
+      this.unanswered.delete(slot);
+      this.unanswered.set(slot, job);
+      this.queue(job);
+    }
   }
   clear(): void {
     for (const source of this.sources.values()) this.removeSource(source);
     this.sources.clear();
+    this.unanswered.clear();
   }
   async close(): Promise<void> {
-    this.jobs.clear();
-    for (const slot of this.scans.keys()) await this.stopScan(slot);
+    this.stop();
+    // In parallel: one reader on a folder that stopped answering must not hold up the others.
+    await Promise.allSettled([...this.scans.keys()].map((slot) => this.stopScan(slot)));
   }
 }

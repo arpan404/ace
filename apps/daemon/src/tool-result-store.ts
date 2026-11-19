@@ -1,8 +1,13 @@
 import { z } from "zod";
 import { normalizeAceCall, aceToolInput } from "@ace/core";
-import { ToolCall, ToolResult, type EventPayload, type ThreadId } from "@ace/protocol";
+import { ToolResult, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { argumentKey } from "./measurement-correlation.ts";
+
+const ToolFailure = z.object({
+  message: z.string().max(4096),
+  detail: z.string().max(256).optional(),
+});
 
 /** Indexed evidence is independent of adapter snapshots and retained across restart. */
 export class ToolResultStore {
@@ -30,7 +35,8 @@ export class ToolResultStore {
   decorate(thread: ThreadId, payload: EventPayload, seq: number): EventPayload {
     if (payload.type !== "item.created" && payload.type !== "item.updated") return payload;
     if (payload.item.type !== "tool_call") return payload;
-    const call = ToolCall.parse(normalizeAceCall(payload.item.call));
+    // The writer's Event.parse makes whatever this returns canonical (event-writer.ts).
+    const call = normalizeAceCall(payload.item.call);
     const match = aceToolInput(call);
     if (!match) return payload;
     this.sql(`INSERT INTO ace_tools VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id)
@@ -52,9 +58,7 @@ export class ToolResultStore {
     const text = result.content.find((part) => part.type === "text");
     let error = text?.type === "text" ? text.text : "Ace tool failed";
     try {
-      const parsed = z
-        .object({ message: z.string().max(4096), detail: z.string().max(256).optional() })
-        .safeParse(JSON.parse(error));
+      const parsed = ToolFailure.safeParse(JSON.parse(error));
       if (parsed.success)
         error = parsed.data.detail
           ? `${parsed.data.message}: ${parsed.data.detail}`

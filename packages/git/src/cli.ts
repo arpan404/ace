@@ -5,6 +5,7 @@ import {
   recoverMutationLeases,
   mutationState,
   clearStaleLeases,
+  healRepositories,
   healRepository,
   settleOwnLeases,
   type LeaseProbe,
@@ -27,6 +28,7 @@ import {
 import { credentialHelperArgs, systemCredentialConfigFile } from "./credential-helpers.ts";
 import { userTransportConfig } from "./transport-config.ts";
 import { hooksInsideCheckout } from "./reviewer-hooks.ts";
+import { hooksInsideWindowsCheckout } from "./reviewer-hooks-identity.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -34,7 +36,11 @@ import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
+import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
+import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
+import type { GitJob } from "./git-job.ts";
+import type { GitProcess } from "./git-processes.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
 import {
@@ -100,6 +106,9 @@ export class GitCli {
   private readonly killed = new Set<string>();
   private closed = false;
   private closing: Promise<void> | undefined;
+  /** Windows: the job module once loaded, `null` when it can't load (see `git-job.ts`). */
+  private jobs: typeof import("./git-job.ts") | null | undefined;
+  private jobsLoading: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
@@ -139,6 +148,7 @@ export class GitCli {
           },
       waitMs: options.leaseWaitMs ?? 60_000,
     };
+    if (this.runtime.platform === "win32") this.containWindowsGit(options);
     this.configuredBinary = options.gitBinary;
     if (
       this.configuredBinary !== undefined &&
@@ -163,6 +173,38 @@ export class GitCli {
     }
   }
 
+  /**
+   * Windows: Git calls run in Job Objects (see `git-job.ts`). A stopped call's job stands in for
+   * its POSIX process group as lease evidence, and a stopped daemon's leases ignore Git started
+   * after this service first found that daemon gone.
+   */
+  private containWindowsGit(options: GitOptions): void {
+    this.jobsLoading = import("./git-job.ts").then(
+      (module) => {
+        this.jobs = module;
+      },
+      () => {
+        this.jobs = null;
+      },
+    );
+    const evidence = this.leaseProbe.evidence;
+    if (!evidence) return;
+    if (!options.processRuntime?.groupAlive)
+      evidence.groupAlive = (pid) => (this.jobs ? this.jobs.jobAlive(pid) : true);
+    // The Git running when each stopped owner was first found gone, by PID and start.
+    const seenGone = new Map<string, Set<string>>();
+    evidence.runningWhenGone ??= (lease, listing) => {
+      let running = seenGone.get(lease.id);
+      if (!running) {
+        if (seenGone.size >= 4096) seenGone.clear();
+        running = new Set(listing.map(gitProcessKey));
+        seenGone.set(lease.id, running);
+      }
+      const known = running;
+      return (process) => known.has(gitProcessKey(process));
+    };
+  }
+
   assertMutationAvailable(path: string) {
     return assertAvailable(path, this.leaseProbe);
   }
@@ -175,6 +217,10 @@ export class GitCli {
   /** Retire stale leases and remove Git lock files no live Git process holds. */
   heal(path: string) {
     return healRepository(path, this.leaseProbe);
+  }
+  /** `heal` for every checkout in one sweep, sharing its process listing. */
+  healAll(paths: readonly string[], failed: (path: string, error: unknown) => void) {
+    return healRepositories(paths, failed, this.leaseProbe);
   }
   recoverCleanup(path: string) {
     return recoverMutationLeases(
@@ -239,6 +285,16 @@ export class GitCli {
   }
   /** Whether a hook Git would run in the checkout at `cwd` lives inside it. */
   hooksInsideCheckout(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    if (this.runtime.platform === "win32")
+      return hooksInsideWindowsCheckout(
+        (args) =>
+          this.executeRaw(cwd, args, {
+            captureBytes: 65_536,
+            allowFailure: true,
+            ...(signal ? { signal } : {}),
+          }),
+        cwd,
+      );
     return hooksInsideCheckout(
       (args) =>
         this.executeRaw(cwd, args, {
@@ -280,12 +336,15 @@ export class GitCli {
     return result;
   }
   /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
-  fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+  fetch(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    protocols: readonly string[] = this.transportProtocols,
+  ): Promise<Output> {
     if (args[0] !== "fetch")
       return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
-    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
-      this.call(cwd, args, options),
-    );
+    return this.executionPolicy.run({ protocols }, () => this.call(cwd, args, options));
   }
   /**
    * Fetch from a bundle file ace wrote or received. Git reads bundles through its `file`
@@ -365,6 +424,11 @@ export class GitCli {
     }
   }
 
+  /** The platform Git runs on, for Windows-only repository settings. */
+  get platform(): NodeJS.Platform {
+    return this.runtime.platform;
+  }
+
   /** The executable each Git call starts. */
   get binary(): string {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
@@ -383,6 +447,13 @@ export class GitCli {
     // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
     if (this.configuredBinary === undefined)
       this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
+    // Windows searches a bare name in the working directory, a checkout, before PATH.
+    if (
+      this.runtime.platform === "win32" &&
+      this.configuredBinary === undefined &&
+      this.resolvedBinary === undefined
+    )
+      throw new GitError("git_missing", "Git for Windows was not found on PATH");
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
@@ -500,9 +571,12 @@ export class GitCli {
     if (known) return known;
     const files = standardConfigFiles(query).catch(() => undefined);
     this.standardFiles.set(key, files);
-    void files.then((found) => {
-      if (!found) this.standardFiles.delete(key);
-    });
+    // files never rejects; forgetting a missing answer is the only cleanup it needs.
+    void files
+      .then((found) => {
+        if (!found) this.standardFiles.delete(key);
+      })
+      .catch(ignoreError);
     return files;
   }
 
@@ -573,8 +647,41 @@ export class GitCli {
     return { helpers, sshCommand: settings.sshCommand };
   }
 
+  /**
+   * Windows: Git runs in the held folder by its path while a lease keeps that folder in place
+   * (see `directory-lease.ts`), and the path must still lead to it once Git has exited.
+   */
+  private async executeLeased(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    fd: number,
+  ): Promise<Output> {
+    const { leaseHeldDirectory } = await import("./directory-lease.ts");
+    const lease = leaseHeldDirectory(fd, { createGitEntry: options.write === true });
+    let cleanup: Promise<unknown> | undefined;
+    try {
+      const output = await this.executeRaw(lease.cwd, args, { ...options, directoryFd: undefined });
+      lease.verify();
+      return output;
+    } catch (error) {
+      // A killed writer may outlive the call: the folder stays held until its cleanup settles.
+      if (error instanceof GitError) cleanup = error.cleanup?.settled;
+      lease.verify();
+      throw error;
+    } finally {
+      if (cleanup) void cleanup.then(lease.release, lease.release);
+      else lease.release();
+    }
+  }
+
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.runtime.platform === "win32" && this.jobs === undefined)
+      return (this.jobsLoading ?? Promise.resolve()).then(() => {
+        this.jobs ??= null;
+        return this.executeRaw(cwd, args, options);
+      });
     const binary = this.binary;
     const env = inheritedEnv();
     Object.assign(env, {
@@ -583,6 +690,14 @@ export class GitCli {
       ...(options.write ? {} : { GIT_OPTIONAL_LOCKS: "0" }),
       ...options.env,
     });
+    if (this.runtime.platform === "win32") {
+      if (options.directoryFd !== undefined)
+        return this.executeLeased(cwd, args, options, options.directoryFd);
+      args = windowsHooklessArgs(args);
+      windowsHooklessEnv(env);
+      // Deep checkout paths past MAX_PATH; Git for Windows refuses them by default.
+      windowsLongPathsEnv(env);
+    }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.
       delete env.SSH_ASKPASS;
@@ -600,6 +715,7 @@ export class GitCli {
       options.beforeSpawn?.();
       if (options.signal?.aborted)
         throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
+      const job = this.runtime.cleanupSupervisor ? undefined : this.jobs?.prepareJob();
       const child =
         options.directoryFd === undefined
           ? this.runtime.spawn(binary, ["--no-pager", ...args], spawnOptions)
@@ -611,6 +727,7 @@ export class GitCli {
               options.directoryFd,
             );
       const pid = child.pid;
+      const contained = job && pid && job.adopt(pid) ? job : undefined;
       if (pid) runningChildren.add(pid);
       child.once("exit", () => {
         if (pid) runningChildren.delete(pid);
@@ -628,8 +745,43 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
+      // Windows: the call's job holds Git and everything it started. Once it is empty the
+      // receipt is confirmed, and its leases retire as a POSIX call's do once its group is gone.
+      const killContained = (call: GitJob, leader: number) => {
+        stopped = true;
+        runningChildren.delete(leader);
+        const drain = drainProcessExit(child, this.runtime.scheduleTimeout);
+        this.drains.add(drain);
+        void drain.then(
+          () => this.drains.delete(drain),
+          () => this.drains.delete(drain),
+        );
+        const leases = ownership.leases;
+        const cleanup = ownership.quarantine(
+          { settled: call.stop(this.runtime.scheduleTimeout) },
+          leader,
+        );
+        if (leases.length) {
+          const ids = leases.map(({ id }) => id);
+          for (const id of ids) this.killed.add(id);
+          void settleOwnLeases(ids, this.leaseProbe).then(
+            () => ids.forEach((id) => this.killed.delete(id)),
+            ignoreError,
+          );
+        }
+        if (failure) failure.cleanup = { settled: cleanup };
+        detach();
+        child.off("close", closed);
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        settled = true;
+        reject(failure);
+      };
       const kill = () => {
         if (stopped) return;
+        if (contained && pid) return killContained(contained, pid);
         stopped = true;
         // From here this process is evidence that a writer may survive, not our running work.
         if (child.pid) runningChildren.delete(child.pid);
@@ -702,6 +854,8 @@ export class GitCli {
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
         fail(new GitError("git_timeout", `Git exceeded ${deadline}ms`, { args }));
       }, deadline);
+      let inputError: Error | undefined;
+      let inputDelivered = false;
       const streamFailure = (error: Error) => fail(error);
       child.stdout.on("error", streamFailure);
       child.stderr.on("error", streamFailure);
@@ -774,7 +928,7 @@ export class GitCli {
         child.stdout.on("error", ignoreError);
         child.stderr.on("error", ignoreError);
       };
-      const closed = async (code: number | null, signal: NodeJS.Signals | null) => {
+      const handleClose = async (code: number | null, signal: NodeJS.Signals | null) => {
         if (settled) return;
         if (signal && !spawnFailure) {
           fail(
@@ -802,10 +956,38 @@ export class GitCli {
               }),
             );
         }
+        // A call with no input has nothing to deliver: a Git that exits before its empty stdin
+        // reports `finish` (as one can under load) did all of its work.
+        if (code === 0 && options.input !== undefined && (inputError || !inputDelivered))
+          return reject(
+            new GitError("git_failed", "Git stopped reading its input before the end", {
+              code,
+              stderr: tail.text(),
+              ...(inputError ? { cause: inputError.message } : {}),
+            }),
+          );
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };
+      // handleClose() settles the operation through resolve/reject; a rejection here would have
+      // no other receiver, so it is ignored like a detached error listener.
+      const closed = (code: number | null, signal: NodeJS.Signals | null) => {
+        void handleClose(code, signal).catch(ignoreError);
+      };
       child.once("close", closed);
-      child.stdin.on("error", () => {});
+      // Git ended by itself: what it left running stays, as it does outside a job.
+      if (contained)
+        child.once("close", () => {
+          if (!stopped) contained.release();
+        });
+      // A Git that exits 0 without reading all of its input did not do all of its work: every
+      // byte must reach the pipe. (Bytes left unread in the pipe buffer when Git exits can't be
+      // seen from here; callers that depend on them check the result.)
+      child.stdin.on("error", (error) => {
+        inputError ??= error;
+      });
+      child.stdin.once("finish", () => {
+        inputDelivered = true;
+      });
       if (options.input instanceof Readable) {
         options.input.on("error", streamFailure);
         options.input.pipe(child.stdin);
@@ -817,6 +999,11 @@ export class GitCli {
 }
 
 function ignoreError() {}
+
+/** One process, distinct from a later one that reuses its PID. */
+function gitProcessKey(process: GitProcess): string {
+  return `${process.pid}@${process.startedAt ?? "?"}`;
+}
 
 /** The daemon's environment without Git's: repository/index selectors inherited from an agent
  * must not redirect our commands. */

@@ -47,12 +47,12 @@ test("a dismissed picture-in-picture stays away until the Browser shows again; a
 
 test("with picture in picture turned off in Settings › Browser, leaving the Browser never floats the page", async () => {
   const scenario = coldStartReplay();
-  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
+  const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
   browserVideo();
   const app = harness({ history });
   app.play(scenario).step();
   seedPanels(app.daemon);
-  await app.open("/settings/general");
+  await app.open("/settings/browser");
   const setting = await screen.findByRole("switch", { name: "Picture in picture" });
   expect(setting.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(setting);
@@ -89,13 +89,46 @@ test("a page that floated while another tool showed comes back over that tool wh
   const { panel, browser, thread } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));
   // Another tool takes the panel: the Browser is out of sight, so its page floats.
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
   const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
   await userEvent.click(
     within(floating).getByRole("img", { name: "Live view of localhost:5173/settings/devices" }),
   );
   await waitFor(() => expect(pip()).toBeNull());
   expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
+});
+
+test("the floating window names what keeps it afloat: the agent's browsing, or the tab's sound", async () => {
+  const { browser, thread } = await openThreadBrowser();
+  act(() => browser.agentWorks(thread, { agentId: "worker" }));
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  expect(within(floating).getByText("Agent browsing")).toBeTruthy();
+  act(() => {
+    browser.agentIdle(thread);
+    browser.mediaPlays(thread, true);
+  });
+  await within(floating).findByText("Playing");
+  expect(within(floating).queryByText("Agent browsing")).toBeNull();
+});
+
+test("the floating window names a recording over either, and carries the tab's speaker", async () => {
+  const { browser, thread } = await openThreadBrowser();
+  act(() => {
+    browser.agentWorks(thread, { agentId: "worker" });
+    browser.mediaPlays(thread, true);
+    browser.setRecording(thread, true);
+  });
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  expect(within(floating).getByText("Recording")).toBeTruthy();
+
+  const tabId = browser.view(thread)?.activeTabId ?? "";
+  await userEvent.click(within(floating).getByRole("button", { name: "Mute tab" }));
+  expect(browser.tab(thread, tabId)?.muted).toBe(true);
+  await userEvent.click(within(floating).getByRole("button", { name: "Unmute tab" }));
+  expect(browser.tab(thread, tabId)?.muted).toBe(false);
 });
 
 test("the floating window drags by its whole bar, and a click on the bar brings the page back", async () => {

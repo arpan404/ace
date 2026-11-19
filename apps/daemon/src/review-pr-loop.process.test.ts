@@ -135,7 +135,7 @@ test("creating an existing PR links it and forge actions return fresh status", a
     });
     const calls = (await readFile(join(f.home, "gh-calls"), "utf8")).split("\n");
     expect(calls.some((line) => line.includes('"repos/octo/ace/pulls"'))).toBe(false);
-    expect(f.daemon.store.getThread(threadId)?.details?.linkedPr?.number).toBe(42);
+    expect(f.daemon.store.getThread(threadId)?.details?.linkedPrs?.[0]?.number).toBe(42);
     const link = { threadId, pr: { repository, number: 42 } };
     await f.forgeState({ ci: "success" });
     expect(await f.send({ type: "forge.pr.status", link })).toMatchObject({
@@ -164,7 +164,7 @@ test("creating an existing PR links it and forge actions return fresh status", a
     expect(
       await f.send({ type: "forge.pr.merge", link, headSha: "a".repeat(40), method: "squash" }),
     ).toMatchObject({ ok: true, prStatus: { state: "merged" } });
-    expect(f.daemon.store.getThread(threadId)?.details?.linkedPr?.state).toBe("merged");
+    expect(f.daemon.store.getThread(threadId)?.details?.linkedPrs?.[0]?.state).toBe("merged");
   } finally {
     await f.close();
   }
@@ -223,7 +223,7 @@ test("forge failures retain their categories over sockets and GitLab is refused 
     expect(await f.send({ type: "forge.pr.unlink", threadId, all: true })).toMatchObject({
       ok: true,
     });
-    expect(f.daemon.store.getThread(threadId)?.details?.linkedPr).toBeNull();
+    expect(f.daemon.store.getThread(threadId)?.details?.linkedPrs).toEqual([]);
     f.client.send({
       type: "workspace.request",
       requestId: "unlinked-status",

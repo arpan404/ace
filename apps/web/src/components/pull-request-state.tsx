@@ -1,5 +1,5 @@
 import type { CheckoutPr } from "@ace/ui-core";
-import { GitMergeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitMergeIcon, GitPullRequestIcon } from "@ace/icons";
 
 /** Shared state colours for work-card rows, hover previews and sidebar badges. */
 export const pullRequestTone = (state: CheckoutPr["state"]) =>

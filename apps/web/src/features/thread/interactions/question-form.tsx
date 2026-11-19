@@ -1,9 +1,8 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
-import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { QuestionPager } from "@/components/question-pager.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import type { Answer } from "./answer.ts";
 import { draftAnswers, isAnswered, otherAnswer, type QuestionDraft } from "@ace/ui-core";
@@ -26,6 +25,8 @@ export function QuestionForm(props: {
   aside?: ReactNode;
   questions: readonly Question[];
   disabled: boolean;
+  /** Answers can't go yet (not read whole): only Skip does. */
+  declinesOnly?: boolean | undefined;
   onAnswer: Answer;
 }) {
   const draft = useQuestionDraft(props.interactionId);
@@ -38,7 +39,8 @@ export function QuestionForm(props: {
   const last = index === count - 1;
   const answered = (question: Question | undefined) => isAnswered(question, draft);
   const complete = props.questions.every(answered);
-  const ready = !props.disabled && answered(current) && (!last || complete);
+  const ready =
+    !props.disabled && answered(current) && (!last || (complete && !props.declinesOnly));
   const go = (at: number) => edit((before) => ({ ...before, at }));
   const advance = () => {
     if (!ready) return;
@@ -128,25 +130,7 @@ export function QuestionForm(props: {
       ) : (
         <div className="flex items-center gap-2">
           {count > 1 && (
-            <span className="flex items-center gap-0.5 text-xs text-subtle-foreground tabular-nums">
-              <IconButton
-                size="sm"
-                icon={CaretLeftIcon}
-                label="Previous question"
-                disabled={index === 0}
-                onClick={() => go(index - 1)}
-              />
-              <span aria-label={`Question ${index + 1} of ${count}`}>
-                {index + 1}/{count}
-              </span>
-              <IconButton
-                size="sm"
-                icon={CaretRightIcon}
-                label="Next question"
-                disabled={last || !answered(current)}
-                onClick={() => go(index + 1)}
-              />
-            </span>
+            <QuestionPager index={index} count={count} canNext={answered(current)} onGo={go} />
           )}
           <span className="ml-auto flex items-center gap-1.5">
             <Button
@@ -165,7 +149,13 @@ export function QuestionForm(props: {
               variant="primary"
               disabled={!ready}
               title={
-                ready ? undefined : last && !complete ? "Answer every question" : "Pick an answer"
+                ready
+                  ? undefined
+                  : last && !complete
+                    ? "Answer every question"
+                    : last && props.declinesOnly && answered(current)
+                      ? "Wait for the whole request to load"
+                      : "Pick an answer"
               }
             >
               Continue

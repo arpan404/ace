@@ -7,9 +7,10 @@ import { PageDecoder } from "./resource.ts";
 import { immutable } from "./immutable.ts";
 import { ReviewThreadsPage, ReviewCommentConnection } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
+import { hunkTail } from "./review-hunk.ts";
 
 const pageFields = `pageInfo { hasNextPage endCursor } nodes { databaseId body updatedAt createdAt author { login avatarUrl } }`;
-const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide startDiffSide comments(first:100){${pageFields}}}}}}}`;
+const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide startDiffSide originalLine originalStartLine opener: comments(first:1){nodes{diffHunk originalCommit{oid}}} comments(first:100){${pageFields}}}}}}}`;
 const commentsQuery = `query($id:ID!,$cursor:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$cursor){${pageFields}}}}}`;
 type Query = { query: string; variables: Record<string, string | number | null> };
 type Planned = { key: string; query: Query; page: Page };
@@ -30,6 +31,10 @@ function sameThread(a: SourceThread, b: SourceThread): boolean {
     a.startDiffSide === b.startDiffSide &&
     a.isResolved === b.isResolved &&
     a.isOutdated === b.isOutdated &&
+    a.originalLine === b.originalLine &&
+    a.originalStartLine === b.originalStartLine &&
+    a.opener?.nodes[0]?.diffHunk === b.opener?.nodes[0]?.diffHunk &&
+    a.opener?.nodes[0]?.originalCommit?.oid === b.opener?.nodes[0]?.originalCommit?.oid &&
     a.comments.nodes.length === b.comments.nodes.length &&
     a.comments.nodes.every((item, index) => {
       const previous = b.comments.nodes[index];
@@ -54,6 +59,22 @@ function startSide(
   end: string | null | undefined,
 ): Pick<Thread, "startSide"> {
   return (value === "LEFT" || value === "RIGHT") && value !== end ? { startSide: value } : {};
+}
+/** Where GitHub says the thread was written, with the tail of its hunk; missing parts left out. */
+function origin(
+  thread: SourceThread,
+): Pick<Thread, "hunk" | "originalLine" | "originalStartLine" | "originalCommit"> {
+  const opener = thread.opener?.nodes[0];
+  const hunk = opener?.diffHunk ? hunkTail(opener.diffHunk) : undefined;
+  return Object.assign(
+    {},
+    hunk ? { hunk } : {},
+    typeof thread.originalLine === "number" ? { originalLine: thread.originalLine } : {},
+    typeof thread.originalStartLine === "number"
+      ? { originalStartLine: thread.originalStartLine }
+      : {},
+    opener?.originalCommit ? { originalCommit: opener.originalCommit.oid } : {},
+  );
 }
 /** Bounded query plan avoids traversing every thread on unchanged GraphQL polls. */
 export class ReviewThreadReader {
@@ -155,6 +176,7 @@ export class ReviewThreadReader {
               ...side(thread.diffSide),
               startLine: thread.startLine ?? null,
               ...startSide(thread.startDiffSide, thread.diffSide),
+              ...origin(thread),
               comments: connections.flat().map((comment) =>
                 Object.assign(
                   {

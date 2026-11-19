@@ -29,6 +29,8 @@ export interface ModelControlView {
   placeholder: string;
   unavailable?: string | undefined;
   pickerRequest?: number | undefined;
+  /** The chip opens on the model list rather than Tune (a thread held by a usage limit). */
+  listFirst?: boolean | undefined;
   /** Each increment opens the popover on Tune (the effort slider), as `pickerRequest` the list. */
   tuneRequest?: number | undefined;
   /** The chip's accessible name and tooltip. */
@@ -38,6 +40,7 @@ export interface ModelControlView {
    * A switch to `label` not in effect yet: the model it leaves (the chip reads "Opus 4.1 →
    * Sonnet 4.5"; undefined when only the account changes) and when it applies.
    */
+  switchError?: string | undefined;
   switching?: { from: string | undefined; description: string } | undefined;
   /** Offline: changes still go and apply once the daemon is back; the popover says so. */
   offline?: string | undefined;

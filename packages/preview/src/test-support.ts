@@ -11,6 +11,12 @@ import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
 import { createPreviewGateway, type PreviewChannel } from "./index.ts";
 
+/**
+ * What a paused socket can hold beyond Node's 64 KiB reads. Bun reads a socket up to 512 KiB at
+ * a time whatever its high-water mark, so each paused socket may sit on one such read.
+ */
+export const extraSocketReadBytes = "bun" in process.versions ? 524_288 - 65_536 : 0;
+
 export type HttpResult = { status: number; headers: IncomingHttpHeaders; body: string };
 export async function http(
   url: string,

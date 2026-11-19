@@ -2,16 +2,25 @@ import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
   DeviceMobileIcon,
+  FileIcon,
+  FileTextIcon,
   FilesIcon,
   GitDiffIcon,
   GitPullRequestIcon,
   GlobeSimpleIcon,
   PlusIcon,
   ClipboardTextIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
-import { defineTabKind, PullRequestTabData, type TabKind } from "@/lib/workspace/index.ts";
+import {
+  defineTabKind,
+  filePreviewTabData,
+  filePreviewTabKind,
+  PullRequestTabData,
+  textEditTabKind,
+  type TabKind,
+} from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
@@ -87,6 +96,32 @@ export const filesKind = defineTabKind({
   fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
   onShortcut: (scope) => quickOpen.set(() => scope),
   Overlay: QuickOpenOverlay,
+});
+
+/**
+ * A file outside the checkout (one a message links, an agent saved or a message carried), by its
+ * kind: PDF, video, audio, image, text or its details. Not in the launcher: it opens from the
+ * conversation.
+ */
+export const filePreviewKind = defineTabKind({
+  kind: filePreviewTabKind,
+  label: "File",
+  icon: FileIcon,
+  title: (tab) => filePreviewTabData(tab)?.name ?? tab.title ?? "File",
+  load: () => import("./files/file-preview-tab.tsx"),
+});
+
+/**
+ * Text the composer holds (a long paste), edited beside the thread. The tab lasts as long as
+ * the edit: it is never stored, and nothing brings it back once closed.
+ */
+export const textEditKind = defineTabKind({
+  kind: textEditTabKind,
+  label: "Text",
+  icon: FileTextIcon,
+  title: (tab) => tab.title ?? "Text",
+  reopenable: () => false,
+  load: () => import("./files/text-edit-tab.tsx"),
 });
 
 /**
@@ -215,6 +250,8 @@ export const threadKinds: readonly TabKind[] = [
   changesKind,
   terminalKind,
   filesKind,
+  filePreviewKind,
+  textEditKind,
   browserKind,
   previewKind,
   portKind,

@@ -17,6 +17,7 @@ const remote = z
     fork: z.boolean(),
   })
   .passthrough();
+const RemotePage = z.array(remote).max(100);
 function hosted(host: string, value: unknown): HostedRepository {
   const parsed = remote.safeParse(value);
   if (!parsed.success) throw new ForgeError("invalid_data");
@@ -56,7 +57,7 @@ export class GitHubRepositories {
         signal,
       );
       budget.add(response.bytes);
-      const parsed = z.array(remote).max(100).safeParse(response.body);
+      const parsed = RemotePage.safeParse(response.body);
       if (!parsed.success) throw new ForgeError("invalid_data");
       const rows = parsed.data;
       for (const row of rows) {

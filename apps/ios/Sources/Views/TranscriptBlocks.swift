@@ -1,4 +1,19 @@
 import SwiftUI
+import UIKit
+
+/// An image an answer names, as `native.image` reads it.
+private struct ProseImage: Decodable { let mimeType: String; let data: String }
+
+/// Images answers name, kept while the app runs so a row scrolled back or redrawn shows them
+/// without asking the daemon again; bounded by count and decoded size.
+@MainActor private enum ProseImages {
+    static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 48 << 20
+        return cache
+    }()
+}
 
 /// What a block opens: another thread (a delegated child or a started conversation) or a
 /// native subagent's own lane inside this thread.
@@ -17,6 +32,22 @@ struct TranscriptLinks {
     /// A thread's title as the thread list has it, for a fork's "Forked from" divider; nil when
     /// the list doesn't know it.
     var threadTitle: ((String) -> String?)? = nil
+
+    /// What a row's rendering takes from its links. The closures read the models they close over
+    /// when called, so a body calling one is observed on what it reads; links rebuilt with new
+    /// closures but the same key render a row the same.
+    struct Key: Equatable {
+        var stepsModel: ObjectIdentifier?
+        var stepsScreen: ObjectIdentifier?
+        var stepsEpoch: Int?
+        /// Which optional actions a row can offer.
+        var offers: [Bool]
+    }
+    var key: Key {
+        Key(stepsModel: steps.map { ObjectIdentifier($0.model) }, stepsScreen: steps.map { ObjectIdentifier($0.screen) },
+            stepsEpoch: steps?.epoch,
+            offers: [openMedia != nil, openChanges != nil, openMessage != nil, openAgents != nil, threadStatus != nil, threadTitle != nil])
+    }
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -25,13 +56,28 @@ struct BlockView: View {
     @Bindable var block: BlockModel
     let thread: ThreadModel
     let links: TranscriptLinks
+    @Environment(\.openElsewhere) private var openElsewhere
+    /// Why a subagent on another machine couldn't open just now.
+    @State private var away: String?
     var body: some View {
+        content
+            .alert("Can't open this subagent", isPresented: Binding(get: { away != nil }, set: { if !$0 { away = nil } })) {
+                Button("OK", role: .cancel) { away = nil }
+            } message: { Text(away ?? "") }
+    }
+    @ViewBuilder private var content: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
-        // The live state is the pill over the composer, not a line in the transcript.
-        case "live": EmptyView()
+        case "work":
+            WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
+                .environment(\.pillNames, row.background?.contains(where: \.running) == true ? pillNames : .nothing)
+        case "subagents":
+            if let agents = row.agents {
+                SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open)
+                    .environment(\.pillNames, agents.leavesToPill ? pillNames : .nothing)
+            }
+        // The live state is the pill over the composer; only a compaction also says so here.
+        case "live": if let live = row.live { LiveCompactingRow(live: live) }
         case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
             if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {
@@ -47,18 +93,44 @@ struct BlockView: View {
             }
         case "question": if let question = row.question { QuestionAskedLine(question: question) }
         case "user", "message", "event", "item":
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { BlockItemView(item: item, block: row, links: links) }
                 }
             }
             .environment(\.readMessage, reader)
+            .environment(\.readBubble, bubbleReader)
+            .environment(\.readImage, imageReader)
         default:
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage) }
                 }
             }
+        }
+    }
+    /// What the composer's pill names while it shows (`ThreadFoot`). Read only by a block that
+    /// holds a live fact, so no other block follows the thread's foot; nothing in a feed with no
+    /// model, a subagent's lane, where no pill is drawn.
+    private var pillNames: PillRow.Covers {
+        guard let model = links.steps?.model else { return .nothing }
+        let transfers: TransfersModel = model.transfers
+        let foot: ThreadFoot = ThreadFoot.of(thread, transfers: transfers)
+        return foot.named
+    }
+    /// Where an answer reads an image it names (`native.image`): only a picture the thread itself
+    /// captured before that answer resolves.
+    private var imageReader: (@MainActor (String, String) async -> UIImage?)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id, reference in
+            let key = "\(threadId)|\(id)|\(reference)" as NSString
+            if let kept = ProseImages.cache.object(forKey: key) { return kept }
+            guard let read = try? await model.service(["type": "native.image", "threadId": threadId, "itemId": id, "reference": reference], as: ProseImage.self),
+                  let data = Data(base64Encoded: read.data), let image = UIImage(data: data) else { return nil }
+            let pixels = image.size.width * image.size.height * image.scale * image.scale
+            ProseImages.cache.setObject(image, forKey: key, cost: Int(pixels * 4))
+            return image
         }
     }
     /// Where a long answer reads its whole text: the thread's own model, when the feed has one.
@@ -69,26 +141,41 @@ struct BlockView: View {
             try await model.service(["type": "native.message", "threadId": threadId, "itemId": id], as: MessageText.self).text
         }
     }
+    /// Where a cut bubble reads its whole words: the thread's own model, when the feed has one.
+    private var bubbleReader: (@MainActor (String) async throws -> String)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id in
+            try await model.service(["type": "native.message", "threadId": threadId, "itemId": id, "bubble": true], as: MessageText.self).text
+        }
+    }
     private func open(_ entry: BlockRow.Agents.Entry) {
-        if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
+        // A thread ace delegated to another machine lives there: it opens on that machine or not
+        // at all, never as a thread of this one.
+        if !entry.machine.isEmpty, !entry.threadId.isEmpty, let openElsewhere {
+            away = openElsewhere(entry.machineHost, entry.threadId, entry.machine)
+        } else if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
         else if !entry.agentId.isEmpty { links.openAgent(entry) }
         else { links.openAgents?() }
     }
 }
 
 /// A one-item block's item, observed on its own so streaming text re-renders this row alone: the
-/// person's bubble, the agent's answer, or an event as the bridge decided it.
+/// person's bubble, a brief another thread sent, the agent's answer, or an event as the bridge
+/// decided it.
 private struct BlockItemView: View {
     @Bindable var item: ItemModel
     let block: BlockRow
     let links: TranscriptLinks
     var body: some View {
-        if let event = block.event {
-            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+        if let event = block.event, let sent = event.sent {
+            SentMessageRow(event: event, sent: sent, row: item.row, links: links)
+        } else if let event = block.event {
+            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage, links: links)
         } else if block.kind == "user" {
             UserMessageRow(row: item.row)
         } else if block.kind == "message" {
-            AnswerRow(row: item.row, streaming: block.streaming ?? false, openMessage: links.openMessage)
+            AnswerRow(row: item.row, streaming: block.streaming ?? false, writing: block.writing, openMessage: links.openMessage)
         } else {
             ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage)
         }

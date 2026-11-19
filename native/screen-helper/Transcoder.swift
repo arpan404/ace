@@ -3,7 +3,7 @@ import CoreMedia
 import VideoToolbox
 
 /// `ace-screen-helper --transcode`: re-encodes an H.264 stream another tool already encodes (the
-/// iOS Simulator's, from serve-sim, at its fixed 6 Mbit/s and native size) at the size and bit
+/// iOS Simulator's, from serve-sim, at its own rate and native size) at the size and bit
 /// rate a viewer's link carries, with the Mac's hardware decoder and encoder. The daemon uses it
 /// only while a viewer needs less than the source sends; otherwise the source passes through.
 ///
@@ -16,10 +16,12 @@ enum Transcoder {
 
     static func run() -> Never {
         let output = FileHandle.standardOutput
-        let state = TranscodeState()
-        state.encoder = VideoEncoder(sessionId: "simulator", version: 2,
-            publish: { packet in output.write(packet) }, completed: {}, keyframeInterval: 20)
-        state.encoder.configure(bitrate: 6_000_000, fps: 60)
+        var state: TranscodeState!
+        let encoder = VideoEncoder(sessionId: "simulator", version: 2,
+            publish: { packet in output.write(packet) },
+            completed: { queue.async { state.completed() } }, keyframeInterval: 20)
+        encoder.configure(bitrate: 6_000_000, fps: 60)
+        state = TranscodeState(encoder: encoder, now: { DispatchTime.now().uptimeNanoseconds })
         let input = FileHandle.standardInput
         var pending = Data()
         while true {
@@ -50,9 +52,22 @@ enum Transcoder {
     }
 }
 
-/// Decoder, scaler and encoder for one stream; used only on the transcoder's queue.
-private final class TranscodeState {
-    var encoder: VideoEncoder!
+/// A decoded picture waiting to be encoded.
+struct TranscodePicture {
+    let image: CVPixelBuffer
+    let seq: UInt64
+    let ts: Double
+}
+
+/// Decoder, scaler and encoder for one stream; used only on the transcoder's queue. While the
+/// encoder is busy the newest decoded picture waits and goes in when it completes (`completed`),
+/// so the last change before the Simulator goes still is never lost. A keyframe request or a new
+/// size encodes the last picture again: a still screen sends nothing that would carry them.
+final class TranscodeState {
+    private let encoder: VideoEncoding
+    private let now: () -> UInt64
+    private var frames: LatestVideoFrames<TranscodePicture>!
+    private var last: TranscodePicture?
     private var format: CMVideoFormatDescription?
     private var parameterSets: [Data] = []
     private var decoder: VTDecompressionSession?
@@ -61,16 +76,35 @@ private final class TranscodeState {
     private var maxWidth = 3840, maxHeight = 3840
     private var decoded: (CVPixelBuffer, UInt64, Double)?
 
+    init(encoder: VideoEncoding, now: @escaping () -> UInt64) {
+        self.encoder = encoder
+        self.now = now
+        frames = LatestVideoFrames { [unowned self] picture in self.submit(picture) }
+    }
+
+    /// The encoder finished a picture (or rate control dropped it): the waiting one goes in.
+    func completed() { frames.completed() }
+
+    /// A decoded picture from serve-sim's stream.
+    func picture(_ image: CVPixelBuffer, seq: UInt64, ts: Double) {
+        let picture = TranscodePicture(image: image, seq: seq, ts: ts)
+        last = picture
+        frames.offer(picture)
+    }
+
     func handle(_ header: [String: Any], _ payload: Data) {
         switch header["op"] as? String {
         case "settings":
             if let bitrate = (header["bitrate"] as? NSNumber)?.intValue, (128_000...40_000_000).contains(bitrate) {
                 encoder.retune(bitrate: bitrate)
             }
+            let box = (maxWidth, maxHeight)
             if let width = (header["maxWidth"] as? NSNumber)?.intValue, (64...3840).contains(width) { maxWidth = width }
             if let height = (header["maxHeight"] as? NSNumber)?.intValue, (64...3840).contains(height) { maxHeight = height }
+            if box != (maxWidth, maxHeight) { replay() }
         case "keyframe":
             encoder.requestKeyframe()
+            replay()
         case "frame":
             let seq = (header["seq"] as? NSNumber)?.uint64Value ?? 0
             let ts = (header["ts"] as? NSNumber)?.doubleValue ?? 0
@@ -128,7 +162,7 @@ private final class TranscodeState {
             self.decoded = (image, seq, ts)
         }
         if status != noErr { encoder.requestKeyframe(); return }
-        if let (image, seq, ts) = decoded { encode(image, seq: seq, ts: ts) }
+        if let (image, seq, ts) = decoded { picture(image, seq: seq, ts: ts) }
     }
 
     private func configureDecoder(_ sets: [Data]) {
@@ -158,15 +192,21 @@ private final class TranscodeState {
         encoder.requestKeyframe()
     }
 
+    /// The last picture again, for a keyframe or a new size that no new picture may bring.
+    private func replay() {
+        if let last { frames.offer(last) }
+    }
+
     /// The picture fitted inside the viewer's box (never larger than it came), then encoded.
-    private func encode(_ image: CVPixelBuffer, seq: UInt64, ts: Double) {
-        if encoder.busyNow { return }
+    private func submit(_ next: TranscodePicture) -> VideoEncodeResult {
+        if encoder.busyNow { return .busy }
+        let image = next.image
         let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image)
         let scale = min(1, Double(maxWidth) / Double(width), Double(maxHeight) / Double(height))
         let target = (width: max(64, Int(Double(width) * scale) & ~1), height: max(64, Int(Double(height) * scale) & ~1))
         var picture = image
         if target.width != width || target.height != height, let scaled = fitted(image, to: target) { picture = scaled }
-        _ = encoder.encode(picture, sequence: seq, timestamp: ts, scale: 1, at: DispatchTime.now().uptimeNanoseconds)
+        return encoder.encode(picture, sequence: next.seq, timestamp: next.ts, scale: 1, at: now(), quality: .motion)
     }
 
     private func fitted(_ image: CVPixelBuffer, to size: (width: Int, height: Int)) -> CVPixelBuffer? {
@@ -192,6 +232,8 @@ private final class TranscodeState {
     }
 
     func close() {
+        frames.clear()
+        last = nil
         if let decoder { VTDecompressionSessionInvalidate(decoder) }
         if let transfer { VTPixelTransferSessionInvalidate(transfer) }
         encoder.close()

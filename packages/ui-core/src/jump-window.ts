@@ -241,6 +241,21 @@ export function meetsTail(window: JumpWindow, tail: TailEdge): boolean {
   return window.items.some((item) => ids.has(item.id));
 }
 
+/**
+ * Whether the tail holds every item of the window's transcript, so showing the tail alone
+ * drops none of the window's rows. A window grown by older history reaches past the tail.
+ */
+export function tailCovers(window: JumpWindow, tail: TailEdge): boolean {
+  const from = tailLaneBefore(tail);
+  if (from === null) return true;
+  const first = window.items[0];
+  if (!first) return true;
+  const firstSeq = window.seqs.get(first.id);
+  if (typeof from === "number" && firstSeq !== undefined) return firstSeq >= from;
+  const ids = new Set(tail.order);
+  return window.items.every((item) => ids.has(item.id));
+}
+
 /** Whether the window holds this item. */
 export function windowHas(window: JumpWindow, itemId: string): boolean {
   return window.seqs.has(itemId);

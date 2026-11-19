@@ -1,7 +1,20 @@
 import { findOpenCodeExecutable } from "./opencode-executable.ts";
 export { findOpenCodeExecutable } from "./opencode-executable.ts";
-import { findExecutable } from "./executable.ts";
+import { VersionManagerShimError } from "./version-manager-shim.ts";
+import { findInstalledExecutable } from "./shim-resolver.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
+export { findWindowsExecutableSync } from "./executable.ts";
+export {
+  versionManagerShim,
+  VersionManagerShimError,
+  VersionManagerToolMissingError,
+  type VersionManager,
+} from "./version-manager-shim.ts";
+export {
+  findInstalledExecutable,
+  launchableExecutable,
+  type InstalledExecutable,
+} from "./shim-resolver.ts";
 import { z } from "zod";
 import { checkCli } from "../cli-requirements.ts";
 import { probeOutput } from "../process.ts";
@@ -67,6 +80,8 @@ export function defaultProviderExecutable(provider: Provider | "pi" | "antigravi
 
 function probeError(label: string, error: unknown): string {
   // Exception messages and CLI stderr can contain credentials or identities.
+  if (error instanceof VersionManagerShimError)
+    return `${label} skipped: the CLI is a ${error.manager} shim, which can install or update it when run`;
   return error instanceof Error && error.message === "Probe timed out"
     ? `${label} timed out`
     : `${label} failed`;
@@ -77,10 +92,25 @@ export async function discoverProvider(
   input: Provider,
   options: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
+  return (await locateProvider(input, options)).discovered;
+}
+
+/**
+ * The same probes as `discoverProvider`, answered in two stages. `located` comes as soon as the
+ * CLI's path and version are read, with its login still `unknown`: enough to register an
+ * adapter. `discovered` is the full result, login included, which can take far longer (OpenCode
+ * reads its login status for most of a second).
+ */
+export async function locateProvider(
+  input: Provider,
+  options: DiscoveryOptions = {},
+): Promise<{ located: DiscoveryResult; discovered: Promise<DiscoveryResult> }> {
   options.signal?.throwIfAborted();
   const provider = ProviderSchema.parse(input);
-  if (provider === "cursor")
-    return { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" };
+  if (provider === "cursor") {
+    const absent = { installed: false, auth: "unknown" as const, loginHint: "Sign in to Cursor" };
+    return { located: absent, discovered: Promise.resolve({ ...absent }) };
+  }
   const env = { ...process.env, ...options.env };
   const spec = specs[provider];
   const result: DiscoveryResult = {
@@ -93,48 +123,73 @@ export async function discoverProvider(
     provider === "opencode"
       ? await findOpenCodeExecutable(command, { ...options, env })
       : undefined;
-  const path = provider === "opencode" ? opencode?.path : await findExecutable(command, env);
+  const found =
+    provider === "opencode"
+      ? opencode && { path: opencode.path, run: opencode.path }
+      : await findInstalledExecutable(
+          command,
+          env,
+          options.signal ? { signal: options.signal } : {},
+        );
   options.signal?.throwIfAborted();
-  if (!path) return result;
+  // A shim whose manager reports no installed tool is not an installed CLI.
+  if (!found || "absent" in found)
+    return { located: result, discovered: Promise.resolve({ ...result }) };
+  const path = "run" in found ? found.run : found.path;
   result.installed = true;
-  result.path = path;
+  result.path = found.path;
   const probeOptions = {
     env,
     timeoutMs: options.timeoutMs ?? 10_000,
     ...(options.signal ? { signal: options.signal } : {}),
   };
-  const [version, auth] = await Promise.allSettled([
+  const auth = settle((options.probe ?? probeOutput)(path, spec.authArgs, probeOptions));
+  const version = await settle(
     opencode
       ? Promise.resolve({ code: 0, stdout: opencode.version, stderr: "" })
       : (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
-    (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
-  ]);
+  );
   options.signal?.throwIfAborted();
-  const errors: string[] = [];
+  const versionErrors: string[] = [];
   if (version.status === "fulfilled" && version.value.code === 0) {
     const parsed = parseVersion(provider, version.value.stdout);
     if (parsed) result.version = parsed;
-    else errors.push("Unrecognized version output");
+    else versionErrors.push("Unrecognized version output");
   } else
-    errors.push(
+    versionErrors.push(
       version.status === "rejected"
         ? probeError("Version probe", version.reason)
         : "Version probe exited unsuccessfully",
     );
-  if (auth.status === "fulfilled") {
-    const parsed = spec.parse(auth.value.stdout || auth.value.stderr);
-    if (auth.value.code === 0 || (auth.value.code === 1 && parsed.auth === "logged_out"))
-      Object.assign(result, parsed);
-    if (result.auth === "unknown" && result.authEvidence !== "credentials_configured")
-      errors.push(
-        auth.value.code === 0
-          ? "Unrecognized auth status output"
-          : "Authentication probe exited unsuccessfully",
-      );
-  } else errors.push(probeError("Authentication probe", auth.reason));
   result.versionCheck = checkCli(provider, result.version);
-  if (errors.length) result.error = errors.join("; ");
-  return result;
+  const located: DiscoveryResult = { ...result };
+  if (versionErrors.length) located.error = versionErrors.join("; ");
+  const discovered = auth.then((reading) => {
+    options.signal?.throwIfAborted();
+    const full: DiscoveryResult = { ...result };
+    const errors = [...versionErrors];
+    if (reading.status === "fulfilled") {
+      const parsed = spec.parse(reading.value.stdout || reading.value.stderr);
+      if (reading.value.code === 0 || (reading.value.code === 1 && parsed.auth === "logged_out"))
+        Object.assign(full, parsed);
+      if (full.auth === "unknown" && full.authEvidence !== "credentials_configured")
+        errors.push(
+          reading.value.code === 0
+            ? "Unrecognized auth status output"
+            : "Authentication probe exited unsuccessfully",
+        );
+    } else errors.push(probeError("Authentication probe", reading.reason));
+    if (errors.length) full.error = errors.join("; ");
+    return full;
+  });
+  return { located, discovered };
+}
+
+function settle<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return promise.then(
+    (value) => ({ status: "fulfilled", value }),
+    (reason: unknown) => ({ status: "rejected", reason }),
+  );
 }
 
 export async function discoverProviders(
@@ -154,7 +209,8 @@ export async function discoverAntigravity(
   options: DiscoveryOptions & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const env = { ...process.env, ...options.env };
-  const path = await findExecutable(options.executable ?? "agy_acp_server", env);
+  const found = await findInstalledExecutable(options.executable ?? "agy_acp_server", env);
+  const path = found && !("absent" in found) ? found.path : undefined;
   const result: DiscoveryResult = {
     installed: Boolean(path),
     auth: "unknown",
@@ -182,6 +238,7 @@ export async function discoverAntigravity(
 }
 
 export { discoverPi } from "./pi.ts";
+export { startupProbes, type StartupProbes } from "./startup-probes.ts";
 export { discoverPiStatus } from "./pi-status.ts";
 export { piSdkEntry, piCredentialProviders, PiProviderId } from "./pi-sdk.ts";
 export {

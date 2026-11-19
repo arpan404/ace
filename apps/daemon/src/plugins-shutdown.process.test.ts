@@ -11,6 +11,7 @@ import { DeviceId } from "@ace/protocol";
 import { startDaemon, readConfig } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 import { acquireLock } from "./local-files.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 test.each(["within deadline", "beyond deadline"] as const)(
   "daemon shutdown %s preserves a socket preparation still draining its Git cleanup",
@@ -66,6 +67,7 @@ test.each(["within deadline", "beyond deadline"] as const)(
     try {
       const home = join(root, "daemon");
       daemon = await startDaemon({
+        engine: noProviderDiscovery,
         config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
         modelInstances: [],
         history: { instances: [] },

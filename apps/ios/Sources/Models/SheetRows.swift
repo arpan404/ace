@@ -1,6 +1,35 @@
 import Foundation
 
 /// The Agents sheet as `@ace/ui-core/mobile` shaped it. Swift draws it; it never derives status.
+/// A native subagent as its lane inspects it (`subagentInspection` in ui-core): every word,
+/// state and control is the bridge's.
+struct SubagentInfo: Codable, Sendable, Equatable {
+    struct Parent: Codable, Sendable, Equatable { let agentId: String?; let name: String }
+    /// What the parent asked, drawn as the person's bubble.
+    struct Prompt: Codable, Sendable, Equatable { let bubble: BubbleLine; let at: Double }
+    /// Ask parent to retry; `asked` is "pending", "queued" or "sent" once asked about this ending.
+    struct Retry: Codable, Sendable, Equatable { let label: String; let asked: String? }
+    let agentId: String
+    let name: String
+    let provider: String
+    let model: String
+    let parent: Parent
+    let prompt: Prompt?
+    /// running, human, stalled, done, failed or stopped.
+    let phase: String
+    let status: StatusDisplay
+    /// At work right now, so its time ticks; a branch that only waits never reads as working.
+    let working: Bool
+    let startedAt: Double
+    let endedAt: Double?
+    let requests: [String]
+    let descendants: Int
+    let stoppable: Bool
+    let retry: Retry?
+    let parentBusy: Bool
+}
+
+
 struct AgentSheet: Codable, Sendable, Equatable {
     struct Row: Codable, Sendable, Equatable, Identifiable {
         let id: String
@@ -20,7 +49,35 @@ struct AgentSheet: Codable, Sendable, Equatable {
         let background: Bool
         let createdAt: Double
         let endedAt: Double?
+        /// The provider it runs on, for its mark; nil from older bridges.
+        var provider: String? = nil
+        /// The model in words ("Opus 5.5").
+        var modelLabel: String? = nil
+        var role: String? = nil
+        /// The paired machine it runs on, when that is another one.
+        var machine: String? = nil
+        /// Why it stopped or can't go on ("ran out of usage").
+        var reason: String? = nil
+        var icon: Icon? = nil
+        /// Its own requests the person can answer from the tree, oldest first.
+        var requests: [String]? = nil
+        /// A child on another machine whose pairing is gone: the sentence and Stop tracking.
+        var lost: Lost? = nil
     }
+    /// What a lost child's row offers (`lostChildAsk`): the daemon's sentence, and the action that
+    /// answers its parent's request with `optionId`; `label` is the option's own words.
+    struct Lost: Codable, Sendable, Equatable {
+        let interactionId: String
+        let childThreadId: String
+        let sentence: String
+        let action: String
+        let label: String
+        let optionId: String
+    }
+    /// A tree node's status icon in the inbox row's set (`RowStatusIcon`); a nil kind draws none.
+    struct Icon: Codable, Sendable, Equatable { let kind: String?; let tone: String; let count: Int? }
+    /// The one sentence over the whole tree, and the token that colours its icon.
+    struct Summary: Codable, Sendable, Equatable { let text: String; let token: String }
     struct BackgroundTask: Codable, Sendable, Equatable, Identifiable {
         let id: String
         let agentId: String
@@ -43,13 +100,22 @@ struct AgentSheet: Codable, Sendable, Equatable {
     let totals: Totals
     let context: Context?
     let treeRunning: Bool
+    var summary: Summary? = nil
 }
 
 /// The Changes sheet's file list and next step, read by the bridge from the daemon's guarded git.
 struct ChangesSummary: Codable, Sendable, Equatable {
+    let canRequestReview: Bool?
+    /// "Open on GitLab": the link out to the review's host; nil from older bridges.
+    let openOn: String?
     struct File: Codable, Sendable, Equatable, Identifiable {
         let path: String; let from: String?; let status: String
         let additions: Int; let deletions: Int; let binary: Bool
+        /// False for a turn's file not diffed yet; its counts read 0 until it is opened.
+        var counted: Bool?
+        /// Marked viewed at this exact diff version.
+        var viewed: Bool?
+        var open: Bool?
         var id: String { path }
     }
     struct Totals: Codable, Sendable, Equatable { let files: Int; let additions: Int; let deletions: Int }
@@ -61,6 +127,8 @@ struct ChangesSummary: Codable, Sendable, Equatable {
         let detail: String
         let blocked: String?
         let pr: PullRequest?
+        /// "Opens on GitLab · acme/ace", for a new PR when the project uses several repositories.
+        var opensOn: String? = nil
     }
     /// `loading`, `ready` or `error` (with the daemon's refusal code in `message`).
     let state: String
@@ -75,6 +143,24 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     let busy: Bool
     /// Merge methods to pick from; the first is the default until the person picks one.
     let methods: [MergeMethodOption]?
+    /// The scope shown and the menu of scopes (Uncommitted, Last turn, This thread, Turn N).
+    let scope: ChangesScope?
+    let scopes: [ChangesScope]?
+    /// Paths open now, in opening order, and how many may be open at once.
+    let open: [String]?
+    let openLimit: Int?
+    /// `unified` or `split`, kept on this phone.
+    let layout: String?
+    /// Whether the scope shown takes line comments, and why not in words.
+    struct Review: Codable, Sendable, Equatable { let allowed: Bool; let reason: String }
+    let review: Review?
+    /// Files viewed at their current diff, of every non-binary file in the scope (listed or
+    /// not); nil from older bridges.
+    struct Progress: Codable, Sendable, Equatable {
+        let viewed: Int; let files: Int
+        var fraction: Double { files == 0 ? 0 : Double(min(viewed, files)) / Double(files) }
+    }
+    let progress: Progress?
 }
 
 /// One file's unified diff within the shared budget; `truncated` sends the rest to the computer.

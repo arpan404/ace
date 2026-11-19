@@ -14,6 +14,7 @@ import { invoke } from "./browser-mcp-test-support.ts";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const Result = z.object({
   result: z.object({
@@ -27,6 +28,7 @@ async function setup() {
   const home = await mkdtemp(join(tmpdir(), "ace-native-selection-"));
   const headless = new FakeHeadless();
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     browser: { headlessBackend: headless },
   });

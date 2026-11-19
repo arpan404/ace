@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
@@ -10,7 +10,54 @@ import { harness } from "../replay.ts";
 import { object } from "../data.ts";
 export const cli = fileURLToPath(new URL("./cli-v2.mjs", import.meta.url));
 const owners: ReturnType<typeof createOpenCodeAdapter>[] = [];
+const startupPaths = new Set(["/api/info", "/openapi.json", "/api/event"]);
 const homes: string[] = [];
+/** The test closes this adapter itself, as when its server's stop is meant to fail. */
+export function ownClose(adapter: ReturnType<typeof createOpenCodeAdapter>): void {
+  const index = owners.indexOf(adapter);
+  if (index !== -1) owners.splice(index, 1);
+}
+/**
+ * One local shell command the fake server at `origin` runs for `sessionID`, as OpenCode runs a
+ * tool: after every plugin's `tool.execute.before`. What the real child process it spawned
+ * saw, or the refusal that kept it from running.
+ */
+export async function shellOutcome(
+  transport: { url: string; authorization: string },
+  sessionID: string,
+): Promise<{ env: Record<string, string> } | { refused: string }> {
+  const directory = await mkdtemp(join(tmpdir(), "ace-opencode-shell-"));
+  try {
+    const file = join(directory, "env.json");
+    const response = await fetch(new URL("/test/shell", transport.url), {
+      method: "POST",
+      headers: { authorization: transport.authorization, "content-type": "application/json" },
+      body: JSON.stringify({ sessionID, file }),
+    });
+    if (!response.ok) throw new Error("The fake shell did not run");
+    const refused = object(await response.json()).refused;
+    if (typeof refused === "string") return { refused };
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return {
+      env: Object.fromEntries(
+        Object.entries(object(parsed)).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      ),
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+/** What one local shell command sees; throws when the gate refused it. */
+export async function shellEnvironment(
+  transport: { url: string; authorization: string },
+  sessionID: string,
+): Promise<Record<string, string>> {
+  const outcome = await shellOutcome(transport, sessionID);
+  if ("refused" in outcome) throw new Error(`The shell was refused: ${outcome.refused}`);
+  return outcome.env;
+}
 export function deferred<T>() {
   return Promise.withResolvers<T>();
 }
@@ -72,7 +119,7 @@ export async function setup(
       discover: async () => ({
         opencode: {
           installed: true,
-          path: cli,
+          path: extra.discovery?.overrides?.opencode ?? cli,
           version,
           auth: "unknown",
           loginHint: "opencode auth login",
@@ -85,8 +132,11 @@ export async function setup(
         const url = new URL(
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
         );
-        origin = url.origin;
-        authorization = new Headers(init?.headers).get("authorization") ?? "";
+        // Startup requests alone may come from a spare server no session has used yet.
+        if (!startupPaths.has(url.pathname)) {
+          origin = url.origin;
+          authorization = new Headers(init?.headers).get("authorization") ?? "";
+        }
         return network(input, init);
       },
     },

@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputerDriveResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "driver": {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDriver.json"
+    },
+    "error": {
+      "enum": [
+        "forbidden",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "handback": {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerHandback.json"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/CoworkSharing.json"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "stopped": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "spade.computer.drive.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

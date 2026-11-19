@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
@@ -7,15 +7,16 @@ import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { BackLabel } from "@/components/back-label.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { backLabel, useBackToList } from "./back-to-list.ts";
 import { cachedRow } from "./lists.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** The PR view arrives with its page, never with the app's first paint. */
 const PrDetail = lazy(() => loadPrDetail().then((module) => ({ default: module.PrDetail })));
 
-const tabs = ["summary", "timeline", "code"] as const;
+const tabs = ["summary", "timeline", "code", "checks"] as const;
 export type PullRequestTab = (typeof tabs)[number];
 
 /**
@@ -33,43 +34,51 @@ export function PullRequestPage(props: {
   onTab(tab: PullRequestTab | undefined): void;
 }) {
   const { project } = props;
-  const choice = useProjectChoice(project);
+  const choice = { name: useProjectName() };
   const navigate = useNavigate();
-  const back = useBackToList("/pulls", project, props.back);
+  const back = useBackToList("/pulls", props.back);
   const cache = useQueryClient();
   // The list's row for this PR, if one was read: the page shows it at once while the rest loads.
-  const seed = cachedRow(cache, project, "prList", props.number, repositoryFromParam(props.repo));
+  const repository = repositoryFromParam(props.repo);
+  const seed = cachedRow(cache, project, "prList", props.number, repository);
   const seen = useRef<string | undefined>(undefined);
+  // The PR's state, once read, is the page's `data-variant` (a merged PR can look settled).
+  const [shownState, setShownState] = useState<string | undefined>(seed?.state);
   // A PR that merged, closed or reopened here moves between the list's states: read it again.
   const onState = useCallback(
     (state: string) => {
       if (seen.current !== undefined && seen.current !== state)
         void cache.invalidateQueries({ queryKey: ["forge", project, "browse"] });
       seen.current = state;
+      setShownState(state);
     },
     [cache, project],
   );
-  const open = (number: number, repository?: ForgeRepository) =>
+  const open = (number: number, target?: ForgeRepository) =>
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
       search: {
-        ...(repository
-          ? { repo: repositoryParam(repository) }
-          : props.repo
-            ? { repo: props.repo }
-            : {}),
+        ...(target ? { repo: repositoryParam(target) } : props.repo ? { repo: props.repo } : {}),
         ...(props.back !== undefined ? { back: props.back } : {}),
       },
     });
   return (
-    <Screen title={`#${props.number}`} crumb={choice.name(project)}>
+    <Screen
+      title={`#${props.number}`}
+      crumb={choice.name(project)}
+      // Its Code tab is the review of its changes.
+      page={props.tab === "code" ? "review" : "pull"}
+      pageVariant={shownState}
+    >
       <BackLabel value={backLabel(props.back, "Pull requests")}>
         <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
           <IssuePages project={project}>
             <Suspense
               fallback={
-                <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
+                <div
+                  className={`h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem] ${sceneThrough}`}
+                >
                   <PrPageSkeleton
                     number={props.number}
                     seed={seed}
@@ -82,7 +91,7 @@ export function PullRequestPage(props: {
               <PrDetail
                 key={`${project}:${props.repo ?? ""}#${props.number}`}
                 workspaceId={project}
-                repository={repositoryFromParam(props.repo)}
+                repository={repository}
                 number={props.number}
                 seed={seed}
                 tab={props.tab ?? "summary"}

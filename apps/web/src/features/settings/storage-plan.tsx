@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StorageApply, StorageCompaction, StoragePlan } from "@ace/protocol";
+import type { StorageApply, StoragePlan } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -13,10 +13,10 @@ import {
   SettingFooter,
   SettingList,
   SettingNote,
-  SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
-import { storageBytes, storageReasons } from "./storage-copy.ts";
+import { itemCount, storageReasons } from "@ace/ui-core/host-care";
+import { formatBytes } from "@ace/ui-core/byte-size";
 
 export function StoragePlanPreview(props: {
   plan: StoragePlan;
@@ -32,10 +32,16 @@ export function StoragePlanPreview(props: {
   const protectedItems = props.plan.items.filter((item) => item.disposition === "protect");
   const finished = props.result?.state === "complete" || props.result?.state === "stale";
   return (
-    <SettingSection label="Cleanup preview">
+    <SettingSection
+      label={
+        props.plan.retention.worktreeMode === "all_settled"
+          ? "Worktree deletion preview"
+          : "Cleanup preview"
+      }
+    >
       {props.plan.items.length > 0 ? (
         <SettingNote>
-          {remove.length} items to remove · {storageBytes(props.plan.bytes)} of data.{" "}
+          {itemCount(remove.length)} to remove · {formatBytes(props.plan.bytes)} of data.{" "}
           {protectedItems.length} protected.
           {!props.plan.complete &&
             " This is a bounded batch. Preview again after cleanup to find more data."}
@@ -43,7 +49,7 @@ export function StoragePlanPreview(props: {
       ) : (
         // Nothing found: say so, with no summary of zeros and no action that can't run.
         <SettingNote role="status" className="py-5 text-center">
-          Nothing to clean up. No data was found in these storage categories.
+          Nothing to clean up.
         </SettingNote>
       )}
       {props.plan.items.length > 0 && (
@@ -59,7 +65,7 @@ export function StoragePlanPreview(props: {
                 <div className="flex items-start justify-between gap-3 text-sm">
                   <span className="min-w-0 break-all font-medium">{item.label}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {storageBytes(item.bytes)}
+                    {formatBytes(item.bytes)}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -128,14 +134,14 @@ export function StoragePlanPreview(props: {
               ? "Cleaning…"
               : props.result?.state === "pending"
                 ? "Resume cleanup"
-                : `Remove ${remove.length} items`}
+                : `Remove ${itemCount(remove.length)}`}
           </Button>
         </SettingFooter>
       )}
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove {remove.length} items?</DialogTitle>
+            <DialogTitle>Remove {itemCount(remove.length)}?</DialogTitle>
             <DialogDescription>
               The listed data will be permanently removed. ace checks the plan again and keeps
               anything that has changed or is protected.
@@ -158,54 +164,5 @@ export function StoragePlanPreview(props: {
         </DialogContent>
       </Dialog>
     </SettingSection>
-  );
-}
-
-/**
- * Incremental database compaction, as a row of the Usage card: its state reads under the title
- * and its actions sit where a row's control does. There is no full rebuild to confirm.
- */
-export function StorageCompactAction(props: {
-  result?: StorageCompaction | undefined;
-  busy: boolean;
-  disabled: boolean;
-  onCompact(): void;
-  onAbandon(id: string): void;
-}) {
-  const result = props.result;
-  const status = !result
-    ? undefined
-    : result.incrementalUnavailable
-      ? "This database was created before compaction was available and can't shrink in place."
-      : result.state === "complete"
-        ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
-        : result.state === "pending"
-          ? "Compaction paused. Resume to continue."
-          : "Compaction stopped.";
-  return (
-    <SettingRow
-      title="Compaction"
-      description={status && <span role="status">{status}</span>}
-      inline
-    >
-      {result?.state === "pending" && (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={props.busy || props.disabled}
-          onClick={() => props.onAbandon(result.id)}
-        >
-          Stop compaction
-        </Button>
-      )}
-      <Button
-        size="sm"
-        variant="secondary"
-        disabled={props.busy || props.disabled}
-        onClick={props.onCompact}
-      >
-        {result?.state === "pending" ? "Resume compaction" : "Compact database"}
-      </Button>
-    </SettingRow>
   );
 }

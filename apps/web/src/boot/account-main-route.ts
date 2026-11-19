@@ -1,0 +1,126 @@
+import { machineCodeGate, relayRoute } from "@ace/client";
+import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
+import type { AccountMachineOptions } from "@ace/client-worker/machines";
+import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  accountFetch,
+  accountOrigin,
+  accountSessionKey,
+  sameAccountOrigin,
+  windowAccountSession,
+} from "./account-config.ts";
+import { accountMachineClient, accountMachineOptions } from "./account-machine-options.ts";
+import { accountSecret } from "./account-secret.ts";
+import type { AccountMainMachine, AccountMainRoute, AccountRouteSource } from "./main-machine.ts";
+import { accountPinnedGrant, trackedGrant } from "./tracked-grant.ts";
+
+const schedule = (callback: () => void, delayMs: number) => {
+  const timer = setTimeout(callback, delayMs);
+  return () => clearTimeout(timer);
+};
+
+/**
+ * One account machine's route as this window's machine: its machine code gate, kept across
+ * attempts so a code typed on the connection screen goes with the next one, and a client per
+ * attempt, through ace's relay pinned to its host id, with a fresh grant each time it dials.
+ */
+export function accountMainRoute(
+  machine: AccountMainMachine,
+  options: Pick<
+    AccountMachineOptions,
+    "relayUrl" | "aceClient" | "deviceId" | "grant" | "socket" | "client"
+  >,
+): AccountMainRoute {
+  const grants = trackedGrant(() => options.grant());
+  const code = machineCodeGate(() => grants.grant());
+  return {
+    code,
+    deviceId: options.deviceId,
+    grantProblem: grants.problem,
+    client() {
+      const route = relayRoute({
+        relayUrl: options.relayUrl,
+        aceClient: options.aceClient,
+        hostId: machine.hostId,
+        credential: () => code.credential(),
+        socket: options.socket,
+        schedule,
+        refused: (reason, _message, lockedUntil) => code.refused(reason, lockedUntil),
+        welcomed: () => code.welcomed(),
+      });
+      return options.client({
+        hostId: machine.hostId,
+        deviceId: options.deviceId,
+        transport: route.transport,
+        credential: route.credential,
+        grant: () => grants.grant(),
+      });
+    },
+  };
+}
+
+/**
+ * How this window opens a machine on the ace account as its own (ADR 0111), with the account
+ * options the machine pool uses. The desktop app keeps the ace session in its own secure store
+ * and copies it into the window only once Settings has restored it, so before the first grant
+ * the window takes it from there itself. Loaded on demand (`main.tsx`). Without ace accounts in this build, or for a machine
+ * chosen on another account backend, there is no route.
+ */
+export function browserAccountRoutes(options: {
+  storage: KeyValueStorage;
+  session: KeyValueStorage;
+  /** The desktop app's secure store of ace sessions; found on `window.ace` when omitted. */
+  secure?: ReturnType<typeof accountSecret>;
+}): AccountRouteSource {
+  return async (machine) => {
+    const origin = accountOrigin();
+    const account = accountMachineOptions(options);
+    // A machine chosen on a former address of ace's backend is on the same backend.
+    if (!origin || !account || !sameAccountOrigin(origin, machine.origin)) return undefined;
+    const secure = "secure" in options ? options.secure : accountSecret();
+    const key = accountSessionKey(origin);
+    const backend = aceAccountClient({
+      origin,
+      fetch: accountFetch(origin),
+    });
+    const restore = async () => {
+      if (!secure || windowAccountSession(options.session, origin) !== null) return;
+      const token = await secure.read(origin).catch(() => null);
+      if (!token) return;
+      const session = await backend.session(token, AbortSignal.timeout(15_000));
+      options.session.setItem(key, JSON.stringify({ ...session, token }));
+    };
+    // Only while the window holds the account the machine was chosen on: under another one the
+    // relay would turn it away, and the screen should say which account it is on instead.
+    const pinned = accountPinnedGrant(
+      machine.accountId,
+      async () => {
+        await restore();
+        return windowAccountSession(options.session, origin)?.account.id;
+      },
+      () => account.grant(),
+    );
+    const grant = async () => {
+      try {
+        return await pinned();
+      } catch (error) {
+        // The session ended: this window is signed out everywhere, not only for this machine.
+        if (error instanceof AceAccountError && error.status === 401) {
+          options.session.removeItem?.(key);
+          await secure?.write(origin, null).catch(() => {});
+        }
+        throw error;
+      }
+    };
+    // The window takes its session first, so the machine's client is made for the account it
+    // holds (its outbox and its account check) rather than for none. Out of reach, the grant
+    // tries again. Another account than the machine's is the grant's to turn away.
+    await restore().catch(() => {});
+    const owner = windowAccountSession(options.session, origin)?.account.id;
+    return accountMainRoute(machine, {
+      ...account,
+      grant,
+      client: (route) => accountMachineClient(options.session, origin, owner, route),
+    });
+  };
+}

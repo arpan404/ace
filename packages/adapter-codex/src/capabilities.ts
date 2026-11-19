@@ -38,6 +38,8 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
       format: "codex",
       documents: [],
       embeddedContext: false,
+      // `turn/start` input is an ordered `UserInput[]` (text, localImage, ...).
+      interleaved: true,
       maxInlineBytes: 4 * 1024 * 1024,
     },
     rewindFiles: false,

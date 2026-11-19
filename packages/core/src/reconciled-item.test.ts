@@ -71,14 +71,15 @@ test("late output cannot attach a live shell task to a completed item", () => {
   expect(h.view.status.state).toBe("done");
   expect(Object.values(h.view.tasks)).toEqual([]);
 });
-test("output for a missing shell after turn end creates live work until completion", () => {
+test("output for a missing shell after turn end creates running work until completion", () => {
   const h = harness();
   h.see();
   h.start();
   h.end();
   h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "late" });
   h.background();
-  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.view.status).toEqual({ state: "done" });
+  expect(h.task("task")?.status).toBe("running");
   h.send({
     type: "item.reconciled",
     agent: "root",

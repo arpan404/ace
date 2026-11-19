@@ -1,0 +1,8 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.codecs",
+    "source": "source-1",
+    "codecs": ["value"]
+  }
+}

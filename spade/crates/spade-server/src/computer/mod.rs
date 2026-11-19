@@ -1,0 +1,873 @@
+//! A bot's computer (ADR 0142, docs/computer.md): its surfaces (`browser` and `screen` through
+//! ace, `terminal` and `files` here), who drives it (`bot` or `person`), and what the person did
+//! while they drove, for the note the bot reads when they hand it back.
+//!
+//! Who drives is kept in `<data folder>/computer/<bot id>.json` while the person does, so a
+//! restart keeps the bot paused. Surfaces are what is happening now and live in memory.
+
+mod ace_sync;
+pub mod cowork;
+pub mod daemon;
+pub mod note;
+pub mod ring;
+#[cfg(unix)]
+pub mod terminal;
+#[cfg(not(unix))]
+#[path = "terminal_none.rs"]
+pub mod terminal;
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+use crate::clock::Clock;
+use crate::workspace::{Snapshot, Workspaces, changes};
+pub use ace_sync::RESYNC;
+pub use cowork::Mode;
+pub use terminal::Terminals;
+
+/// Where the bots' `shell` commands run here: in each bot's terminal, or (Windows, which has no
+/// bot terminal yet) each on its own.
+pub fn shell_commands(
+    terminals: &Arc<Terminals>,
+    shell: crate::workspace::shell::Shell,
+) -> crate::workspace::Commands {
+    if cfg!(unix) {
+        crate::workspace::Commands::Terminal(terminals.clone())
+    } else {
+        crate::workspace::Commands::OneShot(shell)
+    }
+}
+
+/// How long a surface counts as live after it was last used.
+pub const ACTIVE: Duration = Duration::from_secs(2 * 60);
+
+/// How long a browser or screen the bot just reached for counts as starting while ace hasn't
+/// reported it yet; after that the computer reads as it is.
+pub const STARTING: Duration = Duration::from_secs(30);
+
+/// The computer as a whole, for "Waking up…": nothing open (`asleep`), the bot reached for its
+/// browser or screen and ace hasn't shown it yet (`starting`), or something is open (`ready`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lifecycle {
+    Asleep,
+    Starting,
+    Ready,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Driver {
+    #[default]
+    Bot,
+    Person,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Browser,
+    Screen,
+    Terminal,
+    Files,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Kind;
+
+    #[test]
+    fn simulator_and_screen_tools_drive_the_screen_and_browser_tools_the_browser() {
+        assert_eq!(Kind::of_tool("sim_tap"), Some(Kind::Screen));
+        assert_eq!(Kind::of_tool("screen_act"), Some(Kind::Screen));
+        assert_eq!(Kind::of_tool("browser_open"), Some(Kind::Browser));
+        assert_eq!(Kind::of_tool("thread_start"), None);
+    }
+}
+
+impl Kind {
+    /// The surface ace's tool `name` drives, if any.
+    pub fn of_tool(name: &str) -> Option<Self> {
+        if name.starts_with("browser_") {
+            Some(Self::Browser)
+        } else if name.starts_with("screen_") || name.starts_with("sim_") {
+            Some(Self::Screen)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Self::Browser => "browser",
+            Self::Screen => "screen",
+            Self::Terminal => "terminal",
+            Self::Files => "files",
+        }
+    }
+}
+
+/// What `GET /v1/agents/{id}/computer` answers and the live `computer` frame carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct View {
+    /// `cowork` (both at once) or `exclusive` (the person took over; the bot is paused).
+    pub mode: Mode,
+    /// `person` in exclusive mode, `bot` in cowork.
+    pub driver: Driver,
+    /// The person took over and some of the bot's work is still being stopped (a command in its
+    /// terminal, or a call ace hasn't seen end): they don't have the controls yet.
+    pub stopping: bool,
+    /// The hidden ace thread the bot's browser and screen run in, as ace reported it, so the app
+    /// can watch them.
+    pub thread_id: Option<String>,
+    pub surfaces: Vec<SurfaceView>,
+    pub state: Lifecycle,
+    /// Every surface this bot's computer has ever had open, in a fixed order (`browser`,
+    /// `screen`, `terminal`, `files`); kept across restarts, so the app shows only those tabs.
+    pub used: Vec<Kind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SurfaceView {
+    pub kind: Kind,
+    pub live: bool,
+    pub title: Option<String>,
+    /// When it became live.
+    pub since: Option<i64>,
+    /// The page, for a browser ace reported one for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The browser tab, as ace reported it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    /// The terminal only: its last command's end is past its deadline and still going on; the
+    /// bot's commands wait. Absent when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ending_stuck: bool,
+    /// `user` when the tab is in the person's own browser, which ace doesn't stream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// When it was last used.
+    pub last: Option<i64>,
+    /// The person is using it now (for the browser and screen, as ace reports it).
+    pub person_active: bool,
+}
+
+/// A change the app hears on the conversation's live stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    Computer {
+        agent: String,
+        view: View,
+    },
+    /// Files changed in the agent's workspace; `None` when Spade can't say which (a command ran).
+    Files {
+        agent: String,
+        paths: Option<Vec<String>>,
+    },
+}
+
+impl Change {
+    pub fn agent(&self) -> &str {
+        match self {
+            Self::Computer { agent, .. } | Self::Files { agent, .. } => agent,
+        }
+    }
+}
+
+/// What ace reports about a bot's browser or screen.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Report {
+    pub live: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The person clicked or typed in it.
+    #[serde(default)]
+    pub person_acted: bool,
+    /// The person used it within the last few seconds (ace's cowork report). Absent from older
+    /// daemons.
+    #[serde(default)]
+    pub person_active: Option<bool>,
+    /// The hidden ace thread the bot's browser and screen run in.
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    /// The browser tab.
+    #[serde(default)]
+    pub tab_id: Option<String>,
+    /// `user` for a tab in the person's own browser.
+    #[serde(default)]
+    pub backend: Option<String>,
+}
+
+/// A person's turn at the computer, kept on disk while it lasts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Record {
+    conversation: String,
+    since: i64,
+    /// The workspace when they took over.
+    snapshot: Snapshot,
+    /// Surfaces ace said they used.
+    #[serde(default)]
+    used: BTreeSet<String>,
+    /// Paths they wrote through the app.
+    #[serde(default)]
+    wrote: BTreeSet<String>,
+}
+
+/// A browser or screen, as reported and as the bot used it.
+#[derive(Debug, Clone, Default)]
+struct Surface {
+    reported_live: bool,
+    title: Option<String>,
+    url: Option<String>,
+    tab_id: Option<String>,
+    backend: Option<String>,
+    since: Option<i64>,
+    last: Option<i64>,
+    /// When the bot last reached for it with one of ace's tools.
+    bot_at: Option<i64>,
+    /// When ace last reported it.
+    reported_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Touched {
+    path: Option<String>,
+    at: i64,
+}
+
+/// Every bot's computer.
+pub struct Computers {
+    root: PathBuf,
+    workspaces: Workspaces,
+    terminals: Arc<Terminals>,
+    clock: Arc<dyn Clock>,
+    records: Mutex<HashMap<String, Record>>,
+    surfaces: Mutex<HashMap<(String, Kind), Surface>>,
+    files: Mutex<HashMap<String, Touched>>,
+    /// Each bot's ace thread, as ace last reported it.
+    threads: Mutex<HashMap<String, String>>,
+    /// The last view sent for each bot, so only changes are sent.
+    sent: Mutex<HashMap<String, View>>,
+    /// Bots with a task waiting to send their surfaces going quiet.
+    watched: Mutex<HashSet<String>>,
+    /// ace's daemon, for the browser and screen (`ace_sync`).
+    daemon: std::sync::OnceLock<Arc<dyn daemon::Daemon>>,
+    /// Bots handed back whose release ace hasn't confirmed yet.
+    releasing: Mutex<HashSet<String>>,
+    /// Who each bot's latest take-over or hand-back asked ace to make the driver.
+    wanted: Mutex<HashMap<String, Driver>>,
+    /// One change of driver at a time per bot, in ace.
+    transit: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// What ace said the person did, kept for the hand-back that asked.
+    handbacks: Mutex<HashMap<String, daemon::Handback>>,
+    /// Bots the person took over whose work ace hasn't yet said has stopped.
+    stopping: Mutex<HashSet<String>>,
+    /// Bots whose browser and screen haven't been read from ace since Spade started.
+    unread: Mutex<HashSet<String>>,
+    /// When the person last acted on each bot's surface (cowork and exclusive).
+    person_seen: Mutex<HashMap<(String, Kind), i64>>,
+    /// Whether ace last said the person is active on each bot's browser or screen.
+    reported_active: Mutex<HashMap<(String, Kind), bool>>,
+    /// What the person did in cowork since each bot was last told.
+    activity: Mutex<HashMap<String, cowork::Activity>>,
+    /// When each bot was last offered a summary.
+    offered: Mutex<HashMap<String, i64>>,
+    /// Paths the person changed in cowork and when, so the bot leaves them alone a while.
+    person_files: Mutex<HashMap<String, Vec<cowork::Recent>>>,
+    /// The surfaces each bot's computer has ever had open, as kept under `used/`.
+    used: Mutex<HashMap<String, BTreeSet<Kind>>>,
+    changes: broadcast::Sender<Change>,
+    me: Weak<Self>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ComputerError {
+    #[error("{0}")]
+    Io(String),
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl Computers {
+    /// Opens the records under `root` (`<data folder>/computer`): a bot the person had when
+    /// Spade stopped is still theirs.
+    pub fn open(
+        root: impl Into<PathBuf>,
+        workspaces: Workspaces,
+        terminals: Arc<Terminals>,
+        clock: Arc<dyn Clock>,
+    ) -> Arc<Self> {
+        let root = root.into();
+        let mut records = HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                let Some(bot) = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                let record = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<Record>(&text).ok());
+                match record {
+                    Some(record) => {
+                        records.insert(bot, record);
+                    }
+                    // Unreadable, it still says the person drives: the bot stays paused rather
+                    // than acting while the person may be at its computer.
+                    None => {
+                        tracing::warn!(%bot, "a computer record could not be read; the person keeps it");
+                        records.insert(bot, Record::default());
+                    }
+                }
+            }
+        }
+        let person_files = cowork::load_recent(&root, clock.now_ms());
+        let used = load_used(&root);
+        let computers = Arc::new_cyclic(|me| Self {
+            root,
+            workspaces,
+            terminals: terminals.clone(),
+            clock,
+            records: Mutex::new(records),
+            surfaces: Mutex::default(),
+            files: Mutex::default(),
+            threads: Mutex::default(),
+            sent: Mutex::default(),
+            watched: Mutex::default(),
+            daemon: std::sync::OnceLock::new(),
+            releasing: Mutex::default(),
+            stopping: Mutex::default(),
+            wanted: Mutex::default(),
+            transit: Mutex::default(),
+            handbacks: Mutex::default(),
+            unread: Mutex::default(),
+            person_seen: Mutex::default(),
+            reported_active: Mutex::default(),
+            activity: Mutex::default(),
+            offered: Mutex::default(),
+            person_files: Mutex::new(person_files),
+            used: Mutex::new(used),
+            changes: broadcast::channel(1024).0,
+            me: me.clone(),
+        });
+        let me = Arc::downgrade(&computers);
+        terminals.on_change(Arc::new(move |bot| {
+            if let Some(computers) = me.upgrade() {
+                computers.changed(bot);
+            }
+        }));
+        computers
+    }
+
+    /// Ends terminals unused for `idle` (not those of bots the person has), checking every few
+    /// minutes while Spade runs.
+    pub fn reap_idle(self: &Arc<Self>, idle: Duration) {
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+                let Some(computers) = me.upgrade() else {
+                    return;
+                };
+                let held = computers.held();
+                let ended = computers
+                    .terminals
+                    .reap(idle, |bot| held.iter().any(|h| h == bot));
+                if ended > 0 {
+                    tracing::info!(ended, "ended idle bot terminals");
+                }
+            }
+        });
+    }
+
+    pub fn terminals(&self) -> &Arc<Terminals> {
+        &self.terminals
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<Change> {
+        self.changes.subscribe()
+    }
+
+    pub fn driver(&self, agent: &str) -> Driver {
+        if lock(&self.records).contains_key(agent) {
+            Driver::Person
+        } else {
+            Driver::Bot
+        }
+    }
+
+    /// Whether the person has any bot's computer, so a check by bot can be skipped.
+    pub fn holds_any(&self) -> bool {
+        !lock(&self.records).is_empty()
+    }
+
+    /// Bots the person has, for the terminal reaper.
+    pub fn held(&self) -> Vec<String> {
+        lock(&self.records).keys().cloned().collect()
+    }
+
+    /// Checks once under the driver lock and holds it until the file operation ends. In cowork
+    /// the person writes at once (the caller checks the revision they opened); in exclusive mode
+    /// only once none of the bot's work is still stopping.
+    pub(crate) fn person_file_write<T>(
+        &self,
+        agent: &str,
+        write: impl FnOnce() -> T,
+    ) -> Result<T, &'static str> {
+        let records = lock(&self.records);
+        if !records.contains_key(agent) {
+            let result = write();
+            drop(records);
+            return Ok(result);
+        }
+        let stopping = lock(&self.stopping);
+        if stopping.contains(agent) || self.terminals.info(agent).busy {
+            return Err("the bot's command is still stopping; try again in a moment");
+        }
+        let result = write();
+        drop(stopping);
+        drop(records);
+        Ok(result)
+    }
+
+    /// The bot's computer now.
+    pub fn view(&self, agent: &str) -> View {
+        let now = self.clock.now_ms();
+        let active = i64::try_from(ACTIVE.as_millis()).unwrap_or(i64::MAX);
+        let recent = |at: Option<i64>| at.is_some_and(|at| now - at < active);
+        let driver = self.driver(agent);
+        let mut surfaces = Vec::new();
+        {
+            let all = lock(&self.surfaces);
+            for kind in [Kind::Browser, Kind::Screen] {
+                if let Some(s) = all.get(&(agent.to_owned(), kind)) {
+                    let live = s.reported_live || recent(s.last);
+                    surfaces.push(SurfaceView {
+                        kind,
+                        live,
+                        title: s.title.clone(),
+                        since: if live { s.since } else { None },
+                        url: s.url.clone(),
+                        tab_id: s.tab_id.clone(),
+                        ending_stuck: false,
+                        backend: s.backend.clone(),
+                        last: s.last,
+                        person_active: self.person_active(agent, kind),
+                    });
+                }
+            }
+        }
+        let info = self.terminals.info(agent);
+        let terminal_live = info.running && (driver == Driver::Person || recent(info.last));
+        surfaces.push(SurfaceView {
+            kind: Kind::Terminal,
+            live: terminal_live,
+            title: info.title,
+            since: if terminal_live { info.since } else { None },
+            url: None,
+            tab_id: None,
+            ending_stuck: info.ending_stuck,
+            backend: None,
+            last: info.last,
+            person_active: self.person_active(agent, Kind::Terminal),
+        });
+        let touched = lock(&self.files).get(agent).cloned();
+        let files_live = recent(touched.as_ref().map(|t| t.at));
+        surfaces.push(SurfaceView {
+            kind: Kind::Files,
+            live: files_live,
+            title: touched.as_ref().and_then(|t| t.path.clone()),
+            since: None,
+            url: None,
+            tab_id: None,
+            ending_stuck: false,
+            backend: None,
+            last: touched.map(|t| t.at),
+            person_active: self.person_active(agent, Kind::Files),
+        });
+        let thread_id = lock(&self.threads).get(agent).cloned();
+        let stopping =
+            driver == Driver::Person && (info.busy || lock(&self.stopping).contains(agent));
+        let starting = self.starting(agent, now);
+        let state = lifecycle(starting, info.running, &surfaces);
+        let mut used = lock(&self.used).get(agent).cloned().unwrap_or_default();
+        used.extend(surfaces.iter().filter(|s| s.last.is_some()).map(|s| s.kind));
+        View {
+            mode: self.mode(agent),
+            driver,
+            stopping,
+            thread_id,
+            surfaces,
+            state,
+            used: used.into_iter().collect(),
+        }
+    }
+
+    /// The bot reached for its browser or screen within [`STARTING`] and ace hasn't reported it
+    /// since.
+    fn starting(&self, agent: &str, now: i64) -> bool {
+        let window = i64::try_from(STARTING.as_millis()).unwrap_or(i64::MAX);
+        let all = lock(&self.surfaces);
+        [Kind::Browser, Kind::Screen].into_iter().any(|kind| {
+            all.get(&(agent.to_owned(), kind)).is_some_and(|s| {
+                s.bot_at.is_some_and(|at| now - at < window)
+                    && !s.reported_live
+                    && s.reported_at
+                        .is_none_or(|reported| Some(reported) < s.bot_at)
+            })
+        })
+    }
+
+    /// Keeps any surface the view shows as used for the first time.
+    fn keep_used(&self, agent: &str, view: &View) {
+        let mut all = lock(&self.used);
+        let known = all.entry(agent.to_owned()).or_default();
+        if view.used.iter().all(|kind| known.contains(kind)) {
+            return;
+        }
+        known.extend(view.used.iter().copied());
+        let kinds: Vec<Kind> = known.iter().copied().collect();
+        let text = serde_json::to_string(&kinds).unwrap_or_default();
+        let path = self.root.join("used").join(format!("{agent}.json"));
+        let written = std::fs::create_dir_all(self.root.join("used"))
+            .map_err(|e| e.to_string())
+            .and_then(|()| crate::atomic::write_whole(&path, &text).map_err(|e| e.to_string()));
+        if let Err(error) = written {
+            tracing::warn!(%agent, %error, "the surfaces a bot used could not be kept");
+        }
+    }
+
+    /// Sends the bot's view if it changed, and keeps watching while anything is live so its
+    /// going quiet is sent too.
+    pub fn changed(&self, agent: &str) {
+        let view = self.view(agent);
+        self.keep_used(agent, &view);
+        let live = view.surfaces.iter().any(|s| s.live) || view.state == Lifecycle::Starting;
+        {
+            let mut sent = lock(&self.sent);
+            if sent.get(agent) != Some(&view) {
+                sent.insert(agent.to_owned(), view.clone());
+                let _ = self.changes.send(Change::Computer {
+                    agent: agent.to_owned(),
+                    view,
+                });
+            }
+        }
+        if live {
+            self.watch(agent);
+        }
+    }
+
+    fn watch(&self, agent: &str) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if !lock(&self.watched).insert(agent.to_owned()) {
+            return;
+        }
+        let (me, agent) = (self.me.clone(), agent.to_owned());
+        runtime.spawn(async move {
+            loop {
+                tokio::time::sleep(ACTIVE / 4).await;
+                let Some(computers) = me.upgrade() else {
+                    return;
+                };
+                let view = computers.view(&agent);
+                let live =
+                    view.surfaces.iter().any(|s| s.live) || view.state == Lifecycle::Starting;
+                if !live {
+                    lock(&computers.watched).remove(&agent);
+                    computers.changed(&agent);
+                    return;
+                }
+                computers.changed(&agent);
+            }
+        });
+    }
+
+    /// The bot called one of ace's tools for `kind`.
+    pub fn bot_used(&self, agent: &str, kind: Kind) {
+        let now = self.clock.now_ms();
+        {
+            let mut all = lock(&self.surfaces);
+            let surface = all.entry((agent.to_owned(), kind)).or_default();
+            let active = i64::try_from(ACTIVE.as_millis()).unwrap_or(i64::MAX);
+            let was_live =
+                surface.reported_live || surface.last.is_some_and(|at| now - at < active);
+            if !was_live {
+                surface.since = Some(now);
+            }
+            surface.last = Some(now);
+            surface.bot_at = Some(now);
+        }
+        self.changed(agent);
+    }
+
+    /// What ace reports about the bot's browser or screen.
+    pub fn report(&self, agent: &str, kind: Kind, report: Report) -> Result<(), ComputerError> {
+        let now = self.clock.now_ms();
+        {
+            let mut all = lock(&self.surfaces);
+            let surface = all.entry((agent.to_owned(), kind)).or_default();
+            if report.live && !surface.reported_live {
+                surface.since = Some(now);
+            }
+            surface.reported_live = report.live;
+            surface.title = report.title.map(|t| t.chars().take(200).collect());
+            surface.url = report.url.map(|u| u.chars().take(2000).collect());
+            surface.tab_id = report.tab_id.map(|t| t.chars().take(200).collect());
+            surface.backend = report.backend.map(|b| b.chars().take(32).collect());
+            surface.last = Some(now);
+            surface.reported_at = Some(now);
+        }
+        if let Some(thread) = report.thread_id {
+            lock(&self.threads).insert(agent.to_owned(), thread.chars().take(200).collect());
+        }
+        if let Some(active) = report.person_active {
+            lock(&self.reported_active).insert((agent.to_owned(), kind), active);
+        }
+        if report.person_acted {
+            self.person_seen(agent, kind);
+            let visited = lock(&self.surfaces)
+                .get(&(agent.to_owned(), kind))
+                .filter(|_| kind == Kind::Browser)
+                .and_then(|s| s.url.clone());
+            self.person_did(agent, kind, &[], visited.as_deref());
+            self.change_record(agent, |record| {
+                record.used.insert(kind.word().to_owned());
+            })?;
+        }
+        self.changed(agent);
+        Ok(())
+    }
+
+    /// Files changed in the bot's workspace: by the app, a tool, or a command (`None`).
+    pub fn files_changed(&self, agent: &str, paths: Option<Vec<String>>) {
+        let path = paths.as_ref().and_then(|p| p.last().cloned());
+        lock(&self.files).insert(
+            agent.to_owned(),
+            Touched {
+                path,
+                at: self.clock.now_ms(),
+            },
+        );
+        let _ = self.changes.send(Change::Files {
+            agent: agent.to_owned(),
+            paths,
+        });
+        self.changed(agent);
+    }
+
+    /// The person changed these paths through the app (`changed`, `new`, `removed`). What they
+    /// write is trusted: the caller records that.
+    pub fn person_changed(&self, agent: &str, files: &[(String, &'static str)]) {
+        let _ = self.change_record_if_held(agent, |record| {
+            for (path, _) in files {
+                record.wrote.insert(path.clone());
+            }
+        });
+        self.person_seen(agent, Kind::Files);
+        self.person_did(agent, Kind::Files, files, None);
+        self.files_changed(agent, Some(files.iter().map(|(p, _)| p.clone()).collect()));
+    }
+
+    /// The person typed in the terminal. What they typed is theirs and never kept: the note
+    /// only says they used it.
+    pub fn person_typed(&self, agent: &str) {
+        let first = lock(&self.records)
+            .get(agent)
+            .is_some_and(|record| !record.used.contains("terminal"));
+        if first {
+            let _ = self.change_record_if_held(agent, |record| {
+                record.used.insert("terminal".to_owned());
+            });
+        }
+        self.person_seen(agent, Kind::Terminal);
+        self.person_did(agent, Kind::Terminal, &[], None);
+        self.files_changed(agent, None);
+    }
+
+    /// The person takes the bot's computer. Answers `false` when they had it already.
+    pub fn take_over(&self, agent: &str, conversation: &str) -> Result<bool, ComputerError> {
+        if self.driver(agent) == Driver::Person {
+            return Ok(false);
+        }
+        let snapshot = self
+            .workspaces
+            .of(agent)
+            .and_then(|w| w.snapshot())
+            .unwrap_or_default();
+        let record = Record {
+            conversation: conversation.to_owned(),
+            since: self.clock.now_ms(),
+            snapshot,
+            ..Record::default()
+        };
+        // Checked, written and kept under one lock, so no other change can come between.
+        {
+            let mut records = lock(&self.records);
+            if records.contains_key(agent) {
+                return Ok(false);
+            }
+            self.persist(agent, &record)?;
+            records.insert(agent.to_owned(), record);
+            if self.daemon.get().is_some() {
+                lock(&self.stopping).insert(agent.to_owned());
+            }
+        }
+        self.changed(agent);
+        Ok(true)
+    }
+
+    /// The note for the bot about the person's turn, or `None` when the bot drives.
+    pub fn note(&self, agent: &str, handback: Option<&daemon::Handback>) -> Option<note::Note> {
+        let record = lock(&self.records).get(agent).cloned()?;
+        let now = self
+            .workspaces
+            .of(agent)
+            .and_then(|w| w.snapshot())
+            .unwrap_or_default();
+        let mut files = changes(&record.snapshot, &now);
+        for path in &record.wrote {
+            if !files.iter().any(|(p, _)| p == path) {
+                files.push((path.clone(), "changed"));
+            }
+        }
+        let used: Vec<String> = record.used.iter().cloned().collect();
+        Some(note::note(&note::Driven {
+            minutes: u64::try_from((self.clock.now_ms() - record.since).max(0) / 60_000)
+                .unwrap_or(0),
+            files: &files,
+            used: &used,
+            handback,
+        }))
+    }
+
+    /// The bot drives again.
+    pub fn release(&self, agent: &str) -> Result<(), ComputerError> {
+        {
+            // Under the lock every change to the record is written under, so none lands after.
+            let mut records = lock(&self.records);
+            match std::fs::remove_file(self.file(agent)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(ComputerError::Io(error.to_string())),
+            }
+            records.remove(agent);
+        }
+        lock(&self.stopping).remove(agent);
+        self.changed(agent);
+        Ok(())
+    }
+
+    /// Forgets the bot's computer and ends its terminal, when the bot is deleted.
+    pub fn remove(&self, agent: &str) {
+        {
+            let mut records = lock(&self.records);
+            let _ = std::fs::remove_file(self.file(agent));
+            records.remove(agent);
+        }
+        lock(&self.surfaces).retain(|(a, _), _| a != agent);
+        lock(&self.files).remove(agent);
+        lock(&self.threads).remove(agent);
+        lock(&self.stopping).remove(agent);
+        lock(&self.wanted).remove(agent);
+        lock(&self.handbacks).remove(agent);
+        lock(&self.sent).remove(agent);
+        lock(&self.used).remove(agent);
+        let _ = std::fs::remove_file(self.root.join("used").join(format!("{agent}.json")));
+        self.forget_activity(agent);
+        self.terminals.remove(agent);
+    }
+
+    fn file(&self, agent: &str) -> PathBuf {
+        self.root.join(format!("{agent}.json"))
+    }
+
+    fn persist(&self, agent: &str, record: &Record) -> Result<(), ComputerError> {
+        let text = serde_json::to_string(record).map_err(|e| ComputerError::Io(e.to_string()))?;
+        crate::atomic::write_whole(&self.file(agent), &text)
+            .map_err(|e| ComputerError::Io(e.to_string()))
+    }
+
+    fn change_record(
+        &self,
+        agent: &str,
+        edit: impl FnOnce(&mut Record),
+    ) -> Result<(), ComputerError> {
+        self.change_record_if_held(agent, edit).map(|_| ())
+    }
+
+    /// Changes the person's record and writes it; answers whether they have the computer.
+    fn change_record_if_held(
+        &self,
+        agent: &str,
+        edit: impl FnOnce(&mut Record),
+    ) -> Result<bool, ComputerError> {
+        let mut records = lock(&self.records);
+        let Some(record) = records.get_mut(agent) else {
+            return Ok(false);
+        };
+        edit(record);
+        // Written before the lock goes, so a release never comes between and no older change
+        // is written over a newer one.
+        let record = record.clone();
+        self.persist(agent, &record)?;
+        drop(records);
+        Ok(true)
+    }
+}
+
+/// The computer's state from its parts: starting beats the rest, then anything open.
+fn lifecycle(starting: bool, terminal_running: bool, surfaces: &[SurfaceView]) -> Lifecycle {
+    if starting {
+        Lifecycle::Starting
+    } else if terminal_running || surfaces.iter().any(|s| s.live) {
+        Lifecycle::Ready
+    } else {
+        Lifecycle::Asleep
+    }
+}
+
+/// Each bot's used surfaces, from `<root>/used/<bot>.json`; a file that can't be read is
+/// skipped (the bot's surfaces are found again as it uses them).
+fn load_used(root: &std::path::Path) -> HashMap<String, BTreeSet<Kind>> {
+    let mut used = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(root.join("used")) else {
+        return used;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(bot) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let kinds = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Vec<Kind>>(&text).ok());
+        if let Some(kinds) = kinds {
+            used.insert(bot.to_owned(), kinds.into_iter().collect());
+        }
+    }
+    used
+}

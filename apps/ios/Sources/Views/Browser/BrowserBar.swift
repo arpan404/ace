@@ -7,13 +7,16 @@ struct BrowserBar: View {
     @Binding var editing: Bool
     @Binding var sheet: BrowserSheet?
     @Binding var finding: Bool
+    @Binding var clearing: Bool
+    /// iPad: the tab beside the live one; nil where there's no room for a split.
+    var split: Binding<String?>? = nil
     let screenshot: (Bool) -> Void
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
     private var operate: Bool { model.canOperate && state?.closed != true }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             HStack(spacing: AceTheme.Spacing.none) {
                 barButton("Back", .caretLeft, enabled: operate && (state?.shown?.canGoBack == true || state?.failure != nil)) {
                     model.browserHistory("back")
@@ -24,48 +27,50 @@ struct BrowserBar: View {
                 }
                 .accessibilityIdentifier("browser.forward")
             }
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            .aceGlass(in: AceDesign.Shape.control, interactive: true)
             address
             HStack(spacing: AceTheme.Spacing.none) {
                 Button { sheet = .tabs } label: {
                     TabCount(count: (state?.tabs.count ?? 0) + (state?.moreTabs ?? 0))
-                        .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                        .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Tabs")
                 .accessibilityValue("\(state?.tabs.count ?? 0)")
                 .accessibilityIdentifier("browser.tabs")
-                BrowserMenu(model: model, sheet: $sheet, finding: $finding, screenshot: screenshot)
+                BrowserMenu(model: model, sheet: $sheet, finding: $finding, clearing: $clearing, split: split, screenshot: screenshot)
             }
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            .aceGlass(in: AceDesign.Shape.control, interactive: true)
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.top, AceTheme.Spacing.sm)
-        .padding(.bottom, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.top, AceDesign.Space.related)
+        .padding(.bottom, AceDesign.Space.tight)
     }
 
     /// The page's address at rest; a spinner while it loads, Reload or Stop beside it.
     private var address: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Button { if operate || state == nil || state?.closed == true { editing = model.canOperate } } label: {
-                HStack(spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceDesign.Space.tight) {
                     if state?.loading == true {
-                        ProgressView().controlSize(.mini)
+                        WorkingMark(label: "Loading")
+                    } else if addressText != Self.prompt, let connection = state?.connection {
+                        ConnectionMark(connection: connection)
                     }
                     Text(addressText)
-                        .foregroundStyle(addressText == Self.prompt ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                        .foregroundStyle(addressText == Self.prompt ? AceDesign.Ink.muted : AceDesign.Ink.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .aceFont(AceTheme.Typography.label, relativeTo: .body).fontWeight(.regular)
-                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
-                .padding(.leading, AceTheme.Spacing.md)
+                .font(AceDesign.Typeface.body).fontWeight(.regular)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                .padding(.leading, AceDesign.Space.row)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Address")
-            .accessibilityValue(addressText)
+            .accessibilityValue([state?.connection?.label, addressText].compactMap { $0 }.joined(separator: ", "))
             .accessibilityIdentifier("browser.address")
             if operate, state?.blank == false {
                 if state?.loading == true {
@@ -76,7 +81,7 @@ struct BrowserBar: View {
                 }
             }
         }
-        .aceGlass(in: AceShape.capsule, interactive: true)
+        .aceGlass(in: AceDesign.Shape.control, interactive: true)
     }
     private static let prompt = "Search or enter address"
     private var addressText: String {
@@ -87,14 +92,13 @@ struct BrowserBar: View {
 
     private func barButton(_ label: String, _ icon: AceIcon.Name, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            AceIcon(icon, size: 17, relativeTo: .subheadline)
-                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs, height: AceTheme.Dimensions.touchTarget)
+            AceIcon(icon, size: AceDesign.Size.barIcon, relativeTo: .subheadline)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(AceTheme.Colours.foreground)
+        .foregroundStyle(enabled ? AceDesign.Ink.primary : AceDesign.Ink.faint)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.35)
         .accessibilityLabel(label)
     }
 }
@@ -102,13 +106,16 @@ struct BrowserBar: View {
 /// The tabs button: the count in a rounded square, as Safari draws it.
 private struct TabCount: View {
     let count: Int
+    /// The glyph's own drawing: a count inside a bar icon's square, stroked like the other bar glyphs.
+    private static let digits: CGFloat = 12
+    private static let stroke: CGFloat = 1.6
     var body: some View {
         Text(count > 99 ? "∞" : "\(count)")
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(.system(size: Self.digits, weight: AceDesign.Typeface.strong, design: .rounded))
             .monospacedDigit()
-            .frame(width: 20, height: 20)
-            .overlay(AceShape.glyph.stroke(AceTheme.Colours.foreground, lineWidth: 1.6))
-            .foregroundStyle(AceTheme.Colours.foreground)
+            .frame(width: AceDesign.Size.barIcon, height: AceDesign.Size.barIcon)
+            .overlay(AceShape.glyph.stroke(AceDesign.Ink.primary, lineWidth: Self.stroke))
+            .foregroundStyle(AceDesign.Ink.primary)
     }
 }
 
@@ -121,13 +128,13 @@ struct BrowserAddressEditor: View {
 
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
-            Color.black.opacity(0.25)
+            AceDesign.Surface.scrim
                 .ignoresSafeArea()
                 .onTapGesture { editing = false }
                 .accessibilityHidden(true)
-            HStack(spacing: AceTheme.Spacing.md) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    AceIcon(.magnifyingGlass).foregroundStyle(AceTheme.Colours.mutedForeground)
+            HStack(spacing: AceDesign.Space.row) {
+                HStack(spacing: AceDesign.Space.related) {
+                    AceIcon(.magnifyingGlass).foregroundStyle(AceDesign.Ink.muted)
                     TextField("Search or enter address", text: $text)
                         .focused($focused)
                         .keyboardType(.webSearch)
@@ -139,21 +146,21 @@ struct BrowserAddressEditor: View {
                         .accessibilityIdentifier("browser.address.field")
                     if !text.isEmpty {
                         Button { text = "" } label: { AceIcon(.xCircle) }
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .foregroundStyle(AceDesign.Ink.subtle)
                             .accessibilityLabel("Clear")
                     }
                 }
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .padding(.horizontal, AceTheme.Spacing.lg)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: AceShape.capsule)
+                .font(AceDesign.Typeface.title)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .frame(minHeight: AceDesign.Size.tap)
+                .aceGlass(in: AceDesign.Shape.control)
                 Button("Cancel") { editing = false }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .body)
-                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction())
+                    .tint(AceDesign.Ink.action)
             }
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.vertical, AceTheme.Spacing.sm)
-            .background(AceTheme.Colours.background)
+            .padding(.horizontal, AceDesign.Space.row)
+            .padding(.vertical, AceDesign.Space.related)
+            .background(AceDesign.Surface.background)
         }
         .onAppear {
             text = model.browser.view?.state?.addressUrl ?? ""
@@ -176,8 +183,8 @@ struct BrowserFindBar: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
+            HStack(spacing: AceDesign.Space.related) {
                 TextField("Find in page", text: $text)
                     .focused($focused)
                     .textInputAutocapitalization(.never)
@@ -186,32 +193,32 @@ struct BrowserFindBar: View {
                     .onSubmit { model.browserFind(text) }
                     .accessibilityIdentifier("browser.find.field")
                 if let result = model.browser.find, result.text == text, !text.isEmpty {
-                    Text(result.message).foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                    Text(result.message).foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
                         .accessibilityIdentifier("browser.find.count")
                 }
             }
-            .aceFont(AceTheme.Typography.body, relativeTo: .body)
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
-            .aceGlass(in: AceShape.capsule)
+            .font(AceDesign.Typeface.title)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
+            .aceGlass(in: AceDesign.Shape.control)
             HStack(spacing: AceTheme.Spacing.none) {
                 Button { model.browserFind(text, forward: false) } label: {
-                    AceIcon(.caretUp).frame(width: 40, height: AceTheme.Dimensions.touchTarget)
+                    AceIcon(.caretUp).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 }
                 .accessibilityLabel("Previous match")
                 Button { model.browserFind(text) } label: {
-                    AceIcon(.caretDown).frame(width: 40, height: AceTheme.Dimensions.touchTarget)
+                    AceIcon(.caretDown).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 }
                 .accessibilityLabel("Next match")
             }
             .disabled(text.isEmpty)
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            .aceGlass(in: AceDesign.Shape.control, interactive: true)
             Button("Done") { finish() }
-                .aceFont(AceTheme.Typography.label, relativeTo: .body).fontWeight(.semibold)
+                .buttonStyle(.textAction(.prominent))
         }
-        .tint(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .tint(AceDesign.Ink.action)
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.vertical, AceDesign.Space.related)
         .onAppear { focused = true }
         .task(id: text) {
             guard !text.isEmpty else { return }
@@ -223,5 +230,23 @@ struct BrowserFindBar: View {
         model.browserFind("")
         model.browser.clearFind()
         close()
+    }
+}
+
+/// The page's security mark at the address's start, as web's: a lock for https, an open lock in
+/// the needs-you hue for http elsewhere, a globe for a local page. VoiceOver reads its words with
+/// the address.
+struct ConnectionMark: View {
+    let connection: BrowserViewInfo.Connection
+    var body: some View {
+        AceIcon(icon, size: 14, relativeTo: .subheadline)
+            .foregroundStyle(connection.kind == "insecure" ? AceDesign.Status.needsYou : AceDesign.Ink.muted)
+    }
+    private var icon: AceIcon.Name {
+        switch connection.kind {
+        case "secure": .lock
+        case "insecure": .lockOpen
+        default: .globe
+        }
     }
 }

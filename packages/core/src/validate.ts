@@ -29,6 +29,7 @@ import { isFactData, preservesFields, validData } from "./fact-data.ts";
 
 type Fields = Record<string, unknown>;
 const raw = RawPayload.array();
+const StringList = z.array(z.string());
 const agentId = AgentId.parse("validation_agent");
 const itemId = ItemId.parse("validation_item");
 const allowed: Record<Fact["type"], string[]> = {
@@ -45,6 +46,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "role",
     "model",
     "background",
+    "machine",
   ],
   "agent.linked": ["agent", "parent", "spawnedBy", "background", "name", "model"],
   "input.admitted": ["agent", "nativeInputId", "commandId"],
@@ -70,8 +72,11 @@ const allowed: Record<Fact["type"], string[]> = {
     "internal",
     "stoppable",
     "outputPath",
+    "wakesAgent",
+    "blocksPrompts",
     "raw",
   ],
+  "background.listening": ["task", "ports"],
   "background.ended": ["task", "status", "uncertain"],
   "agent.disconnected": ["agent"],
   "agent.reconnected": ["agent"],
@@ -103,7 +108,8 @@ const allowed: Record<Fact["type"], string[]> = {
   signal: ["agent"],
   "process.exited": ["deliberate", "message"],
   "process.started": [],
-  "queue.changed": ["count", "source", "held"],
+  "thread.moved": ["to"],
+  "queue.changed": ["count", "source", "held", "stopped"],
   tick: [],
 };
 
@@ -300,7 +306,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "activity":
       return AgentActivity.safeParse(fact.activity).success && optionalString(fact.detail);
     case "subagents.waiting":
-      return z.array(z.string()).safeParse(fact.targets).success;
+      return StringList.safeParse(fact.targets).success;
     case "item.reconciled":
     case "item.upsert":
       return itemError(state, fact, now) === undefined;
@@ -328,8 +334,12 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalBoolean(fact.ambient) &&
         (fact.internal === undefined || fact.internal === true) &&
         optionalString(fact.outputPath) &&
+        (fact.wakesAgent === undefined || fact.wakesAgent === false) &&
+        (fact.blocksPrompts === undefined || fact.blocksPrompts === true) &&
         (fact.raw === undefined || validData(raw, fact.raw))
       );
+    case "background.listening":
+      return BackgroundTask.shape.listening.unwrap().safeParse(fact.ports).success;
     case "background.ended":
       return (
         oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]) &&
@@ -358,8 +368,12 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         fact.count >= 0 &&
         (fact.source === undefined || oneOf(fact.source, ["engine", "provider"])) &&
         optionalBoolean(fact.held) &&
-        (fact.held === undefined || fact.source !== "provider")
+        (fact.held === undefined || fact.source !== "provider") &&
+        optionalBoolean(fact.stopped) &&
+        (fact.stopped === undefined || fact.source !== "provider")
       );
+    case "thread.moved":
+      return fact.to === null || ThreadStatus.safeParse({ state: "moved", to: fact.to }).success;
     case "agent.disconnected":
     case "agent.reconnected":
     case "retry.cleared":

@@ -1,4 +1,4 @@
-import { provisionalTitle } from "./thread-title.ts";
+import { provisionalTitle, untitledThread } from "@ace/ui-core/thread-title";
 import { z } from "zod";
 import type { ContentPart, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -20,7 +20,7 @@ export function oldestTitleInput(store: Store, id: ThreadId): ContentPart[] | un
     .iterate(id)) {
     const seq = z.number().int().nonnegative().parse(row.created_seq);
     const item = store.readItemPage(id, seq + 1, 1, 256 * 1024).items[0];
-    if (item?.type === "message" && provisionalTitle(item.parts) !== "New thread")
+    if (item?.type === "message" && provisionalTitle(item.parts) !== untitledThread)
       return item.parts;
   }
   return undefined;

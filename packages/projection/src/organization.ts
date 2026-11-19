@@ -1,14 +1,25 @@
 import { threadAttention } from "./thread-attention.ts";
+import { snoozeWakeDue, snoozeWakeFor } from "./snooze-wake.ts";
+import { snoozeWokeFor } from "./snooze-woke.ts";
 import {
   type Command,
   type Thread,
   type ThreadClientUpdated,
   type EventPayload,
   type SettingsEntry,
+  type ThreadDetails,
 } from "@ace/protocol";
+
+/** The explicit list is authoritative, including when the last PR was unlinked. */
+function pullRequests(details: ThreadDetails | undefined) {
+  if (details?.linkedPrs !== undefined) return details.linkedPrs;
+  const legacy = details?.linkedPr;
+  return legacy ? [legacy] : [];
+}
 
 export const organizationCommands = [
   "thread.rename",
+  "thread.title.regenerate",
   "thread.archive",
   "thread.unarchive",
   "thread.delete",
@@ -57,9 +68,20 @@ export function organizationDecision(
       if (thread.status.state === "working") return "thread_not_done";
       return {
         type: "thread.client.updated",
-        changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
+        changes: {
+          settledAt: at,
+          settledReason: "manual",
+          snoozedUntil: null,
+          snoozeWake: null,
+          autoSettleAt: null,
+        },
       };
     case "thread.unsettle":
+      if (p.undo)
+        return {
+          type: "thread.client.updated",
+          changes: { settledAt: null, settledReason: null },
+        };
       // The person wants it in the list: the rules that settled it must not settle it again.
       return {
         type: "thread.client.updated",
@@ -77,12 +99,24 @@ export function organizationDecision(
         type: "thread.client.updated",
         // Turned back on by hand: every rule applies again, a pull request that settled it too.
         changes: p.enabled
-          ? { autoSettle: null, prSettled: null }
-          : { autoSettle: false, autoSettleAt: null },
+          ? { autoSettle: null, prSettled: null, prSettledKey: null }
+          : { autoSettle: false, autoSettleAt: null, settleWhenDone: null },
       };
-    case "thread.snooze":
-      if (p.until !== null && p.until <= at) return "snooze_in_past";
-      return { type: "thread.client.updated", changes: { snoozedUntil: p.until } };
+    case "thread.snooze": {
+      // Ending or starting a snooze by hand: the last wake's reason goes with it.
+      if (p.until === null)
+        return {
+          type: "thread.client.updated",
+          changes: { snoozedUntil: null, snoozeWake: null, snoozeWoke: null },
+        };
+      if (p.until <= at) return "snooze_in_past";
+      const wake = p.wake === undefined ? null : snoozeWakeFor(thread, p.wake);
+      if (typeof wake === "string") return wake;
+      return {
+        type: "thread.client.updated",
+        changes: { snoozedUntil: p.until, snoozeWake: wake, snoozeWoke: null },
+      };
+    }
     case "thread.delete":
       if (!["new", "done", "failed"].includes(thread.status.state)) return "thread_busy";
       return { type: "thread.client.updated", changes: { deletedAt: at, autoSettleAt: null } };
@@ -100,8 +134,7 @@ export function settleDecision(
   policy: SettlePolicy,
   at: number,
 ): ThreadClientUpdated["changes"] {
-  const expired =
-    thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
+  const expired = snoozeEnds(thread, at) ? snoozeEnded(thread, at) : {};
   const request = settleRequest(thread);
   if (request === "settle")
     return {
@@ -115,6 +148,21 @@ export function settleDecision(
   return request === "drop" ? { ...changes, settleWhenDone: null } : changes;
 }
 
+/** The snooze goes, and a snooze that ended by itself says why. */
+function snoozeEnded(thread: Thread, at: number): ThreadClientUpdated["changes"] {
+  const woke = snoozeWokeFor(thread, at);
+  return { snoozedUntil: null, snoozeWake: null, ...(woke ? { snoozeWoke: woke } : {}) };
+}
+
+/**
+ * A snooze ends at its time, or on the event it waits for (`snoozeWakeDue`). A wake left behind
+ * without its snooze goes too.
+ */
+function snoozeEnds(thread: Thread, at: number): boolean {
+  if (thread.snoozedUntil === undefined) return thread.snoozeWake !== undefined;
+  return thread.snoozedUntil <= at || snoozeWakeDue(thread);
+}
+
 /**
  * An agent's request to settle its thread once the work ends: kept while the thread works or
  * waits, carried out when it is done, and dropped on any other outcome (failed, limited, a
@@ -122,12 +170,11 @@ export function settleDecision(
  */
 function settleRequest(thread: Thread): "settle" | "drop" | undefined {
   if (!thread.settleWhenDone) return undefined;
+  if (thread.autoSettle === false || threadAttention(thread)) return "drop";
   const state = thread.status.state;
   if (thread.deletedAt === undefined && state === "done") return "settle";
   return state === "working" || state === "waiting" ? undefined : "drop";
 }
-
-const quiescentStates = new Set<Thread["status"]["state"]>(["done", "failed", "new"]);
 
 function automaticSettle(
   thread: Thread,
@@ -145,30 +192,49 @@ function automaticSettle(
     return { ...expired, autoSettleAt: null };
   // Only a finished tree settles by itself. One still waiting (a background shell, a queued
   // turn, a limit, the person) stays in the list, and settles once it finishes if still due.
-  if (!quiescentStates.has(thread.status.state)) return { ...expired, autoSettleAt: null };
+  if (!["done", "new", "failed"].includes(thread.status.state))
+    return { ...expired, autoSettleAt: null };
+  const prs = pullRequests(thread.details);
+  // An unresolved or unverified PR blocks every automatic rule, including inactivity.
+  if (
+    prs.some(
+      (pr) =>
+        ("unverified" in pr && pr.unverified) ||
+        ("deleted" in pr && pr.deleted) ||
+        !(pr.state === "merged" || (pr.state === "closed" && policy.closed)),
+    )
+  )
+    return { ...expired, autoSettleAt: null };
+  const key = prs.length
+    ? JSON.stringify(
+        prs
+          .map((pr) =>
+            "repo" in pr
+              ? [pr.repo.forge, pr.repo.host, pr.repo.owner, pr.repo.name, pr.number]
+              : [pr.number],
+          )
+          .map((ref) => JSON.stringify(ref))
+          .toSorted(),
+      )
+    : undefined;
+  const alreadySettled =
+    key === thread.prSettledKey ||
+    (thread.prSettledKey === undefined && prs.length === 1 && prs[0]?.number === thread.prSettled);
+  const prRuleEnabled = prs.every((pr) => (pr.state === "merged" ? policy.merged : policy.closed));
+  if (key && prRuleEnabled && !alreadySettled)
+    return {
+      ...expired,
+      settledAt: at,
+      settledReason: prs.every((pr) => pr.state === "merged") ? "pr_merged" : "pr_closed",
+      autoSettleAt: null,
+      prSettled: prs[0]?.number,
+      prSettledKey: key,
+    };
+  if (thread.status.state !== "done") return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000
       : undefined;
-  // A pull request settles its thread once. Reopened after that, the thread stays open until
-  // the person settles it, it goes inactive, or another linked pull request merges or closes.
-  const pr = thread.details?.linkedPr;
-  const prReason =
-    !pr || pr.number === thread.prSettled
-      ? undefined
-      : pr.state === "merged" && policy.merged
-        ? "pr_merged"
-        : pr.state === "closed" && policy.closed
-          ? "pr_closed"
-          : undefined;
-  if (prReason && pr)
-    return {
-      ...expired,
-      settledAt: at,
-      settledReason: prReason,
-      autoSettleAt: null,
-      prSettled: pr.number,
-    };
   return due !== undefined && due <= at
     ? { ...expired, settledAt: at, settledReason: "inactivity", autoSettleAt: null }
     : { ...expired, autoSettleAt: due ?? null };

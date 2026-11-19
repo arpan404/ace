@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectIdentity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aliases": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ProjectIdentitySource.json"
+    }
+  },
+  "required": [
+    "id",
+    "aliases",
+    "source"
+  ],
+  "type": "object"
+}

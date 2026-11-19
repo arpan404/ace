@@ -3,24 +3,32 @@ import Foundation
 /// Thread-screen actions. The bridge builds every payload from the SDK reader (delivery, Stop's
 /// fence, answer validation); native code sends the person's intent and waits for admission.
 extension ClientModel {
-    func forkThread(point: String, text: String) async -> Bool {
-        guard canOperate, let thread, let item = thread.items[point], item.row.complete, !text.isEmpty else { return false }
-        let id = admissions.nextId()
-        return await admissions.wait(id: id) {
-            command(["type": "thread.fork", "threadId": thread.id, "point": ["type": "item", "itemId": point], "input": text], requestId: id)
-        }
-    }
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
     /// `reply` is the question card on the strip: the bridge sends the words as its answer when
     /// they can be one (`@ace/ui-core` composerReply), else as a message.
-    func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil) async -> Bool {
+    func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil, references: [Any] = []) async -> Bool {
         guard canOperate, let thread else { return false }
         // Words, files or both; the bridge checks again with the shared rule.
-        guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let words = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let quoted = !thread.screen.quotes.isEmpty
+        guard !thread.screen.attachments.isEmpty || !thread.screen.annotations.isEmpty || quoted || sheets.chip != nil || words else { return false }
+        // Line comments on the chip go first, as the review's own message quoting file:line; the
+        // words then steer into that turn or queue behind it.
+        if sheets.chip != nil, thread.screen.controls?.continues != true {
+            guard await sendComments() else { return false }
+            if !words, !quoted, thread.screen.attachments.isEmpty, thread.screen.annotations.isEmpty { return true }
+        }
         let id = admissions.nextId()
-        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "requestId": id]
+        // A message that starts a new thread keeps its words and files until the daemon has
+        // started it: a refusal leaves the draft as it was, with the refusal's words.
+        let continues = thread.screen.controls?.continues == true
+        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "continues": continues, "requestId": id]
         if let reply { action["reply"] = reply.payload }
-        return await admissions.wait(id: id) { threadAction(action) }
+        if !references.isEmpty { action["references"] = references }
+        guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
+        let refused = await receipts.wait(id: id) { threadAction(action) }
+        if let refused { error = refused }
+        return refused == nil
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {
@@ -53,12 +61,32 @@ extension ClientModel {
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
     func requestModels() { threadAction(["type": "models"]) }
-    /// Star or unstar one of the thread's provider's models, where the web keeps stars.
-    func favoriteModel(_ id: String) { threadAction(["type": "favorite", "model": id]) }
-    func switchModel(_ model: ModelOption) async -> Bool {
+    /// Star or unstar a model by its picker key, where the web keeps stars.
+    func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
+    /// Move the thread to a model on one account; `confirmed` once the person answered the row's
+    /// question. The bridge decides what that does: switch, or continue with the next message.
+    /// `epoch` pins it to one generation of the open thread (the current one when nil); the bridge
+    /// refuses it for any other.
+    func switchModel(key: String, account: String, confirmed: Bool, effort: String? = nil, speed: String? = nil,
+                     epoch: Int? = nil) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) { threadAction(["type": "switchModel", "model": model.id, "requestId": id]) }
+        var value: [String: Any] = ["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id]
+        if let effort { value["effort"] = effort }
+        if let speed { value["speed"] = speed }
+        return await admissions.wait(id: id) {
+            let dispatched = action(threadMessage(value, epoch: epoch))
+            if !dispatched { error = "Could not submit the request. Your draft is still available." }
+            return dispatched
+        }
+    }
+    /// A move confirmed in the model sheet, sent as the sheet closes to the visit of the thread it
+    /// was confirmed on and nowhere else, under that visit's generation now (a reconnect gives the
+    /// same visit a new one). False when the person has moved on, or the move wasn't taken.
+    func send(_ move: HeldModelMove) async -> Bool {
+        guard let thread, thread.id == move.threadId, thread.visit == move.visit else { return false }
+        return await switchModel(key: move.key, account: move.account, confirmed: true,
+                                 effort: move.effort, speed: move.speed, epoch: thread.epoch)
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {
@@ -68,6 +96,57 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
+    /// A queue-wide choice (Pause queue, Resume, Continue, a limit's choice): the bridge fences it
+    /// to the queue as the daemon has it now.
+    func actOnQueue(_ choice: QueueRow.Action) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        var action: [String: Any] = ["id": choice.id, "label": choice.label]
+        if let instance = choice.instanceId { action["instanceId"] = instance }
+        return await admissions.wait(id: id) { threadAction(["type": "queueAct", "action": action, "requestId": id]) }
+    }
+    /// A message the person sent in the thread, `older` 0 the latest (`bridge/sent-prompt.ts`).
+    func sentText(_ threadId: String, older: Int) async -> String? {
+        struct Reply: Decodable { let text: String? }
+        return try? await service(["type": "thread.sentText", "threadId": threadId, "older": older], as: Reply.self).text
+    }
+    /// A queued message's full words, read from the daemon's queue, for the edit sheet.
+    func queuedWords(_ messageId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) { threadAction(["type": "queueWords", "messageId": messageId, "requestId": id]) }
+    }
+    /// New words for a queued message, in place, fenced to the queue `revision` they were read at:
+    /// nil once the daemon took them, else why not (the message stays as it was).
+    func editQueuedWords(_ messageId: String, text: String, revision: Int?) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            var change: [String: Any] = ["kind": "words", "text": text]
+            if let revision { change["revision"] = revision }
+            return threadAction(["type": "queue", "messageId": messageId, "change": change, "requestId": id])
+        }
+    }
+    /// A failed send's full words, for the edit sheet.
+    func sendWords(_ commandId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "sendWords", "commandId": commandId], "requestId": id])
+        }
+    }
+    /// New words for a failed send, saved in place in the outbox: nil once saved, else why not (the
+    /// original stays). Retry then sends them.
+    func editFailedSend(_ commandId: String, text: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        let answer = await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "editSend", "commandId": commandId, "text": text], "requestId": id])
+        }
+        return answer.ok ? nil : answer.message
+    }
+    /// The queue's list shows its next page.
+    func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the
     /// sheet was opened on (`epoch`): a sheet left over from a thread the person has since left is
     /// refused by the bridge, never applied to the thread open now. Resolves once the daemon took
@@ -78,6 +157,10 @@ extension ClientModel {
         return await receipts.wait(id: id) {
             action(threadMessage(["type": "goal", "change": change, "requestId": id], epoch: epoch))
         }
+    }
+    /// Whether the reader sits at the live end of the thread open under `epoch` (`ReaderAtEnd`).
+    func readerAtEnd(_ atEnd: Bool, epoch: Int) {
+        action(threadMessage(["type": "atEnd", "atEnd": atEnd], epoch: epoch))
     }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(threadMessage(value, epoch: nil))
@@ -91,4 +174,16 @@ extension ClientModel {
         if let epoch = epoch ?? thread?.epoch { message["epoch"] = epoch }
         return message
     }
+}
+
+/// A model move the person confirmed in a thread's model sheet, held until the sheet closes, with
+/// the thread and visit (`ThreadModel.visit`) it was confirmed on and the effort and speed picked
+/// for it since.
+struct HeldModelMove: Equatable {
+    let threadId: String
+    let visit: Int
+    let key: String
+    let account: String
+    var effort: String?
+    var speed: String?
 }

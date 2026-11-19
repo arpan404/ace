@@ -6,13 +6,12 @@
     },
     {
       "t": 12290,
-      "thread": "waiting",
-      "on": "background_task"
+      "thread": "done",
+      "note": "The turn completed with its reply; Codex never wakes the agent when the shell exits (docs/research/fixtures/codex.md, question 1), so the shell is left running, not waited on (ADR 0109)."
     },
     {
       "t": 23074,
-      "thread": "waiting",
-      "on": "background_task"
+      "thread": "done"
     },
     {
       "t": 23076,

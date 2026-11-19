@@ -7,6 +7,21 @@ import { thoughtOf } from "./thread-messages.ts";
 import type { PatchSink } from "./agents.ts";
 import type { NativeLedger } from "./native-ledger.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
+import { messageActionsOf } from "./message-actions.ts";
+
+/** How far back a turn's end looks for its messages: a turn's answers sit near the end. */
+const turnReach = 256;
+
+/** The messages of turn `runId` among the newest items, whose actions its end changes. */
+function turnMessages(store: ThreadSource, runId: string): string[] {
+  const ids: string[] = [];
+  for (let at = store.order.length - 1; at >= Math.max(0, store.order.length - turnReach); at--) {
+    const id = store.order[at] ?? "";
+    const item = store.item(id);
+    if (item?.type === "message" && item.runId === runId) ids.push(id);
+  }
+  return ids;
+}
 export { PatchPump } from "./patch-pump.ts";
 
 /**
@@ -22,27 +37,40 @@ export function followThread(
   ledger?: NativeLedger,
   prefix: "thread:" | "reading:" = "thread:",
 ) {
-  const positions = new Map<string, number>();
+  const positions = new Map<string, { index: number; seq: number | null }>();
+  /** Where native's positions start in `store.order` (`anchoredOffset`), so a row knows its place. */
+  let offset = 0;
+  /** Explicit bounded snapshot revisions: one per whole-thread pass for this visit. */
+  let snapshotRevision = 0;
   const put = (key: string, read: () => Record<string, unknown> | undefined) => {
     pump.put(prefix + key, () => {
       const patch = read();
       return patch && { ...patch, threadId, epoch };
     });
   };
+  const seqOf = (id: string): number | null => store.itemSeq?.(id) ?? null;
   const row = (id: string, index?: number) => {
-    if (index !== undefined) positions.set(id, index);
+    if (index !== undefined) positions.set(id, { index, seq: seqOf(id) });
+    const known = positions.get(id);
+    // Its place in the order, as the positions say, so its actions never scan the order for it.
+    const at = known === undefined ? undefined : known.index + offset;
     put(`item:${id}`, () => {
       const item = store.item(id);
+      if (!item) {
+        const knownSeq = positions.get(id)?.seq ?? seqOf(id);
+        const reason = store.deleted?.(id) ? "deleted" : "evicted";
+        return { type: "thread.item", id, row: null, seq: knownSeq, reason };
+      }
       return {
         type: "thread.item",
         id,
-        row: item
-          ? {
-              ...itemRow(item, positions.get(id), store.truncated(id)),
-              ...itemDetail(item, stepContext(store, item)),
-              thought: thoughtOf(store, item),
-            }
-          : null,
+        row: {
+          ...itemRow(item, positions.get(id)?.index, store.truncated(id)),
+          creationSeq: seqOf(id),
+          ...itemDetail(item, stepContext(store, item)),
+          thought: thoughtOf(store, item),
+          actions: messageActionsOf(store, item, at) ?? null,
+        },
       };
     });
   };
@@ -56,9 +84,16 @@ export function followThread(
     if (keys === "all" && ledger?.held && !store.thread) return;
     if (keys === "all") {
       positions.clear();
+      offset = 0;
+      snapshotRevision += 1;
+      const before = store.itemsBefore ?? null;
       if (!ledger?.begin()) {
         pump.clear(prefix);
-        put("reset", () => ({ type: "thread.reset" }));
+        const revision = snapshotRevision;
+        put("reset", () => ({ type: "thread.reset", revision, before }));
+      } else {
+        const revision = snapshotRevision;
+        put("snapshot.begin", () => ({ type: "thread.snapshot.begin", revision, before }));
       }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
       store.order.forEach((id, index) => row(id, index));
@@ -71,7 +106,11 @@ export function followThread(
           if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
         };
         const retained = new Set(store.order);
-        const offset = anchoredOffset(positions, store.order);
+        const order = store.order;
+        offset = anchoredOffset(
+          new Map([...positions].map(([id, value]) => [id, value.index])),
+          order,
+        );
         for (const id of positions.keys())
           if (!retained.has(id)) {
             positions.delete(id);
@@ -82,12 +121,12 @@ export function followThread(
           if (!positions.has(id)) {
             row(id, index);
             thought(at);
-          } else if (positions.get(id) !== index) {
-            positions.set(id, index);
+          } else if (positions.get(id)?.index !== index) {
+            positions.set(id, { index, seq: seqOf(id) });
             put(`position:${id}`, () => ({
               type: "thread.position",
               id,
-              index: positions.get(id) ?? null,
+              index: positions.get(id)?.index ?? null,
             }));
           }
         });
@@ -98,6 +137,8 @@ export function followThread(
         if (key.startsWith("run:")) {
           const last = store.order.at(-1);
           if (last !== undefined && store.item(last)?.type === "reasoning") row(last);
+          // A finished turn can be forked from: its answers' actions change.
+          turnMessages(store, key.slice(4)).forEach((id) => row(id));
         }
         if (key.startsWith("interaction:")) {
           interaction(key.slice(12));

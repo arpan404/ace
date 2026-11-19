@@ -115,6 +115,31 @@
     },
     {
       "properties": {
+        "folders": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "files.watch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "folders"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "channel": {
           "maximum": 4294967295,
           "minimum": 1,

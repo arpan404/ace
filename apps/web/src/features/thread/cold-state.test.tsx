@@ -44,9 +44,10 @@ test("a retained failed input reads Not sent in the sidebar", async () => {
   const app = harness();
   seedColdStartState(app.daemon);
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   const row = await list.findByRole("link", { name: /^Fix the reconnect/ });
-  expect(within(row).getByText("Not sent")).toBeTruthy();
+  // The row's status icon is named for it; rows carry no status words.
+  expect(await within(row).findByRole("img", { name: "Not sent" })).toBeTruthy();
 });
 
 test("a thread with no prior turn offers the first message without restart recovery", async () => {

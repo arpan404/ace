@@ -1,29 +1,67 @@
 ---
 /* Phosphor icons, regular weight, as the app uses them. Inlined so they take currentColor. */
-import appleLogo from "@phosphor-icons/core/regular/apple-logo.svg?raw";
+import arrowRight from "@phosphor-icons/core/regular/arrow-right.svg?raw";
+import arrowUpRight from "@phosphor-icons/core/regular/arrow-up-right.svg?raw";
 import browser from "@phosphor-icons/core/regular/browser.svg?raw";
+import check from "@phosphor-icons/core/regular/check.svg?raw";
 import chartBar from "@phosphor-icons/core/regular/chart-bar.svg?raw";
 import clockCountdown from "@phosphor-icons/core/regular/clock-countdown.svg?raw";
+import code from "@phosphor-icons/core/regular/code.svg?raw";
 import cursorClick from "@phosphor-icons/core/regular/cursor-click.svg?raw";
+import cursor from "@phosphor-icons/core/fill/cursor-fill.svg?raw";
 import deviceMobile from "@phosphor-icons/core/regular/device-mobile.svg?raw";
+import downloadSimple from "@phosphor-icons/core/regular/download-simple.svg?raw";
 import gitPullRequest from "@phosphor-icons/core/regular/git-pull-request.svg?raw";
-import githubLogo from "@phosphor-icons/core/regular/github-logo.svg?raw";
+import hardDrives from "@phosphor-icons/core/regular/hard-drives.svg?raw";
+import key from "@phosphor-icons/core/regular/key.svg?raw";
 import lock from "@phosphor-icons/core/regular/lock.svg?raw";
+import moon from "@phosphor-icons/core/regular/moon.svg?raw";
+import plus from "@phosphor-icons/core/regular/plus.svg?raw";
+import sun from "@phosphor-icons/core/regular/sun.svg?raw";
 import terminalWindow from "@phosphor-icons/core/regular/terminal-window.svg?raw";
 import treeStructure from "@phosphor-icons/core/regular/tree-structure.svg?raw";
+import usersThree from "@phosphor-icons/core/regular/users-three.svg?raw";
+import windowsLogo from "@phosphor-icons/core/fill/windows-logo-fill.svg?raw";
+import { siAndroid, siApple, siGithub, siLinux } from "simple-icons";
+
+/*
+ * Official brand marks from Simple Icons, drawn in the text colour. Simple Icons carries no
+ * Windows mark, so that one is Phosphor's filled glyph.
+ */
+const brand = (path: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`;
+const appleLogo = brand(siApple.path);
+const githubLogo = brand(siGithub.path);
+const linuxLogo = brand(siLinux.path);
+const androidLogo = brand(siAndroid.path);
 
 const icons = {
+  "android-logo": androidLogo,
   "apple-logo": appleLogo,
+  "arrow-right": arrowRight,
+  "arrow-up-right": arrowUpRight,
   browser,
   "chart-bar": chartBar,
+  check,
   "clock-countdown": clockCountdown,
+  code,
+  cursor,
   "cursor-click": cursorClick,
   "device-mobile": deviceMobile,
+  "download-simple": downloadSimple,
   "git-pull-request": gitPullRequest,
   "github-logo": githubLogo,
+  "hard-drives": hardDrives,
+  key,
+  "linux-logo": linuxLogo,
   lock,
+  moon,
+  plus,
+  sun,
   "terminal-window": terminalWindow,
   "tree-structure": treeStructure,
+  "users-three": usersThree,
+  "windows-logo": windowsLogo,
 };
 
 export type IconName = keyof typeof icons;

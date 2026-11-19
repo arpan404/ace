@@ -15,9 +15,7 @@ afterEach(() => {
 });
 async function live() {
   const result = await openDevices();
-  await userEvent.click(
-    await within(result.panel).findByRole("button", { name: "Enable devices" }),
-  );
+  await within(result.panel).findByRole("searchbox", { name: "Search devices" });
   const device = await openDevice(result.panel, "iPhone 16 Pro");
   await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { ...result, device };
@@ -117,7 +115,7 @@ test("invalid location stays in the form with a fix", async () => {
 });
 test("watching Simulator leaves computer use off", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const device = await openDevice(panel, "iPhone 16 Pro");
   expect(await within(device).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
   expect(app.daemon.screen.enabled).toBe(false);
@@ -142,13 +140,16 @@ test("stopping recording posts a playable video to the thread", async () => {
   expect(await within(device).findByRole("timer", { name: "Recording time" })).toBeTruthy();
   await userEvent.click(within(device).getByRole("button", { name: "Stop recording" }));
   await userEvent.click(await screen.findByRole("button", { name: "Play recording" }));
-  const dialog = await screen.findByRole("dialog", { name: "Device recording.mp4" });
+  // It plays beside the thread, as a side panel tab.
+  const player = await screen.findByRole("region", { name: "Device recording.mp4" });
   await waitFor(() =>
-    expect(within(dialog).getByLabelText("Device recording.mp4").getAttribute("src")).toBe(
+    expect(within(player).getByLabelText("Device recording.mp4").getAttribute("src")).toBe(
       "blob:test/recording",
     ),
   );
-  expect(within(dialog).getByLabelText("Device recording.mp4").hasAttribute("controls")).toBe(true);
+  const video = within(player).getByLabelText("Device recording.mp4");
+  expect(video.tagName).toBe("VIDEO");
+  expect(video.hasAttribute("controls")).toBe(true);
 });
 test("Copy screenshot puts the device's screen on the clipboard as a PNG, with no download", async () => {
   const { device } = await live();

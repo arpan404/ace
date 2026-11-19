@@ -25,6 +25,8 @@ export interface PaletteCommand {
    * thread. A query starting with `>` lists actions only.
    */
   kind?: "thread" | "project" | "message";
+  /** A thread that is a chat (ADR 0099): the Chats scope lists these, Threads the rest. */
+  chat?: boolean;
   /** When it was last opened or run (ms): breaks ranking ties, newest first. */
   at?: number;
   /** The thread it opens: a thread's own, or the one a message was found in. */

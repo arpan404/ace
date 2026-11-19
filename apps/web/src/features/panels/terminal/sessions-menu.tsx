@@ -1,4 +1,4 @@
-import { CheckIcon, StackIcon, TerminalIcon, TerminalWindowIcon } from "@phosphor-icons/react";
+import { CheckIcon, StackIcon, TerminalIcon, TerminalWindowIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -20,6 +20,7 @@ import {
   terminalKind,
   terminalTab,
 } from "./tabs.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { distinctLabels, useBackgroundShells, useThreadTerminals } from "./use-terminals.ts";
 
 const shellState = {
@@ -44,6 +45,9 @@ export function SessionsMenu(props: { scope: string }) {
   const shells = useBackgroundShells(scope);
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
+  // Agents' shells are the thread copy's facts: while it isn't current they say only that and
+  // aren't counted, since one shown running may have finished. Own terminals are live here.
+  const live = useThreadFreshness(scope);
   // Open in either panel: picking one shows it where it is.
   const tabs = allTabs(workspace);
   const titleOf = (kind: string, id: string) =>
@@ -64,7 +68,9 @@ export function SessionsMenu(props: { scope: string }) {
   ).filter((entry) => entry.open || entry.task.status === "running");
   const unseen =
     own.filter((entry) => !entry.open && !entry.terminal.exited).length +
-    agents.filter((entry) => !entry.open && entry.task.status === "running").length;
+    (live.fresh
+      ? agents.filter((entry) => !entry.open && entry.task.status === "running").length
+      : 0);
   return (
     <Menu>
       <span className="relative inline-flex">
@@ -123,7 +129,7 @@ export function SessionsMenu(props: { scope: string }) {
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{entry.label}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {shellState[entry.task.status]}
+                  {live.staleLabel ?? shellState[entry.task.status]}
                 </span>
                 {entry.open && <CheckIcon aria-label="open" size={12} className="shrink-0" />}
               </span>

@@ -166,12 +166,22 @@ export class AgentTransfers {
     const agent = record.request.agent;
     if (!agent || record.delivered) return;
     const { transfer } = record;
+    const thread = this.deps.store.getThread(agent.threadId);
+    if (!thread || thread.deletedAt !== undefined) {
+      // Its thread is gone, its state possibly purged: there is no one to tell and no hold to
+      // end, so the result is done with instead of tried again on every start.
+      this.deps.outgoing.markDelivered(transfer.transferId);
+      return;
+    }
     try {
-      this.deps.deliver(
-        agent.threadId,
-        `transfer-result:${transfer.transferId}`,
-        transferResultText(transfer),
-      );
+      // A thread that moved itself runs nothing more here, and one whose move failed was told to
+      // carry on by the move itself (ADR 0191): no result turn either way.
+      if (!transfer.live)
+        this.deps.deliver(
+          agent.threadId,
+          `transfer-result:${transfer.transferId}`,
+          transferResultText(transfer),
+        );
       this.deps.hold(agent.threadId, agent.agentId, transfer.transferId, {
         status:
           transfer.phase === "completed"

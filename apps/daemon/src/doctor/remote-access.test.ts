@@ -19,10 +19,12 @@ const day = 24 * 60 * 60 * 1000;
 const fixtureExpiry = Date.parse("2036-10-18T20:54:59Z");
 const lan: RemotePreferences = {
   "remote.enabled": true,
-  "remote.transport": "lan",
+  "remote.lan": true,
+  "remote.tailscale": false,
+  "remote.relay": false,
   "remote.relayUrl": "",
 };
-const tailscale: RemotePreferences = { ...lan, "remote.transport": "tailscale" };
+const tailscale: RemotePreferences = { ...lan, "remote.lan": false, "remote.tailscale": true };
 
 async function verdicts(context: DoctorContext, ports: RemoteAccessPorts = remoteAccessPorts) {
   const results = new Map<string, Omit<CheckResult, "id">>();
@@ -60,9 +62,13 @@ function fakePorts(overrides: Partial<RemoteAccessPorts>): RemoteAccessPorts {
   };
 }
 
-it("with remote access off, doctor says so and nothing needs attention", async () => {
-  const { context, cleanup } = await doctorTestContext();
+it("with remote access turned off, doctor says so and nothing needs attention", async () => {
+  const { context, dataDir, cleanup } = await doctorTestContext();
   cleanups.push(cleanup);
+  await writeFile(
+    join(dataDir, "settings.json"),
+    JSON.stringify({ version: 2, settings: { "remote.enabled": false } }),
+  );
   const results = await verdicts(context);
   expect(results.get("remote.access")).toMatchObject({
     status: "ok",
@@ -194,7 +200,7 @@ it("over Tailscale, doctor warns until the tailnet can issue this machine's HTTP
   ).toMatchObject({ status: "ok" });
 });
 
-it("the relay transport still listens directly, and needs a saved relay address", async () => {
+it("a relay runs beside the LAN, and with no address of its own it is ace's relay", async () => {
   const { context, cleanup } = await doctorTestContext();
   cleanups.push(cleanup);
   const relay = (relayUrl: string) =>
@@ -203,7 +209,7 @@ it("the relay transport still listens directly, and needs a saved relay address"
       fakePorts({
         preferences: async () => ({
           ...lan,
-          "remote.transport": "relay",
+          "remote.relay": true,
           "remote.relayUrl": relayUrl,
         }),
       }),
@@ -219,7 +225,7 @@ it("the relay transport still listens directly, and needs a saved relay address"
     message: "No certificate yet; ace makes one when remote access starts",
   });
   expect((await relay("")).get("remote.access")).toMatchObject({
-    status: "warn",
-    message: "Remote access is set to use a relay, but no relay address is saved",
+    status: "ok",
+    message: `Remote access is on: LAN at 192.168.1.20:${context.config.remotePort} · ace's relay cloud.acehq.dev`,
   });
 });

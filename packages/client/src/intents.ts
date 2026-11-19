@@ -14,6 +14,8 @@ const Intent = z.object({
   threadId: z.string().optional(),
   waiting: z.boolean().optional(),
   localFailure: z.boolean().optional(),
+  /** A local failure the person edited: kept on disk like a daemon refusal, so the edit survives. */
+  edited: z.boolean().optional(),
   order: z.number().int().nonnegative().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
@@ -31,6 +33,12 @@ const maxRetries = 10;
 interface IntentsOptions {
   storage: Storage;
   device: DeviceId;
+  /**
+   * This install's other device ids on the same machine (its pairing's and its ace account
+   * device's, ADR 0115). Work saved under one of them is this device's: it is loaded, shown and
+   * sent as `device`, and the daemon answers a command it already has from its receipt.
+   */
+  aliases?: readonly DeviceId[] | undefined;
   hostId?(): string | undefined;
   limit: number;
   bytes: number;
@@ -52,6 +60,8 @@ export class Intents {
   #ready = false;
   #connected = false;
   #inFlight = new Set<string>();
+  /** Commands the previous path owes receipts for; newer ones wait behind them (`fence`). */
+  #fenced: Set<string> | undefined;
   #saving = new Set<string>();
   #initializing: Promise<void> | undefined;
   #options: IntentsOptions;
@@ -69,9 +79,19 @@ export class Intents {
         // connection: it is skipped, never replayed, and per-record storage leaves it in place.
         const hostId = this.#options.hostId?.();
         const seen = new Set<string>();
+        const device = this.#options.device;
+        const aliases = new Set<string>(this.#options.aliases ?? []);
+        const rebound: Intent[] = [];
         const values = raw.flatMap((entry) => {
-          const intent = readIntent(entry);
-          if (!intent || intent.command.deviceId !== this.#options.device) return [];
+          const read = readIntent(entry);
+          if (!read) return [];
+          // Saved on this install's other route to the machine: the same work, sent as this one.
+          const intent =
+            read.command.deviceId !== device && aliases.has(read.command.deviceId)
+              ? { ...read, command: { ...read.command, deviceId: device } }
+              : read;
+          if (intent !== read) rebound.push(intent);
+          if (intent.command.deviceId !== device) return [];
           if (this.#options.storage.hostBinding && (!intent.hostId || intent.hostId !== hostId))
             return [];
           if (seen.has(intent.command.id)) return [];
@@ -89,6 +109,11 @@ export class Intents {
             ...evicted,
             ...values.filter((entry) => !this.#retained(entry)).map((entry) => entry.command.id),
           ]);
+        // Kept as this device's, so the next start finds them whichever route it takes.
+        if (this.#options.storage.records)
+          for (const intent of rebound)
+            if (this.#records.get(intent.command.id) === intent && this.#retained(intent))
+              await this.#persist(intent, []);
         for (const id of this.#records.keys()) this.#options.changed(id);
         this.#ready = true;
       } catch (error) {
@@ -191,6 +216,48 @@ export class Intents {
       .finally(() => this.#enqueuing.delete(id));
     this.#enqueuing.set(id, operation);
     return operation;
+  }
+  /**
+   * New words for a send that failed, in place: the same command id, thread and kind, saved in one
+   * write. A write that fails leaves the original, in memory and on disk, so a crash mid-edit
+   * keeps either the old words or the new ones, never neither.
+   */
+  rewrite(id: string, payload: CommandPayload): Promise<void> {
+    return this.#serialize(async () => {
+      const previous = this.#records.get(id);
+      if (previous?.state !== "failed")
+        throw new ClientError("protocol", "Only a send that failed can be edited");
+      const before = previous.command.payload;
+      if (
+        (before.type !== "thread.send" && before.type !== "thread.create") ||
+        payload.type !== before.type ||
+        (payload.type === "thread.send" &&
+          before.type === "thread.send" &&
+          payload.threadId !== before.threadId)
+      )
+        throw new ClientError("protocol", "An edit keeps the send's kind and thread");
+      const command = Command.parse({ ...previous.command, payload });
+      if (
+        !fitsUtf8(JSON.stringify({ type: "command", command }), this.#options.frameBytes) ||
+        !fitsUtf8(JSON.stringify({ ...previous, command }), this.#options.bytes - 128)
+      )
+        throw new ClientError("limit");
+      // A send that failed on this device is kept in memory only, until edited: the edit is the
+      // person's work, so from then on it is saved like any send waiting for them.
+      const next: Intent = {
+        ...previous,
+        command,
+        ...(previous.localFailure ? { edited: true } : {}),
+      };
+      this.#put(id, next);
+      try {
+        await this.#persist(next, []);
+      } catch {
+        this.#put(id, previous);
+        throw new ClientError("storage");
+      }
+      this.#options.changed(id);
+    });
   }
   /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
   refuse(commandId: string, code: string, retryable: boolean): Promise<void> {
@@ -343,6 +410,8 @@ export class Intents {
         throw new ClientError("storage");
       }
       if (acknowledged) this.#releaseSlot(id);
+      // A command the old path owed is answered by its transcript: newer ones may go now.
+      else if (this.#fenced?.has(id)) this.#pump();
       this.#options.changed(id);
     });
   }
@@ -380,7 +449,11 @@ export class Intents {
   #retained(intent: Intent): boolean {
     // A successful receipt transfers durability to the daemon's admission transaction.
     // Transcript leases and preview windows only determine the visible delivered state.
-    return intent.state !== "acked" && intent.state !== "saving" && !intent.localFailure;
+    return (
+      intent.state !== "acked" &&
+      intent.state !== "saving" &&
+      (!intent.localFailure || intent.edited === true)
+    );
   }
   /** Bound memory as well as disk, evicting settled entries before refusing active work. */
   #evict(protect?: string): string[] {
@@ -420,8 +493,44 @@ export class Intents {
   settled(): Promise<void> {
     return this.#chain;
   }
+  /**
+   * The connection moved to another path (ADR 0114) while these commands, in the order they
+   * were sent, wait for receipts the old path still owes. No newer command goes out until each
+   * is answered or `reask`ed: the daemon runs commands in arrival order, so a newer one on the
+   * new path must never overtake an older one still on its way over the old path.
+   */
+  fence(): string[] {
+    const ids = [...this.#inFlight];
+    this.#fenced = ids.length ? new Set(ids) : undefined;
+    return ids;
+  }
+  /**
+   * The path these commands went out on is gone without answering them: send each one still
+   * waiting for its receipt again, by the same id and in the order first sent, on the active
+   * path; then newer commands follow. The daemon answers a command it already has from its
+   * receipt instead of running it twice.
+   */
+  reask(ids: readonly string[]): void {
+    for (const id of ids) {
+      const intent = this.#records.get(id);
+      if (!this.awaitingReceipt(id) || !intent) continue;
+      this.#options.send(intent.command);
+    }
+    this.#fenced = undefined;
+    this.#pump();
+  }
+  /** Whether new commands still wait behind ones the old path owes receipts for. */
+  #holding(): boolean {
+    const fenced = this.#fenced;
+    if (!fenced) return false;
+    for (const id of fenced) if (!this.awaitingReceipt(id)) fenced.delete(id);
+    if (fenced.size) return true;
+    this.#fenced = undefined;
+    return false;
+  }
   disconnect(): void {
     this.#connected = false;
+    this.#fenced = undefined;
     this.#inFlight.clear();
     for (const retry of this.#retries.values()) {
       retry.cancel?.();
@@ -429,7 +538,7 @@ export class Intents {
     }
   }
   #pump(): void {
-    if (!this.#connected) return;
+    if (!this.#connected || this.#holding()) return;
     for (const intent of this.#records.values()) {
       if (!this.#connected || this.#inFlight.size >= 8) break;
       const id = intent.command.id;
@@ -447,6 +556,7 @@ export class Intents {
   }
   replay(): void {
     this.#connected = true;
+    this.#fenced = undefined;
     this.#inFlight.clear();
     // Replay resends every pending intent; a scheduled retry would only duplicate it.
     for (const retry of this.#retries.values()) {

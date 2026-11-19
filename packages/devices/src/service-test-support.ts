@@ -161,6 +161,7 @@ export async function harness(
     },
   });
   const service = new DevicesService({
+    cowork: false,
     platform,
     env: {},
     spawnLogs() {

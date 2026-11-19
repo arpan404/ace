@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 import { join } from "node:path";
 import { sameDirectory, type DirectoryIdentity, type SkillDisk } from "./skill-disk.ts";
 import { SkillError } from "./skill-errors.ts";
@@ -129,10 +130,21 @@ export class SkillSwap {
       installed,
       lockTemporary: input.lockTemporary,
     };
+    if (process.platform === "win32") this.disk.stageWindowsExchange(old, next);
     try {
       await this.journals.write(journal);
       await this.swap(root, journal, input);
     } catch (error) {
+      // A step that timed out may still land: keep the journal, which recovery settles once the
+      // folder's stuck call has returned.
+      const unknown = writeOutcomeUnknown(error);
+      if (unknown) {
+        this.report(
+          "Skill update timed out; ace settles it once the folder answers",
+          join(input.rootReal, name),
+        );
+        throw unknown;
+      }
       // Settled when no backup is left and the name doesn't hold ace's replacement: the original
       // is back, or (after a conflict) whatever someone else put there is untouched.
       const clean =
@@ -184,7 +196,8 @@ export class SkillSwap {
     try {
       await this.disk.move(root, next, name);
     } catch (error) {
-      await this.disk.move(root, old, name);
+      // A move that timed out may still land; moving back now could race it. The journal stays.
+      if (!writeOutcomeUnknown(error)) await this.disk.move(root, old, name);
       throw error;
     }
     // The folder at the name is the one staged; anything else stops before the lock records it.
@@ -258,6 +271,7 @@ export class SkillSwap {
     }
   }
   private async settle(root: number, journal: SwapJournal, committed: boolean): Promise<void> {
+    if (process.platform === "win32") this.disk.stageWindowsExchange(journal.old, journal.next);
     const plan = swapRecoveryPlan(journal, {
       name: await this.disk.identity(root, journal.name),
       nameTaken: await this.disk.exists(root, journal.name),

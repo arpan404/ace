@@ -31,6 +31,10 @@ struct DeviceTile: Codable, Sendable, Equatable, Identifiable, Hashable {
     let live: Bool
     /// "Claude is using it"; empty while nobody is.
     let control: String
+    /// Boot can start it: shut down and not already booting. Nil from an older bridge.
+    var bootable: Bool? = nil
+    /// What a device that can't run yet needs ("Pixel 8 is offline. Reconnect it…"); nil otherwise.
+    var hint: String? = nil
 }
 
 /// The drawn hardware around a device's screen, in fractions of the screen's width.
@@ -84,6 +88,8 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     struct Size: Codable, Sendable, Equatable { let width: Double; let height: Double }
     let activity: Activity?
     let problem: DeviceProblem?
+    /// One sentence while the picture runs degraded on the processor; empty otherwise.
+    var degraded: String? = nil
     let touch: String
     /// A foldable device's posture (`closed`, `partiallyOpen` or `open`); nil when it doesn't fold.
     var posture: String? = nil
@@ -94,9 +100,12 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
 /// A thread's Devices screen, whole, as the bridge shapes it.
 struct DevicesView: Codable, Sendable, Equatable {
     struct Group: Codable, Sendable, Equatable, Identifiable { let label: String; let rows: [DeviceTile]; var id: String { label } }
+    struct Off: Codable, Sendable, Equatable { let title: String; let line: String }
     let connected: Bool
     let loading: Bool
     let enabled: Bool
+    /// While devices are off on the machine: what the list says, with Turn on beside it.
+    var off: Off? = nil
     let offline: DeviceProblem?
     let running: [DeviceTile]
     let groups: [Group]
@@ -153,20 +162,31 @@ enum DevicesPatch: Sendable {
     case view(threadId: String, DevicesView)
     case logs(DeviceLogs)
     case chrome(key: String, DeviceChromeArt)
+    /// The live stream's stats, worded by the bridge (`bridge/device-stats.ts`).
+    case stats(DeviceStreamStats)
 
-    static let types: Set<String> = ["devices.view", "devices.logs", "devices.chrome"]
+    static let types: Set<String> = ["devices.view", "devices.logs", "devices.chrome", "devices.stats"]
     private enum Keys: String, CodingKey { case type, threadId, view, key, chrome }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
         if type == "devices.view" {
             self = .view(threadId: try box.decode(String.self, forKey: .threadId), try box.decode(DevicesView.self, forKey: .view))
+        } else if type == "devices.stats" {
+            self = .stats(try DeviceStreamStats(from: decoder))
         } else if type == "devices.chrome" {
             self = .chrome(key: try box.decode(String.self, forKey: .key), try box.decode(DeviceChromeArt.self, forKey: .chrome))
         } else {
             self = .logs(try DeviceLogs(from: decoder))
         }
     }
+}
+
+/// "H.264 · 59 fps" and the lines under it: what arrived, what was drawn, the stalls.
+struct DeviceStreamStats: Codable, Sendable, Equatable {
+    let deviceId: String
+    let summary: String
+    let details: [String]
 }
 
 /// The Devices screen's state on the phone: what the bridge last shaped, the open logs, and the
@@ -176,6 +196,8 @@ enum DevicesPatch: Sendable {
     private(set) var logs: DeviceLogs?
     /// Each model's real look the bridge has sent, its images decoded once.
     private(set) var chromes: [String: DeviceChromeLook] = [:]
+    /// The open device's stream stats while they show.
+    var stats: DeviceStreamStats?
     /// The newest request's failure, until the next one starts.
     var problem: DeviceProblem?
     private(set) var pending = 0
@@ -189,6 +211,7 @@ enum DevicesPatch: Sendable {
         case .logs(let next): if logs != next { logs = next }
         case .chrome(let key, let art):
             if chromes[key]?.art != art, let look = DeviceChromeLook(art) { chromes[key] = look }
+        case .stats(let next): if stats != next { stats = next }
         }
     }
 

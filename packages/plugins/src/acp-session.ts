@@ -25,6 +25,7 @@ const paramsSchema = z.strictObject({
   cwd: field.min(1).refine(isAbsolute, "ACP cwd must be absolute"),
   mcpServers: z.array(server).max(256).default([]),
 });
+const PluginServers = z.array(server).max(256);
 const resultSchema = z.object({ sessionId: z.string().min(1).max(256) }).passthrough();
 export type AcpExecutableResolver = (
   command: string,
@@ -52,10 +53,7 @@ export async function newPluginAcpSession(
   executable: AcpExecutableResolver = systemExecutable,
 ) {
   const params = paramsSchema.parse(input);
-  const plugins = z
-    .array(server)
-    .max(256)
-    .parse(config.mcpServers ?? []);
+  const plugins = PluginServers.parse(config.mcpServers ?? []);
   const request = paramsSchema.parse({ ...params, mcpServers: [...params.mcpServers, ...plugins] });
   const names = new Set<string>();
   for (const entry of request.mcpServers) {

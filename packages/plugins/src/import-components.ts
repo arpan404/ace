@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PluginName } from "@ace/protocol/plugins";
 import { Hook, McpServer, normalizePath, parseJson } from "./manifest.ts";
 const object = z.record(z.string(), z.unknown());
+const Objects = z.array(object).max(256);
 
 /** Every traversal and output is charged before expansion, including repeated aliases. */
 function expansion(files: Record<string, string>, consume: (value: unknown) => void) {
@@ -68,9 +69,8 @@ export function hookReader(files: Record<string, string>, unsupported: string[])
     const outer = object.parse(value);
     const events = object.parse(outer.hooks ?? outer);
     for (const [event, entries] of Object.entries(events)) {
-      for (const group of z.array(object).max(256).parse(entries)) {
-        const handlers =
-          group.hooks === undefined ? [group] : z.array(object).max(256).parse(group.hooks);
+      for (const group of Objects.parse(entries)) {
+        const handlers = group.hooks === undefined ? [group] : Objects.parse(group.hooks);
         for (const handler of handlers) {
           budget.output();
           if (handler.type !== undefined && handler.type !== "command") {

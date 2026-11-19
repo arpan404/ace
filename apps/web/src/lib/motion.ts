@@ -1,4 +1,4 @@
-import { diffList, motionMs, withLeaving } from "@ace/ui-core";
+import { bulkChange, diffList, motionMs, withLeaving } from "@ace/ui-core";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 /*
@@ -98,6 +98,24 @@ export interface ListRow<T> {
    * rows it passes, so two rows never show through each other mid-swap.
    */
   rising: boolean;
+  /** How long an exiting row waits before it starts to leave, in ms (see `exitStagger`). */
+  delay: number;
+}
+
+export interface ListMotionOptions<T> {
+  /**
+   * Rows leaving together go one after another, this many ms apart, top first. The spread is
+   * squeezed so the last row has left within `staggerSpanMs` of the change, however many leave.
+   */
+  exitStagger?: number;
+  /** Above this many rows entering or leaving at once, a change shows at once. */
+  bulkAt?: number;
+  /**
+   * Rows leaving for this reason are a reset, not news: the new list shows at once, with no exit.
+   * A list that paints stored facts first (marked unconfirmed) uses it so the settle into its
+   * folds doesn't animate rows that were never current.
+   */
+  snapWhen?: (leaving: readonly T[]) => boolean;
 }
 
 export interface ListMotion<T> {
@@ -113,6 +131,17 @@ interface Ghost<T> {
   item: T;
   /** The change (`movedAt`) it left in. */
   wave: number;
+  delay: number;
+}
+
+/** A staggered exit, last delay plus the exit itself, ends within this of the change. */
+export const staggerSpanMs = 400;
+
+/** The start delay of each of `count` rows leaving together, `step` ms apart within the span. */
+function exitDelays(count: number, step: number): number[] {
+  const room = staggerSpanMs - motionMs.exit;
+  const gap = count > 1 ? Math.min(step, room / (count - 1)) : 0;
+  return Array.from({ length: count }, (_, index) => Math.round(index * gap));
 }
 /**
  * Rows that left more than this many changes ago have finished fading (changes reach React at
@@ -133,10 +162,15 @@ const noKeys: ReadonlySet<string> = new Set();
 
 /**
  * Choreography for a keyed list: new rows rise in, removed rows fade out where they were, and
- * the rows between slide to their new places. A first fill, a bulk change (filter flip) or
- * reduced motion just shows the new list.
+ * the rows between slide to their new places. A first fill, a bulk change (filter flip), a
+ * settle the caller marks with `snapWhen`, or reduced motion just shows the new list.
  */
-export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string): ListMotion<T> {
+export function useListMotion<T>(
+  items: readonly T[],
+  keyOf: (item: T) => string,
+  options: ListMotionOptions<T> = {},
+): ListMotion<T> {
+  const { exitStagger = 0, bulkAt = bulkChange, snapWhen } = options;
   const reduced = useReducedMotion();
   const [state, setState] = useState<ListState<T>>(() => ({
     items,
@@ -150,13 +184,19 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
     const keys = items.map(keyOf);
     if (sameKeys(state.keys, keys)) setState({ ...state, items, keys });
     else {
-      const change = diffList(state.keys, keys);
-      const animate = !reduced && !change.bulk;
+      const change = diffList(state.keys, keys, bulkAt);
+      const leaving = change.left.flatMap(({ index }) => {
+        const item = state.items[index];
+        return item === undefined ? [] : [item];
+      });
+      const snap = snapWhen !== undefined && leaving.length > 0 && snapWhen(leaving);
+      const animate = !reduced && !change.bulk && !snap;
       const present = new Set(keys);
       const wave = state.movedAt + 1;
-      const left = change.left.flatMap(({ key, index }) => {
+      const delays = exitDelays(change.left.length, exitStagger);
+      const left = change.left.flatMap(({ key, index }, order) => {
         const item = state.items[index];
-        return item === undefined ? [] : [{ key, index, item, wave }];
+        return item === undefined ? [] : [{ key, index, item, wave, delay: delays[order] ?? 0 }];
       });
       const moved = change.reordered || change.entered.length > 0 || left.length > 0;
       setState({
@@ -177,9 +217,10 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
   const { ghosts, movedAt } = state;
   useEffect(() => {
     if (!ghosts.length) return;
+    const last = Math.max(...ghosts.map((ghost) => ghost.delay));
     const timer = setTimeout(
       () => setState((current) => ({ ...current, ghosts: [] })),
-      motionMs.exit,
+      motionMs.exit + last,
     );
     return () => clearTimeout(timer);
   }, [ghosts]);
@@ -196,7 +237,7 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
   const rows = useMemo(() => {
     const byKey = new Map<string, T>();
     state.items.forEach((item, index) => byKey.set(state.keys[index] ?? "", item));
-    const leaving = new Map(ghosts.map((ghost) => [ghost.key, ghost.item]));
+    const leaving = new Map(ghosts.map((ghost) => [ghost.key, ghost]));
     const keys = ghosts.length ? withLeaving(state.keys, ghosts) : state.keys;
     return keys.flatMap((key): ListRow<T>[] => {
       const item = byKey.get(key);
@@ -207,10 +248,13 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
             item,
             phase: state.entering.has(key) ? "enter" : "idle",
             rising: state.rising.has(key),
+            delay: 0,
           },
         ];
       const ghost = leaving.get(key);
-      return ghost === undefined ? [] : [{ key, item: ghost, phase: "exit", rising: false }];
+      return ghost === undefined
+        ? []
+        : [{ key, item: ghost.item, phase: "exit", rising: false, delay: ghost.delay }];
     });
   }, [state.items, state.keys, state.entering, state.rising, ghosts]);
   return { rows, moving: settledAt !== movedAt };
@@ -244,12 +288,13 @@ function sameKeys(a: readonly string[], b: readonly string[]): boolean {
 
 /**
  * Run a visual state change (a theme switch) as a cross-fade when the browser supports view
- * transitions; otherwise just run it. A cross-fade is a fade, so reduced motion keeps it.
+ * transitions; otherwise just run it. A cross-fade is a fade, so reduced motion keeps it. An
+ * update that returns a promise holds the old picture until it settles.
  */
-export function withViewTransition(update: () => void): void {
+export function withViewTransition(update: () => void | Promise<void>): void {
   const start = globalThis.document?.startViewTransition?.bind(globalThis.document);
   if (!start) {
-    update();
+    void update();
     return;
   }
   start(update);

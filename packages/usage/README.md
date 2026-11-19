@@ -31,7 +31,8 @@ version, rows, `omittedEvents` and a truncation flag. Backfill is asynchronous; 
 to the daemon log head to determine whether history is caught up.
 
 Group/filter dimensions are `day`, `thread`, `agent`, `provider`, `account`,
-`model` and `workspace`. Dates are inclusive local calendar dates, up to 366
+`model`, `workspace`, `skill`, `automation` and `role` (ADR 0040's 2026-11-01
+amendment). Skill rows overlap: a turn that used two skills counts in full under both. Dates are inclusive local calendar dates, up to 366
 in one request. At most 1,000 rows and 512 KiB of row JSON return. Missing model/account groups are
 null. Unknown models retain tokens and increment `unpricedTokens`.
 

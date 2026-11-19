@@ -37,7 +37,9 @@ extension ClientModel {
         // Acknowledgements skip the main thread: the daemon's window frees as chunks decode.
         browser.open(threadId: threadId, streams: session.browserStreams) { ack in
             var value: [String: Any] = ["kind": "ack", "sequence": ack.sequence]
+            if let generation = ack.generation { value["generation"] = generation }
             if ack.keyframe { value["keyframe"] = true }
+            if ack.fallback { value["fallback"] = true }
             Self.action(["type": "browser", "action": value], to: session)
         }
         browserAction(["kind": "open", "threadId": threadId, "viewport": Self.viewport(size, scale)])
@@ -47,10 +49,13 @@ extension ClientModel {
         browser.close(streams: browserStreams)
         browserAction(["kind": "close"])
     }
-    /// The view's size changed: the page lays out at it, as a touch screen.
-    func browserViewport(size: CGSize, scale: CGFloat) {
+    /// The view's size changed: a tab showing "this phone" takes it; any other device stays.
+    /// `picture`: the page as drawn, so its stream is encoded at that size.
+    func browserViewport(size: CGSize, scale: CGFloat, picture: CGSize? = nil) {
         guard browser.threadId != nil else { return }
-        browserAction(["kind": "viewport", "viewport": Self.viewport(size, scale)])
+        var value: [String: Any] = ["kind": "viewport", "viewport": Self.viewport(size, scale)]
+        if let picture { value["picture"] = ["width": Double(picture.width), "height": Double(picture.height)] }
+        browserAction(value)
     }
     /// The person's touches, keys, text and picks; a view-only grant sends none.
     func browserInput(_ inputs: [RemoteInput]) {
@@ -64,6 +69,21 @@ extension ClientModel {
     func browserSelectTab(_ tabId: String) {
         guard canOperate, browser.threadId != nil else { return }
         browserAction(["kind": "tab", "tabId": tabId])
+    }
+
+    /// Show the tab as a device preset (the web's device toolbar); the page is told through `emulate`.
+    func browserDevice(_ preset: String) {
+        guard canOperate, browser.threadId != nil else { return }
+        browserAction(["kind": "device", "preset": preset])
+    }
+    func browserRotateDevice() {
+        guard canOperate, browser.threadId != nil else { return }
+        browserAction(["kind": "rotate"])
+    }
+    /// The device toolbar above the bar, for the shown tab; kept on this phone.
+    func browserDeviceToolbar(_ show: Bool) {
+        guard browser.threadId != nil else { return }
+        browserAction(["kind": "deviceToolbar", "show": show])
     }
 
     private func browserAction(_ value: [String: Any]) { action(["type": "browser", "action": value]) }

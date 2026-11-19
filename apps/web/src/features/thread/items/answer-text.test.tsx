@@ -4,6 +4,7 @@ import { FakeDaemon, ScenarioPlayer, facts } from "@ace/fake-daemon";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
+import { LayoutProvider } from "@/lib/layout.tsx";
 import { fakeClient } from "@/test/fake-client.ts";
 import { AssistantMessage } from "./messages.tsx";
 
@@ -88,9 +89,11 @@ test("a failed automatic answer read keeps the preview and retries the complete 
   });
   render(
     <ClientProvider client={client}>
-      <TooltipProvider>
-        <AssistantMessage threadId="answer-preview" itemId={itemId} />
-      </TooltipProvider>
+      <LayoutProvider>
+        <TooltipProvider>
+          <AssistantMessage threadId="answer-preview" itemId={itemId} />
+        </TooltipProvider>
+      </LayoutProvider>
     </ClientProvider>,
   );
   expect(await screen.findByRole("alert")).toBeTruthy();
@@ -167,22 +170,24 @@ test.each(["interrupted", "failed"] as const)(
     });
     const view = render(
       <ClientProvider client={client}>
-        <TooltipProvider>
-          <AssistantMessage threadId="answer-preview" itemId={itemId} />
-        </TooltipProvider>
+        <LayoutProvider>
+          <TooltipProvider>
+            <AssistantMessage threadId="answer-preview" itemId={itemId} />
+          </TooltipProvider>
+        </LayoutProvider>
       </ClientProvider>,
     );
-    await screen.findByRole("status", { name: "Streaming" });
     expect(
       await screen.findByText(/Ending beyond the preview/, {}, { timeout: 5000 }),
     ).toBeTruthy();
+    // Still being written: no finished answer's actions yet.
+    expect(screen.queryByRole("button", { name: "Copy answer" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show full answer" })).toBeNull();
     act(() => daemon.apply("answer-preview", [facts.endTurn("root", outcome)]));
 
     expect(
       await screen.findByText(/Ending beyond the preview/, {}, { timeout: 5000 }),
     ).toBeTruthy();
-    expect(screen.queryByRole("status", { name: "Streaming" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Copy answer" }));
     await waitFor(() => expect(copied).toBe(full));
     view.unmount();
@@ -220,12 +225,14 @@ test("appending an answer delta does not render a settled answer again", async (
   let settledCommits = 0;
   const view = render(
     <ClientProvider client={client}>
-      <TooltipProvider>
-        <Profiler id="settled-answer" onRender={() => settledCommits++}>
-          <AssistantMessage threadId="localized-delta" itemId={settled} />
-        </Profiler>
-        <AssistantMessage threadId="localized-delta" itemId={writing} />
-      </TooltipProvider>
+      <LayoutProvider>
+        <TooltipProvider>
+          <Profiler id="settled-answer" onRender={() => settledCommits++}>
+            <AssistantMessage threadId="localized-delta" itemId={settled} />
+          </Profiler>
+          <AssistantMessage threadId="localized-delta" itemId={writing} />
+        </TooltipProvider>
+      </LayoutProvider>
     </ClientProvider>,
   );
   await screen.findByText("Settled answer stays still.");

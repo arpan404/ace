@@ -38,3 +38,15 @@ native/screen-helper-windows/target/
 # Project skills in .claude/skills/ are committed.
 /.claude/*
 !/.claude/skills/
+
+# markit's web worker and Wasm, copied from the installed @markit/web by bun install.
+apps/web/public/markit/
+
+# Per-file test timings from scripts/test-run.ts (bun run test, test:fast, ...).
+/test-timings/
+
+# The editor Wasm build (packages/editor/scripts/build.mjs).
+packages/editor/pkg/
+
+# Wrangler dev bundles a Worker test run leaves behind.
+.wrangler/

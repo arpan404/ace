@@ -140,7 +140,8 @@ describe("snapshot and payload integrity", () => {
     });
     h.end();
     expect(h.interaction("question")?.state).toBe("cancelled");
-    expect(h.agent("root")?.status).toMatchObject({ state: "blocked", on: "background_task" });
+    expect(h.agent("root")?.status).toEqual({ state: "idle" });
+    expect(h.task("task")?.status).toBe("running");
     expect(started && h.view.runs[started.run.id]).toMatchObject({ state: "completed" });
     h.send({ type: "background.ended", task: "task", status: "completed" });
     expect(h.task("task")?.status).toBe("completed");

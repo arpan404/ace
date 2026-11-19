@@ -1,6 +1,13 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
 import { useThreadMeta } from "@ace/client-react";
 import type { ForgePrRef, ForgePrStatus } from "@ace/protocol";
-import { actionErrorText, mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
+import {
+  actionErrorText,
+  mergeMethods,
+  prBlocker,
+  linkPrBlocker,
+  type Checkout,
+} from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -56,6 +63,7 @@ const failed: Record<GitChange["kind"], string> = {
  * disagree about what is possible or why not.
  */
 export function useGitFlow(thread: ThreadRef): {
+  workspaceId: string;
   threadId: string;
   checkout: ReturnType<typeof useCheckoutState>["checkout"];
   status: ForgePrStatus | undefined;
@@ -84,6 +92,7 @@ export function useGitFlow(thread: ThreadRef): {
   dialog: ReactNode;
 } {
   const { checkout, status, state, error, retry, prProblem, linkedPrs } = useCheckoutState(thread);
+  const source = useRepositoryCapabilities(thread.workspaceId, checkout?.repository);
   const { change, pending, refreshPr } = useGitActions(thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const [confirm, setConfirm] = useState<Extract<GitChange, { kind: "merge" | "push" }>>();
@@ -128,17 +137,11 @@ export function useGitFlow(thread: ThreadRef): {
     );
   };
   const unread = state === "error" ? "Couldn't read the checkout" : "Not a git checkout";
-  const prBlocked = checkout ? prBlocker(checkout) : unread;
+  const prBlocked = checkout ? prBlocker(checkout, source) : unread;
   const pr = checkout?.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
   const draftBlocked = prBlocked ?? (live ? `PR #${pr.number} is already open` : undefined);
-  const linkBlocked = !checkout
-    ? unread
-    : checkout.repository?.forge === "gitlab"
-      ? prBlocker(checkout)
-      : checkout.repository
-        ? undefined
-        : prBlocker(checkout);
+  const linkBlocked = checkout ? linkPrBlocker(checkout, source) : unread;
   const close = () => setDialog(undefined);
   const form = (at: Checkout) =>
     dialog === "link-pr" || dialog === "request-review" ? (
@@ -160,6 +163,7 @@ export function useGitFlow(thread: ThreadRef): {
       )
     );
   return {
+    workspaceId: thread.workspaceId,
     threadId: thread.id,
     checkout,
     status,

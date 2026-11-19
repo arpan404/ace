@@ -46,7 +46,7 @@ struct TransferLineView: View {
                     .accessibilityIdentifier("transfer.\(action.act)")
             }
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+        .frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("transfer.line")
         .onChange(of: line.alert ? line.words : nil) { _, words in

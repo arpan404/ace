@@ -1,6 +1,6 @@
 ---
 name: investigate-bug
-description: Investigate a bug or unexpected behaviour to its root cause before fixing it. Use when the person reports something broken, failing, slow, or wrong, including in a web page or app.
+description: Find a bug's root cause before fixing it, when something is broken, slow or wrong.
 ---
 
 # Investigate a bug

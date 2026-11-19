@@ -48,14 +48,6 @@ export const mutations = [
     behavior: "inclusive line ranges",
   },
   {
-    name: "Bypass per-thread byte quota",
-    file: "upload-admission.ts",
-    before: "thread.bytes + op.bytes <= limits.threadBytes",
-    after: "true",
-    test: "uploads.test.ts",
-    behavior: "thread quota counts",
-  },
-  {
     name: "Bypass global byte quota",
     file: "upload-admission.ts",
     before:

@@ -34,7 +34,13 @@ const Method = z
   })
   .passthrough();
 const Integration = z
-  .object({ id: z.string(), name: z.string(), methods: z.array(Method).catch([]) })
+  .object({
+    id: z.string(),
+    name: z.string(),
+    methods: z.array(Method).catch([]),
+    /** Saved logins and environment keys: only their count is read, never what they hold. */
+    connections: z.array(z.unknown()).max(256).catch([]).default([]),
+  })
   .passthrough();
 export type OpenCodeIntegration = z.infer<typeof Integration>;
 const Attempt = z
@@ -47,6 +53,8 @@ const Attempt = z
   .passthrough();
 export type OpenCodeAttempt = z.infer<typeof Attempt>;
 const Status = z.object({ status: z.string() }).passthrough();
+const DataReply = z.object({ data: z.unknown() });
+const IntegrationEntries = z.array(z.unknown()).max(1024);
 
 export interface OpenCodeSignIn {
   integrations(): Promise<OpenCodeIntegration[]>;
@@ -85,7 +93,8 @@ export async function openOpenCodeSignIn(options: {
     cwd: options.cwd,
   });
   const stopped = new AbortController();
-  void proc.exited.then(() => stopped.abort());
+  // exited never rejects; aborting a signal cannot fail.
+  void proc.exited.then(() => stopped.abort()).catch(() => {});
   const close = async () => {
     await proc.stop({ graceMs: 1000 });
   };
@@ -110,20 +119,14 @@ export async function openOpenCodeSignIn(options: {
       signal: AbortSignal.any([options.signal, stopped.signal]),
     });
     if (!response.ok) throw new Error(`OpenCode sign-in request failed (${response.status})`);
-    return response.status === 204
-      ? undefined
-      : z.object({ data: z.unknown() }).parse(await response.json()).data;
+    return response.status === 204 ? undefined : DataReply.parse(await response.json()).data;
   };
   return {
     async integrations() {
-      return z
-        .array(z.unknown())
-        .max(1024)
-        .parse(await request("/api/integration"))
-        .flatMap((entry) => {
-          const parsed = Integration.safeParse(entry);
-          return parsed.success ? [parsed.data] : [];
-        });
+      return IntegrationEntries.parse(await request("/api/integration")).flatMap((entry) => {
+        const parsed = Integration.safeParse(entry);
+        return parsed.success ? [parsed.data] : [];
+      });
     },
     async begin(integration, method, answer) {
       return Attempt.parse(

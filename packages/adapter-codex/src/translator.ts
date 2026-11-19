@@ -67,6 +67,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     agents,
     tasks: new Set(),
     asyncOwners,
+    outputLost: false,
     discover,
     note: (...args) => note(...args),
   };
@@ -122,8 +123,10 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       translation.answerEchoes.note(message);
       if (message["event"] === "session-scope") scope = str(message["scope"]);
       if (message["event"] === "thread-history") histories.add(message);
-      if (["thread-history-omitted", "output-line-dropped"].includes(str(message["event"])))
+      if (["thread-history-omitted", "output-line-dropped"].includes(str(message["event"]))) {
+        translation.outputLost = true;
         facts.push(note(init.rootKey, str(message["event"]), frame.data));
+      }
       if (message["event"] === "thread-discovered") {
         const thread = histories.complete(message);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
@@ -156,6 +159,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           stoppable: false,
         });
       if (message["event"] === "discovery-finished") {
+        if (str(message["task"]) === "codex:output-recovery") translation.outputLost = false;
         buffers.clear();
         finishUnknown(facts);
         facts.push({

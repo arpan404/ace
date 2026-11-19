@@ -56,6 +56,14 @@ export function holdTail(tail: HeldTail): JumpWindow | undefined {
   return { items, seqs, before: from, after: seqs.get(last.id) ?? null, targetId: undefined };
 }
 
+const byId = new WeakMap<JumpWindow, Map<string, Item>>();
+/** The window's items by id, built once per window. */
+function heldItems(window: JumpWindow): Map<string, Item> {
+  let items = byId.get(window);
+  if (!items) byId.set(window, (items = new Map(window.items.map((item) => [item.id, item]))));
+  return items;
+}
+
 export interface Absorbed {
   window: JumpWindow;
   /** The window still meets the tail. */
@@ -64,10 +72,14 @@ export interface Absorbed {
 
 /**
  * The window after the tail moved. While it meets the tail the tail's items show through it
- * live; once the tail is about to trim past the window's end (`absorbMargin`), the window takes
- * the tail's newer lane items itself. Past its bounds it stops: by default it leaves the tail
- * behind (a gap after its end), keeping every row it holds; `trimOlder`, for a reader reading
- * at the window's newer end, drops its oldest items instead and stays joined.
+ * live; once the tail is about to trim past the window's end (`absorbMargin`), or its oldest
+ * newer lane item has drifted into the older half of the tail (a quiet lane among busy ones:
+ * the tail trims by position, whatever the lane), the window takes the tail's newer lane items
+ * itself. Its own items the tail is about to trim take the tail's latest copy first, so an item
+ * still streaming keeps the text it had reached rather than the text it had when it was held.
+ * Past its bounds it stops: by default it leaves the tail behind (a gap after its end), keeping
+ * every row it holds; `trimOlder`, for a reader reading at the window's newer end, drops its
+ * oldest items instead and stays joined.
  */
 export function absorbTail(
   window: JumpWindow,
@@ -81,24 +93,38 @@ export function absorbTail(
   let held = 0;
   const newer: Item[] = [];
   const seqs = new Map(window.seqs);
-  for (const id of tail.order) {
-    if (!tail.inLane(id)) continue;
+  /** Where the oldest newer lane item sits in the tail: the tail trims from its start. */
+  let edge = -1;
+  const zone = tail.order.length / 2;
+  const heldById = heldItems(window);
+  const fresher = new Map<string, Item>();
+  tail.order.forEach((id, at) => {
+    if (!tail.inLane(id)) return;
     const seq = tail.seq(id);
-    if (seq === undefined) continue;
+    if (seq === undefined) return;
     if (seq <= lastSeq) {
       held++;
-      continue;
+      const own = heldById.get(id);
+      const current = at < zone && own ? tail.item(id) : undefined;
+      if (current && current !== own) fresher.set(id, current);
+      return;
     }
     const item = tail.item(id);
-    if (!item) continue;
+    if (!item) return;
+    if (edge < 0) edge = at;
     newer.push(item);
     seqs.set(id, seq);
-  }
+  });
+  const crowded = held <= absorbMargin && newer.length >= Math.ceil(absorbMargin / 2);
+  const drifting = edge >= 0 && edge < zone;
+  const own = fresher.size
+    ? window.items.map((item) => fresher.get(item.id) ?? item)
+    : window.items;
   // Far from the tail's trimming edge, or little to take: the tail shows its items itself.
-  if (held > absorbMargin || newer.length < Math.ceil(absorbMargin / 2))
-    return { window, joined: true };
+  if (!crowded && !drifting)
+    return { window: fresher.size ? { ...window, items: own } : window, joined: true };
   const bounds = options.bounds ?? windowBounds;
-  let items = [...window.items, ...newer];
+  let items = [...own, ...newer];
   let weight = 0;
   for (const item of items) weight += itemWeight(item);
   let from = 0;

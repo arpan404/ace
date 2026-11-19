@@ -1,4 +1,4 @@
-import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { ToolDataInvalid, inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
 import { PublicToolError, type PublicToolCode } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
@@ -35,7 +35,13 @@ export interface SessionTools {
    * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
-    | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
+    | ((
+        name: string,
+        input: unknown,
+        signal: AbortSignal,
+        /** The outer call's `actingFor`, so a dispatched call acts for the same one. */
+        actingFor?: string,
+      ) => Promise<CallToolResult>)
     | undefined;
 }
 
@@ -54,7 +60,33 @@ export interface ToolContext {
   readonly callBudgetSeconds?: number;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
+  /**
+   * Whom the caller's own MCP client says this call is for (`_meta` `ace/acting-for` on
+   * `tools/call`), never the model's arguments. Only a `CallActor` that trusts that client reads it.
+   */
+  readonly actingFor?: string;
 }
+/**
+ * Whom one call runs as, when the host swaps the caller's attribution for another it owns
+ * (Spade's bots each act as their own hidden thread, `spade/computers.ts` in the daemon).
+ * Aborting `signal` cancels the call; `settled` is called once the tool's work has ended,
+ * however it ended, so the host can wait for its calls to drain.
+ */
+export interface CallAct {
+  readonly caller: McpAttribution;
+  readonly signal?: AbortSignal;
+  readonly settled?: () => void;
+}
+/**
+ * Decides whom one call runs as, or refuses it by throwing a `PublicToolError`. Undefined: the
+ * call runs as the caller.
+ */
+export type CallActor = (
+  tool: string,
+  capability: McpCapability | null,
+  caller: McpAttribution,
+  actingFor: string | undefined,
+) => CallAct | undefined | Promise<CallAct | undefined>;
 export type CallObserver = (
   name: string,
   input: unknown,
@@ -70,6 +102,15 @@ export type ToolFailureReporter = (failure: {
   caller: McpAttribution;
   error: unknown;
 }) => string | undefined;
+/**
+ * An extra abort signal the host gives one call, for work it can end on its own (an outside
+ * client's screen work when the person presses Stop). Undefined: the call has none.
+ */
+export type CallSignal = (
+  tool: string,
+  capability: McpCapability | null,
+  caller: McpAttribution,
+) => AbortSignal | undefined;
 type RiskClass = import("@ace/protocol").ApprovalTarget["riskClass"];
 /** What every registration shares: identity, annotations and placement. */
 export interface ToolMetadata {
@@ -79,6 +120,11 @@ export interface ToolMetadata {
   title?: string;
   description: string;
   riskClass?: RiskClass;
+  /**
+   * What the tool does, in Spade's words (ADR 0171 decision 3), when ace's risk says too little:
+   * `publish` for a tool that publishes. Sent as `_meta["ace/effect"]`.
+   */
+  effect?: "read" | "publish";
   /** Deletes, overwrites or spends: the only ace tools a provider should gate itself. */
   destructive?: boolean;
   /** Reaches past this machine (the web, a remote service). Defaults to external-effect risk. */
@@ -118,17 +164,24 @@ export const nodeScheduler: Scheduler = {
 };
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
- * Claude Code defers MCP tools behind tool search; these stay loaded because the instructions
- * name them as entry points: project context, the guides, delegation and its wait, and the
- * search for the rest. browser_open and html_render are deferred: they are used in some sessions
- * only, and Claude loads them by exact name (`session-guidance.ts`). Every upfront tool costs
- * context on every request, so keep this short. Compared by bare name.
+ * Clients that defer MCP tools load these upfront, by their own `_meta` key; every upfront tool
+ * costs context on every request, so keep both short. Compared by bare name.
+ *
+ * Claude Code (and the Claude Agent SDK) searches deferred tools itself and lists ace's guides
+ * as skills, so only the two entry points it calls without a lookup stay loaded: project
+ * context and delegation, whose `waitSeconds` waits in the same call. `tools_find` would be a
+ * second, slower search (Claude must still load whatever it finds before calling it), `guide` a
+ * second copy of the skills, and `wait` serves only a later collection; each loads by exact
+ * name in one step (`session-guidance.ts`).
+ *
+ * Antigravity has neither a tool search nor skills: it reads a deferred tool's definition file
+ * by name, so it also keeps `wait`, `guide` and `tools_find` loaded.
  */
-const alwaysLoadedTools: ReadonlySet<string> = new Set([
-  "context",
-  "guide",
-  "delegate",
+const claudeAlwaysLoaded: ReadonlySet<string> = new Set(["context", "delegate"]);
+const antigravityAlwaysLoaded: ReadonlySet<string> = new Set([
+  ...claudeAlwaysLoaded,
   "wait",
+  "guide",
   "tools_find",
 ]);
 function noop(): void {}
@@ -160,6 +213,8 @@ export class ToolRegistry {
     | undefined;
   readonly observeCall: CallObserver | undefined;
   private reportFailure: ToolFailureReporter | undefined;
+  private callSignal: CallSignal | undefined;
+  private actAs: CallActor | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -167,8 +222,12 @@ export class ToolRegistry {
     maxCallsPerThread?: number;
     observeCall?: CallObserver;
     reportFailure?: ToolFailureReporter;
+    callSignal?: CallSignal;
+    actAs?: CallActor;
   }) {
     this.scheduler = options.scheduler;
+    this.callSignal = options.callSignal;
+    this.actAs = options.actAs;
     this.observeCall = options.observeCall;
     this.reportFailure = options.reportFailure;
     this.maxTools = options.maxTools ?? 128;
@@ -200,7 +259,10 @@ export class ToolRegistry {
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);
           if (!withinJsonBudget(result, maxStructuredResultBytes)) throw new ResultBudgetExceeded();
-          const structuredContent = output.parse(result);
+          const checked = output.safeParse(result);
+          if (!checked.success)
+            throw new ToolDataInvalid(bareToolName(name), "output", checked.error);
+          const structuredContent = checked.data;
           const text = JSON.stringify(structuredContent);
           if (Buffer.byteLength(text) > maxStructuredResultBytes) throw new ResultBudgetExceeded();
           return {
@@ -284,10 +346,12 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
+        ...(metadata.effect ? { "ace/effect": metadata.effect } : {}),
         // Antigravity (1.4.2, CLI and ACP server) loads tools carrying its own key in full and
         // reaches the rest through its call_mcp_tool.
-        ...(alwaysLoadedTools.has(bareToolName(name))
-          ? { "anthropic/alwaysLoad": true, "antigravity/alwaysLoad": true }
+        ...(claudeAlwaysLoaded.has(bareToolName(name)) ? { "anthropic/alwaysLoad": true } : {}),
+        ...(antigravityAlwaysLoaded.has(bareToolName(name))
+          ? { "antigravity/alwaysLoad": true }
           : {}),
       },
       inputSchema,
@@ -394,12 +458,23 @@ export class ToolRegistry {
       client?: AceClient;
       callBudgetSeconds?: number;
       session?: SessionTools;
+      actingFor?: string;
     } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
-    const signal = AbortSignal.any([principal.signal, requestSignal, controller.signal]);
+    // Aborted with the host's own signal for this call, once `actAs` has given one.
+    const acted = new AbortController();
+    const entry = this.entry(name);
+    const host = entry && this.callSignal?.(entry.name, entry.capability, principal.scope);
+    const signal = AbortSignal.any([
+      principal.signal,
+      requestSignal,
+      controller.signal,
+      acted.signal,
+      ...(host ? [host] : []),
+    ]);
     const context: ToolContext = {
       caller: { sessionId, threadId, agentId },
       capabilities: principal.scope.capabilities,
@@ -408,6 +483,7 @@ export class ToolRegistry {
       ...(options.client ? { client: options.client } : {}),
       ...(options.callBudgetSeconds ? { callBudgetSeconds: options.callBudgetSeconds } : {}),
       ...(options.session ? { session: options.session } : {}),
+      ...(options.actingFor ? { actingFor: options.actingFor } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
     const finish = async (result: CallToolResult) => {
@@ -419,7 +495,6 @@ export class ToolRegistry {
       }
       return result;
     };
-    const entry = this.entry(name);
     if (!entry || !this.allowed(entry, principal))
       return finish(toolFailure(new PublicToolError("tool_unavailable")));
     if (
@@ -428,6 +503,22 @@ export class ToolRegistry {
     )
       return finish(failure("calls_limit"));
     if (signal.aborted) return finish(failure("cancelled"));
+    let act: CallAct | undefined;
+    try {
+      act = await this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor);
+    } catch (caught: unknown) {
+      return finish(toolFailure(caught, this.report(entry.name, context.caller, caught)));
+    }
+    if (act?.signal) {
+      const forward = () => acted.abort();
+      if (act.signal.aborted) forward();
+      else act.signal.addEventListener("abort", forward, { once: true });
+    }
+    if (signal.aborted) {
+      act?.settled?.();
+      return finish(failure("cancelled"));
+    }
+    const runAs = act ? { ...context, caller: act.caller } : context;
     this.active++;
     this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
@@ -453,14 +544,18 @@ export class ToolRegistry {
       });
     });
     const executing = Promise.resolve()
-      .then(() => entry.execute(input, { ...context, signal }))
-      .catch((error: unknown) =>
-        error instanceof ResultBudgetExceeded
-          ? failure("result_too_large")
-          : toolFailure(error, this.report(entry.name, context.caller, error)),
-      )
+      .then(() => entry.execute(input, { ...runAs, signal }))
+      .catch((caught: unknown) => {
+        if (caught instanceof ResultBudgetExceeded) return failure("result_too_large");
+        const error =
+          caught instanceof z.ZodError
+            ? new ToolDataInvalid(bareToolName(entry.name), "backend", caught)
+            : caught;
+        return toolFailure(error, this.report(entry.name, context.caller, error));
+      })
       .finally(() => {
         executionSettled = true;
+        act?.settled?.();
         release();
       });
     // An uncooperative backend retains its slot until it settles, bounding detached work.

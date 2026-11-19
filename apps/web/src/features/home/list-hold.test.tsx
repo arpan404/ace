@@ -12,7 +12,7 @@ beforeEach(() => localStorage.clear());
 
 type Facts = Parameters<FakeDaemon["apply"]>[1];
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const list = () => {
   const viewport = threads().querySelector("[data-virtual-viewport]");
   if (!(viewport instanceof HTMLElement)) throw new Error("no list");
@@ -64,7 +64,7 @@ async function openHome() {
       provider: "codex",
     });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
   return app;
 }
@@ -77,23 +77,25 @@ test("rows reorder at once while the pointer rests on the list", async () => {
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 });
 
-test("a thread that needs you rises at once under a resting pointer", async () => {
+test("a thread that needs you rises to the top of the Inbox at once under a resting pointer", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
   await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
 });
 
-test("while the keyboard is in the list only a thread that needs you moves", async () => {
+test("while the keyboard is in the list rows hold, and only a thread that needs you leaves", async () => {
   const app = await openHome();
-  // Tab into the list from New thread, the stop just before it: the keyboard is on its one Tab stop.
-  screen.getByRole("link", { name: "New thread" }).focus();
+  // Tab into the list from the open tab, the stop just before it: the keyboard is on its one Tab
+  // stop.
+  within(threads()).getByRole("tab", { selected: true }).focus();
   await userEvent.tab();
   expect(list().contains(document.activeElement)).toBe(true);
 
   app.daemon.apply("thread-oldest", working);
   app.daemon.apply("thread-middle", asks);
   await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
+  // Working now, the oldest thread holds its place under the keyboard.
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 
   // Keyboard focus leaving the list lets the rest move.

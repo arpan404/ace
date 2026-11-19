@@ -1,6 +1,9 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { deviceUnavailableHint } from "@ace/ui-core";
+import { useSampleTime, useWallClock } from "@/lib/time.ts";
+import { CaretLeftIcon } from "@ace/icons";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Link } from "@tanstack/react-router";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -8,7 +11,8 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { ActivityCaption, useFreshActivity } from "./activity-overlay.tsx";
+import { ActivityCaption, useFreshActivity, YieldLine } from "./activity-overlay.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import { ControlRail } from "./control-rail.tsx";
 import { DeviceDrawer } from "./device-drawer.tsx";
 import { DeviceHeader } from "./device-header.tsx";
@@ -24,7 +28,7 @@ import { DeviceStage, type Bounds } from "./device-stage.tsx";
 import type { ShownScreen } from "./device-screen.tsx";
 import { DevicesMenu } from "./devices-menu.tsx";
 import { KeyboardField } from "./keyboard-field.tsx";
-import { StreamMeter, streamDetails, streamSummary, type StreamStats } from "./stream-stats.ts";
+import { StreamMeter, streamDetails, streamSummary, type StreamStats } from "@ace/ui-core/devices";
 import { useDevices, type DeviceProblem } from "./use-devices.ts";
 
 type Devices = ReturnType<typeof useDevices>;
@@ -32,14 +36,11 @@ type Devices = ReturnType<typeof useDevices>;
 /** The stream's subtitle numbers, read once a second from the frames the screen drew. */
 function useStreamStats(sameClock: boolean, live: boolean) {
   const meter = useMemo(() => new StreamMeter({ sameClock }), [sameClock]);
-  const [stats, setStats] = useState<StreamStats>();
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => setStats(meter.read(Date.now())), 1000);
-    return () => clearInterval(timer);
-  }, [meter, live]);
+  const now = useSampleTime(live);
+  const clock = useWallClock();
+  const stats = useMemo(() => (live ? meter.read(now) : undefined), [meter, now, live]);
   const onFrame = (shown: ShownScreen) =>
-    meter.add({ capturedAt: shown.capturedAt, shownAt: Date.now() });
+    meter.add({ capturedAt: shown.capturedAt, shownAt: clock() });
   return { stats: live ? stats : undefined, onFrame, meter };
 }
 
@@ -80,7 +81,7 @@ function SelectedDevice(props: { devices: Devices }) {
   const live = controls?.live === true;
   const { stats, onFrame, meter } = useStreamStats(session?.connection === "local", live);
   const statsShown = useStreamStatsShown();
-  const shown = useFreshActivity(view.activity);
+  const shown = useFreshActivity(view.activity, view.stateLoaded);
   // A missing macOS permission gets its own guidance instead of a one-line error.
   const permission = [view.problem, controls?.error].find(needsPermission);
   if (!selected || !controls || !session) return null;
@@ -101,16 +102,24 @@ function SelectedDevice(props: { devices: Devices }) {
     </IdleCard>
   ) : controls.running ? (
     <IdleCard>
-      <p>The live view is off.</p>
+      <p>{selected.name} is running. Its live view is stopped.</p>
       <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.start}>
         Start live view
       </Button>
     </IdleCard>
-  ) : (
+  ) : selected.bootable ? (
     <IdleCard>
-      <p>{selected.name} is off.</p>
+      <p>{selected.name} is shut down.</p>
       <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
         Boot
+      </Button>
+    </IdleCard>
+  ) : (
+    // Offline or not authorized: Boot can't help; say what will, and read the list again.
+    <IdleCard>
+      <p>{deviceUnavailableHint(selected) ?? `${selected.name} can't be started from here.`}</p>
+      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.refresh}>
+        Refresh
       </Button>
     </IdleCard>
   );
@@ -157,6 +166,8 @@ function SelectedDevice(props: { devices: Devices }) {
           stream={meter}
           corner={statsShown ? <StreamStatsPanel stats={stats} /> : undefined}
           activity={shown}
+          agentPointer={view.agentPointer}
+          holder={view.holder}
           highlight={highlight}
           idle={idle}
           rail={
@@ -186,6 +197,8 @@ function SelectedDevice(props: { devices: Devices }) {
                   }}
                 />
               )}
+              <YieldLine waiting={view.personActive} holder={view.holder} />
+              {live && <DegradedLine acceleration={view.acceleration} className="truncate" />}
               <ActivityCaption shown={shown} holder={view.holder} />
             </>
           }
@@ -271,15 +284,12 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Devices are off on this machine"
-        description={`Turn devices on to see ${name} and let agents in this thread use it.`}
+        title="Simulators and emulators are off"
+        description={`They're turned off for this machine. Turn them on in Settings › Simulators to see ${name} and let agents in this thread use it.`}
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
-              Enable devices
-            </Button>
-            {view.problem && <Problem problem={view.problem} />}
-          </div>
+          <Link to="/settings/simulators" {...buttonLook({ variant: "primary" })}>
+            Open Settings
+          </Link>
         }
       />
     );

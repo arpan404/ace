@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliFlag.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "choices": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "name": {
+      "type": "string"
+    },
+    "repeat": {
+      "type": "boolean"
+    },
+    "short": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "summary",
+    "repeat"
+  ],
+  "type": "object"
+}

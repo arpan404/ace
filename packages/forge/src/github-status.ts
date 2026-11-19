@@ -96,8 +96,9 @@ export class GitHubStatusReader {
       this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, signal, budget),
       this.#threads.read(api, repository, number, signal, budget),
     ] as const;
-    // Handled here: any of them may fail while the PR itself is still being read.
-    void Promise.allSettled([...reads, ...(guessed ?? [])]);
+    // Handled here: any of them may fail while the PR itself is still being read. allSettled
+    // reports each read's failure itself and never rejects.
+    void Promise.allSettled([...reads, ...(guessed ?? [])]).catch(() => {});
     let commits: readonly [Promise<Page[]>, Promise<Page[]>] | undefined;
     try {
       const response = await prRead;

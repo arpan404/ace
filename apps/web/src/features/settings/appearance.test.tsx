@@ -4,8 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-import { deltaE, parseOpaqueColor, rgbToOklch, type Rgb } from "@/theme/colour.ts";
-import { themeIds, themes } from "@/theme/palettes.ts";
+import { deltaE, parseOpaqueColor, rgbToOklch, type Rgb, themeIds, themes } from "@ace/themes";
 
 const root = document.documentElement;
 const glassCss = readFileSync(join(import.meta.dirname, "../../styles/glass.css"), "utf8");
@@ -120,7 +119,7 @@ test("the mode cards preview whichever theme is on, System in both schemes", asy
 test("only the active theme is a checked radio, and choosing another moves it", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
-  const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const group = screen.getByRole("radiogroup", { name: "Look" });
   const checked = () =>
     within(group)
       .getAllByRole("radio")
@@ -156,7 +155,7 @@ test("ace is the default theme, and its accent is the ink: Send and focus take t
 
 test("Settings offers the six themes with ace first, each previewed in its own tokens", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
-  const group = await screen.findByRole("radiogroup", { name: "Theme" });
+  const group = await screen.findByRole("radiogroup", { name: "Look" });
   const radios = within(group).getAllByRole("radio");
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "ace",
@@ -182,7 +181,7 @@ test("Settings offers the six themes with ace first, each previewed in its own t
 test("theme cards preview the scheme on screen and redraw when the mode changes", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
-  const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const group = screen.getByRole("radiogroup", { name: "Look" });
   const drawn = () =>
     within(group)
       .getAllByRole("radio")
@@ -319,18 +318,20 @@ test("arrow keys move the slider and the floating layers follow live, and it's k
   });
 });
 
-test("past 100% the slider reads Extra, thins the tint further, and notes softer text", async () => {
+test("the slider caps at 100%: End reads 100% and stores 100", async () => {
   const storage = memoryKeyValue();
   await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
   await settled();
   const safe = root.style.getPropertyValue("--glass-tint");
   slider().focus();
+  await userEvent.keyboard("{Home}");
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
   await userEvent.keyboard("{End}");
-  expect(slider().getAttribute("aria-valuetext")).toBe("150% extra");
-  expect(screen.getByText("150% extra")).toBeTruthy();
-  expect(root.style.getPropertyValue("--glass-tint")).not.toBe(safe);
-  expect(await screen.findByText(/Past 100% glass thins below AA contrast/)).toBeTruthy();
-  expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(150);
+  expect(slider().getAttribute("aria-valuetext")).toBe("100%");
+  expect(screen.getByText("100%")).toBeTruthy();
+  // The control can't go above 100%: the glass stays at the readable end.
+  expect(root.style.getPropertyValue("--glass-tint")).toBe(safe);
+  expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(100);
 });
 
 test("the OS reducing transparency forces Solid, and the slider shows it", async () => {
@@ -341,14 +342,14 @@ test("the OS reducing transparency forces Solid, and the slider shows it", async
   expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
 });
 
-test("someone who chose Solid surfaces before the slider opens at Solid", async () => {
-  const storage = memoryKeyValue();
-  storage.setItem("ace.appearance", JSON.stringify({ theme: "midnight", surface: "solid" }));
-  await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
+test("a device drawing without graphics acceleration shows Solid, and the slider says why", async () => {
+  await harness({ matchMedia: system({}), softwareRendering: true }).open("/settings/appearance");
   expect(root.getAttribute("data-surface")).toBe("solid");
-  await screen.findByRole("slider", { name: "Translucency" });
+  expect(
+    await screen.findByText("Solid while this device draws without graphics acceleration"),
+  ).toBeTruthy();
+  expect(slider().disabled).toBe(true);
   expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
-  expect(slider().disabled).toBe(false);
 });
 
 test("Reduce motion follows the OS under System, and On or Off overrides it", async () => {

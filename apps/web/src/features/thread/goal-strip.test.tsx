@@ -1,5 +1,6 @@
 import { facts, replayCursor } from "@ace/fake-daemon";
-import { Capabilities } from "@ace/protocol";
+import { Capabilities, ThreadId, type ContentPart } from "@ace/protocol";
+import { formatMessageQuotes } from "@ace/ui-core";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -80,4 +81,35 @@ test("a goal the provider keeps itself shows with its progress, and /goal goes t
   await userEvent.type(message, "/goal ship it{Enter}");
   // The agent is mid-turn, so the message waits in the queue, as any message would.
   expect(await screen.findByText("/goal ship it")).toBeTruthy();
+
+  // A quoted reply that starts with /goal keeps it; the quote shows as a count, never its block.
+  const block = formatMessageQuotes([
+    { id: "q1", text: "it failed on the seventh run", before: "", after: "" },
+  ]);
+  await queue(app, "quoted-goal", [
+    { type: "text", text: `${block}\n\n` },
+    { type: "text", text: "/goal make it pass" },
+  ]);
+  const queued = screen.getByRole("list", { name: "Queued messages" });
+  expect(await within(queued).findByText("Replying to 1 quote · /goal make it pass")).toBeTruthy();
+  expect(within(queued).queryByText(/replying_to/)).toBeNull();
+
+  // A notice the daemon queues for the agent shows without its origin marker.
+  await queue(app, "notice", [
+    {
+      type: "text",
+      text: "[ace-origin:delegation.message_notice:ctl_1]\nResearcher says: the cache is cold",
+    },
+  ]);
+  expect(await within(queued).findByText("Researcher says: the cache is cold")).toBeTruthy();
+  expect(within(queued).queryByText(/ace-origin/)).toBeNull();
 });
+
+/** Queue a message on the thread as another client or the daemon would. */
+async function queue(app: ReturnType<typeof harness>, id: string, input: ContentPart[]) {
+  await app.client.command(
+    { type: "thread.send", threadId: ThreadId.parse(threadId), input, delivery: "queue" },
+    {},
+    id,
+  );
+}

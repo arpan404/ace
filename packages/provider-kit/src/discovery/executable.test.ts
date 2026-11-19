@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findExecutable } from "./executable.ts";
+import { findWindowsExecutableSync } from "./executable.ts";
 
 const directories: string[] = [];
 async function directory() {
@@ -125,5 +126,76 @@ describe("POSIX executable lookup", () => {
     expect(await findExecutable("plain", { PATH: root }, "darwin")).toBeUndefined();
     const expected = await file(root, "claude");
     expect(await findExecutable("claude", { PATH: root }, "darwin")).toBe(expected);
+  });
+});
+
+function withCwd<T>(cwd: string, run: () => T): T {
+  const previous = process.cwd();
+  process.chdir(cwd);
+  try {
+    return run();
+  } finally {
+    process.chdir(previous);
+  }
+}
+
+describe.runIf(process.platform === "win32")("Windows sync executable lookup", () => {
+  it("resolves a bare command to its PATHEXT match without async", async () => {
+    const root = await directory();
+    const expected = await file(root, "pwsh.exe");
+    expect(findWindowsExecutableSync("pwsh", { PATH: root })).toBe(expected);
+  });
+
+  it("prefers the PATHEXT match over an extensionless shim", async () => {
+    const root = await directory();
+    await file(root, "powershell");
+    const expected = await file(root, "powershell.exe");
+    expect(findWindowsExecutableSync("powershell", { PATH: root })).toBe(expected);
+  });
+
+  it("tries PATHEXT entries in order within each directory", async () => {
+    const root = await directory();
+    await file(root, "tool.cmd");
+    await file(root, "tool.exe");
+    expect(findWindowsExecutableSync("tool", { PATH: root, PATHEXT: ".EXE;.CMD" })).toBe(
+      join(root, "tool.exe"),
+    );
+    expect(findWindowsExecutableSync("tool", { PATH: root, PATHEXT: ".CMD;.EXE" })).toBe(
+      join(root, "tool.cmd"),
+    );
+  });
+
+  it("reads PATH and PATHEXT without regard to key case", async () => {
+    const root = await directory();
+    const expected = await file(root, "pwsh.cmd");
+    expect(findWindowsExecutableSync("pwsh", { Path: root, pathext: ".CMD" })).toBe(expected);
+  });
+
+  it("matches the async result for an absolute path with PATHEXT", async () => {
+    const root = await directory();
+    const expected = await file(root, "tool.cmd");
+    const command = join(root, "tool");
+    expect(findWindowsExecutableSync(command, { PATH: "" })).toBe(expected);
+    await expect(findExecutable(command, { PATH: "" }, "win32")).resolves.toBe(expected);
+  });
+
+  it("rejects relative PATH entries so the cwd cannot win", async () => {
+    const root = await directory();
+    await mkdir(join(root, "sub"));
+    await file(join(root, "sub"), "tool.exe");
+    withCwd(root, () => {
+      expect(findWindowsExecutableSync("tool", { PATH: "sub" })).toBeUndefined();
+    });
+    expect(findWindowsExecutableSync("tool", { PATH: join(root, "sub") })).toBe(
+      join(root, "sub", "tool.exe"),
+    );
+  });
+
+  it("does not resolve a bare name via the cwd when PATH is empty", async () => {
+    const root = await directory();
+    await file(root, "tool.exe");
+    withCwd(root, () => {
+      expect(findWindowsExecutableSync("tool", { PATH: "" })).toBeUndefined();
+    });
   });
 });

@@ -26,7 +26,7 @@ const discovery = {
   executable: async () => {},
   platform: "darwin" as const,
   arch: "arm64",
-  nodeVersion: "24.0.0",
+  nodeVersion: "26.0.0",
 };
 
 it("a Cursor session starts with ace's shipped skills beside the person's own, theirs winning a shared name", async () => {

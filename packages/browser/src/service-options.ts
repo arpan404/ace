@@ -13,6 +13,11 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 
 export interface BrowserServiceOptions {
   dataDir: string;
+  /**
+   * The daemon's ace-media (E4): live video streams through it while `media.encode` routes it
+   * there. Omitted, every capture uses the browser's own path.
+   */
+  media?: import("./media-video.ts").BrowserMedia;
   /** A Chromium to run instead of ace's pinned one (`ACE_CHROMIUM_PATH`). */
   executablePath?: string;
   /**
@@ -22,6 +27,13 @@ export interface BrowserServiceOptions {
   sandbox?: boolean;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
+  /**
+   * Sessions kept off this machine and its local network, whatever `originPolicy` allows: an
+   * outside MCP client's (ADR 0122). Read per request.
+   */
+  privateNetworkBlocked?: (threadId: string) => boolean;
+  /** Resolves hostnames for `privateNetworkBlocked`; defaults to the system resolver. */
+  resolveHost?: import("./private-network.ts").ResolveHost;
   /**
    * Use my Chrome: whether the person lets agents' `evaluate` read the page's cookies and web
    * storage (`browser.userChrome.storageReads`). Omitted: never.

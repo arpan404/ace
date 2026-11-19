@@ -9,6 +9,11 @@ import type { PiExtensionApi } from "./extension-api.ts";
 export interface PiSessionFileHolder {
   sessionFile?: string;
 }
+const SessionConfig = z.object({
+  controlSecret: z.string().regex(/^[a-f0-9]{64}$/),
+  mcp: AceMcpConnectionSchema.optional(),
+  readOnly: z.literal(true).optional(),
+});
 const holderKey = Symbol.for("ace.pi.session-file");
 /** One holder per Pi process: in its memory, never in an environment a child inherits. */
 function processHolder(): PiSessionFileHolder {
@@ -35,13 +40,7 @@ export default async function aceExtension(
   // Pi shell tools inherit this process's environment, so the path leaves it on first load.
   delete env.ACE_PI_SESSION_FILE;
   holder.sessionFile = file;
-  const session = z
-    .object({
-      controlSecret: z.string().regex(/^[a-f0-9]{64}$/),
-      mcp: AceMcpConnectionSchema.optional(),
-      readOnly: z.literal(true).optional(),
-    })
-    .parse(JSON.parse(readPrivateMcpConfig(file)));
+  const session = SessionConfig.parse(JSON.parse(readPrivateMcpConfig(file)));
   const secret = session.controlSecret;
   registerPiContextSamples(pi);
   registerPiTurnBoundaries(pi);

@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./toolchains": "./src/toolchains.ts",
     "./log-policy": "./src/log-policy.ts",
-    "./triage": "./src/triage.ts"
+    "./triage": "./src/triage.ts",
+    "./stall": "./src/stall.ts",
+    "./stall-worker": "./src/stall-watchdog-worker.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

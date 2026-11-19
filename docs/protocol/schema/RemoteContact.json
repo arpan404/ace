@@ -1,0 +1,9 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteContact.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "lost",
+    "unconfirmed"
+  ],
+  "type": "string"
+}

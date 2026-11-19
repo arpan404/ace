@@ -2,9 +2,13 @@ import { interruptedNotice } from "./thread-liveness.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
-import { settleSessionBoundTasks, threadsWithOpenTasks } from "./session-bound-tasks.ts";
+import {
+  settleOrphanedTasks,
+  settleSessionBoundTasks,
+  threadsWithOpenTasks,
+} from "./session-bound-tasks.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 import { restartDecision, restartNoticeText, type RestartFacts } from "./restart-resume.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
@@ -19,6 +23,8 @@ export function recoverEngine(
   },
   /** Whether the thread's provider can reopen its native session. */
   canContinue: (id: ThreadId) => boolean = () => false,
+  /** Windows only: some process of the previous run may still be running. */
+  processesUnverified = false,
 ): void {
   /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
   const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain" | "waitingOnPerson">>();
@@ -32,8 +38,10 @@ export function recoverEngine(
         if (repo.cleaning(state.threadId)) return;
         // Read before anything below holds the queue.
         const heldBefore = repo.queue.get(state.threadId).paused;
+        // Replayed, a rate limit marks the agent limited, and one left retrying after its turn
+        // ended stops counting as busy.
         const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
-          record.retry?.on === "rate_limit" && !record.limited
+          record.retry?.on === "rate_limit" && (!record.limited || !record.activeRun)
             ? [{ type: "retry" as const, agent, ...record.retry }]
             : [],
         );
@@ -156,6 +164,37 @@ export function recoverEngine(
             ],
             clock.now(),
           );
+        if (live && processesUnverified) {
+          repo.apply(
+            state.threadId,
+            [
+              {
+                type: "process.exited",
+                deliberate: false,
+                message:
+                  "Daemon restarted; previous provider processes could not be verified as stopped",
+              },
+              { type: "queue.changed", source: "provider", count: 0 },
+              {
+                type: "item.upsert",
+                agent: state.rootKey ?? "root",
+                item: "recovery:unverified-processes",
+                draft: {
+                  type: "notice",
+                  level: "warning",
+                  code: "recovery_uncertain",
+                  title: "Recovery needed",
+                  text: "Some processes from the previous run may still be running",
+                  complete: true,
+                },
+              },
+            ],
+            clock.now(),
+          );
+          // Never start the work again beside processes that may still be doing it.
+          interruptedWork.delete(state.threadId);
+          return;
+        }
         if (live)
           repo.apply(
             state.threadId,
@@ -175,21 +214,36 @@ export function recoverEngine(
     );
   }
   // No provider process survives a restart: work that lived inside one has stopped, in any
-  // thread, settled or not.
+  // thread, settled or not. Work still marked running is lost: a done thread that left
+  // commands running (ADR 0109), which the pass above never visits, must not read them as
+  // running forever. Cursor SDK work is reconciled by its checkpoints instead.
   for (const id of threadsWithOpenTasks(repo))
     isolated(id, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(id)) return;
-        const state = repo.requireState(id);
-        const stale = settleSessionBoundTasks(repo, state);
-        if (stale.length) repo.apply(id, stale, clock.now());
+        const bound = settleSessionBoundTasks(repo, repo.requireState(id));
+        if (bound.length) repo.apply(id, bound, clock.now());
+        if (repo.backend(id) === "cursor-sdk") return;
+        const lost = settleOrphanedTasks(repo.requireState(id));
+        if (lost.length) repo.apply(id, lost, clock.now());
       }),
     );
-  for (const intent of repo.pending.headers()) {
+  const unreadableIntent = (thread: unknown, error: unknown) => {
+    const id = ThreadId.safeParse(thread);
+    if (!id.success || !skippableAtStartup(error)) throw error;
+    skip(id.data, error);
+  };
+  for (const intent of repo.pending.headers(undefined, unreadableIntent)) {
     isolated(intent.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(intent.threadId)) {
           fail(intent, "Retired for thread deletion");
+          return;
+        }
+        // A Spade bot's session (ADR 0133): Spade's turn ended with the restart and Spade sends
+        // the next one itself; nothing here carries on or replays.
+        if (repo.store.getThread(intent.threadId)?.host === "spade-bot") {
+          fail(intent, "Spade sends this bot's turns again itself.");
           return;
         }
         if (repo.store.getThread(intent.threadId)?.continuation) {
@@ -252,6 +306,11 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
+        if (repo.store.getThread(state.threadId)?.host === "spade-bot") {
+          recovery.captures.take(state.threadId);
+          recovery.discard(state.threadId);
+          return;
+        }
         // Each capture informs this one decision; taking it in the same transaction means a
         // crash before here leaves it for the next start.
         const capture = recovery.captures.take(state.threadId);

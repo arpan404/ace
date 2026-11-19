@@ -11,11 +11,7 @@ const editable = (target: EventTarget | null) =>
  * itself. Opened from the list, it is the browser's own back; opened from a link, it opens the
  * list fresh. Escape does the same, unless something on the page takes it first.
  */
-export function useBackToList(
-  list: "/pulls" | "/issues",
-  project: string,
-  back: string | undefined,
-) {
+export function useBackToList(list: "/pulls" | "/issues", back: string | undefined) {
   const router = useRouter();
   const canGoBack = useCanGoBack();
   const go = () => {
@@ -23,7 +19,7 @@ export function useBackToList(
     // A full path names the list it came from (the inbox); a search names this list's.
     else if (back !== undefined)
       void router.navigate({ href: back.startsWith("/") ? back : `${list}${back}` });
-    else void router.navigate({ to: list, search: { project } });
+    else void router.navigate({ to: list });
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

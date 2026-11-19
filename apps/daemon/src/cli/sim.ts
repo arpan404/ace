@@ -4,9 +4,10 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { CliOperation, ThreadId } from "@ace/protocol";
 import type { Client } from "@ace/client";
-import { option, validateArgs, type Args } from "./args.ts";
-import { print, result } from "./io.ts";
-import { CliFailure, exitCodes, type Outcome } from "./output.ts";
+import { option, type Args } from "./args.ts";
+import { outputMode } from "./input-mode.ts";
+import { emit, result } from "./io.ts";
+import { exitCodes, usageFailure, type Outcome } from "./output.ts";
 import { simCall } from "./sim-args.ts";
 import { simHuman } from "./sim-human.ts";
 
@@ -33,33 +34,22 @@ function outcome(code: string): Outcome {
   return "failed";
 }
 
-/** `ace sim`: one sim_* tool call for the thread's agent, JSON out by default. */
-export async function simCommand(args: Args, client: Client, signal: AbortSignal) {
-  validateArgs(
-    args,
-    [
-      "thread",
-      "human",
-      "no-boot",
-      "out",
-      "limit",
-      "name",
-      "text",
-      "role",
-      "max-depth",
-      "max-nodes",
-      "value",
-      "duration",
-    ],
-    2,
-    8,
-  );
-  const thread = option(args, "thread");
+/**
+ * `ace sim`: one sim_* tool call for the thread's agent. Short text by default, one compact
+ * JSON line with --json (ADR 0178 §8). `thread` is --thread or ACE_THREAD_ID.
+ */
+export async function simCommand(
+  args: Args,
+  client: Client,
+  signal: AbortSignal,
+  thread: string | undefined,
+) {
   if (!thread)
-    throw new CliFailure(
-      "refused",
-      "ace sim needs --thread THREAD_ID: your own thread. See ace sim --help.",
-    );
+    throw usageFailure("ace sim needs your thread: pass --thread THREAD.", {
+      code: "missing_argument",
+      argument: "--thread",
+      hint: "In an agent's shell ace sets ACE_THREAD_ID; see ace sim --help.",
+    });
   const call = simCall(args);
   const operation = CliOperation.parse({
     op: "sim",
@@ -68,29 +58,27 @@ export async function simCommand(args: Args, client: Client, signal: AbortSignal
     args: call.args,
   });
   const response = await client.request({ type: "cli.request", operation }, { signal });
-  const human = args.flags.human === true;
-  // JSON is the default here: one compact line per call, for agents to read.
-  const json: Args = { ...args, flags: { ...args.flags, json: true } };
+  const json = outputMode(args.flags) === "json";
   if (!response.result.ok) {
     const failure = Failure.safeParse(response.result.data);
     const body = failure.success
       ? failure.data
       : { code: response.result.code ?? "unavailable", hint: response.result.hint };
     const status = outcome(body.code);
-    if (human) {
+    if (!json) {
       process.stderr.write(
         `${[body.code, failure.success ? failure.data.message : undefined, failure.success ? failure.data.detail : undefined].filter(Boolean).join(": ")}\n${body.hint ?? ""}\n`,
       );
       process.exitCode = exitCodes[status];
       return;
     }
-    return result(json, { ok: false, ...body }, status);
+    return result(args, { ok: false, ...body }, status);
   }
   let data = response.result.data;
   if (call.verb === "screenshot") {
     const shot = Shot.parse(data);
     const safe = shot.simId.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const out = option(args, "out");
+    const out = option(args, "output") ?? option(args, "out");
     const path = out
       ? resolve(out)
       : join(tmpdir(), `ace-sim-${safe}-${process.pid}-${shot.sequence}.jpg`);
@@ -98,6 +86,6 @@ export async function simCommand(args: Args, client: Client, signal: AbortSignal
     const { base64: _bytes, ...rest } = shot;
     data = { ...rest, path, mimeType: "image/jpeg" };
   }
-  if (human) return print(args, simHuman(call.verb, data));
-  return result(json, data);
+  if (!json) return emit(args, data, { human: (value) => simHuman(call.verb, value) });
+  return result(args, data);
 }

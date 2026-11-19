@@ -27,7 +27,8 @@ export function createTerminalSession({
     close() {
       for (const id of streams.keys()) stop(id);
       for (const entry of authStreams.values())
-        void options.accountManagement?.stop(entry.id, entry.owner);
+        // The socket is gone; account management reports a terminal it can't stop.
+        void options.accountManagement?.stop(entry.id, entry.owner).catch(() => {});
       authStreams.clear();
     },
     handle(message, device) {
@@ -71,7 +72,8 @@ export function createTerminalSession({
           }),
         );
         tasks.add(task);
-        void task.finally(() => tasks.delete(task));
+        // The task answers its own failure above; this only forgets it.
+        void task.finally(() => tasks.delete(task)).catch(() => {});
         return true;
       }
       const authOwner =
@@ -118,7 +120,8 @@ export function createTerminalSession({
           if (connected()) reply(false, "terminal_failed");
         });
         tasks.add(task);
-        void task.finally(() => tasks.delete(task));
+        // The task answers its own failure above; this only forgets it.
+        void task.finally(() => tasks.delete(task)).catch(() => {});
         return true;
       }
       if ("terminalId" in op && !op.threadId) {
@@ -218,7 +221,8 @@ export function createTerminalSession({
         if (connected()) reply(false, "terminal_failed");
       });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      // The task answers its own failure above; this only forgets it.
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
     },
   };

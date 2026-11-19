@@ -38,6 +38,9 @@ struct DeviceMenu: View {
     let canOperate: Bool
     let canDrive: Bool
     let busy: Bool
+    /// This phone's viewing choices.
+    @Binding var screenOnly: Bool
+    @Binding var showStats: Bool
     let open: (DeviceSheet) -> Void
     let key: (String) -> Void
     let operate: ([String: Any]) -> Void
@@ -50,6 +53,12 @@ struct DeviceMenu: View {
             Section {
                 Button("Logs", ace: .fileMagnifyingGlass) { open(.logs) }
                 Button("UI tree", ace: .treeView) { open(.tree) }
+            }
+            Section {
+                Button(screenOnly ? "Show device frame" : "Show screen only", ace: .frameCorners) { screenOnly.toggle() }
+                    .accessibilityIdentifier("devices.screenOnly")
+                Button(showStats ? "Hide stream stats" : "Show stream stats", ace: .gauge) { showStats.toggle() }
+                    .accessibilityIdentifier("devices.streamStats")
             }
             if let info {
                 Section {
@@ -193,10 +202,10 @@ struct DeviceScreenshotSheet: View {
     var body: some View {
         NavigationStack {
             Image(uiImage: image).resizable().scaledToFit()
-                .clipShape(AceShape.block)
-                .padding(AceTheme.Spacing.xl)
+                .clipShape(AceDesign.Shape.block)
+                .padding(AceDesign.Space.margin)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AceTheme.Colours.background)
+                .background(AceDesign.Surface.background)
                 .navigationTitle("Screenshot").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
@@ -206,5 +215,29 @@ struct DeviceScreenshotSheet: View {
                 }
         }
         .presentationDetents([.large])
+    }
+}
+
+/// The live stream's stats over the stage, on glass: "H.264 · 59 fps", then what arrived and was
+/// drawn, the bit rate, the longest stall and the keyframes asked for. Never takes a touch.
+struct StreamStatsCard: View {
+    let stats: DeviceStreamStats?
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            Text(stats?.summary.isEmpty == false ? stats?.summary ?? "" : "H.264")
+                .font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.primary)
+            ForEach(stats?.details ?? ["Waiting for the first picture"], id: \.self) { line in
+                Text(line).font(AceDesign.Typeface.code)
+                    .foregroundStyle(AceDesign.Ink.muted)
+            }
+        }
+        .monospacedDigit()
+        .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
+        .aceGlass(in: AceDesign.Shape.container)
+        .padding(AceDesign.Space.row)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("devices.stats")
     }
 }

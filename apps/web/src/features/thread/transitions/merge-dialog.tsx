@@ -1,5 +1,6 @@
 import { useClient, useThread, useThreadMeta } from "@ace/client-react";
 import { ItemId, ThreadId, maxMessageBytes } from "@ace/protocol";
+import { bringBackOf, mergeAnswerOf, mergeSummaryOf } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -26,39 +27,31 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
   const navigate = useNavigate();
   const machine = useMachineSearch();
   const read = useCallback(
-    (reader: import("@ace/client").ThreadReader) => {
-      for (let at = reader.order.length - 1; at >= 0; at--) {
-        const item = reader.item(reader.order[at] ?? "");
-        if (
-          item?.type === "message" &&
-          item.role === "assistant" &&
-          item.complete &&
-          !item.synthetic &&
-          // What the fork copied from its parent is not its own work to bring back.
-          !item.inherited &&
-          item.agentId === meta?.rootAgentId
-        )
-          return item;
-      }
-      return undefined;
-    },
+    (reader: import("@ace/client").ThreadReader) => mergeAnswerOf(reader, meta?.rootAgentId),
     [meta?.rootAgentId],
   );
   const answer = useThread(props.thread.id, ["thread", "order"], read);
+  // Only a fork whose whole tree has finished goes back; the daemon refuses a live one.
+  const readiness = useThread(
+    props.thread.id,
+    ["thread", "order"],
+    useCallback(
+      (reader: import("@ace/client").ThreadReader) => {
+        const ready = bringBackOf(reader, meta?.rootAgentId, reader.thread?.status.state);
+        return "refused" in ready ? ready.refused : undefined;
+      },
+      [meta?.rootAgentId],
+    ),
+  );
+  const ready = answer !== undefined && readiness === undefined;
   const [draft, setSummary] = useState<string>();
-  const summary =
-    draft ??
-    answer?.parts
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("")
-      .slice(0, maxMessageBytes) ??
-    "";
+  const summary = draft ?? mergeSummaryOf(answer, maxMessageBytes);
   const [includeCode, setIncludeCode] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const parent = meta?.lineage?.parentThreadId;
   const bringBack = async () => {
-    if (!parent || !answer || !summary.trim() || sending) return;
+    if (!parent || !answer || !ready || !summary.trim() || sending) return;
     setSending(true);
     setError(undefined);
     try {
@@ -116,9 +109,9 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
             Includes uncommitted tracked changes only. Both threads must finish before code changes
             can be applied.
           </p>
-          {!answer && (
+          {readiness && (
             <p role="status" className="text-ui text-muted-foreground">
-              Wait for an answer in this fork before bringing results back.
+              {readiness}
             </p>
           )}
           {error && (
@@ -130,11 +123,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
             <Button type="button" variant="ghost" disabled={sending} onClick={props.onClose}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={sending || !answer || !summary.trim()}
-            >
+            <Button type="submit" variant="primary" disabled={sending || !ready || !summary.trim()}>
               {sending ? "Sending…" : "Bring back"}
             </Button>
           </DialogFooter>

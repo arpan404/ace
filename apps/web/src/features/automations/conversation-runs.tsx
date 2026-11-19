@@ -1,14 +1,14 @@
 import type { AutomationRun } from "@ace/protocol";
-import { formatElapsed } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { runTurn, workingFor } from "@ace/ui-core/automations";
+import { CaretRightIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow, useSeconds } from "@/lib/time.ts";
-import { formatWhen } from "@/features/automation-schedule/index.ts";
 import { useAutomationHistory } from "@/features/automation-data/index.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import type { AutomationSource } from "@ace/protocol";
 
 /*
@@ -102,13 +102,19 @@ function TurnHead(props: {
   );
 }
 
-/** "14m", not "14m 0s": whole minutes read cleaner in a turn's head. */
-const elapsed = (ms: number) => formatElapsed(ms).replace(/(\d)m 0s$/, "$1m");
-
-function Working(props: { startedAt: number }) {
+function Working(props: { run: AutomationRun }) {
   const now = useSeconds(true);
-  return <>Working for {formatElapsed(now - props.startedAt)}</>;
+  return <>{workingFor(props.run, now)}</>;
 }
+
+/** A run's status as its row's `data-state`; a skipped run has none. */
+const runStates: Record<AutomationRun["status"], SuitPartState | undefined> = {
+  queued: "waiting",
+  running: "working",
+  succeeded: "done",
+  failed: "failed",
+  skipped: undefined,
+};
 
 function RunTurn(props: {
   run: AutomationRun;
@@ -118,52 +124,31 @@ function RunTurn(props: {
 }) {
   const { run } = props;
   const now = useNow();
-  const when = formatWhen(run.startedAt, now, props.timezone);
-  const took = run.finishedAt !== undefined ? elapsed(run.finishedAt - run.startedAt) : undefined;
-  const threadId = run.threadId;
+  const turn = runTurn(run, now, props.timezone);
   return (
-    <article aria-label={`Run, ${when}`} className="mt-10 flex flex-col gap-3">
-      {run.status === "running" ? (
-        <TurnHead when={when} detail={undefined} live threadId={threadId} />
-      ) : run.status === "succeeded" ? (
-        <TurnHead when={when} detail={took && `Worked for ${took}`} threadId={threadId} />
-      ) : run.status === "failed" ? (
-        <TurnHead
-          when={when}
-          status={{ tone: "failed", word: "Failed" }}
-          detail={took && `after ${took}`}
-          threadId={threadId}
-        />
-      ) : run.status === "queued" ? (
-        <TurnHead when={when} status={{ tone: "idle", word: "Queued" }} threadId={threadId} />
-      ) : (
-        <TurnHead when={when} status={{ tone: "idle", word: "Skipped" }} threadId={threadId} />
-      )}
-      {run.status === "queued" && (
+    <article
+      aria-label={`Run, ${turn.when}`}
+      {...part("list-row", runStates[run.status], run.status)}
+      className="mt-10 flex flex-col gap-3"
+    >
+      <TurnHead
+        when={turn.when}
+        status={turn.status}
+        detail={turn.detail}
+        live={turn.live}
+        threadId={run.threadId}
+      />
+      {(turn.note || turn.live) && (
         <p role="status" className="text-ui text-muted-foreground">
-          Waits for the last run to finish, then starts.
+          {turn.live ? <Working run={run} /> : turn.note}
         </p>
       )}
-      {run.status === "running" && (
-        <p role="status" className="text-ui text-muted-foreground">
-          <Working startedAt={run.startedAt} />
-        </p>
-      )}
-      {run.status !== "running" && run.status !== "queued" && (
-        <div className={cn(answer, run.status !== "succeeded" && "text-muted-foreground")}>
-          <Prose
-            text={
-              run.result ??
-              (run.status === "failed"
-                ? "The run stopped before it finished."
-                : run.status === "skipped"
-                  ? "Nothing to do this time."
-                  : "Finished with nothing to report.")
-            }
-          />
+      {turn.body !== undefined && (
+        <div className={cn(answer, turn.muted && "text-muted-foreground")}>
+          <Prose text={turn.body} />
         </div>
       )}
-      {run.status === "failed" && (
+      {turn.runAgain && (
         <div className="text-ui">
           <TextAction strong onClick={props.onRunAgain} disabled={props.runDisabled}>
             Run again
@@ -196,7 +181,7 @@ export function ConversationRuns(props: {
     );
   const runs = history.runs.toReversed();
   return (
-    <section aria-label="Runs">
+    <section aria-label="Runs" {...part("list", undefined, "runs")}>
       {history.hasNextPage && (
         <div className="mt-6 flex justify-center">
           <TextAction

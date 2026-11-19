@@ -1,11 +1,9 @@
-import { z } from "zod";
+import { nativeRecord, type NativeRecord } from "@ace/provider-kit/record";
 import { sanitize } from "./redaction.ts";
 import type { RawPayload } from "@ace/protocol";
 export type Data = Record<string, unknown>;
-const DataSchema = z.record(z.string(), z.unknown());
-export function object(value: unknown): Data {
-  const parsed = DataSchema.safeParse(value);
-  return parsed.success ? parsed.data : {};
+export function object(value: unknown): NativeRecord {
+  return nativeRecord(value);
 }
 export function string(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;

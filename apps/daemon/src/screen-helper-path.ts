@@ -18,3 +18,16 @@ export function resolveScreenHelper(input: {
   const staged = join(input.bundleDirectory, "helpers", "ace-screen-helper-linux");
   return input.exists(staged) ? staged : undefined;
 }
+
+/**
+ * The executable to start for a configured helper. On a Mac the desktop app names the helper's
+ * `.app` bundle, which can't be started itself: the bundle is installed and its verified
+ * executable returned, the same copy computer use runs. Any other path is already one.
+ */
+export function screenHelperExecutable(
+  configured: string,
+  install: (bundle: string) => Promise<string>,
+): Promise<string> {
+  const path = configured.replace(/\/+$/, "");
+  return path.endsWith(".app") ? install(path) : Promise.resolve(configured);
+}

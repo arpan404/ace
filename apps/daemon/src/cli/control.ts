@@ -59,40 +59,5 @@ export async function controlCommand(args: Args, client: Client, signal: AbortSi
       );
     return mutationResult(args, { ...response.result, idempotencyKey: id });
   }
-  const verb = args.words[1];
-  validateArgs(args, ["scope", "ttl", "project"], verb === "revoke" ? 3 : 2);
-  if (verb === "enroll" && !option(args, "ttl"))
-    throw new CliFailure("refused", "Enrollment requires --ttl, e.g. 1h");
-  const operation = CliOperation.parse(
-    verb === "enroll"
-      ? {
-          op: "mcp.enroll",
-          scope: option(args, "scope") ?? "read",
-          ttlMs: timeoutMs({ words: [], flags: { timeout: option(args, "ttl") ?? "1h" } }),
-          project: option(args, "project"),
-        }
-      : { op: `mcp.${verb}`, id: args.words[2] },
-  );
-  const response = await client.request({ type: "cli.request", operation }, { signal });
-  if (!response.result.ok)
-    throw new CliFailure("refused", response.result.code ?? "MCP enrollment refused");
-  if (verb === "enroll" && !args.flags.json && !args.flags.jq) {
-    const { z } = await import("zod");
-    const data = z
-      .object({
-        id: z.string(),
-        expiresAt: z.number(),
-        setup: z.string(),
-        claude: z.string(),
-        codex: z.string(),
-      })
-      .parse(response.result.data);
-    return mutationResult(
-      args,
-      `Enrollment ${data.id}, expires ${new Date(data.expiresAt).toISOString()}\n\n${data.setup}\n\n${data.claude}\n\n# ~/.codex/config.toml\n${data.codex}`,
-    );
-  }
-  return verb === "list"
-    ? result(args, response.result.data)
-    : mutationResult(args, response.result.data);
+  throw new CliFailure("refused", `Unknown control command ${command ?? ""}.`);
 }

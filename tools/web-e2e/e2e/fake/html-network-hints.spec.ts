@@ -37,7 +37,7 @@ test("published and exported pages run scripts but cannot resolve runtime networ
   const server = createServer((request, response) => {
     response.setHeader("content-type", "text/html");
     if (request.url === "/export")
-      response.end(visualizationWindow(page("export"), {}, "interactive"));
+      response.end(visualizationWindow(page("export"), {}, "interactive", 2));
     else response.end("<!doctype html><html><body></body></html>");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -62,7 +62,7 @@ test("published and exported pages run scripts but cannot resolve runtime networ
         frame.src = src;
         document.body.append(frame);
       },
-      visualizationUrl(page("render"), {}, "interactive"),
+      visualizationUrl(page("render"), {}, "interactive", 2),
     );
     const rendered = tab.frameLocator("iframe").frameLocator("iframe");
     await rendered.getByRole("button", { name: "Details" }).click();

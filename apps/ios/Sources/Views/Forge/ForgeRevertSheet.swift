@@ -1,0 +1,107 @@
+import SwiftUI
+
+/// Reverting a merged pull request: a separate draft pull request that undoes it, whose title
+/// and description the person reads over first (the web's revert form). It is asked once more
+/// before it goes, and sent once; what GitHub opened is read back, never assumed.
+struct ForgeRevertSheet: View {
+    let number: Int
+    /// What the sheet opened with: only a change from it is a draft to keep.
+    private let draft: ForgeManage.Revert
+    @State var title: String
+    @State var body_: String
+    let create: (String, String) async -> ForgeWorkOutcome
+    let openPull: (Int) -> Void
+    @State private var asking = false
+    @State private var discarding = false
+    @State private var writing = false
+    @State private var outcome: ForgeWorkOutcome?
+    @Environment(\.dismiss) private var dismiss
+
+    init(number: Int, draft: ForgeManage.Revert, create: @escaping (String, String) async -> ForgeWorkOutcome, openPull: @escaping (Int) -> Void) {
+        self.number = number
+        self.draft = draft
+        _title = State(initialValue: draft.title)
+        _body_ = State(initialValue: draft.body)
+        self.create = create
+        self.openPull = openPull
+    }
+
+    private var edited: Bool { title != draft.title || body_ != draft.body }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                    Text("A draft pull request that undoes #\(number). Its diff and checks run before anything merges.").meta().lineLimit(nil).fixedSize(horizontal: false, vertical: true)
+                    TextField("Title", text: $title)
+                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                        .padding(AceTheme.Spacing.md)
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
+                        .accessibilityIdentifier("forge.revert.title")
+                    ForgeEditor(text: $body_, placeholder: "Description", minLines: 5)
+                        .accessibilityIdentifier("forge.revert.body")
+                    if let outcome {
+                        Text(outcome.uncertain ? "\(outcome.message) Pull down on the page to read GitHub again before trying again." : outcome.message)
+                            .meta(outcome.ok ? AceTheme.Colours.mutedForeground : AceTone.failed.text)
+                            .accessibilityIdentifier("forge.revert.outcome")
+                            .transition(.opacity)
+                    }
+                }
+                .padding(AceTheme.Spacing.lg)
+            }
+            .background(AceTheme.Colours.background)
+            .animation(.default, value: outcome)
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { primary }
+            .navigationTitle("Revert #\(number)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { if outcome?.ok == true || !edited { dismiss() } else { discarding = true } }.disabled(writing) }
+            }
+            .confirmationDialog("Open a draft that reverts #\(number)?", isPresented: $asking, titleVisibility: .visible) {
+                Button("Open revert draft") { send() }
+            }
+            .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
+            .interactiveDismissDisabled(writing || (outcome?.ok != true && edited))
+        }
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// The one control: open the draft, then open what GitHub made.
+    @ViewBuilder private var primary: some View {
+        Group {
+            if let opened = outcome?.opened {
+                capsule("Open #\(opened)", identifier: "forge.revert.open") { dismiss(); openPull(opened) }
+            } else {
+                capsule("Open revert draft", busy: writing, identifier: "forge.revert.create") { asking = true }
+                    .disabled(writing || title.trimmingCharacters(in: .whitespaces).isEmpty || title.count > 256 || body_.count > 60_000)
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+        .background(AceTheme.Colours.background)
+    }
+
+    private func capsule(_ label: String, busy: Bool = false, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                if busy { ProgressView().controlSize(.small) }
+                Text(label).fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+        }
+        .buttonStyle(.textAction(.prominent))
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func send() {
+        guard !writing else { return }
+        writing = true
+        Task {
+            outcome = await create(title, body_)
+            writing = false
+        }
+    }
+}

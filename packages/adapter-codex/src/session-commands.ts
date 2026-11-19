@@ -1,7 +1,15 @@
 import { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
 import { z } from "zod";
 import { readBackgroundTerminals } from "./background-terminals.ts";
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  assertSteerTarget,
+  InputRejected,
+  SteerTargetLost,
+  type InputSource,
+  type ProviderSession,
+  type SessionContext,
+  type SteerFence,
+} from "@ace/engine-api";
 import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
@@ -12,6 +20,7 @@ import type { ThreadBackgroundTerminalsTerminateParams } from "./generated/v2/Th
 import { childKey, shellKey } from "./native.ts";
 import { approvalResult } from "./resolution.ts";
 import { nativeInput as input } from "./native-input.ts";
+const SteerErrorReply = z.object({ message: z.string() });
 export type Pending = {
   request: ServerRequest;
   answer(value: unknown): void;
@@ -72,11 +81,19 @@ export function createSessionCommands(
     threadId: string,
     parts: ContentPart[],
     delivery: "steer" | "queue",
-    origin?: "ace",
+    origin?: InputSource,
     commandId?: string,
+    fence?: SteerFence,
   ): Promise<void> {
     assertOpen();
     const turn = active.get(threadId);
+    // A fenced steer joins only the turn it was aimed at: no turn running now, or another one,
+    // and it is refused unread, never retried into that other turn or a new one.
+    if (fence && delivery === "steer") {
+      assertSteerTarget(delivery, fence);
+      // Named to Codex: only that turn. A fence naming no turn (its sender saw none) starts one.
+      if (fence.turn !== undefined && fence.turn !== turn) throw new SteerTargetLost();
+    }
     const clientUserMessageId = origin !== "ace" || turn ? config.userMessageId() : undefined;
     if (commandId && clientUserMessageId)
       config.onInputMessage?.({ commandId, nativeId: clientUserMessageId });
@@ -103,8 +120,21 @@ export function createSessionCommands(
         await steerTurn(turn);
       } catch (error) {
         let message = error instanceof Error ? error.message : "";
+        if (fence) {
+          const reply = (() => {
+            try {
+              return SteerErrorReply.safeParse(JSON.parse(message));
+            } catch {
+              return undefined;
+            }
+          })();
+          const text = reply?.success ? reply.data.message : message;
+          if (/^(?:no active turn to steer|expected active turn id .+ but found .+)$/i.test(text))
+            throw new SteerTargetLost(text);
+          throw error;
+        }
         try {
-          const reply = z.object({ message: z.string() }).safeParse(JSON.parse(message));
+          const reply = SteerErrorReply.safeParse(JSON.parse(message));
           if (reply.success) message = reply.data.message;
         } catch {
           /* Older peers may return plain error prose. */
@@ -228,8 +258,8 @@ export function createSessionCommands(
     }
   }
   return {
-    send: (parts, delivery, commandId, origin) =>
-      sendTo(nativeSessionId, parts, delivery, origin, commandId),
+    send: (parts, delivery, commandId, origin, fence) =>
+      sendTo(nativeSessionId, parts, delivery, origin, commandId, fence),
     async interrupt(target) {
       assertOpen();
       const thread = !target.agent || target.agent === "root" ? nativeSessionId : target.agent;

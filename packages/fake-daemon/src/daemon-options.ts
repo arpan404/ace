@@ -5,14 +5,38 @@ import type { FakeServices } from "./services/index.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  /** Finished work before this moment counts as seen when placing threads; default: all of it. */
+  seenBefore?: number;
+  /**
+   * How `entities.page` pages: `active-first` (default), as this daemon does, every active
+   * entity first, page after page; `chronological`, as daemons before it did, newest first with
+   * no regard for state. Read on every page, so a test can change it mid-read, as an upgrade
+   * or a downgrade of the daemon does.
+   */
+  entityPages?: "active-first" | "chronological";
+  /** The largest entity's JSON a page carries (`active-first`); larger ones are `tooLarge`. */
+  largestEntity?: number;
+  /** false: speak as a daemon from before placement, sending lists without places or dots. */
+  placement?: false;
+  /** false: speak as a daemon from before logical project identity (ADR 0180). */
+  projectIdentity?: false;
   /** Keep creation visible for screenshot capture. */
   worktreeCreationSlow?: boolean;
   worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;
   screenId?(): string;
   screenSchedule?(callback: () => void, delay: number): () => void;
   hostId?: string;
+  /**
+   * Names this run's event log in the welcome (ADR 0128). The log lives in memory, so each run is
+   * its own database; default: a new random id per fake daemon.
+   */
+  databaseId?: string;
   displayName?: string;
   version?: string;
+  /** The release line its welcome names (ADR 0177); absent, as an older daemon's. */
+  releaseLine?: string;
+  /** The OS host.identity reports; absent, as an older daemon's. */
+  platform?: string;
   catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
   deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
   /** Optional finite response for newly created demo threads; tests can step it directly. */
@@ -25,6 +49,8 @@ export interface FakeDaemonOptions {
 }
 export interface ThreadInit {
   imported?: Thread["imported"];
+  /** A thread the daemon holds for Spade (ADR 0121): hidden from every list. */
+  host?: Thread["host"];
   id: string;
   workspaceId: string;
   title: string;
@@ -37,6 +63,12 @@ export interface ThreadInit {
   execution?: Thread["execution"];
   access?: AccessMode;
   parentThreadId?: string;
+  /** The thread whose agent opened this one with `thread_start`. */
+  startedBy?: string;
+  /** The outside MCP client that started it (ADR 0122). */
+  startedByClient?: Thread["startedByClient"];
+  /** The thread on a paired machine whose agent delegated this one here. */
+  delegatedFrom?: Thread["delegatedFrom"];
   /** A delegated child still waiting for one of its parent's run slots, with its task. */
   queuedLaunch?: Thread["queuedLaunch"];
   /** A conversation an agent started is a task from its start, as the daemon records it. */

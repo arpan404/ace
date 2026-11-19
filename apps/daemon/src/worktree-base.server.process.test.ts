@@ -166,7 +166,20 @@ test("a worktree can start from a branch only the remote has, never fetched befo
 test("a worktree based on a local branch starts at that branch without fetching", async () => {
   const d = await daemonWithOrigin();
   const tree = await run(d.home, "rev-parse", "HEAD^{tree}");
-  const local = await run(d.home, "commit-tree", tree, "-p", "HEAD", "-m", "Local work");
+  // The fixture sets its identity per command; the test home has no global one.
+  const local = await run(
+    d.home,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@ace.local",
+    "commit-tree",
+    tree,
+    "-p",
+    "HEAD",
+    "-m",
+    "Local work",
+  );
   await run(d.home, "update-ref", "refs/heads/local-work", local);
   const cachedOrigin = await run(d.home, "rev-parse", "refs/remotes/origin/main");
   await d.publish("main", "Not fetched");

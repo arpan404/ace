@@ -20,6 +20,7 @@ import { readForge } from "@/lib/forge-read.ts";
  */
 
 export interface ForgeScope {
+  capabilities?: readonly string[] | undefined;
   workspaceId: string;
   repository: ForgeRepository;
 }

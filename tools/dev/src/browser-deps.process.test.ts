@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
+import { z } from "zod";
 
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "../../..");
@@ -70,24 +71,47 @@ test("browser dependency checks reject built-ins and Node-only exports while per
         [...sources.map((source) => `${source}/src`), "--config", config, "--output-type", "err"],
         { cwd: directory },
       );
+    const report = (run: ReturnType<typeof check>) =>
+      run.then(
+        () => "",
+        (error: unknown) => z.object({ stdout: z.string() }).parse(error).stdout,
+      );
+    // Built-ins are reported on the importing file, so one run checks every source at once.
+    const builtins = ["node:fs", "fs"];
+    for (const source of sources)
+      for (const [index, dependency] of builtins.entries())
+        await writeFile(
+          join(directory, source, `src/forbidden-${index}.ts`),
+          `import ${JSON.stringify(dependency)};`,
+        );
+    const direct = await report(check());
+    for (const source of sources)
+      for (const index of builtins.keys())
+        expect(direct).toMatch(
+          new RegExp(`browser-no-node: ${source}/src/forbidden-${index}\\.ts`),
+        );
+    for (const source of sources)
+      for (const index of builtins.keys())
+        await rm(join(directory, source, `src/forbidden-${index}.ts`));
+    // Node-only packages are reported on the shared module, so each source is checked alone.
     for (const source of sources) {
       const file = join(directory, source, "src/entry.ts");
-      for (const dependency of ["node:fs", "fs", "@ace/settings", "node-only"]) {
-        await writeFile(file, `import ${JSON.stringify(dependency)};`);
-        await expect(check()).rejects.toMatchObject({
-          code: expect.any(Number),
-          stdout: expect.stringContaining("browser-no-node"),
-        });
-      }
+      await writeFile(file, 'import "@ace/settings"; import "node-only";');
+      const reached = await report(check());
+      expect(reached).toContain("browser-no-node: packages/settings/src/index.ts");
+      expect(reached).toContain("browser-no-node: node_modules/node-only/node.js");
+      await rm(file);
+    }
+    for (const source of sources) {
       await writeFile(
-        file,
+        join(directory, source, "src/entry.ts"),
         'import "@ace/settings/defaults"; import "conditional"; import type { readFile } from "@ace/settings"; import type { Stats } from "node:fs";',
       );
       await writeFile(join(directory, source, "src/entry.process.test.ts"), 'import "node:fs";');
-      await expect(check()).resolves.toMatchObject({
-        stdout: expect.stringContaining("no dependency violations found"),
-      });
     }
+    await expect(check()).resolves.toMatchObject({
+      stdout: expect.stringContaining("no dependency violations found"),
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -11,6 +11,8 @@ import { ToolEvents } from "./tool-events.ts";
 import { translateDelta } from "./delta-events.ts";
 import { cursorFailure } from "./failure-kind.ts";
 
+const InputParts = z.array(ContentPart).max(64);
+
 export interface CursorTranslatorOptions {
   threadId: ThreadId;
   rootKey: Key;
@@ -129,7 +131,7 @@ export class CursorTranslator implements Translator {
           });
         }
         facts.push(...this.transcript.end());
-        const input = z.array(ContentPart).max(64).safeParse(body.input);
+        const input = InputParts.safeParse(body.input);
         if (input.success && input.data.length)
           facts.push({
             type: "item.upsert",

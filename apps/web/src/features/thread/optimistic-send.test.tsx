@@ -69,7 +69,7 @@ test("a message sent offline waits in the composer's strip and becomes the daemo
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("a message the daemon refuses stays in the composer's strip with the reason, and Edit puts it back in the composer", async () => {
+test("a message the daemon refuses stays in the composer's strip with the reason, and Edit changes its words in place", async () => {
   const { app, feed, message } = await open("idle");
   app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
 
@@ -83,14 +83,60 @@ test("a message the daemon refuses stays in the composer's strip with the reason
   expect(within(strip).getByText("Also bump the changelog")).toBeTruthy();
   expect(within(feed).queryByText("Also bump the changelog")).toBeNull();
 
+  // Edit opens its words over the same send; the composer stays as it was.
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
-  await waitFor(() =>
-    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement).textContent).toBe(
-      "Also bump the changelog",
-    ),
+  const dialog = await screen.findByRole("dialog", { name: "Edit message" });
+  const field = within(dialog).getByRole("textbox", { name: "Message" });
+  expect((field as HTMLTextAreaElement).value).toBe("Also bump the changelog");
+  await userEvent.type(field, " and the README");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit message" })).toBeNull());
+  expect(await within(strip).findByText("Also bump the changelog and the README")).toBeTruthy();
+  expect(within(strip).getByText("Not sent")).toBeTruthy();
+  expect((screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement).textContent).toBe(
+    "",
   );
-  expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull();
-  expect(screen.queryByText("Not sent")).toBeNull();
+  // Retry sends the edited words, once.
+  app.daemon.restoreRequests();
+  await userEvent.click(
+    within(within(strip).getByRole("alert")).getByRole("button", { name: "Retry" }),
+  );
+  expect(await within(feed).findByText("Also bump the changelog and the README")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByText("Not sent")).toBeNull());
+  expect(within(feed).queryByText("Also bump the changelog")).toBeNull();
+});
+
+test("Retry waits while an edit of the same send is being saved, and Edit while a retry runs", async () => {
+  const { app, message } = await open("idle");
+  app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
+  await userEvent.type(message, "Also bump the changelog{Enter}");
+  const alert = await within(await onTheirWay()).findByRole("alert");
+  const [send] = app.client.pendingSends().getSnapshot();
+  const id = String(send?.commandId);
+  // An edit of this send being saved (in another view of it): Retry is greyed.
+  const saved = Promise.withResolvers<void>();
+  const editing = app.client.sendOps.run(id, "editing", () => saved.promise);
+  await waitFor(() =>
+    expect(within(alert).getByRole("button", { name: "Retry" })).toHaveProperty("disabled", true),
+  );
+  saved.resolve();
+  await editing;
+  await waitFor(() =>
+    expect(within(alert).getByRole("button", { name: "Retry" })).toHaveProperty("disabled", false),
+  );
+  // A retry on its way: Edit is greyed, and an edit asked for anyway says why it waits.
+  const sent = Promise.withResolvers<void>();
+  const retrying = app.client.sendOps.run(id, "retrying", () => sent.promise);
+  await waitFor(() =>
+    expect(within(alert).getByRole("button", { name: "Edit" })).toHaveProperty("disabled", true),
+  );
+  const refused = await app.client.sendOps.run(id, "editing", async () => {});
+  expect(refused).toEqual({ ran: false, running: "retrying" });
+  sent.resolve();
+  await retrying;
+  await waitFor(() =>
+    expect(within(alert).getByRole("button", { name: "Edit" })).toHaveProperty("disabled", false),
+  );
 });
 
 test("Retry sends a refused message again and it lands once", async () => {

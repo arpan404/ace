@@ -42,6 +42,22 @@ extension ClientModel {
         guard canOperate else { return }
         threadAction(["type": "attach", "file": file.json])
     }
+    /// Take a browser annotation off the next message; the rest close ranks, on the page too.
+    func removeAnnotation(_ id: String) { threadAction(["type": "annotation.remove", "id": id]) }
+    func clearAnnotations() { threadAction(["type": "annotation.clear"]) }
+    /// Reply to the words between `start` and `end` (UTF-16, as a text view gives them) of an
+    /// agent's message: the bridge makes them a quote on the next message, with the words around.
+    func addQuote(_ message: String, start: Int, end: Int) {
+        guard canOperate else { return }
+        threadAction(["type": "quote.add", "message": message, "start": start, "end": end])
+    }
+    func removeQuote(_ id: String) { threadAction(["type": "quote.remove", "id": id]) }
+    /// Give the bridge the quotes this phone kept with the thread's draft (after a relaunch).
+    func restoreQuotes(_ quotes: [DraftQuote]) {
+        guard canOperate, !quotes.isEmpty else { return }
+        threadAction(["type": "quote.restore", "quotes": quotes.map(\.json)])
+    }
+    func clearQuotes() { threadAction(["type": "quote.clear"]) }
     func detach(_ localId: String) {
         threadAction(["type": "detach", "localId": localId])
         AttachmentStaging().discard(localId)
@@ -52,15 +68,23 @@ extension ClientModel {
     /// that thread, and its release must not close another generation's log.
     func closeSteps(ordinal: Int, epoch: Int? = nil) { releaseAction(["type": "steps.close", "ordinal": ordinal], epoch: epoch) }
     func moreSteps(ordinal: Int) { threadAction(["type": "steps.more", "ordinal": ordinal]) }
-    /// A native subagent's lane sheet opened or closed.
+    /// A native subagent's lane opened. Opening the lane already open keeps what it holds.
     func openLane(_ agentId: String) {
-        guard let thread else { return }
+        guard let thread, thread.screen.lane?.agentId != agentId else { return }
         thread.screen.lane = LaneModel(agentId: agentId)
         threadAction(["type": "lane.open", "agentId": agentId])
     }
-    func closeLane(epoch: Int? = nil) {
-        if epoch == nil || thread?.epoch == epoch { thread?.screen.lane = nil }
-        releaseAction(["type": "lane.close"], epoch: epoch)
+    /// A lane's view went away. Only that agent's lane closes: pushing a nested subagent opens
+    /// its lane before the one under it disappears.
+    func closeLane(_ agentId: String, epoch: Int? = nil) {
+        if epoch == nil || thread?.epoch == epoch, thread?.screen.lane?.agentId == agentId { thread?.screen.lane = nil }
+        releaseAction(["type": "lane.close", "agentId": agentId], epoch: epoch)
+    }
+    /// Ask the parent of a failed or stopped subagent to run it again: true once admitted.
+    func retrySubagent(_ agentId: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { threadAction(["type": "lane.retry", "agentId": agentId, "requestId": id]) }
     }
     /// Letting go of a read: with no runtime there is nothing to release, so it is never an error.
     private func releaseAction(_ value: [String: Any], epoch: Int?) { action(threadMessage(value, epoch: epoch)) }

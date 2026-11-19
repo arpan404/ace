@@ -1,0 +1,20 @@
+[package]
+name = "spade-cloud-wire"
+version = "0.1.0"
+description = "What Spade and Spade Cloud say to each other (ADR 0140): the API's shapes and the sealing of tokens to Spade's one-time key"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+ring = "0.17"
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

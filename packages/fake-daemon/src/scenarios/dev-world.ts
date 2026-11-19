@@ -8,16 +8,19 @@ import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
+import { nestedDelegation } from "./nested-delegation.ts";
 import { queuedDelegation } from "./queued-delegation.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
+import { chats } from "./chats.ts";
 import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
 import { startedConversation } from "./started-conversation.ts";
+import { markdownMessage } from "./markdown-message.ts";
 import { explainer, postedImage, visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
@@ -45,6 +48,8 @@ export function devWorld(): WorldThread[] {
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
+    // Chats with no project across the days: the Chats panel's groups.
+    ...chats().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
     // Reopening restores the pending approval; it must not manufacture a new toast each time.
     {
       scenario: flakyCheckout(),
@@ -63,10 +68,14 @@ export function devWorld(): WorldThread[] {
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
+    // Delegation three threads deep: the Summary's agent tree joins every thread's agents.
+    ...nestedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // Two children delegated with one run slot free: one runs, one waits in the launch queue.
     ...queuedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
+    // The person's bug report written in markdown: it renders in their bubble.
+    { scenario: markdownMessage(), agoMs: 2 * minute },
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     { scenario: aceToolsComputerBackground(), agoMs: 20 * minute },
@@ -80,6 +89,35 @@ export function devWorld(): WorldThread[] {
     { scenario: postedImage(), agoMs: 8 * minute },
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
+  ]);
+}
+
+/**
+ * Home list threads the showcase leaves out, so one approval sits among working, waiting and
+ * finished threads instead of a column of requests.
+ */
+const showcaseSkips = new Set(["thread-retry-budget", "thread-refund-tax", "thread-sheet-rotate"]);
+
+/**
+ * A small, tidy world for product screenshots (`?fakeWorld=showcase`): threads in a balanced
+ * mix of states (mostly working, one approval), with the cold-start thread open and reporting
+ * live. None of the dev world's edge cases, so a capture reads at a glance.
+ */
+export function showcaseWorld(): WorldThread[] {
+  return withAccounts([
+    // The skills and read-state seeds in the fake boot point at this thread.
+    { scenario: multiDayDemo(), agoMs: 0 },
+    ...homeList()
+      .filter((aged) => !showcaseSkips.has(aged.scenario.thread.id))
+      .map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
+    {
+      scenario: flakyCheckout(),
+      agoMs: 3 * minute,
+      through: "approval-requested",
+      live: { speed: 1 },
+    },
+    { scenario: replayCursor(), agoMs: 4 * minute, live: { speed: 1 } },
+    { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
   ]);
 }
 

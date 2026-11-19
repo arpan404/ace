@@ -16,7 +16,7 @@ const options = {
   executable: async () => {},
   platform: "darwin",
   arch: "arm64",
-  nodeVersion: "24.0.0",
+  nodeVersion: "26.0.0",
 };
 const resolved = (version: string, helper = version) => ({
   ...options,
@@ -87,6 +87,11 @@ it("uses the isolated SDK default home and inherits only the Cursor SDK environm
   expect(env.CURSOR_API_KEY).toBe("sentinel");
   expect(env.CURSOR_AUTH_TOKEN).toBeUndefined();
   expect(env.NODE_OPTIONS).toBeUndefined();
+});
+it("an empty CURSOR_API_KEY leaves the account's saved login in charge", () => {
+  const env = cursorSdkEnvironment({ id: "a", homeDir: "/accounts/a" }, { CURSOR_API_KEY: "" });
+  expect(env.CURSOR_API_KEY).toBeUndefined();
+  expect(env.HOME).toBe("/accounts/a/user");
 });
 it("fences oversized, deeply nested and getter-bearing callback data before serialization", () => {
   let getterRead = false;

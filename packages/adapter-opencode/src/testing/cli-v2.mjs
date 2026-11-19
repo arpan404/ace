@@ -78,6 +78,7 @@ let catalogSkills = [
 const streams = new Set(),
   requests = [],
   sessions = new Map(),
+  environments = new Map(),
   messages = new Map(),
   inbox = new Map();
 let permissions = [],
@@ -106,12 +107,22 @@ const publish = (type, data, directory = "/one", extra = {}) => {
 const nativeMcp = new Map();
 let toolCatalog = [];
 let readinessRequested = false;
+let servedSession = false;
+let readinessRefusals = 0;
 const transforms = [];
 let readiness;
-const pluginPath = configuration.plugins?.find(
-  (plugin) => typeof plugin === "string" && plugin.endsWith("mcp-ready-plugin"),
-);
-if (pluginPath) {
+// ace's plugins, activated as OpenCode activates them: the readiness plugin and the
+// environment gate. Their RPCs are served below, and `tool.execute.before` hooks run before a
+// tool does, a throw refusing it.
+const toolHooks = [];
+const rpcHandlers = new Map();
+for (const pluginPath of configuration.plugins ?? []) {
+  // Only ace's own; a person's plugins stand for code this double doesn't have.
+  if (
+    typeof pluginPath !== "string" ||
+    !(pluginPath.endsWith("mcp-ready-plugin") || pluginPath.endsWith("agent-env-plugin"))
+  )
+    continue;
   let module;
   try {
     module = await import(`${pluginPath}/server.ts`);
@@ -119,8 +130,7 @@ if (pluginPath) {
     if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
     module = await import(`${pluginPath}/server.mjs`);
   }
-  const plugin = module.default;
-  await plugin.setup({
+  await module.default.setup({
     tool: {
       async transform(read) {
         transforms.push(read);
@@ -129,10 +139,14 @@ if (pluginPath) {
       async list() {
         return toolCatalog;
       },
+      async hook(name, run) {
+        if (name === "execute.before") toolHooks.push(run);
+      },
     },
     rpc: {
-      async register(_definition, handlers) {
-        readiness = handlers.ready;
+      async register(definition, handlers) {
+        rpcHandlers.set(definition.id, handlers);
+        if (definition.id === "ace.mcp.readiness") readiness = handlers.ready;
       },
     },
   });
@@ -228,6 +242,20 @@ const signInIntegrations = [
   { id: "anthropic", name: "Anthropic", methods: [{ type: "key" }] },
   { id: "poe", name: "Poe", methods: [{ type: "oauth", id: "browser", label: "Login with Poe" }] },
   { id: "mcp_fixture", name: "Fixture MCP", methods: [{ type: "oauth", id: "mcp_fixture" }] },
+  // OpenCode 2.2.6 also lists every key-only service, each with its saved connections.
+  {
+    id: "groq",
+    name: "Groq",
+    methods: [{ type: "key" }, { type: "env", names: ["GROQ_API_KEY"] }],
+    connections: [{ type: "credential", id: "cred_groq", label: "Default", method: "key" }],
+  },
+  {
+    id: "wafer.ai",
+    name: "Wafer",
+    methods: [{ type: "key" }, { type: "env", names: ["WAFER_API_KEY"] }],
+  },
+  { id: "lmstudio", name: "LMStudio", methods: [{ type: "key" }] },
+  { id: "env-only", name: "Env Only", methods: [{ type: "env", names: ["ENV_ONLY_KEY"] }] },
 ];
 const signInPages = {
   opencode: {
@@ -285,8 +313,37 @@ const server = createServer(async (req, res) => {
     empty();
     return;
   }
+  if (path === "/api/rpc/ace.agent.environment/settle") {
+    const gate = rpcHandlers.get("ace.agent.environment");
+    if (!gate) {
+      res.writeHead(400, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          _tag: "RpcError",
+          type: "rpc.unavailable",
+          message: "RPC is unavailable: ace.agent.environment",
+        }),
+      );
+      return;
+    }
+    json({ output: await gate.settle(body.input, { signal: new AbortController().signal }) });
+    return;
+  }
   if (path === "/api/rpc/ace.mcp.readiness/ready") {
     readinessRequested = true;
+    // OpenCode 2.2.7 answers this way until it has activated the plugin; "always" stands for a
+    // plugin that never loads. The body is OpenCode's own wire shape.
+    const unavailable = process.env.ACE_TEST_READINESS_UNAVAILABLE;
+    if (unavailable === "always" || readinessRefusals < Number(unavailable ?? 0)) {
+      readinessRefusals += 1;
+      res.writeHead(400, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          _tag: "RpcError",
+          type: "rpc.unavailable",
+          message: "RPC is unavailable: ace.mcp.readiness",
+        }),
+      );
+      return;
+    }
     if (!readiness) throw new Error("ace native readiness plugin did not load");
     const controller = new AbortController();
     res.on("close", () => controller.abort());
@@ -301,6 +358,7 @@ const server = createServer(async (req, res) => {
   if (path === "/test/mcp-tools") {
     json({
       readinessRequested,
+      readinessRefusals,
       tools: toolCatalog.map((tool) => ({ name: tool.id, description: tool.description })),
       plugins: configuration.plugins ?? [],
     });
@@ -380,9 +438,37 @@ const server = createServer(async (req, res) => {
   if (path === "/test/events") {
     for (const event of body) {
       if (event.raw) for (const stream of streams) stream.write(event.raw);
-      else publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      else {
+        // A rebuilt location loses runtime MCP servers, as OpenCode 2.2.6 does on eviction.
+        if (event.type === "location.shutdown") nativeMcp.clear();
+        publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      }
     }
     json(true);
+    return;
+  }
+  // Runs one local shell command for a session the way OpenCode 2's shell does: with the
+  // session's environment when one was set, else the server's own, plus the session's ID.
+  if (path === "/test/shell") {
+    // OpenCode runs every plugin's `tool.execute.before` first; a throw refuses the tool.
+    try {
+      for (const hook of toolHooks)
+        await hook({ tool: "bash", sessionID: body.sessionID, agent: "build", id: "call" });
+    } catch (error) {
+      json({ refused: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    const { spawnSync } = await import("node:child_process");
+    const env = { ...(environments.get(body.sessionID) ?? process.env) };
+    env.OPENCODE_SESSION_ID = body.sessionID;
+    const script = "require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.env))";
+    const run = spawnSync(process.execPath, ["-e", script, body.file], { env });
+    json({ status: run.status });
+    return;
+  }
+  // The names in this server process's own environment, as a tool falling back to it sees.
+  if (path === "/test/server-env") {
+    json(Object.keys(process.env));
     return;
   }
   if (path === "/test/drop") {
@@ -467,6 +553,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/api/session" && req.method === "POST") {
+    servedSession = true;
     const id = `session-${++serial}`,
       info = {
         id,
@@ -619,6 +706,22 @@ const server = createServer(async (req, res) => {
         return;
       }
       json({ data: info });
+      return;
+    }
+    if (suffix === "/environment" && req.method === "PUT") {
+      if (!sessions.has(id)) {
+        res.writeHead(404).end();
+        return;
+      }
+      // A slow or failing set, as when the server is busy or the request is lost.
+      if (fault.environmentDelayMs)
+        await new Promise((resolve) => setTimeout(resolve, fault.environmentDelayMs));
+      if (fault.environmentFailure) {
+        res.writeHead(500, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      environments.set(id, { ...body.variables });
+      empty();
       return;
     }
     if (suffix === "/instructions/entries/ace.tool-guidance" && req.method === "PUT") {
@@ -812,3 +915,10 @@ process.stdin.on("end", () => {
   for (const stream of streams) stream.end();
   server.close();
 });
+// ACE_TEST_SLOW_UNUSED_EXIT_MS: a server that never created a session takes this long to exit
+// once asked to stop.
+const slowUnusedExit = Number(process.env.ACE_TEST_SLOW_UNUSED_EXIT_MS ?? 0);
+if (slowUnusedExit)
+  process.on("SIGTERM", () =>
+    setTimeout(() => process.exit(0), servedSession ? 0 : slowUnusedExit),
+  );

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { UsageUpdated, UsageCounter, type Event } from "@ace/protocol";
+import { UsageUpdated, UsageCounter, type Event, type Item } from "@ace/protocol";
+import { startsTurn } from "@ace/projection/turn-boundary";
+/** Skills one ask can attribute; more mentions than this keep the first ones. */
+export const maxSkills = 32;
 // Canonical ace identifiers and agent models have no length cap. Replay bounds bytes separately.
 const id = z.string().min(1);
 export const UsageEvent = z.object({
@@ -7,7 +10,25 @@ export const UsageEvent = z.object({
   at: z.number().int().nonnegative().max(8.64e15),
   threadId: id,
   payload: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("thread.created"), workspace: z.string(), provider: id }),
+    z.object({
+      type: z.literal("thread.created"),
+      workspace: z.string(),
+      provider: id,
+      /** Another thread's agent started it (`delegatedBy`, `delegatedFrom` or `startedBy`). */
+      delegated: z.boolean().optional(),
+    }),
+    /** A thread learned it was delegated after it was created. */
+    z.object({ type: z.literal("thread.delegated") }),
+    /**
+     * A root message that opens a turn (ADR 0062): the skills it mentions, and the automation
+     * whose prompt it is. Usage until the thread's next ask counts for those skills.
+     */
+    z.object({
+      type: z.literal("turn.asked"),
+      agent: id,
+      skills: z.array(id).max(maxSkills),
+      automation: id.optional(),
+    }),
     z.object({
       type: z.literal("agent.created"),
       id,
@@ -34,6 +55,28 @@ export const UsageEvent = z.object({
 });
 export type UsageEvent = z.infer<typeof UsageEvent>;
 const fits = (value: string) => Buffer.byteLength(value) <= 8192;
+/** The ask's attribution facts, or undefined when the message doesn't open a turn. */
+function turnAsked(item: Item): Extract<UsageEvent["payload"], { type: "turn.asked" }> | undefined {
+  // Fork copies and messages ace didn't send (task notifications) carry the current turn on.
+  if (item.type !== "message" || item.synthetic || item.inherited || !startsTurn(item)) return;
+  if (!fits(item.agentId)) return;
+  const skills = new Set<string>();
+  for (const part of item.parts)
+    if (part.type === "mention" && part.kind === "skill" && part.name && fits(part.name))
+      skills.add(part.name);
+  const role = item.origin?.kind === "automation" ? item.origin.role : undefined;
+  return {
+    type: "turn.asked",
+    agent: item.agentId,
+    skills: [...skills].slice(0, maxSkills),
+    ...(role && fits(role) ? { automation: role } : {}),
+  };
+}
+const delegated = (thread: {
+  delegatedBy?: unknown;
+  delegatedFrom?: unknown;
+  startedBy?: unknown;
+}) => thread.delegatedBy != null || thread.delegatedFrom != null || thread.startedBy != null;
 export function compactEvent(event: Event): UsageEvent | undefined {
   const omitted = (): UsageEvent => ({
     seq: event.seq,
@@ -51,8 +94,19 @@ export function compactEvent(event: Event): UsageEvent | undefined {
         type: p.type,
         workspace: fits(p.thread.workspaceId) ? p.thread.workspaceId : "",
         provider: p.thread.provider,
+        delegated: delegated(p.thread),
       };
       break;
+    case "thread.updated":
+      if (!delegated(p)) return undefined;
+      payload = { type: "thread.delegated" };
+      break;
+    case "item.created": {
+      const asked = turnAsked(p.item);
+      if (!asked) return undefined;
+      payload = asked;
+      break;
+    }
     case "agent.created":
       if (!fits(p.agent.id)) return omitted();
       payload = {

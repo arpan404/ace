@@ -1,6 +1,6 @@
 ---
 name: fix-failing-tests
-description: Find and fix failing tests or a red CI run. Use when the person says tests fail, CI is red, or asks to make the test suite pass.
+description: Find and fix failing tests or a red CI run.
 ---
 
 # Fix failing tests

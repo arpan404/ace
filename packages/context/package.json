@@ -8,8 +8,7 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/context.ts",
-    "bench:resources": "node --expose-gc bench/index-resources.ts"
+    "bench": "node bench/context.ts"
   },
   "dependencies": {
     "@ace/handoff": "workspace:*",
@@ -17,7 +16,9 @@
     "@ace/provider-kit": "workspace:*",
     "@ace/workspace": "workspace:*",
     "image-size": "^2.0.2",
-    "sharp": "0.34.5",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "sharp": "0.34.5"
   }
 }

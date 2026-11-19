@@ -5,6 +5,7 @@ import type { Fact } from "@ace/core";
 import { Capabilities, type ThreadId } from "@ace/protocol";
 import { Engine, Store } from "@ace/daemon";
 import { MaintenanceGate } from "@ace/service";
+import { stoppedByPerson, threadAttention } from "@ace/projection";
 import {
   cleanupRecovery,
   crashCopy,
@@ -210,6 +211,47 @@ test("a thread stopped while its turn wound down stays stopped across a restart"
   expect(recovered.engine.queue(stopped)).toMatchObject({ paused: true, reason: "stopped" });
   expect(restartNotices(recovered.store, stopped)).toEqual(["Interrupted by a restart"]);
 });
+
+test.each(["crash", "graceful"] as const)(
+  "a turn the person stopped stays done and asks nothing after a %s restart",
+  async (kind) => {
+    const frames = scriptFrames();
+    const h = await fixture(
+      [
+        { on: "send", frames: [frames.frame(start)] },
+        { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" })] },
+      ],
+      frames,
+    );
+    const id = await h.create();
+    expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+    await h.engine.flush();
+    const read = (store: Store) => {
+      const thread = store.getThread(id);
+      if (!thread) throw new Error("Missing thread");
+      return thread;
+    };
+    // Done, and nothing for the person to act on: no Continue, no attention.
+    expect(read(h.store).status.state).toBe("done");
+    expect(threadAttention(read(h.store))).toBeUndefined();
+    expect(stoppedByPerson(read(h.store))).toBe(true);
+    const replacement = replaceProvider(h, frames, [
+      { on: "send", frames: [frames.frame(start, end)] },
+    ]);
+    let after = h.store;
+    if (kind === "crash") {
+      const recovered = await crashCopy(h);
+      await recovered.engine.flush();
+      after = recovered.store;
+    } else await (await restart(h)).flush();
+    // Nothing resumes it or prompts it again; it still reads done and settled for the person.
+    expect(sends(replacement)).toEqual([]);
+    expect(replacement.sessions).toHaveLength(0);
+    expect(read(after).status.state).toBe("done");
+    expect(threadAttention(read(after))).toBeUndefined();
+    expect(stoppedByPerson(read(after))).toBe(true);
+  },
+);
 
 test("a provider that can't resume its session waits for the person's next message", async () => {
   const frames = scriptFrames();

@@ -1,8 +1,10 @@
+import { followLoginPath } from "../login-path-handoff.ts";
 import { join } from "node:path";
 import {
   AgentCatalog,
   AgentRegistry,
   fileCache,
+  fileDigestMemory,
   fileInventoryStorage,
   platformTarget,
 } from "@ace/agent-registry";
@@ -23,7 +25,8 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
     root: join(root, "installations"),
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
-    env: { ...process.env, ...options.providerStatus?.env },
+    digests: fileDigestMemory(join(root, "digests.json"), id),
+    env: followLoginPath(options.loginPath, { ...process.env, ...options.providerStatus?.env }),
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });
   resources.own(() => registry.close());
@@ -96,7 +99,8 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
           pending--;
         });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      // The task answers its own failure above; this only forgets it.
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
     },
   };

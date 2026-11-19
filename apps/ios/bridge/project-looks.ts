@@ -7,22 +7,27 @@ import { readProjects } from "./project-list.ts";
 /*
  * Each project's mark for the inbox rows, sent once per project and again only when it changes.
  * Rows change often and projects rarely, so a row names its project by `workspaceId` and never
- * carries image data. A project with no image and no chosen glyph sends nothing: its rows draw
- * the initials they already carry (`badge`). Chats (ADR 0099) send nothing either; their rows
+ * carries image data. A project with no image, no chosen glyph and no chosen colour sends nothing:
+ * its rows draw the initials they already carry (`badge`) in the tint they carry (`tint`). Chats (ADR 0099) send nothing either; their rows
  * say they are chats.
  */
 
-/** What Swift draws for a project's mark: an image to try first, then a glyph by icon name. */
+/**
+ * What Swift draws for a project's mark: an image to try first, then a glyph by icon name, in the
+ * badge colour the person chose (an account colour key) when they chose one.
+ */
 export interface ProjectLookRow {
   image: string | null;
   glyph: string | null;
+  color: string | null;
 }
 
-/** The shared mark rule (`projectMark`) as Swift reads it; null when the initials are enough. */
+/** The shared mark rule (`projectMark`) as Swift reads it; null when the tinted initials are enough. */
 export function projectLookRow(look: ProjectLook | undefined): ProjectLookRow | null {
   const mark = projectMark(look);
   const glyph = mark.glyph ? projectGlyphIcons[mark.glyph] : null;
-  return mark.image || glyph ? { image: mark.image ?? null, glyph } : null;
+  const color = mark.color ?? null;
+  return mark.image || glyph || color ? { image: mark.image ?? null, glyph, color } : null;
 }
 
 export type ProjectLooksOwner = Pick<ClientCore, "request" | "connectionState" | "onMessage">;

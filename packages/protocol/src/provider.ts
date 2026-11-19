@@ -91,6 +91,12 @@ export const Capabilities = z.object({
       /** Exact accepted MIME types, or * for negotiated ACP resources. */
       documents: z.array(z.string().max(128)).max(32),
       embeddedContext: z.boolean(),
+      /**
+       * The native message keeps text and file parts in the order sent, so a file can sit
+       * mid-message where the person put it. Without it a positioned file is named at its spot
+       * and sent after the text.
+       */
+      interleaved: z.boolean().optional(),
       maxInlineBytes: z
         .number()
         .int()

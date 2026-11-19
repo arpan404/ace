@@ -1,0 +1,72 @@
+import { z } from "zod";
+
+/**
+ * What holds admission closed: the person's pause (`user`), an app update draining work
+ * (`update`), kill-all's fence (`kill`), a stop (`stop`) or a disk too full to store new work
+ * (`storage`, ADR 0176). A client may add or remove only `user`; the others end on their own.
+ */
+export const MaintenanceHold = z.enum(["user", "update", "kill", "stop", "storage"]);
+export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
+
+/**
+ * What the daemon runs without (ADR 0175), by the names a person knows. `without` is what a
+ * safe-mode start left off; `failing` is what could not start or stopped working, with whether it is
+ * still being retried. Absent while everything runs.
+ */
+export const StartupNotice = z.object({
+  without: z.array(z.string().min(1).max(64)).max(64),
+  failing: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(64),
+        /** Whether another attempt is still to come; false once the retries are used up. */
+        retrying: z.boolean(),
+      }),
+    )
+    .max(64),
+});
+export type StartupNotice = z.infer<typeof StartupNotice>;
+
+/**
+ * Whether a machine takes new work (ADR 0041's maintenance gate). Paused, new threads, turns
+ * and messages wait; running turns, approvals and background tasks finish. The desktop tray's
+ * "Pause new work" and a paired client's row both hold the same gate.
+ */
+export const Admission = z.object({
+  /** Empty while the machine takes new work. */
+  holds: z.array(MaintenanceHold).max(5),
+  /** Threads still at work or waiting, `waiting` of them on a person. */
+  busy: z.number().int().nonnegative(),
+  waiting: z.number().int().nonnegative(),
+  /** Older daemons omit it; so does a daemon with nothing left off. */
+  startup: StartupNotice.optional(),
+});
+export type Admission = z.infer<typeof Admission>;
+
+/**
+ * `status` reads (read scope) and keeps this socket told of changes with `admission.changed`,
+ * including, while admission is closed, changes in how much work is still running. `pause` and
+ * `resume` add or remove only the `user` hold and need operate scope. Only sockets that asked are sent changes, so clients
+ * that predate this message never receive it.
+ */
+export const AdmissionRequest = z.object({
+  type: z.literal("admission.request"),
+  requestId: z.string().min(1).max(128),
+  operation: z.enum(["status", "pause", "resume"]),
+});
+export type AdmissionRequest = z.infer<typeof AdmissionRequest>;
+
+export const AdmissionResult = z.object({
+  type: z.literal("admission.result"),
+  requestId: z.string().min(1).max(128),
+  ok: z.boolean(),
+  admission: Admission.optional(),
+  error: z.enum(["forbidden", "unavailable"]).optional(),
+});
+export type AdmissionResult = z.infer<typeof AdmissionResult>;
+
+export const AdmissionChanged = z.object({
+  type: z.literal("admission.changed"),
+  admission: Admission,
+});
+export type AdmissionChanged = z.infer<typeof AdmissionChanged>;

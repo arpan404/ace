@@ -2,10 +2,11 @@
   "checkpoints": [
     {
       "t": 4211,
-      "thread": "waiting",
+      "thread": "done",
       "agentStates": {
-        "root": "blocked"
-      }
+        "root": "idle"
+      },
+      "note": "The turn replied; its background shell is left running, not waited on (ADR 0116)."
     },
     {
       "t": 18499,

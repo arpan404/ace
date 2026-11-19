@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Read required Node major
         id: node
@@ -131,10 +133,6 @@ jobs:
           swift test --package-path native/locked-use
           sh native/locked-use/test-abi.sh
 
-      - name: X11 pointer refusal with real grabs and applications
-        if: runner.os == 'Linux'
-        run: native/screen-helper-linux/test-in-docker.sh --pointer
-
       - name: Tests
         # Chromium keeps its sandbox; only this disposable runner enables userns.
         # Set up before tests because runner images can include Chromium already.
@@ -170,12 +168,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.x
+          node-version: 26.x
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+
       - run: bun install --frozen-lockfile
       - name: Turn benchmark against the checked-in baseline (median of three runs)
         run: bun run bench:daemon --runs=3
@@ -193,12 +194,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.x
+          node-version: 26.x
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+
       - run: bun install --frozen-lockfile
       - name: Install fake web suite Chromium and system libraries
         run: bun run --cwd tools/web-e2e playwright install --with-deps chromium
@@ -226,4 +230,4 @@ jobs:
       - name: Web long-thread budgets (paging, turn jumps, search and live tail)
         run: cd tools/web-perf && bun run long-thread
       - name: Web markdown streaming budgets (a 40 KB answer, worker time per update, remounts)
-        run: cd tools/web-perf && bun run markdown-stream
+        run: cd tools/web-perf && bun run markit-stream

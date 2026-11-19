@@ -89,7 +89,7 @@ test("delta-only background shells can be stopped by their public task key", asy
   try {
     await h.session.send(text("delta-shell"), "steer");
     await h.wait(note("discovery-finished"));
-    expect(h.replay.state.status.state).toBe("waiting");
+    expect(Object.values(h.replay.state.tasks).some((t) => t.status === "running")).toBe(true);
     await h.session.stopTask("shell:delta-exec");
     await h.session.send(text("running"), "steer"); // response is a barrier after termination notifications
     expect(Object.values(h.replay.state.tasks).every((t) => t.status === "completed")).toBe(true);
@@ -114,7 +114,7 @@ test("native queue counts stay visible after enqueue", async () => {
 test("resumed shell history is rendered and remains stoppable after its turn ended", async () => {
   const h = await sessionHarness(true, "shell");
   try {
-    expect(h.replay.state.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.replay.state.status).toEqual({ state: "done" });
     expect(
       Object.values(h.replay.state.items).some(
         (i) =>

@@ -38,6 +38,11 @@
     "capabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
+    "capabilitiesRef": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "continuation": {
       "properties": {
         "actionId": {
@@ -65,6 +70,9 @@
     },
     "delegatedBy": {
       "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
+    },
+    "delegatedFrom": {
+      "$ref": "https://ace.local/protocol/v1/DelegatedFrom.json"
     },
     "deletedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
@@ -105,6 +113,18 @@
     "hasSentMessage": {
       "type": "boolean"
     },
+    "host": {
+      "enum": [
+        "spade",
+        "spade-bot"
+      ],
+      "type": "string"
+    },
+    "hostKey": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
@@ -131,6 +151,9 @@
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
     },
+    "movedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
+    },
     "permission": {
       "$ref": "https://ace.local/protocol/v1/PermissionState.json"
     },
@@ -141,10 +164,17 @@
     "pinned": {
       "type": "boolean"
     },
+    "place": {
+      "$ref": "https://ace.local/protocol/v1/ListedThreadPlace.json"
+    },
     "prSettled": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
       "type": "integer"
+    },
+    "prSettledKey": {
+      "maxLength": 131072,
+      "type": "string"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -158,8 +188,8 @@
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
-    "run": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftRunMark.json"
+    "readState": {
+      "$ref": "https://ace.local/protocol/v1/ThreadReadCursor.json"
     },
     "settleWhenDone": {
       "const": true,
@@ -177,8 +207,20 @@
       ],
       "type": "string"
     },
+    "snoozeWake": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWake.json"
+    },
+    "snoozeWoke": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWoke.json"
+    },
     "snoozedUntil": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "startedBy": {
+      "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+    },
+    "startedByClient": {
+      "$ref": "https://ace.local/protocol/v1/StartedByClient.json"
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"

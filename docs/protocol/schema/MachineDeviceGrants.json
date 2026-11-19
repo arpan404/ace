@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineDeviceGrants.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "chosen": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineCapability.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "deviceId": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "grants": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrants.json"
+    }
+  },
+  "required": [
+    "deviceId",
+    "grants",
+    "chosen"
+  ],
+  "type": "object"
+}

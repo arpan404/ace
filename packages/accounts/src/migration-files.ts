@@ -4,6 +4,7 @@ export { exists } from "./paths.ts";
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { opendir, lstat, mkdir, open, link, unlink, realpath } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 
@@ -34,9 +35,22 @@ export async function* walkFiles(
     else throw new MigrationFailure("refused", "Symlinks and special files cannot be migrated");
   }
 }
+/**
+ * Windows has no O_NOFOLLOW (Node leaves it undefined), so an open there follows a link swapped
+ * in after the walk. The opened file must still be the one its path names, not through a link.
+ */
+async function assertUnlinkedOpen(path: string, file: FileHandle): Promise<void> {
+  const [named, opened] = await Promise.all([
+    lstat(path, { bigint: true }),
+    file.stat({ bigint: true }),
+  ]);
+  if (named.isSymbolicLink() || named.ino !== opened.ino || named.dev !== opened.dev)
+    throw new MigrationFailure("refused", "Symlinks and special files cannot be migrated");
+}
 export async function firstLine(path: string): Promise<string> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
+    if (process.platform === "win32") await assertUnlinkedOpen(path, file);
     const chunks: Buffer[] = [];
     let position = 0;
     while (position < 256 * 1024) {
@@ -62,6 +76,7 @@ export type MigrationObserver = (progress: MigrationProgress) => Promise<void>;
 export async function stageFile(file: CopyFile, stage: string, observe?: MigrationObserver) {
   const source = await open(file.source, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
+    if (process.platform === "win32") await assertUnlinkedOpen(file.source, source);
     const before = await source.stat();
     if (!before.isFile()) throw new MigrationFailure("refused", "Source is not a regular file");
     const target = join(stage, file.relative);
@@ -123,6 +138,7 @@ export async function rollback(paths: readonly string[]) {
 export async function digestFile(path: string) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
+    if (process.platform === "win32") await assertUnlinkedOpen(path, file);
     const before = await file.stat();
     if (!before.isFile())
       throw new MigrationFailure("refused", "Session copy is not a regular file");

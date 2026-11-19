@@ -18,6 +18,14 @@ export interface ComposerKeys {
   /** The suggestion list, while it shows. */
   list: KeyList | undefined;
   newline(): void;
+  /** ⌘B on Apple platforms, Ctrl+B elsewhere: bold on or off. */
+  bold(): void;
+  /** ⌘ and ⌃ are separate keys here (macOS, iOS): Ctrl+B is the system's back one letter. */
+  apple: boolean;
+  /** Backspace at the start of a heading or list item; false where it deletes as usual. */
+  backspace(): boolean;
+  /** Tab / ⇧Tab in a list item; false outside a list, where Tab keeps its usual meaning. */
+  indent(outdent: boolean): boolean;
   history(step: "undo" | "redo"): void;
   /** Walk the sent messages (↑ older, ↓ newer); false when the key should move the caret instead. */
   recall(direction: "older" | "newer"): boolean;
@@ -31,8 +39,9 @@ export interface ComposerKeys {
 
 /**
  * The composer's keyboard, in priority order: IME composition passes through untouched; ⌘Z,
- * ⇧⌘Z and Ctrl+Y walk the composer's history; ⇧↵ breaks the line; an open suggestion list takes
- * the arrows, Home, End, Enter, Tab and Esc; ↑ and ↓ walk the sent messages;
+ * ⇧⌘Z and Ctrl+Y walk the composer's history; ⌘B bolds; ⇧↵ breaks the line (the next item, in a
+ * list); an open suggestion list takes the arrows, Home, End, Enter, Tab and Esc; Tab and ⇧Tab
+ * nest list items; ↑ and ↓ walk the sent messages;
  * Esc asks to stop; the other send key sends the other way; Enter sends.
  */
 export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: ComposerKeys): void {
@@ -45,6 +54,12 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
   if (modified && !event.altKey && (letter === "z" || (letter === "y" && !event.metaKey))) {
     done();
     keys.history(letter === "y" || event.shiftKey ? "redo" : "undo");
+    return;
+  }
+  const boldKey = keys.apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (boldKey && !event.altKey && !event.shiftKey && letter === "b") {
+    done();
+    keys.bold();
     return;
   }
   if (key === "Enter" && event.shiftKey && !other) {
@@ -80,6 +95,14 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
       list.dismiss();
       return;
     }
+  }
+  if (key === "Backspace" && !modified && !event.altKey && !event.shiftKey && keys.backspace()) {
+    done();
+    return;
+  }
+  if (key === "Tab" && !modified && !event.altKey && keys.indent(event.shiftKey)) {
+    done();
+    return;
   }
   const plain = !modified && !event.altKey && !event.shiftKey;
   const arrow = key === "ArrowUp" ? "older" : key === "ArrowDown" ? "newer" : undefined;

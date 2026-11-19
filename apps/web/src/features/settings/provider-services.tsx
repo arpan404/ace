@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "@/features/model-picker/index.ts";
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import {
   SettingAction,
@@ -53,7 +53,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               <span className="truncate font-medium">{source.label}</span>
               {error && (
                 <StatusLine
-                  tone={error.code === "no_models" ? "idle" : "problem"}
+                  tone={error.code === "no_models" ? "idle" : "action"}
                   text={error.code === "no_models" ? "No models enabled" : "Needs attention"}
                 />
               )}

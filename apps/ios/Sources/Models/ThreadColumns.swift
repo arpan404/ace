@@ -3,7 +3,8 @@ import SwiftUI
 /// How the Threads tab lays out its list and the open thread, decided from the window alone: its
 /// horizontal size class and width, never the device, the screen or its orientation. A phone, the
 /// folded iPhone Duo and a narrow iPad window are compact: the list and the thread stack. A wide
-/// iPad window and the unfolded Duo are regular: the list stays beside the thread.
+/// iPad window and the unfolded Duo are regular: the list stays beside the thread. In a compact
+/// window the list is a drawer over the open thread (`ThreadDrawer`).
 ///
 /// The open thread and its pushed pages are one path in every layout. The split shows its first
 /// page as the list's selection and the rest on the detail column's own stack, so a window that
@@ -27,21 +28,10 @@ enum ThreadColumns {
         sideBySide(sizeClass, width: width) || !open ? .all : .detailOnly
     }
 
-    /// The column a compact window shows: the open thread, or the list when none is open.
-    static func compactColumn(_ path: [InboxRoute]) -> NavigationSplitViewColumn {
-        path.isEmpty ? .sidebar : .detail
-    }
-
-    /// Whether the list appearing means the person went back to it, closing the thread: in a
-    /// compact window, after the split view reported the list on top. The report alone comes
-    /// for any popped page (a browser over the thread too); the list alone appears as a window
-    /// changes shape.
-    static func backToList(_ sizeClass: UserInterfaceSizeClass?, reported: Bool) -> Bool {
-        sizeClass == .compact && reported
-    }
-
     /// The thread the list shows as open.
     static func selection(_ path: [InboxRoute]) -> InboxKey? { path.first?.thread }
+    /// The thread whose side panel shows: the last thread on the path, the one on screen.
+    static func panelScope(_ path: [InboxRoute]) -> InboxKey? { path.last { $0.thread != nil }?.thread }
     /// The pages pushed over the open thread in the detail column: child threads and the like.
     static func detail(_ path: [InboxRoute]) -> [InboxRoute] { Array(path.dropFirst()) }
     /// The whole path once the detail column's own stack changed.
@@ -61,11 +51,6 @@ enum ThreadColumns {
         return sidebarHoldsTabs(sizeClass) ? AceTheme.Spacing.sm : AceTheme.Spacing.none
     }
 
-    /// The tab bar shows only in a compact window, and steps aside while it shows a page.
-    static func showsTabBar(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Bool {
-        !sidebarHoldsTabs(sizeClass) && path.isEmpty
-    }
-
     /// The thread before or after `current` in the list's order (`step` -1 or 1); the first or
     /// last when none is open. Nil past either end, or with nothing listed.
     static func neighbour(of current: InboxKey?, in order: [InboxKey], step: Int) -> InboxKey? {
@@ -76,13 +61,10 @@ enum ThreadColumns {
         return order.indices.contains(next) ? order[next] : nil
     }
 
-    /// The threads in the order the list shows them: its sections, then the Snoozed and Settled
-    /// shelves only while they are open. Unsent rows open the thread they belong to.
-    static func order(_ sections: [MergedInbox.Section], shelves: InboxShelves, thread: (InboxKey) -> InboxKey?) -> [InboxKey] {
-        let shelved = ["snoozed", "settled"]
-        let open = sections.filter { !shelved.contains($0.key) }
-            + (shelves.snoozed ? sections.filter { $0.key == "snoozed" } : [])
-            + (shelves.settled ? sections.filter { $0.key == "settled" } : [])
+    /// The threads in the order the list shows them: the sections of the open Threads tab.
+    /// Unsent rows open the thread they belong to.
+    static func order(_ sections: [MergedInbox.Section], tab: String, thread: (InboxKey) -> InboxKey?) -> [InboxKey] {
+        let open = sections.filter { $0.tab == tab }
         var seen = Set<InboxKey>()
         return open.flatMap { $0.rows.compactMap(thread) }.filter { seen.insert($0).inserted }
     }
@@ -93,23 +75,23 @@ enum ThreadColumns {
 enum ReadingColumn {
     static let maxWidth: CGFloat = 720
 
-    /// Where the composer and the request card above it sit in the reading column. A regular
-    /// window gives both the transcript's own margin, so card, composer and text share one
-    /// column's edges, and lifts the composer clear of the window's resize corner. A phone keeps
-    /// its composer close to the edge and the card tucked narrower than it.
+    /// Where the transcript, the composer and the strips above it sit in the reading column. They
+    /// share one edge: the design language's side margin on a phone, the transcript's wider
+    /// reading margin beside the list, where the composer also lifts clear of the window's resize
+    /// corner.
     struct Bar: Equatable {
-        /// From the column's edge to the composer's glass.
+        /// From the column's edge to the transcript's words.
+        let text: CGFloat
+        /// From the column's edge to the composer's glass and a strip's.
         let composer: CGFloat
-        /// From the column's edge to the card's glass.
-        let card: CGFloat
         /// Under the composer, above the bottom safe area.
         let bottom: CGFloat
     }
-    /// The transcript's rows sit this far in from the column's edges.
-    static let textMargin = AceTheme.Spacing.xl
     static func bar(_ sizeClass: UserInterfaceSizeClass?) -> Bar {
-        sizeClass == .regular
-            ? Bar(composer: textMargin, card: textMargin, bottom: AceTheme.Spacing.lg)
-            : Bar(composer: AceTheme.Spacing.md, card: AceTheme.Spacing.md + AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm)
+        let edge = sizeClass == .regular ? AceTheme.Spacing.xl : AceDesign.Space.margin
+        return Bar(text: edge, composer: edge, bottom: sizeClass == .regular ? AceTheme.Spacing.lg : AceTheme.Spacing.sm)
     }
+    /// Inside a strip's glass, before its lead mark: the mark sits under the composer's +, and the
+    /// strip's words start where the field's words do.
+    static let stripLead = ComposerCapsuleMetrics.aboveInset - AceDesign.Size.rowStatus - AceDesign.Space.related
 }

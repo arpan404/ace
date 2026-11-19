@@ -30,8 +30,8 @@ test("another machine's thread names its machine in the header", async () => {
   await made.open("/t/thread-router?machine=build");
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   const banner = within(screen.getByRole("banner"));
-  expect(await banner.findByText("Build server")).toBeTruthy();
-  expect(banner.getByText("docs-site")).toBeTruthy();
+  // The project's folder glyph names the machine before the project.
+  expect(await banner.findByRole("img", { name: "Project Build server / docs-site" })).toBeTruthy();
 });
 
 test("a thread on this machine doesn't name a machine in its header", async () => {
@@ -40,9 +40,9 @@ test("a thread on this machine doesn't name a machine in its header", async () =
   await made.open("/t/thread-router");
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   const banner = within(screen.getByRole("banner"));
-  await banner.findByText("docs-site");
-  expect(banner.queryByText("Build server")).toBeNull();
-  expect(banner.queryByText("This Mac")).toBeNull();
+  await banner.findByRole("img", { name: "Project docs-site" });
+  expect(banner.queryByText(/Build server/)).toBeNull();
+  expect(banner.queryByRole("img", { name: /Build server|This Mac/ })).toBeNull();
 });
 
 test("forking another machine's thread forks it there and opens the fork on that machine", async () => {

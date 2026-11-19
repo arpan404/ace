@@ -48,7 +48,7 @@ test("an app run from an AppImage adds itself to the app list, opening links wit
   const where = machine();
   expect(install(where, { APPIMAGE: "/home/me/Apps/ace 1.0.AppImage" })).toEqual([]);
   expect(line(where.entry, "Exec")).toBe('Exec="/home/me/Apps/ace 1.0.AppImage" %U');
-  expect(line(where.entry, "MimeType")).toBe("MimeType=x-scheme-handler/ace;inode/directory;");
+  expect(line(where.entry, "MimeType")).toBe("MimeType=x-scheme-handler/ace;");
   // The window's Wayland app id, so the desktop ties the window to this entry.
   expect(line(where.entry, "StartupWMClass")).toBe("StartupWMClass=dev.ace.app");
   expect(line(where.entry, "Icon")).toBe("Icon=ace-desktop");

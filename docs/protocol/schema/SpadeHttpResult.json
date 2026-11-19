@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "body": {
+              "maxLength": 786432,
+              "type": "string"
+            },
+            "contentType": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "encoding": {
+              "$ref": "https://ace.local/protocol/v1/SpadeBodyEncoding.json",
+              "default": "text"
+            },
+            "kind": {
+              "const": "response",
+              "type": "string"
+            },
+            "parts": {
+              "maximum": 64,
+              "minimum": 2,
+              "type": "integer"
+            },
+            "status": {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "$ref": "https://ace.local/protocol/v1/SpadeErrorCode.json"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "spade.http.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

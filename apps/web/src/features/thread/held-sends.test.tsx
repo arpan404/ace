@@ -3,6 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
 import { resetSendStore } from "./composer/send-store.ts";
@@ -55,7 +56,7 @@ function delivered(app: ReturnType<typeof harness>) {
 async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTMLDivElement) {
   app.daemon.holdRequests("context.request");
   await userEvent.upload(screen.getByLabelText("Files to attach"), png());
-  await userEvent.type(message, "Why is this banner orange?{Enter}");
+  await typeAtEnd(message, "Why is this banner orange?{Enter}");
 }
 
 /**
@@ -76,7 +77,7 @@ async function sendWhileReading(message: HTMLDivElement) {
     return part;
   };
   await userEvent.upload(screen.getByLabelText("Files to attach"), file);
-  await userEvent.type(message, "Why is this banner orange?{Enter}");
+  await typeAtEnd(message, "Why is this banner orange?{Enter}");
   return { finish: () => gate.resolve() };
 }
 
@@ -95,7 +96,7 @@ test("an upload that fails after Enter leaves the message as not sent in the com
   expect(within(alert).getByText(/screen\.png didn't upload/)).toBeTruthy();
   expect(within(await strip()).getByText("Why is this banner orange?")).toBeTruthy();
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
-  expect(message.textContent).toBe("And the footer colour");
+  expect(composerWords(message)).toBe("And the footer colour");
 
   app.daemon.restoreRequests();
   await waitFor(() => expect(app.client.state).toBe("ready"));
@@ -124,7 +125,7 @@ test("Edit on a failed held message gives back its text, beside what the compose
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
-    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement).textContent).toBe(
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
       "And the footer colour\n\nWhy is this banner orange?",
     ),
   );
@@ -172,7 +173,7 @@ test("a message held for its uploads survives a reload as interrupted, and Edit 
   expect(within(alert).getByRole("button", { name: "Remove" })).toBeTruthy();
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
       "Why is this banner orange?",
     ),
   );
@@ -194,8 +195,8 @@ test("a staged storage refusal keeps the text and uploading file in the composer
   await sendWhileUploading(app, message);
   await screen.findByRole("heading", { name: "Message not sent" });
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Why is this banner orange?",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "[screen.png]Why is this banner orange?",
     ),
   );
   expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
@@ -272,20 +273,22 @@ test.each([false, true])(
     await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer work");
     await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
     const field = await screen.findByRole("combobox", { name: "Message" });
-    await waitFor(() => expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?"));
+    await waitFor(() =>
+      expect(composerWords(field)).toBe("Newer work\n\n[screen.png]Why is this banner orange?"),
+    );
     expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
     expect(within(await strip()).getByRole("button", { name: "Save edit" })).toBeTruthy();
     expect(delivered(app)).toBeUndefined();
     await userEvent.click(within(await strip()).getByRole("button", { name: "Save edit" }));
-    expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?");
+    expect(composerWords(field)).toBe("Newer work\n\n[screen.png]Why is this banner orange?");
     expect(within(await strip()).getByRole("button", { name: "Save edit" })).toBeTruthy();
     full = false;
     await userEvent.click(within(await strip()).getByRole("button", { name: "Save edit" }));
     await waitFor(() => expect(stripShown()).toBeNull());
     cleanup();
     await app.open("/t/thread-router");
-    expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-      "Newer work\n\nWhy is this banner orange?",
+    expect(composerWords(await screen.findByRole("combobox", { name: "Message" }))).toBe(
+      "Newer work\n\n[screen.png]Why is this banner orange?",
     );
     expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
   },

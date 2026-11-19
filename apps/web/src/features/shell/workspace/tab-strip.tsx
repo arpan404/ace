@@ -1,4 +1,4 @@
-import { CaretDownIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon, PlusIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -130,6 +130,7 @@ export function TabStrip(props: {
         ref={scroller}
         role="tablist"
         aria-label={props.label}
+        data-part="tabs"
         style={{
           maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 24px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 24px), transparent" : "black 100%, black"})`,
         }}
@@ -145,7 +146,7 @@ export function TabStrip(props: {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(undefined);
         }}
         onDrop={onDrop}
-        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden"
       >
         {state.tabs.map((tab, index) => (
           <TabItem

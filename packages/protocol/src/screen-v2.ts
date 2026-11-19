@@ -1,5 +1,12 @@
-import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
+import {
+  ScreenId,
+  ScreenTarget,
+  ScreenAction,
+  ScreenBundle,
+  ScreenStreamSettings,
+} from "./screen-base.ts";
 import { z } from "zod";
+import { MediaCapability } from "./media-acceleration.ts";
 import { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 export { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 
@@ -77,11 +84,13 @@ export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
   .object({
     version: z.literal(2),
+    /** Stdio inspection remains available, but no desktop runtime or frame endpoint exists. */
+    inspectionOnly: z.boolean().optional(),
     background: z.boolean().optional(),
     windowSelection: z.boolean().optional(),
     permissionEvents: z.boolean().optional(),
     maxSessions: z.number().int().min(1).max(8).optional(),
-    platform: z.enum(["macos", "windows", "linux-x11", "linux-wayland"]),
+    platform: z.enum(["macos", "windows", "linux-wayland"]),
     capture: z.object({ windows: z.boolean(), displays: z.boolean(), changeDriven: z.boolean() }),
     input: z.object({
       pointer: z.boolean(),
@@ -104,19 +113,22 @@ export const ScreenCapabilities = z
         ]),
       )
       .max(8),
+    /** `hevc`: a Mac helper whose hardware HEVC encode trial worked, for ace-media's ingest. */
     codecs: z
-      .array(z.enum(["jpeg", "h264"]))
+      .array(z.enum(["jpeg", "h264", "hevc"]))
       .min(1)
-      .max(2),
+      .max(3),
     permissions: z.object({
       screen: z.enum(["granted", "denied", "prompt", "n/a"]),
       input: z.enum(["granted", "denied", "prompt", "n/a"]),
     }),
     /**
      * Set when the person can watch but never control what this desktop shares, saying why
-     * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's and Sway's).
+     * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's).
      */
     watchOnly: z.string().min(1).max(500).optional(),
+    /** Capture → encode, from a trial at helper start (ADR 0148). Absent from older helpers. */
+    encoders: z.array(MediaCapability).max(16).optional(),
   })
   .passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;
@@ -136,7 +148,7 @@ export const ScreenUIAction = z.enum([
   "performSecondaryAction",
   "selectText",
 ]);
-export const ScreenUIRef = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
+export const ScreenUIRef = z.string().regex(/^[\w-]{1,64}$/);
 /**
  * One accessibility node. Declared, not inferred: a recursive schema's inferred type has no
  * name, so TypeScript 7.1 cannot write it into the declarations of code that returns one.
@@ -306,15 +318,43 @@ export const ScreenInput = z.discriminatedUnion("kind", [
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
+/** ace-media's ingest socket (a Unix socket, or a named pipe on Windows) and the source's
+ * single-use token, base64 of 32 bytes. */
+export const ScreenStreamIngest = z.object({
+  socket: z.string().min(1).max(1024),
+  token: z.string().length(44),
+  /** The ace-media process serving `socket`: the Windows helper refuses a pipe any other
+   * process serves, before the token is sent. */
+  pid: z.number().int().positive().max(0xffffffff).optional(),
+});
+export type ScreenStreamIngest = z.infer<typeof ScreenStreamIngest>;
 const Envelope = z.object({
   version: z.literal(2),
   id: ScreenId,
-  /** The person at a live view sent this input, not an agent (Linux X11 pointer input). */
+  /** The person at a live view sent this input, not an agent (Linux: only the person's input goes through the portal). */
   person: z.boolean().optional(),
 });
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
+  /** Windows: live video (Media Foundation H.264) or JPEG stills; with `ingest`, video goes to
+   * ace-media. Each request carries the whole state. */
+  Envelope.extend({
+    op: z.literal("stream.configure"),
+    settings: ScreenStreamSettings,
+    ingest: ScreenStreamIngest.optional(),
+    epoch: z.number().int().nonnegative().max(0xffffffff).optional(),
+    /** Whether pictures under `epoch` are private. One it isn't said of counts as private, so
+     * a picture captured at the switch from it is labelled private. */
+    epochPrivate: z.boolean().optional(),
+  }),
+  Envelope.extend({ op: z.literal("stream.keyframe") }),
+  /** One JPEG still of the current picture while video streams. */
+  Envelope.extend({ op: z.literal("stream.image") }),
   Envelope.extend({ op: z.literal("permissions") }),
+  Envelope.extend({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
   Envelope.extend({ op: z.literal("targets") }),
   Envelope.extend({
     op: z.literal("open.url"),

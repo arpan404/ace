@@ -1,0 +1,355 @@
+import PhotosUI
+import SwiftUI
+
+/// Edit project, as the web's dialog: name, icon, what new threads start with, the check
+/// command, the browser profile and the notes, saved together on the machine so every device
+/// shows them. The folder is never renamed or touched. The bridge decides what changed.
+struct EditProjectView: View {
+    enum Ending { case cancelled, saved, removed }
+    let model: ClientModel
+    let project: NativeProject
+    let done: (Ending) -> Void
+
+    @State private var name: String
+    @State private var icon: ProjectIconDraft
+    @State private var iconTouched = false
+    @State private var defaults: [String: ServiceValue]
+    @State private var notes: [NoteDraft]
+    @State private var options: ProjectOptions?
+    @State private var optionsProblem: String?
+    @State private var saving = false
+    @State private var problem: String?
+    @State private var removing = false
+    @State private var photo: PhotosPickerItem?
+    @State private var imageProblem: String?
+    @State private var initials = ""
+    @State private var discarding = false
+    /// Saved on this phone; the computer hasn't answered yet.
+    @State private var waiting = false
+
+    struct NoteDraft: Identifiable, Equatable { let id = UUID(); var saved: String?; var text: String }
+
+    init(model: ClientModel, project: NativeProject, done: @escaping (Ending) -> Void) {
+        self.model = model
+        self.project = project
+        self.done = done
+        _name = State(initialValue: project.name)
+        _icon = State(initialValue: ProjectIconDraft(project: project))
+        _defaults = State(initialValue: project.defaults)
+        _notes = State(initialValue: project.notes.map { NoteDraft(saved: $0.id, text: $0.text) })
+    }
+
+    private var list: some View {
+        List {
+            if let problem {
+                Section { ProblemRow(problem, id: "project.edit.problem") }
+            }
+            if waiting {
+                Section {
+                    HStack(spacing: AceDesign.Space.related) {
+                        WorkingMark()
+                        Text("Waiting for your computer to save it…").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    }
+                }
+                .listRowBackground(Color.clear)
+            }
+            Section {
+                TextField("Name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("project.edit.name")
+            } header: { InsetHeader("Name") } footer: { Text(verbatim: project.path).aceMonospace(AceDesign.TextRole.code) }
+            .insetRowBackground()
+
+            iconSection
+            if let options {
+                ProjectDefaultsSections(options: options, defaults: $defaults)
+            } else if let optionsProblem {
+                Section {
+                    ProblemRow("Couldn't read this project's options.", detail: optionsProblem, id: "project.edit.options") { Task { await readOptions() } }
+                }
+            } else {
+                Section {
+                    // The rows' own shape while the machine answers, so nothing jumps when they fill in.
+                    ForEach(["Model", "Access", "Worktree", "Base branch"], id: \.self) { title in
+                        LabeledContent(title) { Text("Inherit") }.redacted(reason: .placeholder)
+                    }
+                    .accessibilityHidden(true)
+                } header: { InsetHeader("New threads") }
+                .insetRowBackground()
+            }
+            notesSection
+            Section {
+                Button("Remove project…", role: .destructive) { removing = true }
+                    .buttonStyle(.rowAction)
+                    .accessibilityIdentifier("project.edit.remove")
+            }
+            .insetRowBackground()
+        }
+    }
+
+    var body: some View {
+        list
+        .insetGroupedList()
+        .smoothChange(waiting)
+        .smoothChange(icon.mode)
+        .smoothChange(options == nil)
+        .smoothChange(notes.map(\.id))
+        .smoothChange(problem)
+        .sensoryFeedback(.selection, trigger: icon.glyph)
+        .sensoryFeedback(.error, trigger: problem) { _, now in now != nil }
+        .disabled(saving)
+        .navigationTitle("Edit project").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button { if dirty { discarding = true } else { done(.cancelled) } } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("Close").accessibilityIdentifier("project.edit.close")
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if saving { WorkingMark(label: "Saving") } else {
+                    Button("Save") { Task { await save() } }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityIdentifier("project.edit.save")
+                }
+            }
+        }
+        // A swipe down never throws changes away; Close asks first.
+        .interactiveDismissDisabled(dirty)
+        // An alert, not a dialog: iOS 26 draws a toolbar button's dialog as a popover without Keep editing.
+        .alert("Discard your changes?", isPresented: $discarding) {
+            Button("Discard changes", role: .destructive) { done(.cancelled) }
+            Button("Keep editing", role: .cancel) {}
+        }
+        .projectRemoval(model: model, project: project, isPresented: $removing) { done(.removed) }
+        .task { await readOptions() }
+        .task(id: name) { initials = await model.projectInitials(name) ?? initials }
+        .onChange(of: photo) { _, item in if let item { Task { await pick(item) } } }
+    }
+
+    // MARK: Icon
+
+    @ViewBuilder private var iconSection: some View {
+        Section {
+            HStack(spacing: AceDesign.Space.row) {
+                ProjectIconPreview(initials: initials, glyph: options?.choices.glyphs.first { $0.id == icon.glyph }?.icon, icon: icon)
+                Picker("Icon", selection: Binding(get: { icon.mode }, set: { icon.mode = $0; iconTouched = true; imageProblem = nil })) {
+                    Text("Auto").tag(ProjectIconDraft.Mode.auto)
+                    Text("Initials").tag(ProjectIconDraft.Mode.initials)
+                    Text("Icon").tag(ProjectIconDraft.Mode.glyph)
+                    Text("Image").tag(ProjectIconDraft.Mode.image)
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                .accessibilityIdentifier("project.edit.iconMode")
+            }
+            if icon.mode == .initials || icon.mode == .glyph, let colours = options?.choices.colours {
+                Picker("Colour", selection: Binding(get: { icon.color ?? "" }, set: { icon.color = $0.isEmpty ? nil : $0; iconTouched = true })) {
+                    Text("Project colour").tag("")
+                    ForEach(colours) { Text($0.label).tag($0.id) }
+                }
+                .accessibilityIdentifier("project.edit.colour")
+            }
+            if icon.mode == .glyph, let glyphs = options?.choices.glyphs {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.tight), count: 6), spacing: AceDesign.Space.tight) {
+                    ForEach(glyphs) { glyph in
+                        let chosen = icon.glyph == glyph.id
+                        Button { icon.glyph = glyph.id; iconTouched = true } label: {
+                            Group {
+                                if let name = AceIcon.Name(rawValue: glyph.icon) { AceIcon(name, size: AceDesign.Size.icon, relativeTo: .subheadline) } else { Text(glyph.label.prefix(1)) }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                            .background(chosen ? AceDesign.Surface.fill : .clear, in: AceDesign.Shape.control)
+                            .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(glyph.label)
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                    }
+                }
+                .padding(.vertical, AceDesign.Space.tight)
+            }
+            if icon.mode == .image {
+                PhotosPicker(selection: $photo, matching: .images) { Text(icon.image == nil ? "Choose image…" : "Replace image…") }
+                    .buttonStyle(.rowAction)
+                    .accessibilityIdentifier("project.edit.image")
+                if let imageProblem {
+                    Text(imageProblem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("project.edit.image.problem")
+                }
+            }
+        } header: { InsetHeader("Icon") } footer: {
+            Text(icon.mode == .auto ? "The project's favicon when it has one, else its initials." : "Rows show the mark in grey; the colour shows on the larger mark.")
+        }
+        .insetRowBackground()
+    }
+
+    private func pick(_ item: PhotosPickerItem) async {
+        defer { photo = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self) else { imageProblem = "ace couldn't read that image. Try another one."; return }
+        guard let icon = await Task.detached(priority: .userInitiated, operation: { ProjectBadgeImage.dataURL(from: data) }).value else {
+            imageProblem = "ace couldn't use that image. Try another one."; return
+        }
+        imageProblem = nil
+        self.icon.image = icon
+        self.icon.mode = .image
+        iconTouched = true
+    }
+
+    // MARK: Notes
+
+    @ViewBuilder private var notesSection: some View {
+        Section {
+            ForEach($notes) { $note in
+                HStack(alignment: .firstTextBaseline) {
+                    TextField("Note", text: $note.text, axis: .vertical).lineLimit(1...6)
+                    Button { notes.removeAll { $0.id == note.id } } label: { Image(systemName: "minus.circle") }
+                        .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.destructive)
+                        .rowButtonTarget()
+                        .accessibilityLabel("Remove note")
+                }
+            }
+            Button { notes.append(NoteDraft(saved: nil, text: "")) } label: { AddRow("Add note") }
+                .buttonStyle(.plain)
+                .disabled(notes.count >= 50)
+                .accessibilityIdentifier("project.edit.addNote")
+        } header: { InsetHeader("Notes") } footer: { Text("Every agent in this project reads these. Clear a note to remove it.") }
+        .insetRowBackground()
+    }
+
+    // MARK: Saving
+
+    private func readOptions() async {
+        optionsProblem = nil
+        do { options = try await model.projectOptions(project) }
+        catch { optionsProblem = error.localizedDescription }
+    }
+
+    /// Notes as the machine would store them, to compare with what it has.
+    private var notesChanged: Bool {
+        notes.map { [$0.saved ?? "", $0.text] } != project.notes.map { [$0.id, $0.text] }
+    }
+    /// Anything here differs from the project as it opened.
+    private var dirty: Bool { name != project.name || iconTouched || defaults != project.defaults || notesChanged }
+
+    private func save() async {
+        saving = true; problem = nil
+        defer { saving = false }
+        var draft: [String: Any] = ["name": name]
+        if iconTouched { draft["icon"] = icon.json }
+        if defaults != project.defaults, let encoded = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(ServiceValue.object(defaults))) {
+            draft["defaults"] = encoded
+        }
+        if notesChanged {
+            draft["notes"] = notes.map { note -> [String: Any] in
+                var value: [String: Any] = ["text": note.text]
+                // An edited note becomes the person's, under the same id.
+                if let id = note.saved { value["id"] = id }
+                return value
+            }
+        }
+        let outcome = await model.saveProject(project, draft: draft) { waiting = true }
+        waiting = false
+        if outcome.ok { done(.saved) } else { problem = outcome.message ?? "Couldn't save. Try again." }
+    }
+}
+
+/// The new-thread defaults, check command and browser profile: each row starts at Inherit,
+/// which leaves the machine's own setting in charge.
+private struct ProjectDefaultsSections: View {
+    let options: ProjectOptions
+    @Binding var defaults: [String: ServiceValue]
+
+    var body: some View {
+        Section {
+            Picker("Model", selection: modelBinding) {
+                Text("Inherit").tag("")
+                ForEach(options.models) { Text($0.label).tag($0.key) }
+            }
+            .accessibilityIdentifier("project.edit.model")
+            Picker("Access", selection: string("access")) {
+                Text("Inherit").tag("")
+                ForEach(options.choices.access) { Text($0.label).tag($0.tag) }
+            }
+            .accessibilityIdentifier("project.edit.access")
+            Picker("Worktree", selection: worktreeBinding) {
+                Text("Inherit").tag("")
+                Text("On").tag("on")
+                Text("Off").tag("off")
+            }
+            .accessibilityIdentifier("project.edit.worktree")
+            if options.git {
+                Picker("Base branch", selection: string("baseBranch")) {
+                    Text("Inherit").tag("")
+                    ForEach(branchChoices, id: \.self) { Text($0).tag($0) }
+                }
+                .accessibilityIdentifier("project.edit.base")
+            }
+        } header: { InsetHeader("New threads") } footer: {
+            if options.modelsFailed { Text("Couldn't list this computer's models. The saved one is kept.") }
+        }
+        .insetRowBackground()
+        Section {
+            TextField("Check command", text: string("checkCommand"), prompt: Text("The project's check script"))
+                .font(AceDesign.Typeface.code)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .accessibilityIdentifier("project.edit.check")
+        } header: { InsetHeader("Pull requests") } footer: { Text("Verify runs this against pull requests. Leave it empty to use the project's check script.") }
+        .insetRowBackground()
+        Section {
+            Picker("Profile", selection: string("browserProfileScope")) {
+                ForEach(options.choices.browserProfiles) { Text($0.label).tag($0.tag) }
+            }
+            .accessibilityIdentifier("project.edit.browser")
+        } header: { InsetHeader("Browser") } footer: {
+            Text("\(options.choices.browserProfiles.first { $0.tag == text("browserProfileScope") }?.note ?? "") Applies to browsers opened after you save.")
+        }
+        .insetRowBackground()
+    }
+
+    private func text(_ key: String) -> String { if case .string(let value) = defaults[key] { value } else { "" } }
+    private func string(_ key: String) -> Binding<String> {
+        Binding(get: { text(key) }, set: { value in
+            if value.trimmingCharacters(in: .whitespaces).isEmpty { defaults[key] = nil } else { defaults[key] = .string(value) }
+        })
+    }
+    private var branchChoices: [String] {
+        let saved = text("baseBranch")
+        return saved.isEmpty || options.branches.contains(saved) ? options.branches : [saved] + options.branches
+    }
+    private var modelBinding: Binding<String> {
+        Binding(get: {
+            let provider = text("provider"), model = text("model")
+            return provider.isEmpty || model.isEmpty ? "" : "\(provider)\n\(model)"
+        }, set: { key in
+            let parts = key.split(separator: "\n", maxSplits: 1).map(String.init)
+            if parts.count == 2 { defaults["provider"] = .string(parts[0]); defaults["model"] = .string(parts[1]) }
+            else { defaults["provider"] = nil; defaults["model"] = nil }
+        })
+    }
+    private var worktreeBinding: Binding<String> {
+        Binding(get: {
+            if case .bool(let on) = defaults["worktree"] { on ? "on" : "off" } else { "" }
+        }, set: { value in defaults["worktree"] = value.isEmpty ? nil : .bool(value == "on") })
+    }
+}
+
+/// The editor's live mark: the chosen image, glyph or initials on the quiet fill.
+private struct ProjectIconPreview: View {
+    let initials: String
+    let glyph: String?
+    let icon: ProjectIconDraft
+    @State private var image: UIImage?
+    var body: some View {
+        AceDesign.Shape.control
+            .fill(AceDesign.Surface.fill)
+            .overlay {
+                if icon.mode == .image, let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else if icon.mode == .glyph, let glyph = glyph.flatMap(AceIcon.Name.init(rawValue:)) {
+                    AceIcon(glyph, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.primary)
+                } else {
+                    Text(initials).font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
+                }
+            }
+            .clipShape(AceDesign.Shape.control)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+            .accessibilityHidden(true)
+            .task(id: icon.image) { image = icon.image.flatMap(ProjectBadgeImage.decode) }
+    }
+}

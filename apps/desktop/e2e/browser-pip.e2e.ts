@@ -53,10 +53,44 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await picture.click();
       await expect.poll(() => pip.count(), { timeout: 10000 }).toBe(0);
       await expect.poll(native.placed, { timeout: 10000 }).toBe(true);
-      // Only × puts it away.
+      // Only × puts it away. Its controls show while the pointer is over the window.
+      const close = p.getByRole("button", { name: "Close picture in picture" });
+      // The chip holding ×: transparent until the window is pointed at or focused.
+      const controls = () =>
+        close.evaluate((button) =>
+          button.parentElement ? getComputedStyle(button.parentElement).opacity : "",
+        );
       await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await pip.waitFor({ timeout: 20000 });
-      await p.getByRole("button", { name: "Close picture in picture" }).click();
+      await expect.poll(controls).toBe("0");
+      await pip.hover();
+      await expect.poll(controls).toBe("1");
+      await close.click();
+      await expect.poll(() => pip.count()).toBe(0);
+      // From the keyboard: Tab reaches × with the pointer elsewhere, and reaching it shows it.
+      // A dismissed window floats again once the Browser has shown and gone again.
+      await p.getByRole("button", { name: "Right panel", exact: true }).click();
+      await expect.poll(native.placed, { timeout: 30000 }).toBe(true);
+      await p.getByRole("button", { name: "Right panel", exact: true }).click();
+      await pip.waitFor({ timeout: 20000 });
+      await p.mouse.move(0, 0);
+      await p.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      });
+      await expect.poll(controls).toBe("0");
+      await expect
+        .poll(
+          async () => {
+            if (await close.evaluate((button) => button === document.activeElement)) return true;
+            // Backwards: the floating windows come last in the page.
+            await p.keyboard.press("Shift+Tab");
+            return false;
+          },
+          { timeout: 60000, interval: 50 },
+        )
+        .toBe(true);
+      await expect.poll(controls).toBe("1");
+      await p.keyboard.press("Enter");
       await expect.poll(() => pip.count()).toBe(0);
     } catch (error) {
       await s.page.screenshot({ path: "/tmp/ace-pip-ui.png" });

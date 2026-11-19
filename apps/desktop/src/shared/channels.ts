@@ -1,5 +1,7 @@
 import { BrowserPlacementReceipt } from "./contract.ts";
 import { z } from "zod";
+import { AceAccountOrigin } from "@ace/protocol/ace-account";
+import { MachineAccountStatus, MachineCode } from "@ace/protocol";
 import {
   AbsolutePath,
   AppInfo,
@@ -32,20 +34,56 @@ import {
   SandboxNotice,
   TerminalCommand,
   UpdateStatus,
+  ReleaseLineName,
   WindowAction,
   WindowState,
 } from "./contract.ts";
 import { DiagnosticReport } from "./diagnostics.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
+import {
+  SpadeDirectAnswer,
+  SpadeDirectRequest,
+  SpadeEndpointInfo,
+  SpadeHealthInfo,
+  SpadeLiveClose,
+  SpadeLiveEvent,
+  SpadeLiveOpen,
+} from "./spade.ts";
 
 const None = z.undefined();
 const Count = z.number().int().min(0).max(100_000);
 const ExternalUrl = z
   .url()
-  .refine((value) => ["https:", "http:", "mailto:"].includes(new URL(value).protocol));
+  .refine(
+    (value) =>
+      URL.canParse(value) && ["https:", "http:", "mailto:"].includes(new URL(value).protocol),
+  );
+
+/** What the renderer asks of this computer's daemon about its ace account (`daemon.account`). */
+export const MachineAccountRequest = z.discriminatedUnion("op", [
+  /** Sign this machine in with the app's own saved session for `origin`. */
+  z.object({ op: z.literal("signIn"), origin: AceAccountOrigin }),
+  z.object({ op: z.literal("signOut") }),
+  z.object({ op: z.literal("setCode"), code: MachineCode }),
+  z.object({ op: z.literal("clearCode") }),
+]);
+export type MachineAccountRequest = z.infer<typeof MachineAccountRequest>;
 
 /** Renderer → main requests. Every request and result is parsed on both sides. */
 export const requests = {
+  "account.read": { request: AceAccountOrigin, result: z.string().nullable() },
+  "account.write": {
+    request: z.object({
+      origin: AceAccountOrigin,
+      token: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{43}$/)
+        .nullable(),
+    }),
+    result: None,
+  },
+  /** This computer's daemon's ace account and machine code (ADR 0111). */
+  "daemon.account": { request: MachineAccountRequest, result: MachineAccountStatus },
   "keymap.update": {
     request: z
       .record(z.string().max(64), z.string().max(64))
@@ -58,6 +96,11 @@ export const requests = {
   /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
   "app.reload": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
+  /**
+   * The connection the page will most likely get, at once, before the daemon answers; the
+   * request is the address the page was last handed, if it kept one.
+   */
+  "daemon.expected": { request: SocketUrl.nullable(), result: DaemonConnection.nullable() },
   "daemon.authorize": { request: SocketUrl, result: None },
   "daemon.status": { request: None, result: DaemonStatus },
   "daemon.restart": { request: None, result: DaemonStatus },
@@ -85,6 +128,22 @@ export const requests = {
   "badge.set": { request: Count, result: None },
   "window.action": { request: WindowAction, result: WindowState },
   "window.state": { request: None, result: WindowState },
+  /**
+   * The app window as it looks now, as a JPEG at most `maxWidth` CSS px wide, for a Suit's live
+   * check (ADR 0150). Only the window's own page; never another window or the screen.
+   */
+  "window.capture": {
+    request: z.strictObject({
+      maxWidth: z.number().int().min(320).max(2560),
+      quality: z.number().int().min(30).max(95),
+    }),
+    result: z.object({
+      mimeType: z.literal("image/jpeg"),
+      data: z.string().min(1),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+    }),
+  },
   "theme.appearance": { request: None, result: NativeAppearance },
   "theme.setSource": { request: ThemeSource, result: NativeAppearance },
   /** The page's theme colours, painted behind it from the next launch's first frame on. */
@@ -125,6 +184,8 @@ export const requests = {
   "updates.install": { request: None, result: UpdateStatus },
   /** How many agents Restart would stop; null when the daemon could not say. */
   "updates.busy": { request: None, result: z.number().int().min(0).nullable() },
+  /** Update from the Stable or Beta line (ADR 0177): saves the choice, then checks it. */
+  "updates.setLine": { request: ReleaseLineName, result: UpdateStatus },
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz, for a page that loaded late. */
   "sandbox.current": { request: None, result: SandboxNotice },
   /** Run the one-time setup; resolves once the person answered the password prompt. */
@@ -133,6 +194,15 @@ export const requests = {
   "sandbox.hide": { request: None, result: SandboxNotice },
   /** Start the app again through its launcher, so its sandbox turns on. */
   "sandbox.restart": { request: None, result: None },
+  /** The local Spade this app reaches directly (ADR 0123); never its token. */
+  "spade.endpoint": { request: None, result: SpadeEndpointInfo },
+  /** Spade's `/health`, straight from Spade: works while the daemon is down. */
+  "spade.health": { request: None, result: SpadeHealthInfo },
+  /** One request to Spade's API, sent by the main process with Spade's token. */
+  "spade.request": { request: SpadeDirectRequest, result: SpadeDirectAnswer },
+  /** Open a live stream; its frames and end arrive as `spade.live` events. */
+  "spade.live.open": { request: SpadeLiveOpen, result: None },
+  "spade.live.close": { request: SpadeLiveClose, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -159,6 +229,10 @@ export const events = {
   "sandbox.status": SandboxNotice,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,
+  /** A frame or the end of a live stream the page opened with `spade.live.open`. */
+  "spade.live": SpadeLiveEvent,
+  /** Spade's files changed (it started, stopped or restarted): ask `spade.endpoint` again. */
+  "spade.endpoint.changed": None,
 } as const;
 export type EventChannel = keyof typeof events;
 export type EventOf<C extends EventChannel> = z.output<(typeof events)[C]>;

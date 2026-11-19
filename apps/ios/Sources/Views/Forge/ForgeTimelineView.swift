@@ -16,7 +16,12 @@ struct ForgeTimelineView: View {
     @FocusState private var boxFocused: Bool
     private var request: [String: Any] { ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository) }
 
-    init(client: ClientModel, route: ForgeRoute) {
+    /// "Fix with agent" on comments: nil where the phone can't hand one on.
+    var fixer: ForgeFixer? = nil
+    @Environment(\.threadDrafts) private var drafts
+
+    init(client: ClientModel, route: ForgeRoute, fixer: ForgeFixer? = nil) {
+        self.fixer = fixer
         self.client = client
         self.route = route
         let kept = client.kept(ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository), as: ForgeTimeline.self)
@@ -32,14 +37,14 @@ struct ForgeTimelineView: View {
                     EmptyState(icon: nil, title: "Couldn't load the timeline", line: failure, failed: true) {
                         Button("Try again") { Task { await load() } }
                     }
-                    .padding(.top, 120)
+                    .padding(.top, AceDesign.Space.pageState)
                 } else {
-                    ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                    SkeletonPage()
                 }
             }
             .defaultScrollAnchor(.bottom)
             .onChange(of: timeline?.rows.last?.id) { _, last in
-                if let last { withAnimation(.smooth) { proxy.scrollTo(last, anchor: .bottom) } }
+                if let last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
         .background(AceTheme.Colours.background)
@@ -58,6 +63,8 @@ struct ForgeTimelineView: View {
             }
         }
         .task(id: client.readGeneration(request)) { await load() }
+        // The desk hands a comment's "Fix with agent" to the pull request's thread, once it exists.
+        .onChange(of: desk?.target.number, initial: true) { attachFix() }
         .sheet(item: $composing) { compose in
             if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
         }
@@ -116,10 +123,8 @@ struct ForgeTimelineView: View {
                 .focused($boxFocused)
                 .disabled(box.off != nil)
             Button("Comment") { send(desk) }
-                .fontWeight(.semibold)
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
-                .frame(minHeight: 44)
+                .buttonStyle(.textAction(.prominent))
+                .frame(minHeight: AceDesign.Size.tap)
                 .disabled(box.off != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !desk.ready)
                 .accessibilityIdentifier("forge.timeline.comment")
         }
@@ -138,6 +143,20 @@ struct ForgeTimelineView: View {
             // Text typed while it posted stays, to send next.
             if await desk.run(["kind": "conversation", "body": body]), draft == body { draft = "" }
         }
+    }
+
+    private func attachFix() {
+        guard let desk, let fixer else { return }
+        let client = client, drafts = drafts, target = desk.target
+        // Offered wherever the phone can act; the pull request's thread is found when it's asked.
+        guard client.canOperate else {
+            desk.fix = nil
+            return
+        }
+        let fix: (String) async -> Bool = { request in
+            await fixer.fix(request, client: client, target: target, drafts: drafts)
+        }
+        desk.fix = fix
     }
 
     private func load() async {
@@ -168,7 +187,7 @@ struct ForgeTimelineRowView: View {
             line(actor: actor, text: text, tone: tone, at: at)
         case .commit(_, let sha, let title, let author, let at):
             HStack(spacing: AceTheme.Spacing.sm) {
-                AceIcon(.gitBranch, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.gitBranch, size: AceDesign.Size.metaIcon, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                 Text(title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(sha).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -191,7 +210,7 @@ struct ForgeTimelineRowView: View {
 
     private func line(actor: String, text: String, tone: String?, at: Double?) -> some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Text(actor).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+            Text(actor).foregroundStyle(AceTheme.Colours.foreground)
             Text(text).foregroundStyle(tone.map { AceTone($0).text } ?? AceTheme.Colours.mutedForeground).lineLimit(2)
             Spacer(minLength: AceTheme.Spacing.sm)
             if let at { ForgeAge(at: at) }

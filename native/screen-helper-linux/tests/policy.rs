@@ -1,46 +1,28 @@
 use ace_screen_helper_linux::{
     policy::{
-        Backend, DamageGate, KDE_WATCH_ONLY, NO_REMOTE_DESKTOP, PortalOffer, PortalRoute,
-        RemoteDesktopOffer, backend, point, portal_policy, portal_route,
+        KDE_WATCH_ONLY, NO_REMOTE_DESKTOP, PortalOffer, PortalRoute, RemoteDesktopOffer, point,
+        portal_policy, portal_route, wayland_session,
     },
     portal::{read_token, save_token},
     protocol::{Request, packet},
 };
 use serde_json::json;
-use std::{os::unix::fs::PermissionsExt, time::Duration};
+use std::os::unix::fs::PermissionsExt;
 #[test]
-fn wayland_is_selected_even_when_xwayland_is_available() {
-    assert_eq!(
-        backend(None, Some("wayland-0"), Some(":1")).unwrap(),
-        Backend::Wayland
-    );
-    assert_eq!(
-        backend(Some("x11"), Some("wayland-0"), Some(":1")).unwrap(),
-        Backend::X11
+fn live_view_runs_in_a_wayland_session_and_names_an_x11_session_as_unsupported() {
+    assert!(wayland_session(Some("wayland-0"), Some(":1")).is_ok());
+    assert!(
+        wayland_session(None, Some(":1"))
+            .unwrap_err()
+            .message
+            .contains("X11 session")
     );
     assert!(
-        backend(None, Some(""), None)
+        wayland_session(Some(""), None)
             .unwrap_err()
             .message
             .contains("headless")
     );
-    assert!(backend(Some("wayland"), None, Some(":1")).is_err());
-}
-#[test]
-fn unchanged_targets_sleep_without_a_timer_and_damage_is_coalesced_at_the_fps_cap() {
-    let mut gate = DamageGate::new(10);
-    assert!(gate.take(Duration::ZERO));
-    assert_eq!(gate.wait(Duration::ZERO), None);
-    assert!(!gate.take(Duration::from_secs(60)));
-    gate.damage();
-    gate.damage();
-    assert!(!gate.take(Duration::from_millis(99)));
-    assert_eq!(
-        gate.wait(Duration::from_millis(99)),
-        Some(Duration::from_millis(1))
-    );
-    assert!(gate.take(Duration::from_millis(100)));
-    assert_eq!(gate.wait(Duration::from_millis(100)), None);
 }
 #[test]
 fn coordinates_reject_edges_nonfinite_values_and_negative_positions() {
@@ -79,14 +61,22 @@ fn portal_support_and_persistence_follow_advertised_versions_and_device_masks() 
 #[test]
 fn a_portal_without_remote_desktop_shares_the_screen_but_offers_no_input() {
     // xdg-desktop-portal-hyprland 1.3: monitors and windows, ScreenCast v5, no RemoteDesktop.
-    let offer = PortalOffer { sources: 3, screencast_version: 5, remote_desktop: None };
+    let offer = PortalOffer {
+        sources: 3,
+        screencast_version: 5,
+        remote_desktop: None,
+    };
     let route = portal_route("Hyprland", &offer);
     assert_eq!(route, PortalRoute::ScreenCastOnly(NO_REMOTE_DESKTOP));
     let hyprland = portal_policy(&offer, route);
     assert!(hyprland.windows && hyprland.displays && hyprland.persistent);
     assert!(!hyprland.pointer && !hyprland.keyboard);
     // Before ScreenCast v4 a sharing grant can't be remembered.
-    let old = PortalOffer { sources: 1, screencast_version: 3, remote_desktop: None };
+    let old = PortalOffer {
+        sources: 1,
+        screencast_version: 3,
+        remote_desktop: None,
+    };
     assert!(!portal_policy(&old, portal_route("sway", &old)).persistent);
 }
 #[test]
@@ -101,7 +91,10 @@ fn kde_is_watched_through_screencast_because_its_remote_desktop_shares_whole_scr
         assert!(!policy.pointer && !policy.keyboard);
     }
     // GNOME shares windows through RemoteDesktop, with the person's input.
-    assert_eq!(portal_route("ubuntu:GNOME", &kde), PortalRoute::RemoteDesktop);
+    assert_eq!(
+        portal_route("ubuntu:GNOME", &kde),
+        PortalRoute::RemoteDesktop
+    );
     assert_eq!(portal_route("", &kde), PortalRoute::RemoteDesktop);
     assert!(portal_policy(&kde, PortalRoute::RemoteDesktop).pointer);
 }
@@ -176,23 +169,28 @@ fn tree_limits_prune_children_and_byte_heavy_nodes_instead_of_collecting_history
 }
 
 #[test]
-fn semantic_fallback_uses_current_window_origin_and_refuses_an_outside_element() {
-    use ace_screen_helper_linux::{accessibility::Bounds, policy::element_center};
-    let window = Bounds { x: 200, y: 100, w: 400, h: 300 };
-    let element = Bounds { x: 240, y: 120, w: 80, h: 40 };
-    assert_eq!(element_center(&element, &window).unwrap(), (80., 40.));
-    let moved = Bounds { x: 300, y: 100, w: 400, h: 300 };
-    assert_eq!(element_center(&element, &moved).unwrap_err().code, "bounds");
-}
-#[test]
 fn accessibility_queries_cannot_silently_use_a_different_target() {
-    use ace_screen_helper_linux::{protocol::Target, policy::scoped_target};
-    let target = Target { kind: "window".into(), window_id: Some(1), display_id: None,
-        bundle_id: Some("approved".into()), bundle_ids: vec![], restore: None };
-    let different = Target { window_id: Some(2), ..target.clone() };
+    use ace_screen_helper_linux::{policy::scoped_target, protocol::Target};
+    let target = Target {
+        kind: "window".into(),
+        window_id: Some(1),
+        display_id: None,
+        bundle_id: Some("approved".into()),
+        bundle_ids: vec![],
+        restore: None,
+    };
+    let different = Target {
+        window_id: Some(2),
+        ..target.clone()
+    };
     assert!(scoped_target(Some(&target), Some(&target)).is_ok());
     assert!(scoped_target(None, Some(&target)).is_ok());
-    assert_eq!(scoped_target(Some(&different), Some(&target)).unwrap_err().code, "target_gone");
+    assert_eq!(
+        scoped_target(Some(&different), Some(&target))
+            .unwrap_err()
+            .code,
+        "target_gone"
+    );
     assert!(scoped_target(Some(&target), None).is_err());
 }
 #[test]
@@ -207,13 +205,20 @@ fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let stream = endpoint::connect(&path).unwrap();
     let (peer, _) = listener.accept().unwrap();
-    drop(stream); drop(peer);
+    drop(stream);
+    drop(peer);
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(endpoint::connect(&path).unwrap_err().code, "permission_denied");
+    assert_eq!(
+        endpoint::connect(&path).unwrap_err().code,
+        "permission_denied"
+    );
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
     let link = directory.join("link");
     std::os::unix::fs::symlink(&path, &link).unwrap();
-    assert_eq!(endpoint::connect(&link).unwrap_err().code, "permission_denied");
+    assert_eq!(
+        endpoint::connect(&link).unwrap_err().code,
+        "permission_denied"
+    );
     drop(listener);
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -222,7 +227,10 @@ fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
 fn a_shared_source_of_the_wrong_kind_is_never_shown() {
     use ace_screen_helper_linux::policy::stream_matches;
     assert!(stream_matches(2, Some(2)));
-    assert!(!stream_matches(2, Some(1)), "a whole screen given for a window");
+    assert!(
+        !stream_matches(2, Some(1)),
+        "a whole screen given for a window"
+    );
     assert!(!stream_matches(1, Some(2)), "a window given for a screen");
     assert!(stream_matches(1, Some(1)));
     assert!(stream_matches(1, Some(4)));
@@ -232,4 +240,27 @@ fn a_shared_source_of_the_wrong_kind_is_never_shown() {
     assert!(stream_matches(3, Some(1)) && stream_matches(3, Some(2)));
     // Portals before ScreenCast version 3 don't say.
     assert!(stream_matches(2, None));
+}
+
+#[test]
+fn sharing_reports_only_the_input_devices_actually_granted() {
+    use ace_screen_helper_linux::policy::portal_input_requirements;
+    for (devices, pointer, keyboard, all) in [
+        (0, "blocked", "blocked", "blocked"),
+        (1, "blocked", "ready", "blocked"),
+        (2, "ready", "blocked", "blocked"),
+        (3, "ready", "ready", "ready"),
+    ] {
+        let facts = portal_input_requirements(PortalRoute::RemoteDesktop, true, devices);
+        assert_eq!(facts[0]["state"], all);
+        assert_eq!(facts[1]["state"], pointer);
+        assert_eq!(facts[2]["state"], keyboard);
+    }
+    let pending = portal_input_requirements(PortalRoute::RemoteDesktop, false, 3);
+    assert_eq!(pending[0]["state"], "prompt");
+    let watch_only =
+        portal_input_requirements(PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY), true, 3);
+    assert_eq!(watch_only[0]["state"], "n/a");
+    assert_eq!(watch_only[0]["message"], KDE_WATCH_ONLY);
+    assert_eq!(watch_only[1]["state"], "n/a");
 }

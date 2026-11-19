@@ -1,6 +1,6 @@
 # Draft: iOS push notifications and Live Activities
 
-Date: 2026-10-18. Status: **Proposed, deferred by owner 2026-10-18.** iOS ships local notifications
+Date: 2026-10-18. Status: **Alerts superseded by [ADR 0106](../0106-ios-remote-push-gateway.md) (2026-10-27); Live Activity push still proposed.** Deferred by owner 2026-10-18. iOS ships local notifications
 first ([ADR 0087](../0087-ios-local-notifications.md)); this design is kept for when remote push is
 revisited. ADR 0087 covers the backgrounded-phone router case (contradiction 5) for local delivery.
 Refs #560 (MVP item 8). Builds on [ADR 0012](../0012-notifications.md),

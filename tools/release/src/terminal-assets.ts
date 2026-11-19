@@ -13,9 +13,11 @@ const macArch = { "darwin-arm64": "arm64", "darwin-x64": "x86_64" } as const;
  * root as `group-keeper`, beside `ace.mjs`. Every terminal the daemon opens starts it, so a
  * bundle without it cannot open a shell. It is a dependency-free POSIX program, compiled
  * for the target: macOS hosts build either architecture with `-arch`; other targets build
- * on a matching host, like node-pty.
+ * on a matching host.
  */
 export function stageTerminalGuardian(repo: string, root: string, target: string): void {
+  // Windows terminals are owned by a kill-on-close Job Object instead (ADR 0095).
+  if (target.startsWith("win32-")) return;
   const platform = ReleaseTarget.parse(target);
   const source = join(repo, "packages/terminal/native/group-keeper.c");
   const flags = ["-std=c11", "-O2", "-Wall", "-Wextra"];

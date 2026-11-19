@@ -99,3 +99,99 @@ setInterval(() => {}, 1000);`,
     }
   },
 );
+
+import { windowsGitStandIn } from "./test-support.ts";
+
+// Windows counterpart: Git runs as a Node stand-in through the real Windows Git spawn.
+test.runIf(process.platform === "win32").each(["overflow", "timeout", "exit"] as const)(
+  "on Windows Git %s ends descendants that retain stderr before completing",
+  async (mode) => {
+    const f = await fixture();
+    let manager: PluginManager | undefined;
+    let connection: Socket | undefined;
+    let pid: number | undefined;
+    const disconnected = Promise.withResolvers<void>();
+    const server = createServer((socket) => {
+      connection = socket;
+      // Windows resets the connection of a killed process; the close below is the proof.
+      socket.on("error", () => {});
+      socket.once("close", () => disconnected.resolve());
+    });
+    try {
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing listener");
+      const pidFile = join(f.root, "descendant-pid");
+      const descendant = join(f.root, "descendant.cjs");
+      await writeFile(
+        descendant,
+        `const socket = require('node:net').connect(${address.port}, '127.0.0.1');
+socket.once('connect', () => process.send(process.pid));
+setInterval(() => {}, 1000);`,
+      );
+      const standIn = await windowsGitStandIn(
+        f.root,
+        "git-standin",
+        `const { spawn } = require('node:child_process');
+const child = spawn(process.execPath, [${JSON.stringify(descendant)}], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+child.once('message', (pid) => { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(pid)); ${mode === "exit" ? "process.exit(0);" : mode === "overflow" ? "process.stdout.write(Buffer.alloc(300000, 120));" : "process.stdout.write('ready\\n');"} });
+setInterval(() => {}, 1000);`,
+      );
+      const runtime = gitRuntime();
+      const ready = Promise.withResolvers<void>();
+      let expire: (() => void) | undefined;
+      manager = await PluginManager.open({
+        root: join(f.root, "isolated"),
+        now: () => 0,
+        id: () => "overflow",
+        git: {
+          ...runtime,
+          spawn(options) {
+            const child = runtime.spawn(standIn(options));
+            child.stdout.once("data", () => ready.resolve());
+            return child;
+          },
+          ...(mode === "timeout"
+            ? {
+                schedule(callback) {
+                  expire = callback;
+                  return () => {};
+                },
+              }
+            : {}),
+        },
+      });
+      const preparing = manager.prepare({ repository: f.repo, ref: "main", name: "sample" });
+      const rejection = expect(preparing).rejects.toThrow(
+        mode === "overflow"
+          ? "Git output exceeds byte limit"
+          : mode === "timeout"
+            ? "Git operation timed out"
+            : undefined,
+      );
+      if (mode === "timeout") {
+        await ready.promise;
+        if (!expire) throw new Error("Missing timeout callback");
+        expire();
+      }
+      await rejection;
+      pid = z.coerce
+        .number()
+        .int()
+        .positive()
+        .parse(await readFile(pidFile, "utf8"));
+      await disconnected.promise;
+      expect(connection?.destroyed).toBe(true);
+    } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      connection?.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      manager?.close();
+      await f.close();
+    }
+  },
+);

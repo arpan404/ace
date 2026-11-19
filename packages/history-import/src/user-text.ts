@@ -25,7 +25,7 @@ export function userPrompt(value: unknown): string {
   const p = r.type === "response_item" ? object(r.payload) : r;
   const message = Object.hasOwn(p, "message") ? object(p.message) : p;
   if (message.role !== "user" && p.type !== "user") return "";
-  if (p.synthetic === true || p.isMeta === true) return "";
+  if (p.synthetic === true || p.isMeta === true || p.isCompactSummary === true) return "";
   const content = message.content ?? p.content ?? p.text;
   return sanitizeUserText(
     typeof content === "string"
@@ -42,7 +42,12 @@ export function hasUserInput(value: unknown): boolean {
   const r = object(value);
   const p = r.type === "response_item" ? object(r.payload) : r;
   const m = Object.hasOwn(p, "message") ? object(p.message) : p;
-  if ((m.role !== "user" && p.type !== "user") || p.synthetic === true || p.isMeta === true)
+  if (
+    (m.role !== "user" && p.type !== "user") ||
+    p.synthetic === true ||
+    p.isMeta === true ||
+    p.isCompactSummary === true
+  )
     return false;
   const content = m.content ?? p.content;
   return (

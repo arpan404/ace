@@ -4,10 +4,10 @@
 browser interactions, retained-memory streaming, the million-item long-thread journey and
 one long markdown answer streaming. The limits live in `src/budgets.ts` and ADR 0056.
 
-The markdown stream (`src/markdown-stream.ts`, `?markdown=1` in `--mode perf`) streams a
+The markit stream (`src/markit-stream.ts`, `?markdown=1` in `--mode perf`) streams a
 ~40 KB answer of prose, lists, fenced code and tables at 4 KB/s in 20-character deltas while
-a person types into the composer. It reports the markdown worker's time per update (from
-`acePerf.markdown`) early and late in the answer, the page's main-thread busy time per drawn
+a person types into the composer. It reports the markit renderer's time per applied update (from
+`acePerf.markit`) early and late in the answer, the page's main-thread busy time per drawn
 frame (CDP `TaskDuration` over a requestAnimationFrame count), and how many markdown blocks
 had their DOM node replaced (a MutationObserver on the answer's blocks). Worker growth,
 main-thread time, interaction and long-task budgets are timing budgets and get one repeat.
@@ -104,3 +104,27 @@ build from live and after historical navigation, asserting both visibility and v
 intersection. It synchronizes on results and the actual hit, without a timing-only barrier.
 Filtered searches can validly return no hits. Their empty listbox has zero height, so the
 journey acknowledges its attachment and asserts the visible empty-result explanation.
+
+## Slow-link navigation
+
+`src/slow-link.ts` reports, without a budget, how a remote device's first visit to a thread
+loads over a slow link: time to the thread's first message, requests and sequential round trips
+before it, and bytes. `--profile` takes a named link from `@ace/perf-kit/link` (`3g-slow`,
+`3g-fast`, the default and the profile this run always had, or `lan`); `--cache=cold,warm` runs a
+cold visit and then the same thread again with the HTTP cache and the client's kept snapshots.
+
+- `--target=preview` (default): the perf build under `vite preview`, its thread fed by the endless
+  agent, the link emulated by Chromium (latency and rates; no loss).
+- `--target=daemon`: the production build (`apps/web/dist`, rebuilt unless it carries this run's
+  stamp for the current commit with no tracked file edited) served by a real
+  daemon from this checkout over its TLS listener, in a temporary home with recorded threads
+  (`apps/daemon/bench/slow-link-daemon.ts`). The browser pairs as a phone does, through the TCP
+  link shaper, which also models loss and counts WebSocket traffic up to first content, reported
+  as `link` lines. The cold visit stays until the page finishes loading, so the warm visit finds
+  everything the first one fetched.
+
+```sh
+node tools/web-perf/src/slow-link.ts --target=daemon --profile=3g-slow --cache=cold,warm
+```
+
+Baselines are in `apps/daemon/bench/slow-link-REPORT.md`.

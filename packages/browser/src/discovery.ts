@@ -13,16 +13,13 @@ export async function detectChromium(
 ): Promise<string | undefined> {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
+  if (platform === "win32") return detectWindowsChromium(options, env);
   const candidates = [options.executablePath, env.ACE_CHROMIUM_PATH];
   if (platform === "darwin")
     candidates.push(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       "/Applications/Chromium.app/Contents/MacOS/Chromium",
     );
-  if (platform === "win32")
-    for (const root of [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA]) {
-      if (root) candidates.push(join(root, "Google/Chrome/Application/chrome.exe"));
-    }
   for (const root of (env.PATH ?? "").split(delimiter)) {
     for (const name of ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"])
       if (root) candidates.push(join(root, name));
@@ -77,4 +74,60 @@ export async function installChromium(
 ): Promise<string> {
   const { acquireChromium } = await import("./acquisition.ts");
   return acquireChromium({ ...options, dataDir });
+}
+
+const existing = (path: string) =>
+  access(path).then(
+    () => path,
+    () => undefined,
+  );
+
+/** Windows has no execute bit: existence is the test, and PATH lookup never accepts a .bat/.cmd. */
+async function detectWindowsChromium(
+  options: { executablePath?: string; dataDir?: string },
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(
+    (root): root is string => Boolean(root),
+  );
+  const installed = [
+    options.executablePath,
+    env.ACE_CHROMIUM_PATH,
+    ...roots.map((root) => join(root, "Google/Chrome/Application/chrome.exe")),
+    ...roots.map((root) => join(root, "Microsoft/Edge/Application/msedge.exe")),
+  ];
+  for (const candidate of installed) {
+    const found = candidate && (await existing(candidate));
+    if (found) return found;
+  }
+  const { findExecutable } = await import("@ace/provider-kit/discovery");
+  for (const command of ["chrome.exe", "chromium.exe", "msedge.exe"]) {
+    const found = await findExecutable(command, env, "win32");
+    if (found) return found;
+  }
+  if (!options.dataDir) return undefined;
+  try {
+    // ace's own pinned Chrome for Testing, if it was acquired into this data directory.
+    const artifact = chromiumArtifact("win32", process.arch);
+    return await existing(
+      join(
+        options.dataDir,
+        "chromium",
+        `${artifact.version}-${artifact.checksum}`,
+        artifact.executable,
+      ),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/** Chrome for Testing has no Windows ARM64 build, so ace runs the installed Chrome or Edge there. */
+export async function installedWindowsChromium(options: {
+  dataDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<string> {
+  const installed = await detectChromium({ ...options, platform: "win32" });
+  if (installed) return installed;
+  throw new Error("Install Chrome or Microsoft Edge to use ace's browser on Windows ARM64");
 }

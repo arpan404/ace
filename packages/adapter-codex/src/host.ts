@@ -15,6 +15,7 @@ import { attributeDroppedLine, type LineAttribution } from "./dropped-line.ts";
 import { HostRouter, type Route } from "./host-routing.ts";
 import { obj, str } from "./native.ts";
 import { parentOf } from "./session-state.ts";
+import { CodexCatalogCache } from "./tool-facts.ts";
 
 /** A process exit, or `detached` when a shared process stopped serving one channel. */
 export type HostExit = Omit<ProcessExit, "reason"> & {
@@ -65,6 +66,8 @@ export interface CodexChannel {
   retire(): Promise<void>;
   /** The thread provably belongs to another channel on this process. */
   foreign(thread: string): boolean;
+  /** Model catalogs this process has served, shared by its channels (`tool-facts.ts`). */
+  readonly catalogs: CodexCatalogCache;
 }
 
 export type HostConfig = {
@@ -77,7 +80,22 @@ export type HostConfig = {
   idleMs: number;
   schedule(callback: () => void, delayMs: number): () => void;
   onRetired(): void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
+  /**
+   * Windows: ends the process and its recorded tree (provider-kit's stopTreeAfterEof). Rejects
+   * when a member outlived its stop. Tests inject it to decide the outcome.
+   */
+  stopTree?: (proc: SupervisedProcess, graceMs: number) => Promise<unknown>;
 };
+
+const stopTreeAfterEof = async (proc: SupervisedProcess, graceMs: number): Promise<unknown> =>
+  (await import("@ace/provider-kit/tree-stop")).stopTreeAfterEof(proc, graceMs);
+
+/** Shared-host retirement with no session left to tell: the daemon's process warnings. */
+function reportRetireFailure(error: unknown): void {
+  process.emitWarning(`Codex app-server did not stop cleanly: ${String(error)}`);
+}
 
 const holdThreads = 64;
 const holdFrames = 256;
@@ -117,6 +135,9 @@ class Tenant implements CodexChannel {
   }
   get alone(): boolean {
     return this.host.alone(this);
+  }
+  get catalogs(): CodexCatalogCache {
+    return this.host.catalogs;
   }
   request(
     method: string,
@@ -165,6 +186,7 @@ class Tenant implements CodexChannel {
  */
 export class CodexHost {
   readonly dedicated: boolean;
+  readonly catalogs = new CodexCatalogCache();
   readonly #config: HostConfig;
   readonly #router = new HostRouter<Tenant>();
   readonly #tenants = new Set<Tenant>();
@@ -229,15 +251,19 @@ export class CodexHost {
     const peer = this.#peer;
     peer.onNotification = (message) => this.#notification(message);
     peer.onRequest = (message) => this.#request(message);
-    void proc.exited.then((exit) => {
-      this.#cancelDrain?.();
-      proc.signal.removeEventListener("abort", drain);
-      this.#exited({
-        ...exit,
-        ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
-        outputDrained: this.#outputDrained,
-      });
-    });
+    void proc.exited
+      .then((exit) => {
+        this.#cancelDrain?.();
+        proc.signal.removeEventListener("abort", drain);
+        this.#exited({
+          ...exit,
+          ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
+          outputDrained: this.#outputDrained,
+        });
+      })
+      .catch((error: unknown) =>
+        process.emitWarning(`Codex app-server exit handling failed: ${String(error)}`),
+      );
     this.#ready = (async () => {
       await peer.request("initialize", config.initialize, { timeoutMs: 30_000 });
       await peer.notify("initialized");
@@ -282,7 +308,7 @@ export class CodexHost {
       tenant.exited = true;
       this.#tenants.delete(tenant);
       this.#router.release(tenant);
-      void this.#vacated(false);
+      void this.#vacated(false).catch(reportRetireFailure);
       throw error;
     }
   }
@@ -340,6 +366,16 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = undefined;
     this.#config.onRetired();
+    // Windows has no graceful signal for a windowless console child: closing stdin is
+    // app-server's own clean shutdown, and its recorded tree is ended before retiring resolves.
+    if ((this.#config.platform ?? process.platform) === "win32") {
+      const proc = this.#proc;
+      const graceMs = this.#config.graceMs;
+      // Rejects when a member of the tree outlived its stop: an awaited retire (a busy session
+      // stopping its shared host) must not report its work stopped while shells still run.
+      this.#retiring = (this.#config.stopTree ?? stopTreeAfterEof)(proc, graceMs).then(() => {});
+      return this.#retiring;
+    }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});
     return this.#retiring;
   }
@@ -353,8 +389,13 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = this.#config.schedule(() => {
       this.#cancelIdle = undefined;
-      if (!this.#tenants.size) void this.retire();
+      if (!this.#tenants.size) this.#retireUnawaited();
     }, this.#config.idleMs);
+  }
+
+  /** A retire nobody waits on: its failure is reported here, since no caller can see it. */
+  #retireUnawaited(): void {
+    void this.retire().catch(reportRetireFailure);
   }
 
   #exited(exit: HostExit): void {
@@ -568,7 +609,11 @@ export class CodexHost {
       this.#flush(hold, "all");
       return;
     }
-    if (!hold.resolving && !hold.chain) void this.#resolve(thread, hold);
+    // Frames stay held when ancestry cannot be read, so the failure is reported here.
+    if (!hold.resolving && !hold.chain)
+      void this.#resolve(thread, hold).catch((error: unknown) =>
+        process.emitWarning(`Codex thread ancestry failed: ${String(error)}`),
+      );
   }
 
   /** Find an owned ancestor through Codex's own thread records. */

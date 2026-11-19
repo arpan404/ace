@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketFileRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "executable": {
+      "type": "boolean"
+    },
+    "flagged": {
+      "type": "boolean"
+    },
+    "path": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "bytes",
+    "executable",
+    "flagged"
+  ],
+  "type": "object"
+}

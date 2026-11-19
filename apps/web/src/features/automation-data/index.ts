@@ -10,11 +10,14 @@ export {
   setEnabledAutomation,
   retryAutomation,
   runAutomation,
+  webhookSecret,
   type AutomationEntry,
   type AutomationLists,
   type RunRequest,
+  type WebhookSecretResult,
 } from "./automations-source.ts";
 export {
+  automationsQueryKey,
   inboxLimit,
   useAutomationLists,
   useAutomations,
@@ -42,5 +45,5 @@ export {
   scheduleStateCopy,
   type TriggerHealth,
   type ScheduleState,
-} from "./trigger-health.ts";
-export { useProjectAutomations, WorkAutomations } from "./work-automations.tsx";
+} from "@ace/ui-core/automations";
+export { useProjectAutomations, WorkAutomationsLine } from "./work-automations.tsx";

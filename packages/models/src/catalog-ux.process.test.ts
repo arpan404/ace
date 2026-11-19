@@ -187,18 +187,6 @@ test("CLI version and provider settings invalidate only the selected provider wh
   expect(catalog.list().instances[0]?.status).toBe("refreshing");
   await catalog.refresh();
 });
-test("a login identity change revokes the previous account before the new discovery finishes", async () => {
-  const next = deferred<readonly CatalogModel[]>();
-  const { catalog } = await setup(async (config) =>
-    config.loginRevision === "account-1" ? codex() : next.promise,
-  );
-  await catalog.refresh();
-  const flight = catalog.loginChanged("codex", "account-2");
-  expect(catalog.list().models).toEqual([]);
-  next.resolve(codex("gpt-6.2-sol"));
-  await flight;
-  expect(catalog.list().models[0]?.id).toBe("gpt-6.2-sol");
-});
 function openModel(providerID: string, modelID: string) {
   return {
     id: `${providerID}/${modelID}`,

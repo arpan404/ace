@@ -31,6 +31,8 @@ export function endPrompt(
           title: string(tool.data["title"]),
           item: tool.key,
           stoppable: false,
+          // ace's ACP session takes no new prompt while this shell survives (ADR 0109).
+          blocksPrompts: true,
           raw: [...tool.raw],
         });
       }

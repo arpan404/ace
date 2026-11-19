@@ -2,46 +2,83 @@
 mod automation_tests;
 mod capture;
 mod gpu;
+mod gpu_readback;
+mod ingest_pipe;
 mod input;
 mod pipe;
 mod roles;
 mod target;
+pub mod trial;
 mod uia;
+mod video;
 use crate::{
     codec::Request,
     errors::{Code, Error, Result},
+    mailbox::Queued,
+    media::{
+        capability::Trial,
+        config::StreamCodec,
+        shell::{IngestShell, Sinks},
+    },
     stream::Stream,
     tree::Query,
 };
-use capture::Capture;
+use capture::{Capture, Video};
 use pipe::Writer;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use target::Target;
 use uia::Automation;
 use windows::Win32::{System::WinRT::*, UI::HiDpi::*};
 pub struct Host {
+    startup: crate::inspection::Startup<Box<DesktopHost>>,
+}
+impl Host {
+    /// `trial` runs only when the desktop is available: it is what the hello reports.
+    pub fn open(endpoint: &str, trial: impl FnOnce() -> Trial) -> Result<Self> {
+        Ok(Self {
+            startup: crate::inspection::Startup::open(target::desktop_available(), || {
+                DesktopHost::open(endpoint, trial()).map(Box::new)
+            })?,
+        })
+    }
+    pub fn command(&mut self, request: &Request) -> Result<Value> {
+        match &mut self.startup {
+            crate::inspection::Startup::Desktop(host) => host.command(request),
+            crate::inspection::Startup::Inspection(host) => host.command(request),
+        }
+    }
+}
+struct DesktopHost {
     capture: Option<Capture>,
     target: Option<Target>,
     allowed: Vec<String>,
     stream: Option<Arc<Mutex<Stream>>>,
+    /// The session's video route: the daemon's pipe or ace-media's ingest.
+    shell: Option<IngestShell>,
+    trial: Trial,
     writer: Writer,
     automation: Automation,
     _apartment: Apartment,
 }
-impl Host {
-    pub fn open(endpoint: &str) -> Result<Self> {
+impl DesktopHost {
+    pub fn open(endpoint: &str, trial: Trial) -> Result<Self> {
+        eprintln!("{}", trial.summary());
         unsafe {
-            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)?;
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+                .map_err(|error| Error::from(error).context("SetProcessDpiAwarenessContext"))?;
         }
-        let apartment = Apartment::new()?;
+        let apartment = Apartment::new().map_err(|error| error.context("RoInitialize"))?;
         Ok(Self {
             capture: None,
             target: None,
             allowed: vec![],
             stream: None,
-            writer: Writer::open(endpoint)?,
-            automation: Automation::new()?,
+            shell: None,
+            trial,
+            writer: Writer::open(endpoint).map_err(|error| error.context("Create frame pipe"))?,
+            automation: Automation::new()
+                .map_err(|error| error.context("UI Automation initialization"))?,
             _apartment: apartment,
         })
     }
@@ -55,21 +92,9 @@ impl Host {
     }
     pub fn command(&mut self, request: &Request) -> Result<Value> {
         match request.op.as_str() {
-            "hello" => {
-                target::desktop_available()?;
-                Ok(json!({"version":2,"platform":"windows",
-                "capture":{"windows":true,"displays":true,"changeDriven":true},
-                "input":{"pointer":true,"keyboard":true,"scroll":true,"text":true},
-                "uiTree":true,"semanticActions":["press","focus","setValue","scroll","expand","select"],
-                "codecs":["jpeg"],"permissions":{"screen":"n/a","input":"granted"}}))
-            }
-            "permissions" => {
-                target::desktop_available()?;
-                Ok(if request.version == 1 {
-                    json!({"screenRecording":true,"accessibility":true})
-                } else {
-                    json!({"screen":"n/a","input":"granted"})
-                })
+            "hello" => Ok(crate::inspection::capabilities_with(&self.trial)),
+            "permissions" | "permissions.request" => {
+                Ok(crate::inspection::permissions(target::desktop_available()))
             }
             "targets" => target::inventory(),
             "start" => {
@@ -97,20 +122,26 @@ impl Host {
                 state.generation(generation);
                 let stream = Arc::new(Mutex::new(state));
                 self.writer.activate(generation);
+                let shell = self.ingest_shell(&stream);
                 self.capture = Some(Capture::start(
                     target.clone(),
                     allowed.clone(),
                     stream.clone(),
                     self.writer.clone(),
+                    self.video(&shell),
                 )?);
                 self.target = Some(target);
                 self.allowed = allowed;
                 self.stream = Some(stream);
+                self.shell = Some(shell);
                 self.automation.clear();
                 Ok(Value::Null)
             }
             "stop" => {
                 self.capture = None;
+                if let Some(shell) = self.shell.take() {
+                    shell.close();
+                }
                 self.writer.retire();
                 self.target = None;
                 self.stream = None;
@@ -133,16 +164,38 @@ impl Host {
                         .unwrap_or_else(|e| e.into_inner())
                         .generation(generation);
                     self.writer.activate(generation);
+                    let shell = self
+                        .shell
+                        .clone()
+                        .ok_or_else(|| Error::new(Code::Internal, "Missing video route"))?;
                     self.capture = Some(Capture::start(
                         target,
                         self.allowed.clone(),
                         stream,
                         self.writer.clone(),
+                        self.video(&shell),
                     )?);
                 } else if !active {
                     self.capture = None;
                     self.writer.retire();
                 }
+                Ok(Value::Null)
+            }
+            "stream.configure" => self.configure_stream(request),
+            "stream.keyframe" => {
+                self.live_stream()?
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .request_keyframe();
+                self.refresh();
+                Ok(Value::Null)
+            }
+            "stream.image" => {
+                self.live_stream()?
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .request_image();
+                self.refresh();
                 Ok(Value::Null)
             }
             "ui.tree" => {
@@ -162,6 +215,7 @@ impl Host {
             }
             "ui.act" => {
                 let target = self.target()?.clone();
+                target.check_integrity()?;
                 let reference: String = request.get("ref")?;
                 let action: String = request.get("action")?;
                 self.automation
@@ -188,6 +242,124 @@ impl Host {
             _ => Err(Error::new(Code::NotSupported, "Unknown command")),
         }
     }
+    fn live_stream(&self) -> Result<Arc<Mutex<Stream>>> {
+        self.stream
+            .clone()
+            .ok_or_else(|| Error::new(Code::TargetGone, "No active stream"))
+    }
+    fn refresh(&self) {
+        if let Some(capture) = &self.capture {
+            capture.refresh();
+        }
+    }
+    /// media-mf's device for a capture, where the start-up trial found an H.264 MFT.
+    fn video(&self, shell: &IngestShell) -> Video {
+        let device = self
+            .trial
+            .h264()
+            .then(media_mf::MfDevice::new)
+            .and_then(|device| {
+                device
+                    .map_err(|error| eprintln!("screen video: D3D11 device: {error}"))
+                    .ok()
+            });
+        Video {
+            device,
+            shell: shell.clone(),
+        }
+    }
+    /// The session's route. Units on the daemon's path become frame packets there; a cut
+    /// ingest connection is told to the daemon as a `stream.ingest` event.
+    fn ingest_shell(&self, stream: &Arc<Mutex<Stream>>) -> IngestShell {
+        let (legacy_stream, keyframe_stream, writer) =
+            (stream.clone(), stream.clone(), self.writer.clone());
+        let closed_stream = stream.clone();
+        let session = stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .session_id()
+            .to_string();
+        let start = std::time::Instant::now();
+        IngestShell::new(
+            Box::new(ingest_pipe::dial),
+            Sinks {
+                legacy: Box::new(move |unit| {
+                    let (packet, generation) = {
+                        let stream = legacy_stream.lock().unwrap_or_else(|e| e.into_inner());
+                        (stream.video_packet(unit), stream.capture_generation())
+                    };
+                    let Ok(packet) = packet else { return };
+                    if writer.publish_video(generation, packet, unit.key) == Queued::WantKeyframe {
+                        legacy_stream
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .request_keyframe();
+                    }
+                }),
+                closed: Box::new(move |boundary| {
+                    // Back on the daemon's pipe after a cut: that path starts at a keyframe.
+                    closed_stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .request_keyframe();
+                    crate::codec::event(&serde_json::json!({"event":"stream.ingest",
+                        "sessionId":session,"state":"closed","boundary":boundary}));
+                }),
+                keyframe: Box::new(move || {
+                    keyframe_stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .request_keyframe();
+                }),
+            },
+            Box::new(move || start.elapsed().as_micros() as u64),
+        )
+    }
+    /// `stream.configure`: H.264 only where the trial found an encoder, JPEG otherwise; video
+    /// to the ingest pipe it names, or to the daemon's pipe.
+    fn configure_stream(&mut self, request: &Request) -> Result<Value> {
+        let configure = crate::media::config::parse(request)?;
+        let stream = self.live_stream()?;
+        let mut settings = configure.settings;
+        if settings.codec == StreamCodec::H264 && !self.trial.h264() {
+            settings.codec = StreamCodec::Jpeg;
+        }
+        stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            // Applied now, in raw counter ticks: pictures captured before keep the old epoch.
+            .configure(
+                settings,
+                configure.epoch,
+                capture::qpc().map_or(0, |(ticks, _)| ticks),
+            );
+        let shell = self
+            .shell
+            .clone()
+            .ok_or_else(|| Error::new(Code::TargetGone, "No active stream"))?;
+        let routed = shell
+            .configure(configure.ingest, configure.server)
+            .map_err(|error| {
+                Error::new(
+                    Code::TargetGone,
+                    format!("Cannot connect to ace-media's ingest: {error}"),
+                )
+            })?;
+        if routed.switched {
+            // Each path starts at a keyframe, as on the Mac: a viewer never waits for one.
+            stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .request_keyframe();
+        }
+        self.refresh();
+        Ok(serde_json::json!({
+            "codec": if settings.codec == StreamCodec::H264 { "h264" } else { "jpeg" },
+            "ingest": if routed.ingesting { "on" } else { "off" },
+            "switched": routed.switched,
+            "boundary": routed.boundary,
+        }))
+    }
     fn check_requested_target(&self, request: &Request, active: &Target) -> Result<()> {
         let requested: Target = request.get("target")?;
         if requested.window_id != active.window_id
@@ -202,7 +374,7 @@ impl Host {
         Ok(())
     }
 }
-impl Drop for Host {
+impl Drop for DesktopHost {
     fn drop(&mut self) {
         self.capture = None;
     }

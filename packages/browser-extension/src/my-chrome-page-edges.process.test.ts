@@ -11,10 +11,13 @@ import {
   UserChromeTabsBackend,
   detectChromium,
 } from "@ace/browser";
-import { connectedBrowser, until } from "./my-chrome-test-support.ts";
+import { sharedConnectedBrowser, until } from "./my-chrome-test-support.ts";
 
 const executable = process.env.ACE_CHROMIUM_PATH ?? (await detectChromium());
 const cleanups: (() => Promise<void>)[] = [];
+const sharedBrowser = sharedConnectedBrowser(executable ?? "");
+/** Each test's service gets its own data directory in the shared browser's root. */
+let services = 0;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
 }, 60_000);
@@ -56,9 +59,9 @@ const Downloads = z.object({
 
 /** The person's Chrome (Chrome for Testing with ace for Chrome) as a thread's browser. */
 async function personsChrome() {
-  const browser = await connectedBrowser(executable ?? "", cleanups);
+  const browser = await sharedBrowser();
   const service = new BrowserService({
-    dataDir: join(browser.root, "service"),
+    dataDir: join(browser.root, `service-${++services}`),
     headlessBackend: new UserChromeTabsBackend(
       new UserChromeBackend(browser.hub, process.platform),
     ),

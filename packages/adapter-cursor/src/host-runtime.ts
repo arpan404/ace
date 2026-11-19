@@ -23,6 +23,7 @@ import { nativeCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 import { HostRefusal } from "./host-refusal.ts";
+import { noWindowsSandboxMessage } from "./sandbox-helper.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
@@ -82,7 +83,7 @@ export class HostRuntime {
     if (this.transportFenced) throw new Error("SDK boundary transport is fenced");
     if (++this.callbacks > options.limits.maxCallbacks) {
       this.callbacks--;
-      await this.overflow(scope);
+      await this.overflow(scope, new Error("SDK callback backlog exceeded budget"));
       throw new Error("SDK callback backlog exceeded budget");
     }
     let admittedBytes = 0;
@@ -128,14 +129,14 @@ export class HostRuntime {
       };
       await this.emit(this.journal ? await this.journal.append(envelope) : envelope);
     } catch (error) {
-      await this.overflow(scope);
+      await this.overflow(scope, error);
       throw error;
     } finally {
       this.callbacks--;
       this.callbackBytes -= admittedBytes;
     }
   }
-  private async overflow(scope: SendOptions | undefined): Promise<void> {
+  private async overflow(scope: SendOptions | undefined, error: unknown): Promise<void> {
     if (this.transportFenced || !this.options) return;
     this.transportFenced = true;
     // A failed journal/oversized callback cannot carry its own failure. This small
@@ -148,8 +149,7 @@ export class HostRuntime {
       kind: "error",
       body: {
         code: "boundary_overflow",
-        message:
-          "SDK boundary or recovery budget failed. Execution is fenced; checkpoint retained. Inspect delivery before sending again or use bounded context handoff.",
+        message: `SDK boundary failed: ${this.errorMessage(error).slice(0, 512)}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`,
       },
     });
   }
@@ -265,6 +265,9 @@ export class HostRuntime {
       let sandboxSupported = false;
       if (agentOptions.local?.sandboxOptions?.enabled) {
         let refusal: string | undefined;
+        // @cursor/sdk 1.0.35 refuses its sandbox on Windows only when a key is configured, so
+        // ace refuses first: a sandboxed mode must never run unsandboxed.
+        if (process.platform === "win32") throw new Error(noWindowsSandboxMessage);
         if (this.sdk.sandboxSupport) {
           const admission = await this.sdk.sandboxSupport(agentOptions);
           sandboxSupported = admission.supported;

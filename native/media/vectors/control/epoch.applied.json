@@ -1,0 +1,9 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "epoch.applied",
+    "source": "source-1",
+    "seq": 1,
+    "epoch": 1
+  }
+}

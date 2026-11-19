@@ -101,19 +101,3 @@ export function offDiffThreads(
     return diff !== undefined && !lineKeyOf(diff, diffSide(thread.side), thread.line);
   });
 }
-
-/** What the Code tab can't show in full, as short sentences for its one warning. */
-export function codeCaveats(facts: {
-  viewed: "available" | "unavailable" | "all-commits-only";
-  truncated: boolean;
-  commitsTruncated: boolean;
-}): string[] {
-  const notes: string[] = [];
-  if (facts.viewed === "unavailable")
-    notes.push("GitHub's viewed state is unavailable, so no file shows as viewed.");
-  if (facts.viewed === "all-commits-only")
-    notes.push("Viewed marks apply to All commits, not to a single commit.");
-  if (facts.truncated) notes.push("Some changed files couldn't be listed.");
-  if (facts.commitsTruncated) notes.push("Only the newest 10,000 commits are listed.");
-  return notes;
-}

@@ -6,16 +6,15 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { Textarea } from "@/components/ui/input.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { reviewerWords, type ReviewerRow } from "@ace/ui-core";
 
-/** The verdict's colour, drawn as a 2px band around the avatar. */
-const band: Record<string, string> = {
-  APPROVED: "bg-status-done",
-  CHANGES_REQUESTED: "bg-status-failed",
-  COMMENTED: "bg-border-strong",
-  DISMISSED: "bg-border opacity-60",
+/** The verdict's status colour, on its words only. */
+const verdictTone: Record<string, string> = {
+  APPROVED: "text-status-done",
+  CHANGES_REQUESTED: "text-status-failed",
 };
 
 function Face(props: { row: ReviewerRow; className?: string }) {
@@ -29,22 +28,21 @@ function Face(props: { row: ReviewerRow; className?: string }) {
   );
 }
 
-/** Each reviewer's face, ringed by their latest verdict. */
-function Stack(props: { rows: readonly ReviewerRow[] }) {
+/** Each reviewer on a line: their face and name, their latest verdict in words at the right. */
+function Names(props: { rows: readonly ReviewerRow[] }) {
   return (
-    <span className="flex -space-x-1.5">
+    <span className="flex w-full flex-col">
       {props.rows.map((row) => (
-        <span
-          key={row.key}
-          className={cn(
-            // The band shows the verdict; the panel-coloured ring keeps each avatar whole
-            // where the next one overlaps it.
-            "relative inline-flex rounded-full p-0.5 ring-2 ring-panel",
-            (row.review && band[row.review.state]) ?? "bg-panel",
-          )}
-        >
-          <span className="inline-flex rounded-full bg-panel">
-            <Face row={row} />
+        <span key={row.key} className="flex min-h-7 min-w-0 items-center gap-2 text-ui">
+          <Face row={row} />
+          <span className="min-w-0 truncate text-foreground">{row.label}</span>
+          <span
+            className={cn(
+              "ml-auto shrink-0 text-xs first-letter:uppercase",
+              (row.review && verdictTone[row.review.state]) ?? "text-subtle-foreground",
+            )}
+          >
+            {reviewerWords(row).toLowerCase()}
           </span>
         </span>
       ))}
@@ -115,7 +113,10 @@ function Row(props: {
   const person = row.kind === "user" ? [row.name] : [];
   const team = row.kind === "team" ? [row.name] : [];
   return (
-    <li className="border-t border-border py-2 first:border-t-0">
+    <li
+      {...part("list-row", undefined, row.kind)}
+      className="border-t border-border py-2 first:border-t-0"
+    >
       <div className="flex min-h-7 items-center gap-2">
         <Face row={row} className="size-5 min-w-5" />
         <span className="min-w-0 flex-1">
@@ -177,7 +178,7 @@ function Row(props: {
 }
 
 /**
- * The reviewers as a ringed avatar stack that opens their list: each one's latest review, and
+ * The reviewers by name with their verdicts in words, opening their list: each one's latest review, and
  * what this account may do about it (ask again, withdraw a request, dismiss a verdict).
  */
 export function PrReviewers(props: {
@@ -208,9 +209,9 @@ export function PrReviewers(props: {
       <Tip label={said} disabled={open}>
         <PopoverTrigger
           aria-label={`Reviewers: ${said}`}
-          className="inline-flex rounded-full focus-ring"
+          className="-mx-1.5 flex w-[calc(100%+0.75rem)] rounded-md px-1.5 py-0.5 text-left focus-ring hover:bg-hover"
         >
-          <Stack rows={props.rows} />
+          <Names rows={props.rows} />
         </PopoverTrigger>
       </Tip>
       <PopoverContent className="w-80 p-3">

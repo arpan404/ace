@@ -137,6 +137,68 @@ pub fn parse_chord(input: &str) -> CuResult<Chord> {
     })
 }
 
+/// The accelerator in an AT-SPI action key binding, as a chord: GTK writes
+/// "mnemonic;path;accelerator" ("s;<Alt>f:s;<Control>s"), Qt and LibreOffice "Ctrl+S". None
+/// when it names no shortcut.
+pub fn binding_chord(binding: &str) -> Option<Chord> {
+    // GTK's three fields: only the third is a shortcut; an item without one leaves it empty.
+    let fields: Vec<&str> = binding.split(';').collect();
+    let accelerator = if fields.len() >= 3 { fields[2] } else { fields[fields.len() - 1] }.trim();
+    if accelerator.is_empty() {
+        return None;
+    }
+    let mut modifiers: Vec<&str> = Vec::new();
+    let mut rest = accelerator;
+    while let Some(after) = rest.strip_prefix('<') {
+        let (name, tail) = after.split_once('>')?;
+        modifiers.push(match name.to_lowercase().as_str() {
+            "control" | "ctrl" | "primary" => "ctrl",
+            "shift" => "shift",
+            "alt" | "mod1" => "alt",
+            "super" | "meta" | "mod4" => "super",
+            _ => return None,
+        });
+        rest = tail;
+    }
+    let mut parts: Vec<&str> = rest.split('+').collect();
+    let key = if rest.ends_with("++") || rest == "+" {
+        parts.truncate(parts.len().saturating_sub(2));
+        "+"
+    } else {
+        parts.pop()?
+    };
+    for name in parts {
+        modifiers.push(match name.to_lowercase().as_str() {
+            "ctrl" | "control" => "ctrl",
+            "shift" => "shift",
+            "alt" => "alt",
+            "meta" | "super" => "super",
+            _ => return None,
+        });
+    }
+    // A bare mnemonic letter (GTK's first field when it is the only one) is no shortcut.
+    if modifiers.is_empty() && key.chars().count() == 1 {
+        return None;
+    }
+    let mut text = modifiers.join("+");
+    if !text.is_empty() {
+        text.push('+');
+    }
+    text.push_str(key);
+    parse_chord(&text).ok()
+}
+
+/// Whether two chords are the same shortcut: the same key, letters in either case, and the same
+/// modifiers in any order.
+pub fn same_shortcut(a: &Chord, b: &Chord) -> bool {
+    let fold = |keysym: u32| if (0x41..=0x5a).contains(&keysym) { keysym + 0x20 } else { keysym };
+    let mut ma = a.modifiers.clone();
+    let mut mb = b.modifiers.clone();
+    ma.sort_unstable();
+    mb.sort_unstable();
+    fold(a.keysym) == fold(b.keysym) && ma == mb
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +232,23 @@ mod tests {
                 .contains("Unknown key \"Launch\"")
         );
         assert_eq!(parse_chord("cmd+").unwrap_err().code, "bad_key");
+    }
+
+    #[test]
+    fn menu_accelerators_from_gtk_qt_and_libreoffice_match_the_models_chord() {
+        let save = parse_chord("cmd+s").unwrap();
+        for binding in ["s;<Alt>f:s;<Control>s", "<Control>s", "Ctrl+S", ";;<Primary>s"] {
+            let chord = binding_chord(binding).unwrap_or_else(|| panic!("{binding}"));
+            assert!(same_shortcut(&chord, &save), "{binding}");
+        }
+        let save_as = parse_chord("ctrl+shift+s").unwrap();
+        assert!(same_shortcut(&binding_chord("Shift+Ctrl+S").unwrap(), &save_as));
+        assert!(!same_shortcut(&binding_chord("Ctrl+S").unwrap(), &save_as));
+        assert!(same_shortcut(&binding_chord("F5").unwrap(), &parse_chord("F5").unwrap()));
+        // A lone mnemonic is no shortcut, nor is a GTK item's menu path when it has none.
+        assert!(binding_chord("s").is_none());
+        assert!(binding_chord("h;<Alt>f:e:h;").is_none());
+        assert!(binding_chord("f;<Alt>f;").is_none());
+        assert!(binding_chord("").is_none());
     }
 }

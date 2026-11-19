@@ -19,6 +19,10 @@ export class PluginService {
   extensions(provider: import("@ace/protocol").ProviderKind) {
     return this.admit(() => this.manager.extensions(provider));
   }
+  /** A review of bytes the caller verified itself (`PluginManager.prepareFiles`). */
+  prepareFiles(request: Parameters<PluginManager["prepareFiles"]>[0]) {
+    return this.admit(() => this.manager.prepareFiles(request));
+  }
   handle(input: unknown): Promise<PluginResponse> {
     return this.admit(() => this.publish(input));
   }
@@ -65,6 +69,16 @@ export class PluginService {
         return PluginResponse.parse({
           type: "plugins.availability",
           availability: this.manager.configure(request),
+        });
+      case "plugins.spade":
+        return PluginResponse.parse({
+          type: "plugins.spade",
+          plugin: await this.manager.spade(request.name),
+        });
+      case "plugins.spadeFile":
+        return PluginResponse.parse({
+          type: "plugins.spadeFile",
+          ...(await this.manager.spadeFile(request.name, request.path)),
         });
       case "plugins.catalog":
         return PluginResponse.parse({

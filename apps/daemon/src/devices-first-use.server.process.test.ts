@@ -1,4 +1,4 @@
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { WebSocket } from "ws";
 import { DeviceClient } from "@ace/devices/client";
 import { DevicePlatform, DevicesService } from "@ace/devices";
@@ -91,13 +91,28 @@ test("devices load on first use, and viewers already watching hear about them", 
   const person = await viewer(f);
   // Open channels alone hold no devices code: nothing has asked for devices yet.
   expect(builds).toBe(0);
-  expect(devices.isEnabled()).toBe(false);
+  expect(devices.isEnabled()).toBe(true);
 
-  expect(await person.request({ op: "enable", enabled: true })).toEqual({ enabled: true });
+  expect(await person.request({ op: "states" })).toMatchObject({ enabled: true });
   expect(builds).toBe(1);
-  await vi.waitFor(() => expect(watching.getSnapshot().enabled).toBe(true), { timeout: 10_000 });
+  expect(await watching.request({ op: "states" })).toMatchObject({ enabled: true });
   expect(await watching.request({ op: "list" })).toMatchObject({
     devices: [{ id: "android:Pixel", name: "Pixel" }],
   });
   expect(builds).toBe(1);
+});
+
+test("a restarted device service is available without another activation request", async () => {
+  const actor = { kind: "human", owner: "person" } as const;
+  const before = new LazyDevices(async () => devicesService());
+  expect(await before.request({ op: "states" }, actor)).toMatchObject({ enabled: true });
+  await before.request({ op: "enable", enabled: false }, actor);
+  expect(await before.request({ op: "states" }, actor)).toMatchObject({ enabled: false });
+  await before.close();
+  expect(before.isEnabled()).toBe(false);
+
+  const restarted = new LazyDevices(async () => devicesService());
+  onTestFinished(() => restarted.close());
+  expect(restarted.isEnabled()).toBe(true);
+  expect(await restarted.request({ op: "states" }, actor)).toMatchObject({ enabled: true });
 });

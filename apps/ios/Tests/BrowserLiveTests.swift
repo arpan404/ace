@@ -86,6 +86,21 @@ import Testing
         #expect(model.browser.pageSize == nil)
     }
 
+    @Test func brokenHEVCRequestsH264AndThenDecodesItsKeyframe() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let broken = BrowserVideoChunk(threadId: "thread", sequence: 1, timestamp: 0, width: 400, height: 300,
+                                       codedWidth: 320, codedHeight: 240, codec: "hvc1.1.6.L153.B0", key: true,
+                                       description: Data([1, 2]), tabId: nil, bytes: Data([1]))
+        session.hub.deliver(broken)
+        try await until { session.acks.count == 1 }
+        #expect(session.acks[0]["fallback"] as? Bool == true)
+        for chunk in try realVideo(threadId: "thread", from: 2, frames: 1) { session.hub.deliver(chunk) }
+        try await until { session.acks.count == 2 }
+        #expect(session.acks[1]["fallback"] == nil)
+        #expect(model.browser.nextPicture() != nil)
+    }
+
     @Test func everyDecodedChunkIsAcknowledgedAndTheScreenDrawsOnlyTheNewest() async throws {
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
@@ -141,6 +156,102 @@ import Testing
         #expect(state.shown?.agent == "Claude")
         #expect(state.shown?.pointer?.x == 10)
         #expect(state.dialog?.type == "confirm")
+    }
+
+    @Test func aDeviceToolbarThatDoesntReadHidesTheToolbarNotTheBrowser() async throws {
+        let (model, _) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/"]],
+        ]
+        let device: [String: Any] = ["toolbar": true, "preset": "this-phone", "label": "This phone", "width": 390, "height": 700, "supported": true]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "device": device],
+                                 ["type": "browser.presets", "presets": [["id": "pixel-9", "label": "Pixel 9", "kind": "phone", "width": 412, "height": 923],
+                                                                         ["id": 7]]]]))
+        #expect(model.browser.view?.device?.label == "This phone")
+        // The preset that doesn't read is left out; the rest are offered.
+        #expect(model.browser.presets.map(\.id) == ["pixel-9"])
+        // A later bridge's toolbar this one can't read: the page still shows, without the toolbar.
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state,
+                                  "device": ["toolbar": "sometimes"]]]))
+        #expect(model.browser.view?.state?.activeTabId == "t1")
+        #expect(model.browser.view?.device == nil)
+    }
+
+    @Test func theEngineMenuShowsWhereThePagesRunAndSwitchingAsksTheBridgeToMoveThem() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/"]],
+        ]
+        let engine: [String: Any] = [
+            "current": "embedded", "moving": false, "note": "Other threads use the default in Settings › Browser.",
+            "choices": [["value": "embedded", "label": "Desktop app only"], ["value": "headless", "label": "ace's Chrome only"]],
+        ]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "engine": engine]]))
+        #expect(model.browser.view?.engine?.current == "embedded")
+        #expect(model.browser.view?.engine?.choices.map(\.label) == ["Desktop app only", "ace's Chrome only"])
+        model.browserEngine("headless")
+        #expect(session.browserActions.last?["kind"] as? String == "engine")
+        #expect(session.browserActions.last?["engine"] as? String == "headless")
+        // A view-only grant can't move the thread's browser.
+        model.canOperate = false
+        let count = session.browserActions.count
+        model.browserEngine("embedded")
+        #expect(session.browserActions.count == count)
+        // A later bridge's engine this one can't read hides the menu entry, never the browser.
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state,
+                                  "engine": ["current": 3]]]))
+        #expect(model.browser.view?.state?.activeTabId == "t1")
+        #expect(model.browser.view?.engine == nil)
+    }
+
+    @Test func watchModeIsOfferedWhileAnAgentBrowsesAndTurnsOnAndOffThroughTheBridge() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/", "agent": "Claude"]],
+        ]
+        let view = { (watch: Any) -> [String: Any] in
+            ["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "watch": watch]
+        }
+        model.receive(try frame([view(NSNull())]))
+        #expect(model.browser.view?.watch == nil)
+        model.receive(try frame([view(["on": false])]))
+        #expect(model.browser.view?.watch?.on == false)
+        model.browserWatch(true)
+        #expect(session.browserActions.last?["kind"] as? String == "watch")
+        #expect(session.browserActions.last?["on"] as? Bool == true)
+        model.receive(try frame([view(["on": true])]))
+        #expect(model.browser.view?.watch?.on == true)
+        model.browserWatch(false)
+        #expect(session.browserActions.last?["on"] as? Bool == false)
+    }
+
+    @Test func theRoundTripAndThePagesConnectionBelongToTheOpenBrowser() async throws {
+        let (model, _) = try await connected()
+        model.receive(try frame([["type": "browser.latency", "threadId": "thread", "ms": 40]]))
+        #expect(model.browser.latency == nil)
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "http://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0, "address": "shop.example", "addressHost": "shop.example",
+            "connection": ["kind": "insecure", "label": "Not secure"],
+            "tabs": [["id": "t1", "title": "Shop", "url": "http://shop.example/"]],
+        ]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state],
+                                 ["type": "browser.latency", "threadId": "other", "ms": 900],
+                                 ["type": "browser.latency", "threadId": "thread", "ms": 42]]))
+        #expect(model.browser.view?.state?.connection == BrowserViewInfo.Connection(kind: "insecure", label: "Not secure"))
+        #expect(model.browser.latency == 42)
+        model.closeBrowser()
+        #expect(model.browser.latency == nil)
     }
 
     @Test func theToolsAnswersBelongToTheOpenViewAndGoWithIt() async throws {
@@ -216,6 +327,16 @@ import Testing
         #expect(log.count == 0)
     }
 
+    @Test func anAckOwedFromAnEarlierDecoderIsReplacedNotMergedWithANewerOnes() {
+        let log = AckLog()
+        let acks = BrowserAcks(visible: false, send: { log.record($0) })
+        acks.acknowledge(BrowserAck(sequence: 40, generation: 1, keyframe: true))
+        // The view's video started again (a new subscribe): its sequences start over.
+        acks.acknowledge(BrowserAck(sequence: 2, generation: 2))
+        acks.setVisible(true)
+        #expect(log.values == [BrowserAck(sequence: 2, generation: 2)])
+    }
+
     @Test func aKeyframeRequestOwedFromTheBackgroundIsStillMadeOnReturn() {
         let log = AckLog()
         let acks = BrowserAcks(visible: false, send: { log.record($0) })
@@ -231,7 +352,7 @@ import Testing
 
     private func connected() async throws -> (ClientModel, BrowserRecorder) {
         let session = BrowserRecorder()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
         let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "device", pin: nil, credential: { "{}" })
         await model.connect(target: target, directory: FileManager.default.temporaryDirectory)
         model.open("thread")
@@ -293,4 +414,27 @@ private final class BrowserRecorder: ClientSession, @unchecked Sendable {
     }
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { completion() }
+}
+
+/// Which browser-help request the browser's Done and Skip answer.
+@Suite struct BrowserHelpPickTests {
+    private func help(_ id: String, elsewhere: Bool = false) -> ApprovalRow {
+        ApprovalRow(id: id, kind: "browser_help", state: "pending", title: "", description: "", command: "", options: [],
+                    truncated: false, help: HelpRequest(title: "Sign in", detail: "", elsewhere: elsewhere))
+    }
+
+    @Test func theBrowserAnswersTheRequestWhoseCardOpenedItNotTheFirstOne() {
+        let picked = BrowserHelpPick.help(in: [help("first"), help("second")], chosen: "second")
+        #expect(picked?.id == "second")
+    }
+
+    @Test func withNoCardChosenOrTheChosenOneAnsweredTheBrowserTakesTheFirstStillOpen() {
+        #expect(BrowserHelpPick.help(in: [help("first"), help("second")], chosen: nil)?.id == "first")
+        #expect(BrowserHelpPick.help(in: [help("second")], chosen: "first")?.id == "second")
+    }
+
+    @Test func aRequestFromAnotherMachineIsNeverAnsweredFromThisBrowser() {
+        #expect(BrowserHelpPick.help(in: [help("there", elsewhere: true)], chosen: "there") == nil)
+        #expect(BrowserHelpPick.help(in: [help("there", elsewhere: true), help("here")], chosen: nil)?.id == "here")
+    }
 }

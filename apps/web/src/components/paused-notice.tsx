@@ -1,35 +1,34 @@
-import { useEffect, useState } from "react";
-import { desktopDaemon, type DesktopDaemonStatus } from "@/boot/desktop.ts";
+import { useOptionalClient } from "@ace/client-react";
+import { useState } from "react";
+import { setPaused, useAdmission } from "@/lib/admission.ts";
 import { StatusLabel } from "./status-label.tsx";
 import { Button } from "./ui/button.tsx";
 import { useToast } from "./ui/toast.tsx";
 
-/** Tray pause closes admission; ongoing work keeps its own status. */
+/**
+ * The person paused new work on this window's machine (the Fleet page, the desktop tray or a
+ * phone): ongoing work keeps its own status. The daemon owns the pause, so this shows on the web
+ * too, and Resume here clears it everywhere. A window with no machine has nothing to pause and
+ * shows nothing. A disk too full to store new work holds it the same way, without a button.
+ */
 export function PausedNotice() {
-  const [desktop] = useState(() => desktopDaemon());
-  const [status, setStatus] = useState<DesktopDaemonStatus>();
+  const client = useOptionalClient();
+  const admission = useAdmission(client);
   const [pending, setPending] = useState(false);
   const toast = useToast();
-  useEffect(() => {
-    if (!desktop) return;
-    let current = true;
-    let announced = false;
-    const stop = desktop.onStatus((next) => {
-      announced = true;
-      setStatus(next);
-    });
-    void desktop
-      .status()
-      .then((next) => {
-        if (current && !announced) setStatus(next);
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-      stop();
-    };
-  }, [desktop]);
-  if (!status?.paused || !desktop?.pause) return null;
+  if (!client) return null;
+  // The daemon holds new work itself while its disk is full and lets go once space is freed:
+  // nothing to press, so the line only says why work waits.
+  if (admission?.holds.includes("storage"))
+    return (
+      <div role="status" className="flex min-h-9 items-center gap-2 border-b px-4 text-ui">
+        <StatusLabel tone="needs-you" label="Disk full" />
+        <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+          New work waits until space is freed on this machine.
+        </span>
+      </div>
+    );
+  if (!admission?.holds.includes("user")) return null;
   return (
     <div role="status" className="flex min-h-9 items-center gap-2 border-b px-4 text-ui">
       <StatusLabel tone="needs-you" label="Paused" />
@@ -40,17 +39,11 @@ export function PausedNotice() {
         disabled={pending}
         onClick={() => {
           setPending(true);
-          void desktop
-            .pause?.(false)
-            .then((next) => {
-              if (next) setStatus(next);
+          void setPaused(client, false, "this machine")
+            .then((outcome) => {
+              if (!outcome.ok)
+                toast.error({ title: "Couldn't resume new work", description: outcome.problem });
             })
-            .catch(() =>
-              toast.error({
-                title: "Couldn't resume new work",
-                description: "Check the connection and try again.",
-              }),
-            )
             .finally(() => setPending(false));
         }}
       >

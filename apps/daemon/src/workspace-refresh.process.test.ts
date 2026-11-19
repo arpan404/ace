@@ -28,7 +28,7 @@ afterEach(async () => {
 /** A thread on a real checkout, refreshed by the production sweep on virtual time. */
 async function refreshing(
   status: ThreadStatus,
-  options: { viewed?: boolean; details?: ThreadDetails } = {},
+  options: { viewed?: boolean; details?: ThreadDetails; firstSweepMs?: number } = {},
 ) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-workspace-refresh-")));
   const root = join(home, "repo");
@@ -78,8 +78,14 @@ async function refreshing(
     },
   });
   const failures: unknown[] = [];
-  const refresh = new WorkspaceRefresh(store, runtime, time.now, time.schedule, (error) =>
-    failures.push(error),
+  const refresh = new WorkspaceRefresh(
+    store,
+    runtime,
+    time.now,
+    time.schedule,
+    (error) => failures.push(error),
+    undefined,
+    options.firstSweepMs,
   );
   cleanups.push(async () => {
     await refresh.close();
@@ -102,6 +108,13 @@ async function refreshing(
       store.appendEvents(thread.id, [{ type: "thread.updated", title: "Edited" }], time.at),
   };
 }
+
+test("a starting daemon reads no checkout until its startup delay has passed", async () => {
+  const thread = await refreshing({ state: "new" }, { firstSweepMs: 3_000 });
+  expect(thread.statusReads()).toBe(0);
+  await thread.time.advance(3_000);
+  expect(thread.statusReads()).toBeGreaterThan(0);
+});
 
 test("a quiet thread nobody is viewing is not re-read every minute", async () => {
   const thread = await refreshing({ state: "new" });
@@ -180,4 +193,22 @@ test("a sweep that finds the store busy is reported and the next sweep still run
   } finally {
     process.off("unhandledRejection", keep);
   }
+});
+
+test("an agent's edit whose due mark meets a full disk still shows by the first sweep after space is back", async () => {
+  const thread = await refreshing({ state: "done" });
+  await thread.time.advance(2 * minute);
+  expect(thread.changedFiles()).toBe(0);
+  // The disk boundary for the due row: its write fails as a full disk fails it. (A capped file
+  // cannot stand in, since the row's update fits the page it already has.)
+  thread.store.atomic((db) =>
+    db.exec(
+      "CREATE TEMP TRIGGER full_refresh BEFORE INSERT ON workspace_refresh BEGIN SELECT RAISE(FAIL, 'database or disk is full'); END",
+    ),
+  );
+  await writeFile(join(thread.root, "file.txt"), "one\ntwo\n");
+  thread.agentEdited();
+  thread.store.atomic((db) => db.exec("DROP TRIGGER temp.full_refresh"));
+  await thread.time.advance(minute);
+  expect(thread.changedFiles()).toBe(1);
 });

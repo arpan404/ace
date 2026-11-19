@@ -18,7 +18,7 @@ import {
   editDraft,
   resolveHunk,
   type HunkChoice,
-} from "./pr-conflicts-model.ts";
+} from "@ace/ui-core";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 
 interface Branches {

@@ -346,3 +346,35 @@ gh and git lookup rules live once in `@ace/provider-kit/user-tool-paths`. The pe
 tool-credential allowlist (`toolEnv`) is removed, since the person's own environment now
 reaches every account. Existing account homes keep their logins, because the selectors are
 unchanged.
+
+## Amendment: Cursor accounts and an empty `CURSOR_API_KEY`
+
+Date: 2026-11-01. With two Cursor accounts added in Settings, both showed "not configured" and
+asked to sign in again after every daemon start. Neither login had changed.
+
+What was checked (metadata only, no secret read or printed):
+
+- Each account's SDK login is its own file, `<account home>/user/.cursor/sdk/auth.json`
+  (`version`, `backendUrl`, `apiKey`, `apiKeyExpiresAtMs`, `email`, `createdAtMs`). Both files
+  were present, unexpired and held different keys. Signing in to a second account does not
+  touch the first one's file.
+- `@cursor/sdk` 1.0.35 `Cursor.auth.status()` only reads that file; it makes no network call.
+  Its key lookup is `process.env.CURSOR_API_KEY ?? <saved login>`, so an empty
+  `CURSOR_API_KEY` wins over the saved login.
+- Run directly with each account's HOME, the SDK reported both accounts signed in and listed
+  their models. Sharing is not the cause: the CLI's macOS keychain items
+  (`cursor-access-token`, `cursor-refresh-token`, `cursor-agent` 2026.10.01) are not used by
+  SDK accounts, and no refresh token is involved.
+
+Cause: the account owner registered each added account's model catalog row with every masked
+variable turned into an empty string, so the row carried `CURSOR_API_KEY=""`. The Cursor
+catalog worker built its environment from that row, the host saw an environment key that
+could not sign in, and the catalog reported `not_configured` and dropped the account's models.
+The daemon log showed this for both accounts at each start ("Provider sign-in is required",
+code `not_configured`).
+
+Decision: a catalog row keeps masked variables in `unsetEnv`, never as empty values (one
+helper, shared with Antigravity accounts), and the Cursor catalog environment honours
+`unsetEnv`. `cursorSdkEnvironment` also drops an empty `CURSOR_API_KEY`, since it can never
+sign in and would hide the account's saved login. Existing logins keep working after the
+update; nobody needs to sign in again.

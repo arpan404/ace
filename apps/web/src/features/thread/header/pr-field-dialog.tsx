@@ -20,7 +20,7 @@ const forms = {
   "link-pr": {
     title: "Link an existing pull request",
     label: "Pull request",
-    placeholder: "42, #42 or its GitHub address",
+    placeholder: "42, #42 or its address",
     submit: "Link",
   },
   "request-review": {
@@ -56,7 +56,7 @@ export function PrFieldDialog(props: {
         ? { kind: "request-review", reviewers: parsed.reviewers }
         : "Name at least one GitHub username";
     }
-    if (!repository) return "This checkout has no GitHub remote";
+    if (!repository) return "This checkout has no remote on a supported Git host";
     const parsed = await parseReference(value, repository);
     return "error" in parsed
       ? parsed.error

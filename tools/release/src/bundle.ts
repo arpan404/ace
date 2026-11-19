@@ -1,20 +1,23 @@
 import { build, type PluginBuild } from "esbuild";
 import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
-import { stagePtyRuntime } from "./pty-assets.ts";
 import {
   guardianBundlePath,
   guardianSourcePath,
   stageTerminalGuardian,
 } from "./terminal-assets.ts";
-import { readFile, cp } from "node:fs/promises";
+import { readFile, cp, writeFile } from "node:fs/promises";
+import { markitWasmFile } from "@ace/markit-web/assets";
+import { packBuiltinSuits } from "@ace/plugins";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
-export { stageNativeFiles } from "./native-assets.ts";
+import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
+export { assembleRelease, buildIdFile } from "./build-id.ts";
 export {
   linuxScreenHelperName,
   linuxScreenHelperPath,
+  RustToolchainError,
   stageLinuxScreenHelper,
 } from "./screen-helper-assets.ts";
 export async function bundleDaemon(
@@ -29,37 +32,80 @@ export async function bundleDaemon(
     minify: true,
     metafile: true,
     platform: "node" as const,
-    target: "node24",
+    target: "node26",
     mainFields: ["module", "main"],
     format: "esm" as const,
-    external: ["node-pty", ...runtimePackages.map((pkg) => pkg.name)],
+    external: runtimePackages.map((pkg) => pkg.name),
     legalComments: "eof" as const,
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },
     plugins: [
+      daemonWithoutKoffi,
+      {
+        // css-tree's module build reads its syntax data with `require("../data/patch.json")` and
+        // `require("mdn-data/...")` at run time, files a bundle doesn't ship; its dist build
+        // carries the same data inline.
+        name: "css-tree-inline-data",
+        setup(ctx: PluginBuild) {
+          ctx.onResolve({ filter: /^css-tree$/ }, (args) =>
+            ctx.resolve("css-tree/dist/csstree.esm", {
+              kind: args.kind,
+              resolveDir: args.resolveDir,
+            }),
+          );
+        },
+      },
       {
         name: "release-paths",
         setup(ctx: PluginBuild) {
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|injection|mcp-ready|agent-env|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
             },
             async (args) => {
+              // Windows paths arrive with backslashes; the rewrites below match `/` paths.
+              if (process.platform === "win32")
+                args = { ...args, path: args.path.replaceAll("\\", "/") };
               let contents = await readFile(args.path, "utf8");
               for (const [source, worker, output] of [
                 ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],
+                [
+                  "/commands/src/posix-worker-client.ts",
+                  "./posix-worker.ts",
+                  "./commands-posix-worker.mjs",
+                ],
                 [
                   "/files/src/exclusive-rename.ts",
                   "./rename-worker.ts",
                   "./files-rename-worker.mjs",
                 ],
                 ["/search/src/worker-runtime.ts", "./query-worker.ts", "./search-query-worker.mjs"],
+                [
+                  "/daemon/src/wal-worker-runtime.ts",
+                  "./wal-checkpoint-worker.ts",
+                  "./wal-checkpoint-worker.mjs",
+                ],
+                [
+                  "/daemon/src/storage/worktree-io.ts",
+                  "./worktree-worker.ts",
+                  "./storage-worktree-worker.mjs",
+                ],
+                [
+                  "/daemon/src/storage/usage-scanner.ts",
+                  "./usage-worker.ts",
+                  "./storage-usage-worker.mjs",
+                ],
               ]) {
                 if (source && worker && output && args.path.endsWith(source))
                   contents = contents.replace(JSON.stringify(worker), JSON.stringify(output));
               }
+              if (args.path.endsWith("/adapter-opencode/src/agent-env.ts"))
+                contents = contents.replace(
+                  '"./agent-env-plugin"',
+                  '"./opencode-agent-env-plugin"',
+                );
               if (args.path.endsWith("/adapter-opencode/src/mcp-ready.ts"))
                 contents = contents.replace(
                   '"./mcp-ready-plugin"',
@@ -67,6 +113,10 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/plugins/src/builtins.ts"))
                 contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
+              if (args.path.endsWith("/plugins/src/builtin-suits.ts"))
+                contents = contents
+                  .replace('"../builtin-suits"', '"./builtin-suits"')
+                  .replace('"../builtins-lock.json"', '"./builtins-lock.json"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -74,7 +124,7 @@ export async function bundleDaemon(
                   '"./history-publish-worker.ts"',
                   '"./history-publish-worker.mjs"',
                 );
-              if (args.path.endsWith("/daemon/src/stall-watchdog.ts"))
+              if (args.path.endsWith("/diagnostics/src/stall-watchdog.ts"))
                 contents = contents.replace(
                   '"./stall-watchdog-worker.ts"',
                   '"./stall-watchdog-worker.mjs"',
@@ -107,13 +157,17 @@ export async function bundleDaemon(
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
+              // markit's engine ships beside the bundle (`markit_wasm_bg.wasm`).
+              if (args.path.endsWith("/markit-web/src/document.ts"))
+                contents = contents.replace(
+                  'import.meta.resolve("@markit/web/pkg/markit_wasm_bg.wasm")',
+                  'new URL("./markit_wasm_bg.wasm", import.meta.url).href',
+                );
+              // A Windows bundle's Windows binding loads the same addon a second time.
+              if (target.startsWith("win32-") && args.path.endsWith("/workspace/src/descriptor.ts"))
+                contents = contents.replaceAll('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/terminal/src/pty.ts"))
                 contents = contents.replace(guardianSourcePath, guardianBundlePath);
-              if (args.path.endsWith("/workspace/src/node-search.ts"))
-                contents = contents.replace(
-                  '"./node-search-worker.ts"',
-                  '"./workspace-search-worker.mjs"',
-                );
               if (args.path.endsWith("/notify/src/worker.ts"))
                 contents = contents.replace('"./worker-entry.ts"', '"./notification-worker.mjs"');
               if (args.path.endsWith("/usage/src/worker.ts"))
@@ -181,17 +235,17 @@ export async function bundleDaemon(
   await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
     recursive: true,
   });
+  await cp(join(repo, "packages/plugins/builtins-lock.json"), join(root, "builtins-lock.json"));
+  // One `<id>.tar` per Suit, so its fonts and stills cost the archive one entry.
+  await packBuiltinSuits(join(root, "builtin-suits"), join(repo, "packages/plugins/builtin-suits"));
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
+  // For measuring which sources land in which output: ACE_BUNDLE_METAFILE=<path>.
+  if (process.env.ACE_BUNDLE_METAFILE)
+    await writeFile(process.env.ACE_BUNDLE_METAFILE, JSON.stringify(daemon.metafile));
   const scripts = Object.keys(daemon.metafile.outputs);
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
-  inputs.add(await stagePtyRuntime(repo, root, target));
-  const workspaceIncluded = [...inputs].some((input) =>
-    input.endsWith("packages/workspace/src/descriptor.ts"),
-  );
-  if (workspaceIncluded)
-    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
     stageTerminalGuardian(repo, root, target);
   const helpers = [
@@ -199,17 +253,25 @@ export async function bundleDaemon(
       "packages/adapter-opencode/src/mcp-ready-plugin/server.ts",
       "opencode-mcp-ready-plugin/server.mjs",
     ],
+    [
+      "packages/adapter-opencode/src/agent-env-plugin/server.ts",
+      "opencode-agent-env-plugin/server.mjs",
+    ],
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["packages/adapter-claude/src/metadata-host.ts", "claude-metadata-host.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
-    ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
+    ["apps/daemon/src/storage/worktree-worker.ts", "storage-worktree-worker.mjs"],
+    ["apps/daemon/src/storage/usage-worker.ts", "storage-usage-worker.mjs"],
+    ["packages/diagnostics/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
+    ["apps/daemon/src/wal-checkpoint-worker.ts", "wal-checkpoint-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
     ["packages/adapter-pi/src/extension.ts", "pi-extension.mjs"],
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
     ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],
+    ["packages/commands/src/posix-worker.ts", "commands-posix-worker.mjs"],
     ["packages/search/src/query-worker.ts", "search-query-worker.mjs"],
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
@@ -227,8 +289,6 @@ export async function bundleDaemon(
     ["packages/diagnostics/src/sqlite-process.ts", "diagnostics-sqlite-process.mjs"],
     ["packages/browser-extension/src/host-main.ts", "browser-extension-host.mjs"],
   ];
-  if (workspaceIncluded)
-    helpers.push(["packages/workspace/src/node-search-worker.ts", "workspace-search-worker.mjs"]);
   for (const [entry, output] of helpers) {
     if (!entry || !output) throw new Error("Invalid helper entry");
     const helper = await build({
@@ -240,7 +300,14 @@ export async function bundleDaemon(
     for (const input of Object.keys(helper.metafile.inputs)) inputs.add(input);
     scripts.push(...Object.keys(helper.metafile.outputs));
   }
+  // A worker can be the only consumer of pinned filesystem access. Its native dependency
+  // becomes visible only after helper builds have contributed their inputs.
+  if ([...inputs].some((input) => input.endsWith("packages/workspace/src/descriptor.ts")))
+    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
+  if ([...inputs].some((input) => input.endsWith("packages/markit-web/src/document.ts")))
+    await cp(markitWasmFile(), join(root, "markit_wasm_bg.wasm"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
+  await assertNoKoffi(scripts.map((path) => resolve(path)));
   return [...inputs];
 }

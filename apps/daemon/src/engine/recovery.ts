@@ -1,3 +1,4 @@
+import { isStoreRetry } from "../store-busy.ts";
 import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWorkLines } from "./lost-work.ts";
@@ -15,7 +16,7 @@ import {
 } from "@ace/protocol";
 import { continueMessage, type Fact, type ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
-import { exitShown, maxMessages, isSend } from "./queue-store.ts";
+import { exitShown, maxMessages, isSend, type RecoveryRecord } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
 
@@ -45,6 +46,11 @@ export interface RecoveryPorts {
 }
 /** A deadline pass that could not commit (the store is busy, say) runs again after this. */
 const deadlineRetryMs = 1_000;
+const deadlineDeferralMaxMs = 10 * 60_000;
+/** The next wait for a deadline that keeps failing: doubling from a second, capped. */
+export function deadlineDeferral(previous: number | undefined): number {
+  return Math.min(deadlineDeferralMaxMs, previous === undefined ? deadlineRetryMs : previous * 2);
+}
 /** Durable holds and one deadline timer, independent of actor/session residency. */
 export class Recovery {
   private repo: EngineRepository;
@@ -54,7 +60,16 @@ export class Recovery {
   private wake: (id: ThreadId) => void;
   private cancel: (() => void) | undefined;
   private closed = false;
+  /**
+   * Threads whose deadline keeps failing: the deadline (and hold) it was put off to, and how long
+   * that deferral was.
+   */
+  private deferrals = new Map<ThreadId, { deadline: string; delay: number }>();
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
+  /** Loads past the concurrent bound, by hold token: each starts as a running one finishes. */
+  private waitingPolicy = new Map<ThreadId, number>();
+  /** Told when a thread's limit policy finished loading, whatever it decided. */
+  private policyListeners = new Set<(id: ThreadId) => void>();
   /** Automatic restart continuations in a row, for the loop guard. */
   readonly streaks: RestartStreaks;
   /** What each restart continuation's capture saw, for startup's decision. */
@@ -149,6 +164,18 @@ export class Recovery {
     return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
+    const held = this.repo.queue.get(id);
+    const state = this.repo.requireState(id);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // Older builds could install the child's quota hold on the parent's account. Retire that
+    // timer without sending anything or clearing the child's independent quota evidence.
+    if (
+      held.limited &&
+      !root?.limited &&
+      (held.reason === "limit" || held.reason === "snooze") &&
+      !this.repo.pending.recovering(id)
+    )
+      this.bindingChanged(id);
     const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
     if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision) {
@@ -174,12 +201,8 @@ export class Recovery {
    * Ordinary interruption/pause retains these records. */
   /** Cancelling a subtree discards resumable work but keeps a Stop's hold for the person. */
   discardKeepingStop(id: ThreadId): void {
-    this.repo.store.atomic(() => {
-      const queue = this.repo.queue.get(id);
-      this.discard(id);
-      if (queue.paused && queue.reason === "stopped")
-        this.repo.queue.set(id, { paused: true, reason: "stopped" }, this.clock.now());
-    });
+    const queue = this.repo.queue.get(id);
+    this.discardHolding(id, stoppedHold(queue) ? { paused: true, reason: "stopped" } : released);
   }
   /**
    * Builds before the Stop rule captured a restart "continue" behind a Stop, which left a
@@ -201,7 +224,8 @@ export class Recovery {
     const queue = this.repo.queue.get(id);
     if (!queue.paused || queue.limited) return;
     if (queue.reason !== "restart" && queue.reason !== "stopped") return;
-    if (this.repo.queue.count(id) > 0) return;
+    // Child results wait under the hold too: sent, they would start a turn in a settled thread.
+    if (this.repo.queue.waitingSends(id) > 0) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.repo.pending.finishContinuation(id);
     this.repo.queue.set(
@@ -218,6 +242,14 @@ export class Recovery {
     this.sync(id);
   }
   discard(id: ThreadId): void {
+    this.discardHolding(id, released);
+  }
+  /**
+   * `discard`, leaving the queue held as `hold` says in the same write, so the thread never
+   * reads as waiting to send in between. Settling a tree (`SettledTrees`) relies on it: a child
+   * that flashed "waiting" would be revived, settled again and report its result twice.
+   */
+  discardHolding(id: ThreadId, hold: QueueHold): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
       for (const intent of this.repo.pending.headers(id))
@@ -231,8 +263,7 @@ export class Recovery {
         {
           continuation: null,
           trigger: null,
-          paused: false,
-          reason: null,
+          ...hold,
           limited: false,
           resetAt: null,
           resumeAt: null,
@@ -247,6 +278,7 @@ export class Recovery {
   }
   /** Records a plain continuation for interrupted live work (a provider exit, a host pause). */
   capture(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     this.repo.store.atomic(() => {
       this.captureWith(id, () => continueMessage);
       // A plain continuation is no restart capture; startup must not read an older one.
@@ -259,6 +291,7 @@ export class Recovery {
    * checkpoint reconciliation, so it keeps the plain continuation.
    */
   captureRestart(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     this.repo.store.atomic(() => {
       const captured = this.captureWith(id, (lost) =>
         this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost),
@@ -313,6 +346,7 @@ export class Recovery {
    * never continues it by itself.
    */
   holdInterrupted(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     if (this.repo.pending.uncertainContinuation(id)) return;
     const queue = this.repo.queue.get(id);
     if (stoppedHold(queue)) return;
@@ -333,7 +367,15 @@ export class Recovery {
     );
     this.sync(id);
   }
+  /**
+   * A Spade bot's hidden session (ADR 0133): Spade owns its lifecycle, so no limit hold, timed
+   * resume, account move or continuation ever starts or holds work there.
+   */
+  private spadeOwned(id: ThreadId): boolean {
+    return this.repo.store.getThread(id)?.host === "spade-bot";
+  }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
+    if (this.spadeOwned(state.threadId)) return;
     // A root turn that completes ends any run of restarts the loop guard was counting.
     if (
       facts.some(
@@ -357,7 +399,10 @@ export class Recovery {
       )
     )
       return;
-    const limited = Object.values(state.agents).filter((record) => record.limited);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // A child owns its own refusal. It must not install a timer or hold on the root's account.
+    const limited =
+      root?.limited && root.agent.native.provider === state.config.provider ? [root] : [];
     const queue = this.repo.queue.get(state.threadId);
     if (!limited.length) {
       if (!queue.limited) return;
@@ -422,7 +467,14 @@ export class Recovery {
       this.refreshPolicy(state.threadId, this.repo.queue.get(state.threadId).holdToken);
   }
   private refreshPolicy(id: ThreadId, token: number): void {
-    if (this.pendingPolicy.has(id) || this.pendingPolicy.size >= 64 || this.closed) return;
+    if (this.pendingPolicy.has(id) || this.closed) return;
+    // Past the bound it waits its turn, still loading: until it loads, nothing settles the
+    // thread on a policy it hasn't read.
+    if (this.pendingPolicy.size >= 64) {
+      this.waitingPolicy.set(id, token);
+      return;
+    }
+    this.waitingPolicy.delete(id);
     const task = this.prepare(id)
       .then(() => {
         const queue = this.repo.queue.get(id);
@@ -468,13 +520,36 @@ export class Recovery {
       })
       // The notice itself is a write; a store that refuses it is reported, never unhandled.
       .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
-      .finally(() => this.pendingPolicy.delete(id));
+      .finally(() => {
+        this.pendingPolicy.delete(id);
+        const next = this.waitingPolicy.entries().next();
+        if (!next.done) {
+          this.waitingPolicy.delete(next.value[0]);
+          this.refreshPolicy(next.value[0], next.value[1]);
+        }
+        for (const listener of this.policyListeners) {
+          try {
+            listener(id);
+          } catch (error) {
+            (this.ports.onError ?? console.error)(error);
+          }
+        }
+      });
     this.pendingPolicy.set(id, task);
   }
+  /** The thread's limit policy is still loading, so what ace does at reset isn't known yet. */
+  policyLoading(id: ThreadId): boolean {
+    return this.pendingPolicy.has(id) || this.waitingPolicy.has(id);
+  }
+  onPolicyLoaded(listener: (id: ThreadId) => void): () => void {
+    this.policyListeners.add(listener);
+    return () => this.policyListeners.delete(listener);
+  }
   async flush(): Promise<void> {
-    await Promise.all(this.pendingPolicy.values());
+    while (this.pendingPolicy.size) await Promise.all(this.pendingPolicy.values());
   }
   automatic(id: ThreadId, action?: "migrate_now"): CommandResult | undefined {
+    if (this.spadeOwned(id)) return undefined;
     // Maintenance holds turns ace would start by itself: keep a due deadline for when it reopens.
     if (this.ports.admits?.() === false) {
       this.repo.queue.set(
@@ -515,6 +590,7 @@ export class Recovery {
   schedule(): void {
     this.cancel?.();
     this.cancel = undefined;
+    this.pruneDeferrals();
     // No deadline runs while maintenance holds new work; reopening schedules again.
     if (this.closed || this.ports.admits?.() === false) return;
     const at = this.repo.queue.nextDeadline();
@@ -525,23 +601,17 @@ export class Recovery {
   private fire(): void {
     try {
       if (this.repo.store.isHistoryWriting()) throw new Error("History publication in progress");
-      this.repo.store.atomic(() => {
-        for (const id of this.repo.queue.due(this.clock.now())) {
-          const queue = this.repo.queue.get(id);
-          if (queue.timerAction === "snooze")
-            this.repo.queue.set(
-              id,
-              { resumeAt: null, timerAction: null, reason: "manual" },
-              this.clock.now(),
-            );
-          else if (queue.timerAction === "clear") this.clearLimit(id);
-          else {
-            // Clear the deadline first, retaining a manual hold on capacity refusal.
-            this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
-            this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
-          }
+      this.pruneDeferrals();
+      for (const id of this.repo.queue.due(this.clock.now())) {
+        try {
+          this.repo.store.atomic(() => this.fireOne(id));
+          this.deferrals.delete(id);
+        } catch (error) {
+          // Contention: the whole pass is tried again shortly.
+          if (isStoreRetry(error)) throw error;
+          this.deferDeadline(id, error);
         }
-      });
+      }
       this.schedule();
     } catch (error) {
       // The pass rolled back, so its deadlines are still due; try them again shortly.
@@ -556,6 +626,56 @@ export class Recovery {
         : this.clock.setTimer(() => this.fire(), deadlineRetryMs);
       return;
     }
+  }
+  private fireOne(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    if (queue.timerAction === "snooze")
+      this.repo.queue.set(
+        id,
+        { resumeAt: null, timerAction: null, reason: "manual" },
+        this.clock.now(),
+      );
+    else if (queue.timerAction === "clear") this.clearLimit(id);
+    else {
+      // Clear the deadline first, retaining a manual hold on capacity refusal.
+      this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
+      this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
+    }
+  }
+  /**
+   * One thread's deadline could not be acted on (a record this build can't read, say). Its
+   * deadline moves back with doubling, bounded delays, so it neither spins nor holds up the
+   * deadlines after it; it is acted on once it can be.
+   */
+  private deferDeadline(id: ThreadId, error: unknown): void {
+    const previous = this.deferrals.get(id);
+    // Only the deadline it put off carries its backoff; a new hold starts over.
+    const delay = deadlineDeferral(
+      previous && previous.deadline === this.repo.queue.deadlineKey(id)
+        ? previous.delay
+        : undefined,
+    );
+    try {
+      (this.ports.onError ?? console.error)(
+        new Error(`Thread ${id}'s deadline failed; tried again in ${delay} ms`, { cause: error }),
+      );
+    } catch {
+      /* Reporting cannot disable retries. */
+    }
+    const deadline = this.repo.store.atomic(() => {
+      this.repo.queue.defer(id, this.clock.now() + delay);
+      return this.repo.queue.deadlineKey(id);
+    });
+    if (deadline === undefined) this.deferrals.delete(id);
+    else this.deferrals.set(id, { deadline, delay });
+  }
+  /**
+   * Forgets backoff whose deadline is gone: resumed, cancelled, replaced by a new hold, or its
+   * thread's state purged. Only deadlines still put off are kept, so the map never outgrows them.
+   */
+  private pruneDeferrals(): void {
+    for (const [id, deferral] of this.deferrals)
+      if (this.repo.queue.deadlineKey(id) !== deferral.deadline) this.deferrals.delete(id);
   }
   moveTarget(id: ThreadId, requested?: string): string {
     if (!this.ports.moveTarget) throw new Error("Account migration is unavailable");
@@ -615,31 +735,27 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, this.clock.now());
     this.sync(id);
     this.schedule();
   }
   /**
-   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, one
-   * that has already cleared (or that a switch left behind), or one the thread is leaving (a
-   * switch to another account, model or provider is ahead of the message). Their message
-   * is the go-ahead: the hold and ace's own continuation are dropped and the queue sends in
-   * order, with their message last, on the new selection when there is one. If the provider
-   * refuses again, its definite signal holds the thread again. A known reset that hasn't passed
-   * keeps holding otherwise, and so does a pause the person chose.
+   * The person sends while a limit holds the thread: their message is the go-ahead, even before
+   * the reset the provider gave, because limits often lift early or at times nobody predicted.
+   * The hold, any resume or snooze timer, and ace's own continuation are dropped, and the queue
+   * sends in order with their message last (on the new selection when a switch is ahead of it).
+   * If the provider still refuses, its definite signal holds the thread again. A pause the
+   * person chose keeps holding.
    */
   releaseLimitHold(id: ThreadId, at: number): void {
     const queue = this.repo.queue.get(id);
     if (!queue.paused) return;
-    const leaving =
-      (queue.reason === "limit" || queue.reason === "snooze") &&
-      this.repo.pending.transition(id)?.kind === "thread.switch";
-    const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
+    const limitHold = queue.reason === "limit" || queue.reason === "snooze";
     // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
     const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
-    if (!leaving && (queue.resumeAt !== null || (!resetless && !cleared))) return;
+    if (!limitHold && !cleared) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.lift(id, at);
   }
@@ -664,7 +780,7 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, at);
     this.sync(id);
@@ -680,7 +796,7 @@ export class Recovery {
     this.repo.apply(
       id,
       Object.entries(state.agents)
-        .filter(([, record]) => record.limited)
+        .filter(([agent, record]) => agent === state.rootKey && record.limited)
         .map(([agent]) => ({ type: "limit.cleared", agent })),
       this.clock.now(),
     );
@@ -696,9 +812,14 @@ export class Recovery {
   }
   close(): void {
     this.closed = true;
+    this.waitingPolicy.clear();
     this.cancel?.();
   }
 }
+
+/** How a discard leaves the queue: released, or held for a reason that still applies. */
+export type QueueHold = Pick<RecoveryRecord, "paused" | "reason">;
+const released: QueueHold = { paused: false, reason: null };
 
 function stoppedHold(queue: { paused: boolean; reason: string | null }): boolean {
   return queue.paused && queue.reason === "stopped";

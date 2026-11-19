@@ -21,7 +21,7 @@ struct DevicesScreen: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background.ignoresSafeArea())
         .threadTitle("Devices", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -65,9 +65,10 @@ struct DevicesScreen: View {
             if let offline = view.offline {
                 DeviceNote(sentence: offline.text, action: "Reconnect") { reconnect() }
             } else if !view.connected || view.loading {
-                ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).accessibilityLabel("Loading devices")
+                SkeletonRows(count: 3, label: "Loading devices").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if !view.enabled {
-                DeviceNote(sentence: "Devices are off on this machine.", action: model.canOperate ? "Turn on" : nil) {
+                DeviceNote(title: view.off?.title, sentence: view.off?.line ?? "Devices are off on this machine.",
+                           action: model.canOperate ? "Turn on" : nil) {
                     Task { await turnOn() }
                 }
             } else {
@@ -75,21 +76,22 @@ struct DevicesScreen: View {
             }
             if let problem = devices.problem { DeviceNote(sentence: problem.text, action: nil) {} }
         } else {
-            ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).accessibilityLabel("Loading devices")
+            SkeletonRows(count: 3, label: "Loading devices").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
         }
     }
 
     @ViewBuilder private func running(_ view: DevicesView) -> some View {
         if view.running.isEmpty {
             Text("No devices running.")
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .listRowSeparator(.hidden)
+                .aceFont(AceDesign.TextRole.rowTitle)
+                .foregroundStyle(AceDesign.Ink.muted)
+                .padding(.vertical, AceDesign.Space.related)
+                .listRowSeparator(.hidden).listRowBackground(AceDesign.Surface.background)
         }
         ForEach(view.running) { tile in
             Button { opened = tile } label: { DeviceRow(tile: tile) }
                 .buttonStyle(.plain)
-                .listRowBackground(AceTheme.Colours.background)
+                .listRowBackground(AceDesign.Surface.background)
                 .listRowSeparatorTint(AceTheme.Colours.separator)
                 .listSectionSeparator(.hidden, edges: .top)
                 .accessibilityIdentifier("devices.row")
@@ -162,25 +164,31 @@ enum DeviceIcon {
     }
 }
 
-/// One device: its kind, name, "iOS 26.0 · Live" and who is using it.
+/// One device: its kind, its name, "iOS 26.0 · Live", and who is using it on its own line, so
+/// the sentence is never cut short behind the version.
 struct DeviceRow: View {
     let tile: DeviceTile
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            AceIcon(DeviceIcon.of(tile.kind), size: 21)
-                .foregroundStyle(AceTheme.Colours.foreground).frame(width: 28).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(tile.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Text([tile.detail, tile.control].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+        HStack(spacing: AceDesign.Space.row) {
+            AceIcon(DeviceIcon.of(tile.kind), size: AceDesign.Size.icon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.muted).frame(width: AceDesign.Size.lead).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
+                Text(tile.name).aceFont(AceDesign.TextRole.rowTitle)
+                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+                if !tile.detail.isEmpty {
+                    Text(tile.detail).aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                }
+                if !tile.control.isEmpty {
+                    Text(tile.control).aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.subtle).lineLimit(2)
+                }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            AceIcon(.caretRight, size: 14, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            RowCaret()
         }
-        .frame(minHeight: 60)
+        .padding(.vertical, AceDesign.Size.rowPaddingTop)
+        .frame(minHeight: AceDesign.Size.rowThread)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -188,21 +196,29 @@ struct DeviceRow: View {
 
 /// A setup problem or state as one plain sentence, with one text action.
 struct DeviceNote: View {
+    /// A heading over the sentence, for a state the whole list is in (devices off).
+    var title: String? = nil
     let sentence: String
     let action: String?
     let run: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(sentence).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            if let title {
+                Text(title).aceFont(AceDesign.TextRole.rowTitle)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Text(sentence).aceFont(AceDesign.TextRole.rowTitle)
+                .foregroundStyle(AceDesign.Ink.muted)
             if let action {
-                Button(action, action: run).buttonStyle(.borderless)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                Button(action, action: run).buttonStyle(.secondaryAction)
+                    .padding(.top, AceDesign.Space.tight)
             }
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.vertical, AceDesign.Space.related)
         .listRowSeparator(.hidden)
+        .listRowBackground(AceDesign.Surface.background)
         .accessibilityIdentifier("devices.note")
     }
 }

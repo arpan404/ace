@@ -5,6 +5,12 @@ import { DaemonStop } from "./stop-reason.ts";
 type Daemon = Awaited<ReturnType<typeof import("./index.ts").startDaemon>>;
 type Signal = "SIGINT" | "SIGTERM";
 const SHUTDOWN_LIMIT_MS = 7_500;
+/** After a clean stop, how long stdio gets to drain before the process exits regardless. */
+const STOPPED_DRAIN_MS = 500;
+interface ConsoleBreak {
+  once(signal: "SIGBREAK", listener: () => void): unknown;
+  removeListener(signal: "SIGBREAK", listener: () => void): unknown;
+}
 /** Install the process lifetime before startup can advertise an endpoint. */
 export async function runDaemonProcess(
   start: (options: DaemonOptions) => Promise<Daemon>,
@@ -16,6 +22,8 @@ export async function runDaemonProcess(
   shutdown: {
     after(run: () => void, milliseconds: number): () => void;
     exit(code: number): void;
+    /** What still keeps the process alive, named for the log. */
+    openHandles?(): string[];
   } = {
     after(run, milliseconds) {
       const timer = setTimeout(run, milliseconds);
@@ -23,7 +31,9 @@ export async function runDaemonProcess(
       return () => clearTimeout(timer);
     },
     exit: (code) => process.exit(code),
+    openHandles: () => process.getActiveResourcesInfo(),
   },
+  consoleBreak: ConsoleBreak | undefined = process.platform === "win32" ? process : undefined,
 ): Promise<Daemon | undefined> {
   const lifetime = new AbortController();
   let daemon: Daemon | undefined;
@@ -31,6 +41,7 @@ export async function runDaemonProcess(
   const remove = () => {
     signals.removeListener("SIGINT", interrupt);
     signals.removeListener("SIGTERM", terminate);
+    consoleBreak?.removeListener("SIGBREAK", interrupt);
   };
   const stop = (signal: Signal) => {
     cancelExit ??= shutdown.after(() => {
@@ -48,10 +59,22 @@ export async function runDaemonProcess(
     if (daemon)
       void daemon
         .close(reason)
-        .catch((error: unknown) => {
-          console.error(error);
-          process.exitCode = 1;
-        })
+        .then(
+          () => {
+            // Everything the daemon owns has closed. A handle something forgot to release must
+            // not hold the process until the deadline and turn a clean stop into a failure.
+            cancelExit?.();
+            cancelExit = shutdown.after(() => {
+              const open = shutdown.openHandles?.() ?? process.getActiveResourcesInfo();
+              console.error(`Daemon stopped; exiting with handles still open: ${open.join(", ")}`);
+              shutdown.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
+            }, STOPPED_DRAIN_MS);
+          },
+          (error: unknown) => {
+            console.error(error);
+            process.exitCode = 1;
+          },
+        )
         .finally(() => {
           remove();
         });
@@ -60,6 +83,8 @@ export async function runDaemonProcess(
   const terminate = () => stop("SIGTERM");
   signals.once("SIGINT", interrupt);
   signals.once("SIGTERM", terminate);
+  // Windows consoles send Ctrl+Break as SIGBREAK, whose default ends the process uncleanly.
+  consoleBreak?.once("SIGBREAK", interrupt);
   try {
     daemon = await start({
       ...options,

@@ -1,3 +1,4 @@
+import { win32 } from "node:path";
 import { z } from "zod";
 import { absolutePathSchema, decode, hash, malformed, nul, refSchema } from "./decode.ts";
 import type { RepositoryInfo, Worktree } from "./types.ts";
@@ -72,6 +73,12 @@ export function parseWorktrees(buffer: Buffer): Worktree[] {
   }
   if (tree) throw malformed("unterminated worktree record");
   if (!trees.length) throw malformed("missing worktree records");
+  return trees;
+}
+
+/** Windows: Git for Windows prints `C:/...`; callers compare against native `C:\...` paths. */
+export function nativeWorktreePaths(trees: Worktree[]): Worktree[] {
+  for (const entry of trees) entry.path = win32.normalize(entry.path);
   return trees;
 }
 export function parseRemotes(buffer: Buffer): RepositoryInfo["remotes"] {

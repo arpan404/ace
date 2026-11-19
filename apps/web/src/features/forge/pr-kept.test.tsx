@@ -67,7 +67,7 @@ test("a PR kept by an earlier session paints before GitHub answers, holds writes
   // GitHub hasn't answered: what was kept shows, and nothing may be written from it.
   expect(await panel().findByText("Retry reconnects, as kept")).toBeTruthy();
   const fix = () =>
-    within(panel().getByRole("region", { name: "Needs attention" })).getByRole<HTMLButtonElement>(
+    within(panel().getByRole("region", { name: "Merge status" })).getByRole<HTMLButtonElement>(
       "button",
       { name: "Fix with agent: links" },
     );

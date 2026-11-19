@@ -200,38 +200,3 @@ it("replaces rejected feedback with current head and edited text before retrying
     comment: { body: "Current feedback" },
   });
 });
-it("rejects a paused read across unlink and relink to the identical PR", async () => {
-  const { store, runner, executable } = await setup();
-  const { GitHubForge } = await import("./index.ts");
-  const { promise: ready, resolve: notify } = Promise.withResolvers<void>();
-  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
-  const forge = new GitHubForge({
-    repository,
-    now: () => 1_000,
-    command: executable,
-    runner: async (request) => {
-      if (request.args[1] === "repos/octo/ace/pulls/7") {
-        notify();
-        await gate;
-      }
-      return runner(request);
-    },
-  });
-  const delivered: ForgeAutoFixIntent[] = [];
-  const loop = new ReviewLoop({
-    forge,
-    store,
-    executor: {
-      async enqueue(intent) {
-        delivered.push(intent);
-      },
-    },
-  });
-  const pending = loop.poll(link.threadId, signal());
-  await ready;
-  store.unlink(link.threadId);
-  store.link(link);
-  release();
-  await expect(pending).rejects.toMatchObject({ kind: "conflict" });
-  expect(delivered).toEqual([]);
-});

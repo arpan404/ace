@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "files-io"
+description = "Range reads, encoding detection, atomic writes and mutations inside a checkout root"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Test-only hooks, such as shrinking the display walk budget so a test can show a guard walks
+# past it. Off by default: a shipped crate must not change what it does because an env var is set.
+test-hooks = []
+
+[lints]
+workspace = true
+
+[dependencies]
+cap-fs-ext = "4"
+cap-std = "4"
+chardetng = "0.1"
+encoding_rs = "0.8"
+files-safe = { path = "../files-safe" }
+rustix = { version = "1", features = ["fs"] }
+sha2 = "0.10"
+thiserror = "2"
+
+[dev-dependencies]
+filetime = "0.2"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Wdk_Storage_FileSystem",
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+] }

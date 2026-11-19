@@ -1,7 +1,21 @@
 /** A pairing link, read: where the daemon is, and what its fragment carries. */
 export interface PairingLink {
-  /** The daemon's HTTPS origin with a trailing slash, where `/v1/pair` is posted. */
+  /**
+   * The daemon's HTTPS origin with a trailing slash, where `/v1/pair` is posted. Empty for a
+   * relay link: check `relay` first.
+   */
   daemon: string;
+  /**
+   * A link through a self-hosted relay (the daemon has no direct address): redeem with
+   * `redeemPairingViaRelay`, pinning `hostId`.
+   */
+  relay?: { url: string; hostId: string };
+  /**
+   * A direct link's second way in: the person's own relay the daemon is also on, and the host
+   * key to pin there. A machine that can't reach the address redeems the same code through it
+   * (ADR 0182). Readers that don't know it ignore it.
+   */
+  alsoRelay?: { url: string; hostId: string };
   code: string;
   /** The daemon's public-key pin; empty when the link has none. */
   fingerprint: string;
@@ -19,6 +33,28 @@ export function parsePairingLink(text: string): PairingLink {
   if (!url || !web(url) || url.username || url.password || url.search || url.pathname !== "/pair")
     throw new Error("Use the complete pairing link from your host computer.");
   const fragment = new URLSearchParams(url.hash.slice(1));
+  const relayUrl = fragment.get("relay");
+  if (relayUrl !== null) {
+    const relay = URL.parse(relayUrl);
+    const hostId = fragment.get("hostId") ?? "";
+    if (
+      !relay ||
+      (relay.protocol !== "wss:" && relay.protocol !== "ws:") ||
+      relay.username ||
+      relay.password ||
+      relay.search ||
+      relay.hash ||
+      !/^[A-Z2-7]{52}$/.test(hostId)
+    )
+      throw new Error("This pairing link doesn't name a valid relay.");
+    return {
+      daemon: "",
+      relay: { url: relay.href, hostId },
+      code: fragment.get("code") ?? "",
+      fingerprint: hostId,
+      scopes: (fragment.get("scopes") ?? "").split(",").filter((scope) => scope !== ""),
+    };
+  }
   const host = fragment.get("host");
   const daemon = host === null ? url : URL.parse(host);
   if (
@@ -29,23 +65,70 @@ export function parsePairingLink(text: string): PairingLink {
     (host !== null && daemon.href !== `${daemon.origin}/`)
   )
     throw new Error("This pairing link doesn't name a valid computer address.");
+  const alsoRelay = relayOf(fragment.get("viaRelay"), fragment.get("viaRelayHostId"));
   return {
     daemon: `${daemon.origin}/`,
+    ...(alsoRelay ? { alsoRelay } : {}),
     code: fragment.get("code") ?? "",
     fingerprint: fragment.get("fingerprint") ?? "",
     scopes: (fragment.get("scopes") ?? "").split(",").filter((scope) => scope !== ""),
   };
 }
 
-/** The link a person opens to pair: on the daemon itself, or on a web app that names it. */
-export function pairingLinkUrl(input: {
-  daemon: string;
-  fingerprint: string;
-  code: string;
-  scopes: readonly string[];
-  /** Origin of a separately served web app; the daemon's own web app when absent. */
-  app?: string | undefined;
-}): string {
+/** A relay route named in a fragment, or undefined when it isn't a valid one. */
+function relayOf(
+  address: string | null,
+  hostId: string | null,
+): { url: string; hostId: string } | undefined {
+  if (address === null || hostId === null) return undefined;
+  const relay = URL.parse(address);
+  if (
+    !relay ||
+    (relay.protocol !== "wss:" && relay.protocol !== "ws:") ||
+    relay.username ||
+    relay.password ||
+    relay.search ||
+    relay.hash ||
+    !/^[A-Z2-7]{52}$/.test(hostId)
+  )
+    return undefined;
+  return { url: relay.href, hostId };
+}
+
+/**
+ * The link a person opens to pair: on the daemon itself, on a web app that names it, or on a
+ * web app that names the self-hosted relay and host key to reach it through.
+ */
+export function pairingLinkUrl(
+  input:
+    | {
+        daemon: string;
+        fingerprint: string;
+        code: string;
+        scopes: readonly string[];
+        /** Origin of a separately served web app; the daemon's own web app when absent. */
+        app?: string | undefined;
+        /** The person's own relay the daemon is also on, as a second way in (ADR 0182). */
+        alsoRelay?: { url: string; hostId: string } | undefined;
+      }
+    | {
+        relay: { url: string; hostId: string };
+        code: string;
+        scopes: readonly string[];
+        /** Origin of the web app the link opens. */
+        app: string;
+      },
+): string {
+  if ("relay" in input) {
+    const url = new URL("/pair", input.app);
+    url.hash = new URLSearchParams({
+      relay: input.relay.url,
+      hostId: input.relay.hostId,
+      code: input.code,
+      scopes: input.scopes.join(","),
+    }).toString();
+    return url.toString();
+  }
   const daemon = new URL(input.daemon).origin;
   const url = new URL("/pair", input.app ?? daemon);
   url.hash = new URLSearchParams({
@@ -53,6 +136,9 @@ export function pairingLinkUrl(input: {
     fingerprint: input.fingerprint,
     code: input.code,
     scopes: input.scopes.join(","),
+    ...(input.alsoRelay
+      ? { viaRelay: input.alsoRelay.url, viaRelayHostId: input.alsoRelay.hostId }
+      : {}),
   }).toString();
   return url.toString();
 }

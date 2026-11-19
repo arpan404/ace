@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRevision.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseStatus.json"
+    },
+    "subscriptionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "lockedUse.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId",
+    "revision",
+    "status"
+  ],
+  "type": "object"
+}

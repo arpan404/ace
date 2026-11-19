@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
-import { accountDisplayName, providerNames, type ModelChoice } from "@ace/ui-core";
+import { switchQuestion, type ModelChoice } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,10 +11,11 @@ import {
 } from "@/components/ui/dialog.tsx";
 
 /**
- * Confirm moving a thread to another provider. The new agent reads a summary of the thread, not
- * the old one's private working state, and the switch waits for the running turn to finish.
- * `continues`: the thread can't move in place (a Cursor thread leaving Cursor or its account),
- * so the person's next message starts a new thread with this one's context instead.
+ * Confirm moving a thread to another provider, in the shared words (`switchQuestion`). The new
+ * agent reads a summary of the thread, not the old one's private working state, and the switch
+ * waits for the running turn to finish. `continues`: the thread can't move in place (a Cursor
+ * thread leaving Cursor or its account), so the person's next message starts a new thread with
+ * this one's context instead.
  */
 export function SwitchDialog(props: {
   from: ProviderKind;
@@ -26,58 +27,34 @@ export function SwitchDialog(props: {
   onConfirm(): void;
   onClose(): void;
 }) {
-  const to = providerNames[props.to.provider];
-  const from = providerNames[props.from];
-  const target = props.to.account
-    ? `${props.to.model} on ${accountDisplayName(props.to.account)}`
-    : props.to.model;
-  if (props.continues)
-    return (
-      <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Continue in a new thread?</DialogTitle>
-            <DialogDescription>
-              Your next message starts a new thread on {target}, with this conversation as its
-              context. Its files go with it. This thread stays as it is.
-            </DialogDescription>
-            {props.warning && (
-              <p role="alert" className="text-sm text-status-failed">
-                {props.warning}
-              </p>
-            )}
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={props.onClose}>
-              Cancel
-            </Button>
-            <Button type="button" variant="primary" autoFocus onClick={props.onConfirm}>
-              Continue on {to}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
+  const question = switchQuestion({
+    from: props.from,
+    to: props.to,
+    busy: props.busy,
+    continues: props.continues === true,
+    warning: props.warning,
+  });
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Switch to {to}?</DialogTitle>
-          <DialogDescription>
-            {to} picks up from a summary of this thread. What {from} kept to itself (its scratch
-            state and tool sessions) doesn't carry over.
-            {props.busy ? " The switch happens once the current turn finishes." : ""}
-          </DialogDescription>
-          <p className="min-w-0 text-sm break-words text-muted-foreground">
-            Model: {props.to.model}
-          </p>
+          <DialogTitle>{question.title}</DialogTitle>
+          <DialogDescription>{question.message}</DialogDescription>
+          {question.warning && (
+            <p role="alert" className="text-sm text-status-failed">
+              {question.warning}
+            </p>
+          )}
+          {question.detail && (
+            <p className="min-w-0 text-sm break-words text-muted-foreground">{question.detail}</p>
+          )}
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={props.onClose}>
             Cancel
           </Button>
           <Button type="button" variant="primary" autoFocus onClick={props.onConfirm}>
-            Switch to {to}
+            {question.action}
           </Button>
         </DialogFooter>
       </DialogContent>

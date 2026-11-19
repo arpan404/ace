@@ -70,6 +70,43 @@ export const adapterWarning = "adapter.warning";
  */
 export class InputRejected extends Error {}
 
+/**
+ * Whose input a send carries when it is not the person's: `ace` for ace's own input (child
+ * results, notices), which providers may mark synthetic, and `agent` for anything else the
+ * person didn't send (another agent's message, an automation's prompt). A steer from either
+ * joins the running turn without cutting into it: it waits for the running tool and never
+ * aborts the model's reply. Only the person's steer (no source) may preempt.
+ */
+export type InputSource = "ace" | "agent";
+
+/**
+ * A person's steer aimed at one turn. The adapter checks it synchronously after its last await,
+ * immediately before writing the steer: if `current()` says no (or, where the provider names its
+ * turns, the turn running isn't `turn`), the steer is refused unread with `SteerTargetLost` and
+ * never retried into another turn. A steer with no fence behaves as it always has.
+ */
+export interface SteerFence {
+  /** The provider's own id for the turn the steer is aimed at, when it has one. */
+  readonly turn?: string | undefined;
+  /** Whether that turn is still the one running, read now. */
+  current(): boolean;
+}
+
+/** A fenced steer whose turn ended (or was replaced) before the provider read it: unread. */
+export class SteerTargetLost extends InputRejected {
+  constructor(message = "The turn this message was meant to join has ended") {
+    super(message);
+  }
+}
+
+/**
+ * Throws `SteerTargetLost` when a fenced steer's turn is no longer current. Call synchronously
+ * right before the write; an adapter that names its turns also compares `fence.turn` itself.
+ */
+export function assertSteerTarget(delivery: "steer" | "queue", fence: SteerFence | undefined) {
+  if (delivery === "steer" && fence && !fence.current()) throw new SteerTargetLost();
+}
+
 export interface Translator {
   /** Native debug evidence kept outside the transcript. Drain after each translation. */
   takeDiagnostics?(): import("@ace/protocol").RawPayload[];
@@ -90,12 +127,30 @@ export interface SessionContext {
     directories: readonly string[];
     lease?: import("@ace/provider-kit/process").ProcessLease;
   };
+  /**
+   * Daemon-owned launch arguments carrying the person's provider tool setup (ADR 0138): Codex
+   * `-c` overrides for plugins, marketplaces and MCP servers. Never accepted from wire data.
+   */
+  toolConfigArgs?: readonly string[];
+  /**
+   * Daemon-owned (ADR 0138): true starts Claude Code with `--chrome`, false with `--no-chrome`;
+   * absent leaves Claude in Chrome to Claude's own default.
+   */
+  chrome?: boolean;
   /** Engine root identity, also used by targeted interrupts. */
   rootKey?: Key;
   threadId: ThreadId;
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Daemon-owned, per thread (ADR 0178 §10): `ACE_THREAD_ID`, `ACE_NO_INPUT` and `ACE_HOME` for
+   * the agent's own shell commands. A process that serves only this session takes them in its
+   * environment; a shared one passes them per thread where the provider can (Codex's
+   * `shell_environment_policy`, OpenCode's per-session environment). Never part of a pool key,
+   * never accepted from wire data.
+   */
+  agentEnv?: Readonly<Record<string, string>>;
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
@@ -125,6 +180,13 @@ export interface SessionContext {
   /** Native transcript exists and may now be resumed after this process closes. */
   onSessionConfirmed?(nativeSessionId: string): void;
   onInputMessage?(identity: { commandId: string; nativeId: string }): void;
+  /**
+   * Daemon-owned, never from wire data: this session is a Spade bot's hidden session (ADR 0133),
+   * read-only, with nobody to answer a prompt. The adapter lets these ace tools (Spade's gated
+   * bridge and ace's read-only tools, bare names) run without asking, and refuses with a message
+   * anything that would leave read-only (Claude's ExitPlanMode).
+   */
+  spadeBot?: { allowAceTools: readonly string[] };
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
   aceMcp?: {
     url: string;
@@ -162,6 +224,11 @@ export interface SessionContext {
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
+  /**
+   * The session is waiting for the home folders of these accounts (their names) to answer
+   * startup's check before it starts; called once, when the wait has become noticeable.
+   */
+  onAccountWait?(accounts: readonly string[]): void;
   /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
   fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
   options?: ExecutionOptions;
@@ -191,7 +258,8 @@ export interface ProviderSession {
   /** False until the provider confirms a resumable transcript exists. */
   readonly sessionConfirmed?: boolean;
   readonly backend?: ProviderBackend;
-  configure?(selection: ExecutionSelection): Promise<void>;
+  /** Return reopen before changing anything when the selection needs a fresh native connection. */
+  configure?(selection: ExecutionSelection): Promise<void | "reopen">;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
   setModel?(model: string): Promise<void>;
@@ -199,12 +267,17 @@ export interface ProviderSession {
   /** Set, pause or resume the provider's native goal. Providers without goals omit it. */
   setGoal?(change: import("@ace/protocol").GoalChange): Promise<void>;
   clearGoal?(): Promise<void>;
-  /** Optional engine command correlation for providers with durable admission. */
+  /**
+   * Optional engine command correlation for providers with durable admission. `origin` names
+   * input that isn't the person's (`InputSource`). `fence` (a person's steer aimed at one turn)
+   * is checked right before the write: see `SteerFence`.
+   */
   send(
     input: ContentPart[],
     delivery: "steer" | "queue",
     commandId?: string,
-    origin?: "ace",
+    origin?: InputSource,
+    fence?: SteerFence,
   ): Promise<void>;
   /**
    * Moves the root's running foreground tools (shell commands, subagents) to the background

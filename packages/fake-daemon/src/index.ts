@@ -11,7 +11,13 @@ export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
+export {
+  nestedDelegation,
+  nestedDelegationIds,
+  nestedQuestion,
+} from "./scenarios/nested-delegation.ts";
 export { crossDevice } from "./scenarios/cross-device.ts";
+export { streamingReply, streamingReplyText } from "./scenarios/streaming-reply.ts";
 export {
   childStatus,
   delegatedQuestion,
@@ -22,16 +28,23 @@ export { restartedSubagents, summaryFleet } from "./scenarios/summary-fleet.ts";
 export { childActions, childActionsIds, sessionLimitText } from "./scenarios/child-actions.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
+export { restartedTurn, seedRestartedTurn } from "./scenarios/restarted-turn.ts";
+export { limitPausedTurn, seedTurnEndings, stoppedByYou } from "./scenarios/turn-endings.ts";
+export { leftRunning, seedLeftRunning } from "./scenarios/left-running.ts";
+export { seedSettledHeld } from "./scenarios/settled-held.ts";
+export { seedConnectedApps } from "./scenarios/connected-apps.ts";
 export {
   multiDayThread,
   multiDayShape,
   multiDayTurn,
   multiDayPrelude,
+  checkpointAnswer,
 } from "./scenarios/multi-day-thread.ts";
 export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/multi-day-thread.ts";
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
+export { prWorkThread, seedPrChecks, seedPrWork } from "./scenarios/pr-work.ts";
 export {
   measurementCall,
   typedMeasurementCall,
@@ -39,6 +52,7 @@ export {
   smoothnessMeasurements,
 } from "./scenarios/smoothness.ts";
 export { homeList } from "./scenarios/home-list.ts";
+export { askingChatScenario, buildServerChats, chatScenario, chats } from "./scenarios/chats.ts";
 export {
   aceCall,
   aceTools,
@@ -52,16 +66,19 @@ export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
+export { outboxDiff, replayTs } from "./scenarios/replay-sources.ts";
 export {
   askingQuestion,
   oneTurnWork,
   runningTests,
   turnStatuses,
+  rowStates,
+  failedJustNow,
   waitingOnSubagents,
   watchingRelay,
 } from "./scenarios/turn-statuses.ts";
 export { seedPanels } from "./scenarios/panels.ts";
-export { devWorld } from "./scenarios/dev-world.ts";
+export { devWorld, showcaseWorld } from "./scenarios/dev-world.ts";
 export { accountLimit, teamAtLimit } from "./scenarios/account-limit.ts";
 export type { WorldThread } from "./scenarios/dev-world.ts";
 export { FakeReviewDesk } from "./review-desk.ts";
@@ -77,10 +94,26 @@ export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
 export { workbenchServices } from "./scenarios/services.ts";
 export { pullRequestDetails } from "./catalog/pull-request-details.ts";
-export { seedForgeBrowse } from "./scenarios/forge-browse.ts";
+export {
+  seedForgeBrowse,
+  seedGitLabMirror,
+  seedLongIssue,
+  seedProjectForge,
+} from "./scenarios/forge-browse.ts";
+export { longIssueReads } from "./catalog/long-issue.ts";
+export { movingPullRequest } from "./catalog/moving-pull-request.ts";
 export { sketchPullRequests, type PrSketch } from "./catalog/forge-browse.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";
+export type {
+  FakeMarketAcceptance,
+  FakeMarketEntry,
+  FakeMarketplaceWire,
+  MarketplaceSeed,
+} from "./marketplace-wire.ts";
+export type { MarketPublishSeed } from "./marketplace-publish.ts";
+export { marketPublishFixture } from "./marketplace-publish-fixture.ts";
+export { marketPickFixture, type MarketPickSeed } from "./marketplace-pick.ts";
 export { accountList } from "./catalog/accounts.ts";
 export type { FakeAccount, FakeQuotaWindow } from "./catalog/accounts.ts";
 export { FakeUsage, type UsageSessionTotal, type UsageSource } from "./catalog/usage.ts";
@@ -96,6 +129,7 @@ export type {
 export { FakeServices, FakeSettings } from "./services/index.ts";
 export { FakeVerify, type FakeVerifyFailure } from "./services/verify.ts";
 export { FakeAccess } from "./access.ts";
+export { FakeMachineAccount } from "./machine-account.ts";
 export { FakeAppDevices } from "./app-devices.ts";
 export { accountSummary } from "./services/accounts.ts";
 
@@ -109,5 +143,35 @@ export { startedConversation, startedConversationIds } from "./scenarios/started
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
+/** Payloads per `item.raw` page the fake answers with. */
+export { rawPageSize } from "./long-thread-wire.ts";
 export { workCardScenario, type WorkCardState } from "./scenarios/work-card.ts";
 export type { SkillSeed } from "./skill-library.ts";
+export {
+  longInbox,
+  longIssues,
+  longPullRequests,
+  longSkillCount,
+  longSkills,
+  seedLongLists,
+  seedSettledThreads,
+  seedSnoozedThreads,
+  seedVariedSettledThreads,
+  withLongAutomations,
+} from "./scenarios/long-lists.ts";
+export { FakeSpadeApi } from "./spade-api.ts";
+export { FakeSpadeWork, type FakeSpadeTask } from "./spade-work.ts";
+/** A file's revision as the fake Spade reads and checks it (cowork saves send it as `base`). */
+export { fakeFileRevision } from "./spade-computer.ts";
+export type { FakeSpadeAgent } from "./spade-api.ts";
+export type { FakeSpadeNote } from "./spade-notes.ts";
+export type { FakeSpadeSpending } from "./spade-oversight.ts";
+export type {
+  FakeSpadeCheckpoint,
+  FakeSpadeGrant,
+  FakeSpadeNetworkPolicy,
+} from "./spade-security.ts";
+export { fakeSpadeNetworkDefaults } from "./spade-security.ts";
+export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
+export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

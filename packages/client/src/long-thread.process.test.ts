@@ -1,18 +1,13 @@
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { AgentId, ClientMessage, DeviceId, ItemId, RunId, type EventPayload } from "@ace/protocol";
-import { setup, ready, agentId, when } from "./test-support.ts";
+import { sharedDaemon, ready, agentId, when } from "./test-support.ts";
 
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+const harness = sharedDaemon();
 
 // Mutation cases: mixing a jumped page into the live store; dropping a forward cursor;
 // returning another thread's correlated reply. Not executed (tests run at merge).
 test("jumping to older items leaves the subscribed tail live and closes the gap by bounded windows", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const events = h.daemon.store.appendEvents(
     h.thread.id,
     Array.from({ length: 30 }, (_, index): EventPayload => ({
@@ -97,8 +92,7 @@ test("jumping to older items leaves the subscribed tail live and closes the gap 
 // Mutation cases: ignoring the request target exclusivity, reply-thread validation or page
 // size cap. Not executed (tests run at merge).
 test("invalid jump targets fail locally and a correlated reply from another thread is rejected", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults } = h.make();
   await ready(client);
   await expect(client.itemsWindow({ threadId: "", aroundSeq: 1 })).rejects.toMatchObject({
@@ -125,8 +119,7 @@ test("invalid jump targets fail locally and a correlated reply from another thre
 // Mutation cases: using the last update rather than the greatest cursor, leaking device state,
 // bypassing durable commands or regressing a saved cursor. Not executed (tests run at merge).
 test("coalesced read marks survive reload and remain independent for another device", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults, scheduler } = h.make();
   await ready(client);
   const head = h.daemon.store.headSeq();
@@ -158,8 +151,7 @@ test("coalesced read marks survive reload and remain independent for another dev
 // Mutation cases: keeping an aborted highest mark, failing to release coalescing capacity or
 // leaving a pending mark unsettled on close. Not executed (tests run at merge).
 test("aborting an unsent read mark removes its cursor and closing rejects unsent marks", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, scheduler } = h.make();
   await ready(client);
   const controller = new AbortController();
@@ -183,8 +175,7 @@ test("aborting an unsent read mark removes its cursor and closing rejects unsent
 // Mutation cases: losing the initiating user message, treating root completion as whole-tree
 // completion, or routing catch-up to a provider. Not executed (tests run at merge).
 test("turn pages and deterministic catch-up retain a root outcome while its child is working", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const childId = AgentId.parse("long-child");
   const rootId = h.thread.rootAgentId ?? agentId;
   const runId = RunId.parse("long-turn");
@@ -289,8 +280,7 @@ test("turn pages and deterministic catch-up retain a root outcome while its chil
 // Mutation cases: retaining an unsent mark after disconnect, losing an accepted mark from the
 // durable outbox, changing the command id on replay. Not executed (tests run at merge).
 test("read marks never enter the outbox, including when their receipt is lost", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults, scheduler } = h.make({ storage: h.storage });
   await ready(client);
   const head = h.daemon.store.headSeq();

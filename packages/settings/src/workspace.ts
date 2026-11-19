@@ -33,21 +33,51 @@ export async function workspaceGuard(root: string): Promise<() => Promise<void>>
   };
 }
 
-/** Identity outlives the physical-file LRU, so eviction can never reauthorize a moved root. */
+/** How many workspace roots keep their identity pinned between settings files. */
+const pinnedRoots = 64;
+
+/** The workspace a `<root>/.ace/settings.json` path belongs to, if it has that shape. */
+function aliasedRoot(path: string): string | undefined {
+  if (basename(path) !== "settings.json" || basename(dirname(path)) !== ".ace") return;
+  return dirname(dirname(path));
+}
+
+/**
+ * Pins each workspace root to the identity it had when first read, least recently used first
+ * out. A settings file keeps the pin it was opened with for as long as it is cached, so dropping
+ * a root here never reauthorizes a file in use; a root read again after it was dropped is pinned
+ * afresh, as on a first visit. A daemon that has seen more roots than this keeps working.
+ *
+ * A non-workspace settings file (the global one, when ace's data folder is a workspace's `.ace`)
+ * borrows that workspace's pin through `forFile`, and may be reopened long after the workspace
+ * was last read. The roots such `aliases` name are never dropped, so a reopened alias is still
+ * checked against the identity first seen.
+ */
 export class WorkspaceGuards {
   private roots = new Map<string, Promise<() => Promise<void>>>();
+  private readonly kept: ReadonlySet<string>;
+  constructor(aliases: readonly string[] = []) {
+    this.kept = new Set(aliases.flatMap((path) => aliasedRoot(resolve(path)) ?? []));
+  }
   forFile(path: string): Promise<() => Promise<void>> | undefined {
-    if (basename(path) !== "settings.json" || basename(dirname(path)) !== ".ace") return;
-    return this.roots.get(dirname(dirname(path)));
+    const root = aliasedRoot(path);
+    return root === undefined ? undefined : this.roots.get(root);
   }
   get(root: string): Promise<() => Promise<void>> {
     const path = resolve(root);
     const existing = this.roots.get(path);
-    if (existing) return existing;
-    if (this.roots.size >= 64)
-      return Promise.reject(
-        new SettingsError("limit", "Settings workspace identity limit reached"),
-      );
+    if (existing) {
+      this.roots.delete(path);
+      this.roots.set(path, existing);
+      return existing;
+    }
+    if (this.roots.size >= pinnedRoots) {
+      for (const seen of this.roots.keys())
+        if (!this.kept.has(seen)) {
+          this.roots.delete(seen);
+          break;
+        }
+    }
     const guard = workspaceGuard(path);
     this.roots.set(path, guard);
     void guard.catch(() => {

@@ -58,7 +58,7 @@ it("a privately denied native download survives a failed cancel and removes its 
     import assert from 'node:assert/strict';
     import { readdir } from 'node:fs/promises';
     import { EmbeddedDownloads } from ${JSON.stringify(new URL("./embedded-downloads.ts", import.meta.url).href)};
-    const directory = process.argv[1];
+    const directory = process.env.ACE_TEST_DOWNLOAD_DIR;
     const downloads = new EmbeddedDownloads({
       options: {threadId: 'thread', workspaceId: 'workspace'},
       profileDir: directory, downloadDir: directory,
@@ -70,17 +70,22 @@ it("a privately denied native download survives a failed cancel and removes its 
     downloads.handle('tab', 'ace.download.started', {
       guid: ${JSON.stringify(guid)}, url: 'http://localhost/file.txt', filename: 'file.txt', mimeType: 'text/plain',
     });
-    await new Promise(resolve => process.once('beforeExit', resolve));
-    downloads.stop();
-    assert.deepEqual(downloads.transfers.list(), []);
-    assert.deepEqual(await readdir(directory), []);
-    console.log('native cancellation settled');
+    // Once nothing is left to run. A listener, not a top-level await: Bun counts a pending
+    // top-level await as work and never reaches beforeExit.
+    process.once('beforeExit', async () => {
+      downloads.stop();
+      assert.deepEqual(downloads.transfers.list(), []);
+      assert.deepEqual(await readdir(directory), []);
+      console.log('native cancellation settled');
+    });
   `;
   const child = await promisify(execFile)(
     process.execPath,
-    ["--input-type=module", "--eval", script, directory],
+    // Bun run as node drops the first argument after --eval code, so the directory goes by env.
+    ["--input-type=module", "--eval", script],
     {
       cwd: fileURLToPath(new URL("../..", import.meta.url)),
+      env: { ...process.env, ACE_TEST_DOWNLOAD_DIR: directory },
       timeout: 10_000,
     },
   );

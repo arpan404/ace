@@ -1,3 +1,4 @@
+import { CredentialReplacedClose } from "@ace/protocol";
 import { ClientError, type ConnectionState } from "./types.ts";
 
 export function retryDelay(attempt: number, base: number, cap: number, random: number): number {
@@ -7,16 +8,30 @@ export function retryDelay(attempt: number, base: number, cap: number, random: n
 }
 /**
  * Only a refusal that another attempt can't change is fatal: the daemon rejected the
- * credential (4001) or revoked the device (4003), or the transport got a frame that is
- * neither text nor binary (4002, raised locally). Everything else, including 1009 (a frame
- * too large) and server frames the client can't read, reconnects with backoff.
+ * credential (4001) or revoked the device (4003), the transport got a frame that is
+ * neither text nor binary (4002, raised locally), or the daemon wants a machine code the
+ * person has to type (4011, raised by a relay route), or ace's hosted relay found the machine on
+ * another account (4403). A 4001 that says the credential was replaced (the same install paired
+ * the machine again) is not a refusal: the next hello reads the credential afresh, and a client
+ * still holding the replaced one then hears a plain 4001. Everything else, including 1009 (a frame
+ * too large), 4012 (an account device's access changed: its next hello learns why) and server
+ * frames the client can't read, reconnects with backoff.
  */
 export function disconnectDecision(
   active: boolean,
   online: boolean,
   code: number,
+  reason = "",
 ): "fatal" | "offline" | "reconnecting" {
-  if (code === 4001 || code === 4003 || code === 4002) return "fatal";
+  const replaced = CredentialReplacedClose.safeParse({ code, reason }).success;
+  if (
+    (code === 4001 && !replaced) ||
+    code === 4003 ||
+    code === 4002 ||
+    code === 4011 ||
+    code === 4403
+  )
+    return "fatal";
   return active && online ? "reconnecting" : "offline";
 }
 export function networkDecision(

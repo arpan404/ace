@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { itemPatch, textEdit } from "./text-edit.ts";
+import { itemPatch, restOf, textEdit } from "./text-edit.ts";
 
 const utf8 = (text: string) => Buffer.byteLength(text, "utf8");
 const row = (text: string) => ({ id: "i", index: 3, complete: false, text });
@@ -44,18 +44,29 @@ test("an edit never splits a surrogate pair", () => {
 test("a thread item becomes a text edit only against what native confirmed", () => {
   const before = `Streaming… ${"é".repeat(30)}`;
   const patch = { type: "thread.item", id: "i", threadId: "t", epoch: 2, row: row(`${before}on`) };
+  const held = { text: before, rest: restOf(row(before)) };
   expect(itemPatch(patch, undefined, utf8)).toBe(patch);
-  // On the wire the edit counts UTF-8 bytes.
-  expect(itemPatch(patch, before, utf8)).toEqual({
+  // On the wire the edit counts UTF-8 bytes, and the row stays behind when only its text changed.
+  expect(itemPatch(patch, held, utf8)).toEqual({
     type: "thread.item.text",
     id: "i",
     threadId: "t",
     epoch: 2,
-    row: { ...row(""), text: "" },
     base: utf8(before),
     cut: 0,
     append: "on",
   });
   const removal = { type: "thread.item", id: "i", threadId: "t", epoch: 2, row: null };
-  expect(itemPatch(removal, before, utf8)).toBe(removal);
+  expect(itemPatch(removal, held, utf8)).toBe(removal);
+});
+
+test("a text edit carries the row when another of its fields changed as well", () => {
+  const before = "Streaming the answer so far";
+  const changed = { ...row(`${before}, then more`), truncated: true };
+  const patch = { type: "thread.item", id: "i", threadId: "t", epoch: 2, row: changed };
+  expect(itemPatch(patch, { text: before, rest: restOf(row(before)) }, utf8)).toMatchObject({
+    type: "thread.item.text",
+    row: { ...changed, text: "" },
+    append: ", then more",
+  });
 });

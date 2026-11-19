@@ -1,14 +1,22 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
+import type { ReactNode } from "react";
+import { part } from "@/lib/suit-part.ts";
 import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./menu.tsx";
 
 /**
  * The quiet "All projects ⌄" filter in a second-sidebar header: the current choice as text,
- * a radio menu of the options. An option may carry a quiet count ("Open 8").
+ * a radio menu of the options. An option may carry a quiet count ("Open 8") and a 16px glyph,
+ * which leads its row in one column and shows in the trigger beside the chosen name.
  */
 export function FilterMenu<T extends string>(props: {
   label: string;
   value: T;
-  options: readonly { value: T; label: string; count?: number | undefined }[];
+  options: readonly {
+    value: T;
+    label: string;
+    count?: number | undefined;
+    icon?: ReactNode | undefined;
+  }[];
   onValueChange(value: T): void;
   /** Which edge the menu lines up with: the trigger's end (a header) or start (a page's left). */
   align?: "start" | "end";
@@ -18,8 +26,10 @@ export function FilterMenu<T extends string>(props: {
     <Menu>
       <MenuTrigger
         aria-label={`${props.label}: ${current?.label ?? ""}`}
+        {...part("button", undefined, "filter")}
         className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent"
       >
+        {current?.icon && <Glyph>{current.icon}</Glyph>}
         {current?.label}
         {current?.count !== undefined && (
           <span className="text-subtle-foreground tabular-nums">{current.count}</span>
@@ -36,6 +46,7 @@ export function FilterMenu<T extends string>(props: {
         >
           {props.options.map((option) => (
             <MenuRadioItem key={option.value} value={option.value}>
+              {option.icon && <Glyph>{option.icon}</Glyph>}
               {option.label}
               {option.count !== undefined && (
                 <span className="ml-2 text-subtle-foreground tabular-nums">{option.count}</span>
@@ -45,5 +56,14 @@ export function FilterMenu<T extends string>(props: {
         </MenuRadioGroup>
       </MenuContent>
     </Menu>
+  );
+}
+
+/** A 16px glyph slot, so every option's name starts at the same place. */
+function Glyph(props: { children: ReactNode }) {
+  return (
+    <span aria-hidden className="mr-2 inline-grid size-4 shrink-0 place-items-center align-[-3px]">
+      {props.children}
+    </span>
   );
 }

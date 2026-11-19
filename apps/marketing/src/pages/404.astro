@@ -1,34 +1,149 @@
 ---
-import AceMark from "../components/AceMark.astro";
+/*
+ * The page for an address that isn't one. It has the site's frame but no breadcrumbs (it isn't
+ * a page in routes.ts) and asks search engines not to list it.
+ */
+import Backdrop from "../components/site/Backdrop.astro";
+import Footer from "../components/Footer.astro";
+import Icon from "../components/Icon.astro";
+import Nav from "../components/Nav.astro";
+import { route } from "../content/routes.ts";
 import Base from "../layouts/Base.astro";
+
+/* Where most people who land here were going. */
+const likely = ["/", "/features/", "/download/", "/agents/", "/spade/"].map(route);
 ---
 
-<Base title="Page not found: ace" description="This page doesn't exist on the ace site." noindex>
-  <main class="missing">
-    <AceMark size={44} />
-    <h1>Page not found</h1>
-    <p>This address doesn't match a page. The home page has everything about ace.</p>
-    <a class="button button-primary" href="/">Go to the home page</a>
+<Base
+  title="Page not found: ace"
+  description="There is no page at this address on the ace site. Try the home page, the features, the download page, the agents or Spade."
+  noindex
+>
+  <Backdrop />
+  <Nav />
+  <main class="section page missing">
+    <p class="code" aria-hidden="true">404</p>
+    <h1>Page not found.</h1>
+    <p class="lead">Nothing lives at this address. It may have moved, or never existed.</p>
+    <ul class="card">
+      {
+        likely.map((entry) => (
+          <li>
+            <a href={entry.path}>
+              <span class="name">
+                {entry.name}
+                <Icon name="arrow-right" size={15} />
+              </span>
+              <span class="body">{entry.summary}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
   </main>
+  <Footer />
 </Base>
 
 <style>
   .missing {
-    display: grid;
-    justify-items: center;
-    align-content: center;
-    gap: 16px;
-    min-height: 100dvh;
-    padding: 24px;
-    text-align: center;
+    min-height: calc(100svh - 64px);
+    padding-top: clamp(40px, 6vw, 80px);
+    padding-bottom: clamp(88px, 12vw, 160px);
+  }
+
+  .missing::before {
+    display: none;
+  }
+
+  /* The number itself, set as large as the page allows and in the backdrop's own faint ink. */
+  .code {
+    color: color-mix(in srgb, var(--foreground) 14%, transparent);
+    font-family: var(--font-mono);
+    font-size: clamp(96px, 22vw, 280px);
+    font-weight: 500;
+    letter-spacing: -0.06em;
+    line-height: 0.9;
   }
 
   h1 {
-    font-size: 32px;
+    margin-top: clamp(12px, 2vw, 24px);
+    font-size: clamp(44px, 7.2vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.98;
   }
 
-  p {
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
     color: var(--muted);
-    max-width: 30em;
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  ul {
+    max-width: 560px;
+    margin-top: clamp(32px, 4vw, 48px);
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  a {
+    display: grid;
+    gap: 3px;
+    padding: 13px 14px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover {
+    background: var(--wash);
+  }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .name :global(svg) {
+    margin-left: auto;
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  a:hover .name :global(svg) {
+    color: var(--foreground);
+    transform: translateX(3px);
+  }
+
+  .body {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Here the mark behind the page is the picture, so it prints a little stronger. */
+  :global(body .backdrop[data-backdrop]) {
+    --print: 9%;
+  }
+
+  :global(html[data-theme="light"] body .backdrop[data-backdrop]) {
+    --print: 8%;
   }
 </style>
+
+<script>
+  /* The site's motion, as every other page starts it. */
+  import { startMotion } from "../scripts/motion.ts";
+
+  startMotion();
+</script>

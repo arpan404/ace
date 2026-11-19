@@ -1,10 +1,20 @@
-import { repositoryKey } from "@ace/forge";
+import { repositoryKey, resolveProjectRepositories } from "@ace/forge";
 import type { GitService } from "@ace/git";
+import type { CheckoutRemote } from "@ace/forge";
 import type { CommandPayload, ForgePrWorkspace, ForgeRepository } from "@ace/protocol";
+import { resolvePrHead, type PrHead } from "./pr-head.ts";
 import type { SourceControl } from "./source-control.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 
 type Preferences = Parameters<typeof workspaceRepository>[1];
+
+/** A targeted push's destination: the PR head, the project's primary, and whether it chose. */
+export interface PrPushTarget {
+  head: PrHead;
+  primary: ForgeRepository | undefined;
+  /** The project has saved repository choices; without them only the global remote is pushed. */
+  chosen: boolean;
+}
 
 /** Every push URL of `remote` must name the selected hosted repository. */
 export function remotePushesTo<Remote extends { pushUrls: readonly string[] }>(
@@ -34,6 +44,11 @@ export async function pushWorkspace(
   permitted: () => boolean,
   /** The checkout reviews this pull request: an untargeted push updates its head branch. */
   pullRequest?: Pick<ForgePrWorkspace, "headBranch" | "headRepository">,
+  /**
+   * Where a targeted push (the push before opening a PR) goes (ADR 0120): the PR head the
+   * project's repositories pick. Absent, the checkout's remotes are read with no saved choices.
+   */
+  prHead?: () => Promise<PrPushTarget>,
 ) {
   const check = await sourceControl?.guard();
   const preferences = await sourceControl?.preferences();
@@ -70,13 +85,13 @@ export async function pushWorkspace(
     return;
   }
   if (!input.target) {
+    // A plain push goes where the person's Git would push: the remote the client names.
     await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed, ...force });
     return;
   }
-  if (input.remote !== (preferences?.remote ?? "origin")) throw new Error("repository_mismatch");
+  const globalRemote = preferences?.remote ?? "origin";
   const info = await git.repositoryInfo(cwd);
   allowed();
-  const remote = info.remotes.find((entry) => entry.name === input.remote);
   const target = input.target;
   const aliases =
     (await sourceControl?.hostAliases(
@@ -84,16 +99,44 @@ export async function pushWorkspace(
       new AbortController().signal,
     )) ?? {};
   allowed();
-  const repository = workspaceRepository(info.remotes, preferences, aliases);
-  if (!repository || repositoryKey(repository) !== repositoryKey(target.repository))
+  const pr = prHead
+    ? await prHead()
+    : await prHeadWithoutChoices(info.remotes, preferences, aliases);
+  allowed();
+  // The client names the project's primary as it saw it, and either the global remote name
+  // (every client's push remote) or the head's own remote; the daemon picks the head.
+  if (
+    !pr.primary ||
+    repositoryKey(pr.primary) !== repositoryKey(target.repository) ||
+    !pr.head.remote ||
+    (input.remote !== globalRemote && input.remote !== pr.head.remote) ||
+    (!pr.chosen && pr.head.remote !== globalRemote)
+  )
     throw new Error("repository_mismatch");
-  if (!remotePushesTo(remote, target.repository, preferences, aliases))
+  const remote = info.remotes.find((entry) => entry.name === pr.head.remote);
+  if (!remotePushesTo(remote, pr.head.pushed.repository, preferences, aliases))
     throw new Error("repository_mismatch");
   await git.push({
     worktree: cwd,
-    remote: input.remote,
+    remote: remote.name,
     beforePush: allowed,
     ...force,
     expected: { branch: target.branch, head: target.head, pushUrls: remote.pushUrls },
   });
+}
+
+/** Where a targeted push goes for a checkout with no saved choices: the primary, read locally. */
+async function prHeadWithoutChoices(
+  remotes: readonly CheckoutRemote[],
+  preferences: Preferences,
+  aliases: Readonly<Record<string, string>>,
+): Promise<PrPushTarget> {
+  const resolved = resolveProjectRepositories({ remotes, preferences, aliases, config: undefined });
+  const head = await resolvePrHead({
+    resolved,
+    globalRemote: preferences?.remote ?? "origin",
+    // Without choices the global remote name's repository is the primary: nothing is read.
+    metadata: () => Promise.reject(new Error("repository_mismatch")),
+  });
+  return { head, primary: resolved.primary?.repository, chosen: false };
 }

@@ -31,11 +31,12 @@ afterEach(async () => {
  * expected token, and echoes whatever it was sent in its errors, as a careless upstream would.
  */
 async function endpoint(answers: Record<string, unknown>) {
-  const seen: { path: string; authorization: string | undefined }[] = [];
+  const seen: { path: string; authorization: string | undefined; org?: string }[] = [];
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const path = request.url ?? "";
     const authorization = request.headers.authorization;
-    seen.push({ path, authorization });
+    const org = request.headers["x-opencode-org-id"];
+    seen.push({ path, authorization, ...(typeof org === "string" ? { org } : {}) });
     const answer = answers[path];
     if (authorization !== `Bearer ${secret}` || answer === undefined) {
       response.writeHead(401).end(`rejected ${authorization ?? ""}`);
@@ -117,6 +118,50 @@ test("OpenCode Go usage reaches the accounts list over the socket, and its key n
   expect(await readFile(join(f.dataDir, "accounts.sqlite"))).not.toContain(Buffer.from(secret));
   expect(JSON.stringify(f.store.readEvents({ afterSeq: 0, limit: 10000 }))).not.toContain(secret);
   expect((await stat(join(home, "opencode.db"))).mtimeMs).toBe(before.mtimeMs);
+});
+
+/** An OpenCode 2.2 Console sign-in, as its `credential` row stores it. */
+const consoleLogin = (access: string) =>
+  JSON.stringify({
+    type: "oauth",
+    methodID: "device",
+    access,
+    refresh: "refresh-never-sent",
+    expires: Date.parse("2099-01-01T00:00:00Z"),
+    metadata: { server: "https://opencode.ai/console", orgID: "wrk_01EXAMPLEORG" },
+  });
+
+test("an OpenCode Console login's Go usage is read with its active credential and org", async () => {
+  const { base, seen } = await endpoint({ "/zen/go/v1/usage": goUsage(40) });
+  const f = await harness(false, { usagePorts: portsTo(base, "https://opencode.ai", () => 100) });
+  cleanups.push(() => f.close());
+  const home = f.registry.get("opencode-cli-default")?.instance.homeDir;
+  if (!home) throw new Error("no implicit OpenCode account");
+  await mkdir(home, { recursive: true });
+  cleanups.push(() => rm(join(home, "opencode.db"), { force: true }));
+  // OpenCode 2.2.6's table: signing in again adds a row and leaves the earlier one inactive.
+  const db = new DatabaseSync(join(home, "opencode.db"));
+  db.exec(
+    "CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT, label TEXT, value TEXT," +
+      " connector_id TEXT, method_id TEXT, active INTEGER, time_created INTEGER, time_updated INTEGER)",
+  );
+  const insert = db.prepare(
+    "INSERT INTO credential (id, integration_id, label, value, active) VALUES (?, 'opencode', 'Default', ?, ?)",
+  );
+  insert.run("cred_older", consoleLogin("replaced-by-the-second-sign-in"), 0);
+  insert.run("cred_newer", consoleLogin(secret), 1);
+  db.close();
+
+  const reply = await f.request(f.owner, { type: "accounts.refreshLimits", requestId: f.rid() });
+  if (reply.type !== "accounts.list") throw new Error(JSON.stringify(reply));
+  const opencode = reply.accounts.find((account) => account.id === "opencode-cli-default");
+  expect(opencode?.quota.windows).toMatchObject({
+    five_hour: { usedPercent: 40, windowDurationMins: 300 },
+  });
+  expect(opencode?.quota.usageNotice).toBeUndefined();
+  expect(seen).toEqual([
+    { path: "/zen/go/v1/usage", authorization: `Bearer ${secret}`, org: "wrk_01EXAMPLEORG" },
+  ]);
 });
 
 const gemini = AcpIdentity.parse({
@@ -365,4 +410,55 @@ test("a missing agy shows no usage", async () => {
   expect(account?.quota.windows).toEqual({});
   expect(account?.quota.usageNotice).toBeUndefined();
   expect(logs).toEqual([]);
+});
+
+/** The Codex account's availability in an accounts list. */
+const codex = (accounts: readonly { provider: string; availability: string }[]) =>
+  accounts.find((account) => account.provider === "codex")?.availability;
+
+test("a client's first account list after an unattended stretch waits for the read under way", async () => {
+  let clock = 1_000_000;
+  const minute = 60_000;
+  let used = 100;
+  let blocked: (() => void) | undefined;
+  let block = false;
+  const reset = clock + 600 * minute;
+  const answer = () => ({
+    auth: "logged_in",
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: "codex",
+        primary: { usedPercent: used, windowDurationMins: 300, resetsAt: reset / 1000 },
+      },
+    },
+  });
+  const f = await harness(false, {
+    now: () => clock,
+    // The cap never passes in this test: only the read's own answer lets the list go.
+    after: () => () => {},
+    readCodexUsage: () =>
+      block
+        ? new Promise((resolve) => (blocked = () => resolve(answer())))
+        : Promise.resolve(answer()),
+  });
+  cleanups.push(() => f.close());
+  // Cleanups run last first: a read still blocked is answered before the daemon closes.
+  cleanups.push(async () => blocked?.());
+  await f.management.limits.refresh();
+  expect(codex(f.registry.summaries(clock))).toBe("exhausted");
+
+  // Ten minutes with no client: the account recovered, its stored reading still says spent.
+  clock += 10 * minute;
+  used = 4;
+  block = true;
+  const replies: unknown[] = [];
+  const listed = f.request(f.owner, { type: "accounts.list", requestId: f.rid() });
+  void listed.then((reply) => replies.push(reply));
+  await expect.poll(() => blocked !== undefined, { timeout: 10_000 }).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(replies).toEqual([]);
+  blocked?.();
+  const reply = await listed;
+  if (reply.type !== "accounts.list") throw new Error(JSON.stringify(reply));
+  expect(codex(reply.accounts)).toBe("available");
 });

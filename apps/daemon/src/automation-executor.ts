@@ -1,11 +1,35 @@
 import { createHash } from "node:crypto";
-import { CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
-import type { AutomationExecutor, ExecutionInput } from "@ace/automations";
+import {
+  CommandId,
+  ThreadId,
+  WorkspaceId,
+  DeviceId,
+  type AccessMode,
+  type PermissionState,
+} from "@ace/protocol";
+import type { Admission, AutomationExecutor, ExecutionInput } from "@ace/automations";
 import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
 import { automationRunExecutor, hostControl } from "./automation-run-executor.ts";
 
+const AutomationThreadRow = z
+  .object({ thread_id: ThreadId, settings: z.string().nullable() })
+  .optional();
+
 const deviceId = DeviceId.parse("automation");
+
+/**
+ * The daemon's admission gate (ADR 0041) for automations: while any hold turns new work away,
+ * the person's pause included, a due run is skipped and Run now refused. Their runs reach the
+ * engine's internal handler, which never checks the gate, so the automations check it here.
+ */
+export function automationAdmission(context: ServiceContext): { admission?: Admission } {
+  const gate = context.maintenance;
+  if (!gate) return {};
+  return {
+    admission: { open: () => gate.admit(), onReopen: (listener) => gate.onReopen(listener) },
+  };
+}
 
 /**
  * Runs a person's automation in its own one thread: the first run creates the thread, and every
@@ -19,14 +43,11 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
     );`),
   );
   const threadRow = (automationId: string) =>
-    z
-      .object({ thread_id: ThreadId, settings: z.string().nullable() })
-      .optional()
-      .parse(
-        store
-          .statement("SELECT thread_id,settings FROM automation_threads WHERE automation_id=?")
-          .get(automationId),
-      );
+    AutomationThreadRow.parse(
+      store
+        .statement("SELECT thread_id,settings FROM automation_threads WHERE automation_id=?")
+        .get(automationId),
+    );
   /** The automation's thread while it can still take a run: not deleted, not archived. */
   const ownThread = (automationId: string): ThreadId | undefined => {
     const row = threadRow(automationId);
@@ -47,7 +68,12 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
       deviceId,
       commandId: executionKey,
       admission(input) {
-        const existing = ownThread(input.automationId);
+        const own = ownThread(input.automationId);
+        // A webhook run never goes into a thread wider than its automation allows.
+        const existing =
+          own && withinCeiling(store.getThread(own)?.permission, input.accessCeiling)
+            ? own
+            : undefined;
         const origin = { kind: "automation" as const, role: input.automationId };
         if (existing)
           return {
@@ -140,4 +166,21 @@ export function launchChoices(input: ExecutionInput): {
 export function automationThreadTitle(name: string | undefined): string {
   const title = name?.trim();
   return title ? `Automation: ${title}`.slice(0, 256) : "Automation run";
+}
+
+const widths = ["read-only", "ask", "auto-review", "full-access"] as const;
+const within = (access: AccessMode | null | undefined, ceiling: AccessMode) =>
+  access !== null && access !== undefined && widths.indexOf(access) <= widths.indexOf(ceiling);
+/**
+ * Whether a thread stays within `ceiling`, both as it runs now and as it was asked to run, since
+ * a widening still pending applies at its next turn. No ceiling allows anything. A thread that
+ * follows the defaults, runs a provider's own mode, or whose access ace can't read never is.
+ */
+export function withinCeiling(
+  permission: PermissionState | undefined,
+  ceiling: AccessMode | undefined,
+): boolean {
+  if (ceiling === undefined) return true;
+  if (!permission || permission.custom !== undefined) return false;
+  return within(permission.effective, ceiling) && within(permission.override, ceiling);
 }

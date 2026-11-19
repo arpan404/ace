@@ -1,15 +1,17 @@
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useEditors } from "@/lib/editors.ts";
-import { useProfileName } from "@/lib/profile.ts";
+import { useRailMeasure } from "@/lib/rail-measure.ts";
 import { usePreferredPlace, type PanelPlace } from "@/lib/workspace/index.ts";
-import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
-import { DaemonSettings } from "./daemon-settings.tsx";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { settingRow } from "./settings-index.ts";
+
+const measures = [
+  { value: "week", label: "Week" },
+  { value: "session", label: "Session" },
+] as const;
 
 const places: { value: PanelPlace; label: string }[] = [
   { value: "bottom", label: "Bottom panel" },
@@ -17,45 +19,21 @@ const places: { value: PanelPlace; label: string }[] = [
 ];
 
 /**
- * What only this device keeps: the desktop app's login item and background behaviour, your
- * name, where terminals and files open, how browser pages show, and which computer this window
- * talks to. Agent
- * defaults belong to a machine (Settings › Agents).
+ * What only this device keeps: the desktop app's login item and background behaviour, where
+ * terminals and files open and what the rail's Usage bars show. Which computer this window
+ * talks to is on Settings › Fleet; how it shows browser pages, on Settings › Browser. Agent defaults belong
+ * to a machine (Settings › Agents).
  */
 export function GeneralSettings() {
   return (
     <>
       <DesktopAppPreferences />
-      <SettingSection label="You" card scope="device">
-        <ProfileNameRow />
-      </SettingSection>
       <SettingSection label="Workspace" card scope="device">
         <TerminalPlaceRow />
         <EditorRow />
+        <RailMeasureRow />
       </SettingSection>
-      <BrowserDeviceSettings />
-      <DaemonSettings />
     </>
-  );
-}
-
-function ProfileNameRow() {
-  const [name, setName] = useProfileName();
-  return (
-    <SettingRow {...settingRow("profile.name")} description={undefined} htmlFor="profile-name">
-      <Input
-        id="profile-name"
-        className="@[30rem]:w-52"
-        defaultValue={name}
-        placeholder="Name"
-        autoComplete="name"
-        maxLength={80}
-        onBlur={(event) => setName(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") setName(event.currentTarget.value);
-        }}
-      />
-    </SettingRow>
   );
 }
 
@@ -82,7 +60,7 @@ function EditorRow() {
   const { editors, current, choose, unavailable } = useEditors();
   const row = settingRow("editor.default");
   return (
-    <SettingRow {...row} description={unavailable}>
+    <SettingRow {...row} description={unavailable ?? row.description}>
       {editors?.length && current ? (
         <Select
           label={row.title}
@@ -95,6 +73,21 @@ function EditorRow() {
           onValueChange={choose}
         />
       ) : null}
+    </SettingRow>
+  );
+}
+
+/** What the rail's Usage bars show on this device: each account's week, or its session. */
+function RailMeasureRow() {
+  const [measure, setMeasure] = useRailMeasure();
+  return (
+    <SettingRow {...settingRow("usage.railMeasure")}>
+      <SegmentedControl
+        label="Usage bars"
+        value={measure}
+        options={measures}
+        onValueChange={setMeasure}
+      />
     </SettingRow>
   );
 }

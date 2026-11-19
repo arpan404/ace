@@ -1,16 +1,11 @@
-import { afterEach, expect, test } from "vitest";
-import { setup, ready, barrier } from "./test-support.ts";
+import { expect, test } from "vitest";
+import { sharedDaemon, ready, barrier } from "./test-support.ts";
 
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+const harness = sharedDaemon();
 
 for (const completion of ["resolves", "rejects"] as const) {
   test(`abort releases a pending recording and suppresses dispatch when it later ${completion}`, async () => {
-    const h = await setup();
-    cleanup = h.cleanup;
+    const h = await harness();
     const { client } = h.make({ limits: { intents: 1 } });
     await ready(client);
     const payload = { type: "thread.archive", threadId: h.thread.id } as const;
@@ -52,8 +47,7 @@ for (const completion of ["resolves", "rejects"] as const) {
 }
 
 test("client close settles pending recording without waiting for its callback and a late completion cannot dispatch", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client } = h.make();
   await ready(client);
   const gate = Promise.withResolvers<void>();
@@ -85,8 +79,7 @@ test("client close settles pending recording without waiting for its callback an
 });
 
 test("abort after admission begins keeps the ID reserved until persistence settles", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const saving = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const { client, faults } = h.make({

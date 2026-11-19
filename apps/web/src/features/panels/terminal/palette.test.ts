@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { contrastRatio, parseOpaqueColor } from "@/theme/contrast.ts";
 import { themeDeclarations } from "@/theme/css.ts";
-import { themeIds } from "@/theme/palettes.ts";
+import { themeIds } from "@ace/themes";
 import { ansiNames, minimumTextContrast, terminalPalette, type Rgb } from "./palette.ts";
 
 interface Theme {

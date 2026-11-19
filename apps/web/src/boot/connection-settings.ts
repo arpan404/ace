@@ -9,7 +9,12 @@ export const defaultDaemonUrl = "ws://127.0.0.1:4242/";
 export const DaemonUrl = z.string().check(
   z.trim(),
   z.url("Enter a ws:// or wss:// address"),
-  z.refine((value) => /^wss?:$/.test(new URL(value).protocol), "Use a ws:// or wss:// address"),
+  // Zod runs this even when `z.url` already failed: an address that won't parse is refused,
+  // never thrown (a window with no stored address checks "" at startup).
+  z.refine(
+    (value) => URL.canParse(value) && /^wss?:$/.test(new URL(value).protocol),
+    "Use a ws:// or wss:// address",
+  ),
 );
 /** The local token (`~/.ace/daemon-token`) or a paired device token: 64 hex characters. */
 export const DaemonToken = z
@@ -32,6 +37,11 @@ export const DaemonTargetShape = {
    * stored, and never set for a daemon the person connected to by hand.
    */
   localHostId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
+  /**
+   * A machine paired through a self-hosted relay: the relay host key to pin. `url` is then the
+   * relay's address and the daemon is reached only through it (`daemon-route.ts`).
+   */
+  relayHostId: z.optional(z.string().check(z.regex(/^[A-Z2-7]{52}$/))),
 };
 
 export const DaemonTarget = z.object(DaemonTargetShape);
@@ -41,6 +51,9 @@ const keys = {
   url: "ace.daemon.url",
   token: "ace.daemon.token",
   device: "ace.daemon.pairedDevice",
+  relay: "ace.daemon.relayHost",
+  /** A machine on the ace account chosen as this window's: origin, host id and name, no secret. */
+  account: "ace.daemon.accountMachine",
 } as const;
 
 /**
@@ -56,10 +69,12 @@ export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemon
   const url = safeGet(stores.local, keys.url) ?? fallbackUrl;
   const token = safeGet(stores.session, keys.token) ?? safeGet(stores.local, keys.token);
   const device = safeGet(stores.session, keys.device) ?? safeGet(stores.local, keys.device);
+  const relay = safeGet(stores.local, keys.relay);
   const parsed = DaemonTarget.safeParse({
     url,
     token,
     ...(device ? { pairedDeviceId: device } : {}),
+    ...(relay ? { relayHostId: relay } : {}),
   });
   return {
     url: DaemonUrl.safeParse(url).success ? url : fallbackUrl,
@@ -69,7 +84,10 @@ export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemon
 }
 
 export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remember: boolean) {
+  safeRemove(stores.local, keys.account);
   safeSet(stores.local, keys.url, target.url);
+  if (target.relayHostId) safeSet(stores.local, keys.relay, target.relayHostId);
+  else safeRemove(stores.local, keys.relay);
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
   safeSet(remember ? stores.local : stores.session, keys.token, target.token);
@@ -88,10 +106,49 @@ export function forgetToken(stores: ConnectionStores) {
     .then((snapshots) => snapshots.forgetAllReadSnapshots())
     .catch((error: unknown) => console.error("ace: couldn't delete cached threads", error));
   forgetMachineTokens(stores.local, stores.session);
+  safeRemove(stores.local, keys.account);
   safeRemove(stores.local, keys.device);
   safeRemove(stores.session, keys.device);
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
+}
+
+/**
+ * The machine on the person's ace account this window opens as its own, as stored: a JSON
+ * value the caller parses (`AccountMainMachine` in `main-machine.ts`). Undefined when the
+ * window's machine is an address, or none.
+ */
+export function loadAccountChoice(stores: ConnectionStores): unknown {
+  const value = safeGet(stores.local, keys.account);
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Choose a machine on the ace account as this window's: kept in local storage so a reload, or
+ * the desktop app starting again, opens it through the relay with a fresh grant. The stored
+ * address's token goes, so only one machine is ever this window's; the address stays as the
+ * form's default.
+ */
+export function saveAccountChoice(
+  stores: ConnectionStores,
+  machine: { origin: string; hostId: string; name: string; accountId?: string | undefined },
+) {
+  const { origin, hostId, name, accountId } = machine;
+  safeSet(
+    stores.local,
+    keys.account,
+    JSON.stringify({ origin, hostId, name, ...(accountId === undefined ? {} : { accountId }) }),
+  );
+  for (const storage of [stores.local, stores.session]) {
+    safeRemove(storage, keys.token);
+    safeRemove(storage, keys.device);
+  }
+  safeRemove(stores.local, keys.relay);
 }
 
 /**

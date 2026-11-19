@@ -1,25 +1,26 @@
 import {
   elapsedShown,
   formatElapsed,
-  subagentDetail,
-  subagentLabels,
   subagentRunning,
   subagentMeta,
-  subagentTerminal,
   subagentToolId,
   type SubagentDetail,
 } from "@ace/ui-core";
 import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
+import type { ReactElement } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { SubagentLink } from "@/lib/subagent-link.tsx";
+import { useAgentAccount } from "./agent-account.ts";
+import { AgentHoverCard } from "./agent-hover-card.tsx";
+import { useThreadHost } from "@/lib/machine-threads.ts";
+import { SubagentLink, type SubagentTarget } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { AgentRowContents, agentRowStyles, type AgentRowParts } from "./agent-row.tsx";
+import { useLive, type Live } from "@/lib/live-connection.ts";
+import { subagentDetailLine, subagentStateWords } from "./live-words.ts";
 import { LostChildAction } from "./lost-child-action.tsx";
-
-export { subagentTones } from "./agent-row.tsx";
 
 /** Only this label subscribes to the shared, visibility-aware injected UI clock. */
 export function SubagentElapsed(props: {
@@ -36,14 +37,14 @@ export function SubagentElapsed(props: {
 }
 
 /** Its second line: what it does now, what it waits on, why it failed, or what it found. */
-function useDetail(threadId: string, entry: SubagentEntry, fresh: boolean): SubagentDetail {
+function useDetail(threadId: string, entry: SubagentEntry, live: Live): SubagentDetail {
   const agent = useAgent(threadId, entry.agentId ?? "");
   const tool = useItem(threadId, subagentToolId(agent) ?? "");
-  return subagentDetail(
+  return subagentDetailLine(
+    live,
     entry,
     agent,
     tool?.type === "tool_call" ? tool.call.title : undefined,
-    fresh,
   );
 }
 
@@ -54,10 +55,12 @@ function useMeta(entry: SubagentEntry): string | undefined {
 }
 
 /**
- * One subagent (or thread ace delegated) as a row: its provider's mark, its name and model, its
+ * One subagent (or thread ace delegated) as a row: its provider's mark with its account's badge
+ * (looked up on the machine it runs on), its name and model, its
  * status word and how long it ran, and what it does now or found. The whole row opens it; one
  * that needs the person also offers Review, which opens it where its request waits, and a child
- * on another machine whose pairing is gone offers Stop tracking.
+ * on another machine whose pairing is gone offers Stop tracking. A child on another machine
+ * opens as this thread's subagent when this window is paired with that machine too.
  */
 export function SubagentRow(props: {
   threadId: string;
@@ -68,23 +71,32 @@ export function SubagentRow(props: {
 }) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
-  const { detail, kind } = useDetail(props.threadId, entry, props.fresh);
+  // Its words, tone, second line and Review all come from `live-words`, current or stale.
+  const live = useLive(props.fresh);
+  const { detail, kind } = useDetail(props.threadId, entry, live);
+  const host = useThreadHost(entry.machine ? entry.childThreadId : undefined, entry.machineHost);
   const meta = useMeta(entry);
-  const status = subagentLabels[entry.state];
+  const account = useAgentAccount({
+    threadId: props.threadId,
+    childThreadId: entry.childThreadId,
+    elsewhere: entry.machine !== undefined,
+    host,
+  });
+  const status = subagentStateWords(live, entry.state).word;
   const label = entry.machine
-    ? `${entry.title} on ${entry.machine}, ${status}`
+    ? `${host ? "Open " : ""}${entry.title} on ${entry.machine}, ${status}`
     : entry.childThreadId
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
-  const terminal = subagentTerminal(entry.state);
   const parts: AgentRowParts = {
-    mark: { provider: entry.provider, model: entry.model },
+    mark: { provider: entry.provider, model: entry.model, ...account },
     name: entry.title,
     meta,
     machine: entry.machine,
     state: entry.state,
-    stale: !props.fresh && !terminal,
-    elapsed: (
+    live,
+    // How long it ran, or runs, is the state's too: nothing while it isn't current.
+    elapsed: live.current && (
       <SubagentElapsed
         startedAt={entry.startedAt}
         endedAt={entry.endedAt}
@@ -96,31 +108,46 @@ export function SubagentRow(props: {
     detailKind: kind,
   };
   const classes = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
-  const target =
-    !entry.machine && (entry.agentId || entry.childThreadId)
-      ? {
-          threadId: props.threadId,
-          agentId: entry.agentId ?? "",
-          childThreadId: entry.childThreadId,
-        }
-      : undefined;
+  // A hover card describes a delegated thread (here or on another machine) or a subagent.
+  const carded = Boolean(entry.childThreadId || entry.agentId);
+  const target: SubagentTarget | undefined =
+    entry.machine && entry.childThreadId
+      ? host
+        ? {
+            threadId: props.threadId,
+            agentId: entry.childThreadId,
+            childThreadId: entry.childThreadId,
+            childMachine: host,
+          }
+        : undefined
+      : entry.agentId || entry.childThreadId
+        ? {
+            threadId: props.threadId,
+            agentId: entry.agentId ?? "",
+            childThreadId: entry.childThreadId,
+          }
+        : undefined;
   return (
     <li data-subagent-state={entry.state} className="relative">
-      {/* A child on another machine has no thread here: it opens the Summary instead. */}
+      {/* A child on a machine this window can't reach has no thread here: it opens the Summary. */}
       {target ? (
-        <SubagentLink subagent={target} aria-label={label} className={classes}>
-          <AgentRowContents {...parts} />
-        </SubagentLink>
+        <WithCard carded={carded} parts={parts}>
+          <SubagentLink subagent={target} aria-label={label} className={classes}>
+            <AgentRowContents {...parts} tooltips={!carded} />
+          </SubagentLink>
+        </WithCard>
       ) : (
         // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
-        <button
-          type="button"
-          aria-label={label}
-          className={classes}
-          onClick={() => workspace.open({ kind: "work" })}
-        >
-          <AgentRowContents {...parts} />
-        </button>
+        <WithCard carded={carded} parts={parts}>
+          <button
+            type="button"
+            aria-label={label}
+            className={classes}
+            onClick={() => workspace.open({ kind: "work" })}
+          >
+            <AgentRowContents {...parts} tooltips={!carded} />
+          </button>
+        </WithCard>
       )}
       {entry.machine && entry.childThreadId && entry.state === "human" && (
         <LostChildAction threadId={props.threadId} childThreadId={entry.childThreadId} />
@@ -138,5 +165,14 @@ export function SubagentRow(props: {
         </SubagentLink>
       )}
     </li>
+  );
+}
+
+/** The row (`children`) with its agent's hover card, when there is an agent to describe. */
+function WithCard(props: { carded: boolean; parts: AgentRowParts; children: ReactElement }) {
+  return props.carded ? (
+    <AgentHoverCard parts={props.parts}>{props.children}</AgentHoverCard>
+  ) : (
+    props.children
   );
 }

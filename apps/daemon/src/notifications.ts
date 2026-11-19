@@ -10,9 +10,11 @@ import {
 } from "@ace/notify";
 import type { DeviceId, Notification } from "@ace/protocol";
 import { allows } from "./devices.ts";
+import { createAckTracker } from "./notification-ack.ts";
 import { failureDelay, maySleep, wakeDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
 import { acceptIntents, dropIntents, isNotice } from "./notification-intents.ts";
+import { delegatedHere } from "./notification-ownership.ts";
 
 const offline = () => false;
 const nobody = (): readonly DeviceId[] => [];
@@ -23,6 +25,7 @@ export type NotificationAccess = Pick<
   | "cursor"
   | "ingest"
   | "connectDevice"
+  | "pushAddresses"
   | "register"
   | "unregister"
   | "getPreferences"
@@ -35,7 +38,10 @@ export type NotificationAccess = Pick<
   | "revoke"
   | "drain"
   | "close"
->;
+> & {
+  /** A phone took a live `notification` frame; waiting deliveries may skip the push. */
+  acknowledge(device: DeviceId, id: string): void;
+};
 export interface DaemonNotifications {
   service: NotificationAccess;
   setSender(sender: (device: DeviceId, notification: Notification) => boolean): void;
@@ -45,6 +51,7 @@ export interface DaemonNotifications {
   open(): Promise<void>;
   ready(): Promise<void>;
   tick(): Promise<void>;
+  /** Starts delivering. Calling it again changes nothing. */
   activate(): void;
   start(): Promise<void>;
   stop(): void;
@@ -101,9 +108,19 @@ export function createDaemonNotifications(
   const quietMs = runtime.quietMs ?? 60_000;
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
   let connected = nobody;
+  /**
+   * Phones with a push address prove they are awake: the live frame goes to their foreground
+   * sockets and the router falls through to the gateway unless `notification.ack` arrives in
+   * time. A suspended app can keep its socket open, so a sent frame alone is no delivery.
+   */
+  const acks = createAckTracker(runtime.delay ?? unrefDelay);
   const delivery = createNotificationRouter({
     ...channels,
     websocket: (device, notification) => send(device, notification),
+    acknowledged: async (device, notification) => {
+      if (!send(device, notification)) return false;
+      return acks.wait(device, notification.id);
+    },
   });
   const report = (error: unknown) => {
     if (signal.aborted && error instanceof Error && error.name === "AbortError") return;
@@ -212,6 +229,12 @@ export function createDaemonNotifications(
       const recovered = await awake.attached.recover();
       cancelled();
       if (recovered) {
+        // Once replay has every thread, before anything is delivered: threads a paired machine
+        // delegated here alert nobody here, whether or not this store saw the event saying so.
+        for (const threads of delegatedHere(store)) {
+          await awake.worker.markRemote(threads, signal);
+          cancelled();
+        }
         await settleSleep(awake.worker);
         return;
       }
@@ -265,7 +288,7 @@ export function createDaemonNotifications(
     cancelTimer = delay(() => {
       cancelTimer = undefined;
       timerAt = Number.POSITIVE_INFINITY;
-      void run();
+      void run().catch(report);
     }, wait);
   };
   let running: Promise<void> | undefined;
@@ -380,6 +403,7 @@ export function createDaemonNotifications(
     cursor: (abort) => use((worker) => worker.cursor(abort)),
     ingest: (events, coverage) => use((worker) => worker.ingest(events, coverage)),
     connectDevice: (device) => use((worker) => worker.connectDevice(device)),
+    pushAddresses: (devices) => use((worker) => worker.pushAddresses(devices)),
     register: (device, address) => use((worker) => worker.register(device, address)),
     unregister: (device) => use((worker) => worker.unregister(device)),
     getPreferences: (device) => use((worker) => worker.getPreferences(device)),
@@ -388,6 +412,9 @@ export function createDaemonNotifications(
     snooze: (thread, until) => use((worker) => worker.snooze(thread, until)),
     updatePresence: (session, device, update) =>
       use((worker) => worker.updatePresence(session, device, update)),
+    acknowledge: (device, id) => {
+      acks.resolve(device, id);
+    },
     feed: (device, afterCursor) => use((worker) => worker.feed(device, afterCursor)),
     disconnect: (session) => ifAwake((worker) => worker.disconnect(session)),
     revoke: (device, abort) => ifAwake((worker) => worker.revoke(device, abort)),
@@ -399,7 +426,7 @@ export function createDaemonNotifications(
     cancelled();
     if (active) return;
     active = true;
-    if (current) void run();
+    if (current) void run().catch(report);
   };
   let stopped: Promise<void> | undefined;
   const stop = () => {

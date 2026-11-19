@@ -28,6 +28,13 @@ struct AttachmentStaging: Sendable {
         try FileManager.default.copyItem(at: source, to: target)
         return try staged(localId, name: name, mimeType: mimeType)
     }
+    /// Takes over a file already copied aside (a video from Photos), without copying it again.
+    func stage(moving source: URL, name: String, mimeType: String) throws -> StagedAttachment {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let localId = UUID().uuidString.lowercased()
+        try FileManager.default.moveItem(at: source, to: url(localId))
+        return try staged(localId, name: name, mimeType: mimeType)
+    }
     func stage(data: Data, name: String, mimeType: String) throws -> StagedAttachment {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let localId = UUID().uuidString.lowercased()
@@ -48,6 +55,8 @@ struct AttachmentStaging: Sendable {
     }
     /// Whether a staged copy is still here to read.
     func holds(_ localId: String) -> Bool { valid(localId) && FileManager.default.fileExists(atPath: url(localId).path) }
+    /// The staged copy itself, for drawing it on the phone; nil once it is gone.
+    func file(_ localId: String) -> URL? { holds(localId) ? url(localId) : nil }
     /// Removes every staged copy but `keeping`.
     func sweep(keeping: Set<String>) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []

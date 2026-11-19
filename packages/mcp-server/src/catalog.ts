@@ -2,28 +2,28 @@ import { z } from "zod";
 import { McpNoticeInput, ThreadId } from "@ace/protocol";
 
 export const HandoffReadInput = z.strictObject({
-  sourceThreadId: ThreadId.describe("The sourceThreadId from the handoff manifest."),
+  sourceThreadId: ThreadId.describe("From the handoff manifest."),
   before: z
     .number()
     .int()
     .positive()
     .max(Number.MAX_SAFE_INTEGER)
     .optional()
-    .describe("The previous page's itemsBefore, for earlier items."),
-  limit: z.number().int().min(1).max(50).default(50).describe("Items per page, 1 to 50."),
+    .describe("The previous page's itemsBefore."),
+  limit: z.number().int().min(1).max(50).default(50).describe("Items per page."),
   streamId: z
     .string()
     .min(1)
     .max(1024)
     .optional()
-    .describe("Read a cited text or shell-output stream instead of items."),
+    .describe("Read a cited stream instead of items."),
   offset: z
     .number()
     .int()
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER)
     .default(0)
-    .describe("With streamId: byte offset, from nextOffset."),
+    .describe("With streamId: from nextOffset."),
   maxBytes: z
     .number()
     .int()
@@ -42,7 +42,7 @@ export const handoffToolCatalog = [
     toolset: "ace-threads",
     riskClass: "read-only",
     description:
-      "Read the history a handoff from another provider cites. Items come newest first (before = itemsBefore for earlier ones); with streamId, a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.",
+      "Read the history a handoff from another provider cites, newest first; page back with before = itemsBefore. With streamId: a cited text or shell stream as base64, continued at nextOffset until eof.",
     input: HandoffReadInput,
     output: z.looseObject({
       threadId: z.string().optional(),
@@ -74,9 +74,9 @@ export const builtinToolCatalog = [
     riskClass: "thread-write",
     openWorld: false,
     description:
-      "Post a notice on this thread and send the person a notification, for something they should see while away (a long task finished, a decision is needed).",
+      "Notify the person of something they should see while away, such as a long task finishing or a decision needed; it also posts on this thread.",
     input: z.strictObject({
-      text: McpNoticeInput.shape.text.describe("What happened, in one or two sentences."),
+      text: McpNoticeInput.shape.text.describe("What happened, in a sentence or two."),
       level: McpNoticeInput.shape.level.describe("info (default), warning or error."),
     }),
     output: accepted,

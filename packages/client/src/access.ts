@@ -15,6 +15,7 @@ export type { AccessOptions } from "./access-http.ts";
 
 export { accessTicket } from "./access-ticket.ts";
 export { pairingLinkUrl, parsePairingLink, type PairingLink } from "./pairing-link.ts";
+export { redeemPairingViaRelay, RelayPairingError } from "./relay-pairing.ts";
 
 /** HTTP access operations never enter the command outbox or place credentials in URLs. */
 export class AccessClient {
@@ -49,10 +50,25 @@ export class AccessClient {
   async ticket(signal?: AbortSignal) {
     return SocketTicket.parse(await this.http("/v1/tickets", "POST", undefined, true, signal));
   }
-  async redeem(code: string, name: string, signal?: AbortSignal) {
-    return DeviceCredential.parse(
-      await this.http("/v1/pair", "POST", PairingRedemption.parse({ code, name }), false, signal),
-    );
+  /**
+   * `installId`: this app install (ADR 0115); pairing it again keeps its one device.
+   * `standingKey`: the public half of the key this app proves the person's standing with, when
+   * the link was a person's (ADR 0190).
+   */
+  async redeem(
+    code: string,
+    name: string,
+    signal?: AbortSignal,
+    installId?: string,
+    standingKey?: string,
+  ) {
+    const body = PairingRedemption.parse({
+      code,
+      name,
+      ...(installId ? { installId } : {}),
+      ...(standingKey ? { standingKey } : {}),
+    });
+    return DeviceCredential.parse(await this.http("/v1/pair", "POST", body, false, signal));
   }
   async previewLink(port: number, signal?: AbortSignal) {
     z.number().int().min(1).max(65535).parse(port);

@@ -18,7 +18,7 @@ export function SettingSwitch(props: {
   const row = settingRow(props.entry);
   const control = useSettingControl(props.setting, row.title);
   return (
-    <SettingRow {...row} description={props.description} htmlFor={id} inline>
+    <SettingRow {...row} description={props.description ?? row.description} htmlFor={id} inline>
       <DaemonSlot control={control}>
         <Switch
           id={id}

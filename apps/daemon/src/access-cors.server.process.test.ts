@@ -1,3 +1,4 @@
+import { keyPair as fixedKeyPair } from "@ace/secure-channel";
 import { expect, it } from "vitest";
 import { DeviceCredential, PairingResponse, SocketTicket } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
@@ -5,8 +6,10 @@ import { redeemPairing } from "./client-access.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { readConfig } from "./config.ts";
-import { setup } from "./remote-test-support.ts";
+import { machineAccount } from "./account-access/machine-account.ts";
+import { cleanups, setup } from "./remote-test-support.ts";
 import { token } from "./socket-test-support.ts";
 
 const page = "http://localhost:5173";
@@ -137,10 +140,10 @@ it("the desktop renderer can redeem a link, request a ticket and read remote sta
   }
 });
 
-it("the desktop app and the hosted web app are allowed without configuration; other origins are not", async () => {
+it("the desktop app and the hosted web app, stable and beta, are allowed without configuration; other origins are not", async () => {
   const f = await setup();
 
-  for (const origin of ["app://ace", "https://app.acehq.dev"]) {
+  for (const origin of ["app://ace", "https://app.acehq.dev", "https://beta.app.acehq.dev"]) {
     const allowed = await preflight(`${f.server.httpUrl}/v1/pair`, origin, "POST");
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
@@ -150,6 +153,10 @@ it("the desktop app and the hosted web app are allowed without configuration; ot
     page,
     "http://app.acehq.dev",
     "https://evil.acehq.dev",
+    "http://beta.app.acehq.dev",
+    "https://beta.app.acehq.dev.evil.example",
+    "https://beta.app.acehq.dev:8443",
+    "https://beta.ace-web.pages.dev",
     "ace://thread",
     "null",
   ]) {
@@ -202,4 +209,61 @@ it("pairing links open this computer's web app until they are set to open app.ac
   expect(new URL(hosted).search).toBe("");
   const credential = await redeemPairing(hosted, "iPhone");
   expect(credential.device.name).toBe("iPhone");
+});
+
+it("an allowed web app can set and clear this machine's code with an admin token, and nothing else opens up", async () => {
+  let account: ReturnType<typeof machineAccount> | undefined;
+  const f = await setup({ webOrigins: [page] }, (store, home) => {
+    account = machineAccount({
+      relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now: Date.now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanups.push(async () => account?.close());
+  const code = `${f.server.httpUrl}/v1/machine-code`;
+
+  const allowed = await preflight(code, page, "PUT");
+  expect(allowed.status).toBe(204);
+  expect(allowed.headers.get("access-control-allow-origin")).toBe(page);
+  expect(allowed.headers.get("access-control-allow-methods")).toContain("PUT");
+  expect((await preflight(`${f.server.httpUrl}/v1/ace-account`, page, "PUT")).status).toBe(204);
+
+  const set = await fetch(code, {
+    method: "PUT",
+    headers: { origin: page, "content-type": "application/json", ...bearer },
+    body: JSON.stringify({ code: "2468" }),
+  });
+  expect(set.headers.get("access-control-allow-origin")).toBe(page);
+  expect(await set.json()).toMatchObject({ machineCode: { set: true } });
+  const cleared = await fetch(code, { method: "DELETE", headers: { origin: page, ...bearer } });
+  expect(await cleared.json()).toMatchObject({ machineCode: { set: false } });
+
+  // Without the token the page can read the refusal, and the code is unchanged.
+  const anonymous = await fetch(code, {
+    method: "PUT",
+    headers: { origin: page, "content-type": "application/json" },
+    body: JSON.stringify({ code: "1357" }),
+  });
+  expect([401, 403]).toContain(anonymous.status);
+  const state = await fetch(`${f.server.httpUrl}/v1/ace-account`, {
+    headers: { origin: page, ...bearer },
+  });
+  expect(await state.json()).toMatchObject({ machineCode: { set: false } });
+
+  expect((await preflight(code, foreign, "PUT")).status).toBe(403);
+  const probe = await fetch(code, {
+    method: "PUT",
+    headers: { origin: foreign, "content-type": "application/json", ...bearer },
+    body: JSON.stringify({ code: "1357" }),
+  });
+  expect(probe.headers.get("access-control-allow-origin")).toBeNull();
+  // Other routes keep their methods.
+  const devices = await preflight(`${f.server.httpUrl}/v1/devices`, page, "PUT");
+  expect(devices.headers.get("access-control-allow-methods")).not.toContain("PUT");
 });

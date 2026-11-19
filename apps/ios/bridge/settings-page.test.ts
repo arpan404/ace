@@ -1,0 +1,659 @@
+import { until } from "./test-host.ts";
+import { afterEach, expect, test } from "vitest";
+import { ClientCore } from "@ace/client";
+import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { DeviceId, HostId } from "@ace/protocol";
+import {
+  readSettingsScope,
+  readSettingsModels,
+  readSettingsPage,
+  writeSettingsPage,
+  type PagePorts,
+} from "./settings-page.ts";
+import type { PageRow, SettingsPage } from "./settings-page-wire.ts";
+import { settingsIndex } from "./settings-index.ts";
+
+/*
+ * Native settings pages over the real SDK and an in-process fake daemon: the Agents page in the
+ * web's words, every change checked against this machine before it is written, and the model
+ * sheet for roles and the utility model listing the composer picker's rows.
+ */
+
+let client: ClientCore | undefined;
+afterEach(async () => {
+  await client?.close();
+  client = undefined;
+});
+
+async function connect(daemon: FakeDaemon): Promise<ClientCore> {
+  const owner = new ClientCore({
+    deviceId: DeviceId.parse("ios-settings-page-test"),
+    expectedHostId: HostId.parse("ios-test-host"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => ({ token: "ios-test-token" }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set: (delay, callback) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    id: () => crypto.randomUUID(),
+    random: () => 0.5,
+    now: () => Date.now(),
+  });
+  client = owner;
+  await owner.start();
+  await until(() => (owner.state === "ready" ? owner : undefined));
+  return owner;
+}
+
+function fixture(): FakeDaemon {
+  return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
+}
+async function ports(daemon = fixture()): Promise<PagePorts & { daemon: FakeDaemon }> {
+  return { owner: await connect(daemon), now: Date.now, preview: (text) => text, daemon };
+}
+async function page(p: PagePorts, id: string): Promise<SettingsPage> {
+  const reply = await readSettingsPage(p, id);
+  if (!("sections" in reply)) throw new Error(reply.message);
+  return reply;
+}
+function row(shown: SettingsPage, id: string): PageRow {
+  const found = shown.sections.flatMap((section) => section.rows).find((entry) => entry.id === id);
+  if (!found) throw new Error(`no row ${id}`);
+  return found;
+}
+const labels = (entry: PageRow) =>
+  entry.control.kind === "choice" ? entry.control.choices.map((choice) => choice.label) : [];
+
+test("Settings' search index names every row each page draws, under its page and section", async () => {
+  const p = await ports();
+  const { entries } = settingsIndex();
+  const pages = [...new Set(entries.map((entry) => entry.page))];
+  expect(pages).toEqual(expect.arrayContaining(["agents", "remote", "browser", "notifications"]));
+  for (const id of pages) {
+    const shown = await page(p, id);
+    const drawn = shown.sections.flatMap((section) =>
+      section.rows.map((entry) => ({
+        page: id,
+        pageTitle: shown.title,
+        section: section.title,
+        row: entry.id,
+        title: entry.title,
+      })),
+    );
+    expect(entries.filter((entry) => entry.page === id)).toEqual(drawn);
+  }
+});
+
+test("the Agents page names its sections and choices in the web's words", async () => {
+  const p = await ports();
+  const shown = await page(p, "agents");
+  expect(shown.sections.map((section) => section.title)).toEqual([
+    "New threads",
+    "While agents work",
+    "Roles",
+    "Thread list",
+    "Generation",
+    "Automations",
+  ]);
+  const limit = row(shown, "threads.limitPolicy");
+  expect(limit.title).toBe("When an account hits its limit");
+  expect(labels(limit)).toEqual([
+    "Stop and ask me",
+    "Resume when it resets",
+    "Snooze until it resets",
+    "Move to another account",
+  ]);
+  expect(limit.note).toBe("At the limit it stops until you choose what to do.");
+  expect(limit.source).toBeNull();
+  const children = row(shown, "agents.maxRunningChildren");
+  expect(children.title).toBe("Agents a thread runs at once");
+  expect(labels(children)).toEqual(["No limit", "1", "2", "4", "8", "16", "32"]);
+  expect(children.value).toBe("null");
+  expect(row(shown, "threads.followUpBehavior").title).toBe("Messages sent while the agent works");
+  expect(row(shown, "roles.build").control).toMatchObject({
+    kind: "link",
+    page: "role.build",
+    label: "Not set",
+  });
+});
+
+test("a usage-limit choice is saved on the machine and the page says so", async () => {
+  const p = await ports();
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "threads.limitPolicy",
+    value: "resume_at_reset",
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("threads.limitPolicy")).toBe("resume_at_reset");
+  const limit = row(written.page!, "threads.limitPolicy");
+  expect(limit.value).toBe("resume_at_reset");
+  expect(limit.note).toBe("At the limit it waits and resumes when the window resets.");
+  expect(limit.source?.label).toBe("This machine");
+});
+
+test("a machine's icon is picked from the web's set, kept in its colour, and saved on the machine", async () => {
+  const p = await ports();
+  await p.owner.request({
+    type: "settings.set",
+    key: "host.icon",
+    value: { kind: "laptop", color: "green" },
+    layer: { kind: "global" },
+  });
+  const icon = row(await page(p, "remote"), "host.icon");
+  expect(labels(icon)).toEqual([
+    "Laptop",
+    "Desktop",
+    "Monitor",
+    "Server",
+    "Cloud",
+    "CPU",
+    "Terminal",
+    "Phone",
+  ]);
+  const server =
+    icon.control.kind === "choice"
+      ? icon.control.choices.find((choice) => choice.label === "Server")
+      : undefined;
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "remote",
+    row: "host.icon",
+    value: server?.id,
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("host.icon")).toEqual({ kind: "server", color: "green" });
+  expect(row(written.page!, "host.icon").value).toBe(server?.id);
+});
+
+test("the child limit saves a count and No limit saves none", async () => {
+  const p = await ports();
+  const write = (value: string) =>
+    writeSettingsPage(p, {
+      type: "settings.page.set",
+      page: "agents",
+      row: "agents.maxRunningChildren",
+      value,
+    });
+  expect((await write("4")).ok).toBe(true);
+  expect(p.daemon.services.settings.get("agents.maxRunningChildren")).toBe(4);
+  const cleared = await write("null");
+  expect(p.daemon.services.settings.get("agents.maxRunningChildren")).toBeNull();
+  expect(row(cleared.page!, "agents.maxRunningChildren").note).toBe(
+    "Agents a thread hands work to all start at once.",
+  );
+});
+
+test("a choice the machine doesn't offer is refused in words and nothing is written", async () => {
+  const p = await ports();
+  const refused = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "threads.limitPolicy",
+    value: "forever",
+  });
+  expect(refused).toMatchObject({
+    ok: false,
+    message: "That isn't a choice for When an account hits its limit.",
+  });
+  expect(p.daemon.services.settings.isSet("threads.limitPolicy")).toBe(false);
+  const provider = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "providers.default",
+    value: "not-a-provider",
+  });
+  expect(provider).toMatchObject({
+    ok: false,
+    message: "That provider isn't installed on this machine.",
+  });
+});
+
+test("the default provider offers the installed CLIs and saves the one picked", async () => {
+  const p = await ports();
+  const before = row(await page(p, "agents"), "providers.default");
+  expect(before.title).toBe("Default provider for new threads");
+  expect(before.control.kind === "choice" && before.control.choices.length).toBeGreaterThan(0);
+  const pick = before.control.kind === "choice" ? before.control.choices.at(-1)!.id : "";
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "providers.default",
+    value: pick,
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("providers.default")).toBe(pick);
+  expect(row(written.page!, "providers.default")).toMatchObject({
+    value: pick,
+    source: { label: "This machine" },
+  });
+});
+
+test("a setting an environment variable overrides is shown locked and can't be changed", async () => {
+  const p = await ports();
+  const overridden: PagePorts = {
+    ...p,
+    owner: {
+      request: (async (message: { type: string; key?: string }, options: unknown) => {
+        const reply = await p.owner.request(message as never, options as never);
+        if (message.type !== "settings.get" || message.key !== "threads.followUpBehavior")
+          return reply;
+        const entries = (reply as unknown as { entries: { provenance: string }[] }).entries;
+        return {
+          ...reply,
+          entries: entries.map((entry) => Object.assign({}, entry, { provenance: "environment" })),
+        };
+      }) as PagePorts["owner"]["request"],
+    },
+  };
+  const follow = row(await page(overridden, "agents"), "threads.followUpBehavior");
+  expect(follow.source?.label).toBe("Environment override");
+  expect(follow.locked).toMatch(/environment variable/);
+  const refused = await writeSettingsPage(overridden, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "threads.followUpBehavior",
+    value: "steer",
+  });
+  expect(refused.ok).toBe(false);
+  expect(p.daemon.services.settings.isSet("threads.followUpBehavior")).toBe(false);
+});
+
+test("a role takes a model from the composer's picker, then its effort, and clears again", async () => {
+  const p = await ports();
+  const sheet = await readSettingsModels(p, {
+    type: "settings.models",
+    page: "role.review",
+    row: "role.model",
+  });
+  const agent = sheet.providers.find(
+    (entry) => entry.ready && entry.models.some((model) => model.efforts.length),
+  );
+  const model = agent?.models.find((entry) => entry.efforts.length);
+  if (!agent || !model) throw new Error("fixture has no model with efforts");
+  const picked = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "role.review",
+    row: "role.model",
+    value: { key: model.key, account: model.account },
+  });
+  expect(picked.ok).toBe(true);
+  expect(p.daemon.services.settings.get("providers.reviewer.provider")).toBe(agent.provider);
+  expect(row(picked.page!, "role.model").control).toMatchObject({
+    kind: "model",
+    label: model.label,
+    clear: { label: "Clear", destructive: true, ask: null },
+  });
+  const effort = row(picked.page!, "role.effort");
+  expect(labels(effort)).toEqual(["Default effort", ...model.efforts.map((entry) => entry.label)]);
+  const high = model.efforts.at(-1)!.id;
+  const tuned = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "role.review",
+    row: "role.effort",
+    value: high,
+  });
+  expect(tuned.ok).toBe(true);
+  expect(p.daemon.services.settings.get("providers.reviewer.reasoningEffort")).toBe(high);
+  // With an effort set too, clearing the role asks before it discards both.
+  expect(row(tuned.page!, "role.model").control).toMatchObject({
+    clear: { ask: { title: "Clear Review?", message: "Its model and effort go back to Not set." } },
+  });
+  const link = row(await page(p, "agents"), "roles.review");
+  expect(link.control).toMatchObject({
+    kind: "link",
+    provider: agent.provider,
+    label: `${model.label} · ${model.efforts.at(-1)!.label}`,
+  });
+  const cleared = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "role.review",
+    row: "role.model",
+    value: null,
+  });
+  expect(cleared.ok).toBe(true);
+  expect(p.daemon.services.settings.get("providers.reviewer.provider")).toBeNull();
+  expect(p.daemon.services.settings.get("providers.reviewer.reasoningEffort")).toBe("default");
+  expect(cleared.page!.sections[0]!.rows.map((entry) => entry.id)).toEqual(["role.model"]);
+});
+
+test("a model another machine has but this one doesn't is refused", async () => {
+  const p = await ports();
+  const refused = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "role.build",
+    row: "role.model",
+    value: { key: "codex\u0000not-on-this-machine", account: "" },
+  });
+  expect(refused).toMatchObject({ ok: false, message: "That model isn't on this machine." });
+  expect(p.daemon.services.settings.isSet("providers.coder.model")).toBe(false);
+});
+
+test("the utility model reads Auto until one is picked, then names it with its account", async () => {
+  const p = await ports();
+  const before = row(await page(p, "agents"), "generation.model");
+  expect(before.title).toBe("Titles and commit messages");
+  expect(before.control).toMatchObject({ kind: "model", clear: null });
+  const sheet = await readSettingsModels(p, {
+    type: "settings.models",
+    page: "agents",
+    row: "generation.model",
+  });
+  const model = sheet.providers.find((entry) => entry.ready)?.models[0];
+  if (!model) throw new Error("fixture has no utility model");
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "generation.model",
+    value: { key: model.key, account: model.account },
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("generation.model")).toMatchObject({
+    model: expect.any(String),
+  });
+  expect(row(written.page!, "generation.model").control).toMatchObject({
+    label: model.label,
+    clear: { label: "Use Auto", destructive: false, ask: null },
+  });
+  const auto = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "agents",
+    row: "generation.model",
+    value: null,
+  });
+  expect(p.daemon.services.settings.get("generation.model")).toBeNull();
+  expect(row(auto.page!, "generation.model").control).toMatchObject({ clear: null });
+});
+
+test("the machine's other pages save lists and text, refusing what the setting won't take", async () => {
+  const p = await ports();
+  const apps = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "computer",
+    row: "computer.blockedApps",
+    value: [" Notes ", "", "com.apple.mail"],
+  });
+  expect(apps.ok).toBe(true);
+  expect(p.daemon.services.settings.get("computer.blockedApps")).toEqual([
+    "Notes",
+    "com.apple.mail",
+  ]);
+  const relay = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "remote",
+    row: "remote.relayUrl",
+    value: "http://user:pw@example.com",
+  });
+  expect(relay).toMatchObject({
+    ok: false,
+    message: "Use a secure relay address without credentials",
+  });
+});
+
+test("the Simulators page asks before turning a machine's simulators off, then saves it there", async () => {
+  const p = await ports();
+  const shown = await page(p, "simulators");
+  const enabled = row(shown, "devices.enabled");
+  // On until turned off, as on the web, and only turning it off asks first.
+  expect(enabled).toMatchObject({ title: "Use simulators and emulators", value: true });
+  expect(enabled.control).toEqual({
+    kind: "toggle",
+    askOff: {
+      title: "Turn off simulators and emulators?",
+      message: expect.stringContaining("Agents lose the devices they are using"),
+      confirm: "Turn off",
+    },
+  });
+  expect(row(shown, "devices.emulatorWindow").control).toEqual({ kind: "toggle" });
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "simulators",
+    row: "devices.enabled",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(p.daemon.services.settings.get("devices.enabled")).toBe(false);
+});
+
+/** A write that names the Build role's provider, sent alone or in a batch. */
+const touchesProvider = (message: { type: string; key?: string; entries?: { key: string }[] }) =>
+  message.key === "providers.coder.provider" ||
+  (message.entries ?? []).some((entry) => entry.key === "providers.coder.provider");
+
+test("a role change the machine refuses in part writes none of it", async () => {
+  const p = await ports();
+  const sheet = await readSettingsModels(p, {
+    type: "settings.models",
+    page: "role.build",
+    row: "role.model",
+  });
+  const model = sheet.providers.find((entry) => entry.ready)?.models[0];
+  if (!model) throw new Error("fixture has no model");
+  // This machine refuses the provider key, whichever way it is sent.
+  const refusing: PagePorts = {
+    ...p,
+    owner: {
+      request: (async (
+        message: { type: string; key?: string; entries?: { key: string }[] },
+        options: unknown,
+      ) => {
+        if (message.type.startsWith("settings.set") && touchesProvider(message))
+          return {
+            type: "settings.result",
+            requestId: "refused",
+            ok: false,
+            entries: [],
+            diagnostics: [{ layer: "global", code: "validation", message: "Not on this machine" }],
+          };
+        return p.owner.request(message as never, options as never);
+      }) as PagePorts["owner"]["request"],
+    },
+  };
+  const written = await writeSettingsPage(refusing, {
+    type: "settings.page.set",
+    page: "role.build",
+    row: "role.model",
+    value: { key: model.key, account: model.account },
+  });
+  expect(written).toMatchObject({ ok: false, message: "Not on this machine" });
+  expect(p.daemon.services.settings.isSet("providers.coder.model")).toBe(false);
+  expect(p.daemon.services.settings.isSet("providers.coder.provider")).toBe(false);
+});
+
+test("the scope control never sends a change to a machine this phone may only view", () => {
+  const plan = readSettingsScope({
+    type: "settings.scope",
+    all: true,
+    current: "studio",
+    machines: [
+      { id: "studio", name: "studio", connected: true, canOperate: true },
+      { id: "shared", name: "shared", connected: true, canOperate: false },
+    ],
+  });
+  expect(plan).toEqual({
+    type: "settings.scope",
+    send: ["studio"],
+    footer: "Saved on studio. shared is view-only from this phone.",
+  });
+});
+
+test("the Notifications page shows a machine's phone push as saved, and turning it off saves it there", async () => {
+  const daemon = fixture();
+  const p = await ports(daemon);
+  const shown = await page(p, "notifications");
+  const push = row(shown, "notifications.remotePush");
+  // On until turned off, with the line that says where the push goes.
+  expect(push).toMatchObject({ title: "Push when the app is closed", value: true });
+  expect(push.control).toEqual({ kind: "toggle" });
+  expect(shown.sections[0]?.footer).toContain("sees only encrypted data");
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "notifications",
+    row: "notifications.remotePush",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(daemon.services.settings.get("notifications.remotePush")).toBe(false);
+  expect(row(await page(p, "notifications"), "notifications.remotePush").value).toBe(false);
+});
+
+test("the Browser page reads ace's Chrome in the web's words and saves each choice", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "/Users/ada/Downloads");
+  const shown = await page(p, "browser");
+  expect(shown.title).toBe("Browser");
+  expect(shown.sections.map((section) => section.title)).toEqual(["ace's Chrome", "Use my Chrome"]);
+  expect(labels(row(shown, "browser.backend"))).toEqual([
+    "App, then ace's Chrome",
+    "Desktop app only",
+    "ace's Chrome only",
+  ]);
+  expect(labels(row(shown, "browser.profile"))).toEqual(["Keep sign-ins", "Private"]);
+  expect(labels(row(shown, "browser.profileScope"))).toEqual([
+    "Global",
+    "Each project",
+    "Each thread",
+  ]);
+  expect(labels(row(shown, "browser.backendLoss"))).toEqual(["Pause", "Use ace's Chrome"]);
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "Empty uses this machine's Downloads folder.",
+  );
+
+  const engine = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.backend",
+    value: "headless",
+  });
+  expect(engine.ok).toBe(true);
+  expect(p.daemon.services.settings.get("browser.backend")).toBe("headless");
+  expect(row(engine.page!, "browser.backend").value).toBe("headless");
+  const scope = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.profileScope",
+    value: "thread",
+  });
+  expect(p.daemon.services.settings.get("browser.profileScope")).toBe("thread");
+  expect(row(scope.page!, "browser.profileScope").value).toBe("thread");
+  await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.userChrome.storageReads",
+    value: true,
+  });
+  expect(p.daemon.services.settings.get("browser.userChrome.storageReads")).toBe(true);
+});
+
+test("without a Downloads folder on the machine, the Browser page says downloads stay with each thread", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "");
+  const shown = await page(p, "browser");
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "No usable Downloads folder here; empty keeps them with each thread.",
+  );
+});
+
+const pipeline = (shown: SettingsPage) => row(shown, "beta.mediaPipeline");
+const media = (daemon: FakeDaemon) => ({
+  encode: daemon.services.settings.get("media.encode"),
+  delivery: daemon.services.settings.get("media.delivery"),
+});
+
+test("Beta's media pipeline switch reads in web's words and turns both settings on together", async () => {
+  const p = await ports();
+  const shown = await page(p, "beta");
+  expect(shown.title).toBe("Beta");
+  const video = shown.sections.find((section) => section.id === "video");
+  expect(video?.footer).toMatch(/^Encodes and streams live video with ace-media/);
+  expect(pipeline(shown)).toMatchObject({
+    title: "New media pipeline",
+    control: { kind: "toggle" },
+    value: false,
+    note: null,
+  });
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: true,
+  });
+
+  expect(written.ok).toBe(true);
+  expect(written.page && pipeline(written.page).value).toBe(true);
+  expect(media(p.daemon)).toEqual({ encode: "auto", delivery: "auto" });
+});
+
+test("Beta's Spade switch shows the machine's setting, and turning it off saves it there", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("beta.spade", true);
+  const shown = await page(p, "beta");
+  // As web lists Settings › Beta: the features first, then video.
+  expect(shown.sections.map((section) => section.id)).toEqual(["features", "video"]);
+  expect(row(shown, "beta.spade")).toMatchObject({
+    title: "Spade",
+    control: { kind: "toggle" },
+    value: true,
+  });
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.spade",
+    value: false,
+  });
+
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("beta.spade")).toBe(false);
+  expect(row(await page(p, "beta"), "beta.spade").value).toBe(false);
+});
+
+test("a half-on pipeline shows off, says only part is on, and turning it off sets both back", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("media.encode", "auto");
+  const shown = pipeline(await page(p, "beta"));
+  expect(shown).toMatchObject({ value: false, note: "Only part of the new pipeline is on." });
+
+  await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: false,
+  });
+
+  expect(media(p.daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+});
+
+test("the switch shows a change made on another device when the page is read again", async () => {
+  const p = await ports();
+  expect(pipeline(await page(p, "beta")).value).toBe(false);
+  p.daemon.services.settings.write("media.encode", "auto");
+  p.daemon.services.settings.write("media.delivery", "auto");
+  expect(pipeline(await page(p, "beta")).value).toBe(true);
+});
+
+test("a phone the machine won't let change it is told so politely and nothing is written", async () => {
+  const daemon = fixture();
+  daemon.refuseRequests("forbidden", "settings.setMany");
+  const p = await ports(daemon);
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: true,
+  });
+
+  expect(written).toMatchObject({
+    ok: false,
+    message:
+      "Couldn't turn the new media pipeline on: this phone isn't allowed to change settings on this machine.",
+  });
+  expect(written.page && pipeline(written.page).value).toBe(false);
+  expect(media(daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+});

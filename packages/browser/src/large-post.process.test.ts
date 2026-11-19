@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 it.skipIf(!executablePath)(
   "a real Chromium worker completes a POST larger than 1 MiB",
   async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const script = `fetch(${JSON.stringify(`${f.url}/data`)}, {method: 'POST', body: 'x'.repeat(1_100_000)})
     .then(response => response.text()).then(value => postMessage(value), error => postMessage(String(error)));`;

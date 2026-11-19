@@ -1,13 +1,17 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
+import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
 import { ThreadId, AgentId } from "./ids.ts";
-import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
+import { AgentPointer, CoworkSharing } from "./cowork.ts";
+import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
 export * from "./device-chrome.ts";
 
 export const AppDeviceId = z
   .string()
   .max(256)
-  .regex(/^(?:ios:[a-fA-F0-9-]{36}|android:[a-zA-Z0-9_.-]{1,200})$/);
+  .regex(/^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$/);
 export const AppDevice = z.object({
   id: AppDeviceId,
   platform: z.enum(["ios", "android"]),
@@ -92,6 +96,8 @@ export const DeviceFailure = z.object({
     "lease_required",
     "stale_ref",
     "limit",
+    /** Cowork (ADR 0143): the person kept using the device; the agent's input was not sent. */
+    "person_busy",
   ]),
   message: z.string().max(2048),
   hint: z.string().max(2048),
@@ -112,10 +118,7 @@ export type DeviceInventory = z.infer<typeof DeviceInventory>;
 /** macOS privacy permissions held by the daemon's screen helper (iOS Simulator view and input). */
 export const DevicePermission = z.enum(["screenRecording", "accessibility"]);
 export type DevicePermission = z.infer<typeof DevicePermission>;
-export const DevicePermissions = z.object({
-  screenRecording: z.boolean(),
-  accessibility: z.boolean(),
-});
+export const DevicePermissions = ScreenPermissions;
 export type DevicePermissions = z.infer<typeof DevicePermissions>;
 /** The last thing an agent did on a device, so a viewer can show it as it happens. */
 export const DeviceActivity = z.object({
@@ -166,10 +169,19 @@ export const DeviceState = z.object({
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
   /**
-   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
-   * an Xcode whose device service ace knows). Absent for every other device.
+   * A foldable device's posture, present only when ace can fold it: an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows, or an Android emulator with a hinge (a Pixel Fold).
+   * Absent for every other device.
    */
   posture: DevicePosture.optional(),
+  /** `exclusive` while the person holds the device (`controller: "human"`); absent: `cowork`. */
+  sharing: CoworkSharing.optional(),
+  /** What the live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: MediaAcceleration.optional(),
+  /** Where the agent last acted on the device, in device points (ADR 0143). */
+  agentPointer: AgentPointer.optional(),
+  /** The person used the device within the last 3 s; agents' actions wait meanwhile. */
+  personActive: z.boolean().optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };
@@ -197,6 +209,11 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     ...target,
     /** `png` for a client that can't draw SVG (the native apps); SVG otherwise. */
     format: z.enum(["svg", "png"]).optional(),
+    /**
+     * The posture to draw a foldable in: its cover's look while closed, its inner screen's once
+     * open. Absent, the device's current posture.
+     */
+    posture: DevicePosture.optional(),
   }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
@@ -209,7 +226,16 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
   z.object({ op: z.literal("stream.keyframe"), ...target }),
   /** The device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by `devices.ack`. */
-  z.object({ op: z.literal("subscribe"), ...target }),
+  z.object({
+    op: z.literal("subscribe"),
+    ...target,
+    /** What the client knows of its link (ADR 0149); it only lowers where the stream starts. */
+    link: MediaLinkHint.optional(),
+    /** Deliver the pictures on that media connection (`media.connect`) instead of this socket. */
+    media: MediaBinding.optional(),
+    /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
+    codecs: MediaCodecs.optional(),
+  }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({
     op: z.literal("controller"),
@@ -282,6 +308,8 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     ok: z.boolean(),
     data: z.unknown().optional(),
     error: DeviceFailure.optional(),
+    /** A `subscribe` that named a media connection: where its pictures go. */
+    media: MediaSubscribed.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
   /** Devices were turned on or off for the daemon's machine, by any client. */

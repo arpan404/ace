@@ -50,3 +50,41 @@ test("update information that arrives after startup reaches clients without runn
     await home.close();
   }
 });
+
+test("a failing update check leaves an installed CLI installed, with its last update facts", async () => {
+  const home = await fixture();
+  const bin = join(home.home, "bin");
+  await mkdir(bin);
+  await fakeCli(bin, "codex", "codex-cli 0.159.1", "Logged in using ChatGPT", "login status");
+  let registryDown = false;
+  const statuses = new ProviderStatuses(
+    {
+      env: { HOME: home.home, PATH: bin },
+      async versions(row) {
+        if (row.provider !== "codex") return {};
+        if (registryDown) throw new Error("catalog unreachable");
+        return { latestVersion: "0.160.0", updateAvailable: true, versionCheckedAt: 5 };
+      },
+    },
+    { now: () => 1, schedule: () => () => {} },
+  );
+  try {
+    await statuses.firstCheck();
+    expect(codex(statuses.list())).toMatchObject({ updateAvailable: true });
+
+    registryDown = true;
+    await statuses.refreshAfterMutation();
+
+    const row = codex(statuses.list());
+    expect(row).toMatchObject({
+      installed: true,
+      version: "0.159.1",
+      latestVersion: "0.160.0",
+      updateAvailable: true,
+    });
+    expect(row?.error).toBeUndefined();
+  } finally {
+    await statuses.close();
+    await home.close();
+  }
+});

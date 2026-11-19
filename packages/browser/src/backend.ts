@@ -1,4 +1,10 @@
-import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
+import type {
+  BrowserOpen,
+  BrowserTab,
+  BrowserDownload,
+  BrowserDialog,
+  MediaAcceleration,
+} from "@ace/protocol";
 import type { VideoEncode } from "./video-policy.ts";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
@@ -34,8 +40,34 @@ export interface CaptureEvents {
   audio?(chunk: EncodedAudio): void;
   /** No encoder configuration worked for this encode. */
   failed(encode: string): void;
-  /** The capture stopped on its own (the tab closed, the extension went away). */
-  ended(): void;
+  /**
+   * The capture stopped on its own (the tab closed, the extension went away, or it never got a
+   * picture); `reason` says why, when the encoder said.
+   */
+  ended(reason?: string): void;
+  /**
+   * The encoder moved its chunks to ace-media's ingest, or back to the daemon (E4). Sent on the
+   * daemon's path in order with its chunks: the last thing there before the move to ace-media,
+   * the first thing after the move back.
+   */
+  moved?(to: "ingest" | "daemon"): void;
+  /**
+   * ace-media's plan for the views it delivers (`source.want`, D1): the capture runs these too,
+   * in place of any the daemon would plan for those views. Replaces the previous plan.
+   */
+  /** Undefined: ace-media has no plan (yet) on the path the capture streams to now. */
+  want?(encodes: VideoEncode[] | undefined): void;
+  /** What the capture runs on in ace-media changed (`VideoCaptureHandle.acceleration`). */
+  accelerated?(): void;
+}
+/** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
+export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";
+/** Where a capture streams instead of the daemon: ace-media's ingest, with the source's token. */
+export interface VideoIngestTarget {
+  url: string;
+  /** Base64 of the single-use token. */
+  token: string;
+  epoch: number;
 }
 /** One tab capture feeding the encodes it is told to run. */
 export interface VideoCaptureHandle {
@@ -48,10 +80,29 @@ export interface VideoCaptureHandle {
    * the live capture keeps its screencast running at this size and hands every frame here.
    */
   pictures?: { width: number; height: number; push(base64: string): void };
+  /**
+   * Present where the encoder can stream into ace-media (E4): its chunks go to `target` from
+   * the moment its socket opens, or back to the daemon (undefined). Never both.
+   */
+  ingest?(target: VideoIngestTarget | undefined): void;
+  /** What ace-media runs the capture on, while it carries it (ADR 0148). */
+  acceleration?(): MediaAcceleration | undefined;
+  /**
+   * The codecs the encoder runs now, best first: present where ace-media plans the capture's
+   * views (`source.codecs`), so it never asks for one the encoder can't make.
+   */
+  codecs?(codecs: readonly string[]): void;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
 export interface VideoHost {
+  /** The kind of ace-media source this host's captures are; absent: never routed there. */
+  mediaKind?: VideoMediaKind;
+  /**
+   * ace-media's ingest is at `url` now: an encoder whose page must be made to reach it (the
+   * desktop's, whose policy names one port) gets ready before its next capture.
+   */
+  reach?(url: string): Promise<void>;
   /** The codecs (of those asked, in order) the encoder supports at this size. */
   supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
   /** Captures the tab `page` shows, at exactly this many pixels. */
@@ -230,6 +281,13 @@ export interface BrowserBackendTabs {
   mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
   /**
+   * Settles once a listed tab may take commands: the backend set it up (its origin guard is
+   * installed) and reported it to the session. Rejects with `tab_not_found` if the tab goes
+   * first, or `backend_changed` if its setup fails. A backend that lists tabs only once they are
+   * set up has none.
+   */
+  ready?(tabId: string): Promise<void>;
+  /**
    * Drops an idle tab's page (ace's Chrome closes its target, the desktop its view), keeping the
    * tab listed at its address.
    */
@@ -238,6 +296,13 @@ export interface BrowserBackendTabs {
   revive?(tabId: string): Promise<void>;
   /** Whether the tab is listed without a page, discarded and not yet revived. */
   discarded?(tabId: string): boolean;
+  /**
+   * Hides an idle tab's page so it draws nothing (ace's Chrome minimizes its window), or shows
+   * it again. Its scripts keep running, as a background tab's do (ADR 0083).
+   */
+  rest?(tabId: string, resting: boolean): Promise<void>;
+  /** Whether the tab's page is hidden by `rest`. */
+  resting?(tabId: string): boolean;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {

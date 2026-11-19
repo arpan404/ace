@@ -8,6 +8,7 @@ const statuses: Record<MachineRefusal["error"], number> = {
   invalid: 400,
   unavailable: 503,
   too_late: 409,
+  not_supported: 501,
 };
 /** A refusal this machine authored, with words the calling agent may read. */
 export class TargetRefusal extends Error {

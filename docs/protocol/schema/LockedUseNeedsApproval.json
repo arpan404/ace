@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseNeedsApproval.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "state": {
+      "const": "needsApproval",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

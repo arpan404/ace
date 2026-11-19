@@ -56,9 +56,12 @@ It holds:
 | Diagnostics (optional) | `tracing`, `trace(name, ms, bytes)`                                                    | totals with native spans (`HostTrace.swift`)                |
 
 Async operations: `storage.load/save`, `storage.host.load/save`, `storage.records`,
-`storage.write`, `storage.reads.load/save`, `inbox.checkpoint`, `snapshot.get/set/clear`,
+`storage.write`, `storage.reads.load/save`, `inbox.checkpoint`, `snapshot.get/set/clear`
+(and, since [ADR 0105](0105-phone-chat-cache.md), `snapshot.thread.get/put`, `snapshot.index`,
+`snapshot.drop`, `snapshot.size`),
 `secret.get/set/delete`, `directory.load/save`, `http`, `credential` (debug fixture only),
-`attachment.chunk`, `access.result`. Error codes: `unsupported`, `storage`, `identity`,
+`attachment.chunk`, `download.open/append/finish/discard` (files saved to the device a chunk
+at a time), `access.result`. Error codes: `unsupported`, `storage`, `identity`,
 `invalid`, `pin`, `redirect`, `offline`, `limit`, `failed`.
 
 Bytes cross without copies where the engine allows: a `Uint8Array` argument is read by pointer
@@ -157,7 +160,8 @@ A Kotlin host implements the same contract; nothing else changes in the shared c
    SQLite (WAL, FULL sync, `BEGIN IMMEDIATE`; the host binding immutable once written),
    snapshots in a separate LRU file (256 records, 32 MiB), secrets in the Android Keystore
    limited to the runtime's own key, the directory file, pinned HTTPS (exact SPKI pin, no
-   redirects, 1 MiB body cap), staged attachment chunks as base64.
+   redirects, 1 MiB body cap), staged attachment chunks as base64, downloads appended to a
+   temporary file only at its current length.
 9. Errors answer with a `HostErrorCode`.
 10. `emit`: accept frames up to 32 KiB, decode them off the UI thread, apply on it, then call
     `aceAck(accepted)`; reassemble `fragment` patches as `BridgeFrames.swift` does. Apply
@@ -178,3 +182,24 @@ both apps run the same bundle on the same contract.
 `SnapshotStoreTests`, `SecretStoreTests`, `PatchPumpTests`, `TranscriptHistoryBridgeTests`,
 `ClientModelTests`, `BrowserLiveTests` and the fixture-backed `BridgeContractTests` pass on the
 iPhone Air simulator. A new pump test fails when `utf8Length` counts UTF-16 units.
+
+## Amendment, 2026-10-27: saved files and captured images
+
+Two operations join the contract (version stays 1: they are additive, and a host without them
+answers `unsupported`, which the bridge says in one sentence):
+
+- `file.write` `{ id, name, offset, done }` with a base64 body: a browser download copied onto
+  the device. Offset 0 starts the file again; any other offset must be where the file ends, so a
+  slice is never written twice or out of order. The host keeps the copy under a folder named by a
+  hash of `id` (ids never become paths) and offers it to the person once `done`.
+- `file.discard` `{ id, name }`: the copy goes, whole or partial, when a save fails or is
+  cancelled. A copy is written to a partial file and only named (and offered) on `done`; one
+  that would pass 128 MB is refused and deleted. The folder hash covers the machine too, so two
+  machines' downloads with the same ids never meet. The bridge writes each verified chunk as it
+  arrives (`fetchBrowserDownload`'s `onChunk`), so one chunk is held at a time.
+- `capture.stage` `{ name, mimeType }` with a base64 PNG or JPEG body: an annotation's crop or
+  page screenshot, staged like a picked photo; the host answers the file's `Picked` JSON with its
+  SHA-256, since JavaScriptCore has no hashing of its own.
+
+Download pieces (stream kind 8) now reach the SDK's binary channel on the phone instead of being
+dropped, so the shared `fetchBrowserDownload` assembles them.

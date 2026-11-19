@@ -9,6 +9,24 @@
       "$ref": "https://ace.local/protocol/v1/StorageResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AdmissionResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AdmissionChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineUpdateResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineUpdateChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {
@@ -25,6 +43,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/TurnStepsResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ItemRawResponse.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/IconsResolveResponse.json"
@@ -48,10 +69,34 @@
       "$ref": "https://ace.local/protocol/v1/HostIdentityResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineCodeResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/PairResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ChannelClose.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OutsideResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OutsideState.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseStatusMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseResult.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/TransfersResult.json"
@@ -88,6 +133,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookResponse.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsResult.json"
@@ -136,6 +184,131 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/PluginServerMessage.json"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "response": {
+          "$ref": "https://ace.local/protocol/v1/SuitResponse.json"
+        },
+        "type": {
+          "const": "suitResult",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "response"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "suits": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "suitsChanged",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "suits"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "$ref": "https://ace.local/protocol/v1/SuitActive.json"
+        },
+        "type": {
+          "const": "suitActive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "active"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "$ref": "https://ace.local/protocol/v1/SuitLiveCheck.json"
+        },
+        "type": {
+          "const": "suitCheck",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "check"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {
+          "$ref": "https://ace.local/protocol/v1/MarketResult.json"
+        },
+        "type": {
+          "const": "marketplace.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "installed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "marketplace.changed",
+          "type": "string"
+        },
+        "updates": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "installed",
+        "updates"
+      ],
+      "type": "object"
     },
     {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthResult.json"
@@ -283,6 +456,10 @@
           ]
         },
         "message": {
+          "type": "string"
+        },
+        "recovery": {
+          "maxLength": 4096,
           "type": "string"
         },
         "requestId": {
@@ -434,6 +611,38 @@
       "type": "object"
     },
     {
+      "properties": {
+        "folders": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "rescan": {
+          "type": "boolean"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "files.folders_changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "folders",
+        "rescan"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayAnswer.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CommandsListResult.json"
     },
     {
@@ -453,6 +662,42 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SkillsChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpOpen.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpChunk.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveFrame.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveEnded.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeGrantRevokeResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeMachinesResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeRemoteResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDriveResult.json"
     },
     {
       "properties": {
@@ -770,6 +1015,9 @@
       "$ref": "https://ace.local/protocol/v1/SearchErrorResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MediaConnectResult.json"
+    },
+    {
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -850,6 +1098,9 @@
           ],
           "type": "object"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -873,6 +1124,9 @@
         "data": {},
         "error": {
           "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+        },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
         },
         "ok": {
           "type": "boolean"
@@ -1004,6 +1258,9 @@
           "maxLength": 2048,
           "type": "string"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -1103,6 +1360,28 @@
       },
       "required": [
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "capabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+        },
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.capabilities",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "capabilities"
       ],
       "type": "object"
     },
@@ -1279,6 +1558,16 @@
     },
     {
       "properties": {
+        "databaseId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "grantTtlMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "headSeq": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -1291,6 +1580,37 @@
           "const": 1,
           "type": "number"
         },
+        "relayHandshakes": {
+          "items": {
+            "maxLength": 16,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "releaseLine": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
+        },
         "type": {
           "const": "welcome",
           "type": "string"
@@ -1301,6 +1621,36 @@
         "hostId",
         "protocolVersion",
         "headSeq"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
+        },
+        "type": {
+          "const": "hello.confirmed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
       ],
       "type": "object"
     },
@@ -1337,6 +1687,10 @@
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
+        },
+        "early": {
+          "const": true,
+          "type": "boolean"
         },
         "events": {
           "items": {
@@ -1527,6 +1881,11 @@
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
+        "lockedUntil": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
         "message": {
           "type": "string"
         },
@@ -1587,6 +1946,62 @@
         "offset",
         "nextOffset",
         "bytes",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "eof": {
+          "type": "boolean"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "interaction.data",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "interactionId",
+        "version",
+        "offset",
+        "nextOffset",
+        "total",
+        "text",
         "eof"
       ],
       "type": "object"
@@ -1702,6 +2117,67 @@
       },
       "required": [
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "result": {
+          "oneOf": [
+            {
+              "properties": {
+                "grantTtlMs": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "ok": {
+                  "const": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok",
+                "grantTtlMs"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "code": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "message": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "ok": {
+                  "const": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok",
+                "code",
+                "message"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "type": {
+          "const": "account.grant.refresh.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
       ],
       "type": "object"
     }

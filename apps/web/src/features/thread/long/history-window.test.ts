@@ -77,3 +77,119 @@ it("paging back holds the rows shown, adds whole turns before them and stays joi
     lease.release();
   }
 });
+
+const spawn = (name: string) => [
+  facts.tool("root", `spawn-${name}`, {
+    kind: "agent.spawn",
+    title: name,
+    detail: { kind: "agent.spawn", childAgent: name },
+  }),
+  facts.subagent("claude", name, name, `spawn-${name}`),
+  facts.turn(name, "spawn"),
+];
+
+it("reading older work on a subagent's page fills a page with that subagent's own items", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, snapshotItems: 200 });
+  daemon.createThread({ id: "busy", workspaceId: "ace", title: "Busy", provider: "claude" });
+  daemon.apply("busy", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Split the work"),
+    ...spawn("quiet"),
+    ...spawn("busy"),
+    // One in twenty of the thread's items is the quiet subagent's.
+    ...Array.from({ length: 1200 }, (_, i) =>
+      i % 20 === 0
+        ? facts.message("quiet", `q-${i}`, "assistant", `Quiet ${i}`)
+        : facts.message("busy", `b-${i}`, "assistant", `Busy ${i}`),
+    ),
+  ]);
+  const client = fakeClient(daemon);
+  await client.start();
+  const lease = client.thread("busy");
+  const live = lease.store;
+  await vi.waitFor(() => expect(live.order.length).toBeGreaterThan(0));
+  const quiet = live.agentIds().find((id) => live.agent(id)?.name === "quiet");
+  if (!quiet) throw new Error("No quiet subagent");
+  const jump = new Jump(client, "busy");
+  jump.setTail(() => ({
+    order: live.order,
+    before: live.itemsBefore,
+    firstItemOf: () => undefined,
+    seq: (id) => live.itemSeq(id),
+    item: (id) => live.item(id),
+    inLane: (id) => live.item(id)?.agentId === quiet,
+    itemInLane: (item) => item.agentId === quiet,
+  }));
+  const own = () => (jump.snapshot().window?.items ?? []).filter((item) => item.agentId === quiet);
+  try {
+    await jump.holdLane();
+    const held = own().length;
+    await jump.older();
+    // A page of the thread holds about ten of its items; reading on fills one with forty.
+    expect(own().length - held).toBeGreaterThanOrEqual(40);
+    expect(jump.snapshot().joined).toBe(true);
+  } finally {
+    jump.dispose();
+    lease.release();
+  }
+});
+
+it("settling back at the live end keeps the older rows the reader paged in, and drops a window the tail already shows", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, snapshotItems: 200 });
+  daemon.createThread({ id: "settle", workspaceId: "ace", title: "Settle", provider: "codex" });
+  daemon.apply("settle", [
+    facts.rootAgent("codex"),
+    ...Array.from({ length: 700 }, (_, i) =>
+      facts.message("root", `m-${i}`, "user", `Message ${i}`),
+    ),
+  ]);
+  const client = fakeClient(daemon);
+  await client.start();
+  const lease = client.thread("settle");
+  const live = lease.store;
+  await vi.waitFor(() => expect(live.order).toHaveLength(200));
+  const jump = new Jump(client, "settle");
+  jump.setTail(() => ({
+    order: live.order,
+    before: live.itemsBefore,
+    firstItemOf: () => undefined,
+    seq: (id) => live.itemSeq(id),
+    item: (id) => live.item(id),
+    inLane: () => true,
+  }));
+  try {
+    // Scrolled away and straight back: the window holds only what the tail shows.
+    jump.hold();
+    await vi.waitFor(() => expect(jump.snapshot().window).toBeDefined());
+    jump.release();
+    expect(jump.snapshot().window).toBeUndefined();
+
+    // Scrolled up far enough to page older history in, then back to the live end.
+    jump.hold();
+    await jump.older();
+    const paged = jump.snapshot().window;
+    if (!paged) throw new Error("No historical window");
+    const oldest = paged.items[0];
+    if (!oldest) throw new Error("Empty window");
+    // Rows older than anything the tail holds: going back to the tail alone would drop them.
+    expect(live.order).not.toContain(oldest.id);
+    jump.release();
+    expect(jump.snapshot().window?.items[0]).toBe(paged.items[0]);
+    expect(jump.snapshot().joined).toBe(true);
+    // It still follows live output.
+    daemon.apply("settle", [facts.message("root", "fresh", "user", "Fresh live message")]);
+    await vi.waitFor(() =>
+      expect(text(live.item(live.order.at(-1) ?? ""))).toBe("Fresh live message"),
+    );
+    jump.tailMoved();
+    const window = jump.snapshot().window;
+    if (!window) throw new Error("Window was dropped");
+    const source = jump.source(live, window, jump.snapshot().joined);
+    expect(source?.order[0]).toBe(oldest.id);
+    expect(text(source?.item(source.order.at(-1) ?? ""))).toBe("Fresh live message");
+  } finally {
+    jump.dispose();
+    lease.release();
+  }
+});

@@ -126,7 +126,7 @@ test("a suggestion commits on its own or with others as one batch, never from an
     await screen.findByRole("button", { name: "Heart: 2, including you" });
     // The outdated thread's suggestion offers nothing to commit.
     expect(screen.getAllByRole("button", { name: "Commit suggestion" })).toHaveLength(2);
-    const named = screen.getByText("Name it.").closest("li");
+    const named = screen.getByText(/Name it\./).closest("li");
     if (!named) throw new Error("Missing the named suggestion's thread");
     await userEvent.click(within(named).getByRole("button", { name: "Commit suggestion" }));
     const message = await screen.findByRole<HTMLInputElement>("textbox", {
@@ -158,6 +158,29 @@ test("a suggestion commits on its own or with others as one batch, never from an
     await f.close();
   }
 });
+
+test("a host that can approve but not ask for reviewers offers no review request", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const operation = {
+    op: "forge.pr.detail",
+    workspaceId: WorkspaceId.parse("api"),
+    number: 42,
+  } as const;
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prDetail",
+    value: {
+      ...detail,
+      capabilities: ["reviews.read", "reviews.approvals.read", "reviews.approvals.write"],
+      status: { ...detail.status, reviewThreads: [] },
+    },
+  });
+  await openPullRequest(app, { project: "api", number: 42 });
+  await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await screen.findByRole("menu");
+  expect(screen.queryByRole("menuitem", { name: "Request review…" })).toBeNull();
+}, 30_000);
 
 test("a reviewer can be requested from the PR panel when no task is linked to the pull request", async () => {
   const app = harness();

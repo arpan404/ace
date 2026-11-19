@@ -84,3 +84,29 @@ export function useMachineThread(key: string): ThreadListEntry | undefined {
   );
   return useSelection(selection);
 }
+
+/**
+ * The other machine in this window's pool whose list holds thread `threadId`, else undefined.
+ * Thread ids are unique across machines, so the id alone names where the thread lives; `known`,
+ * a host id the parent already recorded, wins when it is one of the pool's machines.
+ */
+export function useThreadHost(
+  threadId: string | undefined,
+  known: string | undefined,
+): string | undefined {
+  const pool = useMachinePool();
+  const hostsSelection = useMemo(() => pool?.select(["ids"], (each) => each.ids), [pool]);
+  const hosts = useSelection(hostsSelection) ?? noHosts;
+  const selection = useMemo(() => {
+    if (!pool || !threadId) return undefined;
+    if (known && hosts.includes(known)) return undefined;
+    const keys = hosts.map((hostId) => machineThreadKey({ hostId, threadId }));
+    return pool.threads.select(
+      keys.map((key) => `thread:${key}`),
+      (store) => hosts.find((_, at) => store.thread(keys[at] ?? "") !== undefined),
+    );
+  }, [pool, threadId, known, hosts]);
+  const found = useSelection(selection);
+  return known && hosts.includes(known) ? known : found;
+}
+const noHosts: readonly string[] = [];

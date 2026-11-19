@@ -4,8 +4,9 @@ import {
   TransferProbe,
   type MachineTransferCall,
 } from "@ace/protocol";
-import type { RemoteProfile } from "../cli/profiles.ts";
+import { directOf, type RemoteProfile } from "../cli/profiles.ts";
 import {
+  MachineFailure,
   pinnedRequest,
   type MachineTransportOptions,
   type PinnedRequest,
@@ -18,7 +19,15 @@ export type TransferTransport = (
   options: MachineTransportOptions,
 ) => Promise<unknown>;
 
-export const transferTransport: TransferTransport = pinnedRequest;
+/**
+ * One request to the pinned TLS address the profile names (ADR 0101). `routedTransfers` calls it
+ * for each direct route and goes through a relay for the others (ADR 0192).
+ */
+export const transferTransport: TransferTransport = async (profile, route, options) => {
+  const direct = directOf(profile);
+  if (!direct) throw new MachineFailure("offline", undefined, "No direct address to reach it at");
+  return pinnedRequest(direct, route, options);
+};
 
 /**
  * Stops waiting for `call` once `signal` aborts, whatever the transport does: a cancel or a
@@ -53,6 +62,8 @@ export class TransferClient {
         method: "POST",
         body: JSON.stringify(call),
         contentType: "application/json",
+        // A transfer's status is read by polling; the rest may take long.
+        lane: call.op === "status" ? "reads" : "work",
       },
       timeoutMs,
       signal,
@@ -78,17 +89,19 @@ export class TransferClient {
     offset: number,
     data: Buffer,
     signal?: AbortSignal,
-    part: "code" | "ignored" = "code",
+    part: "code" | "ignored" | "final" = "code",
+    /** How long the chunk may take; follows the link's measured throughput. */
+    timeoutMs = 120_000,
   ): Promise<number> {
     const query = `transfer=${encodeURIComponent(transferId)}&offset=${offset}`;
     const answer = await this.request(
       {
-        path: `/v1/transfers/chunk?${query}${part === "ignored" ? "&part=ignored" : ""}`,
+        path: `/v1/transfers/chunk?${query}${part === "code" ? "" : `&part=${part}`}`,
         method: "PUT",
         body: data,
         contentType: "application/octet-stream",
       },
-      120_000,
+      timeoutMs,
       signal,
     );
     return TransferChunkAck.parse(answer).offset;

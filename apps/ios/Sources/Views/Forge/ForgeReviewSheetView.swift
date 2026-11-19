@@ -7,15 +7,22 @@ struct ForgeReviewSheetView: View {
     let sheet: ForgeReviewSheet
     let desk: ForgeReviewDesk
     @AppStorage private var summary: String
+    /// The older key a summary may still sit under, cleared once the review is sent.
+    private let legacyKey: String?
     @State private var verdict = "COMMENT"
     @Environment(\.dismiss) private var dismiss
 
     init(sheet: ForgeReviewSheet, desk: ForgeReviewDesk) {
         self.sheet = sheet
         self.desk = desk
-        // The summary is kept on this phone until it is sent, as the web keeps its draft.
+        // The summary is kept on this phone until it is sent, as the web keeps its draft, under
+        // the review's provider and host; one saved under the older GitHub-only key is read
+        // until the new key holds one.
         let target = desk.target
-        _summary = AppStorage(wrappedValue: "", "ace.forge.review.\(target.repository.owner)/\(target.repository.name)#\(target.number)")
+        let legacy = "ace.forge.review.\(target.repository.owner)/\(target.repository.name)#\(target.number)"
+        let old = sheet.legacyDraftKey ?? (sheet.draftKey == nil ? legacy : nil)
+        legacyKey = old
+        _summary = AppStorage(wrappedValue: old.flatMap { UserDefaults.standard.string(forKey: $0) } ?? "", sheet.draftKey ?? legacy)
     }
 
     private var chosen: String { sheet.verdicts.first { $0.event == verdict && !$0.off } != nil ? verdict : "COMMENT" }
@@ -61,10 +68,9 @@ struct ForgeReviewSheetView: View {
                         if desk.writing { ProgressView().controlSize(.small) }
                         Text("Submit review").fontWeight(.semibold)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+                .buttonStyle(.textAction(.prominent))
                 .disabled(blocked)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
                 .background(AceTheme.Colours.background)
@@ -95,7 +101,7 @@ struct ForgeReviewSheetView: View {
                 .disabled(!desk.ready)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 48)
+        .frame(minHeight: AceDesign.Size.rowDetail)
     }
 
     private func submit() {
@@ -103,7 +109,10 @@ struct ForgeReviewSheetView: View {
         let action: [String: Any] = ["kind": "submit", "event": chosen, "body": body, "headSha": sheet.headSha, "draftIds": sheet.drafts.map(\.id)]
         Task {
             guard await desk.run(action) else { return }
-            if summary == body { summary = "" }
+            if summary == body {
+                summary = ""
+                if let legacyKey { UserDefaults.standard.removeObject(forKey: legacyKey) }
+            }
             dismiss()
         }
     }

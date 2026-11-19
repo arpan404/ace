@@ -1,9 +1,37 @@
+import type { StorageUsage } from "@ace/protocol";
 import type { ReadSnapshotStorage } from "@ace/client";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { expect, test, vi } from "vitest";
-import { keptForgeLimit, persistQueries, queryRecordKey } from "./query-persistence.ts";
+import {
+  keptForgeLimit,
+  persistQueries,
+  queryRecordKey,
+  restoredUnconfirmed,
+  restoreQueries,
+} from "./query-persistence.ts";
+
+function measurement(measuredAt: number): StorageUsage {
+  return {
+    measuredAt,
+    databaseBytes: 480_000,
+    reclaimableDatabaseBytes: 1_024,
+    complete: false,
+    categories: [{ kind: "logs", bytes: 2_048, items: 3 }],
+    backups: [{ path: "/worktrees/example", state: "failed", updatedAt: 100, error: "offline" }],
+  };
+}
 
 const host = "6b0f9c1e-1f5c-4b5e-9d0a-2f8f6a3c7d11";
+
+/** What a view reading `key` shows, as its observer would report it. */
+function shown(queries: QueryClient, key: QueryKey) {
+  const state = queries.getQueryState(key);
+  return {
+    data: state?.data,
+    dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+    isPlaceholderData: false,
+  };
+}
 
 function memory() {
   const values = new Map<string, unknown>();
@@ -81,6 +109,47 @@ test("lookups kept by an earlier session show at once and are asked for again", 
   await vi.waitFor(() => expect(next.queries.getQueryData(["projects"])).toEqual(["ace"]));
   expect(await observe(next.queries, ["projects"], ["ace", "web"])).toEqual(["ace"]);
   expect(await observe(next.queries, ["models", "list"], ["m2"])).toEqual(["m1"]);
+  next.stop();
+});
+
+test("storage usage survives a reload while reviewed cleanup plans stay private to the page", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = measurement(123);
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  earlier.queries.setQueryData(["storage", "plan"], { id: "reviewed-plan" });
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
+  expect(next.queries.getQueryData(["storage", "plan"])).toBeUndefined();
+  expect(await observe(next.queries, ["storage", "usage"], { ...usage, measuredAt: 456 })).toEqual(
+    usage,
+  );
+  next.stop();
+});
+
+test("a failed storage refresh cannot evict the last measurement from the next persisted record", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = measurement(123);
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  await expect(
+    earlier.queries.fetchQuery({
+      queryKey: ["storage", "usage"],
+      queryFn: async () => {
+        throw new Error("Measurement failed");
+      },
+    }),
+  ).rejects.toThrow("Measurement failed");
+  earlier.queries.setQueryData(["projects"], ["ace"]);
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
   next.stop();
 });
 
@@ -224,4 +293,71 @@ test("nothing is written while the connection is down or after the app let go", 
   s.time.flush();
   await Promise.resolve();
   expect(m.values.has(queryRecordKey)).toBe(false);
+});
+
+test("restored storage measurements survive a short cache collection window and expire after a day", async () => {
+  vi.useFakeTimers();
+  const queries = new QueryClient({ defaultOptions: { queries: { gcTime: 1_000 } } });
+  const usage = measurement(123);
+  try {
+    restoreQueries(queries, [{ key: ["storage", "usage"], data: usage, at: 123 }]);
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    expect(queries.getQueryData(["storage", "usage"])).toEqual(usage);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(queries.getQueryData(["storage", "usage"])).toBeUndefined();
+  } finally {
+    queries.clear();
+    vi.useRealTimers();
+  }
+});
+
+test("a thread's queue and latest turn are kept, newest only, and unconfirmed until asked again", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  earlier.queries.setQueryData(
+    ["queue", "t1", 3],
+    { threadId: "t1", revision: 3 },
+    {
+      updatedAt: 1_000,
+    },
+  );
+  earlier.queries.setQueryData(
+    ["queue", "t1", 4],
+    { threadId: "t1", revision: 4 },
+    {
+      updatedAt: 2_000,
+    },
+  );
+  earlier.queries.setQueryData(["thread-turns", "t1", "latest", 40], { ordinal: 2 });
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+
+  const next = session(m.storage);
+  const queue = ["queue", "t1", 4];
+  await vi.waitFor(() =>
+    expect(next.queries.getQueryData(queue)).toEqual({ threadId: "t1", revision: 4 }),
+  );
+  // An older revision of the same thread's queue is never read again, so it was not kept.
+  expect(next.queries.getQueryData(["queue", "t1", 3])).toBeUndefined();
+  expect(next.queries.getQueryData(["thread-turns", "t1", "latest", 40])).toEqual({ ordinal: 2 });
+  // Shown at once, but nothing may act on it before the daemon answers.
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(true);
+  expect(await observe(next.queries, queue, { threadId: "t1", revision: 4, fresh: true })).toEqual({
+    threadId: "t1",
+    revision: 4,
+  });
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(false);
+  next.stop();
+});
+
+test("a queue read this session is confirmed", async () => {
+  const m = memory();
+  const now = session(m.storage);
+  await now.queries.fetchQuery({
+    queryKey: ["queue", "t2", 1],
+    queryFn: async () => ({ revision: 1 }),
+  });
+  expect(restoredUnconfirmed(now.queries, shown(now.queries, ["queue", "t2", 1]))).toBe(false);
+  now.stop();
 });

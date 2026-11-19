@@ -5,19 +5,17 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { openSearchSheet } from "@/test/open-search.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-async function history() {
+/** `count` settled threads in ace, its only threads, all long past the grace period. */
+async function history(count = 46) {
   const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
-  );
+  storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
   const app = harness({ storage });
   const scenario = workbench().find((entry) => entry.thread.id === "thread-bump-codex");
   if (!scenario) throw new Error("Missing done scenario");
   await app.client.start();
   app.play(scenario).runUntilBlocked();
   await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(scenario.thread.id) });
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < count - 1; i++) {
     const id = `history-${i}`;
     app
       .play({ ...scenario, thread: { ...scenario.thread, id, title: `Finished history ${i}` } })
@@ -26,56 +24,48 @@ async function history() {
   }
   return app;
 }
-/** The settled rows the list draws: a settled row is a link with its title. */
-const settledRows = (nav: HTMLElement) =>
-  within(nav).queryAllByRole("link", { name: /^(Finished history \d+|Bump Codex)/ });
+/** History's rows: each is a link with its thread's title. */
+const historyRows = (main: HTMLElement) =>
+  within(main).queryAllByRole("link", { name: /^(Finished history \d+|Bump Codex)/ });
 
-test("Settled opens on its first ten rows, and Show more reveals the next batch, loading older pages", async () => {
+test("History pages older settled threads as its end comes into view, and retries a failed page", async () => {
   const app = await history();
-  await app.open("/new");
+  // Older pages fail until Retry: the sidebar's Settled pages the same store too, so one failed
+  // call alone could land on either list.
+  const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValue(new Error("offline"));
+  await app.open("/history");
   const lease = app.client.threads();
   try {
-    await waitFor(() => expect(lease.store.ids).toHaveLength(20));
-    expect(await screen.findByRole("button", { name: "Settled (46)" })).toBeTruthy();
-    const nav = screen.getByRole("navigation", { name: "Threads" });
-    await waitFor(() => expect(settledRows(nav)).toHaveLength(10));
-    const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValueOnce(new Error("offline"));
-    await userEvent.click(await within(nav).findByRole("button", { name: "Show 25 more" }));
-    // A failed page shows what did arrive and offers to try again, without duplicates.
-    await within(nav).findByRole("button", { name: "Retry loading more" });
+    const main = await screen.findByRole("main");
+    await within(main).findByRole("heading", { level: 2, name: "History" });
+    // The list's end is in view from the start: the first older page fails and offers a retry.
+    const retry = await within(main).findByRole("button", {
+      name: "Couldn’t load older threads. Retry",
+    });
     expect(lease.store.ids).toHaveLength(20);
-    expect(settledRows(nav)).toHaveLength(20);
-    await userEvent.click(within(nav).getByRole("button", { name: "Retry loading more" }));
-    await waitFor(() => expect(lease.store.ids).toHaveLength(46));
-    await waitFor(() => expect(settledRows(nav)).toHaveLength(45));
-    await userEvent.click(within(nav).getByRole("button", { name: "Show 1 more" }));
-    await waitFor(() => expect(settledRows(nav)).toHaveLength(46));
-    expect(new Set(lease.store.ids).size).toBe(46);
-    expect(within(nav).queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+    expect(historyRows(main)).toHaveLength(20);
     fail.mockRestore();
+    await userEvent.click(retry);
+    // No button to press after that: each page arrives as the end shows, until none are left.
+    await waitFor(() => expect(lease.store.ids).toHaveLength(46));
+    await waitFor(() => expect(historyRows(main)).toHaveLength(46));
+    expect(new Set(lease.store.ids).size).toBe(46);
+    expect(within(main).queryByRole("button", { name: /Retry|Couldn’t/ })).toBeNull();
+    expect(within(main).queryByText("Loading older threads…")).toBeNull();
   } finally {
+    fail.mockRestore();
     lease.release();
   }
 });
 
-test("closing Settled and opening it again starts from its first rows", async () => {
-  const app = await history();
-  await app.open("/new");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
-  await userEvent.click(await within(nav).findByRole("button", { name: "Show 25 more" }));
-  await waitFor(() => expect(settledRows(nav)).toHaveLength(35));
-  await userEvent.click(within(nav).getByRole("button", { name: "Settled (46)" }));
-  await waitFor(() => expect(settledRows(nav)).toHaveLength(0));
-  await userEvent.click(within(nav).getByRole("button", { name: "Settled (46)" }));
-  await waitFor(() => expect(settledRows(nav)).toHaveLength(10));
-  expect(within(nav).getByRole("button", { name: "Show 25 more" })).toBeTruthy();
-});
 test("Search finds an older settled thread outside the window and opens it through a direct subscription", async () => {
-  const app = await history();
+  // Settled shows its first 50 at once, so the list pages that far by itself (three pages of
+  // 20); the oldest of 75 stays outside what it loaded.
+  const app = await history(75);
   await app.open("/new");
   const lease = app.client.threads();
   try {
-    await waitFor(() => expect(lease.store.ids).toHaveLength(20));
+    await waitFor(() => expect(lease.store.ids).toHaveLength(60));
     expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
     await userEvent.type(await openSearchSheet(), "Bump Codex app-server");
     const result = await screen.findByRole("option", { name: /Bump/ });
@@ -85,7 +75,7 @@ test("Search finds an older settled thread outside the window and opens it throu
     expect(
       await screen.findByText("Bump the Codex app-server to 0.48 and re-record the fixtures."),
     ).toBeTruthy();
-    expect(lease.store.ids).toHaveLength(20);
+    expect(lease.store.ids).toHaveLength(60);
     expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
   } finally {
     lease.release();

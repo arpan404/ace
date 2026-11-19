@@ -2,11 +2,26 @@
   "$id": "https://ace.local/protocol/v1/MachineCallOrigin.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "ceiling": {
+      "enum": [
+        "read",
+        "operate"
+      ],
+      "type": "string"
+    },
     "hostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },
     "hostName": {
       "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "maxLength": 64,
       "minLength": 1,
       "type": "string"
     },

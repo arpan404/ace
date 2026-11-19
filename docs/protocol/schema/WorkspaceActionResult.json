@@ -54,6 +54,11 @@
               "maxItems": 32,
               "type": "array"
             },
+            "fileManager": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
             "kind": {
               "const": "editors",
               "type": "string"
@@ -62,6 +67,18 @@
           "required": [
             "kind",
             "editors"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "opened",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -101,6 +118,100 @@
             "kind",
             "branches",
             "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "origin",
+              "type": "string"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "match",
+              "type": "string"
+            },
+            "workspaceId": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "checkout": {
+              "$ref": "https://ace.local/protocol/v1/ProjectCheckoutFacts.json"
+            },
+            "kind": {
+              "const": "checkout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "checkout"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "identitySuggestions",
+              "type": "string"
+            },
+            "next": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "suggestions": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProjectIdentitySuggestion.json"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "suggestions",
+            "next"
           ],
           "type": "object"
         },
@@ -191,12 +302,22 @@
               "const": "gitDiff",
               "type": "string"
             },
+            "nextOffset": {
+              "exclusiveMinimum": 0,
+              "maximum": 33554432,
+              "type": "integer"
+            },
             "patch": {
               "maxLength": 262144,
               "type": "string"
             },
             "truncated": {
               "type": "boolean"
+            },
+            "validator": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
             }
           },
           "required": [

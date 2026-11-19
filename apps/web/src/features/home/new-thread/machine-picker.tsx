@@ -1,4 +1,5 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
+import { useMemo, useRef } from "react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   Menu,
@@ -10,17 +11,41 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import type { Machine } from "@/lib/machines.ts";
 import { useManyDevices } from "../row-parts.tsx";
 import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
+import { moveResolver } from "./machine-move.ts";
+import { platformName, useAccountMachines } from "@/features/ace-account/index.ts";
+import { usePoolProjects } from "@/lib/pool-projects.ts";
+import {
+  checkoutOrder,
+  groupOf,
+  groupProjects,
+  type ProjectCheckout,
+} from "@ace/ui-core/project-groups";
+import { displayPath } from "@ace/ui-core";
+
+/** A menu value naming one checkout on a machine, for a machine with several of the project. */
+const checkoutValue = (checkout: ProjectCheckout) =>
+  `${checkout.machineId}\u0000${checkout.workspaceId}`;
 
 /**
  * The machine a new thread runs on, as a line under the page's question ("on Build server"),
  * shown only while more than one machine is connected. While more than one is online the name
  * is a picker: Enter, Space or a click opens the list; arrows move and Enter picks. A machine
  * that isn't connected shows why and can't be picked. Picking one moves the whole page to it:
- * its projects, models, branches and access.
+ * its projects, models, branches and access. The project and message go along: that machine's
+ * own copy of the repository when it has one, else the project, copied there on send.
  */
-export function MachineLine(props: { returnFocus(): HTMLElement | null }) {
+export function MachineLine(props: {
+  returnFocus(): HTMLElement | null;
+  /** The project (`chatChoice` for a chat) and draft that go along to another machine. */
+  project: string;
+  /** The machine the project is on, when it isn't on this one yet. */
+  from?: string | undefined;
+  draft: { host: string; key: string };
+}) {
   const host = useMachineIdentity();
   const many = useManyDevices();
   const choice = useNewThreadMachines();
@@ -28,7 +53,14 @@ export function MachineLine(props: { returnFocus(): HTMLElement | null }) {
   if (choice !== undefined && (online > 1 || !choice.current.primary))
     return (
       <p className={line}>
-        on <MachineMenu choice={choice} returnFocus={props.returnFocus} />
+        on{" "}
+        <MachineMenu
+          choice={choice}
+          project={props.project}
+          from={props.from}
+          draft={props.draft}
+          returnFocus={props.returnFocus}
+        />
       </p>
     );
   if (!many) return null;
@@ -37,12 +69,72 @@ export function MachineLine(props: { returnFocus(): HTMLElement | null }) {
 
 const line = "-mt-4 mb-6 px-1 text-center text-sm text-muted-foreground";
 
-function MachineMenu(props: { choice: NewThreadMachines; returnFocus(): HTMLElement | null }) {
+function MachineMenu(props: {
+  choice: NewThreadMachines;
+  project: string;
+  from: string | undefined;
+  draft: { host: string; key: string };
+  returnFocus(): HTMLElement | null;
+}) {
   const { machines, current, choose } = props.choice;
+  const { storage } = useLayout();
+  // Machines on the ace account this window isn't connected to; they open from Settings › Fleet.
+  const account = useAccountMachines(machines);
+  const moving = useRef(false);
+  const home = props.from ? machines.find((each) => each.id === props.from) : current;
+  // The project's logical project (ADR 0180): its checkouts on each machine, online ones only.
+  const { lists } = usePoolProjects();
+  const homeId = home?.id;
+  const group = useMemo(
+    () => (homeId ? groupOf(groupProjects(lists), homeId, props.project) : undefined),
+    [lists, homeId, props.project],
+  );
+  const checkoutsOn = (machineId: string) =>
+    (group?.checkouts ?? [])
+      .filter((each) => each.machineId === machineId && each.online)
+      .toSorted(checkoutOrder);
+  // What the resolver reads of the group: it is made again only when that changes, not on every
+  // push from any machine, so asks it kept stay kept.
+  const linked = useMemo(
+    () =>
+      new Map(
+        machines.map((machine) => [
+          machine.id,
+          (group?.checkouts ?? [])
+            .filter((each) => each.machineId === machine.id && each.online)
+            .toSorted(checkoutOrder)[0]?.workspaceId,
+        ]),
+      ),
+    [group, machines],
+  );
+  const linkedKey = [...linked].map(([id, project]) => `${id}=${project ?? ""}`).join("\n");
+  // Where the project lands on each machine, asked as the menu opens so a pick moves at once.
+  const moves = useMemo(
+    () => moveResolver(storage, props.project, home, (next) => linked.get(next.id)),
+    // A new client for the machine it is on (a reconnect), or a link made, asks again.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `home` by its id and client, `linked` by its key.
+    [storage, props.project, home?.id, home?.client, linkedKey],
+  );
+  const askAhead = () => {
+    for (const machine of machines)
+      if (machine.id !== current.id && machine.status === "online") void moves.resolve(machine);
+  };
+  // The project goes along: the other machine's own copy of it, or this one, to copy on send.
+  const move = async (next: Machine) => {
+    if (moving.current) return;
+    moving.current = true;
+    try {
+      choose(next, { ...(await moves.resolve(next)), draft: props.draft });
+    } finally {
+      moving.current = false;
+    }
+  };
   return (
-    <Menu>
+    <Menu onOpenChange={(open) => open && askAhead()}>
       <Tip label="Change machine" side="top">
         <MenuTrigger
+          onPointerEnter={askAhead}
+          onFocus={askAhead}
           aria-label={`Machine: ${current.name}`}
           className="inline-flex max-w-full items-center gap-1 rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.25em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
         >
@@ -59,29 +151,70 @@ function MachineMenu(props: { choice: NewThreadMachines; returnFocus(): HTMLElem
         <MenuRadioGroup
           value={current.id}
           onValueChange={(id: unknown) => {
-            const next = machines.find((machine) => machine.id === id);
-            if (next && next.id !== current.id && next.status === "online") choose(next);
+            const [machineId, workspaceId] = String(id).split("\u0000");
+            const next = machines.find((machine) => machine.id === machineId);
+            if (!next || next.id === current.id || next.status !== "online") return;
+            // One checkout of several there, chosen by its folder.
+            if (workspaceId) choose(next, { project: workspaceId, draft: props.draft });
+            else void move(next);
           }}
         >
-          {machines.map((machine) => (
+          {machines.map((machine) => {
+            const several = machine.id === current.id ? [] : checkoutsOn(machine.id);
+            if (several.length > 1)
+              return several.map((checkout) => (
+                <MenuRadioItem
+                  key={checkout.key}
+                  value={checkoutValue(checkout)}
+                  aria-label={`${machine.name}, ${checkout.path}`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <MachineMark icon={machine.icon} primary={machine.primary} />
+                    <span className="truncate">{machine.name}</span>
+                    <span className="truncate text-xs text-subtle-foreground">
+                      {displayPath(checkout.path, undefined)}
+                    </span>
+                  </span>
+                </MenuRadioItem>
+              ));
+            return (
+              <MenuRadioItem
+                key={machine.id}
+                value={machine.id}
+                disabled={machine.status !== "online"}
+                aria-label={
+                  machine.status === "online"
+                    ? machine.name
+                    : `${machine.name}, ${machineStatus[machine.status].label}`
+                }
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <MachineMark icon={machine.icon} primary={machine.primary} />
+                  <span className="truncate">{machine.name}</span>
+                  {machine.status !== "online" && (
+                    <span className="text-xs text-subtle-foreground">
+                      {machineStatus[machine.status].label}
+                    </span>
+                  )}
+                </span>
+              </MenuRadioItem>
+            );
+          })}
+          {account.only.map((machine) => (
             <MenuRadioItem
-              key={machine.id}
-              value={machine.id}
-              disabled={machine.status !== "online"}
-              aria-label={
-                machine.status === "online"
-                  ? machine.name
-                  : `${machine.name}, ${machineStatus[machine.status].label}`
-              }
+              key={machine.hostId}
+              value={machine.hostId}
+              disabled
+              aria-label={`${machine.name}, on your ace account, not connected`}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <MachineMark icon={machine.icon} primary={machine.primary} />
+                <MachineMark primary={false} />
                 <span className="truncate">{machine.name}</span>
-                {machine.status !== "online" && (
-                  <span className="text-xs text-subtle-foreground">
-                    {machineStatus[machine.status].label}
-                  </span>
-                )}
+                <span className="text-xs text-subtle-foreground">
+                  {[machine.platform && platformName(machine.platform), "Not connected"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
               </span>
             </MenuRadioItem>
           ))}

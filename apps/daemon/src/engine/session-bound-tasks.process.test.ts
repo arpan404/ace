@@ -138,3 +138,67 @@ test("a Claude session that exits settles the child work that lived inside it", 
     await h.close();
   }
 });
+
+test("a command a done thread left running reads as lost after a crash and restart, not running forever", async () => {
+  const home = await mkdtemp(join(tmpdir(), "left-running-"));
+  const path = join(home, "state.sqlite");
+  const id = ThreadId.parse("left-running-thread");
+  const shells = Array.from({ length: 9 }, (_, at) => `codex:shell:${at}`);
+  try {
+    const before = new Store(path);
+    const repo = new EngineRepository(before);
+    createEngineThread(repo, {
+      id,
+      workspaceId: before.createWorkspace(home, "Fixture"),
+      title: "Shells",
+      selection: { provider: "codex", options: {} },
+      cwd: home,
+      at: 1,
+      silenceMs: 100,
+    });
+    // The turn left nine shells running and replied (ADR 0116); the newest eight then ended.
+    repo.apply(
+      id,
+      [
+        { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+        ...shells.map((task, at): Fact => ({
+          type: "background.started",
+          agent: "root",
+          task,
+          kind: "shell",
+          title: `bun run job-${at}`,
+          stoppable: true,
+          wakesAgent: false,
+        })),
+        { type: "turn.ended", agent: "root", outcome: "completed" },
+        ...shells
+          .slice(1)
+          .map((task): Fact => ({ type: "background.ended", task, status: "completed" })),
+      ],
+      2,
+    );
+    // The daemon then crashed: no provider exit was seen, so the oldest shell still reads running,
+    // counted though no name is left for it.
+    expect(before.getThread(id)?.status.state).toBe("done");
+    expect(before.getThread(id)?.live).toMatchObject({ watchingCount: 1 });
+    expect(before.getThread(id)?.live?.watching).toBeUndefined();
+    await before.close();
+
+    const store = new Store(path);
+    const engine = new Engine(store, { registry: new AdapterRegistry(), clock: new ManualClock() });
+    try {
+      await engine.flush();
+      // Its provider is gone, so ace has lost track of it: possibly still running, never counted
+      // as running again, and the thread stays done.
+      expect(statuses(store, id)["bun run job-0"]).toBe("unknown");
+      expect(store.getThread(id)?.live?.watchingCount).toBeUndefined();
+      expect(store.getThread(id)?.live?.watching).toBeUndefined();
+      expect(store.getThread(id)?.status.state).toBe("done");
+    } finally {
+      await engine.close();
+      await store.close();
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

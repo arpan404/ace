@@ -37,6 +37,9 @@ const columns = {
       JSON.stringify({
         lineage: thread.lineage,
         delegatedBy: thread.delegatedBy,
+        delegatedFrom: thread.delegatedFrom,
+        startedBy: thread.startedBy,
+        startedByClient: thread.startedByClient,
         queuedLaunch: thread.queuedLaunch,
         execution: thread.execution,
         switch: thread.switch,
@@ -52,7 +55,6 @@ const columns = {
         titleSource: thread.titleSource,
         queue: thread.queue,
         goal: thread.goal,
-        run: thread.run,
       }),
   },
   capabilities: {

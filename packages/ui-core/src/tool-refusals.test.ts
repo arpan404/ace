@@ -85,3 +85,14 @@ test("a failure code ace has no words for yet reads as what the tool tried", () 
   expect(refused?.label).toMatch(/^Couldn't /);
   expect(JSON.stringify(refused)).not.toMatch(/Some new failure|Agent hint/);
 });
+
+test("a lone report of invalid arguments reads as the tool's step with the tool's own words", () => {
+  const detail =
+    "Name a project on that machine with project; workspace selects this machine's checkout.";
+  const lone = report("i", "invalid_arguments", "Invalid tool arguments", detail, "delegate_task");
+  expect(toolRefusal(lone)).toMatchObject({
+    label: "Delegate a task",
+    reason: `Invalid tool arguments: ${detail}`,
+  });
+  expect(JSON.stringify(toolRefusal(lone))).not.toMatch(/malformed/);
+});

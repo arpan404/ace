@@ -6,8 +6,59 @@ import { z } from "zod";
 /** The longest pull request description or comment, GitHub's own body limit. */
 export const maxForgeTextLength = 65_536;
 const text = z.string().max(maxForgeTextLength);
+export const ForgeKind = z.enum([
+  "github",
+  "gitlab",
+  "gitbucket",
+  "bitbucket",
+  "gitea",
+  "forgejo",
+  "origin",
+]);
+export type ForgeKind = z.infer<typeof ForgeKind>;
+/**
+ * Public hosts whose provider is fixed. Any other host, including self-hosted installations,
+ * is mapped explicitly in source control settings and never guessed from its name.
+ */
+export const publicForgeHosts: Readonly<Record<string, ForgeKind>> = {
+  "github.com": "github",
+  "gitlab.com": "gitlab",
+  "bitbucket.org": "bitbucket",
+  "codeberg.org": "forgejo",
+  "origin.cursor.com": "origin",
+};
+/**
+ * The provider a saved host entry names: its explicit `forge`, else the public host's fixed
+ * provider, else GitHub (settings saved before providers existed). The one rule settings
+ * validation and every reader of settings share.
+ */
+export function configuredForge(entry: { host: string; forge?: ForgeKind | undefined }): ForgeKind {
+  return entry.forge ?? publicForgeHosts[entry.host] ?? "github";
+}
+/** Each configured host's provider, by host. */
+export function configuredForges(
+  hosts: readonly { host: string; forge?: ForgeKind | undefined }[],
+): Record<string, ForgeKind> {
+  return Object.fromEntries(hosts.map((entry) => [entry.host, configuredForge(entry)]));
+}
+
+/** Cursor Origin is one hosted service: its API host is the only host it can have. */
+export const originApiHost = "origin.cursor.com";
+/** Providers ace can read pull requests from: GitHub through gh, GitLab through glab, Cursor
+ * Origin through origin, Gitea and Forgejo through tea and Bitbucket Cloud through bkt. Others
+ * are saved hosts with no pull request reads yet. */
+export const readableForges: readonly ForgeKind[] = [
+  "github",
+  "gitlab",
+  "origin",
+  "gitea",
+  "forgejo",
+  "bitbucket",
+];
+/** Providers ace reads issues from: GitHub only. Issues lists leave the others' repositories out. */
+export const issueReadableForges: readonly ForgeKind[] = ["github", "gitea", "forgejo"];
 export const ForgeRepository = z.object({
-  forge: z.enum(["github", "gitlab"]),
+  forge: ForgeKind,
   host: z
     .string()
     .regex(/^[a-zA-Z0-9.-]+$/)
@@ -40,6 +91,10 @@ export const LinkedPullRequest = z.object({
   state: z.enum(["open", "draft", "merged", "closed"]),
   title: z.string().max(65_536).optional(),
   updatedAt: z.number().int().nonnegative(),
+  /** The head commit the forge last reported. */
+  head: z.string().max(64).optional(),
+  /** The head commit's checks, rolled up: still running, all passed, or any failed. */
+  checks: z.enum(["pending", "passed", "failed"]).optional(),
   unverified: z.boolean().optional(),
   deleted: z.boolean().optional(),
 });
@@ -50,6 +105,8 @@ export const ForgeCheck = z.object({
   status: z.enum(["pending", "success", "failure", "cancelled", "unknown"]),
   conclusion: z.string().nullable(),
   completedAt: z.string().nullable(),
+  /** When the check started running; absent from older reads and from commit statuses. */
+  startedAt: z.string().nullable().optional(),
   jobId: z.number().int().positive().nullable(),
   url: text.nullable(),
 });
@@ -80,6 +137,16 @@ export const ForgeReviewThread = z.object({
   startLine: z.number().int().nullable().optional(),
   /** The side `startLine` counts on, when the thread starts on the other side from `side`. */
   startSide: z.enum(["LEFT", "RIGHT"]).optional(),
+  /**
+   * GitHub's diff hunk for the thread's first comment: the code it was written on, ending at
+   * the commented line, trimmed to its last lines. Absent when GitHub sent none.
+   */
+  hunk: z.string().max(20_000).optional(),
+  /** The line (and first line) the thread was written on, in `originalCommit`. */
+  originalLine: z.number().int().nullable().optional(),
+  originalStartLine: z.number().int().nullable().optional(),
+  /** The commit the thread was written on; differs from the head once outdated. */
+  originalCommit: z.string().max(64).optional(),
   comments: z.array(ForgeComment).max(2_000),
 });
 export const ForgePrStatus = z.object({
@@ -193,7 +260,12 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     type: z.literal("forge.review.request"),
     link: ForgeThreadLink,
     reviewers: z
-      .array(z.string().regex(/^[\w-]+$/))
+      .array(
+        z
+          .string()
+          .regex(/^[\w.-]+$/)
+          .max(100),
+      )
       .min(1)
       .max(100),
   }),

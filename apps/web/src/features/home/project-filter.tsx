@@ -1,10 +1,5 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
-import {
-  FolderPlusIcon,
-  CaretDownIcon,
-  FolderSimpleIcon,
-  DotsThreeIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@ace/icons";
 import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -24,136 +19,160 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { machineRow, useMachineEntries } from "@/lib/machine-threads.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { DeviceFilter, ScopeMark, scopeNames, useScopeMachines } from "./device-filter.tsx";
+import { useSidebarDevice } from "./device-filter-state.ts";
+import { filterRows, threadCounts } from "./project-scope.ts";
 import { useProjects } from "./use-home-threads.ts";
+import { useProjectGroups } from "./use-project-scope.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
-import {
-  useProjectDialogs,
-  AddProjectItem,
-  ManageProjectItems,
-} from "@/features/projects/index.ts";
-
-/**
- * The task list's project filter, which ends with Add project. With no project yet there is
- * nothing to filter, so Add project stands in its place.
- */
-export function ThreadsActions() {
-  const directory = useProjectDirectory();
-  const projects = useProjectDialogs();
-  if (directory.loaded && directory.projects.length === 0) {
-    return (
-      <button
-        type="button"
-        className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground focus-ring hover:bg-sidebar-accent hover:text-foreground"
-        onClick={() => projects.open({ kind: "add", tab: "sources" })}
-        onPointerEnter={projects.preload}
-      >
-        <Icon icon={FolderPlusIcon} size={14} />
-        Add project
-      </button>
-    );
-  }
-  return (
-    <span className="flex min-w-0 items-center gap-0.5">
-      <ProjectFilter />
-    </span>
-  );
-}
+import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const all = "\u0000all";
 
 /**
- * "All projects ▾" narrows Home to one project and offers actions for each project. Every project the daemon
- * lists is here, with or without threads, beside any project only threads still mention.
+ * The Threads panel's filter, in its own row under the title: "All projects" with a small
+ * caret opens the project and device filter (it narrows all three tabs to one project or
+ * device, offers actions for each project and ends with Add project). A project shows its mark
+ * and name; a device shows its glyph and name; both show the mark and name, then ` · `, then
+ * the glyph and name, truncated with the full text in the tooltip. Projects are logical ones
+ * (ADR 0189): one row for each project on any machine the device filter lets through, with
+ * or without threads, its count summed over those machines, beside any project only threads
+ * still mention. A row's actions act on this machine's checkout; one with none here has none.
  */
 export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
+  const device = useSidebarDevice();
+  const chosen = useScopeMachines(device);
+  const deviceName = scopeNames(chosen);
+  const own = usePrimaryMachine().id;
   const withThreads = useProjects();
+  const others = useMachineEntries(useHostIdentity()?.hostId);
+  const groups = useProjectGroups();
   const directory = useProjectDirectory();
   const { name } = directory;
-  const label = project === null ? "All projects" : name(project);
-  const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
-  const rows = useMemo(() => {
-    const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
-    const ids = [...new Set([...directory.projects.map((p) => p.id), ...counts.keys()])].filter(
-      (id) => !directory.isChat(id),
-    );
-    return ids
-      .map((id) => ({ id, label: name(id), threads: counts.get(id) ?? 0 }))
-      .toSorted((a, b) => a.label.localeCompare(b.label));
-  }, [withThreads, directory, name]);
+  const counts = useMemo(
+    () => threadCounts(withThreads, others, own, (entry) => machineRow(entry.id)?.hostId),
+    [withThreads, others, own],
+  );
+  const rows = useMemo(
+    () =>
+      filterRows({
+        groups,
+        device,
+        own,
+        counts,
+        chosen: project,
+        name,
+        isChat: directory.isChat,
+      }),
+    [groups, device, own, counts, project, name, directory.isChat],
+  );
+  const chosenRow = project === null ? undefined : rows.find((row) => row.value === project);
+  const projectName = project === null ? null : (chosenRow?.label ?? name(project));
+  const mark = chosenRow?.actsOn ?? project;
+  const label = projectName ?? "All projects";
+  const fullTitle =
+    projectName && deviceName
+      ? `${projectName} · ${deviceName}`
+      : (projectName ?? deviceName ?? "All projects");
+  const total = rows.reduce((sum, row) => sum + row.threads, 0);
 
   return (
-    <Menu>
-      <MenuTrigger
-        aria-label={`Project filter: ${label}`}
-        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-sm pr-2 pl-[9px] text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
-      >
-        <span className="truncate">{label}</span>
-        <CaretDownIcon aria-hidden size={14} className="shrink-0" />
-      </MenuTrigger>
-      <MenuContent align="end" className="max-h-[60vh] min-w-[220px] overflow-y-auto">
-        <MenuRadioGroup
-          value={project ?? all}
-          onValueChange={(value) =>
-            organizer.setProject(typeof value === "string" && value !== all ? value : null)
-          }
-        >
-          <ProjectItem value={all} label="All projects" count={total} />
-          {rows.length > 0 && <MenuSeparator />}
-          {rows.map((row) => (
-            <ProjectItem
-              key={row.id}
-              value={row.id}
-              label={row.label}
-              count={row.threads}
-              registered={directory.projects.some((p) => p.id === row.id)}
-            />
-          ))}
-        </MenuRadioGroup>
-        {directory.projects.length > 0 && (
-          <>
-            <MenuSeparator />
-            <AddProjectItem />
-          </>
-        )}
-      </MenuContent>
-    </Menu>
+    <span className="flex min-w-0 flex-1">
+      <Menu>
+        <Tip label={fullTitle}>
+          <MenuTrigger
+            aria-label={`Project filter: ${label}${deviceName ? `, Device: ${deviceName}` : ""}`}
+            {...part("button", undefined, "filter")}
+            className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              {mark !== null && (
+                <ProjectMark
+                  id={mark}
+                  badge={projectBadge({ id: mark, name: projectName ?? mark })}
+                />
+              )}
+              {project !== null && <span className="min-w-0 truncate">{projectName}</span>}
+              {project !== null && deviceName && (
+                <span aria-hidden className="shrink-0">
+                  ·
+                </span>
+              )}
+              <ScopeMark chosen={chosen} size={16} />
+              {project === null && !deviceName && <span className="truncate">All projects</span>}
+            </span>
+            <CaretDownIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
+          </MenuTrigger>
+        </Tip>
+        <MenuContent align="end" className="max-h-[60vh] min-w-64 overflow-y-auto">
+          <DeviceFilter />
+          <MenuRadioGroup
+            value={project ?? all}
+            onValueChange={(value) =>
+              organizer.setProject(typeof value === "string" && value !== all ? value : null)
+            }
+          >
+            <ProjectItem value={all} label="All projects" count={total} />
+            {rows.length > 0 && <MenuSeparator />}
+            {rows.map((row) => (
+              <ProjectItem
+                key={row.value}
+                value={row.value}
+                label={row.label}
+                count={row.threads}
+                actsOn={row.actsOn}
+              />
+            ))}
+          </MenuRadioGroup>
+          <MenuSeparator />
+          <AddProjectItem />
+        </MenuContent>
+      </Menu>
+    </span>
   );
 }
 
 /** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
-function ProjectItem(props: { value: string; label: string; count: number; registered?: boolean }) {
+function ProjectItem(props: {
+  value: string;
+  label: string;
+  count: number;
+  /** This machine's checkout its actions act on; without one it has none. */
+  actsOn?: string | undefined;
+}) {
+  const markId = props.actsOn ?? props.value;
   const item = (
     <MenuRadioItem value={props.value} aria-label={props.label} className="flex-1">
       <span className="flex items-center gap-[9px]">
         <span
           className="flex text-muted-foreground"
           style={
-            props.value === all
-              ? undefined
-              : { color: `var(--project-${projectTint(props.value)})` }
+            props.value === all ? undefined : { color: `var(--project-${projectTint(markId)})` }
           }
         >
           {props.value === all ? (
             <Icon icon={FolderSimpleIcon} />
           ) : (
-            <ProjectMark
-              id={props.value}
-              badge={projectBadge({ id: props.value, name: props.label })}
-            />
+            <ProjectMark id={markId} badge={projectBadge({ id: markId, name: props.label })} />
           )}
         </span>
         {props.label}
-        <span className="ml-auto pl-4 group-hover/project:opacity-0 group-focus-within/project:opacity-0 text-xs text-subtle-foreground">
+        {/* The count stays put under the pointer: ⋯ has its own room beside it. */}
+        <span className="ml-auto pl-4 text-xs text-subtle-foreground tabular-nums">
           {props.count}
         </span>
       </span>
     </MenuRadioItem>
   );
-  if (!props.registered) return item;
-  const actions = <ManageProjectItems projectId={props.value} name={props.label} />;
+  if (!props.actsOn) return item;
+  const actions = <ManageProjectItems projectId={props.actsOn} name={props.label} />;
   return (
     <div className="group/project flex items-center">
       <ContextMenu>

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { inboxReasonWords, inboxTarget, inboxTypeWords } from "./inbox-words.ts";
+import { inboxReasonWords, inboxTarget, inboxTypeWords, inboxWhyWords } from "./inbox-words.ts";
 
 const repository = { host: "github.com", owner: "acme", name: "ace" };
 
@@ -33,4 +33,14 @@ test("pull requests and issues open in ace; every other subject opens on GitHub"
     kind: "web",
     url: "https://github.com/acme/ace",
   });
+});
+
+test("a notification's line says why it reached you, not the group it sits in", () => {
+  expect(inboxWhyWords({ reason: "review_requested" }, "sam")).toBe("sam asked you to review");
+  expect(inboxWhyWords({ reason: "review_requested" })).toBe("You were asked to review");
+  expect(inboxWhyWords({ reason: "mention" })).toBe("You were mentioned");
+  expect(inboxWhyWords({ reason: "assign" })).toBe("Assigned to you");
+  expect(inboxWhyWords({ reason: "state_change", state: "merged" })).toBe("Merged");
+  expect(inboxWhyWords({ reason: "state_change", state: "open" })).toBe("Reopened");
+  expect(inboxWhyWords({ reason: "brand_new_reason" })).toBe("Brand new reason");
 });

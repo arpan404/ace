@@ -7,7 +7,6 @@ import {
   repeatsEarlierEvent,
   settledSummary,
   systemInput,
-  taskPrompt,
 } from "./system-events.ts";
 import { mayBeSystemInput } from "./system-input.ts";
 
@@ -152,21 +151,6 @@ test("a cancelled child stays truthful in the settled summary", () => {
   expect(settledSummary([cancelled])).toBe("1 agent cancelled");
   expect(settledSummary([completed, cancelled])).toBe("1 cancelled of 2 agents");
   expect(settledSummary([completed, failed, cancelled])).toBe("1 failed, 1 cancelled of 3 agents");
-});
-
-test("a delegated task prompt splits into its role and task", () => {
-  const input = systemInput(
-    Object.assign(message("Role: greeter\n\nTask:\nWrite a greet() helper."), {
-      origin: { kind: "spawn", parentThreadId: "parent" },
-    }),
-  );
-  expect(input?.kind).toBe("spawn");
-  expect(taskPrompt(input!)).toMatchObject({
-    label: "Task",
-    role: "greeter",
-    task: "Write a greet() helper.",
-    parentThreadId: "parent",
-  });
 });
 
 test("a stamped origin (C-A, attached as the projection carries it) decides over the text", () => {

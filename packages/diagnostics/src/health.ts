@@ -1,5 +1,6 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { DiagnosticsHealth, type StreamingStorageMetrics } from "@ace/protocol";
+import { openResources } from "./open-resources.ts";
 import { sqliteSizes } from "./sqlite.ts";
 export interface DelayProbe {
   count: number;
@@ -21,7 +22,7 @@ export interface HealthRuntime {
 const systemHealth: HealthRuntime = {
   createDelay: () => monitorEventLoopDelay({ resolution: 20 }),
   memory: process.memoryUsage,
-  resources: process.getActiveResourcesInfo,
+  resources: openResources,
   sqlite: sqliteSizes,
   schedule(callback, ms) {
     const timer = setTimeout(callback, ms);

@@ -50,7 +50,9 @@ export type ProviderState =
   | "limited"
   | "attention"
   /** Older than the oldest CLI version ace supports. */
-  | "needs_update";
+  | "needs_update"
+  /** Turned off in ace's Settings: it isn't started, signed in to or asked for models. */
+  | "off";
 
 /** One provider as the daemon's discovery and accounts describe it. */
 export interface ProviderStatus {
@@ -76,7 +78,8 @@ export function providerAccountState(model: ProviderAccountModel): ProviderState
   if (view?.state === "not_installed") return "not_installed";
   if (view?.state === "needs_update") return "needs_update";
   if (view?.state === "signed_out") return "signed_out";
-  if (view?.state === "attention" || view?.state === "off") return "attention";
+  if (view?.state === "off") return "off";
+  if (view?.state === "attention") return "attention";
   return "unknown";
 }
 
@@ -117,7 +120,10 @@ export function providerStatuses(
       name: providerNames[kind],
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
-      state: row?.installed === false ? "not_installed" : providerAccountState(model),
+      state:
+        row?.installed === false && row.enabled !== false
+          ? "not_installed"
+          : providerAccountState(model),
       actionId: row?.actionId,
       accounts: model.accounts,
     };
@@ -152,6 +158,7 @@ export function providerStatuses(
 /** "Codex", "Codex (signed out)" or "Codex (not installed)", as a provider picker lists it. */
 export function providerChoiceLabel(status: Pick<ProviderStatus, "name" | "state">): string {
   if (status.state === "limited") return `${status.name} (limit reached)`;
+  if (status.state === "off") return `${status.name} (turned off)`;
   if (status.state === "attention") return `${status.name} (needs attention)`;
   if (status.state === "needs_update") return `${status.name} (update needed)`;
   if (status.state === "signed_out") return `${status.name} (signed out)`;

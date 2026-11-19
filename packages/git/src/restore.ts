@@ -1,6 +1,7 @@
 import { assertNoGitlinks, createCheckpoint, readCheckpoint, withIndex } from "./checkpoints.ts";
 import { nul } from "./parse.ts";
 import { restoreWorktree, withNestedWorktrees } from "./restore-nested.ts";
+import { checkpointBytes, exactCheckoutArgs } from "./checkpoint-bytes.ts";
 import { ignoredPaths, repositoryPaths } from "./nested.ts";
 import { decode, pathAncestors, pathSchema } from "./decode.ts";
 import { Repository } from "./repository.ts";
@@ -58,6 +59,13 @@ export async function restoreCheckpoint(
         }
       }
       // read-tree refuses to follow symlink directories and owns all path operations.
+      // Windows: write the checkpoint's own bytes back, unconverted, where this Git can.
+      if (repository.cli.platform === "win32" && (await exactCheckoutArgs(repository, root))) {
+        const before = await checkpointBytes(repository, root, safety);
+        const after = await checkpointBytes(repository, root, target);
+        await restoreWorktree(repository, root, before, after, children);
+        return { safetyCheckpointId: safety.id };
+      }
       await restoreWorktree(repository, root, safety.tree, target.tree, children);
       return { safetyCheckpointId: safety.id };
     } catch (error) {

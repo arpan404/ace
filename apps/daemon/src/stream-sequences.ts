@@ -1,13 +1,17 @@
 import type { StatementSync } from "node:sqlite";
 
-/** Reserve ranges durably before publishing volatile events. Old builds also skip this high-water
- * mark, so the existing host_sequence format remains readable in both directions. */
+/** Reserve ranges durably before publishing events. Old builds also skip this high-water mark, so
+ * the existing host_sequence format remains readable in both directions. Every sequence handed
+ * out lies inside a reserved range, and `reserved` hears of each range before it is used, so a
+ * mark kept outside the database covers every sequence a client may hold (ADR 0128). */
 export class StreamSequences {
   private cursor = 0;
   private reserved = 0;
   constructor(privateOptions: {
     statement(sql: string): StatementSync;
     commit(run: () => void): void;
+    /** A range through `through` is reserved and about to be used. */
+    reserved?(through: number): void;
   }) {
     this.options = privateOptions;
   }
@@ -17,6 +21,10 @@ export class StreamSequences {
       this.options.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq,
     );
     this.reserved = this.cursor;
+  }
+  /** The highest sequence this database reserved. */
+  reservedThrough(): number {
+    return this.reserved;
   }
   head(): number {
     const row = this.options
@@ -48,5 +56,6 @@ export class StreamSequences {
       this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);
     });
     this.reserved = through;
+    this.options.reserved?.(through);
   }
 }

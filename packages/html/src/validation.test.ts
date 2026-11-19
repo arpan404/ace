@@ -34,3 +34,32 @@ test("overly deep documents receive diagnostics instead of reaching recursive do
   expect(result.valid).toBe(false);
   expect(result.diagnostics.some((entry) => entry.code === "complexity")).toBe(true);
 });
+
+test.each([
+  ["an SVG marker referenced from CSS", "<style>.edge{marker-end:url(#arrow)}</style>"],
+  ["a gradient fill referenced from a style attribute", "<rect style=\"fill:url( '#fade' )\"/>"],
+  [
+    "an inline image in CSS",
+    '<style>.logo{background:url("data:image/png;base64,iVBORw0KGgo=")}</style>',
+  ],
+  [
+    "an embedded font",
+    "<style>@font-face{font-family:x;src:url(data:font/woff2;base64,d09GMg==)}</style>",
+  ],
+])("pages may style with %s", (_name, markup) => {
+  expect(validateHtml(`<html><body>${markup}</body></html>`).diagnostics).toEqual([]);
+});
+
+test.each([
+  ["a stylesheet import", '<style>@import "theme.css";</style>'],
+  ["a web image in CSS", "<style>.hero{background:url(https://example.invalid/a.png)}</style>"],
+  ["a local file in a style attribute", '<div style="background:url(shot.png)"></div>'],
+  ["an image-set of files", '<style>.a{background:image-set("a.png" 1x)}</style>'],
+  [
+    "a reference hidden after a fragment one",
+    "<style>.a{fill:url(#ok)}.b{background:url(/x.png)}</style>",
+  ],
+])("pages may not load %s", (_name, markup) => {
+  const result = validateHtml(`<html><body>${markup}</body></html>`);
+  expect(result.diagnostics.map((entry) => entry.code)).toEqual(["css-resource"]);
+});

@@ -19,7 +19,7 @@ import {
 } from "./model-picker.ts";
 import { providerAccountModel } from "./provider-account-model.ts";
 import { catalogSignal } from "./provider-readiness.ts";
-import { providerAccountState } from "./provider-status.ts";
+import { providerAccountState, type ProviderState } from "./provider-status.ts";
 import { providerDisplayName } from "./providers.ts";
 import { speedLabel, speedOption, type Speed } from "./speed.ts";
 import type { StatusDisplay, StatusToken } from "./mobile-status.ts";
@@ -37,6 +37,10 @@ export interface NewThreadModelRow {
   /** The account (catalog instance) serving it. */
   account: string;
   efforts: { id: string; label: string }[];
+  /**
+   * The effort a thread starts at when none is picked, as `selectNewThreadAgent` resolves it:
+   * the catalog's default, else Medium, else the lower middle. Undefined with no efforts.
+   */
   defaultEffort: string | undefined;
   /** Speeds it can start at, slowest first; empty when there is nothing faster. */
   speeds: { speed: Speed; label: string }[];
@@ -54,6 +58,8 @@ export interface NewThreadProviderRow {
   ready: boolean;
   /** Its CLI is on the computer, ready or not. */
   installed: boolean;
+  /** Its readiness as the web's provider pickers name it (`providerChoiceLabel`). */
+  state: ProviderState;
   status: StatusDisplay;
   /** Why it can't be picked, in words; absent when it can. */
   reason: string | undefined;
@@ -81,6 +87,7 @@ const reasons: Partial<Record<string, string>> = {
   needs_update: "Needs an update on your computer",
   limited: "Usage limit reached",
   attention: "Needs attention on your computer",
+  off: "Turned off in ace's Settings on your computer",
   unknown: "Checking sign-in…",
 };
 
@@ -96,7 +103,7 @@ const tokens: Partial<Record<string, StatusToken>> = {
  * Every coding agent the machine reports (`providers.request` readiness), in its order, joined
  * with its accounts (`accounts.list`) and the model catalog (`models.list`) the way the web's
  * provider statuses join them. One that isn't installed, is signed out, needs an update or lists
- * no models is still listed, unready, with the reason. Turned-off CLIs are left out.
+ * no models, or is turned off in Settings, is still listed, unready, with the reason.
  */
 export function newThreadAgents(input: {
   statuses: readonly DiscoveryStatus[];
@@ -105,18 +112,16 @@ export function newThreadAgents(input: {
   now: number;
 }): NewThreadAgents {
   const views = input.accounts.map(accountView);
-  const joined = input.statuses
-    .filter((row) => row.enabled !== false)
-    .map((row) => {
-      const model = providerAccountModel({
-        provider: row.provider,
-        accounts: views,
-        row,
-        catalog: catalogSignal(input.catalog.models, input.catalog.instances, row.provider),
-        now: input.now,
-      });
-      return { row, model, state: providerAccountState(model) };
+  const joined = input.statuses.map((row) => {
+    const model = providerAccountModel({
+      provider: row.provider,
+      accounts: views,
+      row,
+      catalog: catalogSignal(input.catalog.models, input.catalog.instances, row.provider),
+      now: input.now,
     });
+    return { row, model, state: providerAccountState(model) };
+  });
   const reconciled: AccountView[] = joined.flatMap((entry) => entry.model.accounts);
   const options = newThreadOptions(
     input.catalog.models,
@@ -132,6 +137,7 @@ export function newThreadAgents(input: {
       name: providerDisplayName(row.provider),
       ready,
       installed: state !== "not_installed",
+      state,
       status: {
         label: ready ? "Ready" : label,
         token: ready ? "done" : (tokens[state] ?? "neutral"),
@@ -149,7 +155,7 @@ export function newThreadAgents(input: {
         label: option.label,
         account: option.account,
         efforts: option.efforts.map((id) => ({ id, label: effortLabel(id) })),
-        defaultEffort: option.defaultEffort,
+        defaultEffort: resolveEffort(option.efforts, undefined, option.defaultEffort),
         speeds: option.speeds.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) })),
         defaultSpeed: option.defaultSpeed,
         isDefault: option.isDefault,
@@ -219,7 +225,11 @@ export function selectNewThreadAgent(
     account: choice.account,
   });
   if (!model) return { ok: false, reason: `${row.name}: No models listed on this computer` };
-  const effort = resolveEffort(model.efforts, choice.effort, model.defaultEffort);
+  // A picked effort belongs to the picked model: when the account serves another one (or
+  // another agent steps in), start from the new model's default instead of carrying stale
+  // thinking over.
+  const wanted = choice.model === undefined || choice.model === model.key ? choice : undefined;
+  const effort = resolveEffort(model.efforts, wanted?.effort, model.defaultEffort);
   const speed = model.speeds.find((tier) => tier.speed === choice.speed)?.speed;
   const serviceTier = speed ? speedOption(model.speeds, speed) : undefined;
   return { ok: true, provider: row.provider, model, effort, serviceTier };

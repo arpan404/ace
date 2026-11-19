@@ -175,3 +175,45 @@ it("arguments over the input budget tell the agent to send less instead of faili
   });
   lease.end();
 });
+
+it("a result that breaks its tool's output schema names the tool and field, logs where, and never leaks values", async () => {
+  const logged: string[] = [];
+  const registry = new ToolRegistry({
+    scheduler: { after: () => () => {} },
+    reportFailure: ({ tool, error }) => {
+      logged.push(`${tool}: ${error instanceof Error ? error.message : ""}`);
+      return "6f1c1f9e-3f0e-4b8e-9d3e-1d2a3b4c5d6e";
+    },
+  });
+  const lease = new CredentialRegistry(() => "e".repeat(64)).issue(
+    scope("root"),
+    new AbortController().signal,
+  );
+  registry.register({
+    name: "agents_status",
+    description: "Check children",
+    capability: null,
+    timeoutMs: 1000,
+    input: z.strictObject({}),
+    output: z.object({ children: z.array(z.object({ role: z.string() })).max(2) }),
+    run: async () => ({ children: [{ role: "private-a" }, { role: "private-b" }, { role: "c" }] }),
+  });
+  const result = await registry.call(
+    "agents_status",
+    {},
+    lease.principal,
+    new AbortController().signal,
+  );
+  const first = result.content[0];
+  const body = first?.type === "text" ? first.text : "";
+  expect(JSON.parse(body)).toMatchObject({
+    code: "invalid_data",
+    detail: "agents_status: its result breaks the output schema in children (too_big).",
+    errorId: "6f1c1f9e-3f0e-4b8e-9d3e-1d2a3b4c5d6e",
+  });
+  expect(body).not.toContain("private");
+  expect(logged).toEqual([
+    "agents_status: agents_status: its result breaks the output schema in children (too_big).",
+  ]);
+  lease.end();
+});

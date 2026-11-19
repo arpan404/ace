@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/StartedByClient.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "grantId": {
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+      "type": "string"
+    },
+    "kind": {
+      "const": "mcp_client",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "grantId",
+    "name"
+  ],
+  "type": "object"
+}

@@ -379,6 +379,18 @@ test("an approved drain deadline refuses restart and reopens admission while wor
   expect(await readlink(join(f.root, "current"))).toBe("releases/1.0.0-linux-x64");
 });
 
+test("an update asked for now stops working agents with the service instead of refusing", async () => {
+  const f = await fixture();
+  f.block();
+  f.request.interrupt = true;
+  f.request.ports.wait = async () => {
+    throw new Error("an update now never waits for agents");
+  };
+  expect(await applyUpdate(f.request)).toBe("updated");
+  expect(f.stops).toBe(1);
+  expect(await readFile(join(f.root, "current/marker"), "utf8")).toBe("new");
+});
+
 test("a malformed regular-file release pointer remains fatal", async () => {
   const f = await fixture();
   await rm(join(f.root, "current"));

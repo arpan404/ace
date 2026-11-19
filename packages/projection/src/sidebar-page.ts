@@ -4,19 +4,35 @@ import { threadAttention } from "./thread-attention.ts";
  * In the Settled section. Working work always resurfaces, and so does a thread waiting on the
  * person (a question or an approval), while it waits: settled or not, it is never out of sight
  * then. It stays settled, so it returns to Settled once answered. A queue needing recovery
- * resurfaces an automatically settled thread, but a thread the person settled by hand stays
- * settled.
+ * resurfaces an automatically settled thread; a thread the person settled by hand comes back
+ * only when their own message may not have gone (not sent, or not known to have arrived). A
+ * failure after the thread was settled brings it back until the person reads it; one from before
+ * stays, since settling it was their answer to that.
  */
 export function sidebarSettled(entry: ThreadListEntry): boolean {
-  return (
-    entry.settledAt !== undefined &&
-    entry.status.state !== "working" &&
-    entry.status.state !== "needs_you" &&
-    (entry.settledReason === "manual" || !threadAttention(entry))
-  );
+  if (entry.settledAt === undefined) return false;
+  if (entry.status.state === "working" || entry.status.state === "needs_you") return false;
+  if (failedSinceSettled(entry, entry.settledAt)) return false;
+  const attention = threadAttention(entry);
+  if (entry.settledReason !== "manual") return !attention;
+  return attention !== "not_sent" && attention !== "uncertain";
+}
+
+/**
+ * Failed since it was settled, and not read since. Timed by when it last worked: `updatedAt`
+ * moves with organizing changes (a rename), so a row without `activityAt` can't tell and stays.
+ */
+function failedSinceSettled(entry: ThreadListEntry, settledAt: number): boolean {
+  const failedAt = entry.activityAt;
+  if (entry.status.state !== "failed" || failedAt === undefined) return false;
+  return failedAt > settledAt && !(entry.readAt !== undefined && entry.readAt >= failedAt);
 }
 export function sidebarVisible(entry: ThreadListEntry, archived = false): boolean {
-  return entry.deletedAt === undefined && (entry.archivedAt !== undefined) === archived;
+  return (
+    entry.deletedAt === undefined &&
+    entry.host === undefined &&
+    (entry.archivedAt !== undefined) === archived
+  );
 }
 export function sidebarPage(
   entries: readonly ThreadListEntry[],
@@ -27,6 +43,7 @@ export function sidebarPage(
   const counts = new Map<string, number>();
   for (const entry of visible)
     if (
+      entry.delegatedFrom === undefined &&
       entry.hasSentMessage !== false &&
       !(
         entry.hasSentMessage === undefined &&

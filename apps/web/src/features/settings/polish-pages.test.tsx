@@ -11,25 +11,11 @@ await Promise.all([
 ]);
 beforeEach(() => localStorage.clear());
 
-test("Agents finishes loading and keyboard changes are stored", async () => {
-  const app = harness();
-  await app.open("/settings/agents");
-  const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
-  await userEvent.click(worktree);
-  worktree.focus();
-  await userEvent.keyboard(" ");
-  await waitFor(() => expect(app.daemon.services.settings.get("threads.useWorktree")).toBe(true));
-});
-
-test("keyboard users can read a compact switch hint and still change its setting", async () => {
+test("compact switch explanations are visible and the setting works from the keyboard", async () => {
   await harness().open("/settings/notifications");
   const control = await screen.findByRole("switch", { name: "Needs you", checked: true });
   control.focus();
-  await userEvent.tab({ shift: true });
-  expect(
-    await screen.findByRole("tooltip", { name: "Approvals, questions and plans." }),
-  ).toBeTruthy();
-  await userEvent.tab();
+  expect(screen.getByText("Approvals, questions and plans.")).toBeTruthy();
   expect(document.activeElement).toBe(control);
   await userEvent.keyboard(" ");
   await screen.findByRole("switch", { name: "Needs you", checked: false });
@@ -42,10 +28,13 @@ test("settings search reveals and highlights the pairing control before it opens
     "Pair a device",
   );
   await userEvent.click(await screen.findByRole("link", { name: /Pair a device.*Fleet/ }));
-  const button = await screen.findByRole("button", { name: "Pair a device" });
-  await waitFor(() => expect(button.closest(".bg-accent")).not.toBeNull());
+  const add = await screen.findByRole("button", { name: "Add", expanded: false });
+  await waitFor(() => expect(add.dataset.flash).toBe("true"));
   expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();
-  await userEvent.click(button);
+  await userEvent.click(add);
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: /^A phone, tablet or browser/ }),
+  );
   expect(await screen.findByRole("dialog", { name: "Pair a device" })).toBeTruthy();
 });
 

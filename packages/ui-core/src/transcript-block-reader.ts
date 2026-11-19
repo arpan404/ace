@@ -42,8 +42,8 @@ function failedOn(run: Run): string | undefined {
     : undefined;
 }
 
-/** The newest loaded turn of the root agent (walks back to the first item with a run). */
-function newestTurn(reader: ThreadReader): string | undefined {
+/** The newest loaded root run (walks back to the first item with a run). */
+function newestRun(reader: ThreadReader): string | undefined {
   for (let index = reader.order.length - 1; index >= 0; index--) {
     const run = rootRunOf(reader, reader.item(reader.order[index] ?? "")?.runId);
     if (run) return run.id;
@@ -66,7 +66,8 @@ export function createBlockReader(
   let ownOrder:
     | { from: readonly string[]; owner: string | undefined; order: readonly string[] }
     | undefined;
-  // Turns seen held by a usage limit while this transcript was open.
+  // Root runs seen held by a usage limit while this transcript was open. A run, not its turn:
+  // the limit's resume carries the same turn on, and that turn works again.
   const paused = new Set<string>();
   // The key each turn's rows were first given, so a turn whose ask trims out keeps it.
   const turnKeys = new Map<string, string>();
@@ -93,8 +94,7 @@ export function createBlockReader(
     // The queue holds for a restart that cut the newest turn short (nothing has run since).
     const restarted =
       agentId === undefined && reader.queue?.paused === true && reader.queue.reason === "restart";
-    const newest = limited ? newestTurn(reader) : undefined;
-    const heldTurn = newest ? tree.turnId(newest) : undefined;
+    const heldTurn = limited ? newestRun(reader) : undefined;
     if (heldTurn) paused.add(heldTurn);
     if (ownOrder?.from !== reader.order || ownOrder?.owner !== ownerId)
       ownOrder = {
@@ -215,11 +215,7 @@ export function createBlockReader(
       restartedTail: restarted,
       pausedTurns: paused,
       stoppedTail:
-        status?.state === "failed" || status?.state === "interrupted"
-          ? status.state
-          : limited
-            ? "paused"
-            : undefined,
+        status?.state === "failed" || status?.state === "interrupted" ? status.state : undefined,
       watch,
       unsettledTail,
       turnKeys,

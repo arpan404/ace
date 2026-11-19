@@ -82,3 +82,21 @@ test("a thread row names its pull request and, while working, when the stretch b
   const bare = ThreadListEntry.parse({ ...working, details: undefined });
   expect(threadRow(bare).pr).toBeNull();
 });
+
+test("a thread an outside app started says so; one a person started says nothing", () => {
+  const entry = {
+    id: "t2",
+    workspaceId: "ace",
+    title: "Summarise the week",
+    provider: "claude",
+    createdAt: 0,
+    updatedAt: 10,
+    status: { state: "done" },
+  };
+  const started = ThreadListEntry.parse({
+    ...entry,
+    startedByClient: { kind: "mcp_client", grantId: "g1", name: "Claude" },
+  });
+  expect(threadRow(started).startedBy).toBe("Started by Claude");
+  expect(threadRow(ThreadListEntry.parse(entry)).startedBy).toBeNull();
+});

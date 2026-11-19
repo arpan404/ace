@@ -60,6 +60,7 @@ export async function writeGitIncludes(
     "",
   ].join("\n");
   if ((await readFile(target, "utf8").catch(() => undefined)) === content) return;
+  await mkdir(input.privateHome, { recursive: true, mode: 0o700 });
   await writeFile(target, content, { mode: 0o600 });
 }
 

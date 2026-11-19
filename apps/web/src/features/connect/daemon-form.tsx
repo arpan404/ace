@@ -1,4 +1,4 @@
-import { EyeIcon, EyeSlashIcon } from "@phosphor-icons/react";
+import { EyeIcon, EyeSlashIcon } from "@ace/icons";
 import { useForm } from "@tanstack/react-form";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";

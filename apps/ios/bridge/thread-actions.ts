@@ -1,6 +1,7 @@
 import { AccessMode, KnownSpeed } from "@ace/protocol";
-import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
+import { messageQuoteLimit, otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
+import { References } from "./composer-references.ts";
 import { Picked } from "./thread-attachments.ts";
 import { RequestAnswer } from "./thread-requests.ts";
 
@@ -30,6 +31,13 @@ export const ThreadAction = z.discriminatedUnion("type", [
     opposite: z.boolean(),
     /** The question card on the strip, as the person left it: the words may answer it. */
     reply: QuestionReply.optional(),
+    /**
+     * The composer showed the message starting a new thread (`thread.controls` `continues`) and
+     * waits for the daemon's answer; refused when the bridge no longer agrees.
+     */
+    continues: z.boolean().optional(),
+    /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
+    references: References.optional(),
     requestId,
   }),
   z.object({ type: z.literal("stop"), requestId }),
@@ -49,11 +57,23 @@ export const ThreadAction = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retrySend"), id: z.string().min(1), requestId }),
   z.object({ type: z.literal("models") }),
-  z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
+  /**
+   * A model on one account (the picker row's `key` and `account`), with the row's question
+   * answered when it asks one, and the effort and speed picked for it in the same sheet.
+   */
+  z.object({
+    type: z.literal("switchModel"),
+    key: z.string().min(1).max(512),
+    account: z.string().min(1).max(256),
+    confirmed: z.boolean(),
+    effort: z.string().min(1).max(64).optional(),
+    speed: KnownSpeed.optional(),
+    requestId,
+  }),
   /** The thread's access from its next turn; null goes back to the default. */
   z.object({ type: z.literal("access"), mode: AccessMode.nullable(), requestId }),
-  /** Star or unstar one of the thread's provider's models. */
-  z.object({ type: z.literal("favorite"), model: z.string().min(1).max(512) }),
+  /** Star or unstar a model by its picker key (`modelKey`). */
+  z.object({ type: z.literal("favorite"), key: z.string().min(1).max(512) }),
   /** Effort for the next message; null goes back to the model's default. */
   z.object({ type: z.literal("effort"), effort: z.string().min(1).max(64).nullable(), requestId }),
   z.object({ type: z.literal("speed"), speed: KnownSpeed, requestId }),
@@ -63,11 +83,48 @@ export const ThreadAction = z.discriminatedUnion("type", [
     change: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("remove") }),
       z.object({ kind: z.literal("steer") }),
-      z.object({ kind: z.literal("words"), text: z.string().min(1) }),
+      z.object({
+        kind: z.literal("words"),
+        text: z.string().min(1),
+        /** The revision the edited words were read at: a newer queue refuses the edit. */
+        revision: z.number().int().nonnegative().optional(),
+      }),
       z.object({ kind: z.literal("move"), step: z.union([z.literal(-1), z.literal(1)]) }),
     ]),
     requestId,
   }),
+  /** A queue-wide choice: Pause, Resume, Continue or a limit's choice (`queueActionPayload`). */
+  z.object({
+    type: z.literal("queueAct"),
+    action: z.discriminatedUnion("id", [
+      z.object({
+        id: z.enum([
+          "resume_now",
+          "resume_at_reset",
+          "snooze_until_reset",
+          "resume",
+          "continue",
+          "hold",
+          "cancel_resume",
+        ]),
+        label: z.string().max(128).default(""),
+      }),
+      z.object({
+        id: z.literal("migrate_now"),
+        label: z.string().max(128).default(""),
+        instanceId: z.string().min(1).max(128).optional(),
+      }),
+    ]),
+    requestId,
+  }),
+  /** A queued message's full words, for the edit sheet (`queued-words.ts`). */
+  z.object({
+    type: z.literal("queueWords"),
+    messageId: z.string().min(1).max(256),
+    requestId,
+  }),
+  /** The queue's list shows its next page. */
+  z.object({ type: z.literal("queueMore") }),
   /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
   z.object({
     type: z.literal("goal"),
@@ -80,9 +137,74 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("steps.more"), ordinal }),
   /** A native subagent's lane opened in its sheet, or closed. */
   z.object({ type: z.literal("lane.open"), agentId: z.string().min(1).max(256) }),
-  z.object({ type: z.literal("lane.close") }),
+  /** Closes the open lane; with `agentId`, only when that agent's lane is the open one. */
+  z.object({ type: z.literal("lane.close"), agentId: z.string().min(1).max(256).optional() }),
+  /** Ask the parent of a failed or stopped native subagent to run it again (`subagentRetryMessage`). */
+  z.object({
+    type: z.literal("lane.retry"),
+    agentId: z.string().min(1).max(256),
+    requestId: z.string().min(1).max(64),
+  }),
   z.object({ type: z.literal("attach"), file: Picked }),
+  /**
+   * The composer writes a fork: from an answer (with the turn its row names, for one only the
+   * history window holds), from the last turn, or from before the person's message, edited.
+   */
+  z.object({
+    type: z.literal("fork.open"),
+    at: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("answer"),
+        itemId: z.string().min(1).max(256),
+        runId: z.string().min(1).max(256).optional(),
+      }),
+      z.object({ kind: z.literal("latest") }),
+      z.object({ kind: z.literal("edit"), itemId: z.string().min(1).max(256) }),
+    ]),
+    requestId,
+  }),
+  z.object({ type: z.literal("fork.cancel") }),
+  /** Pi asks the newest answer's question again, in place. */
+  z.object({ type: z.literal("retry"), answerId: z.string().min(1).max(256), requestId }),
+  /** Pi continues from this answer. */
+  z.object({ type: z.literal("rewind"), itemId: z.string().min(1).max(256), requestId }),
+  /** Bring this fork back to its parent: what it starts with, then the summary sent. */
+  z.object({ type: z.literal("merge.draft") }),
+  z.object({
+    type: z.literal("merge"),
+    summary: z.string().min(1).max(100_000),
+    includeCode: z.boolean(),
+    requestId,
+  }),
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  /** The next message's browser annotations: remove one (the rest close ranks) or all. */
+  z.object({ type: z.literal("annotation.remove"), id: z.string().min(1).max(128) }),
+  z.object({ type: z.literal("annotation.clear") }),
+  /** Reply to the words between `start` and `end` (UTF-16) of an agent's message, or let go. */
+  z.object({
+    type: z.literal("quote.add"),
+    message: z.string().max(1_000_000),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("quote.remove"), id: z.string().min(1).max(128) }),
+  /** The quotes the phone kept with the thread's draft, given back when the thread opens. */
+  z.object({
+    type: z.literal("quote.restore"),
+    quotes: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          text: z.string().min(1).max(1_000_000),
+          before: z.string().max(4096),
+          after: z.string().max(4096),
+        }),
+      )
+      .max(messageQuoteLimit),
+  }),
+  z.object({ type: z.literal("quote.clear") }),
+  /** Whether the reader sits at the transcript's live end (`thread-read-mark.ts`). */
+  z.object({ type: z.literal("atEnd"), atEnd: z.boolean() }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
 

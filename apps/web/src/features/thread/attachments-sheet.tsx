@@ -1,4 +1,4 @@
-import { TrashIcon } from "@phosphor-icons/react";
+import { TrashIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -68,7 +68,7 @@ export function AttachmentsSheet(props: { thread: ThreadRef; onClose(): void }) 
             <ListSkeleton label="attachments" shape="row" rows={3} />
           ) : (
             <p className="py-2 text-xs text-subtle-foreground">
-              {files.data?.length ?? 0} of 256 attachments
+              {files.data?.length === 1 ? "1 attachment" : `${files.data?.length ?? 0} attachments`}
             </p>
           )}
           {files.data?.length === 0 && (

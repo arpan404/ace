@@ -1,13 +1,15 @@
 import type { DeviceRow } from "@ace/ui-core";
-import { AndroidLogoIcon, AppleLogoIcon } from "@phosphor-icons/react";
+import { DeviceMobileCameraIcon, DeviceMobileIcon } from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import {
   bodyTurn,
   chromeLayout,
+  chromePicture,
   chromeTurn,
   deviceButtons,
   deviceKind,
@@ -49,6 +51,7 @@ function RunningTile(props: {
   const measured = useElementSize(preview);
   const visible = useOnScreen(preview);
   const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
+  const [framed, setFramed] = useState(false);
   const watching = visible && row.live && session !== undefined;
   useEffect(() => {
     if (!watching || !session) return;
@@ -64,7 +67,9 @@ function RunningTile(props: {
   // The real body, asked once per model for the whole list, once the tile is on screen.
   const chrome = useDeviceChrome(session, row, visible);
   const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
-  const layout = chrome && chromeLayout(chrome, bodyTurned, screen, room);
+  // Before the first picture, the chrome's own screen stands in for its shape.
+  const shown = framed || !chrome ? screen : chromePicture(chrome, bodyTurned);
+  const layout = chrome && chromeLayout(chrome, bodyTurned, shown, room);
   const picture =
     watching && session ? (
       <DeviceScreen
@@ -74,6 +79,7 @@ function RunningTile(props: {
         interactive={false}
         onInput={noInput}
         onFrame={(header) => {
+          setFramed(true);
           const next = framePoints(header);
           setScreen((before) =>
             Math.abs(before.width / before.height - next.width / next.height) < 0.001
@@ -86,7 +92,7 @@ function RunningTile(props: {
     ) : (
       <span className="grid size-full place-items-center">
         <Icon
-          icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
+          icon={row.platform === "ios" ? DeviceMobileIcon : DeviceMobileCameraIcon}
           size={20}
           className="text-faint-foreground"
         />
@@ -95,6 +101,7 @@ function RunningTile(props: {
   return (
     <li className="min-w-0">
       <button
+        {...part("card", props.open ? "open" : "working", "device")}
         type="button"
         onClick={props.onOpen}
         aria-label={`${row.name}, ${[row.runtime, row.live ? "Live" : "Running"].filter(Boolean).join(", ")}`}
@@ -128,7 +135,10 @@ function RunningTile(props: {
             </DeviceFrame>
           )}
           {row.live && (
-            <span className="absolute top-2 left-2 inline-flex h-5 items-center gap-1 rounded-full bg-background px-1.5 text-2xs font-medium text-foreground shadow-(--depth-raise)">
+            <span
+              {...part("label-chip", undefined, "live")}
+              className="absolute top-2 left-2 inline-flex h-5 items-center gap-1 rounded-full bg-background px-1.5 text-2xs font-medium text-foreground shadow-(--depth-raise)"
+            >
               <span aria-hidden className="size-1.5 rounded-full bg-foreground" />
               Live
             </span>
@@ -168,6 +178,7 @@ export function RunningTiles(props: {
     <div className="flex flex-col gap-2">
       <ul
         aria-label="Running devices"
+        {...part("list", undefined, "running-devices")}
         className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2"
       >
         {shown.map((row) => (

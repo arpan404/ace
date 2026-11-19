@@ -8,35 +8,36 @@ struct RecentlyDeletedView: View {
     @State private var entries: [TrashEntry] = []
     @State private var next: String?
     @State private var loaded = false
+    @State private var loading = false
     @State private var busy: String?
     @State private var problem: String?
 
     var body: some View {
         List {
             if !loaded && problem == nil {
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                SkeletonRows(label: "Loading recently deleted files").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if loaded && entries.isEmpty {
-                ContentUnavailableView("No recently deleted files", systemImage: "trash").listRowSeparator(.hidden)
+                EmptyState(systemImage: "trash", title: "No recently deleted files").listRowSeparator(.hidden)
             }
             ForEach(entries) { entry in
-                HStack(spacing: AceTheme.Spacing.md) {
+                QuietSectionRow {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(FileActions.name(entry.path)).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
+                        Text(FileActions.name(entry.path)).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
                         Text("\(entry.path) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.size), countStyle: .file))")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .aceMonospace(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
                     }
                     Spacer(minLength: AceTheme.Spacing.sm)
                     Button(busy == entry.id ? "Restoring…" : "Restore") { restore(entry) }
-                        .buttonStyle(.borderless).disabled(busy != nil || !model.canOperate)
+                        .buttonStyle(.textAction()).disabled(busy != nil || !model.canOperate)
                         .accessibilityIdentifier("trash.restore.\(entry.path)")
                 }
-                .frame(minHeight: 56)
-                .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
+                .frame(minHeight: AceDesign.Size.rowDetail)
+                .listRowInsets(EdgeInsets())
                 .listRowBackground(AceTheme.Colours.background)
             }
             if let next {
-                Button("Show older") { Task { await load(after: next) } }
+                Button("Show older") { Task { await load(after: next) } }.buttonStyle(.rowAction).disabled(loading)
                     .listRowBackground(AceTheme.Colours.background)
             }
         }
@@ -49,15 +50,19 @@ struct RecentlyDeletedView: View {
             if let problem { FilesStripView(message: problem, dismiss: { self.problem = nil }) }
         }
         .readWhenConnected(model) { await load(after: nil) }
-        .refreshable { entries = []; await load(after: nil) }
+        .refreshable { await load(after: nil) }
     }
 
     private func load(after cursor: String?) async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
         var operation: [String: Any] = ["op": "trash"]
         if let cursor { operation["after"] = cursor }
         do {
             let page = try await model.files(scope, operation, as: TrashPage.self)
-            entries = cursor == nil ? page.entries : entries + page.entries
+            if cursor == nil { entries = page.entries }
+            else { entries += page.entries.filter { entry in !entries.contains { $0.id == entry.id } } }
             next = page.nextCursor
             loaded = true
             problem = nil

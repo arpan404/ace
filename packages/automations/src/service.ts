@@ -6,8 +6,20 @@ import {
   type AutomationResponse,
   type AutomationRun,
 } from "@ace/protocol";
-import { type Dependencies, type ExecutionInput } from "./contracts.ts";
-import { renderPrompt, scheduledDeadline, recoverOccurrence, withRunNote } from "./decisions.ts";
+import {
+  type Dependencies,
+  type ExecutionInput,
+  pausedRefusal,
+  pausedResult,
+} from "./contracts.ts";
+import {
+  renderPrompt,
+  runAccess,
+  scheduledDeadline,
+  recoverOccurrence,
+  withRunNote,
+  withWebhookNote,
+} from "./decisions.ts";
 import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
@@ -44,6 +56,7 @@ export class AutomationService {
   private runtime: AutomationRuntime;
   private executions: ExecutionOwner;
   private cancelTimer: (() => void) | undefined;
+  private stopReopen: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
   private polling = new Set<string>();
   private lifecycle = new Lifecycle();
@@ -91,8 +104,10 @@ export class AutomationService {
     this.generation++;
     const generation = this.generation;
     this.controller = new AbortController();
+    // Runs that waited while new work was paused start once it is resumed.
+    this.stopReopen = this.deps.admission?.onReopen(() => this.drainWaiting());
     try {
-      for (const job of this.store.jobs()) {
+      for (const job of this.store.jobs(this.unreadable)) {
         try {
           const ready = { fired: false };
           const prepared = this.runtime.prepare(job.automation, this.hooks(generation, ready));
@@ -123,7 +138,7 @@ export class AutomationService {
           if (!this.live) break;
         }
       }
-      for (const { run, input } of this.store.active()) {
+      for (const { run, input } of this.store.active(this.unreadable)) {
         if (!this.live) break;
         try {
           this.executions.restore(run, input);
@@ -144,6 +159,16 @@ export class AutomationService {
       if (this.lifecycle.endStart()) this.stop();
     }
   }
+  /** Unreadable records already reported; each is told once, however often it is passed over. */
+  private reportedUnreadable = new Set<string>();
+  /** A stored automation or run this build can't read: reported once, kept, and passed over. */
+  private unreadable = (id: string, error: unknown) => {
+    if (this.reportedUnreadable.has(id)) return;
+    this.reportedUnreadable.add(id);
+    this.report(
+      new Error(`Automation record ${id} can't be read by this build; skipped`, { cause: error }),
+    );
+  };
   private isolateJob(job: JobMetadata, generation: number, error: unknown): void {
     if (!this.live || generation !== this.generation) return;
     try {
@@ -188,6 +213,8 @@ export class AutomationService {
     const cancelTimer = this.cancelTimer;
     this.cancelTimer = undefined;
     this.cancellations.stop();
+    this.stopReopen?.();
+    this.stopReopen = undefined;
     this.pending.clear();
     this.polling.clear();
     try {
@@ -239,7 +266,7 @@ export class AutomationService {
   }
   /** Start the automation's oldest waiting run, if it has one, nothing of it runs and ace has room. */
   private drain(id: string): void {
-    if (!this.live) return;
+    if (!this.live || !this.admits()) return;
     const generation = this.generation;
     try {
       const automation = this.store.definition(id);
@@ -413,8 +440,8 @@ export class AutomationService {
   catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
     return this.store.catalog(provider, workspace);
   }
-  inbox(limit = 50, before?: number, automationId?: string) {
-    return this.store.inbox(limit, before, automationId);
+  inbox(limit = 50, before?: number, automationId?: string, finishedAfter?: number) {
+    return this.store.inbox(limit, before, automationId, finishedAfter);
   }
   /**
    * Admit one run. `note` is the person's extra instruction for a manual run, added after the
@@ -430,6 +457,8 @@ export class AutomationService {
     const generation = this.generation;
     const automation = this.store.definition(id);
     if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
+    // The person asked for this run, so they hear why it can't start; a fire is skipped instead.
+    if (kind === "manual" && !this.admits()) throw new Error(pausedRefusal);
     const event = AutomationEvent.parse(input);
     const admission = this.store.transaction(() => this.admit(automation, event, kind, note));
     if (admission.created) this.publish(admission.run);
@@ -445,6 +474,7 @@ export class AutomationService {
     note?: string,
   ) {
     const id = kind === "manual" ? manualId(automation.id, event.key) : this.deps.id();
+    const access = runAccess(automation);
     let input: ExecutionInput | undefined;
     let failure: string | undefined;
     try {
@@ -455,23 +485,33 @@ export class AutomationService {
         provider: automation.provider,
         workspace: automation.workspace,
         worktree: automation.worktree,
-        prompt: withRunNote(renderPrompt(automation.prompt, event.variables), note),
+        prompt: withRunNote(webhookNote(automation, event, kind), note),
         ...(automation.model ? { model: automation.model } : {}),
         ...(automation.effort ? { effort: automation.effort } : {}),
         ...(automation.instance ? { instance: automation.instance } : {}),
-        ...(automation.access ? { access: automation.access } : {}),
+        ...(access ? { access } : {}),
+        ...(automation.trigger.kind === "webhook" && access ? { accessCeiling: access } : {}),
       };
     } catch (error) {
       failure = message(error);
     }
+    // A fire while new work is paused is skipped, kept in the history, and never queued: the
+    // automation waits for its next time.
+    const skip = this.admits() ? undefined : pausedResult;
     return {
-      ...this.store.claim(automation, event, kind, id, this.deps.now(), input, failure),
+      ...this.store.claim(automation, event, kind, id, this.deps.now(), input, failure, skip),
       input,
     };
   }
+  private admits(): boolean {
+    return this.deps.admission?.open() ?? true;
+  }
+  /** Tracks background work, which never rejects: a failure (a store write) is reported. */
   private track(operation: Promise<void>): void {
-    this.pending.add(operation);
-    void operation.finally(() => this.pending.delete(operation));
+    const settled = operation.catch((error: unknown) => this.report(error));
+    this.pending.add(settled);
+    // settled reports its own failure; this only stops tracking it.
+    void settled.catch(() => {}).finally(() => this.pending.delete(settled));
   }
   private arm(): void {
     this.cancelTimer?.();
@@ -491,7 +531,9 @@ export class AutomationService {
     });
   }
   private nextJob(): JobMetadata | undefined {
-    return this.polling.size >= 4 ? this.store.nextScheduled() : this.store.next([...this.polling]);
+    return this.polling.size >= 4
+      ? this.store.nextScheduled(this.unreadable)
+      : this.store.next([...this.polling], this.unreadable);
   }
   private async tick(): Promise<void> {
     this.ticking = true;
@@ -798,7 +840,12 @@ export class AutomationService {
         case "automation.inbox":
           return {
             ...base,
-            inbox: this.inbox(request.limit, request.before, request.automationId),
+            inbox: this.inbox(
+              request.limit,
+              request.before,
+              request.automationId,
+              request.finishedAfter,
+            ),
           };
       }
     } catch (error) {
@@ -810,4 +857,14 @@ export class AutomationService {
       };
     }
   }
+}
+
+/** The rendered prompt, with the outside-text note when a webhook delivery started the run. */
+function webhookNote(
+  automation: Automation,
+  event: AutomationEvent,
+  kind: AutomationRun["trigger"],
+): string {
+  const rendered = renderPrompt(automation.prompt, event.variables);
+  return kind === "webhook" ? withWebhookNote(rendered, automation.prompt) : rendered;
 }

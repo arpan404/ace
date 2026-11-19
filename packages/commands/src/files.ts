@@ -1,5 +1,5 @@
 import { watch } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { watch as watchTree } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CommandCatalog } from "./catalog.ts";
@@ -7,7 +7,8 @@ import type { DiscoveryRoot } from "./roots.ts";
 import { FileRecovery } from "./recovery.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
 export type { RecoveryScheduler } from "./recovery-loop.ts";
-import { SecureCommandIo, type CommandFileIo } from "./secure-io.ts";
+import { SecureCommandIo, commandLaneOf, type CommandFileIo } from "./secure-io.ts";
+import { commandCallOwner, commandLane, lstatCommandPath } from "./posix-calls.ts";
 import { FileIndex, type DiscoveryMetrics } from "./file-index.ts";
 import { inside, key, sourceId, type RegisteredRoot } from "./file-keys.ts";
 const rootSchema = z.object({
@@ -23,6 +24,7 @@ const rootSchema = z.object({
   plugin: z.string().max(256).optional(),
   trustedRoot: z.string().max(4096).optional(),
 });
+const Roots = z.array(rootSchema).max(32);
 export type WatchSource = (
   path: string,
   changed: (file: string | undefined) => void,
@@ -34,13 +36,28 @@ const nativeWatch: WatchSource = (path, changed, failed) => {
   watcher.unref();
   return () => watcher.close();
 };
+/**
+ * Windows refuses to rename or delete a folder while any handle inside it is open, so a watcher
+ * per folder would lock the person out of their own command and skill folders. On Windows each
+ * root gets one recursive watcher on the root itself instead.
+ */
+const nativeTreeWatch: WatchSource = (path, changed, failed) => {
+  const watcher = watchTree(path, { recursive: true }, (_event, file) =>
+    changed(file === null ? undefined : String(file)),
+  );
+  watcher.on("error", failed);
+  watcher.unref();
+  return () => watcher.close();
+};
 /** Thin watcher/lifecycle shell; FileIndex advances bounded incremental discovery jobs. */
 export class CommandFiles {
   private readonly roots: RegisteredRoot[];
   private readonly watchers = new Map<string, () => void>();
   private readonly pending = new Set<string>();
   private readonly listeners = new Set<() => void>();
-  private readonly recovery = new FileRecovery();
+  // Recovery's and the ancestor watch's own path calls, cancelled when these files close.
+  private readonly calls = commandCallOwner();
+  private readonly recovery = new FileRecovery((path) => this.laneOf(path), this.calls);
   private readonly index: FileIndex;
   private readonly io: CommandFileIo;
   private readonly watchSource: WatchSource;
@@ -63,14 +80,10 @@ export class CommandFiles {
     this.watchSource = options.watch ?? nativeWatch;
     this.scheduleRecovery = options.schedule ?? new RecoveryLoop().schedule;
     this.io = options.io ?? new SecureCommandIo();
-    this.roots = z
-      .array(rootSchema)
-      .max(32)
-      .parse(roots)
-      .map((root) => {
-        const path = resolve(root.path);
-        return Object.assign(root, { path, id: sourceId(root, path) });
-      });
+    this.roots = Roots.parse(roots).map((root) => {
+      const path = resolve(root.path);
+      return Object.assign(root, { path, id: sourceId(root, path) });
+    });
     for (const root of this.roots) this.recovery.track(root.path, undefined);
     this.index = new FileIndex(catalog, this.io, this.recovery, this.roots, {
       watch: (root, path) => this.watchDirectory(root, path),
@@ -87,6 +100,8 @@ export class CommandFiles {
   }
   private watchDirectory(root: RegisteredRoot, path: string): void {
     if (this.closed) return;
+    if (process.platform === "win32" && this.watchSource === nativeWatch && inside(root.path, path))
+      return this.watchWindowsTree(root);
     const slot = key(root, path);
     if (this.watchers.has(slot)) return;
     if (this.watchers.size >= 128) {
@@ -122,11 +137,47 @@ export class CommandFiles {
       this.index.report(root, path, "Native watcher unavailable; metadata recovery remains active");
     }
   }
+  /** The root's one recursive watcher, keyed like the root's own folder watcher. */
+  private watchWindowsTree(root: RegisteredRoot): void {
+    const slot = key(root, root.path);
+    if (this.watchers.has(slot)) return;
+    const failed = () =>
+      this.index.report(
+        root,
+        root.path,
+        "Native watcher unavailable; metadata recovery remains active",
+      );
+    if (this.watchers.size >= 128) {
+      this.index.report(
+        root,
+        root.path,
+        "Native watcher limit exceeded; metadata recovery remains active",
+      );
+      return;
+    }
+    try {
+      const stop = nativeTreeWatch(
+        root.path,
+        (file) => this.invalidate(file ? resolve(root.path, file) : root.path),
+        failed,
+      );
+      if (this.closed) stop();
+      else this.watchers.set(slot, stop);
+    } catch {
+      failed();
+    }
+  }
+  /** The lane of the root a path is under: its anchor, as discovery's own calls use. */
+  private laneOf(path: string): string {
+    for (const root of this.roots)
+      if (path === root.path || path.startsWith(root.path + sep)) return commandLaneOf(root);
+    return commandLane(dirname(path));
+  }
   private async watchAncestor(root: RegisteredRoot): Promise<void> {
     let parent = dirname(root.path);
     while (!this.closed) {
       try {
-        if ((await lstat(parent)).isDirectory()) {
+        if ((await lstatCommandPath(commandLaneOf(root), parent, this.calls)).isDirectory()) {
           this.watchDirectory(root, parent);
           return;
         }
@@ -178,7 +229,8 @@ export class CommandFiles {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.pump();
+      // pump() reports its own failures; the recovery loop picks up what is left.
+      void this.pump().catch(() => {});
     }, 30);
     this.timer.unref();
   }
@@ -219,13 +271,18 @@ export class CommandFiles {
     });
     return this.batch;
   }
+  /** Runs from timers and watchers with nobody awaiting it, so it never rejects. */
   private async pump(): Promise<void> {
     if (this.closed || this.healing || this.flushing) return;
-    await this.advance();
+    try {
+      await this.advance();
+    } catch {
+      // Discovery reports its own failures; the recovery loop picks up what is left.
+    }
     if (!this.closed && (this.pending.size || this.index.pending) && !this.continuation) {
       this.continuation = setImmediate(() => {
         this.continuation = undefined;
-        void this.pump();
+        void this.pump().catch(() => {});
       });
       this.continuation.unref();
     }
@@ -249,10 +306,12 @@ export class CommandFiles {
     if (this.flushing) return this.flushing;
     this.healing ??= (async () => {
       for (const path of await this.recovery.check()) this.queue(path);
+      this.index.retryUnanswered();
       await this.advance();
     })().finally(() => {
       this.healing = undefined;
-      if (!this.closed && (this.pending.size || this.index.pending)) void this.pump();
+      if (!this.closed && (this.pending.size || this.index.pending))
+        void this.pump().catch(() => {});
     });
     return this.healing;
   }
@@ -271,6 +330,12 @@ export class CommandFiles {
     this.stopRecovery?.();
     this.pending.clear();
     this.listeners.clear();
+    // Discovery stops advancing and queued calls fail now, so the wait below is for running
+    // calls only: at most one deadline in total, however many roots have stopped answering.
+    this.index.stop();
+    this.io.cancel();
+    this.recovery.stop();
+    this.calls.cancel();
     await Promise.allSettled([this.startup, this.healing, this.flushing, this.batch]);
     try {
       await this.index.close();

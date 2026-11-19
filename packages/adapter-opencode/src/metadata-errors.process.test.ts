@@ -2,7 +2,9 @@ import { expect, test } from "vitest";
 import { discoverOpenCodeModels } from "./index.ts";
 import { setup } from "./testing/v2-session.ts";
 
-test.each([401, 403, 429, 500, 503])(
+// Every status's category is a discoveryFailureCode case (models/discovery-errors.test.ts);
+// here one client and one server status prove the response reaches it without its text.
+test.each([401, 503])(
   "HTTP %s from OpenCode model discovery retains the reason without response text",
   async (status) => {
     const h = await setup({
@@ -64,11 +66,11 @@ test("an OpenCode proxy's non-JSON forbidden response preserves authentication f
   ).rejects.toMatchObject({ code: "auth_expired" });
 });
 
-test.each(
-  ["/api/info", "/openapi.json", "/api/event"].flatMap((path) =>
-    [401, 403, 503].map((status) => ({ path, status })),
-  ),
-)(
+test.each([
+  { path: "/api/info", status: 401 },
+  { path: "/openapi.json", status: 403 },
+  { path: "/api/event", status: 503 },
+])(
   "OpenCode startup HTTP $status at $path survives the session-opening wrapper",
   async ({ path, status }) => {
     let rejectStartup = false;

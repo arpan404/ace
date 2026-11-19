@@ -1,71 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, Thread, type ThreadId } from "@ace/protocol";
-import { transitionHarness } from "./engine/transition-test-support.ts";
-import { WorkspaceRuntime } from "./workspace-runtime.ts";
-
-const execute = promisify(execFile);
-async function git(root: string, ...args: string[]) {
-  return (await execute("git", ["-C", root, ...args])).stdout.trim();
-}
-async function fixture() {
-  const h = transitionHarness();
-  await git(h.home, "init", "-b", "main");
-  await git(h.home, "config", "user.name", "ace test");
-  await git(h.home, "config", "user.email", "test@ace.local");
-  await writeFile(join(h.home, "file.txt"), "project\n");
-  // The harness keeps its database in the project folder; it is not the project's work.
-  await writeFile(join(h.home, ".gitignore"), "events.sqlite*\n");
-  await git(h.home, "add", ".");
-  await git(h.home, "commit", "-m", "Initial");
-  await h.engine.ready();
-  const data = await mkdtemp(join(tmpdir(), "ace-move-data-"));
-  const open = () =>
-    new WorkspaceRuntime(h.store, data, () => 1000, {
-      changeWorkspace: (id, commandId, effect, reservation, commit) =>
-        h.engine.changeWorkspace(id, commandId, effect, reservation, commit),
-    });
-  let runtime = open();
-  let serial = 0;
-  const local = () => {
-    const created = h.command({
-      type: "thread.create",
-      workspaceId: h.workspace,
-      provider: "codex",
-      mode: "local",
-      input: [{ type: "text", text: "start" }],
-    });
-    if (!created.threadId) throw new Error("Missing thread");
-    return created.threadId;
-  };
-  const run = (payload: Record<string, unknown>) =>
-    runtime.execute(Command.parse({ id: `move-${++serial}`, deviceId: "device", payload }));
-  const send = (threadId: ThreadId, text: string) =>
-    h.command({ type: "thread.send", threadId, input: [{ type: "text", text }] });
-  return {
-    h,
-    data,
-    local,
-    run,
-    send,
-    get runtime() {
-      return runtime;
-    },
-    async restart() {
-      await runtime.close();
-      runtime = open();
-    },
-    async close() {
-      await runtime.close();
-      await h.close();
-      await rm(data, { recursive: true, force: true });
-    },
-  };
-}
+import { Thread } from "@ace/protocol";
+import { GitService } from "@ace/git";
+import { fixture, git } from "./workspace-move-test-support.ts";
 
 test("move to worktree from a branch makes its own branch, fences no shared root and ignores busy siblings", async () => {
   const f = await fixture();
@@ -405,6 +343,81 @@ test("a workspace change a restart cut off while preparing is settled by the sta
     });
     expect(f.send(thread, "after restart")).toMatchObject({ ok: true });
     expect(f.send(sibling, "and me")).toMatchObject({ ok: true });
+  } finally {
+    await f.close();
+  }
+});
+
+/**
+ * Git whose file list waits until the reviewer hook check has started, so a status that read
+ * them one after the other never finishes; a terminal commit lands just after the file list.
+ */
+class GatedGit extends GitService {
+  private readonly hooksStarted = Promise.withResolvers<void>();
+  afterFiles: (() => Promise<void>) | undefined;
+  override async reviewerHooks(worktree: string) {
+    this.hooksStarted.resolve();
+    return super.reviewerHooks(worktree);
+  }
+  override async changedFiles(worktree: string, limit?: number) {
+    await this.hooksStarted.promise;
+    const listed = await super.changedFiles(worktree, limit);
+    await this.afterFiles?.();
+    return listed;
+  }
+}
+
+test("a pull request review's git.status checks its hooks beside the file list and reports the HEAD after it", async () => {
+  const gated = new GatedGit();
+  const f = await fixture({ gitService: gated });
+  try {
+    const thread = f.local();
+    await f.h.engine.flush();
+    const head = await git(f.h.home, "rev-parse", "HEAD");
+    const details = f.h.store.getThread(thread)?.details ?? {};
+    f.h.store.appendEvents(
+      thread,
+      [
+        {
+          type: "thread.client.updated",
+          changes: {
+            details: {
+              ...details,
+              worktree: await realpath(f.h.home),
+              pullRequestWorkspace: {
+                ref: {
+                  repository: { forge: "github", host: "github.com", owner: "o", name: "r" },
+                  number: 7,
+                },
+                headSha: head,
+                baseSha: head,
+                headBranch: "feature",
+                baseBranch: "main",
+                headRepository: null,
+                context: "",
+                contextTruncated: false,
+              },
+            },
+          },
+        },
+      ],
+      1000,
+    );
+    gated.afterFiles = async () => {
+      gated.afterFiles = undefined;
+      await git(f.h.home, "commit", "--allow-empty", "-m", "Terminal commit");
+    };
+    const result = await f.runtime.read({
+      type: "workspace.request",
+      requestId: "status",
+      operation: { op: "git.status", threadId: thread },
+    });
+    expect(result.result).toMatchObject({
+      kind: "gitStatus",
+      hooks: "run",
+      head: await git(f.h.home, "rev-parse", "HEAD"),
+    });
+    expect(await git(f.h.home, "rev-parse", "HEAD")).not.toBe(head);
   } finally {
     await f.close();
   }

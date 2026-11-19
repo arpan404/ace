@@ -1,0 +1,245 @@
+import SwiftUI
+
+/// One machine's Storage: what its data takes, a reviewed cleanup (preview, then a red removal
+/// whose confirmation says what goes), compaction, worktrees and how long each kind of data is
+/// kept. Every word comes from `bridge/host-storage.ts`; this draws it.
+struct StorageView: View {
+    let model: ClientModel
+    @State private var page: StoragePage?
+    @State private var problem: String?
+    @State private var plan: StoragePlanView?
+    @State private var forced: Set<String> = []
+    /// The preview shown covers every settled worktree, not the usual cleanup.
+    @State private var worktreePreview = false
+    @State private var confirming = false
+    @State private var compaction: StorageCompactionReply?
+    @State private var busy = false
+    @State private var actionProblem: String?
+    /// Why the last preview of every settled worktree failed: shown in Worktrees, beside its
+    /// button, which can be there while usage (and so the actions group) couldn't be read.
+    @State private var worktreeProblem: String?
+    @State private var removals = 0
+    @State private var measuring = false
+    @State private var readRevision = 0
+    private static let read: [String: Any] = ["type": "host.storage"]
+
+    /// Opens on the last page this phone saw, read again behind it.
+    init(model: ClientModel) {
+        self.model = model
+        _page = State(initialValue: model.kept(Self.read, as: StoragePage.self))
+    }
+
+    var body: some View {
+        List {
+            if page?.usage == nil, let message = page?.usageProblem ?? problem {
+                ProblemRow(message, id: "storage.problem") { model.retry(); Task { await refresh() } }
+            } else if page?.usage != nil, model.connection != "ready" {
+                ProblemRow("Can’t reach this machine.", detail: "Sizes are from the last read. Cleanup needs it online.",
+                           id: "storage.offline") { model.retry(); Task { await refresh() } }
+            }
+            // A cleanup that failed while the actions group is hidden (usage unread) still says why.
+            if !showsActions, let actionProblem { ProblemRow(actionProblem, id: "storage.action.problem") }
+            Group {
+                // With nothing read and a problem above, an empty Usage header would only add noise.
+                if page?.usage != nil || (page?.usageProblem == nil && problem == nil) { usage }
+                if showsActions { actions }
+                if let plan { planSection(plan).transition(.opacity) }
+                if let settings = page?.settings {
+                    Group {
+                        StorageWorktreeSection(settings: settings, busy: busy, previewProblem: worktreeProblem, save: save) { preview(worktrees: true) }
+                        StorageWindowSection(settings: settings, save: save)
+                        StorageKindsSection(settings: settings, save: save)
+                    }
+                    .disabled(!model.canOperate)
+                } else if problem == nil {
+                    Section { ForEach(0..<3, id: \.self) { _ in Text("Retention").redacted(reason: .placeholder) } }
+                }
+            }
+            .insetRowBackground()
+        }
+        .insetGroupedList()
+        .smoothChange(plan)
+        .smoothChange(page)
+        .sensoryFeedback(.success, trigger: removals)
+        .navigationTitle("Storage").navigationBarTitleDisplayMode(.inline)
+        .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
+        .refreshable { await refresh() }
+    }
+
+    @ViewBuilder private var usage: some View {
+        Section {
+            if let usage = page?.usage {
+                ForEach(usage.rows) { row in
+                    LabeledContent { Text(row.size).monospacedDigit() } label: {
+                        Text(row.title)
+                        Text(row.detail)
+                    }
+                }
+                // The detail is a sentence; the size keeps the title's line so neither wraps under the other.
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Transcript database")
+                        Spacer(minLength: AceDesign.Space.related)
+                        Text(usage.database.size).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
+                    }
+                    quiet(compaction?.line ?? usage.database.detail)
+                }
+                .accessibilityElement(children: .combine)
+                if let partial = usage.partial { quiet(partial) }
+                if let backups = usage.backups {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text(backups.line).foregroundStyle(AceTheme.StatusText.failed)
+                        ForEach(backups.entries, id: \.path) { entry in
+                            Text(entry.path).font(AceDesign.Typeface.code)
+                            Text(entry.reason).foregroundStyle(AceDesign.Ink.muted)
+                        }
+                        if let more = backups.more { Text(more).foregroundStyle(AceDesign.Ink.muted) }
+                    }
+                    .font(AceDesign.Typeface.meta)
+                }
+            } else if page?.usageProblem == nil, problem == nil {
+                ForEach(0..<4, id: \.self) { _ in LabeledContent("Threads and transcripts", value: "0.0 MB").redacted(reason: .placeholder) }
+            }
+            if page?.usage != nil { ServiceProblem(message: problem) }
+        } header: {
+            HStack { InsetHeader("Usage"); Spacer(); if busy { WorkingMark() } }
+        }
+    }
+
+    /// Cleanup and compaction as row actions in a group of their own, under what they act on, so
+    /// they read as things to tap rather than more rows of usage.
+    private var actions: some View {
+        Section {
+            Button("Preview cleanup") { preview(worktrees: false) }
+                .buttonStyle(.rowAction)
+                .disabled(busy || model.connection != "ready").accessibilityIdentifier("storage.preview")
+            if let pending = compaction?.pendingId {
+                Button("Resume compaction") { compact(nil) }.buttonStyle(.rowAction).disabled(busy)
+                Button("Stop compaction") { compact(pending) }.buttonStyle(.rowAction).disabled(busy)
+            } else {
+                Button("Compact database") { compact(nil) }.buttonStyle(.rowAction)
+                    .disabled(busy || model.connection != "ready").accessibilityIdentifier("storage.compact")
+            }
+            ServiceProblem(message: actionProblem)
+        } footer: { Text("Nothing is removed until you confirm.") }
+    }
+
+    private func planSection(_ plan: StoragePlanView) -> some View {
+        Section {
+            quiet(plan.summary)
+            ForEach(plan.items) { item in
+                StoragePlanRow(item: item, forced: Binding(
+                    get: { forced.contains(item.id) },
+                    set: { on in if on { forced.insert(item.id) } else { forced.remove(item.id) } }))
+            }
+            if let outcome = plan.outcome { Text(outcome).accessibilityIdentifier("storage.outcome") }
+            if !forced.isEmpty {
+                Button("Preview with selected worktrees") { preview(worktrees: worktreePreview) }.buttonStyle(.rowAction).disabled(busy)
+            } else if let action = plan.action, model.canOperate {
+                Button(action, role: .destructive) { confirming = true }
+                    .buttonStyle(.rowAction)
+                    .disabled(busy).accessibilityIdentifier("storage.remove")
+            }
+        } header: { InsetHeader(plan.title) }
+        .confirmationDialog(plan.confirm?.title ?? "", isPresented: $confirming, titleVisibility: .visible) {
+            Button(plan.confirm?.button ?? "Remove items", role: .destructive) { apply(plan) }
+                .accessibilityIdentifier("storage.remove.confirm")
+        } message: { Text(plan.confirm?.message ?? "") }
+    }
+
+    private func quiet(_ text: String) -> some View {
+        Text(text).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+    }
+
+    private func load() async {
+        // Cleanup invalidates the host's kept reads too. Its reconnect-style read must
+        // not overtake the explicit measurement that follows cleanup.
+        guard !measuring else { return }
+        await readPage(Self.read)
+    }
+    private func refresh() async {
+        guard !measuring else { return }
+        measuring = true
+        defer { measuring = false }
+        var request = Self.read
+        request["force"] = true
+        await readPage(request)
+    }
+    private func readPage(_ request: [String: Any]) async {
+        readRevision += 1
+        let revision = readRevision
+        do {
+            let answer = try await model.read(request, as: StoragePage.self)
+            guard revision == readRevision else { return }
+            page = answer
+            problem = nil
+        } catch is CancellationError {} catch {
+            if !Task.isCancelled, revision == readRevision { problem = error.localizedDescription }
+        }
+    }
+    private var showsActions: Bool { model.canOperate && page?.usage != nil }
+    /// Runs one action; a failure shows beside the button that started it.
+    private func run(worktrees: Bool = false, _ work: @escaping @MainActor () async throws -> Void) {
+        busy = true; actionProblem = nil; worktreeProblem = nil
+        Task {
+            defer { busy = false }
+            do { try await work() } catch is CancellationError {} catch {
+                if worktrees { worktreeProblem = error.localizedDescription } else { actionProblem = error.localizedDescription }
+            }
+        }
+    }
+    private func preview(worktrees: Bool) {
+        run(worktrees: worktrees) {
+            let reply = try await model.service(["type": "host.storage.preview", "worktrees": worktrees, "forceItems": Array(forced)], as: StoragePlanReply.self, timeout: .seconds(70))
+            forced = []
+            worktreePreview = worktrees
+            plan = reply.plan
+        }
+    }
+    private func apply(_ shown: StoragePlanView) {
+        run {
+            plan = try await model.service(["type": "host.storage.apply", "planId": shown.id], as: StoragePlanReply.self, timeout: .seconds(70)).plan
+            removals += 1
+            await refresh()
+        }
+    }
+    private func compact(_ abandon: String?) {
+        run {
+            var request: [String: Any] = ["type": "host.storage.compact"]
+            if let abandon { request["abandon"] = abandon }
+            compaction = try await model.service(request, as: StorageCompactionReply.self, timeout: .seconds(70))
+            await refresh()
+        }
+    }
+    /// Saves one storage setting; the reply is the page as the machine now has it.
+    private func save(_ setting: [String: Any]) async throws {
+        page = try await model.service(["type": "host.storage.set", "setting": setting], as: StoragePage.self)
+        plan = nil; forced = []
+    }
+}
+
+/// One item of a cleanup preview: what it is, its size, what happens to it and why.
+private struct StoragePlanRow: View {
+    let item: StoragePlanView.Item
+    @Binding var forced: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(item.label).lineLimit(2).truncationMode(.middle)
+                Spacer(minLength: AceDesign.Space.related)
+                Text(item.size).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
+            }
+            Group {
+                Text(item.line)
+                if let also = item.also { Text(also) }
+                if let outcome = item.outcome { Text(outcome).foregroundStyle(AceDesign.Ink.primary) }
+            }
+            .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+            if item.forceable, item.outcome == nil {
+                Toggle("Include despite uncommitted or unpushed work", isOn: $forced)
+                    .font(AceDesign.Typeface.meta)
+            }
+        }
+        .padding(.vertical, AceTheme.Spacing.xxs)
+    }
+}

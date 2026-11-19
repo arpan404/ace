@@ -11,6 +11,10 @@ const TAIL_BYTES = 512 * 1024;
 /** Credentials and identities inside the ace folder. The agent is told never to open them. */
 const SECRET_ENTRIES = [
   "daemon-token",
+  // The machine's ace credential, one being issued, and its relay host key (ADR 0190).
+  "ace-account.json",
+  "ace-account.pending.json",
+  "relay",
   "tls",
   "account-homes",
   "browser",

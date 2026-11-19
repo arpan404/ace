@@ -7,7 +7,7 @@ extension ClientModel {
 
     /// Save the start in the SDK's outbox under `commandId`: true once it is on this phone.
     /// A view-only machine submits nothing.
-    func startThread(_ draft: NewThreadDraft, commandId: String) async -> Bool {
+    func startThread(_ draft: NewThreadDraft, commandId: String, references: [Any] = []) async -> Bool {
         guard canOperate, let project = draft.projectId else { return false }
         let files = compose.attachments?.workspaceId == project ? compose.attachments?.files.count ?? 0 : 0
         // Words, files or both; the bridge checks again with the shared rule.
@@ -23,10 +23,21 @@ extension ClientModel {
         if let speed = draft.speed { create["speed"] = speed }
         if let access = draft.access { create["access"] = access }
         if let issue = draft.issue { create["issue"] = issue.json }
+        if let pull = draft.pullRequest { create["pullRequest"] = pull.json }
+        if !references.isEmpty { create["references"] = references }
         if draft.worktree, let base = draft.base {
             create["base"] = base.remote.map { ["ref": base.ref, "remote": $0] } ?? ["ref": base.ref]
         }
         return await admissions.wait(id: commandId) { composeAction(create) }
+    }
+    /// Back to New thread on a stopped worktree start: nil once this phone has set its Unsent
+    /// row aside and the daemon has forgotten the start, else why not (both stay as they were).
+    func worktreeBack(_ commandId: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            composeAction(["kind": "worktreeBack", "commandId": commandId, "requestId": id])
+        }
     }
     /// What the sheet has chosen so far: the picker leads with it and its access modes are read.
     func composeChoice(_ draft: NewThreadDraft) {

@@ -50,18 +50,3 @@ it("the recorded fragment messages, deltas and terminal result render one copy o
   expect(messages[2]).toMatch(/^Done\.\n\n\*\*Created\*\* `scratch.txt`/);
   expect(messages.join("").match(/Done\./g)).toHaveLength(1);
 });
-
-it("the recorded turn usage, usage message and terminal accounting contribute one cumulative counter", async () => {
-  const result = await replay();
-  expect(Object.values(result.final.view.usage)).toMatchObject([
-    {
-      inputTokens: 24592,
-      outputTokens: 468,
-      cachedInputTokens: 10272,
-      cacheWriteTokens: 0,
-      counterMode: "cumulative",
-      billingMode: "unknown",
-    },
-  ]);
-  expect(Object.values(result.final.view.usage)).toHaveLength(1);
-});

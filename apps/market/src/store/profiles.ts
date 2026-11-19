@@ -1,0 +1,518 @@
+import type {
+  MarketEntryRef,
+  MarketLink,
+  MarketProfile,
+  MarketVerificationProof,
+} from "@ace/protocol/marketplace";
+import { fromCatalogues, type Databases } from "./databases.ts";
+import { storedBytesSql } from "./me-limits.ts";
+
+/*
+ * Publishers' profiles in the publishers database (ADR 0174 §3, §16): handles, skeletons,
+ * retired handles, pins, avatars, and the pictures they stored, charged to their quota. Pictures
+ * and their tombstones stay together here; only whether a listing still names a picture is read
+ * from the catalogues.
+ */
+
+/** A publisher row as this Worker wrote it (ADR 0125). */
+export interface PublisherTable {
+  id: string;
+  account: string;
+  name: string;
+  created: number;
+  skeleton: string | null;
+  display_name: string;
+  bio: string;
+  links: string;
+  avatar: string | null;
+  verified: number;
+  state: string;
+  state_reason: string | null;
+  pins: string;
+  live_versions: number;
+  verification: string;
+  /** The latest application's proofs. */
+  proofs: string;
+  /** The proofs the signed verified list granted the mark on. */
+  approved_proofs: string;
+  verification_reason: string | null;
+  verification_flag: string | null;
+  verification_at: number | null;
+  rechecked: number;
+  revision: number;
+  synced: number;
+}
+
+export async function publisherById(
+  db: D1Database,
+  id: string,
+): Promise<PublisherTable | undefined> {
+  return (
+    (await db.prepare("SELECT * FROM publishers WHERE id = ?1").bind(id).first<PublisherTable>()) ??
+    undefined
+  );
+}
+
+export async function publisherByHandle(
+  db: D1Database,
+  handle: string,
+): Promise<PublisherTable | undefined> {
+  return (
+    (await db
+      .prepare("SELECT * FROM publishers WHERE name = ?1")
+      .bind(handle)
+      .first<PublisherTable>()) ?? undefined
+  );
+}
+
+export const pinsOf = (row: PublisherTable) => JSON.parse(row.pins) as MarketEntryRef[];
+export const proofsOf = (row: PublisherTable) =>
+  JSON.parse(row.proofs) as MarketVerificationProof[];
+export const approvedProofsOf = (row: PublisherTable) =>
+  JSON.parse(row.approved_proofs) as MarketVerificationProof[];
+
+/**
+ * The public profile: its verified mark and the proofs the mark was granted on, as the signer's
+ * route stored them; a newer application's proofs aren't shown until a maintainer approves them.
+ */
+export function profileOf(row: PublisherTable): MarketProfile {
+  return {
+    id: row.id,
+    handle: row.name,
+    displayName: row.display_name || row.name,
+    bio: row.bio,
+    links: JSON.parse(row.links) as MarketLink[],
+    ...(row.avatar ? { avatar: row.avatar } : {}),
+    joined: row.created,
+    verified: row.verified === 1,
+    proofs: row.verified === 1 ? approvedProofsOf(row) : [],
+    pins: pinsOf(row),
+  };
+}
+
+/**
+ * Whether a handle, or any handle with its skeleton, is someone else's: a publisher's now, or
+ * one retired by another publisher. A publisher may take back its own retired handle. This is
+ * the early answer for a request; the write itself is refused by `handle_reservations`.
+ */
+export async function handleTaken(
+  db: D1Database,
+  handle: string,
+  skeleton: string,
+  self: string | undefined,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS found FROM publishers WHERE (name = ?1 OR skeleton = ?2) AND id != ?3
+        UNION ALL SELECT 1 FROM handle_reservations WHERE skeleton = ?2 AND publisher != ?3
+        LIMIT 1`,
+    )
+    .bind(handle, skeleton, self ?? "")
+    .first<{ found: number }>();
+  return row !== null;
+}
+
+/** Display names of verified publishers, for the impersonation rule. */
+export async function verifiedNames(
+  db: D1Database,
+): Promise<{ handle: string; displayName: string }[]> {
+  const { results } = await db
+    .prepare("SELECT name, display_name FROM publishers WHERE verified = 1 LIMIT 5000")
+    .all<{ name: string; display_name: string }>();
+  return results.map((row) => ({ handle: row.name, displayName: row.display_name || row.name }));
+}
+
+export interface NewProfile {
+  id: string;
+  account: string;
+  handle: string;
+  skeleton: string;
+  displayName: string;
+  bio: string;
+  links: readonly MarketLink[];
+  now: number;
+}
+
+const isUniqueFailure = (error: unknown) =>
+  error instanceof Error && /UNIQUE constraint failed/i.test(error.message);
+
+/**
+ * Makes the account's profile; false when its handle or skeleton was taken first, or is one
+ * another account retired: the insert reserves the skeleton in the same statement.
+ */
+export async function createProfile(db: D1Database, input: NewProfile): Promise<boolean> {
+  try {
+    const result = await db
+      .prepare(
+        `INSERT INTO publishers (id, account, name, created, skeleton, display_name, bio, links)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      )
+      .bind(
+        input.id,
+        input.account,
+        input.handle,
+        input.now,
+        input.skeleton,
+        input.displayName,
+        input.bio,
+        JSON.stringify(input.links),
+      )
+      .run();
+    // The count includes the reservation the insert wrote.
+    return result.meta.changes > 0;
+  } catch (error) {
+    if (isUniqueFailure(error)) return false;
+    throw error;
+  }
+}
+
+export async function updateProfile(
+  db: D1Database,
+  id: string,
+  fields: {
+    displayName?: string | undefined;
+    bio?: string | undefined;
+    links?: readonly MarketLink[] | undefined;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE publishers SET display_name = COALESCE(?2, display_name), bio = COALESCE(?3, bio),
+        links = COALESCE(?4, links) WHERE id = ?1`,
+    )
+    .bind(
+      id,
+      fields.displayName ?? null,
+      fields.bio ?? null,
+      fields.links ? JSON.stringify(fields.links) : null,
+    )
+    .run();
+}
+
+/**
+ * Moves a publisher from the handle it was read with to a new one, in one statement that
+ * re-checks that handle. The skeleton's reservation moves with it: the old one stays retired
+ * for the account, so nobody else can take it, and taking back one of its own retired handles
+ * un-retires it. `stale` when another rename landed first, `taken` when another account holds
+ * the skeleton, active or retired.
+ */
+export async function changeHandle(
+  db: D1Database,
+  publisher: { id: string; name: string },
+  next: { handle: string; skeleton: string },
+): Promise<"moved" | "stale" | "taken"> {
+  try {
+    const result = await db
+      .prepare("UPDATE publishers SET name = ?3, skeleton = ?4 WHERE id = ?1 AND name = ?2")
+      .bind(publisher.id, publisher.name, next.handle, next.skeleton)
+      .run();
+    // The count includes the reservations the rename moved.
+    return result.meta.changes > 0 ? "moved" : "stale";
+  } catch (error) {
+    if (isUniqueFailure(error)) return "taken";
+    throw error;
+  }
+}
+
+export async function setAvatar(db: D1Database, id: string, sha256: string): Promise<void> {
+  await db.prepare("UPDATE publishers SET avatar = ?2 WHERE id = ?1").bind(id, sha256).run();
+}
+
+/* ---------------------------------------------------------------- pictures */
+
+/** How long a picture nothing names is kept: an upload on its way names it well within this. */
+export const pictureGraceMs = 24 * 3_600_000;
+
+/**
+ * Charges a picture's bytes to the publisher before they are written (ADR 0174 §9), in the one
+ * statement that checks they fit beside its versions, drafts and other pictures. The same
+ * picture again is charged once. In the same batch the row drops any claim the cron holds on
+ * the key, so the cron won't delete bytes a row now holds. False when it doesn't fit, or while
+ * the cron is deleting that very object (a retry a moment later goes through). Every write moves
+ * the row's generation, which fences the sweep: it drops a row only at the generation it read.
+ */
+export type PictureReservation = "stored" | "quota" | "deleting";
+
+export async function reservePicture(
+  db: D1Database,
+  input: { publisher: string; key: string; size: number; quotaBytes: number; now: number },
+): Promise<PictureReservation> {
+  // storedBytesSql already counts every picture of the publisher; subtract this key's own stored
+  // size (0 when it is new) so a replacement is charged only for its change.
+  const fits = `${storedBytesSql("?2")}
+      - (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ?2 AND key = ?1) + ?3 <= ?5
+      AND NOT EXISTS (SELECT 1 FROM picture_tombstones WHERE key = ?1 AND deleting = 1)`;
+  const [charged] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO pictures (key, publisher, size, at, generation)
+          SELECT ?1, ?2, ?3, ?4, 1 WHERE ${fits}
+          ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at,
+            generation = pictures.generation + 1
+            WHERE ${fits}`,
+      )
+      .bind(input.key, input.publisher, input.size, input.now, input.quotaBytes),
+    db
+      .prepare(
+        `DELETE FROM picture_tombstones WHERE key = ?1 AND deleting = 0
+          AND EXISTS (SELECT 1 FROM pictures WHERE key = ?1)`,
+      )
+      .bind(input.key),
+  ]);
+  if ((charged?.meta.changes ?? 0) > 0) return "stored";
+  // The write didn't land: either it didn't fit the quota, or the cron is deleting this key now.
+  const racing = await db
+    .prepare("SELECT 1 AS found FROM picture_tombstones WHERE key = ?1 AND deleting = 1")
+    .bind(input.key)
+    .first<{ found: number }>();
+  return racing ? "deleting" : "quota";
+}
+
+/** Whether the picture row's publisher still shows it as its own profile's avatar. */
+const avatarNamed = `(substr(pictures.key, 1, 8) = 'avatars/' AND EXISTS (SELECT 1 FROM publishers
+    WHERE id = pictures.publisher AND avatar = substr(pictures.key, 9)))`;
+
+/**
+ * Of these listing-picture keys (`previews/<sha256>`), the ones any entry's listing or pending
+ * listing names, in any catalogue (a transferred entry keeps its pictures).
+ */
+async function namedPreviews(dbs: Databases, keys: readonly string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const named = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT value AS key FROM json_each(?1) WHERE EXISTS (SELECT 1 FROM entries
+          WHERE instr(COALESCE(listing, ''), substr(value, 10)) > 0
+            OR instr(COALESCE(pending_listing, ''), substr(value, 10)) > 0)`,
+      )
+      .bind(JSON.stringify(keys))
+      .all<{ key: string }>();
+    return results.map((row) => row.key);
+  });
+  return new Set(named);
+}
+
+/**
+ * Looks at up to `limit` picture rows older than the grace period: one nothing names is
+ * dropped (its bytes stop counting), one still named is looked at again a grace period later.
+ * The catalogues are asked which listing pictures are named first; then one batch drops or
+ * renews each row only while it is still at the generation read, so an upload or a listing edit
+ * that reserved the picture again in between keeps it. Its object is deleted later only under a
+ * claim, while no row holds the key (decision 1).
+ */
+export async function sweepPictureRows(dbs: Databases, now: number, limit: number) {
+  const db = dbs.publishers;
+  const before = now - pictureGraceMs;
+  const { results: due } = await db
+    .prepare("SELECT key, publisher, generation FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2")
+    .bind(before, limit)
+    .all<{ key: string; publisher: string; generation: number }>();
+  if (due.length === 0) return;
+  const previews = [...new Set(due.map((row) => row.key))].filter((key) =>
+    key.startsWith("previews/"),
+  );
+  const named = [...(await namedPreviews(dbs, previews))];
+  // Each row as read, generation included: one renewed since (an upload, or a listing edit that
+  // names it) no longer matches, and stays.
+  const rows = JSON.stringify(due.map((row) => `${row.generation}:${row.publisher}:${row.key}`));
+  const isDue = `at < ?1 AND (generation || ':' || publisher || ':' || key)
+    IN (SELECT value FROM json_each(?2))`;
+  const kept = `(${avatarNamed} OR key IN (SELECT value FROM json_each(?3)))`;
+  await db.batch([
+    db
+      .prepare(`DELETE FROM pictures WHERE ${isDue} AND NOT ${kept}`)
+      .bind(before, rows, JSON.stringify(named)),
+    db
+      .prepare(`UPDATE pictures SET at = ?4 WHERE ${isDue} AND ${kept}`)
+      .bind(before, rows, JSON.stringify(named), now),
+  ]);
+}
+
+/** How long a claim stands before the cron acts on it: at least one run apart. */
+export const pictureClaimMs = 10 * 60_000;
+
+/**
+ * How long a run holds a claim before another run may take it over: a run that stalls or dies
+ * past this loses the claim, and its fenced delete then finds it no longer holds it.
+ */
+export const pictureLeaseMs = pictureClaimMs;
+
+/** A claim a cron run holds: its key and the generation the run took it at. */
+export type PictureClaim = { key: string; generation: number };
+
+const unheld = (key: string) => `NOT EXISTS (SELECT 1 FROM pictures WHERE pictures.key = ${key})`;
+
+/**
+ * The cron's first step on R2 objects it found past the grace period (ADR 0174 §1): each one no
+ * picture row holds gets a claim owned by this run, in one statement that checks. Nothing is
+ * deleted yet; an upload that charges the key before the next step drops the claim. A key
+ * already claimed keeps its claim and its owner.
+ */
+export async function claimPictures(
+  db: D1Database,
+  keys: readonly string[],
+  now: number,
+  owner: string,
+) {
+  if (keys.length === 0) return;
+  await db
+    .prepare(
+      `INSERT INTO picture_tombstones (key, claimed_at, owner, generation, leased_at)
+        SELECT value, ?2, ?3, 1, ?2 FROM json_each(?1) WHERE ${unheld("value")}
+        ON CONFLICT (key) DO NOTHING`,
+    )
+    .bind(JSON.stringify(keys), now, owner)
+    .run();
+}
+
+/**
+ * The cron's second step: up to `limit` claims at least `pictureClaimMs` old whose key still no
+ * row holds, and that are unowned, owned by this run, or whose lease has lapsed, are taken by
+ * this run (owner stamped, generation bumped, lease renewed) and marked deleting, in one
+ * statement that re-checks. A claim a row now holds is dropped, the object kept. A claim
+ * already marked deleting by a run cut off before it finished is taken over once its lease
+ * lapses. While marked, uploads of the key are refused, so no bytes land between this and the
+ * R2 delete. Returns the claims with the generation this run holds them at.
+ */
+export async function startPictureDeletes(
+  db: D1Database,
+  now: number,
+  limit: number,
+  owner: string,
+): Promise<PictureClaim[]> {
+  const takeable = `(owner IS NULL OR owner = ?3 OR leased_at <= ?4)`;
+  const due = `key IN (SELECT key FROM picture_tombstones
+    WHERE (deleting = 1 OR claimed_at <= ?1) AND ${takeable} ORDER BY claimed_at LIMIT ?2)`;
+  const args = [now - pictureClaimMs, limit, owner, now - pictureLeaseMs, now] as const;
+  const [, marked] = await db.batch<PictureClaim>([
+    db
+      .prepare(
+        `DELETE FROM picture_tombstones WHERE ${due} AND NOT ${unheld("picture_tombstones.key")}`,
+      )
+      .bind(...args.slice(0, 4)),
+    db
+      .prepare(
+        `UPDATE picture_tombstones
+          SET deleting = 1, owner = ?3, generation = generation + 1, leased_at = ?5
+          WHERE ${due} AND ${takeable} AND ${unheld("picture_tombstones.key")}
+          RETURNING key, generation`,
+      )
+      .bind(...args),
+  ]);
+  return (marked?.results ?? []).map((row) => ({ key: row.key, generation: row.generation }));
+}
+
+const heldBy = `owner = ?2 AND deleting = 1 AND EXISTS (SELECT 1 FROM json_each(?1)
+    WHERE json_extract(value, '$.key') = picture_tombstones.key
+      AND json_extract(value, '$.generation') = picture_tombstones.generation)`;
+
+/**
+ * The fence, read immediately before the R2 delete: of `claims`, the keys this run still holds
+ * at the same generation, marked deleting, that no row holds. A claim another run took over,
+ * or one an upload dropped, is left out, so a run that lost it deletes nothing.
+ */
+export async function heldPictureDeletes(
+  db: D1Database,
+  owner: string,
+  claims: readonly PictureClaim[],
+): Promise<string[]> {
+  if (claims.length === 0) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT key FROM picture_tombstones
+        WHERE ${heldBy} AND ${unheld("picture_tombstones.key")}`,
+    )
+    .bind(JSON.stringify(claims), owner)
+    .all<{ key: string }>();
+  return results.map((row) => row.key);
+}
+
+/**
+ * Drops the claims of objects this run has deleted from R2, which lets their uploads through.
+ * A claim another run has taken since is left to that run.
+ */
+export async function finishPictureDeletes(
+  db: D1Database,
+  owner: string,
+  claims: readonly PictureClaim[],
+) {
+  if (claims.length === 0) return;
+  await db
+    .prepare(`DELETE FROM picture_tombstones WHERE ${heldBy}`)
+    .bind(JSON.stringify(claims), owner)
+    .run();
+}
+
+/** Where the cron's walk of an R2 prefix got to; undefined to start again. */
+export async function sweepCursor(db: D1Database, prefix: string): Promise<string | undefined> {
+  const row = await db
+    .prepare("SELECT after FROM sweep_cursors WHERE prefix = ?1")
+    .bind(prefix)
+    .first<{ after: string }>();
+  return row?.after;
+}
+
+export async function setSweepCursor(db: D1Database, prefix: string, after: string | undefined) {
+  await (
+    after === undefined
+      ? db.prepare("DELETE FROM sweep_cursors WHERE prefix = ?1").bind(prefix)
+      : db
+          .prepare(
+            `INSERT INTO sweep_cursors (prefix, after) VALUES (?1, ?2)
+            ON CONFLICT (prefix) DO UPDATE SET after = excluded.after`,
+          )
+          .bind(prefix, after)
+  ).run();
+}
+
+/**
+ * Sets the publisher's pins; the route checked first that each is theirs and listed. Pins are
+ * filtered on every read to the publisher's listed entries, so one that moved or left the index
+ * on the way never shows.
+ */
+export async function setPins(
+  db: D1Database,
+  id: string,
+  pins: readonly MarketEntryRef[],
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE publishers SET pins = ?2 WHERE id = ?1")
+    .bind(id, JSON.stringify(pins))
+    .run();
+  return result.meta.changes === 1;
+}
+
+/** Takes an entry off a publisher's pins: when it moves to another publisher or is deleted. */
+export const unpinStatement = (
+  db: D1Database,
+  publisher: string,
+  entry: { type: string; name: string },
+) =>
+  db
+    .prepare(
+      `UPDATE publishers SET pins = (
+          SELECT COALESCE(json_group_array(json(value)), '[]') FROM json_each(publishers.pins)
+          WHERE NOT (json_extract(value, '$.type') = ?2 AND json_extract(value, '$.name') = ?3))
+        WHERE id = ?1`,
+    )
+    .bind(publisher, entry.type, entry.name);
+
+/** Which of `entries` are the publisher's own and in the index now, over every catalogue. */
+export async function ownListed(
+  dbs: Databases,
+  publisher: string,
+  entries: readonly MarketEntryRef[],
+): Promise<Set<string>> {
+  const refs = JSON.stringify(entries.map((entry) => `${entry.type}/${entry.name}`));
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT type, name FROM entries WHERE publisher = ?1 AND listed = 1
+          AND (type || '/' || name) IN (SELECT value FROM json_each(?2))`,
+      )
+      .bind(publisher, refs)
+      .all<MarketEntryRef>();
+    return results;
+  });
+  return new Set(rows.map((row) => `${row.type}/${row.name}`));
+}

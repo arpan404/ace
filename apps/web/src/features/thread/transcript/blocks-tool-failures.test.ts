@@ -79,7 +79,12 @@ function recorded() {
         return [`step: ${step.verb}${step.failed ? " (failed)" : ""}`];
       });
     });
-  return { admit, shown, text: () => JSON.stringify(shown()) };
+  return {
+    admit,
+    shown,
+    text: () => JSON.stringify(shown()),
+    item: (id: string) => store.item(id),
+  };
 }
 
 const ask = () => ({
@@ -154,4 +159,83 @@ test("a failure report with no step of its own keeps its own row", () => {
   const thread = recorded();
   thread.admit(report("lone"));
   expect(thread.shown()).toEqual(["row: notice"]);
+});
+
+/** A `delegate` call the server refused for its arguments, as the live thread recorded it. */
+const detail =
+  "Name a project on that machine with project; workspace selects this machine's checkout.";
+const invalid = {
+  isError: true,
+  durationMs: 9,
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({
+        code: "invalid_arguments",
+        message: "Invalid tool arguments",
+        hint: "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
+        detail,
+      }),
+    },
+  ],
+};
+const delegate = (status: "running" | "failed") => ({
+  type: status === "running" ? "item.created" : "item.updated",
+  item: {
+    id: "delegate",
+    agentId: "root",
+    runId: "run",
+    createdAt: 1,
+    complete: status !== "running",
+    type: "tool_call",
+    call: {
+      id: "delegate",
+      agentId: "root",
+      kind: "mcp",
+      title: "delegate",
+      status,
+      detail: {
+        kind: "mcp",
+        server: "ace",
+        tool: "delegate",
+        arguments: { tasks: [{ task: "Review the PR", machine: "studio" }] },
+      },
+      startedAt: 1,
+      raw: [],
+      ...(status === "failed" ? { result: invalid } : {}),
+    },
+  },
+});
+/** The daemon names the operation behind `delegate` as `delegate_task`. */
+const delegateReport = {
+  type: "item.created",
+  item: {
+    id: "delegate-report",
+    agentId: "root",
+    createdAt: 2,
+    complete: true,
+    type: "notice",
+    level: "error",
+    code: "invalid_arguments",
+    title: "Invalid tool arguments",
+    text: detail,
+    raw: [{ type: "ace.agent_control.failed", data: { operation: "delegate_task" } }],
+  },
+};
+
+test("a delegation the agent sent with invalid arguments reads as its own failed step, once", () => {
+  const thread = recorded();
+  thread.admit(delegate("running"), delegateReport, delegate("failed"));
+  expect(thread.shown()).toEqual(["step: Delegate “Review the PR” on studio (failed)"]);
+  expect(thread.text()).not.toMatch(/malformed/);
+});
+
+test("what the tool told the agent about its arguments opens from the failed step", () => {
+  const thread = recorded();
+  thread.admit(delegate("running"), delegate("failed"));
+  const step = thread.item("delegate");
+  expect(step && stepLabels.ace(step)?.problem).toMatchObject({
+    code: "invalid_arguments",
+    hint: `Invalid tool arguments: ${detail}`,
+  });
 });

@@ -30,6 +30,34 @@ it("alerts for whole-thread completion, failure and silence from core status", a
     "unresponsive",
   ]);
 });
+it("the person's own Stop alerts no device, while a normal finish after it still does", async () => {
+  const f = fixture();
+  const hold = (paused: boolean, revision: number) =>
+    f.append([
+      {
+        type: "queue.updated",
+        revision,
+        paused,
+        reason: paused ? "stopped" : null,
+        resumeAt: null,
+        pendingCount: 0,
+      },
+    ]);
+  f.start();
+  // As the daemon records a Stop: the queue holds as stopped, then the turn ends interrupted.
+  hold(true, 1);
+  f.fact({ type: "turn.ended", agent: "root", outcome: "interrupted" });
+  await f.flush();
+  expect(f.state.status.state).toBe("done");
+  expect(f.deliveries).toEqual([]);
+  // The person's next message lifts the hold; that turn's finish alerts as usual.
+  hold(false, 2);
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
+  expect(f.deliveries.map((d) => d.device.id).toSorted()).toEqual([f.desktop, f.phone].toSorted());
+});
 it("needs-you links to an approval without leaking its description or provider data", async () => {
   const f = fixture();
   f.start();
@@ -66,6 +94,27 @@ it("needs-you links to an approval without leaking its description or provider d
     ],
   });
   expect(JSON.stringify(f.deliveries)).not.toContain("private");
+});
+it("an approval too large to send whole offers only Deny: Approve needs the whole request shown", async () => {
+  const f = fixture();
+  f.start();
+  f.fact({
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "approval",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Apply the edit",
+      description: "d".repeat(70 * 1024),
+      options: [
+        { id: "yes", label: "Allow once", kind: "allow_once" },
+        { id: "no", label: "Deny", kind: "deny" },
+      ],
+    },
+  });
+  await f.flush();
+  expect(f.deliveries[0]?.notification.actions).toEqual([{ action: "deny", optionId: "no" }]);
 });
 it("questions produce needs-you with no approval actions", async () => {
   const f = fixture();
@@ -110,7 +159,7 @@ it("an expected self-started turn cancels the transient completion alert", async
   await f.flush();
   expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
 });
-it("no done alert is sent while a child or nonambient background task remains live", async () => {
+it("no done alert is sent while a child works, and a command it left running doesn't hold one back", async () => {
   const f = fixture();
   f.start();
   f.fact({
@@ -136,12 +185,15 @@ it("no done alert is sent while a child or nonambient background task remains li
   });
   f.end("completed", "child");
   await f.flush();
-  expect(f.deliveries).toEqual([]);
+  // Every agent replied: done now, while the command still runs (ADR 0116).
+  expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
+  const before = f.deliveries.length;
   f.fact({ type: "background.ended", task: "task", status: "completed" });
   await f.flush();
-  expect(f.deliveries.map((d) => d.notification)).toEqual([
-    expect.objectContaining({ status: "done", backgroundCount: 1 }),
-    expect.objectContaining({ status: "done", backgroundCount: 1 }),
+  // Its end is its own alert.
+  expect(f.deliveries.slice(before).map((d) => d.notification)).toEqual([
+    expect.objectContaining({ status: "background_done", backgroundCount: 1 }),
+    expect.objectContaining({ status: "background_done", backgroundCount: 1 }),
   ]);
 });
 it("bursts coalesce at the first deadline with the final status and count", async () => {

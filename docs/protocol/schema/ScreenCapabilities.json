@@ -29,12 +29,20 @@
       "items": {
         "enum": [
           "jpeg",
-          "h264"
+          "h264",
+          "hevc"
         ],
         "type": "string"
       },
-      "maxItems": 2,
+      "maxItems": 3,
       "minItems": 1,
+      "type": "array"
+    },
+    "encoders": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MediaCapability.json"
+      },
+      "maxItems": 16,
       "type": "array"
     },
     "input": {
@@ -59,6 +67,9 @@
         "text"
       ],
       "type": "object"
+    },
+    "inspectionOnly": {
+      "type": "boolean"
     },
     "maxSessions": {
       "maximum": 8,
@@ -99,7 +110,6 @@
       "enum": [
         "macos",
         "windows",
-        "linux-x11",
         "linux-wayland"
       ],
       "type": "string"

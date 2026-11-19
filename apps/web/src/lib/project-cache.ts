@@ -1,7 +1,14 @@
-import type { ProjectBadgeStyle, ProjectDefaults, ProjectNote } from "@ace/protocol";
+import type {
+  ProjectBadgeStyle,
+  ProjectDefaults,
+  ProjectIdentity,
+  ProjectNote,
+  ProjectRemoteKey,
+} from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { applyPush, pushOf, pushesFor, type ProjectPushes } from "./project-pushes.ts";
 
 /*
  * The shared project list's cache entry (read in `projects.ts`), kept apart so the app shell
@@ -21,6 +28,12 @@ export interface Project {
   path: string;
   /** `chat`: the hidden project of a chat started with no project (ADR 0099). */
   kind?: "chat" | undefined;
+  /** Its logical project across machines (ADR 0180); absent: one of its own. */
+  identity?: ProjectIdentity | undefined;
+  /** Its remotes and folder in the repository, which group it with clones (ADR 0189). */
+  remoteKey?: ProjectRemoteKey | undefined;
+  /** When work last started in it here (ms). */
+  openedAt?: number | undefined;
 }
 
 export const projectsKey = ["projects"];
@@ -34,6 +47,20 @@ export function rememberProject(queryClient: QueryClient, project: Project): voi
     list ? [...list.filter((p) => p.id !== project.id), project] : list,
   );
   settle(queryClient);
+}
+
+/** Each daemon client's pushes while a read of its project list is out. */
+const ledgers = new WeakMap<object, ProjectPushes<Project>>();
+
+/**
+ * Read the shared list through `read`, with every push that lands meanwhile applied over its
+ * pages, so a read that predates a push never undoes it (`ProjectPushes`).
+ */
+export function trackProjectsRead(
+  client: object,
+  read: () => Promise<Project[]>,
+): Promise<Project[]> {
+  return pushesFor(ledgers, client).track(read);
 }
 
 /** Drop a removed project from the shared list. */
@@ -55,6 +82,16 @@ function settle(queryClient: QueryClient): void {
     .catch(() => {});
 }
 
+/** The cache key of a project's repositories (`forge.repositories`). */
+export const projectRepositoriesKey = (project: string) =>
+  ["forge", project, "repositories"] as const;
+
+/** Read every view of the project's repositories again: its list and its primary. */
+export function forgetProjectRepositories(cache: QueryClient, project: string): void {
+  void cache.invalidateQueries({ queryKey: projectRepositoriesKey(project), exact: true });
+  void cache.invalidateQueries({ queryKey: ["forge", project, "repository"], exact: true });
+}
+
 /**
  * Keep every screen's project list live: the daemon pushes each project added, renamed or
  * removed, from this device or another. A reconnect reads the list again (`useDaemonQuery`),
@@ -66,9 +103,17 @@ export function useProjectListSync(): void {
   useEffect(
     () =>
       client.projects.onChanged((change) => {
-        if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
-        else if (change.workspace) rememberProject(queryClient, change.workspace);
-        else settle(queryClient);
+        // Put in place and kept for any read out now, never by restarting that read: a daemon
+        // reading its checkouts' remotes (ADR 0189) pushes once per project.
+        const push = pushOf<Project>(change, (workspace) => workspace);
+        if (push) {
+          pushesFor(ledgers, client).record(push);
+          queryClient.setQueryData<Project[]>(projectsKey, (list) =>
+            list ? applyPush(list, push) : list,
+          );
+        } else settle(queryClient);
+        // Its repository choices may be what changed (ADR 0120).
+        if (change.change !== "removed") forgetProjectRepositories(queryClient, change.workspaceId);
       }),
     [client, queryClient],
   );

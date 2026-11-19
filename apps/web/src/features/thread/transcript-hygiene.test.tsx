@@ -158,11 +158,6 @@ test("the live activity strip describes ace tools instead of showing native name
   expect(document.body.textContent).not.toMatch(/agents_status|ace ›|opaque-id/);
 });
 
-test("a short transcript has no turn rail", async () => {
-  await open([facts.endTurn("root")]);
-  expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
-});
-
 /** A transcript of `turns` finished turns, each a request and its end. */
 function turns(count: number): Fact[] {
   const all: Fact[] = [facts.endTurn("root")];

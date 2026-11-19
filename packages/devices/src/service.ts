@@ -1,6 +1,11 @@
 import { DeviceStreamOwners } from "./stream-owners.ts";
 import { watchDeviceLease } from "./lease-expiry.ts";
-import { DeviceStreamControl, deviceVideoStream } from "./stream-control.ts";
+import {
+  DeviceStreamControl,
+  deviceImageStream,
+  deviceStillStream,
+  deviceVideoStream,
+} from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import {
@@ -8,6 +13,7 @@ import {
   DeviceOperation,
   DeviceState,
   type DeviceActivity,
+  type DevicePermissions,
 } from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
@@ -23,7 +29,8 @@ import { createSession, type DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { performDeviceAction } from "./actions.ts";
 import { bindDevice, disableDeviceSessions } from "./binding.ts";
-import { enqueueDeviceInput } from "./input-queue.ts";
+import { enqueueDeviceInput, enqueueSharedInput } from "./input-queue.ts";
+import { DeviceCowork } from "./device-cowork.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
@@ -40,12 +47,20 @@ export interface DevicesOptions extends LifecycleOptions {
   log?: DeviceLog;
   /** How often the inventory is read again while a client watches (default four seconds). */
   inventoryIntervalMs?: number;
+  /** Whether devices start on (default); the daemon passes the saved `devices.enabled`. */
+  enabled?: boolean;
+  /**
+   * Cowork is on by default (ADR 0143): the person's input from a device view goes in while an agent holds the
+   * device, and the agent's input waits while the person uses it. Off: the person takes the
+   * controls first, as before.
+   */
+  cowork?: boolean;
 }
 export class DevicesService {
   /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
   readonly agents = new SimAgentState();
   private readonly streamOwners = new DeviceStreamOwners();
-  private enabled = false;
+  private enabled = true;
   private closed = false;
   private disabling = false;
   private readonly sessions = new Map<string, DeviceSession>();
@@ -57,8 +72,17 @@ export class DevicesService {
   private inventoryViews = 0;
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
   private readonly inventory: InventoryWatch;
+  private readonly cowork: DeviceCowork | undefined;
   constructor(options: DevicesOptions) {
     this.options = options;
+    this.cowork =
+      (options.cowork ?? true)
+        ? new DeviceCowork(options.runtime, (deviceId) => {
+            const session = this.sessions.get(deviceId);
+            if (session) this.emit(session);
+          })
+        : undefined;
+    this.enabled = options.enabled ?? true;
     this.inventory = new InventoryWatch({
       read: () => this.list(),
       after: options.runtime.after,
@@ -127,7 +151,11 @@ export class DevicesService {
         this.sessions.delete(session.device.id);
       } else if (changed) {
         this.emit(session);
-        void this.refreshPosture(session);
+        // refreshPosture already swallows a failed read.
+        void this.refreshPosture(session).catch(() => {});
+      } else if (!session.posture && device?.state === "booted") {
+        // A fold read made while the device was still booting finds nothing; ask again.
+        void this.refreshPosture(session).catch(() => {});
       }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
@@ -150,10 +178,15 @@ export class DevicesService {
       );
     const session = createSession(Device.parse(device), this.options.runtime);
     this.sessions.set(id, session);
-    void this.refreshPosture(session);
+    // refreshPosture already swallows a failed read.
+    void this.refreshPosture(session).catch(() => {});
     return session;
   }
   state(session: DeviceSession): DeviceState {
+    const state = this.bareState(session);
+    return this.cowork ? this.cowork.view(state) : state;
+  }
+  private bareState(session: DeviceSession): DeviceState {
     return DeviceState.parse({
       device: session.device,
       enabled: this.enabled,
@@ -174,7 +207,8 @@ export class DevicesService {
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
   private refreshPosture(session: DeviceSession): Promise<void> {
-    return this.options.platform
+    if (session.readingPosture) return session.readingPosture;
+    const reading = this.options.platform
       .posture(session.device)
       .then((posture) => {
         if (posture === session.posture) return;
@@ -182,7 +216,12 @@ export class DevicesService {
         else delete session.posture;
         this.emit(session);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (session.readingPosture === reading) delete session.readingPosture;
+      });
+    session.readingPosture = reading;
+    return reading;
   }
   /**
    * An agent acted on a device: viewers are told what it did and where, numbered so each action
@@ -193,6 +232,7 @@ export class DevicesService {
     if (!session) return;
     session.activitySequence++;
     session.activity = { ...activity, sequence: session.activitySequence };
+    this.cowork?.acted(deviceId, activity);
     this.emit(session);
   }
   /** Devices are on for this machine; a client with no device sessions yet needs this too. */
@@ -320,13 +360,35 @@ export class DevicesService {
         "Call sim_start to take this simulator first.",
       );
   }
-  private enqueue<T>(
+  private async enqueue<T>(
     session: DeviceSession,
     actor: Actor,
     run: (authorize: () => void) => Promise<T>,
   ): Promise<T> {
-    return enqueueDeviceInput(session, actor, run, this.lifecycleOwner());
+    const cowork = this.cowork;
+    if (cowork && actor.kind === "human" && session.lease.current()?.kind !== "human") {
+      cowork.personInput(session.device.id);
+      return enqueueSharedInput(
+        session,
+        actor,
+        (guard) => {
+          cowork.personInput(session.device.id);
+          return run(guard);
+        },
+        this.lifecycleOwner(),
+      );
+    }
+    return enqueueDeviceInput(
+      session,
+      actor,
+      run,
+      this.lifecycleOwner(),
+      actor.kind === "agent"
+        ? cowork?.inputWait(session.device.id, session.device.name)
+        : undefined,
+    );
   }
+
   async request(raw: DeviceOperation, actor: Actor): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);
     try {
@@ -414,7 +476,9 @@ export class DevicesService {
       const device = known(this.inventory.current()?.devices) ?? known(await this.list());
       if (!device)
         throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
-      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
+      const posture = operation.posture ?? this.sessions.get(device.id)?.posture;
+      const chrome = await this.options.platform.chrome(device, operation.format, posture);
+      return { chrome: chrome ?? null };
     }
     if (operation.op === "states")
       return {
@@ -482,6 +546,15 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
+        // Nobody may be watching yet: a capture that makes stills on demand stops streaming.
+        if (session.capture?.still)
+          await this.streamControlFor(session)
+            .refresh()
+            .catch((error) =>
+              this.options.log?.("warn", "Device stream update failed", {
+                message: String(error),
+              }),
+            );
         // An agent starting a foldable device learns its posture from the reply.
         await this.refreshPosture(session);
         return this.state(session);
@@ -511,6 +584,12 @@ export class DevicesService {
         return this.state(session);
       case "screenshot":
         return await this.screenshot(session.device.id, actor);
+      case "clipboard.get":
+        return this.ui(session, actor, () =>
+          performDeviceAction(this.options.platform, session, actor, operation, () =>
+            this.authorize(session, actor),
+          ),
+        );
       case "ui.tree":
         return this.ui(session, actor, () =>
           session.capture?.ui
@@ -639,7 +718,7 @@ export class DevicesService {
   private async permissions(
     operation: Extract<DeviceOperation, { op: "permissions" | "permissions.request" }>,
     actor: Actor,
-  ): Promise<{ screenRecording: boolean; accessibility: boolean }> {
+  ): Promise<DevicePermissions> {
     const screen = this.options.screen;
     if (!screen)
       throw new DeviceError(
@@ -704,6 +783,19 @@ export class DevicesService {
       emit: (session) => this.emit(session),
       failure: deviceFailure,
       authorize: (session, actor) => this.authorize(session, actor),
+      // ace-media asks for the stream its views need: one more owner of the device's common
+      // stream budget, as each viewer is.
+      // Set and removed through the stream control, which applies them in order.
+      mediaWant: (session, settings) => {
+        const update: Promise<unknown> = settings
+          ? this.watchWith(session, "ace-media", settings)
+          : (session.streamControl?.remove("ace-media") ?? Promise.resolve());
+        update.catch((error: unknown) =>
+          this.options.log?.("warn", "Device stream update for ace-media failed", {
+            message: String(error),
+          }),
+        );
+      },
     };
   }
   private start(session: DeviceSession, fps: number): Promise<void> {
@@ -740,6 +832,12 @@ export class DevicesService {
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
       return oneOffFrame(shot, this.options.runtime);
     }
+    if (session.capture?.still) {
+      // Stills come on demand while nobody watches: make one of the screen as it is now.
+      await session.capture.still();
+      this.authorize(session, actor);
+      if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+    }
     return session.latest;
   }
   /** A viewer's stream preference; one the capture can't stream is withdrawn, not kept. */
@@ -757,20 +855,27 @@ export class DevicesService {
     }
   }
   private streamControlFor(session: DeviceSession): DeviceStreamControl {
-    session.streamControl ??= new DeviceStreamControl(async (settings) => {
-      this.authorize(session, { kind: "human", owner: "capture" });
-      if (session.lifecycle !== "live") throw new Error("Device stream stopped");
-      return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
-    });
+    session.streamControl ??= new DeviceStreamControl(
+      async (settings) => {
+        this.authorize(session, { kind: "human", owner: "capture" });
+        if (session.lifecycle !== "live") throw new Error("Device stream stopped");
+        return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+      },
+      () => (session.capture?.still ? deviceStillStream : deviceImageStream),
+    );
     return session.streamControl;
   }
   /** The live view's frames, the newest one whenever `sink` is ready for another. */
   async subscribe(id: string, actor: Actor, sink: FrameSink): Promise<() => void> {
-    return this.view(id, actor, (session, check) =>
-      session.hub.subscribe(async (frame) => {
-        check();
-        await sink(frame);
-      }, session.latest),
+    return this.view(id, actor, (session, check, ended) =>
+      session.hub.subscribe(
+        async (frame) => {
+          check();
+          await sink(frame);
+        },
+        session.latest,
+        ended,
+      ),
     );
   }
   /**
@@ -782,17 +887,21 @@ export class DevicesService {
     actor: Actor,
     sink: (frame: Frame) => void,
   ): Promise<() => void> {
-    return this.view(id, actor, (session, check) =>
-      session.hub.subscribeEvery((frame) => {
-        check();
-        sink(frame);
-      }, session.latest),
+    return this.view(id, actor, (session, check, ended) =>
+      session.hub.subscribeEvery(
+        (frame) => {
+          check();
+          sink(frame);
+        },
+        session.latest,
+        ended,
+      ),
     );
   }
   private async view(
     id: string,
     actor: Actor,
-    attach: (session: DeviceSession, check: () => void) => () => void,
+    attach: (session: DeviceSession, check: () => void, ended: () => void) => () => void,
   ): Promise<() => void> {
     const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
@@ -805,12 +914,6 @@ export class DevicesService {
     if (!preferences.has(actor.owner))
       await this.watchWith(session, actor.owner, deviceVideoStream);
     viewer.guard();
-    const stop = attach(session, () => {
-      viewer.guard();
-      if (actor.kind === "agent" && session.bindingEpoch !== epoch)
-        throw new Error("Device binding changed");
-      this.authorize(session, actor);
-    });
     const remove = viewer.subscribe(id, () => {
       void preferences
         .remove(actor.owner)
@@ -818,10 +921,34 @@ export class DevicesService {
           this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
         );
     });
-    return () => {
-      stop();
+    // One release, however the view ends: closed by its viewer, or dropped by the frame hub
+    // (its sink threw, or the session's hub was cleared). Either way its stream request goes.
+    let stop: (() => void) | undefined;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      stop?.();
       remove();
     };
+    try {
+      stop = attach(
+        session,
+        () => {
+          viewer.guard();
+          if (actor.kind === "agent" && session.bindingEpoch !== epoch)
+            throw new Error("Device binding changed");
+          this.authorize(session, actor);
+        },
+        release,
+      );
+    } catch (error) {
+      // Refused by the hub (its subscriber limit): the view never was, and holds nothing.
+      release();
+      throw error;
+    }
+    if (released) stop();
+    return release;
   }
   async subscribeLogs(
     id: string,

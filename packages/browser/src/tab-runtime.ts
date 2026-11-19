@@ -5,11 +5,14 @@ import {
   type BrowserDialog,
   type BrowserOriginBlock,
   type BrowserState,
+  type AgentPointer,
+  type AgentPointerKind,
   type BrowserAgentPointer,
   type BrowserTab,
   type BrowserTabActor,
   type BrowserTabLifecycle,
   type BrowserPageState,
+  type BrowserExpectedPlace,
 } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 import { AnnotationSession } from "./annotation-session.ts";
@@ -21,6 +24,7 @@ import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
+import { holdTo } from "./place-guard.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
@@ -35,6 +39,7 @@ import { TabAccess } from "./tab-access.ts";
 import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
 import { fillFieldByField } from "./typing.ts";
+import { waitedNote } from "@ace/interaction/presence";
 import { PageCursor } from "./page-cursor.ts";
 import { PageInteraction } from "./page-interaction.ts";
 import { defaultCursorStyle } from "@ace/browser-annotate";
@@ -132,6 +137,9 @@ export class TabRuntime {
   private agentRunning = 0;
   private stopInUse: (() => void) | undefined;
   private pointed: BrowserAgentPointer | undefined;
+  private agentPointed: AgentPointer | undefined;
+  /** Ends the person's lease in this tab on time, so viewers see `personActive` clear. */
+  private personLapse: (() => void) | undefined;
   /** The backend knows an agent uses the tab (file choosers, unseen rendering). */
   private agentShown = false;
   private agentSync: Promise<void> = Promise.resolve();
@@ -166,7 +174,8 @@ export class TabRuntime {
       style: () => cursor?.style() ?? defaultCursorStyle,
       name: (agentId) => cursor?.name?.(agentId),
     });
-    if (host.recording?.()) void this.cursor.setRecording(true);
+    // A cursor layer is best effort: a tab that cannot mask it still records.
+    if (host.recording?.()) void this.cursor.setRecording(true).catch(() => {});
     this.refs = new SnapshotRefs(
       cdp,
       () => this.page.frames?.(),
@@ -220,8 +229,25 @@ export class TabRuntime {
       (command?.action === "history" && command.direction === "reload");
     if (!revives && this.crashed()) throw new BrowserActionError("tab_crashed");
   }
+  /** Commands are queued or running on it, or work outside its queue holds it awake (`hold`). */
   get busy(): boolean {
-    return !this.queue.idle || !this.lane.idle;
+    return !this.queue.idle || !this.lane.idle || this.holds > 0;
+  }
+  private holds = 0;
+  /**
+   * Keeps the tab awake for work that runs outside its command queue (a print, a person's
+   * answer to a prompt, files being staged): no rest, freeze or discard until the returned
+   * release runs, once, after which its idle time starts over.
+   */
+  hold(): () => void {
+    this.holds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds--;
+      this.lastActiveAt = this.host.options.now();
+    };
   }
   get private(): boolean {
     return this.access.private;
@@ -237,6 +263,14 @@ export class TabRuntime {
   /** Where the agent using the tab last pointed, while it uses it. */
   pointer(): BrowserAgentPointer | undefined {
     return this.inUse() ? this.pointed : undefined;
+  }
+  /** The agent's latest action point and kind, while it uses the tab (ADR 0143). */
+  agentPointer(): AgentPointer | undefined {
+    return this.inUse() ? this.agentPointed : undefined;
+  }
+  /** The person used this tab within the cowork quiet window: agents' input waits. */
+  personActive(): boolean {
+    return !this.access.private && this.humanWithin(this.host.timing.quietMs);
   }
   /** The person used this tab within `window` ms. */
   humanWithin(window: number): boolean {
@@ -282,6 +316,7 @@ export class TabRuntime {
     this.closed = true;
     this.lane.close();
     this.stopInUse?.();
+    this.personLapse?.();
     this.identity.close();
     this.history.close();
     this.interaction?.close();
@@ -308,6 +343,10 @@ export class TabRuntime {
       epoch,
     );
   }
+  /** Whether this tab is the place a caller's gate expected: this tab, at that address. */
+  isAt(expected: BrowserExpectedPlace): boolean {
+    return atPlace(expected, this.id, this.page.url());
+  }
   readCheck(actor: Actor, epoch = this.access.epoch): void {
     this.access.read(actor, epoch);
   }
@@ -332,9 +371,31 @@ export class TabRuntime {
   /** The person used the page directly (a native view the daemon does not route). */
   humanActivity(): void {
     this.personDocument = true;
+    const wasActive = this.humanWithin(this.host.timing.quietMs);
     this.humanAt = this.host.options.navigationClock.now();
+    this.personLapse?.();
+    this.personLapse = this.host.options.navigationClock.set(this.host.timing.quietMs, () => {
+      this.personLapse = undefined;
+      if (!this.closed) this.host.emit();
+    });
+    if (!wasActive) this.host.emit();
     this.lastActiveAt = this.host.options.now();
     this.cursor.personActed();
+  }
+  private lifecycleLane: Promise<unknown> = Promise.resolve();
+  /**
+   * Runs one lifecycle change (rest, freeze, discard) or wake of this tab, after those before
+   * it: a wake never sees the tab half-way into a change, and the next change starts from a woken
+   * tab.
+   */
+  lifecycleTurn<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.lifecycleLane.then(work);
+    this.lifecycleLane = run.catch(() => {});
+    return run;
+  }
+  /** The person watched this tab: its idle time starts over. */
+  seen(): void {
+    this.lastActiveAt = this.host.options.now();
   }
   private touch(actor: Actor): void {
     this.lastActiveAt = this.host.options.now();
@@ -377,13 +438,16 @@ export class TabRuntime {
     this.agentSync = backend.agentUse(this.id, active).catch(() => {});
   }
   /** An agent pointed here (click, hover, drag); viewers draw its cursor gliding there. */
-  private point(actor: Actor, point: { x: number; y: number }): void {
+  private point(
+    actor: Actor,
+    point: { x: number; y: number },
+    kind: AgentPointerKind = "click",
+  ): void {
     if (actor.kind !== "agent") return;
-    this.pointed = {
-      x: Math.round(point.x),
-      y: Math.round(point.y),
-      sequence: (this.pointed?.sequence ?? 0) + 1,
-    };
+    const x = Math.round(point.x);
+    const y = Math.round(point.y);
+    this.pointed = { x, y, sequence: (this.pointed?.sequence ?? 0) + 1 };
+    this.agentPointed = { x, y, kind, at: Math.max(0, Math.round(this.host.options.now())) };
     this.host.emit();
   }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -445,6 +509,16 @@ export class TabRuntime {
     const checkTarget = () => {
       if (target && !target.current()) throw new BrowserActionError("backend_changed");
     };
+    // The place the caller's gate decided on: this tab, at this address, at every input.
+    const expected = "expect" in command ? command.expect : undefined;
+    const checkPlace = () => {
+      if (expected && !atPlace(expected, this.id, this.page.url()))
+        throw new BrowserActionError("place_changed");
+    };
+    const beforeInput = () => {
+      checkTarget();
+      checkPlace();
+    };
     const submittedGeneration = this.access.generation;
     const privateEpoch = this.access.epoch;
     // Dialog answers cannot wait behind a renderer command paused by that dialog.
@@ -456,7 +530,16 @@ export class TabRuntime {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
         if (command.action === "dialog") this.leaveCheck(command, actor);
-        return this.run(command, actor, signal, submittedGeneration);
+        checkPlace();
+        return this.run(
+          command,
+          actor,
+          signal,
+          submittedGeneration,
+          checkPlace,
+          undefined,
+          expected,
+        );
       })();
     // The person's Back and Forward land at once, as in any browser: never behind an agent's
     // slow command or a page dialog in this tab (the engine decides what the dialog does).
@@ -473,6 +556,10 @@ export class TabRuntime {
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);
+    let waitedMs = 0;
+    const waited = (ms: number) => {
+      waitedMs += ms;
+    };
     // One queue turn for a command, or for one step of it (a field of an agent's fill_form).
     const jobFor = (part: TabCommand) => async () => {
       signal?.throwIfAborted();
@@ -500,10 +587,20 @@ export class TabRuntime {
       this.readCheck(actor, privateEpoch);
       if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
       this.crashCheck(part);
+      // Its turn came: the page may have moved on while it waited in the queue.
+      checkPlace();
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(part, actor, signal, submittedGeneration, checkTarget, target?.navigate),
+          this.run(
+            part,
+            actor,
+            signal,
+            submittedGeneration,
+            beforeInput,
+            target?.navigate,
+            expected,
+          ),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
@@ -518,11 +615,26 @@ export class TabRuntime {
       return actor.kind === "agent" ? this.popupsInto(result) : result;
     };
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
+    const noted = (result: unknown) => {
+      const note = waitedNote(waitedMs, "this tab");
+      if (!note || Array.isArray(result)) return result;
+      return typeof result === "object" && result !== null
+        ? { ...result, waited: note }
+        : { waited: note };
+    };
     if (waits && command.action === "fill_form")
-      return this.lane.run(signal, (step) =>
-        fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
-      );
-    if (waits) return this.lane.run(signal, (step) => step(() => this.enqueue(jobFor(command))));
+      return this.lane
+        .run(
+          signal,
+          (step) =>
+            fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
+          waited,
+        )
+        .then(noted);
+    if (waits)
+      return this.lane
+        .run(signal, (step) => step(() => this.enqueue(jobFor(command))), waited)
+        .then(noted);
     return this.enqueue(jobFor(command));
   }
   screenshot(
@@ -578,6 +690,9 @@ export class TabRuntime {
     const zoom = this.page.zoom ? zoomChord(input) : undefined;
     const work = this.personLane.then(async () => {
       this.check(actor, undefined, generation);
+      // The person's input reaches a shown, running page, never one that rested or froze.
+      await this.host.wake(this.id);
+      this.check(actor, undefined, generation);
       // ⌘+ / ⌘- / ⌘0 zoom the page, as in a browser; the page never sees them.
       if (zoom) {
         if (input.kind === "key" && input.event === "keyDown") await this.zoomStep(zoom);
@@ -609,11 +724,12 @@ export class TabRuntime {
     this.touch(actor);
     this.humanActivity();
     const generation = this.access.generation;
-    const work = this.personLane.then(() =>
-      dropFiles(this.page.cdp, paths, point, modifiers, () =>
+    const work = this.personLane.then(async () => {
+      await this.host.wake(this.id);
+      await dropFiles(this.page.cdp, paths, point, modifiers, () =>
         this.check(actor, undefined, generation),
-      ),
-    );
+      );
+    });
     this.personLane = work.catch(() => {});
     return work;
   }
@@ -668,46 +784,91 @@ export class TabRuntime {
     generation: number,
     beforeInput?: () => void,
     navigate?: () => Promise<void>,
+    /** The place the caller's gate held the command to: checked at every input it sends. */
+    expected?: BrowserExpectedPlace,
   ): Promise<unknown> {
     const epoch = this.access.epoch;
     const host = this.host;
-    return executeBrowserCommand(command, actor, signal, generation, {
-      options: host.options,
-      tabId: this.id,
-      page: this.page,
-      answer: (dialogId, accept, promptText) => host.answer(dialogId, accept, promptText),
-      beforeInput,
-      navigate,
-      refs: this.refs,
-      annotation: this.annotation,
-      view: this.view,
-      logs: host.logs,
-      policies: host.policies,
-      state: () => host.state(),
-      read: () => this.readCheck(actor, epoch),
-      blocked: () => host.blocked(),
-      clearBlocked: () => host.clearBlocked(),
-      check: (who, checkSignal, checkGeneration) =>
-        this.check(who, checkSignal, checkGeneration, epoch),
-      refDispatch: (ref) =>
-        this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
-      personPresent: () => this.humanWithin(host.timing.presentMs),
-      personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
-      point: (point) => this.point(actor, point),
-      cursor:
-        actor.kind === "agent" && this.cursor.visible
-          ? {
-              point: (at, click) => this.cursor.point(actor.agentId, at, click),
-              drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
-              typing: (field) => this.cursor.typing(actor.agentId, field),
-              scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
-            }
-          : undefined,
-      capture: (work) => this.cursor.capture(work),
-      emit: () => host.emit(),
-      run: (...args) => this.run(...args),
-      beginRecording: (check, by) => host.beginRecording(this.id, check, by),
-      finishRecording: () => host.finishRecording(),
-    });
+    const held = expected;
+    // The page's own report of where it is when the transport has one, else the backend's.
+    const place = held
+      ? (url?: string) => {
+          if (!atPlace(held, this.id, url ?? this.page.url()))
+            throw new BrowserActionError("place_changed");
+        }
+      : () => {};
+    // Held to a place, the command runs inside its hold: every input any session sends for it,
+    // whichever helper sends it, checks the place where it leaves (place-guard.ts).
+    const execute = () =>
+      executeBrowserCommand(command, actor, signal, generation, {
+        options: host.options,
+        tabId: this.id,
+        page: this.page,
+        answer: (dialogId, accept, promptText) => {
+          if (held) {
+            // The page's script waits while its dialog is open, so the place is what the
+            // browser reported: the dialog must be this tab's, raised at the checked address.
+            const dialog = host.dialog(this.id);
+            if (
+              dialog?.dialogId !== dialogId ||
+              !atPlace(held, this.id, dialog.url ?? this.page.url())
+            )
+              throw new BrowserActionError("place_changed");
+          }
+          return host.answer(dialogId, accept, promptText);
+        },
+        beforeInput,
+        navigate: navigate && (() => (place(), navigate())),
+        refs: this.refs,
+        annotation: this.annotation,
+        view: this.view,
+        logs: host.logs,
+        policies: host.policies,
+        state: () => host.state(),
+        read: () => this.readCheck(actor, epoch),
+        blocked: () => host.blocked(),
+        clearBlocked: () => host.clearBlocked(),
+        check: (who, checkSignal, checkGeneration) =>
+          this.check(who, checkSignal, checkGeneration, epoch),
+        // Input to an element goes through its ref, whose own CDP the guarded page doesn't hold.
+        refDispatch: (ref) =>
+          this.refs.dispatch(ref, () => {
+            this.check(actor, signal, generation, epoch);
+            place();
+          }),
+        personPresent: () => this.humanWithin(host.timing.presentMs),
+        personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
+        point: (point, kind) => this.point(actor, point, kind),
+        cursor:
+          actor.kind === "agent" && this.cursor.visible
+            ? {
+                point: (at, click) => this.cursor.point(actor.agentId, at, click),
+                drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
+                typing: (field) => this.cursor.typing(actor.agentId, field),
+                scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
+              }
+            : undefined,
+        capture: (work) => this.cursor.capture(work),
+        emit: () => host.emit(),
+        // A command run inside this one (a measured interaction's) is held to the same place.
+        run: (inner, who, innerSignal, innerGeneration, before) =>
+          this.run(inner, who, innerSignal, innerGeneration, before, undefined, held),
+        beginRecording: (check, by) => host.beginRecording(this.id, check, by),
+        finishRecording: () => host.finishRecording(),
+      });
+    return held ? holdTo(place, execute) : execute();
+  }
+}
+
+/** Whether a tab is the place a caller expected: the same tab, at the same address. */
+export function atPlace(expected: BrowserExpectedPlace, tabId: string, url: string): boolean {
+  return expected.tabId === tabId && sameAddress(expected.url, url);
+}
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return a === b;
   }
 }

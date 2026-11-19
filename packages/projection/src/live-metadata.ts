@@ -1,6 +1,7 @@
 import {
   ThreadRunMetadata,
   type Thread,
+  type ThreadStatus,
   type EventPayload,
   type Agent,
   type BackgroundTask,
@@ -31,16 +32,38 @@ type TaskFacts = Pick<BackgroundTask, "status" | "kind" | "internal" | "childAge
 function listedRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && listedBackgroundWork(task));
 }
+/**
+ * A running background shell `live.watching` names and `live.watchingCount` counts: not ambient,
+ * and its command known. The daemon's one-time seed counts stored tasks with this too, so a
+ * task it counts is one whose end the live count takes back off.
+ */
+export function namedRunningShell(task: BackgroundTask): boolean {
+  return (
+    task.status === "running" && !task.ambient && shellCommandOf(task, undefined) !== undefined
+  );
+}
+
+function namedRunning(task: BackgroundTask | undefined): number {
+  return Number(task !== undefined && namedRunningShell(task));
+}
 /** A running task that stands for a subagent with no agent of its own yet. */
 function subagentRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && standsForSubagent(task));
 }
 
-/** A delegated child thread this agent summarises, while its tree waits on the person. */
+/**
+ * A delegated child thread this agent summarises, while its tree waits on the person. A child on
+ * another machine isn't a thread here to open; its parent shows what it asks.
+ */
 function askingChild(
   agent: Agent | undefined,
 ): { id: Agent["threadId"]; name?: string } | undefined {
-  if (!agent?.childThreadId || agent.status.state !== "blocked" || agent.status.on !== "human")
+  if (
+    !agent?.childThreadId ||
+    agent.machine ||
+    agent.status.state !== "blocked" ||
+    agent.status.on !== "human"
+  )
     return undefined;
   const name = (agent.name ?? agent.role)?.slice(0, titleLength);
   return { id: agent.childThreadId, ...(name ? { name } : {}) };
@@ -106,6 +129,20 @@ function rootFacts(
 }
 
 /**
+ * `compactingSince` while the root compacts: set when it begins (at the event's time), kept
+ * while it goes on, gone once it does anything else. True when it changed.
+ */
+function stampCompaction(live: Live, status: Agent["status"], at: number | undefined): boolean {
+  const compacting = status.state === "working" && status.activity === "compacting";
+  if (compacting === (live.compactingSince !== undefined)) return false;
+  if (compacting) {
+    if (at === undefined) return false;
+    live.compactingSince = at;
+  } else delete live.compactingSince;
+  return true;
+}
+
+/**
  * Point changes only; callers supply the replaced entity, never retained history. For the root
  * agent's status, `command` is the shell command of the step it names, when it names one.
  */
@@ -125,14 +162,47 @@ export function liveMetadata(
     !thread.hasSentMessage
   )
     return { type: "thread.client.updated", changes: { hasSentMessage: true } };
-  const unsettled =
+  const live: Live = { provider: thread.provider, ...thread.live };
+  const changed = applyChange(live, thread, payload, previousAgent, previousTask, command, at);
+  // A continuing request may have been settled by hand. Only a new request reopens it.
+  const resumes =
     payload.type === "thread.updated" &&
     payload.status &&
-    payload.status.state === "working" &&
+    (payload.status.state === "working" ||
+      (payload.status.state === "needs_you" && thread.status.state !== "needs_you"));
+  const childStarts = (live.runningSubagentCount ?? 0) > (thread.live?.runningSubagentCount ?? 0);
+  const newRequest =
+    payload.type === "interaction.opened" &&
+    payload.interaction.state === "pending" &&
+    !thread.live?.asking?.some((previous) => previous.id === payload.interaction.id);
+  const unsettled =
+    (resumes || childStarts || newRequest) &&
     (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
-  const live: Live = { provider: thread.provider, ...thread.live };
+  const status =
+    payload.type === "thread.updated" && payload.status ? payload.status : thread.status;
+  const stamped = at !== undefined && stampTreeWait(live, status, at);
+  if (!changed && !stamped && !unsettled) return undefined;
+  return {
+    type: "thread.client.updated",
+    changes: {
+      live,
+      ...(unsettled ? { settledAt: null, settledReason: null, autoSettleAt: null } : {}),
+    },
+  };
+}
+
+/** `live` changed in place by one point change; false when it says nothing new. */
+function applyChange(
+  live: Live,
+  thread: Thread,
+  payload: EventPayload,
+  previousAgent: Agent | undefined,
+  previousTask: BackgroundTask | undefined,
+  command: string | undefined,
+  at: number | undefined,
+): boolean {
   if (payload.type === "thread.updated") {
-    let changed = Boolean(unsettled);
+    let changed = false;
     if (payload.execution) {
       live.provider = payload.execution.provider;
       live.model = boundedLiveModel(payload.execution.model);
@@ -143,7 +213,7 @@ export function liveMetadata(
     if (payload.status && at !== undefined) {
       if (payload.status.state === "working") {
         if (thread.status.state !== "working" || live.workingSince === undefined) {
-          live.workingSince = at;
+          live.workingSince = backToWorkSince(live, at);
           changed = true;
         }
       } else if (live.workingSince !== undefined) {
@@ -151,9 +221,17 @@ export function liveMetadata(
         changed = true;
       }
     }
-    if (!changed) return undefined;
+    return changed;
   } else if (payload.type === "run.started" && payload.run.agentId === thread.rootAgentId) {
     live.rootRunId = payload.run.id;
+    // Working is timed from the turn's start: a run that carries the turn on (a background
+    // completion, a subagent's result: ADR 0062) keeps it, and only a new turn restarts it.
+    const turn = payload.run.turn ?? payload.run.ordinal;
+    if (at !== undefined && (turn === undefined || live.turnStart?.turn !== turn)) {
+      if (turn === undefined) delete live.turnStart;
+      else live.turnStart = { turn, at };
+      if (live.workingSince !== undefined) live.workingSince = at;
+    }
   } else if (payload.type === "run.ended" && payload.runId === live.rootRunId) {
     live.rootRunId = null;
   } else if (payload.type === "agent.created") {
@@ -192,6 +270,12 @@ export function liveMetadata(
       live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + subagents);
     const id = payload.type === "background_task.started" ? payload.task.id : payload.taskId;
     const task = payload.type === "background_task.started" ? payload.task : previousTask;
+    // The exact count beside the shortened list, so nothing past the newest 8 goes uncounted.
+    const named =
+      (live.watchingCount ?? 0) +
+      namedRunning(task && { ...task, status: next.status }) -
+      namedRunning(previousTask);
+    put(live, "watchingCount", named > 0 ? named : undefined);
     // Only a shell is named, by its command.
     put(
       live,
@@ -202,35 +286,65 @@ export function liveMetadata(
     );
   } else if (payload.type === "interaction.opened") {
     const { interaction } = payload;
-    if (interaction.state !== "pending") return undefined;
+    if (interaction.state !== "pending") return false;
     live.asking = withEntry(live.asking, {
       id: interaction.id,
       kind: interaction.request.kind,
     });
   } else if (payload.type === "interaction.closed") {
     const asking = withoutEntry(live.asking, payload.interactionId);
-    if (asking === live.asking) return undefined;
+    if (asking === live.asking) return false;
     put(live, "asking", asking);
   } else if (payload.type === "agent.status") {
     if (payload.agentId === thread.rootAgentId) {
       const facts = rootFacts(live, payload.status, command);
-      if (facts === live) return undefined;
+      const compacting = stampCompaction(live, payload.status, at);
+      if (facts === live) return compacting;
       put(live, "waitingOn", facts.waitingOn);
       put(live, "step", facts.step);
     } else if (previousAgent) {
       const next = { ...previousAgent, status: payload.status };
       const change = runningAgent(next) - runningAgent(previousAgent);
       const asking = askingThreads(live, previousAgent, next);
-      if (!change && asking === live.askingThreads) return undefined;
+      if (!change && asking === live.askingThreads) return false;
       live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + change);
       put(live, "askingThreads", asking);
-    } else return undefined;
-  } else return undefined;
-  return {
-    type: "thread.client.updated",
-    changes: {
-      live,
-      ...(unsettled ? { settledAt: null, settledReason: null, autoSettleAt: null } : {}),
-    },
-  };
+    } else return false;
+  } else return false;
+  return true;
+}
+
+/**
+ * A working tree whose root does nothing but wait on its subagents: it waits on them, or its own
+ * turn is over while they carry on. Clients read this as Waiting rather than Working.
+ */
+export function treeOnlyWaits(status: ThreadStatus, live: Live | undefined): boolean {
+  if (status.state !== "working") return false;
+  if (live?.waitingOn) return true;
+  const running = live?.runningSubagentCount ?? 0;
+  return running > 0 && status.agents <= running;
+}
+
+/**
+ * When the thread, going back to work, started its Working stretch: during a root run, the start
+ * of that run's turn, so a run that carries the turn on after a pause keeps the turn's time;
+ * otherwise now.
+ */
+function backToWorkSince(live: Live, at: number): number {
+  return live.rootRunId && live.turnStart ? live.turnStart.at : at;
+}
+
+/**
+ * Time each shown status from its own start: the wait on subagents from when it began, and the
+ * root's work again from when it went back to work. False when neither moved.
+ */
+function stampTreeWait(live: Live, status: ThreadStatus, at: number): boolean {
+  const waits = treeOnlyWaits(status, live);
+  if (waits === (live.waitingSince !== undefined)) return false;
+  if (waits) live.waitingSince = at;
+  else {
+    delete live.waitingSince;
+    if (status.state === "working") live.workingSince = at;
+  }
+  return true;
 }

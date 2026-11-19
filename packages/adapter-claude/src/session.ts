@@ -1,10 +1,12 @@
 import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
-import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
+import { refusedPlanMessage, spadeBotPermission } from "./spade-bot.ts";
+import { claudeInjection, claudeToolListing, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { randomUUID } from "node:crypto";
 import {
+  assertSteerTarget,
   InputRejected,
   type Frame,
   type ProviderSession,
@@ -27,7 +29,10 @@ import {
 import { ClaudeRateLimitObservation } from "./rate-limits.ts";
 import { nativeMcpServers, mcpControls, type ClaudeMcpServers } from "./mcp-controls.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
+import { AceListing } from "./ace-listing.ts";
+import { claudeToolSearchFacts } from "./tool-search-facts.ts";
 import { readClaudeUsage } from "./usage-read.ts";
+import { CliVersions } from "./cli-versions.ts";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
@@ -44,19 +49,24 @@ function nativeKey(key: string, kind: string): string {
 export async function openSession(
   ctx: SessionContext,
   options: ClaudeOptions = {},
+  versions: CliVersions = new CliVersions(),
 ): Promise<ProviderSession> {
   const selectedOptions = ClaudeSelectionOptions.parse(ctx.options ?? {});
   const configuration = configurationOptions(options.configuration ?? codingConfiguration);
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "turn") throw new Error("Claude requires a native message boundary");
   ctx.signal.throwIfAborted();
-  const env = { ...process.env, ...options.env, ...ctx.env };
+  // One Claude Code process per session: its Bash tool inherits the agent's variables (§10).
+  const env = { ...process.env, ...options.env, ...ctx.env, ...ctx.agentEnv };
   const executable = await findExecutable(ctx.executable ?? options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
-  const versionProbe = await probeOutput(executable, ["--version"], { env });
-  if (versionProbe.code !== 0) throw new Error("Claude version probe failed");
+  const version = await versions.read(executable, async () => {
+    const probe = await probeOutput(executable, ["--version"], { env });
+    if (probe.code !== 0) throw new Error("Claude version probe failed");
+    return probe.stdout;
+  });
   // Steer binding (user_message_uuids) and the tree contract need the minimum; never run older.
-  requireReadableMinimum("claude", versionProbe.stdout);
+  requireReadableMinimum("claude", version);
   ctx.signal.throwIfAborted();
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();
@@ -99,7 +109,8 @@ export async function openSession(
     ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   };
   const abort = () => {
-    void close();
+    // The session's own close awaits this promise and reports its failure.
+    void close().catch(() => {});
   };
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
@@ -119,7 +130,20 @@ export async function openSession(
     process_id: processId,
     cwd: ctx.cwd,
   });
-  const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
+  // What Claude Code will decide on tool search, from the env, settings and model it launches
+  // with: without it, ace lists its core tools instead of paying for every definition.
+  const toolSearchFacts = (model: string | undefined) =>
+    claudeToolSearchFacts({
+      env,
+      cwd: ctx.cwd,
+      sources: configuration.settingSources ?? [],
+      model,
+    });
+  const listing = ctx.aceMcp ? claudeToolListing(await toolSearchFacts(ctx.model)) : undefined;
+  const injection = ctx.aceMcp ? claudeInjection({ ...ctx.aceMcp, listing }) : undefined;
+  const servers = { ...options.mcpServers, ...injection?.mcpServers };
+  const aceListing =
+    ctx.aceMcp && listing ? new AceListing(ctx.aceMcp, listing, servers) : undefined;
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   ctx.signal.throwIfAborted();
   q = query({
@@ -143,6 +167,9 @@ export async function openSession(
             })),
           }
         : {}),
+      ...(ctx.chrome !== undefined
+        ? { extraArgs: ctx.chrome ? { chrome: null } : { "no-chrome": null } }
+        : {}),
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.fork
@@ -163,7 +190,7 @@ export async function openSession(
             allowDangerouslySkipPermissions: ctx.permissionMode === "bypassPermissions",
           }
         : {}),
-      mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
+      mcpServers: nativeMcpServers(servers),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,
@@ -230,17 +257,31 @@ export async function openSession(
             ownedProcess = handle;
             if (handle.signal.aborted) pending.expire();
             else handle.signal.addEventListener("abort", () => pending.expire(), { once: true });
-            void handle.exited.then((exit) =>
-              end(
-                closed,
-                failureMessage ??
-                  `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
-              ),
-            );
+            // end() reports the exit through the session, so the chain has no listener to report to.
+            void handle.exited
+              .then((exit) =>
+                end(
+                  closed,
+                  failureMessage ??
+                    `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+                ),
+              )
+              .catch(() => {});
           },
         }),
-      canUseTool: (toolName, toolInput, toolOptions) =>
-        pending.permission(toolName, toolInput, toolOptions),
+      canUseTool: (toolName, toolInput, toolOptions) => {
+        const answered = ctx.spadeBot
+          ? spadeBotPermission(ctx.spadeBot.allowAceTools, toolName, toolInput)
+          : undefined;
+        // A bot's plan, refused as a plan, still reaches the person as its reply.
+        const plan = ctx.spadeBot
+          ? refusedPlanMessage(toolName, toolInput, toolOptions.requestId)
+          : undefined;
+        if (plan) frame("recv", "sdk", plan);
+        return answered
+          ? Promise.resolve(answered)
+          : pending.permission(toolName, toolInput, toolOptions);
+      },
       onElicitation: (request, meta) => pending.elicitation(request, meta),
       // No product renderer currently answers a native user-dialog kind.
       onUserDialog: async (request) => {
@@ -328,26 +369,32 @@ export async function openSession(
   const ensureOpen = () => {
     if (closed || exited) throw new Error("Claude session is closed");
   };
+  const baseControls = mcpControls(q, ensureOpen);
   return {
     nativeSessionId: sessionId,
     get sessionConfirmed() {
       return sessionConfirmed;
     },
-    mcp: mcpControls(q, ensureOpen),
+    mcp: aceListing ? aceListing.controls(baseControls) : baseControls,
     async configure(selection) {
       const executionOptions = ClaudeSelectionOptions.parse(selection.options);
       ensureOpen();
       await q.setModel(selection.model);
+      // Claude Code decides on tool search per request by its model: a switch can turn it off.
+      await aceListing?.update(await toolSearchFacts(selection.model), baseControls);
       if (ctx.permissionMode)
         await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
       await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
     },
-    async send(parts, delivery, commandId, origin) {
+    async send(parts, delivery, commandId, origin, fence) {
       // Nothing reaches the CLI before the first push to the SDK's input stream, so a send that
       // fails earlier (closed session, invalid input, full stream) provably took none of it.
       let pushed = 0;
       try {
         ensureOpen();
+        // A narrowing whose reconnect failed is retried before the turn; a second failure
+        // leaves the turn on the old list and the next turn tries again.
+        if (aceListing?.unsettled) await aceListing.settle(baseControls).catch(() => {});
         // Validate every admission before the first one can reach the harness.
         const messages = admissions(parts).map((body) => {
           const message: SDKUserMessage & { uuid: string } = {
@@ -356,15 +403,20 @@ export async function openSession(
             session_id: sessionId,
             parent_tool_use_id: null,
             message: { role: "user", content: body },
-            // A `now` message joins the running turn, but the CLI holds it until the running
-            // foreground tool returns. The engine calls backgroundTools for a person's steer.
-            priority: delivery === "steer" ? "now" : "next",
+            // Both `now` and `next` join the running turn at its next tool boundary. `now` also
+            // preempts: it aborts the reply being written and moves running calls to the
+            // background, or interrupts the turn for a call that can't move. Only the person's
+            // steer does that; another agent's or ace's waits for the running tool.
+            priority: delivery === "steer" && origin === undefined ? "now" : "next",
           };
           if (origin === "ace") message.isSynthetic = true;
           return message;
         });
         // Encode every frame first: once a message reaches the harness, recording it cannot fail.
         const frames = messages.map((message) => ({ message, payload: encode(message) }));
+        // After the last await (the listing settle) and before the first push: a fenced steer
+        // whose turn ended meanwhile goes no further.
+        assertSteerTarget(delivery, fence);
         for (const { message, payload } of frames) {
           if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
           input.push(message);
@@ -372,7 +424,7 @@ export async function openSession(
           record("send", "sdk", payload);
         }
       } catch (error) {
-        if (pushed > 0) throw error;
+        if (pushed > 0 || error instanceof InputRejected) throw error;
         throw new InputRejected(error instanceof Error ? error.message : String(error), {
           cause: error,
         });

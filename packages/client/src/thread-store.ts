@@ -1,5 +1,6 @@
 import { closedInteractions, endedRuns, endedTasks, endedAgents } from "./eviction.ts";
 import { clipItem } from "./item-window.ts";
+import { itemFinished } from "./item-finished.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
@@ -24,14 +25,8 @@ const emptyOrder: readonly string[] = [];
 const agentOf = (record: Record<string, Item>) => (id: string) =>
   Object.hasOwn(record, id) ? record[id]?.agentId : undefined;
 /** Finished: no longer streaming, and no tool call still waiting or running. */
-const complete = (record: Record<string, Item>) => (id: string) => {
-  const item = Object.hasOwn(record, id) ? record[id] : undefined;
-  if (!item?.complete) return false;
-  return (
-    item.type !== "tool_call" ||
-    !["pending", "awaiting_approval", "running"].includes(item.call.status)
-  );
-};
+const complete = (record: Record<string, Item>) => (id: string) =>
+  itemFinished(Object.hasOwn(record, id) ? record[id] : undefined);
 export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   #messageDeltas = new MessageDeltas();
   #journal: PageJournal;
@@ -61,6 +56,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#notifications.emit(["sync"]);
   }
   #unconfirmed = false;
+  /** The next snapshot replaces what is held (`replaceOnSnapshot`). */
+  #replace = false;
   get unconfirmed(): boolean {
     return this.#unconfirmed;
   }
@@ -90,9 +87,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get queue() {
     return this.#view?.queue;
   }
-  get offshift() {
-    return this.#view?.offshift;
-  }
   get context() {
     const root = this.#view?.thread.rootAgentId;
     return root ? this.contextMeter(root) : undefined;
@@ -109,6 +103,15 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get itemsBefore() {
     return this.#view?.itemsBefore;
   }
+  /**
+   * The store holds only a small tail of the thread (`ThreadView.partial`) until the daemon's
+   * full snapshot replaces it (`ThreadReader.filling`). Select with `filling`.
+   */
+  get filling(): boolean {
+    return this.#partial !== undefined;
+  }
+  /** What the tail snapshot held lacked: the items it sent only as previews. */
+  #partial: { previews: string[] } | undefined;
   agentIds(): readonly string[] {
     return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
@@ -156,8 +159,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   truncated(id: string) {
     return this.#clipped.has(id);
   }
-  appended(previous: Item, next: Item) {
-    return this.#messageDeltas.appended(previous, next);
+  edited(previous: Item, next: Item) {
+    return this.#messageDeltas.edit(previous, next);
   }
   #own<T>(record: Record<string, T> | undefined, id: string): T | undefined {
     return record && Object.hasOwn(record, id) ? record[id] : undefined;
@@ -201,8 +204,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         usage: view.usage,
         usageSnapshots: view.usageSnapshots,
         ...(view.queue && { queue: view.queue }),
-        ...(view.offshift && { offshift: view.offshift }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
+        // Only a tail: a tab's mirror shows it as owed too. Never written to disk (`#bind`).
+        ...(this.#partial && { partial: { previews: [...this.#partial.previews] } }),
       },
       truncated: [...this.#clipped],
       deleted: [...this.#deleted],
@@ -217,27 +221,37 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   restore(view: ThreadView, truncated: readonly string[]): boolean {
     if (this.#view) return false;
     try {
-      this.snapshot(view);
+      this.#install(view);
     } catch (error) {
       if (!(error instanceof ClientError)) throw error;
       return false;
     }
-    const keys = new Set<ThreadKey>(["sync", "unconfirmed"]);
-    for (const id of truncated)
-      if (this.item(id)) {
-        this.#clipped.add(id);
-        keys.add(`item:${id}`);
-      }
+    for (const id of truncated) if (this.item(id)) this.#clipped.add(id);
+    // Unconfirmed before anyone hears of it: a copy from disk never reads as the daemon's.
     this.#syncing = true;
     this.#unconfirmed = true;
-    this.#notifications.emit(keys);
+    this.#notifications.emitAll();
     return true;
+  }
+  /**
+   * The next snapshot replaces what is held instead of resuming it: what is held came from
+   * another database, whose sequences say nothing about this one's (ADR 0128).
+   */
+  replaceOnSnapshot(): void {
+    this.#replace = true;
   }
   /** Roughly what the store holds, in bytes. Linear in it: for cache boundaries, never deltas. */
   retainedBytes(): number {
     return JSON.stringify(this.export()).length * 2 + this.#journal.retainedBytes();
   }
+  /** The daemon's own snapshot: what the store shows is confirmed. */
   snapshot(view: ThreadView): void {
+    this.#install(view);
+    this.#unconfirmed = false;
+    this.#notifications.emitAll();
+  }
+  /** Take `view` as what the store holds, resuming the held transcript where it may. */
+  #install(view: ThreadView): void {
     const runs = Object.keys(view.runs).length;
     if (runs > this.#limits.entities) endedRuns(view, runs - this.#limits.entities);
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
@@ -291,9 +305,11 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemsBefore = resumed.before;
     }
     this.#view = view;
+    // Only a full snapshot clears the mark: a tail, from the wire or from disk, sets it.
+    this.#partial = view.partial ? { previews: [...view.partial.previews] } : undefined;
+    delete view.partial;
     this.#failure = undefined;
-    // The daemon's own snapshot: what the store shows is confirmed (restore marks it again).
-    this.#unconfirmed = false;
+    this.#replace = false;
     this.#journal.reset(view.seq);
     this.#hydrated.clear();
     this.#creation = creation;
@@ -303,11 +319,13 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
-    this.#notifications.emitAll();
+    // Sent only as a preview, its whole body comes with the full snapshot: shown cut until then.
+    for (const id of this.#partial?.previews ?? []) if (this.item(id)) this.#clipped.add(id);
   }
   /** What a held transcript keeps of itself when `view` arrives for the same thread. */
   #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {
     const held = this.#view;
+    if (this.#replace) return undefined;
     if (!held || held.thread.id !== view.thread.id || view.seq < held.seq) return undefined;
     const seqs = view.itemSeqs;
     if (!seqs) return undefined;
@@ -495,9 +513,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "queue.updated":
           keys.add("queue");
-          break;
-        case "offshift.updated":
-          keys.add("offshift");
           break;
         case "context_meter.updated":
           if (!keys.has(`context:${p.meter.agentId}`))

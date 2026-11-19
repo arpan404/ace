@@ -1,6 +1,6 @@
 ---
 name: ace-computer-use
-description: Operate a native macOS or Linux desktop app, iOS simulator or Android emulator through ace when the person names one or wants to watch it in ace. Use before screen_* or sim_* tools.
+description: Drive a native app, iOS simulator or Android emulator the person names. Use before screen_* or sim_* tools.
 ---
 
 # Native apps and simulators in ace
@@ -48,6 +48,10 @@ Batch consecutive actions into one `screen_act`, up to 20 steps. Read once after
 
 Add `screenshot: true` to `screen_state` or `screen_act` when the outline does not show what you need: layout, images, colours, or a canvas you must click into. The image is the window alone, with each clickable element tagged by its outline id, so you can click by id what you found by sight. In a large window, `screen_state {app, find: "Invoice"}` lists only matching elements with their parents. "<App> is not responding" means the app is busy: the outline may be partial, so wait or look again.
 
+### The whole screen
+
+`screen_display` returns a picture of every display, with each display's name and size; `display: 2` pictures one. Use it when the person wants to see their screen, not an app: the shell's `screencapture` fails, because macOS gives Screen Recording to ace's helper, not to your shell. Apps computer use refuses are left out of the pictures, and the result names them. The pictures are view only: to act, look at the app with `screen_state`. macOS only.
+
 If your call is stopped, the batch stops at its next step; work already done stays done, so look before you retry.
 
 The person can watch: on a visible window a small marker shows where you act, and pressing Esc while you act stops you. `stopped_by_person` means stop and ask how to continue; `person_active` means the current control conflicts with their input. Prefer another element or window; brief conflicts are waited out inside the batch. Work in a different field using its element id to preserve their caret.
@@ -60,21 +64,30 @@ In a shared window or tab, target fields by id with `set_value`, `type` or `past
 
 Keep the person's focus where it is. `activate` brings the app forward and interrupts their work; use it only when the person explicitly wants foreground control. If background alternatives fail, report the unsupported action.
 
-While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
+While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable. If the person has turned on locked computer use and the component is installed and verified, an approved turn's `screen_state` and `screen_act` may briefly run on a locked Mac behind opaque covers; the person's input ends that at once and the Mac locks again afterwards. Otherwise locked use stays refused with `screen_locked` or `session_unavailable`, and a failed unlock leaves the Mac locked with an error: do not retry it in a loop. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
 ### On Linux
 
 - `app` is the desktop-file id (`org.gnome.TextEditor`, a Flatpak app id) or the app's name; `screen_apps` shows both.
-- Clicks by id, `set_value`, `type` into a field, `select_text`, `action` and menus work with the window in the background.
-- Key presses, x,y clicks, drags and pixel scrolls need the window in front. A step that needs it fails and says so: put `{"type":"activate"}` first and retry, and tell the person you brought the app forward.
+- Everything goes through accessibility with the window in the background: clicks by id or at screenshot x,y (the element there), `set_value`, `type` into a field, `select_text`, `action`, menus, scrolling, shortcuts the app's menus list (`ctrl+s` presses File › Save), copy/cut/paste in text and Tab between controls.
+- Hover and drags can't be sent (Wayland lets no program send pointer input to another app).
+- Chrome, VS Code, Slack and other Chromium or Electron apps take no typing in the background, and some keys have no accessible equivalent. When the person wants that done, put `activate` first in the same batch: the app comes forward and the text and keys go through the keyboard, in front, taking the person's focus (GNOME and KDE; Hyprland has no way to do it). The first time, the person allows the keyboard in a dialog (`keyboard_not_allowed` says so; try again once they have). Typing stops with `focus_changed` if another window gets the focus, and waits with `person_active` while the person is typing. Prefer background steps; for web pages use ace's browser.
 - Shortcuts use `ctrl` (`ctrl+s`), not `cmd`.
-- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in.
+- While you act, a notification tells the person "ace is using <app>" that they can click (or press its Stop) to stop you. `stopped_by_person` means they did: stop and ask how to continue. `person_active` means they are using that control right now: pick another element or wait.
+- `app_inaccessible`, or a note that an app shows only its window, means it was started before accessibility was on (Firefox) or without it (Chrome, VS Code and other Chromium apps): ask the person to quit it; `screen_state` then reopens it so you can see it.
+- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in. An X11 session is refused: ask them to log in to a Wayland session.
 
 ### Limits
 
 - Password managers, system authentication prompts (polkit, pinentry), terminals, Script Editor, Automator, Shortcuts, ace itself and any app the person has listed are refused. Ask the person to do those steps, use your shell for commands, and never look for another way into a refused app.
 - Ask the person before anything irreversible they did not ask for in so many words: sending a message or email, posting, buying, deleting, changing system settings. Read back what you will send.
-- On Windows, or when this machine has no screen helper for the background tools, ace offers the older session tools instead (`screen_open_app`, `screen_ui_tree`, `screen_ui_act`, `screen_input`); their descriptions say how to use them.
+- When this machine has no screen helper for the background tools, ace offers the older session tools instead: `screen_open_app {bundleId}` returns a `sessionId` (omit it later while you control one app) and the app's windows (`screen_windows` lists them; pass `windowId` to switch). Read with `screen_ui_tree`, act with `screen_ui_act` on a ref or a `menu` path, and fall back to `screen_input` (points are screenshot pixels divided by the screenshot's scale). `mode: "foreground"` takes the real cursor and keyboard: use it only when the app ignores background input; without `mode` a session keeps its current one. `screen_measure` reports latency, settle time, FPS and hitch time per second, at most 10 s per run.
+
+### On Windows
+
+- Clicks by id, `set_value`, `select_text`, typing into fields, menus, menu shortcuts and `window` steps work with the window in the background.
+- Other shortcuts, x,y clicks on things missing from the outline, hover and drags need the window in front: start the batch with `activate`, which interrupts the person.
+- Shortcuts use `ctrl` (`ctrl+s`); `cmd` means `ctrl`.
 
 ## Simulators and emulators (sim_*)
 
@@ -82,8 +95,10 @@ sim_* drives the iOS simulators and Android emulators on this machine. Paired ma
 
 1. `sim_list` shows simIds and status.
 2. `sim_start` takes one for this thread, boots it if needed and starts capture. It is refused while a person or another agent holds it.
-3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`), `swipe` and `key` are the fallbacks; `open_app`, `open_url`, `install` and `record_start` / `record_stop` cover apps and recordings; `clipboard_get` / `clipboard_set` read and set the clipboard.
+3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`, in screen points: screenshot pixels divided by its scale), `swipe` and `key` are the fallbacks; `type` without a ref types into the focused field. `open_app` (a bundle id or Android package), `open_url`, `install` (a Simulator-built `.app` or an `.apk`) and `record_start` / `record_stop` (a recording attached to the thread) cover apps and recordings; `clipboard_get` / `clipboard_set` read and set the clipboard without pasting.
+   - Keys: `recents` is Android's app overview; `action` is the iPhone Action button (iPhone 15 Pro and later); `side` is Apple Watch's side button and `home` presses its Digital Crown; `keyboard` brings back the on-screen keyboard (iOS toggles it; Android shows Gboard).
+   - `posture` folds a foldable simulator or emulator (iPhone Duo, Pixel Fold): `closed` (cover screen), `partiallyOpen` (half open, like a book) or `open` (flat, inner screen). `sim_start` reports the current posture.
 4. `sim_screenshot` for a visual check, with or without the live view; `sim_logs` for a log tail.
 5. `sim_stop` when you finish, so the person and other threads can use it.
 
-`stale_ref` means the element has gone: read again; `lease_required` means call `sim_start` again, or wait while the person holds it. From a shell, `ace sim … --thread <your thread>` runs the same tools with the same refs (`ace sim --help`).
+`stale_ref` means the element has gone: read again; `lease_required` means call `sim_start` again, or wait while the person holds it. From a shell, `ace sim …` runs the same tools with the same refs and knows your thread from `ACE_THREAD_ID` (pass `--thread` where it isn't set). It prints short text; add `--json` to parse it. Exit 2 means a person holds the device (`ace sim --help`, `ace help sim act`).

@@ -1,7 +1,16 @@
-import { themeAccent, themedPalette, type AccentChoice } from "./accent.ts";
-import { readableAcross } from "./colour.ts";
-import { themeIds, themes, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
-import { paletteSurfaces } from "./surfaces.ts";
+import {
+  themeAccent,
+  themedPalette,
+  type AccentChoice,
+  readableAcross,
+  themeIds,
+  themes,
+  type Palette,
+  type Scheme,
+  type ThemeFonts,
+  type ThemeId,
+  paletteSurfaces,
+} from "@ace/themes";
 import { themeTokens } from "./tokens.ts";
 import { defaultTranslucency } from "./translucency.ts";
 
@@ -20,20 +29,20 @@ function sharedStatusText(palette: Palette, scheme: Scheme, tokens: Record<strin
   };
 }
 
-/** Every declaration one theme sets in one scheme with an accent, as the page receives it. */
-export function themeDeclarations(
-  id: ThemeId,
+/**
+ * Every declaration a palette sets in one scheme, as the page receives it: the theme tokens,
+ * the fonts and the readable shared status words. Built-in themes and Suits share it.
+ */
+export function paletteDeclarations(
+  palette: Palette,
   scheme: Scheme,
-  accent: AccentChoice = themeAccent,
+  fonts: ThemeFonts,
   translucency = defaultTranslucency,
 ): Record<string, string> {
-  const palette = themedPalette(id, scheme, accent);
   const tokens: Record<string, string> = themeTokens(palette, scheme, translucency);
-  const { fonts } = themes[id];
   return {
     "color-scheme": scheme,
     ...tokens,
-    // Themes are colour only; every theme carries the same type.
     "--font-sans": fonts.ui,
     "--font-prose": fonts.prose,
     "--font-mono": fonts.mono,
@@ -49,6 +58,28 @@ export function themeDeclarations(
   };
 }
 
+/** Every declaration one theme sets in one scheme with an accent, as the page receives it. */
+export function themeDeclarations(
+  id: ThemeId,
+  scheme: Scheme,
+  accent: AccentChoice = themeAccent,
+  translucency = defaultTranslucency,
+): Record<string, string> {
+  // Themes are colour only; every theme carries the same type.
+  return paletteDeclarations(
+    themedPalette(id, scheme, accent),
+    scheme,
+    themes[id].fonts,
+    translucency,
+  );
+}
+
+/** Declarations as one rule body. */
+export const declarationBlock = (declarations: Record<string, string>): string =>
+  Object.entries(declarations)
+    .map(([name, value]) => `${name}:${value}`)
+    .join(";");
+
 /**
  * One theme in one scheme as a rule. It matches any element carrying both attributes, so
  * `<html>` themes the app and a swatch can preview another theme with the same tokens.
@@ -59,9 +90,7 @@ export function themeRule(
   accent: AccentChoice = themeAccent,
   translucency = defaultTranslucency,
 ): string {
-  const body = Object.entries(themeDeclarations(id, scheme, accent, translucency))
-    .map(([name, value]) => `${name}:${value}`)
-    .join(";");
+  const body = declarationBlock(themeDeclarations(id, scheme, accent, translucency));
   return `[data-theme="${id}"][data-scheme="${scheme}"]{${body}}`;
 }
 

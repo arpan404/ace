@@ -18,6 +18,7 @@ export type ContextCommand =
   | "forward"
   | "reload"
   | "openLink"
+  | "openLinkOutside"
   | "copyLink"
   | "cut"
   | "copy"
@@ -35,7 +36,8 @@ export interface ContextEntry {
   enabled: boolean;
 }
 
-const web = (url: string) => /^https?:\/\//i.test(url);
+/** Whether an address is a web page's: the only kind ace opens in a new tab or outside ace. */
+export const web = (url: string) => /^https?:\/\//i.test(url);
 const entry = (command: ContextCommand, label: string, enabled = true): ContextEntry => ({
   command,
   label,
@@ -52,6 +54,7 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
   if (facts.linkURL)
     groups.push([
       entry("openLink", "Open link in new tab", web(facts.linkURL)),
+      ...(web(facts.linkURL) ? [entry("openLinkOutside", "Open link in your browser")] : []),
       entry("copyLink", "Copy link address"),
     ]);
   const image = facts.mediaType === "image" && facts.srcURL !== "";

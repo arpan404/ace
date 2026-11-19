@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { ThemeProvider } from "@/theme/theme-provider.tsx";
-import { diagramSource, MermaidDiagram } from "./mermaid-diagram.tsx";
+import { diagramSource } from "@/components/markdown/mermaid-render.ts";
+import { MermaidDiagram } from "./mermaid-diagram.tsx";
 
 // Mermaid needs a laid-out document to measure text, which this one isn't: it is stood in for at
 // its module boundary, answering as it does.

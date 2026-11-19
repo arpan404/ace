@@ -14,6 +14,7 @@ export type {
 export { browserDeviceSocket, deviceTransport, authenticatedChannel } from "./device-transport.ts";
 export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./device-transport.ts";
 export { ephemeralRelayKeys, failoverTransport } from "./device-route.ts";
+export { machineCodeGate } from "./machine-code-gate.ts";
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 

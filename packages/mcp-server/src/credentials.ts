@@ -14,8 +14,22 @@ export interface SessionLease {
   end(): void;
 }
 
+/**
+ * Who a bearer token belongs to. The server asks on every request, so an authenticator that
+ * reads its store each time applies a revocation to the next request.
+ */
+export interface Authenticator {
+  /**
+   * `resource` is the MCP URL the request arrived at, for an endpoint whose tokens are bound to
+   * one (RFC 8707, ADR 0122); undefined on the internal endpoint.
+   */
+  authenticate(bearer: string, resource?: string): Principal | undefined;
+  /** Ends every principal it handed out. */
+  close(): void;
+}
+
 /** In-memory authority; only the returned lease contains bearer material. */
-export class CredentialRegistry {
+export class CredentialRegistry implements Authenticator {
   private entries = new Map<string, { principal: Principal; end(): void }>();
   private secret: () => string;
   private limit: number;

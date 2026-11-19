@@ -12,6 +12,10 @@ function paddedHalf(first: string, last: string): string {
   return first + "x ".repeat(Math.floor(remaining / 2)) + " ".repeat(remaining % 2) + last;
 }
 
+function filler(length: number): string {
+  return "word ".repeat(Math.ceil(length / 5)).slice(0, length);
+}
+
 let directory: string;
 let log: Log;
 beforeEach(() => {
@@ -210,4 +214,56 @@ test("non-shell tool calls reject output deltas", () => {
   log.index.flush();
   expect(log.query("forbiddenneedle").hits).toEqual([]);
   expect(log.query("file").hits[0]?.itemId).toBe(item.id);
+});
+
+test("a message still streaming far past both caps is found as the same text completed at once", () => {
+  // Needles at the start, at each cap edge, in the omitted middle and at the end; emoji land on
+  // the cap boundaries and split across delta boundaries as JSON deltas may split them.
+  const text =
+    "openingneedle " +
+    filler(FIELD_CAP - 40) +
+    " headedgeneedle 😀😀" +
+    filler(FIELD_CAP * 2) +
+    " middleneedle " +
+    filler(FIELD_CAP * 2) +
+    " 😀tailedgeneedle " +
+    filler(FIELD_CAP - 60) +
+    "😀 closingneedle";
+  const completed = message(text);
+  const streamed = message("", false);
+  log.append([
+    { type: "item.created", item: completed },
+    { type: "item.created", item: streamed },
+  ]);
+  // One delta per commit, as the live buffer stores them, in sizes that drift across boundaries.
+  for (let offset = 0, size = 1; offset < text.length; offset += size, size = (size % 97) + 13)
+    log.append([
+      {
+        type: "item.delta",
+        itemId: streamed.id,
+        agentId: AgentId.parse(streamed.agentId),
+        field: "text",
+        append: text.slice(offset, offset + size),
+      },
+    ]);
+  // Still streaming: completing the item would index it again from its whole text.
+  log.index.flush();
+  const found = (needle: string) =>
+    log.query(needle).hits.map((hit) => [hit.itemId, hit.snippet.text]);
+  for (const needle of ["openingneedle", "headedgeneedle", "tailedgeneedle", "closingneedle"]) {
+    const hits = found(needle);
+    expect(hits.map(([id]) => id).toSorted()).toEqual([completed.id, streamed.id].toSorted());
+    expect(hits[0]?.[1]).toBe(hits[1]?.[1]);
+  }
+  expect(found("middleneedle")).toEqual([]);
+  const threadHits = (needle: string) =>
+    log.index
+      .threadQuery(
+        { type: "thread.search", requestId: "search", threadId: thread.id, text: needle },
+        { headSeq: log.headSeq(), turnOrdinalForItem: () => 1 },
+      )
+      .hits.map((hit) => hit.itemId)
+      .toSorted();
+  for (const needle of ["openingneedle", "middleneedle", "tailedgeneedle", "closingneedle"])
+    expect(threadHits(needle)).toEqual([completed.id, streamed.id].toSorted());
 });

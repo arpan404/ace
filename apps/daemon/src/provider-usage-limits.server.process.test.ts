@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { AccountService, createInstance, openRegistry } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { EventPayload, UsageQuery } from "@ace/protocol";
-import { UsageSettings } from "@ace/usage";
+import { UsageSettings, defaultPrices } from "@ace/usage";
 import { createDaemonUsage, type UsageCommands } from "./usage.ts";
 import { setup, cleanups } from "./remote-test-support.ts";
 
@@ -133,7 +133,8 @@ it("provider reads combine per-account costs with limits and push changes only t
         { dimensions: { account: "api" }, totals: { estimatedUsd: 2.835, subscriptionTokens: 0 } },
       ],
       costLabel: "estimate",
-      priceAsOf: "2026-10-07",
+      // The estimate names the date of the bundled price table it used.
+      priceAsOf: defaultPrices.asOf,
     },
   });
   client.send({

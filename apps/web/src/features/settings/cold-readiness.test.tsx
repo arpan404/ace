@@ -29,7 +29,8 @@ test("OpenCode stays quiet without a Sign in action while another source needs a
   const app = fixture();
   await app.open("/settings/providers");
   const row = await screen.findByRole("group", { name: "OpenCode" });
-  expect(within(row).queryByText("Ready")).toBeNull();
+  expect(await within(row).findByText("Ready")).toBeTruthy();
+  expect(within(row).queryByText("Needs attention")).toBeNull();
   expect(within(row).queryByRole("button", { name: /Sign in/ })).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "OpenCode" }));
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
@@ -59,6 +60,6 @@ test("a free model whose name says Free carries that word once in the visible mo
 
 test("Usage shows OpenCode's unreported limits quietly while another source needs attention", async () => {
   await fixture().open("/usage");
-  expect(await screen.findByText(/^No limits reported · .*OpenCode/)).toBeTruthy();
+  expect(await screen.findByText(/^No limits reported for .*OpenCode/)).toBeTruthy();
   expect(screen.queryByText("Needs attention")).toBeNull();
 });

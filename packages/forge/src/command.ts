@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { win32 } from "node:path";
+import type { WindowsJob } from "@ace/provider-kit/process-containment";
 import { ForgeError } from "./errors.ts";
 import { LogTail } from "./tail.ts";
 
@@ -18,6 +20,9 @@ export type CommandResult = {
   stdout: string;
   truncated: boolean;
   identityChanged?: true;
+  /** Only tea's and bkt's parsed HTTP status and tea's pagination/quota headers, never raw
+   * stderr. bkt reports a status only for a non-2xx reply. */
+  http?: { status: number; headers: Record<string, string> } | undefined;
   /** The CLI reported a network failure (DNS, refused, timed out). Stderr itself never escapes. */
   unreachable?: true;
 };
@@ -46,6 +51,8 @@ export function createCommandRunner(options: {
     throw new RangeError("Invalid command limits");
   return async (request) => {
     if (request.signal.aborted) throw new ForgeError("cancelled", undefined, false);
+    // Windows starts a gate in the CLI's place; the reply is still read as this CLI's.
+    const cli = request.command;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...options.env,
@@ -56,6 +63,18 @@ export function createCommandRunner(options: {
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;
+    let createJob: (() => WindowsJob | undefined) | undefined;
+    if (process.platform === "win32") {
+      const windows = await windowsLaunch(request.command, env);
+      // A gate starts in gh's place and joins the job before it starts gh (see `gate`).
+      request = {
+        ...request,
+        command: process.execPath,
+        args: ["-e", gate, windows.command, ...request.args],
+      };
+      if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
+      createJob = windows.createJob;
+    }
     request.dispatch?.prepare?.();
     const launch = () =>
       spawn(request.command, [...request.args], {
@@ -70,10 +89,19 @@ export function createCommandRunner(options: {
     } catch {
       throw new ForgeError("cli", undefined, false);
     }
+    let job: WindowsJob | undefined;
+    if (process.platform === "win32" && child.pid !== undefined) {
+      // gh starts git and credential helpers; a job ends that whole tree with gh.
+      job = createJob?.();
+      job?.assign(child.pid);
+      // The gate is in the job: let it start gh, whose input follows this byte.
+      child.stdin.write(Buffer.of(0));
+    }
     let failure: ForgeError | undefined;
     const stop = () => {
       if (child.pid === undefined) return;
       try {
+        if (process.platform === "win32") job?.terminate?.();
         if (process.platform === "win32") child.kill("SIGKILL");
         else process.kill(-child.pid, "SIGKILL");
       } catch {
@@ -130,6 +158,8 @@ export function createCommandRunner(options: {
           : { text: Buffer.concat(chunks, bytes).toString("utf8"), truncated: false };
       return {
         code,
+        ...(cli === "tea" ? { http: teaHttp(diagnostics) } : {}),
+        ...(cli === "bkt" && code !== 0 ? { http: bktHttp(diagnostics) } : {}),
         stdout: output.text,
         truncated: output.truncated,
         ...(code !== 0 && networkFailure.test(diagnostics) ? { unreachable: true as const } : {}),
@@ -138,6 +168,71 @@ export function createCommandRunner(options: {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", abort);
       stop();
+      if (process.platform === "win32") job?.dispose();
     }
   };
+}
+
+/**
+ * Windows: started in gh's place, so ace can put it in a job before anything else starts. It
+ * reads one byte (the go-ahead, sent once it is contained), then runs gh on the same pipes; gh
+ * and every process it starts are created inside the job. Exit codes pass through.
+ */
+const gate = `
+const { readSync } = require("node:fs");
+const { spawn } = require("node:child_process");
+const byte = Buffer.alloc(1);
+for (;;) {
+  try { if (readSync(0, byte, 0, 1, null) === 1) break; process.exit(125); }
+  catch (error) { if (error.code !== "EAGAIN") process.exit(125); }
+}
+const [command, ...args] = process.argv.slice(1);
+delete process.env.ELECTRON_RUN_AS_NODE;
+const child = spawn(command, args, { stdio: "inherit", windowsHide: true });
+child.once("error", () => process.exit(127));
+child.once("exit", (code) => process.exit(code ?? 1));
+`;
+
+/**
+ * Windows: the absolute `.exe` a bare command names on PATH. Node's own search of a bare name
+ * tries the working directory (a checkout, maybe someone else's PR) first, and `.cmd` shims
+ * can't start without a shell.
+ */
+async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
+  const [{ findExecutable }, { createKillOnCloseJob }] = await Promise.all([
+    import("@ace/provider-kit/discovery"),
+    import("@ace/provider-kit/process-containment"),
+  ]);
+  // A configured absolute path is never searched for, so the checkout can't stand in for it.
+  if (win32.isAbsolute(command)) return { command, createJob: () => createKillOnCloseJob() };
+  const searched = Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
+  );
+  const found = await findExecutable(command, { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
+  if (found === undefined) throw new ForgeError("cli", undefined, false);
+  return { command: found, createJob: () => createKillOnCloseJob() };
+}
+
+/** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
+function teaHttp(stderr: string): CommandResult["http"] {
+  const match = /^HTTP\/[\d.]+ (\d{3})[^\r\n]*\r?\n([\s\S]*?)(?:\r?\n\r?\n|$)/.exec(stderr);
+  if (!match) return undefined;
+  const headers: Record<string, string> = {};
+  for (const line of (match[2] ?? "").split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    const name = line.slice(0, colon).toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (
+      ["x-total-count", "retry-after", "x-ratelimit-remaining"].includes(name) &&
+      /^\d{1,15}$/.test(value)
+    )
+      headers[name] = value;
+  }
+  return { status: Number(match[1]), headers };
+}
+
+/** bkt prints a non-2xx reply as `Error: <status> <reason>[: message]` (pkg/httpx HTTPError). */
+function bktHttp(stderr: string): CommandResult["http"] {
+  const match = /^Error: ([1-5]\d{2}) /.exec(stderr);
+  return match ? { status: Number(match[1]), headers: {} } : undefined;
 }

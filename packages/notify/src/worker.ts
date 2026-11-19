@@ -1,7 +1,11 @@
 import { replayGap } from "./replay-gap.ts";
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
+import { revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
+import { z } from "zod";
 import {
   NotificationAddress,
+  NotificationDevice,
   NotificationFeed,
   NotificationPreferences,
   type Notification,
@@ -12,12 +16,15 @@ import {
 } from "@ace/protocol";
 import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
-  FromWorker,
+  WorkerCall,
   WorkerConfig,
-  ToWorker,
-  type WorkerCall,
+  notifyWireShape,
+  type FromWorker,
+  type ToWorker,
   type WorkerValue,
 } from "./worker-wire.ts";
+const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }));
+const PushDevices = z.array(NotificationDevice);
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
 
@@ -43,7 +50,12 @@ type WorkerOptionsInput = {
   signal?: AbortSignal;
   spawn?: (entry: URL, options: WorkerOptions) => Worker;
   schedule?: (delayMs: number, restart: () => void) => () => void;
+  /** The timer that ends a held cursor advance (see `NotificationWorker.held`). */
+  holdTimer?: (delayMs: number, release: () => void) => () => void;
 };
+
+/** How long a live stretch of deltas may hold back the worker's cursor advance. */
+const holdMs = 250;
 
 export class NotificationWorker {
   private worker: Worker;
@@ -74,6 +86,15 @@ export class NotificationWorker {
   /** Whether the current worker replaced one that failed. */
   private restarted = false;
   private opened = false;
+  /**
+   * A live stretch the worker keeps nothing of (streamed deltas): only its cursor would move.
+   * The advance waits, merged, for the next live batch, any call that reads or records the
+   * cursor, or `holdMs`, so a stream costs one round trip per window instead of one per delta.
+   */
+  private held: { afterSeq: number; throughSeq: number } | undefined;
+  private cancelHeld: (() => void) | undefined;
+  /** A held advance the worker refused: the next live batch fails with it, so replay resumes. */
+  private heldFailure: Error | undefined;
   constructor(options: WorkerOptionsInput) {
     this.options = options;
     this.transport = options.transport;
@@ -87,7 +108,8 @@ export class NotificationWorker {
           return;
         }
         this.fail(new DOMException("Notification worker aborted", "AbortError"));
-        void this.worker.terminate();
+        // fail() already reports the abort; a terminate that fails adds nothing.
+        void this.worker.terminate().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
       this.stopOnAbort = () => signal.removeEventListener("abort", abort);
@@ -106,9 +128,9 @@ export class NotificationWorker {
     // Worker failure can precede the first RPC. Retain it without an unhandled rejection.
     void this.ready.catch(() => {});
     const spawn =
-      options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
+      options.spawn ?? ((entry: URL, config: WorkerOptions) => startWorker(entry, config));
     const worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
-      workerData: WorkerConfig.parse(options),
+      workerData: { ...WorkerConfig.parse(options), shape: notifyWireShape() },
     });
     worker.on("error", (error: unknown) => {
       if (this.worker === worker)
@@ -122,12 +144,9 @@ export class NotificationWorker {
       // Node's own tooling posts on the same channel (`node --watch` sends `watch:import`
       // records from every worker). Only frames that claim to be this wire's are judged.
       if (!isWireFrame(input)) return;
-      const parsed = FromWorker.safeParse(input);
-      if (!parsed.success) {
-        this.fail(new Error("Invalid notification worker reply"));
-        return;
-      }
-      const message = parsed.data;
+      // The worker is this build (it checks `notifyWireShape` when it starts): its frames are
+      // typed, and the values in them come from its store, which decodes rows as it reads them.
+      const message = input as FromWorker;
       if (message.type === "ready") {
         const restarted = this.restarted;
         this.opened = true;
@@ -150,11 +169,12 @@ export class NotificationWorker {
             ),
           );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
+      else if (message.type === "incompatible") this.fail(revivedIncompatibleData(message));
       else if (message.type === "state")
         options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
-          this.worker.postMessage({ type: "deliveryResult", id: message.id, result: "retry" }, []);
+          this.send({ type: "deliveryResult", id: message.id, result: "retry" });
           return;
         }
         const controller = new AbortController();
@@ -165,8 +185,13 @@ export class NotificationWorker {
           .then((result) => {
             if (this.flights.get(message.id) === controller) this.flights.delete(message.id);
             if (!this.failed && this.worker === worker)
-              worker.postMessage({ type: "deliveryResult", id: message.id, result }, []);
-          });
+              worker.postMessage(
+                { type: "deliveryResult", id: message.id, result } satisfies ToWorker,
+                [],
+              );
+          })
+          // A post to a worker that has gone fails; its exit handler already failed it.
+          .catch(() => {});
       }
     });
     return worker;
@@ -193,22 +218,55 @@ export class NotificationWorker {
       });
     this.cancelRestart = schedule(Math.min(30_000, 250 * 2 ** Math.min(this.retry++, 7)), () => {
       this.cancelRestart = undefined;
-      void stopped.then(() => {
-        if (!this.closing && !this.options.signal?.aborted) {
-          try {
-            this.worker = this.start();
-          } catch (restartError) {
-            this.failed = undefined;
-            this.fail(
-              restartError instanceof Error
-                ? restartError
-                : new Error("Notification worker failed"),
-            );
+      void stopped
+        .then(() => {
+          if (!this.closing && !this.options.signal?.aborted) {
+            try {
+              this.worker = this.start();
+            } catch (restartError) {
+              this.failed = undefined;
+              this.fail(
+                restartError instanceof Error
+                  ? restartError
+                  : new Error("Notification worker failed"),
+              );
+            }
           }
-        }
-      });
+        })
+        .catch(() => {
+          // A stop that could not be confirmed keeps the failed worker's place: no replacement
+          // starts over it, as before.
+        });
     });
   }
+  private holdTimer(run: () => void): () => void {
+    if (this.options.holdTimer) return this.options.holdTimer(holdMs, run);
+    const timer = setTimeout(run, holdMs);
+    timer.unref();
+    return () => clearTimeout(timer);
+  }
+  /** Sends the held cursor advance now, ahead of whatever is sent next. */
+  private release(): void {
+    const held = this.held;
+    if (!held) return;
+    this.held = undefined;
+    this.cancelHeld?.();
+    this.cancelHeld = undefined;
+    this.call({ method: "ingest", ...held, events: [] }).catch((error: unknown) => {
+      this.heldFailure ??= error instanceof Error ? error : new Error(String(error));
+    });
+  }
+  private send(message: ToWorker): void {
+    this.worker.postMessage(message, []);
+  }
+  /**
+   * A call whose arguments came from the daemon's callers: checked against the wire's bounds
+   * (id lengths, list sizes) before it is sent, so the worker never has to parse it.
+   */
+  private checked(call: WorkerCall, signal?: AbortSignal): Promise<WorkerValue> {
+    return this.call(WorkerCall.parse(call), signal);
+  }
+  /** A call this class built and bounded itself (`ingest` takes `metadata`'s validated records). */
   private call(call: WorkerCall, signal?: AbortSignal): Promise<WorkerValue> {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Notification operation aborted", "AbortError"));
@@ -222,7 +280,7 @@ export class NotificationWorker {
     if (call.method !== "close" && !disconnect && this.pending.size >= 64)
       return Promise.reject(new Error("Notification worker backpressure"));
     const id = ++this.sequence;
-    const message = ToWorker.parse({ type: "call", id, call });
+    const message: ToWorker = { type: "call", id, call };
     const bytes = Buffer.byteLength(JSON.stringify(message));
     if (
       (disconnect && bytes > 2048) ||
@@ -259,7 +317,7 @@ export class NotificationWorker {
         .then(() => {
           if (!this.pending.has(id)) return;
           if (this.failed) throw this.failed;
-          this.worker.postMessage(message, []);
+          this.send(message);
         })
         .catch((error: unknown) => {
           if (this.pending.delete(id)) {
@@ -273,6 +331,7 @@ export class NotificationWorker {
   }
   /** Records a deliberate stop at the worker's cursor; call before `close` when sleeping. */
   async sleep(): Promise<void> {
+    this.release();
     await this.call({ method: "sleep" });
   }
   /**
@@ -280,13 +339,16 @@ export class NotificationWorker {
    * queued agent notices are too old to send; call `forgetSleep` once they are acknowledged.
    */
   async closeSleep(): Promise<NoticeWindow[]> {
+    this.release();
     const value = await this.call({ method: "closeSleep" });
-    return Array.isArray(value) ? value : [];
+    return Array.isArray(value) ? NoticeWindows.parse(value) : [];
   }
   async forgetSleep(): Promise<void> {
+    this.release();
     await this.call({ method: "forgetSleep" });
   }
   async cursor(signal?: AbortSignal): Promise<number> {
+    this.release();
     const value = await this.call({ method: "cursor" }, signal);
     return typeof value === "number" ? value : 0;
   }
@@ -308,8 +370,36 @@ export class NotificationWorker {
         if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
           return Promise.reject(new Error(replayGap));
       }
+    // Skip deltas without allocating/copying their payloads.
+    const projected = events.map((event) => metadata(event));
+    // A held advance joins a live batch that follows on from it; anything else sends it first.
+    const held = this.held;
+    const joined = !coverage && held?.throughSeq === first.seq - 1 ? held : undefined;
+    if (!joined) this.release();
+    if (!coverage) {
+      const failure = this.heldFailure;
+      this.heldFailure = undefined;
+      if (failure) return Promise.reject(failure);
+      if (projected.every((event) => event === undefined)) {
+        this.held = { afterSeq: joined?.afterSeq ?? first.seq - 1, throughSeq: last.seq };
+        this.cancelHeld ??= this.holdTimer(() => {
+          this.cancelHeld = undefined;
+          this.release();
+        });
+        return Promise.resolve();
+      }
+      if (joined) {
+        this.held = undefined;
+        this.cancelHeld?.();
+        this.cancelHeld = undefined;
+      }
+    }
     return (async () => {
-      let afterSeq = coverage ? Math.min(coverage.afterSeq, first.seq - 1) : first.seq - 1,
+      let afterSeq = joined
+          ? joined.afterSeq
+          : coverage
+            ? Math.min(coverage.afterSeq, first.seq - 1)
+            : first.seq - 1,
         throughSeq = afterSeq;
       let compact: MetadataEvent[] = [];
       const flush = async () => {
@@ -317,11 +407,10 @@ export class NotificationWorker {
         afterSeq = throughSeq;
         compact = [];
       };
-      // Skip deltas without allocating/copying their payloads. Sixteen compact
-      // records fit the byte budget even under worst-case JSON escaping.
-      for (const event of events) {
-        const projected = metadata(event);
-        if (projected) compact.push(projected);
+      // Sixteen compact records fit the byte budget even under worst-case JSON escaping.
+      for (const [index, event] of events.entries()) {
+        const record = projected[index];
+        if (record) compact.push(record);
         throughSeq = event.seq;
         if (compact.length === 16) await flush();
       }
@@ -329,53 +418,65 @@ export class NotificationWorker {
     })();
   }
   async connectDevice(device: DeviceId): Promise<void> {
-    await this.call({ method: "connectDevice", device });
+    await this.checked({ method: "connectDevice", device });
   }
   async register(device: DeviceId, address: unknown): Promise<void> {
-    await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
+    await this.checked({ method: "register", device, address: NotificationAddress.parse(address) });
+  }
+  /** Push addresses among these devices that may be alerted now, at most 128 asked. */
+  async pushAddresses(devices: readonly DeviceId[]): Promise<NotificationDevice[]> {
+    return PushDevices.parse(
+      await this.checked({ method: "pushAddresses", devices: devices.slice(0, 128) }),
+    );
   }
   /** Stops alerts to this device until it registers again. */
   async unregister(device: DeviceId): Promise<void> {
-    await this.call({ method: "unregister", device });
+    await this.checked({ method: "unregister", device });
   }
   async getPreferences(device: DeviceId) {
     return NotificationPreferences.parse(
-      (await this.call({ method: "getPreferences", device })) ?? {},
+      (await this.checked({ method: "getPreferences", device })) ?? {},
     );
   }
   async preferences(device: DeviceId, input: unknown): Promise<void> {
-    await this.call({
+    await this.checked({
       method: "preferences",
       device,
       preferences: NotificationPreferences.parse(input),
     });
   }
   async notify(notification: Notification): Promise<void> {
-    await this.call({ method: "notify", notification });
+    await this.checked({ method: "notify", notification });
   }
   async snooze(thread: ThreadId, until: number): Promise<void> {
-    await this.call({ method: "snooze", thread, until });
+    await this.checked({ method: "snooze", thread, until });
   }
   async updatePresence(session: string, device: DeviceId, update: PresenceUpdate): Promise<void> {
-    await this.call({ method: "presence", session, device, update });
+    await this.checked({ method: "presence", session, device, update });
   }
   /** Catch-up for a client that missed live delivery while suspended. */
   async feed(device: DeviceId, afterCursor: number): Promise<NotificationFeed> {
-    return NotificationFeed.parse(await this.call({ method: "feed", device, afterCursor }));
+    return NotificationFeed.parse(await this.checked({ method: "feed", device, afterCursor }));
   }
   async disconnect(session: string): Promise<void> {
-    await this.call({ method: "disconnect", session });
+    await this.checked({ method: "disconnect", session });
+  }
+  /** Threads a paired machine delegated here, at most 256 per call (`markRemote`). */
+  async markRemote(threads: readonly ThreadId[], signal?: AbortSignal): Promise<void> {
+    await this.checked({ method: "markRemote", threads: [...threads] }, signal);
   }
   async revoke(device: DeviceId, signal?: AbortSignal): Promise<void> {
-    await this.call({ method: "revoke", device }, signal);
+    await this.checked({ method: "revoke", device }, signal);
   }
   async drain(): Promise<void> {
+    this.release();
     await this.call({ method: "drain" });
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.cancelRestart?.();
       try {
+        this.release();
         if (!this.failed) await this.call({ method: "close" });
       } finally {
         this.stopOnAbort?.();

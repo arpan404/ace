@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useClient } from "@ace/client-react";
 import { ClientError, type ClientApi } from "@ace/client";
 import type { ForgeMediaRole, ForgeMediaUnavailable } from "@ace/protocol";
@@ -40,7 +41,7 @@ export function useForgeMedia(url: string | undefined, role: ForgeMediaRole): Me
   const client = useClient();
   const scope = useContext(ForgeContentScope);
   const loads = forgeMediaLoads(client);
-  const item = url ? { url, role } : undefined;
+  const item = url && can(scope, "media") ? { url, role } : undefined;
   const key = scope && item ? `${scope.workspaceId}\u0000${role}\u0000${url}` : "";
   const known = scope && item ? loads.known(scope, item) : undefined;
   const [view, setView] = useState<{ client: ClientApi; key: string; view: MediaView }>();

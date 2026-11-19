@@ -99,3 +99,42 @@ test("a message the started thread takes as sent sends its starter no notice", a
   expect(h.inputs.get(thread)).toContain("Also fix the changelog");
   expect(notices(h, parent.threadId, thread)).toEqual([]);
 });
+
+test("an agent's message with no delivery reaches the running turn of a thread it started at the next tool boundary", async () => {
+  const { h, parent, thread } = await startedThread();
+  const command = (status: "running" | "succeeded") =>
+    h.emit(thread, {
+      type: "item.upsert",
+      agent: "root",
+      item: "build",
+      draft:
+        status === "running"
+          ? {
+              type: "tool_call",
+              complete: false,
+              call: { title: "Build", status, detail: { kind: "shell", command: "bun run build" } },
+            }
+          : { type: "tool_call", complete: true, call: { status } },
+    });
+  await command("running");
+  const sent = await port(h).execute(
+    parent,
+    AgentControlOperation.parse({
+      op: "thread.message",
+      threadId: thread,
+      requestId: "changelog",
+      text: "Also fix the changelog",
+    }),
+    signal(),
+  );
+  expect(sent).toMatchObject({ ok: true, data: { arrival: "steering" } });
+  await h.engine.flush();
+  // This provider's steer would cut into the command, so the message waits for it to return.
+  expect(h.inputs.get(thread)).not.toContain("Also fix the changelog");
+  await command("succeeded");
+  expect(h.inputs.get(thread)).toContain("Also fix the changelog");
+  expect(h.inputMessages.get(thread)?.at(-1)).toMatchObject({ delivery: "steer" });
+  // It joined the turn that is still running: nothing ended it to make room.
+  expect(h.store.getThread(thread)?.status.state).toBe("working");
+  expect(h.engine.queue(thread).messages).toEqual([]);
+});

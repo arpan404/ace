@@ -72,9 +72,9 @@ const antigravityFix =
 export function nodeVerdict(version: string): Verdict {
   const major = /^v?(\d+)\./.exec(version)?.[1];
   return verdict(
-    major && Number(major) >= 24 ? "ok" : "fail",
+    major && Number(major) >= 26 ? "ok" : "fail",
     `Node ${version}`,
-    "Install Node 24 or newer and restart ace.",
+    "Install Node 26 or newer and restart ace.",
   );
 }
 export function providerVerdict(provider: string, result: DiscoveryResult): Verdict {
@@ -135,7 +135,7 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
   const checks: Check[] = [
     {
       id: "node",
-      fix: "Install Node 24+.",
+      fix: "Install Node 26+.",
       run: async (signal) => nodeVerdict(await probes.node(signal)),
     },
     ...(["claude", "codex", "opencode", "cursor"] as const).map((provider) => ({
@@ -165,16 +165,16 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
       },
     },
     {
-      id: "node-pty",
-      fix: "Reinstall/rebuild node-pty for this Node or Electron ABI.",
+      id: "terminal",
+      fix: "Reinstall ace: its runtime could not open a terminal.",
       run: async (signal) => {
-        const loadable = await probes.pty(signal);
+        const works = await probes.pty(signal);
         return verdict(
-          loadable ? "ok" : "fail",
-          loadable
-            ? "node-pty loads for running ABI"
-            : "node-pty is missing or cannot load for running ABI",
-          "Reinstall/rebuild node-pty for this Node or Electron ABI.",
+          works ? "ok" : "fail",
+          works
+            ? "A terminal opens and runs a command"
+            : "A terminal could not open or run a command",
+          "Reinstall ace: its runtime could not open a terminal.",
         );
       },
     },

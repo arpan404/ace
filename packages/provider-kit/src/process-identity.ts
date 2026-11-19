@@ -1,11 +1,203 @@
 import { readFileSync } from "node:fs";
-import koffi from "koffi";
+import {
+  handleSlot,
+  nativeHandle,
+  nativePointer,
+  openLibrary,
+  pointerSlot,
+  readWideString,
+  type NativeFunction,
+} from "./bun-ffi.ts";
+import { childHasExited } from "./child-exit.ts";
+export { childHasExited } from "./child-exit.ts";
 import { z } from "zod";
 
+// Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
+// plus the token-user SID string. Windows has no pgid, so group stays the pid.
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const SYNCHRONIZE = 0x00100000;
+const WAIT_OBJECT_0 = 0;
+const WAIT_TIMEOUT = 258;
+const TOKEN_QUERY = 0x0008;
+const TOKEN_USER = 1;
+const ERROR_INVALID_PARAMETER = 87;
+const ERROR_INSUFFICIENT_BUFFER = 122;
+export const WindowsSid = z
+  .string()
+  .regex(/^S-\d+(-\d+)+$/)
+  .max(256);
+const nativeInt = z.number().int();
+const dword = z.number().int().nonnegative().max(0xffffffff);
+
+/** NULL from Win32 arrives as null or 0 through bun:ffi pointers; fakes may use 0n. */
+function isNullHandle(handle: unknown): boolean {
+  return handle === null || handle === undefined || handle === 0 || handle === 0n;
+}
+function expectNative(ok: boolean): void {
+  if (!ok) throw new Error("Kernel process identity unavailable");
+}
+
+/** Raw Win32 surface behind the identity. Tests inject a fake; production uses bun:ffi. */
+export type WindowsProcessIdentityApi = {
+  open: (pid: number) => unknown;
+  /** True once the process has exited, even while a handle still keeps its object alive. */
+  exited: (handle: unknown) => boolean;
+  times: (handle: unknown, creation: Buffer, exit: Buffer, kernel: Buffer, user: Buffer) => number;
+  openToken: (processHandle: unknown, outToken: unknown[]) => number;
+  tokenInfo: (token: unknown, info: Buffer | null, length: number, needed: number[]) => number;
+  sidToString: (sid: unknown, outString: unknown[]) => number;
+  decodeSid: (ptr: unknown) => string;
+  free: (ptr: unknown) => void;
+  close: (handle: unknown) => void;
+  lastError: () => number;
+  unload: () => void;
+};
+
+// HANDLEs are 64-bit integers (`i64_fast`); `ptr` is only for memory: buffers, the SID inside
+// TOKEN_USER and the string ConvertSidToStringSidW allocates.
+function bindIdentityLibraries() {
+  const kernel = openLibrary("kernel32.dll", {
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "i64_fast" },
+    GetProcessTimes: { args: ["i64_fast", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+    GetLastError: { args: [], returns: "u32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    WaitForSingleObject: { args: ["i64_fast", "u32"], returns: "u32" },
+    LocalFree: { args: ["ptr"], returns: "ptr" },
+  });
+  try {
+    const advapi = openLibrary("Advapi32.dll", {
+      OpenProcessToken: { args: ["i64_fast", "u32", "ptr"], returns: "i32" },
+      GetTokenInformation: { args: ["i64_fast", "i32", "ptr", "u32", "ptr"], returns: "i32" },
+      ConvertSidToStringSidW: { args: ["ptr", "ptr"], returns: "i32" },
+    });
+    return { kernel: kernel.symbols, advapi: advapi.symbols };
+  } catch (error) {
+    kernel.close();
+    throw error;
+  }
+}
+// Bound once and kept for the process: tree stops read identities in tight loops.
+let identityLibraries: ReturnType<typeof bindIdentityLibraries> | undefined;
+
+function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
+  identityLibraries ??= bindIdentityLibraries();
+  const { kernel: k, advapi: a } = identityLibraries;
+  // GetLastError is read right after the call that failed, before any other work.
+  let lastError = 0;
+  return {
+    open(pid) {
+      const handle = k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid);
+      if (handle === 0) lastError = nativeInt.parse(k.GetLastError());
+      return handle;
+    },
+    exited(handle) {
+      const state = nativeInt.parse(k.WaitForSingleObject(nativeHandle(handle), 0));
+      expectNative(state === WAIT_OBJECT_0 || state === WAIT_TIMEOUT);
+      return state === WAIT_OBJECT_0;
+    },
+    times: (handle, creation, exit, kernelTime, user) =>
+      nativeInt.parse(k.GetProcessTimes(nativeHandle(handle), creation, exit, kernelTime, user)),
+    openToken(handle, out) {
+      const token = handleSlot();
+      const result = nativeInt.parse(
+        a.OpenProcessToken(nativeHandle(handle), TOKEN_QUERY, token.slot),
+      );
+      out[0] = token.value();
+      return result;
+    },
+    tokenInfo(token, info, length, needed) {
+      const size = new Uint32Array(1);
+      const result = a.GetTokenInformation(nativeHandle(token), TOKEN_USER, info, length, size);
+      if (result === 0) lastError = nativeInt.parse(k.GetLastError());
+      needed[0] = size[0] ?? 0;
+      return nativeInt.parse(result);
+    },
+    sidToString(sid, out) {
+      const text = pointerSlot();
+      const result = nativeInt.parse(a.ConvertSidToStringSidW(nativePointer(sid), text.slot));
+      out[0] = text.value();
+      return result;
+    },
+    decodeSid: (ptr) =>
+      z
+        .string()
+        .min(1)
+        .parse(readWideString(z.number().parse(nativePointer(ptr)))),
+    free: (ptr) => void k.LocalFree(nativePointer(ptr)),
+    lastError: () => lastError,
+    close: (handle) => void k.CloseHandle(nativeHandle(handle)),
+    // The libraries stay bound for the process.
+    unload: () => {},
+  };
+}
+
+/**
+ * Creation start and token-user SID for one PID, or undefined when no such process exists. Other
+ * native failures throw; every handle and buffer is released before returning.
+ */
+export function readWindowsProcessIdentity(
+  pid: number,
+  api: WindowsProcessIdentityApi,
+): { start: string; owner: string } | undefined {
+  z.number().int().positive().parse(pid);
+  const handle = api.open(pid);
+  if (isNullHandle(handle)) {
+    expectNative(nativeInt.parse(api.lastError()) === ERROR_INVALID_PARAMETER);
+    return undefined;
+  }
+  try {
+    // Any open handle, the console host's included, keeps an exited process openable.
+    if (api.exited(handle)) return undefined;
+    // GetProcessTimes takes four FILETIME out-pointers and allows no NULL.
+    const creation = Buffer.alloc(8);
+    expectNative(
+      nativeInt.parse(
+        api.times(handle, creation, Buffer.alloc(8), Buffer.alloc(8), Buffer.alloc(8)),
+      ) !== 0,
+    );
+    const low = dword.parse(creation.readUInt32LE(0));
+    const high = dword.parse(creation.readUInt32LE(4));
+    const start = ((BigInt(high) << 32n) | BigInt(low)).toString();
+    const tokenOut: unknown[] = [null];
+    expectNative(nativeInt.parse(api.openToken(handle, tokenOut)) !== 0);
+    const token = tokenOut[0];
+    expectNative(!isNullHandle(token));
+    try {
+      // The first call with no buffer reports the size TOKEN_USER needs.
+      const needed: number[] = [0];
+      expectNative(nativeInt.parse(api.tokenInfo(token, null, 0, needed)) === 0);
+      expectNative(nativeInt.parse(api.lastError()) === ERROR_INSUFFICIENT_BUFFER);
+      const info = Buffer.alloc(z.number().int().positive().max(4096).parse(needed[0]));
+      expectNative(nativeInt.parse(api.tokenInfo(token, info, info.length, [0])) !== 0);
+      const sid = process.arch === "ia32" ? BigInt(info.readUInt32LE(0)) : info.readBigUInt64LE(0);
+      expectNative(sid !== 0n);
+      const stringOut: unknown[] = [null];
+      expectNative(nativeInt.parse(api.sidToString(sid, stringOut)) !== 0);
+      const text = stringOut[0];
+      expectNative(!isNullHandle(text));
+      try {
+        return { start, owner: WindowsSid.parse(api.decodeSid(text)) };
+      } finally {
+        api.free(text);
+      }
+    } finally {
+      api.close(token);
+    }
+  } catch (error) {
+    // Exit can race any of the identity reads while our handle keeps the object alive.
+    if (api.exited(handle)) return undefined;
+    throw error;
+  } finally {
+    api.close(handle);
+  }
+}
+
+/** POSIX owners stay numeric uids; only Windows owners are token-user SID strings. */
+const processOwner = process.platform === "win32" ? WindowsSid : z.number().int().nonnegative();
 export const ProcessIdentity = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1).max(128),
-  uid: z.number().int().nonnegative(),
+  uid: processOwner,
   group: z.number().int().positive(),
 });
 export type ProcessIdentity = z.infer<typeof ProcessIdentity>;
@@ -43,6 +235,9 @@ function linuxStat(text: string): { pid: number; ticks: string; group: number } 
 }
 
 /** Kernel start identity and uid, without inspecting arguments, environment or credentials. */
+// Bound once for the process: tree stops poll identities while they wait.
+let libproc: Readonly<Record<"proc_pidinfo", NativeFunction>> | undefined;
+
 export function processIdentity(pid: number): ProcessIdentity | undefined {
   z.number().int().positive().parse(pid);
   try {
@@ -70,13 +265,12 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
     }
     if (process.platform === "darwin") {
       // Apple's proc_bsdinfo ABI includes pid, uid, pgid and the kernel start timeval.
-      const library = koffi.load("/usr/lib/libproc.dylib");
-      try {
-        const info = library.func(
-          "int proc_pidinfo(int pid, int flavor, uint64_t arg, _Out_ void *buffer, int size)",
-        );
+      libproc ??= openLibrary("/usr/lib/libproc.dylib", {
+        proc_pidinfo: { args: ["i32", "i32", "u64", "ptr", "i32"], returns: "i32" },
+      }).symbols;
+      {
         const buffer = Buffer.alloc(136);
-        if (info(pid, 3, 0, buffer, buffer.length) !== buffer.length)
+        if (libproc.proc_pidinfo(pid, 3, 0n, buffer, buffer.length) !== buffer.length)
           throw new Error("Kernel process identity unavailable");
         const identity = ProcessIdentity.parse({
           pid: buffer.readUInt32LE(12),
@@ -86,14 +280,264 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
         });
         if (identity.pid !== pid) throw new Error("Process identity mismatch");
         return identity;
+      }
+    }
+    if (process.platform === "win32") {
+      const api = loadWindowsProcessIdentityApi();
+      try {
+        const found = readWindowsProcessIdentity(pid, api);
+        return (
+          found && ProcessIdentity.parse({ pid, start: found.start, uid: found.owner, group: pid })
+        );
       } finally {
-        library.unload();
+        api.unload();
       }
     }
     throw new Error("Kernel process identity requires Linux or macOS");
   } catch (error) {
-    // Native/procfs failure is not absence unless the kernel also proves the PID is gone.
-    if (gone(pid)) return undefined;
+    // An unreaped child still answers kill(pid, 0), but cannot run or have its PID reused.
+    // Keep its wait status for Node; other identity failures remain fail-closed.
+    if (childHasExited(pid) || gone(pid)) return undefined;
     throw error;
   }
 }
+
+// Windows trees: no process group exists. A process belongs to a recorded tree only by proof:
+// its own recorded PID, creation time and SID still match, or its parent is a live proven member
+// and it was created after that parent. Windows never reparents, so a live process naming a dead
+// member's PID may be that member's orphan or the child of a later process that reused the PID;
+// such a process is never ended and never lets the tree count as gone.
+
+export type WindowsProcessRecord = { pid: number; start: string; uid: string };
+export type WindowsTreeMember = { pid: number; start: string };
+/** One Toolhelp pass; `taken` is the system FILETIME read just before it. */
+export type WindowsProcessSnapshot = {
+  taken: string;
+  processes: readonly { pid: number; parent: number }[];
+};
+/** A PID's creation time and owner, undefined once it is proven gone, "unknown" if unreadable. */
+export type WindowsIdentify = (
+  pid: number,
+) => { start: string; uid: string } | undefined | "unknown";
+export type WindowsTreeState = {
+  /** Proven members alive now, recorded or newly found. Only these may be ended. */
+  live: WindowsProcessRecord[];
+  /** Newly proven members, to record while their ancestry can still be checked. */
+  discovered: WindowsProcessRecord[];
+  /** Recorded members that are gone, or whose PID now names another process. */
+  gone: WindowsProcessRecord[];
+  /** Live PIDs that may belong to the tree but cannot be proven to. */
+  ambiguous: number[];
+};
+
+const after = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
+
+export function windowsTreeState(
+  recorded: readonly WindowsProcessRecord[],
+  snapshot: WindowsProcessSnapshot,
+  identify: WindowsIdentify,
+): WindowsTreeState {
+  const children = new Map<number, number[]>();
+  for (const entry of snapshot.processes)
+    if (entry.pid !== entry.parent)
+      children.set(entry.parent, [...(children.get(entry.parent) ?? []), entry.pid]);
+  const read = new Map<number, ReturnType<WindowsIdentify>>();
+  const look = (pid: number) => {
+    if (!read.has(pid)) read.set(pid, identify(pid));
+    return read.get(pid);
+  };
+  const state: WindowsTreeState = { live: [], discovered: [], gone: [], ambiguous: [] };
+  const seen = new Set(recorded.map((member) => member.pid));
+  for (const member of recorded) {
+    const current = look(member.pid);
+    if (current === "unknown") state.ambiguous.push(member.pid);
+    else if (current?.start === member.start && current.uid === member.uid) state.live.push(member);
+    else state.gone.push(member);
+  }
+  // A child listed under a live proven parent and created after it, before the snapshot, was
+  // made by that parent: no other process held the PID in that interval.
+  for (let index = 0; index < state.live.length; index++) {
+    const parent = state.live[index];
+    if (!parent) continue;
+    for (const pid of children.get(parent.pid) ?? []) {
+      if (seen.has(pid)) continue;
+      const found = look(pid);
+      if (found === undefined) continue;
+      seen.add(pid);
+      if (found === "unknown") {
+        state.ambiguous.push(pid);
+        continue;
+      }
+      if (found.uid !== parent.uid || after(parent.start, found.start)) continue;
+      if (after(found.start, snapshot.taken)) continue;
+      const member = { pid, start: found.start, uid: found.uid };
+      state.live.push(member);
+      state.discovered.push(member);
+    }
+  }
+  for (const member of state.gone) {
+    const holder = look(member.pid);
+    for (const pid of children.get(member.pid) ?? []) {
+      if (seen.has(pid)) continue;
+      const found = look(pid);
+      if (found === undefined) continue;
+      if (found !== "unknown") {
+        // Started before the member: an earlier holder's child.
+        if (found.uid !== member.uid || !after(found.start, member.start)) continue;
+        // A live holder of the reused PID made every child started after it.
+        if (holder && holder !== "unknown" && !after(holder.start, found.start)) continue;
+      }
+      seen.add(pid);
+      state.ambiguous.push(pid);
+    }
+  }
+  return state;
+}
+
+/** Native surface for recorded Windows trees. Tests inject a fake; production uses bun:ffi. */
+export interface WindowsTreeRuntime {
+  state(recorded: readonly WindowsProcessRecord[]): WindowsTreeState;
+  /**
+   * Ends one member only while it still carries its recorded creation time. Returns whether it
+   * was ended or already gone; an unreadable or protected process throws.
+   */
+  terminate(member: WindowsTreeMember): "ended" | "gone";
+}
+
+// PROCESSENTRY32W: th32ProcessID at 8; th32ParentProcessID follows a pointer-sized heap ID.
+const pointer64 = process.arch !== "ia32" && process.arch !== "arm";
+const processEntrySize = pointer64 ? 568 : 556;
+const parentOffset = pointer64 ? 32 : 24;
+const TH32CS_SNAPPROCESS = 0x2;
+const PROCESS_TERMINATE = 0x0001;
+const ERROR_NO_MORE_FILES = 18;
+
+function bindTreeLibrary() {
+  return openLibrary("kernel32.dll", {
+    // Precise: the coarse clock lags by up to a tick, so a child created just before the
+    // snapshot would look created after it and be left out of the tree.
+    GetSystemTimePreciseAsFileTime: { args: ["ptr"], returns: "void" },
+    CreateToolhelp32Snapshot: { args: ["u32", "u32"], returns: "i64_fast" },
+    Process32FirstW: { args: ["i64_fast", "ptr"], returns: "i32" },
+    Process32NextW: { args: ["i64_fast", "ptr"], returns: "i32" },
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "i64_fast" },
+    GetProcessTimes: { args: ["i64_fast", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+    WaitForSingleObject: { args: ["i64_fast", "u32"], returns: "u32" },
+    TerminateProcess: { args: ["i64_fast", "u32"], returns: "i32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    GetLastError: { args: [], returns: "u32" },
+  }).symbols;
+}
+let treeLibrary: ReturnType<typeof bindTreeLibrary> | undefined;
+
+function loadWindowsTreeApi() {
+  treeLibrary ??= bindTreeLibrary();
+  const k = treeLibrary;
+  // GetLastError is read right after the call that failed, before any other work.
+  let lastError = 0;
+  const failed = <T>(result: T, failure: boolean): T => {
+    if (failure) lastError = nativeInt.parse(k.GetLastError());
+    return result;
+  };
+  return {
+    now: (time: Buffer) => k.GetSystemTimePreciseAsFileTime(time),
+    snapshot: (flags: number, pid: number) => {
+      const handle = k.CreateToolhelp32Snapshot(flags, pid);
+      return failed(handle, handle === -1 || handle === 0);
+    },
+    first: (snapshot: number, entry: Buffer) => {
+      const ok = k.Process32FirstW(snapshot, entry);
+      return failed(ok, ok === 0);
+    },
+    next: (snapshot: number, entry: Buffer) => {
+      const ok = k.Process32NextW(snapshot, entry);
+      return failed(ok, ok === 0);
+    },
+    closeSnapshot: (snapshot: number) => k.CloseHandle(snapshot),
+    open: (access: number, inherit: number, pid: number) => {
+      const handle = k.OpenProcess(access, inherit, pid);
+      return failed(handle, handle === 0);
+    },
+    times: (process: unknown, creation: Buffer, exit: Buffer, kernelTime: Buffer, user: Buffer) =>
+      k.GetProcessTimes(nativeHandle(process), creation, exit, kernelTime, user),
+    wait: (process: unknown, milliseconds: number) =>
+      k.WaitForSingleObject(nativeHandle(process), milliseconds),
+    terminate: (process: unknown, code: number) => {
+      const ok = k.TerminateProcess(nativeHandle(process), code);
+      return failed(ok, ok === 0);
+    },
+    close: (process: unknown) => k.CloseHandle(nativeHandle(process)),
+    lastError: () => lastError,
+  };
+}
+
+function snapshotWindowsProcesses(
+  api: ReturnType<typeof loadWindowsTreeApi>,
+): WindowsProcessSnapshot {
+  const clock = Buffer.alloc(8);
+  api.now(clock);
+  const taken = clock.readBigUInt64LE(0).toString();
+  const handle = nativeInt.parse(Number(api.snapshot(TH32CS_SNAPPROCESS, 0)));
+  expectNative(handle !== -1 && handle !== 0);
+  try {
+    const entry = Buffer.alloc(processEntrySize);
+    entry.writeUInt32LE(processEntrySize, 0);
+    const found: { pid: number; parent: number }[] = [];
+    let ok = nativeInt.parse(api.first(handle, entry));
+    while (ok !== 0) {
+      found.push({ pid: entry.readUInt32LE(8), parent: entry.readUInt32LE(parentOffset) });
+      ok = nativeInt.parse(api.next(handle, entry));
+    }
+    expectNative(nativeInt.parse(api.lastError()) === ERROR_NO_MORE_FILES);
+    return { taken, processes: found };
+  } finally {
+    api.closeSnapshot(handle);
+  }
+}
+
+/** The real Windows tree runtime: one Toolhelp snapshot, then per-PID identity reads. */
+export const windowsTreeRuntime: WindowsTreeRuntime = {
+  state(recorded) {
+    const tree = loadWindowsTreeApi();
+    const identityApi = loadWindowsProcessIdentityApi();
+    try {
+      return windowsTreeState(recorded, snapshotWindowsProcesses(tree), (pid) => {
+        try {
+          const found = readWindowsProcessIdentity(pid, identityApi);
+          return found && { start: found.start, uid: found.owner };
+        } catch {
+          // Unreadable is not absent: a protected process stays unproven either way.
+          return "unknown";
+        }
+      });
+    } finally {
+      identityApi.unload();
+    }
+  },
+  terminate(member) {
+    const api = loadWindowsTreeApi();
+    const handle = api.open(
+      PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+      0,
+      member.pid,
+    );
+    if (isNullHandle(handle)) {
+      expectNative(nativeInt.parse(api.lastError()) === ERROR_INVALID_PARAMETER);
+      return "gone";
+    }
+    try {
+      if (nativeInt.parse(api.wait(handle, 0)) === WAIT_OBJECT_0) return "gone";
+      const creation = Buffer.alloc(8);
+      const times = api.times(handle, creation, Buffer.alloc(8), Buffer.alloc(8), Buffer.alloc(8));
+      expectNative(nativeInt.parse(times) !== 0);
+      // The PID now names another process: the member itself is gone.
+      if (creation.readBigUInt64LE(0).toString() !== member.start) return "gone";
+      if (nativeInt.parse(api.terminate(handle, 1)) !== 0) return "ended";
+      // A process already exiting refuses termination; wait briefly for it to finish.
+      expectNative(nativeInt.parse(api.wait(handle, 2_000)) === WAIT_OBJECT_0);
+      return "gone";
+    } finally {
+      api.close(handle);
+    }
+  },
+};

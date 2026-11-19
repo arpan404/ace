@@ -51,12 +51,20 @@ export function compareBlocker(
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
-/** "3 commits · 4 files · +202 −1" for an open comparison. */
+/** "3 commits · 4 files" for an open comparison. */
 export function compareSummary(compare: ForgeCompare): string {
-  const added = compare.files.reduce((sum, file) => sum + file.additions, 0);
-  const removed = compare.files.reduce((sum, file) => sum + file.deletions, 0);
-  const lines = compare.nextPage ? "" : ` · +${added} −${removed}`;
-  return `${plural(compare.totalCommits, "commit")} · ${plural(compare.totalFiles, "file")}${lines}`;
+  return `${plural(compare.totalCommits, "commit")} · ${plural(compare.totalFiles, "file")}`;
+}
+
+/** The comparison's lines added and removed, once every file is listed (a partial sum misleads). */
+export function compareLines(
+  compare: ForgeCompare,
+): { additions: number; deletions: number } | undefined {
+  if (compare.nextPage) return undefined;
+  return {
+    additions: compare.files.reduce((sum, file) => sum + file.additions, 0),
+    deletions: compare.files.reduce((sum, file) => sum + file.deletions, 0),
+  };
 }
 
 /** The head branches live in another repository than the base: a fork, by owner or by name. */

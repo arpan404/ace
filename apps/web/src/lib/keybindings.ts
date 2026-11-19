@@ -1,7 +1,7 @@
 import { syncDesktopKeymap } from "@/boot/desktop-keymap.ts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
-import { useDaemonSetting } from "./daemon-setting.ts";
+import { useDeviceKeybindings } from "./device-keymap.ts";
 import {
   applePlatform,
   isKeymapId,
@@ -15,7 +15,7 @@ import {
 
 /*
  * Shortcut resolution: the keymap's defaults for this platform with the user's rebindings on
- * top. Rebindings live in the daemon's `clients.keybindings` setting (so every client agrees);
+ * top. Rebindings belong to the device (each app and browser keeps its own, `device-keymap.ts`);
  * `useKeybindingsSync()` feeds them into a small store here, so Kbd, Tip, MenuItem and
  * `useHotkey` read them without a client of their own.
  */
@@ -71,6 +71,56 @@ export function defaultKeys(id: KeymapId, env: KeyboardEnv = keyboardEnv()): str
   return entry.keys;
 }
 
+/**
+ * Chords the operating system or desktop keeps, so a shortcut must not default to them and
+ * Settings refuses them. Off Apple platforms this covers Windows and the Linux desktops ace
+ * supports (GNOME, Ubuntu's additions, Hyprland binds only Super), since both read `nonApple`.
+ */
+export function systemKeys(env: KeyboardEnv = keyboardEnv()): readonly string[] {
+  if (env.apple)
+    return [
+      "mod+h",
+      "alt+mod+h",
+      "mod+m",
+      "alt+mod+m",
+      "mod+tab",
+      "mod+space",
+      "ctrl+space",
+      "ctrl+mod+space",
+      "ctrl+mod+q",
+      "ctrl+mod+f",
+      "alt+mod+escape",
+      "shift+mod+3",
+      "shift+mod+4",
+      "shift+mod+5",
+    ];
+  const arrows = ["arrowup", "arrowdown", "arrowleft", "arrowright"];
+  return [
+    "alt+f4",
+    "alt+tab",
+    "alt+space",
+    "alt+escape",
+    "mod+escape",
+    "shift+mod+escape",
+    "alt+mod+delete",
+    // GNOME: the activities overview, run a command, switch, move and resize windows.
+    "alt+f1",
+    "alt+f2",
+    "alt+f6",
+    "alt+f7",
+    "alt+f8",
+    "alt+f10",
+    "alt+`",
+    // Ubuntu: open a terminal.
+    "alt+mod+t",
+    // Windows graphics drivers rotate the screen; GNOME switches and moves across workspaces.
+    ...arrows.map((arrow) => `alt+mod+${arrow}`),
+    ...arrows.map((arrow) => `shift+alt+mod+${arrow}`),
+    // Linux: switch to a text console.
+    ...Array.from({ length: 12 }, (_, index) => `alt+mod+f${index + 1}`),
+  ];
+}
+
 /** Whether Settings may rebind `id` (not one a library or the platform binds). */
 export function isRebindable(id: KeymapId): boolean {
   return keymapEntry(id).fixed !== true;
@@ -81,7 +131,7 @@ export function scopeOf(id: KeymapId): KeyScope {
 }
 
 /** Only well-formed rebindings of ids this build knows. */
-function cleanOverrides(raw: unknown): Keybindings {
+export function cleanOverrides(raw: unknown): Keybindings {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
   const clean: Record<string, string> = {};
   for (const [id, keys] of Object.entries(raw)) {
@@ -205,7 +255,7 @@ function subscribe(listener: () => void): () => void {
 const getOverrides = () => overrides;
 const getResolved = () => (resolvedCache ??= resolveKeymap(overrides));
 
-/** Replace the user's rebindings (from the daemon setting, or a test). */
+/** Replace the user's rebindings (from this device's store, or a test). */
 export function setKeybindingOverrides(next: Keybindings): void {
   const clean = cleanOverrides(next);
   if (JSON.stringify(clean) === JSON.stringify(overrides)) return;
@@ -249,16 +299,17 @@ export function useHotkeyBindings(keys: string, id?: KeymapId): readonly string[
 }
 
 /**
- * Keeps the store in step with the daemon's `clients.keybindings`. Mount once, inside the
- * client provider (the shell's GlobalHotkeys does).
+ * Keeps the store in step with this device's rebindings, and the desktop app's menus with both.
+ * Mount once, inside the client provider (the shell's GlobalHotkeys does).
  */
 export function useKeybindingsSync(): void {
-  const [stored] = useDaemonSetting("clients.keybindings");
+  const stored = useDeviceKeybindings(cleanOverrides);
   useEffect(() => {
+    // Never stored here (or cleared) means defaults until adopted, never the last device's.
     if (stored !== undefined) setKeybindingOverrides(cleanOverrides(stored));
     return syncDesktopKeymap(resolveKeymap(cleanOverrides(stored)));
   }, [stored]);
-  // Another daemon (or none) may have other rebindings: drop these when the shell goes.
+  // Nothing outlives the shell that read it (tests mount several devices in turn).
   useEffect(() => () => setKeybindingOverrides({}), []);
 }
 
@@ -280,11 +331,13 @@ const codeKeys: Record<string, string> = {
 };
 
 /**
- * A key press's name in keymap notation, from the physical key where it has one, so the
- * recorder and the matcher agree whatever Shift or ⌥ did to the character ("/" not "?",
- * "space" not " ", "p" not "π").
+ * A key press's name in keymap notation, so the recorder and the matcher agree. A letter is the
+ * one the layout types (⌘Z is Z on AZERTY, QWERTZ or Dvorak too); where the character isn't a
+ * Latin letter (⌥P types π, a Cyrillic layout types к) it is the physical key. Digits and
+ * punctuation are always the physical key, whatever Shift did ("/" not "?", "1" not "!").
  */
 export function keyNameOf(event: Pick<KeyboardEvent, "key" | "code">): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
   const code = event.code ?? "";
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit\d$/.test(code)) return code.slice(5);

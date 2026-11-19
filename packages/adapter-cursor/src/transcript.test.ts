@@ -225,7 +225,8 @@ it("settles surviving tool uncertainty only after an authoritative late completi
     toolCall: { type: "shell", args: { command: "synthetic operation" } },
   });
   r.frame("result", { status: "finished" });
-  expect(deriveThreadStatus(r.state)).toEqual({ state: "waiting", on: "background_task" });
+  // Past the reply the surviving shell is listed, not waited on (ADR 0116).
+  expect(deriveThreadStatus(r.state)).toEqual({ state: "done" });
   r.frame("delta", {
     type: "tool-call-completed",
     callId: "surviving-shell",

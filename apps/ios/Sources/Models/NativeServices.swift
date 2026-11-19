@@ -6,7 +6,7 @@ let serviceSignposter = OSSignposter(subsystem: "app.ace.ios", category: "servic
 let serviceLog = Logger(subsystem: "app.ace.ios", category: "service")
 
 /// Schema-validated SDK service replies. Each screen decodes the fields it uses into its DTO.
-indirect enum ServiceValue: Codable, Sendable {
+indirect enum ServiceValue: Codable, Sendable, Equatable {
     case object([String: ServiceValue]), array([ServiceValue]), string(String), number(Double), bool(Bool), null
     init(from decoder: any Decoder) throws {
         let box = try decoder.singleValueContainer()
@@ -29,6 +29,22 @@ indirect enum ServiceValue: Codable, Sendable {
         }
     }
     func decode<T: Decodable>(_ type: T.Type) throws -> T { try JSONDecoder().decode(type, from: JSONEncoder().encode(self)) }
+    /// The answer as a JSON object again, to hand one machine's answer to another runtime.
+    var json: Any {
+        switch self {
+        case .object(let fields): fields.mapValues(\.json)
+        case .array(let items): items.map(\.json)
+        case .string(let text): text
+        case .number(let value): value
+        case .bool(let value): value
+        case .null: NSNull()
+        }
+    }
+    /// A field of an object answer.
+    subscript(_ key: String) -> ServiceValue? {
+        if case .object(let fields) = self { fields[key] } else { nil }
+    }
+    var string: String? { if case .string(let text) = self { text } else { nil } }
 }
 struct ServiceReply: Decodable, Sendable {
     /// Names a kept read's answer (`bridge/native-reads.ts`).
@@ -41,6 +57,9 @@ struct ServiceReply: Decodable, Sendable {
 }
 struct ServiceFailure: LocalizedError {
     let message: String
+    /// The request never got an answer (disconnected, timed out), as opposed to the machine
+    /// answering with a refusal.
+    var transport = false
     var errorDescription: String? { message }
 }
 
@@ -50,7 +69,7 @@ struct ServiceFailure: LocalizedError {
         try Task.checkCancellation()
         return try await withCheckedThrowingContinuation { continuation in
             waiting[id] = continuation
-            if !dispatch() { fail(id, message: "Machine disconnected. Retry when connected.") }
+            if !dispatch() { fail(id, message: "Machine disconnected. Retry when connected.", transport: true) }
         }
     }
     func receive(_ reply: ServiceReply) {
@@ -58,7 +77,9 @@ struct ServiceFailure: LocalizedError {
         if reply.ok, let value = reply.value { continuation.resume(returning: value) }
         else { continuation.resume(throwing: ServiceFailure(message: reply.message)) }
     }
-    func fail(_ id: String, message: String) { waiting.removeValue(forKey: id)?.resume(throwing: ServiceFailure(message: message)) }
+    func fail(_ id: String, message: String, transport: Bool = false) {
+        waiting.removeValue(forKey: id)?.resume(throwing: ServiceFailure(message: message, transport: transport))
+    }
     func cancel() {
         let pending = waiting
         waiting = [:]
@@ -98,7 +119,7 @@ extension ClientModel {
         // The SDK bounds network waits. This also bounds native decoding/delivery failures.
         let deadline = Task { @MainActor in
             do { try await Task.sleep(for: timeout) } catch { return }
-            services.fail(id, message: "The request timed out. Your input is still available; retry when connected.")
+            services.fail(id, message: "The request timed out. Your input is still available; retry when connected.", transport: true)
             action(["type": "service.cancel", "id": id])
         }
         defer { deadline.cancel() }

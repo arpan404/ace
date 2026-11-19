@@ -1,0 +1,85 @@
+---
+/*
+ * Where ace stops (content/security.ts): the heading on one side and, on the other, four short
+ * groups, each a card of ruled rows of one sentence.
+ */
+import { boundaryGroups, securityPage } from "../../content/security.ts";
+---
+
+<section class="section page boundaries">
+  <div class="say reveal">
+    <h2 class="section-title">{securityPage.boundariesHeading}</h2>
+  </div>
+  <div class="groups">
+    {
+      boundaryGroups.map((group) => (
+        <div class="group reveal">
+          <h3>{group.heading}</h3>
+          <ul class="card" data-stagger>
+            {group.rows.map((row) => (
+              <li>
+                <p>{row}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .boundaries {
+    display: grid;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .boundaries {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+
+    .say {
+      position: sticky;
+      top: 96px;
+    }
+  }
+
+  .say h2 {
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .groups {
+    display: grid;
+    gap: 36px;
+  }
+
+  h3 {
+    margin: 0 0 12px 2px;
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li p {
+    padding: 13px 14px 14px;
+    border-radius: 8px;
+    font-size: 15px;
+    line-height: 1.5;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  li p:hover {
+    background: var(--wash);
+  }
+</style>

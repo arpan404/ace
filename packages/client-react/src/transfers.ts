@@ -30,7 +30,10 @@ export function useTransfers(client?: ClientApi): readonly Transfer[] {
 }
 
 /** The latest transfer of one thread ("Continue on"), whoever started it. */
-export function useThreadTransfer(threadId: string | undefined, client?: ClientApi) {
+export function useThreadTransfer(
+  threadId: string | undefined,
+  client?: ClientApi,
+): Transfer | undefined {
   const own = useClient();
   const store = transferStore(client ?? own);
   const read = useCallback(
@@ -41,7 +44,10 @@ export function useThreadTransfer(threadId: string | undefined, client?: ClientA
 }
 
 /** The latest "Open on" transfer of one project, whoever started it. */
-export function useProjectTransfer(workspaceId: string | undefined, client?: ClientApi) {
+export function useProjectTransfer(
+  workspaceId: string | undefined,
+  client?: ClientApi,
+): Transfer | undefined {
   const own = useClient();
   const store = transferStore(client ?? own);
   const read = useCallback(

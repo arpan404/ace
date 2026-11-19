@@ -6,10 +6,16 @@
       "maxLength": 100,
       "type": "string"
     },
+    "contact": {
+      "$ref": "https://ace.local/protocol/v1/RemoteContact.json"
+    },
     "elapsedSeconds": {
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "failure": {
+      "$ref": "https://ace.local/protocol/v1/DelegationFailure.json"
     },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -44,6 +50,10 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "result": {
+      "maxLength": 200,
+      "type": "string"
+    },
     "role": {
       "maxLength": 40,
       "type": "string"
@@ -59,10 +69,16 @@
       "type": "integer"
     },
     "state": {
-      "$ref": "https://ace.local/protocol/v1/WatchedState.json"
+      "$ref": "https://ace.local/protocol/v1/MonitoredState.json"
     },
     "step": {
       "maxLength": 60,
+      "type": "string"
+    },
+    "waitingFor": {
+      "enum": [
+        "storage"
+      ],
       "type": "string"
     }
   },

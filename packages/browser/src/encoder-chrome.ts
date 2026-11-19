@@ -24,6 +24,7 @@ export class EncoderChrome {
   }
   /** The encoder as a video host; nothing starts until a viewer's capture asks. */
   readonly video: VideoHost = {
+    mediaKind: "user-tab",
     supported: async (codecs, width, height) => {
       const lease = await this.host.acquire(this.lifetime.signal);
       try {
@@ -56,8 +57,8 @@ export class EncoderChrome {
         handle = await this.encoder(lease.instance).openPictures(page, width, height, {
           chunk: (chunk) => events.chunk(chunk),
           failed: (encode) => events.failed(encode),
-          ended: () => {
-            if (release()) events.ended();
+          ended: (reason) => {
+            if (release()) events.ended(reason);
           },
         });
       } catch (error) {
@@ -65,9 +66,11 @@ export class EncoderChrome {
         throw error;
       }
       // A crashed or killed encoder ends its captures; the next capture starts another.
-      void lease.instance.exited.then(() => {
-        if (release()) events.ended();
-      });
+      void lease.instance.exited
+        .then(() => {
+          if (release()) events.ended();
+        })
+        .catch(() => {});
       return {
         encodes: (specs) => handle.encodes(specs),
         keyframe: (encode) => handle.keyframe(encode),

@@ -73,10 +73,13 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
     expandable: stepOpens(item),
     /** What the opened row shows, bounded. */
     detail: stepOpens(item) ? stepDetail(item, context) : null,
+    // An edit that only added lines still says "−0", as the desktop's does.
     added: step.added ?? null,
-    removed: step.removed ?? null,
+    removed: step.removed ?? (step.added !== undefined ? 0 : null),
     /** An agent opened a page in the thread's browser: the row opens the browser. */
     browser: opensAgentPage(item),
+    /** A call still in flight: when it started, which its row counts up from. */
+    startedAt: item.type === "tool_call" && !step.settled ? (item.call.startedAt ?? null) : null,
   };
 }
 

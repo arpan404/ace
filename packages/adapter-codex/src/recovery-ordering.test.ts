@@ -89,7 +89,7 @@ test.each(["spawn announcement", "authoritative snapshot"])(
       ),
     ).toBe(true);
     expect(Object.values(h.state.runs).every((r) => r.state === "completed")).toBe(true);
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.state.status).toEqual({ state: "done" });
     expect(
       Object.values(h.state.tasks).some(
         (t) => t.kind === "shell" && t.status === "running" && t.stoppable,

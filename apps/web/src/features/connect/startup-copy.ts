@@ -3,11 +3,15 @@ import type { DesktopDaemonStatus, DiagnosticCheck } from "@/boot/desktop.ts";
 /** A cause the desktop reported by the daemon's exit code, in plain words. */
 export function startupCause(cause: DesktopDaemonStatus["cause"]): string | undefined {
   if (cause === "port-in-use") return "Another app is using ace's port. Quit it, then try again.";
+  if (cause === "lock-held")
+    return "Waiting for another ace process to finish starting or stopping.";
   return undefined;
 }
 
 /** Startup failures cross the desktop bridge; keep technical details in Show logs. */
 export function startupFailure(reason: string, cause?: DesktopDaemonStatus["cause"]): string {
+  if (cause === "lock-held")
+    return "Another ace process is still using ace's data. Quit it, then try again.";
   const known = startupCause(cause);
   if (known) return known;
   if (/legacy|older (?:ace|data)/i.test(reason))
@@ -18,7 +22,7 @@ export function startupFailure(reason: string, cause?: DesktopDaemonStatus["caus
 }
 
 const checks: Record<string, { label: string; fix: string }> = {
-  node: { label: "Node runtime", fix: "Install Node 24 or newer, then restart ace." },
+  node: { label: "Node runtime", fix: "Install Node 26 or newer, then restart ace." },
   home: { label: "Data folder", fix: "Check that you can read and write the ace data folder." },
   disk: { label: "Storage", fix: "Check the ace data folder's permissions and free disk space." },
   sqlite: {
@@ -26,6 +30,8 @@ const checks: Record<string, { label: string; fix: string }> = {
     fix: "Close ace and preserve its data before restoring a backup.",
   },
   git: { label: "Git", fix: "Install Git and check that it works in a terminal." },
+  terminal: { label: "Terminal support", fix: "Reinstall ace, then try opening a terminal." },
+  // Reported by daemons from before the terminal check.
   "node-pty": { label: "Terminal support", fix: "Reinstall ace, then try opening a terminal." },
   chromium: { label: "Browser support", fix: "Install Chrome or Chromium, then restart ace." },
   port: { label: "Local connection", fix: "Quit the app using ace's port, then try again." },

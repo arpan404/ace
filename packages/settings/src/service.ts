@@ -16,6 +16,24 @@ import { SettingsError, validateValue } from "./document.ts";
 import { SettingsFile, freeze, type FileChange } from "./file.ts";
 import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
 
+/**
+ * Keys only the global layer may set: a value in a workspace or thread document (a repository's
+ * `.ace/settings.json`) is ignored, so a project can't turn them on for itself.
+ */
+const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
+  "computer.lockedUse",
+  "media.encode",
+  "media.delivery",
+  "spade.enabled",
+  "beta.spade",
+  "beta.marketplace",
+  // An agent publishing on its own (ADR 0178): a repository can't turn the person's ask off.
+  "market.askBeforeAgentPublish",
+  // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
+  "providers.codex.toolSource",
+  "providers.claude.chrome",
+]);
+
 export interface Scope {
   workspace?: string;
   thread?: string;
@@ -54,7 +72,7 @@ export interface SettingsOptions {
 }
 export class SettingsService {
   private cache = new FileCache();
-  private workspaces = new WorkspaceGuards();
+  private workspaces: WorkspaceGuards;
   private index = new Map<SettingsFile, Map<SettingsKey, Set<Subscription>>>();
   private subscriptions = new Set<Subscription>();
   private options: SettingsOptions;
@@ -64,6 +82,7 @@ export class SettingsService {
   private overrides: Partial<SettingsValues>;
   constructor(options: SettingsOptions) {
     this.options = options;
+    this.workspaces = new WorkspaceGuards([resolve(options.dataDir, "settings.json")]);
     const overrides: Partial<Record<SettingsKey, unknown>> = {};
     for (const [key, value] of Object.entries(options.overrides ?? {})) {
       const parsed = SettingsKey.parse(key);
@@ -138,6 +157,7 @@ export class SettingsService {
       });
     for (let index = files.length - 1; index >= 0; index--) {
       const file = files[index];
+      if (file && file.layer !== "global" && globalOnlyKeys.has(key)) continue;
       if (file && Object.hasOwn(file.file.document.settings, key)) {
         // Every known document value has been validated by SettingsDocument.
         return freeze({
@@ -176,6 +196,56 @@ export class SettingsService {
   }
 
   async set<K extends SettingsKey>(key: K, value: SettingsValues[K], layer: Layer): Promise<void> {
+    const parsed = this.assignment(key, value, layer);
+    const lease = await this.file(layer);
+    try {
+      await lease.file.set(key, parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
+   * Sets `key` on `layer` only when that layer's file doesn't already hold it, checked and
+   * written as one step in the file's write queue. Returns whether it wrote.
+   */
+  async setIfAbsent<K extends SettingsKey>(
+    key: K,
+    value: SettingsValues[K],
+    layer: Layer,
+  ): Promise<boolean> {
+    const parsed = this.assignment(key, value, layer);
+    const lease = await this.file(layer);
+    try {
+      return await lease.file.setIfAbsent(key, parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
+   * Several settings on one layer, all or none: every entry is checked first, then one file
+   * commit writes them, so subscribers see them change together.
+   */
+  async setMany(
+    entries: readonly { key: SettingsKey; value: unknown }[],
+    layer: Layer,
+  ): Promise<void> {
+    if (entries.length < 1 || entries.length > 32)
+      throw new SettingsError("limit", "Set between 1 and 32 settings at once");
+    if (new Set(entries.map((entry) => entry.key)).size !== entries.length)
+      throw new SettingsError("validation", "Each setting can be set once per change");
+    const parsed = entries.map((entry) => ({
+      key: entry.key,
+      value: this.assignment(entry.key, entry.value, layer),
+    }));
+    const lease = await this.file(layer);
+    try {
+      await lease.file.setMany(parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /** A value checked for its key and layer, before anything is written. */
+  private assignment(key: SettingsKey, value: unknown, layer: Layer): unknown {
     SettingsKey.parse(key);
     if (key === "providers.configuration" && layer.kind !== "global")
       throw new SettingsError("validation", "Provider configuration is a global user setting");
@@ -185,17 +255,17 @@ export class SettingsService {
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
     if (key === "computer.blockedApps" && layer.kind !== "global")
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
+    if (key === "spade.enabled" && layer.kind !== "global")
+      throw new SettingsError("validation", "Running Spade is a global setting");
+    if (key.startsWith("beta.") && layer.kind !== "global")
+      throw new SettingsError("validation", "Beta features are a global setting");
+    if (globalOnlyKeys.has(key) && layer.kind !== "global")
+      throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Roles are a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")
       throw new SettingsError("validation", "Generation settings belong to the daemon");
-    const parsed = validateValue(key, value);
-    const lease = await this.file(layer);
-    try {
-      await lease.file.set(key, parsed);
-    } finally {
-      lease.release();
-    }
+    return validateValue(key, value);
   }
   /** One global file commit: subscribers see the complete reset together. */
   async reset(keys: readonly SettingsKey[]): Promise<void> {

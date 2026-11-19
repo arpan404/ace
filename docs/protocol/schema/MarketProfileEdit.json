@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketProfileEdit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bio": {
+      "$ref": "https://ace.local/protocol/v1/MarketBio.json"
+    },
+    "displayName": {
+      "$ref": "https://ace.local/protocol/v1/MarketDisplayName.json"
+    },
+    "links": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketLink.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

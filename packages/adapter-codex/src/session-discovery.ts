@@ -79,7 +79,7 @@ export function sessionDiscovery(config: {
     outputRevision++;
     if (!outputScan) {
       outputScan = true;
-      void reconcileLoaded(outputTask);
+      void reconcileLoaded(outputTask).catch(diagnostic);
     }
   }
   function scheduleRecovery(threadId: string): void {
@@ -88,7 +88,7 @@ export function sessionDiscovery(config: {
       threadId,
       config.schedule(() => {
         timers.delete(threadId);
-        if (!config.isClosed()) void recoverThread(threadId);
+        if (!config.isClosed()) void recoverThread(threadId).catch(diagnostic);
       }, 2_000),
     );
   }
@@ -257,7 +257,7 @@ export function sessionDiscovery(config: {
       } while (cursor);
       if (!config.isClosed()) {
         if (task === outputTask) {
-          if (scanRevision !== outputRevision) void reconcileLoaded(outputTask);
+          if (scanRevision !== outputRevision) void reconcileLoaded(outputTask).catch(diagnostic);
           else {
             outputScan = false;
             finishOutputRecovery();
@@ -271,7 +271,7 @@ export function sessionDiscovery(config: {
           task,
           config.schedule(() => {
             timers.delete(task);
-            if (!config.isClosed()) void reconcileLoaded(task);
+            if (!config.isClosed()) void reconcileLoaded(task).catch(diagnostic);
           }, 2_000),
         );
     }

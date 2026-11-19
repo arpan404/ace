@@ -1,12 +1,16 @@
 import SwiftUI
 
 struct ThreadView: View {
-    @Environment(\.dismiss) private var dismiss
+    /// Going back a page, read where it is used: the body never depends on `dismiss`.
+    @State private var back = DismissBox()
     /// Closes the thread open beside the list, which has no page under it to go back to.
     @Environment(\.closeOpenThread) private var closeOpenThread
+    @Environment(\.threadDrawerOpen) private var drawerOpen
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
+    @Environment(\.threadOrganizer) private var organizer
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -14,29 +18,41 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
-    @State private var showTune = false
-    /// The composer's settings sheet, and what it hands on to once it closes.
-    @State private var showSettings = false
-    @State private var afterSettings: (() -> Void)?
     @State private var lane: BlockRow.Agents.Entry?
-    @State private var showFiles = false
+    /// The page showing on a phone (`ThreadPager`), and the one last asked for, which keeps its
+    /// place while it shows even before the thread has something for it.
+    @State private var page: ThreadPageKind = .chat
+    @State private var requestedPage: ThreadPageKind?
+    /// The screen a phone pushed over the thread from ⋯ (Files, Terminal, Browser, Agents).
+    @State private var pushedTool: ThreadPushedTool?
+    /// A native subagent opened from the Agents page, pushed over the thread.
+    @State private var agentRoute: SubagentRoute?
+    /// The file Changes opens at, when something named one (the review sheet's file rows).
+    @State private var changesFile: String?
+    /// The scope the Changes page opens on next, when the Summary asked for one.
+    @State private var changesScope: String?
     @State private var media: TranscriptRow?
+    /// A visualization opened full screen (a phone, or an iPad without room for the panel).
+    @State private var visualization: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
+    @State private var showScripts = false
     @State private var showComputer = false
     @State private var devicesRoute: DevicesRoute?
-    @State private var activityProblem: String?
-    @State private var showAgents = false
-    @State private var showChanges = false
-    @State private var showTerminal = false
-    @State private var showBrowser = false
+    @State private var showWork = false
+    /// The problem line's and Not sent's ways out: one at a time, with their questions.
+    @State private var workRunner = WorkRunner()
+    @State private var confirmingLock = false
+    @State private var showLogs = false
     @State private var showSearch = false
     @State private var showQueue = false
+    /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
+    @Environment(\.panelPlace) private var panelPlace
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
     @State private var goalSheet: GoalPresentation?
-    /// The person reads away from the live end: Scroll to end floats beside the pill.
+    /// The person reads away from the live end: Scroll to end floats over the composer's foot.
     @State private var behind = false
     /// Each Scroll to end the person taps.
     @State private var jumps = 0
@@ -44,28 +60,52 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
-    /// The composer's own height (field and chips), which the page's floor sits behind.
-    @State private var composerHeight: CGFloat = 0
+    /// How far the keyboard lifts the foot, frame by frame: the composer and the transcript's end
+    /// are both drawn by it (`KeyboardRide`).
+    @State private var keyboardRide = KeyboardRide()
+    /// The strip over the capsule: the `@` and `/` list opens above it, never over it.
+    @State private var stripHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
+    /// A pasted file's words going back into the message as text.
+    @State private var restore: ComposerRestore?
+    /// Long pastes on their way to the next message.
+    @State private var pastes = PasteQueue()
+    /// The composer's `@`, `/` and + lists.
+    @State private var suggester = ComposerSuggester()
+    /// "Attach files" picked from `/`: the + menu's three sources are offered.
+    @State private var askAttach = false
+    @State private var renaming = false
+    @State private var transitionSheet: ThreadSheet?
+    /// The fork the composer writes to, once its words are in place (`screen.fork`).
+    @State private var forkKey: String?
+    /// Bumped to bring the keyboard up: a fork opened, a message edited.
+    @State private var composerFocus = 0
+    /// Each fork the machine started: a success tap as it opens.
+    @State private var forksStarted = 0
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
-    /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
-    /// still reads Syncing); without one it falls back conservatively as unconfirmed.
-    private var activityRow: ThreadRow? {
-        if let inboxRow = model.inbox[thread.id] { return inboxRow }
-        guard var fallback = metadata else { return nil }
-        fallback.confirmed = nil
-        fallback.generation = nil
-        return fallback
-    }
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
+    /// Reply can put an agent's words on the next message: this composer is here to send them, and
+    /// one more quote fits. A fork or a new thread being started takes no quotes.
+    private var canQuote: Bool {
+        model.canOperate && !archived && screen.controls?.guest == nil && screen.fork == nil
+            && screen.controls?.continues != true && !screen.quotesFull
+    }
     /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
     }
+    /// The pages this thread offers on a phone; beside the iPad's side panel, Chat alone.
+    private var pages: ThreadPages {
+        guard panelPlace == .none else { return ThreadPages(ThreadPageFacts(chat: true)) }
+        let row = model.inbox[thread.id] ?? metadata
+        return ThreadPages(ThreadPageFacts(chat: row?.chat == true, changedFiles: row?.diff?.files ?? 0,
+                                           requested: requestedPage))
+    }
+    private var shownPage: ThreadPageKind { pages.shown(page) }
     private var subtitle: String {
         guard let metadata else { return "" }
         let place = metadata.branch.isEmpty ? metadata.machine : metadata.branch
@@ -73,43 +113,122 @@ struct ThreadView: View {
     }
 
     var body: some View {
+        content.background { DismissCapture(box: back) }
+    }
+
+    private var feed: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps)
-            .publishedMedia(model: model, threadId: thread.id)
-            .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
+                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps)
+            .markdownShelf(threadId: thread.id)
+    }
+
+    /// Chat alone, or Chat and Changes a swipe apart (a phone, a thread with changes).
+    @ViewBuilder private var pager: some View {
+        let pages = pages
+        if pages.kinds.count < 2 {
+            feed
+        } else {
+            ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) })) { kind in
+                if kind == .chat {
+                    feed.environment(\.chatShowing, shownPage == .chat)
+                } else {
+                    ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
+                                   changesScope: changesScope, scopeShown: { changesScope = nil },
+                                   barHeight: barHeight, openChat: { select(.chat) })
+                }
+            }
+        }
+    }
+
+    /// The pages under the status at accessibility sizes, drawn once so it stays put while they
+    /// swipe, as the navigation bar's own accessory (`ThreadHeaderBar`).
+    private var headed: some View {
+        pager.modifier(ThreadHeaderBar(shown: headerStatus != nil) { header })
+    }
+
+    private var content: some View {
+        let heading = heading
+        return headed
+            .modifier(FloatingBar(height: $barHeight, ride: keyboardRide) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave))
+                ThreadToolbar(menu: ThreadMenu(model: model, threadId: thread.id,
+                                               facts: ThreadMenuFacts.of(model: model, thread: thread, archived: archived),
+                                               title: metadata?.title ?? "", open: open, opensInPanel: panelPlace != .none,
+                                               pages: panelPlace == .none ? pages : nil, shownPage: shownPage, leave: leave),
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) },
+                              coveredByDrawer: drawerOpen)
             }
-            .navigationTitle(metadata?.title ?? "Thread")
+            // The system's title, the project and model under it, and its menu.
+            .threadTitle(metadata?.title ?? "Thread", subtitle: heading.subtitle)
+            .toolbarTitleMenu { if heading.hasMenu { EquatableView(content: heading) } }
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-                if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
-                    StateLabel(status: status)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
-                        .background(AceTheme.Colours.background)
-                }
+            // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
+            // own view, so the row it reads redraws only it, never the transcript.
+            .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
+            .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
+            .modifier(ThreadPushedTools(model: model, thread: thread, pushed: $pushedTool, openThread: openThread,
+                                        openAgent: { agentRoute = $0 }, openChanges: { changesScope = "all"; open(.changes) },
+                                        mention: model.canOperate ? { mention = $0 } : nil))
+            .navigationDestination(item: $agentRoute) { route in
+                SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
+                             openThread: { child in agentRoute = nil; openThread(child) },
+                             openBrowser: { agentRoute = nil; open(.browser) })
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
-            .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
-                Button("OK") { activityProblem = nil }
-            } message: { Text(activityProblem ?? "") }
+            .environment(\.focusComposer) { composerFocus += 1 }
+            // Reply quotes what the agent said into this composer, caret in it to write the reply.
+            .environment(\.replyToMessage, canQuote ? MessageReply(threadId: thread.id) { text, start, end in
+                model.addQuote(text, start: start, end: end)
+                composerFocus += 1
+            } : nil)
+            .keepsThreadQuotes(model: model, thread: thread)
+            // A scope the Summary asked for is this thread's only.
+            .onChange(of: thread.id) { _, _ in changesScope = nil }
+            .environment(\.openChanges) { path in
+                changesFile = path
+                open(.changes)
+            }
+            .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
+                               openThread: openThread)
+            .sensoryFeedback(.success, trigger: forksStarted)
+            // A new thread started from this one (a fork, a continuation): a success tap as it opens.
+            .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
+            // A fork opened: its words go where the composer keeps them (an edited message's to
+            // start with), then the composer writes to it with the keyboard up.
+            .onChange(of: screen.fork?.key, initial: true) { _, key in
+                guard let fork = screen.fork, let hostId = model.hostId, key != nil else {
+                    forkKey = nil
+                    return
+                }
+                let kept = ThreadDrafts.key(hostId: hostId, threadId: fork.key)
+                if !fork.prefill.isEmpty, drafts?.text(for: kept).isEmpty ?? false { drafts?.save(fork.prefill, for: kept) }
+                forkKey = kept
+                composerFocus += 1
+            }
+            .workQuestions(runner: workRunner, model: model, confirmingLock: $confirmingLock)
+            .environment(\.clearStaleLock, model.canOperate ? { confirmingLock = true } : nil)
             .environment(\.openStep) { opens in
                 if opens == "computer" { showComputer = true } else if opens.hasPrefix("device:") { devicesRoute = .device(String(opens.dropFirst(7))) }
             }
             .navigationDestination(item: $devicesRoute) { route in DevicesRouteView(model: model, threadId: thread.id, route: route) }
             .navigationDestination(isPresented: $showComputer) { RemoteScreenView(model: model, threadId: thread.id) }
+            .sheet(isPresented: $showScripts) {
+                NavigationStack {
+                    ProjectScriptsView(model: model, threadId: thread.id) { url in
+                        showScripts = false
+                        model.browserNewTab(url)
+                        open(.browser)
+                    }
+                }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -117,25 +236,20 @@ struct ThreadView: View {
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .fullScreenCover(item: $visualization) { row in
+                NavigationStack { VisualizationScreen(thread: thread, itemId: row.id, title: row.text) }
+            }
             .sheet(isPresented: $showSearch) {
-                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
+                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }).toolbar { SheetClose() } }
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
-            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
-                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
-            .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
-                ComposerSettingsSheet(screen: screen,
-                                      openModel: { afterSettings = { showModels = true }; showSettings = false },
-                                      openTune: { afterSettings = { showTune = true }; showSettings = false },
-                                      setAccess: { mode in Task { _ = await model.setAccess(mode) } })
-            }
+            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle,
+                                       showFiles: Binding(get: { pushedTool == .files }, set: { if !$0, pushedTool == .files { pushedTool = nil } }),
+                                       mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
-            .sheet(isPresented: $showTune) {
-                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
-            }
-            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread, openBrowser: { open(.browser) }) }
             .transferSheet(model: model, kind: "thread")
             .sheet(item: $goalSheet) { opened in
                 if let goal = screen.goal {
@@ -145,10 +259,23 @@ struct ThreadView: View {
             .sheet(isPresented: $showQueue) {
                 if let queue = screen.queue {
                     QueueSheet(queue: queue, canAct: model.canOperate,
-                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                        await model.editQueued(message, change: change)
-                    }
+                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer",
+                               edit: { message, change in await model.editQueued(message, change: change) },
+                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() },
+                               words: { await model.queuedWords($0) },
+                               saveWords: { await model.editQueuedWords($0, text: $1, revision: $2) })
                 }
+            }
+            // The next message continued this thread in a new one: open it once its row is here
+            // (ten seconds at most; after that it's in the list to tap).
+            .task(id: screen.continued) {
+                guard let opened = screen.continued else { return }
+                for _ in 0..<100 where model.inbox[opened] == nil {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if Task.isCancelled { return }
+                }
+                screen.continued = nil
+                if model.inbox[opened] != nil { openThread(opened) }
             }
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
@@ -158,17 +285,21 @@ struct ThreadView: View {
             // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
-            .navigationDestination(isPresented: $showBrowser) {
-                let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+            .environment(\.openBrowser, { open(.browser) })
+            .panelCommands(panelCommands)
+            // A file picked in the side panel's Files goes into this composer.
+            .onChange(of: model.panels.mentioned) { _, picked in
+                if let picked, picked.scope == thread.id { mention = picked.mention }
             }
-            .environment(\.openBrowser, { showBrowser = true })
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
+            .environment(\.stripTasks, Set(screen.leftRunning?.taskIds ?? []))
+            // The transcript and a visualization opened full screen share one copy of each page.
+            .publishedMedia(model: model, threadId: thread.id)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
+                        .padding(AceDesign.Space.tight).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
@@ -176,111 +307,316 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
-    /// surface just above the composer, which holds the oldest open request (a question
-    /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Nothing sits below the composer.
+    /// The status under the title at accessibility sizes.
+    @ViewBuilder private var header: some View {
+        if let status = headerStatus {
+            StateLabel(status: status)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+                // Read before the page under it.
+                .accessibilitySortPriority(1)
+        }
+    }
+    private var headerStatus: StatusDisplay? {
+        typeSize.isAccessibilitySize ? model.headerStatus(of: thread) : nil
+    }
+
+    /// The title and the model under it, one menu: model, effort and access first, then the
+    /// thread's own actions, with "project · branch" heading it.
+    private var heading: ThreadTitleMenu {
+        let operable = model.canOperate && !archived
+        let model = model
+        let changesModel = operable && screen.controls != nil
+        let row = model.inbox[thread.id] ?? metadata
+        let project = row?.chat == true ? "" : row?.project ?? ""
+        return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle,
+                               project: project, projectLook: row?.workspaceId.flatMap { model.projectLooks[$0] },
+                               projectInitials: row?.badge ?? "", projectTint: row?.tint,
+                               startedBy: row?.startedBy,
+                               model: changesModel ? ThreadModelWords.line(screen) : nil,
+                               access: changesModel ? screen.access : nil,
+                               canRename: operable, canRetitle: operable, actions: titleActions,
+                               openModel: { showModels = true },
+                               setAccess: { mode in Task { _ = await model.setAccess(mode) } },
+                               rename: { renaming = true },
+                               retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
+                               openWork: metadata == nil ? nil : { showWork = true })
+    }
+
+    /// The foot above the composer (`ThreadFoot`): a strip, else the pill unless the `@` and `/`
+    /// list is open.
+    private var foot: ThreadFoot {
+        let transfers: TransfersModel = model.transfers
+        var foot: ThreadFoot = ThreadFoot.of(thread, transfers: transfers)
+        foot.suggesting = suggester.trigger != nil
+        return foot
+    }
+    private var hasStrip: Bool { foot.stripShown }
+
+    /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
+    /// request, what holds the queue, a message that didn't go, ...), or else the glass live
+    /// pills; then the composer capsule with the chips on the next message
+    /// just above it. Nothing below it. Scroll to end floats over the foot while the person reads
+    /// away from the end of the Chat page; it is no part of the foot's height, so showing it
+    /// never moves the transcript's end.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
-        VStack(spacing: AceTheme.Spacing.none) {
-            // Whether a request takes the pill's place is the bridge's (`livePill`).
-            ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
-                .padding(.bottom, AceTheme.Spacing.sm)
-            VStack(spacing: AceTheme.Spacing.none) {
-                Group {
-                    if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
-                    // A request needs the person first; the transfer's line waits under it.
-                    else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            if hasStrip {
+                strip
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
+                    // A strip rises out of the composer and fades; with Reduce Motion it only fades.
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            } else if let pill = screen.pill, foot.drawsPill {
+                // The `@` and `/` list takes the pills' place over the transcript while it's open.
+                // Each part says when it's on screen, so the transcript keeps a fact's live rows
+                // whenever its part isn't; a new screen model gets pills of its own to say it there.
+                let screen = screen
+                ComposerLivePills(pill: pill, open: openPill) { part, shown in
+                    if shown { screen.visiblePills.insert(part) } else { screen.visiblePills.remove(part) }
                 }
-                .transition(.opacity)
-                if archived {
-                    ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
-                } else if model.canOperate {
-                    ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
-                                 send: { text, alternate in
-                                     let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
-                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
-                                     if saved { acceptedSend += 1 }
-                                     return saved
-                                 }, stop: { model.stopTree() },
-                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                 files: screen.attachments.count,
-                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
-                        ComposerAccessories(model: model, screen: screen, problem: attachProblem)
-                    } leading: {
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                    } access: {
-                        ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
-                    } model: {
-                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
-                    } settings: {
-                        Button { showSettings = true } label: {
-                            Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(AceTheme.Colours.foreground)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
-                    }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
-                } else {
-                    ViewOnlyNote.thread
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
-                }
+                    .id(ObjectIdentifier(screen))
+                    .transition(.opacity)
             }
-            .composerGlassGroup()
+            composer
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .keyboardDriftMark(.composer)
+        .keyboardDriftMark(.composerFoot)
+        // No band behind the foot: the transcript scrolls on under the glass pills, strip and
+        // capsule and shows through them, as it does under the system's own glass.
+        .overlay(alignment: .top) {
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
+                .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
+        }
+        // Only a strip, the pills or the fork strip arriving or leaving animates, with the
+        // system's spring; the pills' words and a strip's counts change in place, so a
+        // streaming turn never moves the foot.
+        .animation(.default, value: request?.id)
+        .animation(.default, value: hasStrip)
+        .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: suggester.trigger == nil)
+        .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
+    }
+
+    /// The one strip above the capsule, by what needs the person first.
+    @ViewBuilder private var strip: some View {
+        if !stripRequests.isEmpty {
+            RequestStrip(requests: stripRequests, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
+        }
+        // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
+        else if let hold = screen.queue?.strip,
+                HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
+            QueueHoldStrip(strip: hold,
+                           canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
+                           act: { await model.actOnQueue($0) },
+                           chooseModel: { showModels = true }, openQueue: { showQueue = true })
+        }
+        // A message that didn't go, with Try again, Edit and Remove.
+        else if let held = screen.queue?.notSent {
+            NotSentStrip(message: held, canAct: model.canOperate && !archived, act: { await model.actOnQueue($0) },
+                         edit: { message, change in await model.editQueued(message, change: change) },
+                         words: { await model.queuedWords(held.id) },
+                         saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+        }
+        // Commands a stopped turn left running, with one Stop.
+        else if let left = screen.leftRunning {
+            LeftRunningStrip(row: left, canAct: model.canOperate && !archived) { id in _ = await model.stopTask(id) }
+        }
+        // A request needs the person first; the transfer's line waits under it.
+        else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+        // What stops the checkout waits under a request and a transfer.
+        else if let line = screen.work {
+            WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
+        }
+    }
+
+    /// A long paste goes as a text file, as the web's does: staged off the main actor in paste
+    /// order, attached only to this thread, and Send waits for it (`PasteQueue`).
+    /// This thread's long pastes still on their way, in paste order.
+    private var pastesAdding: [PasteIntake.Adding] { pastes.intake.adding(in: thread.id) }
+    private func pasteLong(_ words: String) {
+        attachProblem = nil
+        let model = model
+        pastes.paste(words, scope: thread.id, open: { model.thread?.id }, attach: { model.attach($0) }, refused: { attachProblem = $0 })
+    }
+    /// A pasted file's words back into the field, read off the main actor.
+    private func pasteAsText(_ localId: String) {
+        Task {
+            guard let words = await ComposerIntake.pastedText(localId, in: AttachmentStaging()) else {
+                attachProblem = "Couldn't read the paste back."; return
+            }
+            model.detach(localId)
+            restore = ComposerRestore(text: words)
+        }
+    }
+
+    @ViewBuilder private var composer: some View {
+        let request = thread.approvals.first
+        if archived {
+            ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if let guest = screen.controls?.guest {
+            GuestSessionNote(line: guest.line, canStop: model.canOperate && screen.controls?.canStop == true,
+                             stopping: screen.stopping) { model.stopTree() }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if model.canOperate {
+            ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
+                         send: { text, alternate, references in
+                             let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                             let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
+                             if saved { acceptedSend += 1 }
+                             return saved
+                         }, stop: { model.stopTree() },
+                         inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                         // Paste, drop and folders join the attach menu's lock: no file joins while a
+                         // new thread starts from this message (the bridge refuses one anyway).
+                         intake: screen.attachmentsLocked != nil ? nil : { providers in
+                             Task {
+                                 let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
+                                 attachProblem = result.note
+                                 for file in result.files { model.attach(file) }
+                             }
+                         },
+                         // A long paste goes as a text file, as the web's does; the chip can put it back.
+                         pasteLong: screen.attachmentsLocked != nil ? nil : { pasteLong($0) },
+                         adding: pastesAdding.count,
+                         restore: restore,
+                         recall: { older in await model.sentText(thread.id, older: older) },
+                         files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
+                         draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                         suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
+                         listAbove: hasStrip ? stripHeight : 0,
+                         run: runComposerAction, focusRequest: composerFocus) {
+                if let fork = screen.fork {
+                    ForkStrip(fork: fork) { model.closeFork() }
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                } else {
+                    // As the web's composer strip: the thread's automations, when nothing more urgent is there.
+                    ThreadAutomationStrip(model: model, threadId: thread.id)
+                }
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) })
+            } leading: { pick in
+                AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .disabled(screen.attachmentsLocked != nil)
+            }
+            .task(id: thread.id) {
+                suggester.attach(model)
+                suggester.scope = .thread(thread.id)
+                suggester.readAhead()
+            }
+        } else {
+            ViewOnlyNote.thread
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
+        }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
     private func leave() {
-        if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
+        if let close = closeOpenThread, close.id == thread.id { close.close() } else { back.dismiss?() }
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
         switch opens {
-        case "agents": showAgents = true
+        case "agents": open(.agents)
         case "queue": showQueue = true
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
     }
-    @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
-        let submission = model.approvalSubmissions[request.id]
-        switch request.kind {
-        case "question":
-            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
-                model.answer(request, answers: $0, dismissed: $1)
-            }.id(request.id)
-        case "plan_review":
-            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "elicitation":
-            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "browser_help":
-            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
-        default:
-            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
+    /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
+    private func runComposerAction(_ action: String) {
+        switch action {
+        case "attach": askAttach = true
+        case "plan": Task { _ = await model.setAccess("read-only") }
+        case "model": showModels = true
+        case "review": open(.changes)
+        case "fork": open(.forkLast)
+        case "attachments": open(.attachments)
+        default: break
         }
     }
-    /// The composer always reads the same; how a message goes while the agent works is the send
-    /// button's to say.
-    private let placeholder = "Ask anything"
+    /// What typing does now, short: ask, steer or queue while the tree works, reply while it waits.
+    private var placeholder: String {
+        ComposerPlaceholder.text(fork: screen.fork != nil, answering: !stripRequests.isEmpty, busy: screen.controls?.busy == true)
+    }
+    private func openMedia(_ row: TranscriptRow) {
+        switch MediaOpening.of(row, panelBeside: panelPlace != .none) {
+        case .panel(let title): panel(["op": "open", "kind": PanelTool.visualization.rawValue, "id": row.id, "title": title])
+        case .fullScreen: visualization = row
+        case .viewer: media = row
+        }
+    }
     private func open(_ destination: ThreadDestination) {
+        // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
+        if panelPlace != .none, let tool = destination.panelTool {
+            panel(["op": "open", "kind": tool.rawValue])
+            return
+        }
+        // On a phone Changes is a page beside Chat; the other tools push over the thread.
+        if panelPlace == .none, let page = destination.page {
+            pushedTool = nil
+            select(page)
+            return
+        }
+        if panelPlace == .none, let tool = destination.pushed {
+            pushedTool = tool
+            return
+        }
         switch destination {
-        case .changes: showChanges = true
+        case .rename: renaming = true
+        case .forkLast: Task { _ = await model.openFork(.latest) }
+        case .merge: transitionSheet = .merge
+        case .turns: transitionSheet = .turns
+        case .attachments: transitionSheet = .files
+        case .work: showWork = true
         case .search: showSearch = true
-        case .files: showFiles = true
-        case .terminal: showTerminal = true
-        case .browser: showBrowser = true
+        case .scripts: showScripts = true
         case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
-        case .agents: showAgents = true
+        case .logs: showLogs = true
+        // Pages: with the side panel they opened as its tabs above.
+        case .chat, .changes, .files, .terminal, .browser, .agents, .summary: break
         }
+    }
+    /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.
+    private var titleActions: ThreadTitleActions {
+        guard model.canOperate, !archived else { return ThreadTitleActions() }
+        let menu = model.inbox[thread.id]?.menu ?? []
+        let labels = model.inboxLayout.menuLabels ?? [:]
+        let run = { (id: String) -> (() -> Void)? in
+            guard menu.contains(id), let organizer, let hostId = model.hostId else { return nil }
+            return { organizer.perform(InboxKey(machineId: hostId, id: thread.id), id) }
+        }
+        var actions = ThreadTitleActions()
+        if screen.transitions?.lastTurn == true { actions.fork = { open(.forkLast) } }
+        actions.copyLink = run("copy-link")
+        if let settle = run("settle") {
+            actions.settle = .init(label: labels["settle"] ?? "Settle", settled: false, run: settle)
+        } else if let unsettle = run("unsettle") {
+            actions.settle = .init(label: labels["unsettle"] ?? "Unsettle", settled: true, run: unsettle)
+        }
+        return actions
+    }
+    /// The requests the strip above the composer shows.
+    private var stripRequests: [ApprovalRow] { thread.approvals }
+    /// Shows a page; asking for one keeps it while it shows.
+    private func select(_ next: ThreadPageKind) {
+        requestedPage = next == .chat ? nil : next
+        guard page != next else { return }
+        withAnimation { page = next }
+    }
+    /// The panel's keys while it has room beside this thread.
+    private var panelCommands: PanelCommands? {
+        guard panelPlace != .none else { return nil }
+        let view = model.panels.views[thread.id]
+        let shown = view?.open == true ? view?.shown : nil
+        return PanelCommands(act: panel, hasTab: !(view?.tabs.isEmpty ?? true), canReopen: view?.canReopen == true,
+                             closable: shown.flatMap { $0.pinned ? nil : $0.key })
+    }
+    private func panel(_ op: [String: Any]) {
+        withAnimation { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
@@ -296,42 +632,89 @@ private struct GoalPresentation: Identifiable {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, request included, at its end. Behind the composer the
-/// page is solid, fading in just above it, so words never show around the field, in the gap above
-/// the keyboard or behind the home indicator.
+/// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
+/// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
+/// words never show in the gap above the keyboard or behind the home indicator.
+///
+/// The bar doesn't take the system's keyboard avoidance. It is drawn up by `ride`, which this sets
+/// from the keyboard's notification and the rows following the transcript's end are drawn by too,
+/// so the two never drift apart (#2170). The offset moves the bar's taps with it; nothing around
+/// it is resized and no inset changes.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
-    /// How tall the composer is, from the bar's lower edge.
-    let floor: CGFloat
+    let ride: KeyboardRide
     @ViewBuilder let bar: () -> Bar
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    /// The area the bar rests at the foot of, keyboard ignored, in screen points.
+    @State private var column: CGRect = .zero
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
+            // Where the keyboard is drawn, frame by frame, for the ride.
+            KeyboardEdgeReader(tracker: ride.edges)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor(height: floor) }
+                .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                .modifier(KeyboardRideOffset(ride: ride))
+                // At the foot of the whole keyboard-free area, so the system's avoidance never
+                // moves it: only a view that can grow takes the room the keyboard would cover.
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { column = $0 }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            let start = CACurrentMediaTime()
+            guard let move = KeyboardMove(note) else { return }
+            // The notification's frame is in screen points, the column in the window's.
+            let window = ride.edges.windowOnScreen ?? CGRect(origin: .zero, size: column.size)
+            let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboardOnScreen: move.end, windowOnScreen: window))
+            ride.move(to: lift, foot: column.maxY, start: start, duration: move.duration, animated: !reduceMotion)
+        }
+        // A move never outlives the thread on screen or the app in the foreground: it lands where
+        // it was going and its frames stop.
+        .onDisappear { ride.finish() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { ride.finish() } }
     }
 }
 
-/// The page colour from just above the composer on down, behind the keyboard's translucent edge
-/// and the home indicator.
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
+/// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
-    let height: CGFloat
-    private let below = AceTheme.Dimensions.touchTarget * 8
-    private let fade = AceTheme.Spacing.lg
+    private let below = AceDesign.Size.tap * 8
+    private let fade = AceDesign.Space.margin
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
                 .frame(height: fade)
             AceTheme.Colours.background
         }
-        .frame(height: height + fade + below)
+        .frame(height: fade + below)
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The page's current dismiss action, kept out of the thread page's body. Read there, every new
+/// `DismissAction` (the navigation container hands out another whenever it updates, which with an
+/// accessibility client attached is every frame) re-evaluated the page, its feed and every row.
+@MainActor final class DismissBox {
+    var dismiss: DismissAction?
+}
+
+/// Reads `dismiss` into the page's box; only this empty view updates when it changes.
+private struct DismissCapture: View {
+    let box: DismissBox
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let _ = box.dismiss = dismiss
+        Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
     }
 }

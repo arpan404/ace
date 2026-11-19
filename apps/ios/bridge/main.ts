@@ -1,46 +1,92 @@
 import { host } from "./polyfills.ts";
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
+import { forgetNativeTurnSteps } from "./read-snapshots.ts";
+import type { TurnStepsStore } from "@ace/client/turn-steps";
+import { ClientCore, screenTail } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
+import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
-import { PatchPump, followThread } from "./patches.ts";
-import { LedgerShelf } from "./native-ledger.ts";
-import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
+import { ProjectManage } from "./project-manage.ts";
+import { PatchPump } from "./patches.ts";
+import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
-import { ThreadSession } from "./thread-session.ts";
+import { ThreadVisit } from "./thread-visit.ts";
+import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
+import {
+  accountCredential,
+  accountGate,
+  deviceGrant,
+  machineCodeRefusal,
+} from "./account-machine.ts";
+import type { MachineCodeGate } from "@ace/client";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { MachineFollowers } from "./machine-followers.ts";
+import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { NeedsAction, followNeeds, type NeedsFollow } from "./inbox-needs.ts";
 import { Sheets } from "./sheets.ts";
+import { ChangesKept } from "./changes-kept.ts";
+import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import { CatalogPage } from "./catalog-page.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
+import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
+import { CheckoutDownloads } from "./checkout-downloads.ts";
+import { CheckoutMemory } from "./checkout-memory.ts";
+import { CheckoutTrees } from "./checkout-tree-live.ts";
+import { CheckoutUploads } from "./checkout-uploads.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
 import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
+import { phoneDeviceStorage } from "./browser-device.ts";
+import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
-import { nativeChunks } from "./thread-attachments.ts";
+import { nativeChunks, Picked } from "./thread-attachments.ts";
+import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
+import { OutsideOpenAction, OutsideWatch } from "./outside-clients.ts";
+import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
+import { phoneMedia, type PhoneMedia } from "./phone-media.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
+import { NativeAutomations } from "./automations.ts";
+import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
+import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
+import { NativeSpade, NativeSpadeAction } from "./spade.ts";
+import { ReadAhead } from "./read-ahead.ts";
+import { ThreadLinger } from "./thread-linger.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
+  /** This app install (ADR 0115), sent in every hello so the machine sees one device. */
+  installId: InstallId.optional().catch(undefined),
+  /** This install's other device id on the same machine (ADR 0115): its saved sends are ours. */
+  deviceAliases: z.array(DeviceId).max(4).optional().catch(undefined),
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
+  /**
+   * A machine on the phone's ace account, through ace's relay: device grants (ADR 0111), and
+   * the proof of this install's pairing with it (`link`, ADR 0115); a malformed proof is dropped.
+   */
+  account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
@@ -49,6 +95,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
+  /** Unmetered, unconstrained network and not Low Power Mode: reading ahead may run. */
+  z.object({ type: z.literal("readAhead"), allowed: z.boolean() }),
   z.object({
     type: z.literal("command"),
     payload: z.unknown(),
@@ -57,6 +105,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("wake") }),
   z.object({ type: z.literal("machine.refresh") }),
+  /** The machine code the person typed for an account machine; kept until the daemon answers. */
+  z.object({ type: z.literal("machine.code"), code: z.string().max(128) }),
   /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
   z.object({
     type: z.literal("thread"),
@@ -67,6 +117,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
   /** New thread and Add project (`compose-actions.ts`). */
   z.object({ type: z.literal("compose"), action: z.unknown() }),
+  /** The composer's `@`, `/` and + lists (`composer-suggest.ts`). */
+  z.object({ type: z.literal("suggest"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -80,32 +132,76 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("transfers"), action: TransferAction }),
 ]);
 let client: ClientCore | undefined;
+/** An account machine's machine-code gate; undefined for paired machines. */
+let gate: MachineCodeGate | undefined;
+let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
-let lease: Lease<ThreadSource> | undefined;
-let stopThread: (() => void) | undefined;
-let session: ThreadSession | undefined;
-let epoch = 0;
 let machine: MachineProviders | undefined;
+/** Pause and update state of the machine; replaced on every start. */
+const followers = new MachineFollowers();
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
+let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
+let inbox: InboxFollow | undefined;
+/** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
+let needs: NeedsFollow | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
+let media: PhoneMedia | undefined;
 let transfers: NativeTransfers | undefined;
+let filesActions: FilesActions | undefined;
+let access: ComputerAccess | undefined;
+/** Outside apps' pending sign-ins and screen use on this machine (`outside-clients.ts`). */
+let outside: OutsideWatch | undefined;
+/** The threads the person is likely to open, read ahead (`read-ahead.ts`). */
+let ahead: ReadAhead | undefined;
+/** Native's last word on whether the network and power allow reading ahead. */
+let readAheadAllowed = false;
+let workspace: NativeWorkspace | undefined;
+/** Spade on this machine, through its daemon (`spade.ts`). */
+let spade: NativeSpade | undefined;
 const pump = new PatchPump();
-/**
- * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
- * 4 Mi UTF-16 units go too, the oldest first.
- */
-const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
+const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
-const sheets = new Sheets(pump, preview);
-let openThreadId: string | undefined;
+const sheets = new Sheets(pump, preview, {
+  kept: new ChangesKept(keptValue("review"), scheduler),
+  now: () => host.now(),
+  id: () => host.uuid(),
+  scheduler,
+});
+/** Subagent retries asked from this phone, kept across visits to their threads. */
+const retries = new SubagentRetries();
+let keptSteps: TurnStepsStore | undefined;
+let stepsHostId: string | undefined;
+/** The thread open on the phone, and what else follows it. */
+const visit = new ThreadVisit(
+  pump,
+  {
+    leaving() {
+      services?.transcript.close();
+      sheets.close();
+      browser?.close();
+      transfers?.follow(undefined);
+    },
+    opened(threadId, epoch, store) {
+      if (client) sheets.follow({ owner: client, store, threadId, epoch, reads: client });
+      browser?.probe(threadId, epoch);
+      transfers?.follow({ threadId, epoch, store });
+    },
+    reading: (threadId) => services?.transcript.source(threadId),
+    keptSteps: () => keptSteps,
+  },
+  (id) => suggest?.entries(id),
+  undefined,
+  retries,
+  new ThreadLinger(scheduler.set),
+);
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
-  const agent = threadId === openThreadId ? lease?.store.agent(agentId) : undefined;
+  const agent = threadId === visit.threadId ? visit.store?.agent(agentId) : undefined;
   return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
 }
 function error(): void {
@@ -116,18 +212,55 @@ function error(): void {
 }
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
+  snapshots = nativeReadSnapshots(call, () => host.now());
+  const storage = snapshots;
+  stepsHostId = config.hostId;
+  keptSteps = turnStepsStoreIn(async () => storage, {
+    hostId: config.hostId,
+    build: "ios-turn-steps-v1",
+  });
   const paired = config.paired;
-  client = new ClientCore({
-    deviceId: config.deviceId,
-    expectedHostId: config.hostId,
-    limits: { items: config.itemLimit, text: 8192 },
-    transport: () => nativeTransport(trust),
-    credential: paired
-      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
+  const account = config.account ? accountGate(() => call("credential")) : undefined;
+  gate = account;
+  const credential = paired
+    ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
+    : account
+      ? accountCredential(account, config.account?.link)
       : async () =>
           z
             .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
-            .parse(JSON.parse(await call("credential"))),
+            .parse(JSON.parse(await call("credential")));
+  // The daemon refuses an account hello with `machine_code_*` until the code is entered.
+  const early = account
+    ? (text: string) => {
+        const refusal = machineCodeRefusal(text);
+        if (refusal) account.refused(refusal.reason, refusal.lockedUntil);
+      }
+    : undefined;
+  if (account) {
+    const machineCode = () =>
+      pump.put("machine.code", () => ({
+        type: "machine.code",
+        asking: account.asking ?? null,
+        lockedUntil: account.lockedUntil ?? null,
+      }));
+    account.subscribe(machineCode);
+  }
+  client = new ClientCore({
+    deviceId: config.deviceId,
+    ...(config.installId ? { installId: config.installId } : {}),
+    ...(config.deviceAliases ? { deviceAliases: config.deviceAliases } : {}),
+    // An account machine's key is pinned by the relay handshake; its welcome names the
+    // daemon's own id, not the relay host id this runtime is keyed by.
+    ...(account ? {} : { expectedHostId: config.hostId }),
+    limits: { items: config.itemLimit, text: 8192 },
+    // A thread paints from one screenful; the rest of its window pages in behind it.
+    openTail: screenTail,
+    transport: () => nativeTransport(trust, early),
+    credential,
+    // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
+    // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
+    ...(account ? { grant: deviceGrant(() => call("credential.fresh")) } : {}),
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {
@@ -147,24 +280,57 @@ async function start(json: string): Promise<void> {
       },
     },
     // The inbox and opened threads paint from what this phone read last time (ADR 0030).
-    readSnapshots: nativeReadSnapshots(call),
+    readSnapshots: snapshots,
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    // Liveness deadlines run on the host's monotonic clock, never the wall clock (ADR 0150).
+    monotonic: () => host.monotonicMs(),
+    // Every drop and recovery, with its close code and reason, goes to the device log.
+    report: (event) =>
+      pump.put("connection.event", () => ({
+        type: "connection.event",
+        text: `${event.event} ${Object.entries(event.data ?? {})
+          .map(([key, value]) => `${key}=${String(value)}`)
+          .join(" ")}`,
+      })),
   });
   const connection = client.connectionState();
-  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
+  notifications = new NotificationBridge(
+    client,
+    (key, read) => pump.put(key, read),
+    scheduler.set,
+    () => {
+      // The phone's own clock and time zone: quiet hours are local to the phone.
+      const now = new Date(host.now());
+      return now.getHours() * 60 + now.getMinutes();
+    },
+    undefined,
+    undefined,
+    () => host.now(),
+    keptValue("runAlerts"),
+  );
   const owner = client;
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
-    if (connection.getSnapshot() === "ready") trust.clear();
+    if (connection.getSnapshot() !== "ready") return;
+    trust.clear();
+    account?.welcomed();
+  });
+  connection.subscribe(() => {
     pump.put("connection.problem", () => ({
       type: "connection.problem",
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
   });
-  followInbox(
+  const dismissed = followDismissed({
+    load: () => call("storage.dismissed.load"),
+    save: async (value) => {
+      await call("storage.dismissed.save", null, value);
+    },
+  });
+  inbox = followInbox(
     client,
     config.hostId,
     pump,
@@ -173,12 +339,39 @@ async function start(json: string): Promise<void> {
     // What the phone draws first at its next launch, before this runtime starts.
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
+    dismissed,
   );
+  needs?.stop();
+  needs = followNeeds(client, pump);
+  outside?.stop();
+  outside = new OutsideWatch(client, pump, preview, () => host.now());
+  outside.start();
+  spade?.stop();
+  spade = new NativeSpade(client, pump, {
+    now: () => host.now(),
+    id: () => host.uuid(),
+    later: (delay, callback) => scheduler.set(delay, callback),
+  });
+  spade.start();
+  ahead?.stop();
+  const reading = client;
+  ahead = new ReadAhead({
+    list: () => reading.cachedThreads(),
+    observeList: (listener) => reading.cachedThreads()?.observe(listener) ?? (() => {}),
+    lease: (id) => reading.thread(id, { optional: true }),
+    held: (id) => reading.cachedThread(id) !== undefined,
+    open: () => visit.threadId,
+    schedule: scheduler.set,
+    now: () => host.now(),
+  });
+  ahead.start();
+  ahead.allow(readAheadAllowed);
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
+  const admission = followers.replace(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {
     now: () => host.now(),
@@ -191,16 +384,20 @@ async function start(json: string): Promise<void> {
     },
   });
   void reads.restore();
-  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
+  compose = new ComposeActions(
+    client,
+    pump,
+    preview,
+    () => host.now(),
+    nativeChunks,
+    reads,
+    dismissed,
+  );
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
-    credential: paired
-      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
-      : async () =>
-          z
-            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
-            .parse(JSON.parse(await call("credential"))),
+    expectedHostId: account ? undefined : config.hostId,
+    credential,
     id: () => host.uuid(),
     trust,
   };
@@ -218,11 +415,59 @@ async function start(json: string): Promise<void> {
         .identity.displayName),
   );
   const search = compose.search;
-  const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
-    search.complete(workspaceId, query, limit),
+  suggest = new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview,
+    schedule: scheduler.set,
+    now: () => host.now(),
+    thread: () => {
+      const openId = visit.threadId;
+      const thread = openId ? visit.store?.thread : undefined;
+      return thread && openId
+        ? { threadId: openId, workspaceId: thread.workspaceId, provider: thread.provider }
+        : undefined;
+    },
+    threads: () => sidebarThreads(owner),
+    draft: search,
+  });
+  compose.newThread.readCatalogFrom((workspaceId, provider) =>
+    suggest?.draftEntries(workspaceId, provider),
   );
+  const memory = new CheckoutMemory(keptValue("files"), pump, scheduler);
+  const files = new CheckoutFiles(
+    client,
+    (workspaceId, query, limit) => search.complete(workspaceId, query, limit),
+    (scope) => memory.recent(scope),
+  );
+  filesActions = {
+    memory,
+    downloads: new CheckoutDownloads(client, pump, { call, uuid: () => host.uuid() }),
+    uploads: new CheckoutUploads(client, pump, nativeChunks),
+    trees: new CheckoutTrees(client, files, pump, scheduler),
+  };
   followFileChanges(client, pump);
   const forgeClient = client;
+  services?.dispose();
+  const newThread = compose.newThread;
+  const automations = new NativeAutomations({
+    owner: client,
+    // Whole milliseconds, as the daemon's clock reads them.
+    now: () => Math.floor(host.now()),
+    zone: localTimeZone,
+    agents: async () => {
+      if (!newThread.loadedAgents) await newThread.agents();
+      return newThread.loadedAgents;
+    },
+    threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
+    repository: async (folder) => {
+      const reply = await owner.request(
+        { type: "projects.request", operation: { op: "workspace.inspect", path: folder } },
+        { timeoutMs: 10_000 },
+      );
+      return reply.result.kind === "inspection" ? projectRepository(reply.result) : undefined;
+    },
+  });
   services = new NativeServices(
     client,
     pump,
@@ -238,17 +483,61 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    new ProjectManage(client, scheduler.set),
+    inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
+    new HostCare(client, admission),
+    () => host.now(),
+    automations,
   );
+  // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
+  services.carried = (threadId) =>
+    threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
+  services.spade = spade;
+  workspace = new NativeWorkspace(pump, {
+    load: () => call("storage.workspace.load"),
+    save: async (value) => {
+      await call("storage.workspace.save", null, value);
+    },
+  });
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
+  access = new ComputerAccess(client, pump, preview, scheduler.set, () => host.uuid());
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
-      threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
+      threadId === visit.threadId && agentId ? agentName(visit.store?.agent(agentId)) : "An agent",
     workspaceId: (threadId) =>
-      threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
+      threadId === visit.threadId ? visit.store?.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
+    files: {
+      write: (input, body) => call("file.write", input, body),
+      discard: (input) => call("file.discard", input),
+    },
+    stage: async (name, mimeType, data) =>
+      Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
+    annotations: (threadId) =>
+      threadId === visit.threadId ? visit.session?.annotations : undefined,
+    threadState: (threadId) => reading.cachedThreads()?.thread(threadId)?.status.state,
+    observeThreads: (listener) => reading.cachedThreads()?.observe(listener) ?? (() => {}),
+    devices: phoneDeviceStorage({
+      load: () => call("storage.devices.load"),
+      save: async (value) => {
+        await call("storage.devices.save", null, value);
+      },
+    }),
   });
+  // Live pictures by ace-media when the machine offers it (ADR 0147 §4); the main socket otherwise.
+  media?.stop();
+  media = phoneMedia(client, {
+    // An account machine is reached only through the relay: its grants carry no address.
+    relay: account ? { deviceId: config.deviceId, credential } : undefined,
+    schedule: (run, ms) => scheduler.set(ms, run),
+    now: () => host.monotonicMs(),
+  });
+  browser.useMedia(media.route, media.deliver);
+  screen.useMedia(media.route, media.deliver);
+  devices.useMedia(media.route, media.deliver);
   await client.start();
 }
 function action(json: string): void {
@@ -257,6 +546,17 @@ function action(json: string): void {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
+      return;
+    }
+    const statsControl = DeviceStatsControl.safeParse(raw);
+    if (statsControl.success) {
+      deviceStats.handle(statsControl.data);
+      return;
+    }
+    const accessControl = ComputerAccessControl.safeParse(raw);
+    if (accessControl.success) {
+      if (access) access.handle(accessControl.data);
+      else error();
       return;
     }
     const screenControl = NativeScreenControl.safeParse(raw);
@@ -269,9 +569,39 @@ function action(json: string): void {
       terminal?.handle(terminalAction.data);
       return;
     }
+    const panel = WorkspaceAction.safeParse(raw);
+    if (panel.success) {
+      if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
+    const spadeAction = NativeSpadeAction.safeParse(raw);
+    if (spadeAction.success) {
+      if (spade) spade.handle(spadeAction.data);
+      else error();
+      return;
+    }
     const service = NativeServiceAction.safeParse(raw);
     if (service.success) {
       services?.handle(service.data);
+      return;
+    }
+    const filesAction = NativeFilesAction.safeParse(raw);
+    if (filesAction.success) {
+      if (filesActions) routeFilesAction(filesActions, filesAction.data);
+      else error();
+      return;
+    }
+    const openAccess = OutsideOpenAction.safeParse(raw);
+    if (openAccess.success) {
+      if (outside) outside.open(openAccess.data);
+      else error();
+      return;
+    }
+    const need = NeedsAction.safeParse(raw);
+    if (need.success) {
+      if (needs) needs.handle(need.data);
+      else error();
       return;
     }
     const notice = NotificationAction.safeParse(raw);
@@ -280,7 +610,31 @@ function action(json: string): void {
       else error();
       return;
     }
+    const cache = CacheAction.safeParse(raw);
+    if (cache.success) {
+      // Cleared chats aren't followed any longer either.
+      if (cache.data.type === "cache.clear") visit.forgetLingering();
+      if (client && snapshots)
+        void handleCacheAction(cache.data, {
+          client,
+          snapshots,
+          sink: pump,
+          async forgetSteps(threadId) {
+            if (snapshots && stepsHostId)
+              await forgetNativeTurnSteps(call, snapshots, stepsHostId, threadId);
+          },
+          ...visit.reloads(client),
+        });
+      else error();
+      return;
+    }
     const value = Action.parse(raw);
+    // Native's word on network and power holds across starts: kept even before a client exists.
+    if (value.type === "readAhead") {
+      readAheadAllowed = value.allowed;
+      ahead?.allow(value.allowed);
+      return;
+    }
     if (!client) {
       if (value.type === "command")
         pump.put(`admission:${value.requestId}`, () => ({
@@ -294,37 +648,10 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        services?.transcript.close();
-        stopThread?.();
-        sheets.close();
-        lease?.release();
-        openThreadId = value.threadId;
-        lease = client.thread(value.threadId);
-        session?.dispose();
-        {
-          const ledger = ledgers.open(value.threadId, value.warm ?? false);
-          pump.bind(ledger, ++epoch);
-          stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
-        }
-        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
-        browser?.close();
-        browser?.probe(value.threadId, epoch);
-        transfers?.follow({ threadId: value.threadId, epoch, store: lease.store });
+        visit.open(client, value.threadId, value.warm ?? false);
         break;
       case "back":
-        services?.transcript.close();
-        epoch++;
-        pump.bind(undefined, epoch);
-        ledgers.trim();
-        session?.dispose();
-        session = undefined;
-        stopThread?.();
-        sheets.close();
-        browser?.close();
-        transfers?.follow(undefined);
-        lease?.release();
-        lease = undefined;
-        openThreadId = undefined;
+        visit.back();
         break;
       case "network":
         client.networkOnline(value.online);
@@ -338,20 +665,37 @@ function action(json: string): void {
       case "machine.refresh":
         machine?.refresh();
         break;
+      case "machine.code":
+        try {
+          gate?.enter(value.code);
+          client.codeEntered();
+        } catch {
+          pump.put("machine.code", () => ({
+            type: "machine.code",
+            asking: gate?.asking ?? null,
+            lockedUntil: gate?.lockedUntil ?? null,
+          }));
+        }
+        break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);
         break;
       case "thread":
-        routeThreadAction(session, value.epoch, value.action, (key, read) => pump.put(key, read));
+        routeThreadAction(visit.session, value.epoch, value.action, (key, read) =>
+          pump.put(key, read),
+        );
         break;
       case "inbox":
-        inboxAction(client, value.action, value.requestId, pump);
+        inboxAction(client, value.action, value.requestId, pump, inbox);
         break;
       case "archive":
         if (!archive?.handle(value.action)) error();
         break;
       case "compose":
         if (!compose?.compose(value.action)) error();
+        break;
+      case "suggest":
+        if (!suggest?.handle(value.action)) error();
         break;
       case "browser":
         if (!browser?.action(value.action)) error();
@@ -361,9 +705,11 @@ function action(json: string): void {
         else error();
         break;
       case "sheet": {
+        const store = visit.store;
+        const threadId = visit.threadId;
         const thread =
-          lease && openThreadId
-            ? { owner: client, store: lease.store, threadId: openThreadId, epoch }
+          store && threadId
+            ? { owner: client, store, threadId, epoch: visit.epoch, reads: client }
             : undefined;
         if (!sheets.action(thread, value.action)) error();
         break;

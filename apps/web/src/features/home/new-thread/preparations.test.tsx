@@ -4,6 +4,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { typeAtEnd } from "@/test/composer-text.ts";
 import { writeDraft } from "@/features/thread/index.ts";
 import { saveChoices } from "./choices.ts";
 import {
@@ -117,6 +118,23 @@ test("a discarded draft comes back, row and message, with Undo", async () => {
   await waitFor(async () =>
     expect((await message()).textContent).toBe("Keep this half-written thought"),
   );
+});
+
+test("a discarded skill draft stays gone instead of its skill refilling the message, and Undo brings it back", async () => {
+  const made = app();
+  await made.open("/new?project=relay&skill=make-a-suit");
+  await typeAtEnd(await message(), "in green");
+  await screen.findByRole("button", { name: "Discard draft in relay" });
+  await userEvent.click(screen.getByRole("button", { name: "Discard draft in relay" }));
+  await waitFor(() => expect(drafts()).toBeNull());
+  expect((await message()).textContent).toBe("");
+  // Still gone once the page has settled: nothing wrote the row back.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(drafts()).toBeNull();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(async () => expect((await message()).textContent).toContain("in green"));
+  expect(drafts()).not.toBeNull();
 });
 
 test("an uploaded draft attachment survives navigation and first send promotes one row into one thread", async () => {
@@ -259,7 +277,7 @@ test("a removed project's draft opens its saved content and recovery guidance in
   await made.client.enqueue({
     type: "workspace.remove",
     workspaceId: WorkspaceId.parse("relay"),
-    archiveThreads: true,
+    stopRunning: true,
   });
   await waitFor(async () => {
     const reply = await made.client.request({
@@ -276,14 +294,25 @@ test("a removed project's draft opens its saved content and recovery guidance in
   await userEvent.click(
     await screen.findByRole("link", { name: "Unregistered project content. Draft, Project relay" }),
   );
-  expect((await screen.findByRole("alert")).textContent).toContain(
-    "This preparation's project is no longer registered",
-  );
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).getByRole("heading", { name: /^This project isn't on .+/ })).toBeTruthy();
+  expect(alert.textContent).toContain("Add it here to keep going");
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
   expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
+  expect(screen.queryByText("Add your first project")).toBeNull();
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
   expect(
     screen.getByRole("link", { name: "Other project content. Draft, Project billing-api" }),
   ).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Discard draft in relay" }));
+  expect((await message()).textContent).toBe("");
+  expect(
+    screen.queryByText("This preparation's project is no longer registered", { exact: false }),
+  ).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await screen.findByRole("heading", { name: /^This project isn't on/ });
+  expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
 });
 
 test("a refused content write keeps the live preparation and shows that it is not saved", async () => {

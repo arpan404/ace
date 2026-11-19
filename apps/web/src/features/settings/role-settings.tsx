@@ -3,18 +3,18 @@ import type { RunRole, SettingsValues } from "@ace/protocol";
 import { roleKeys, runRoles } from "@ace/settings/roles";
 import {
   choiceForModel,
-  effortLabel,
   pickerModelsFromChoices,
+  roleEffortChoices,
   pickerProviders,
   providerNames,
 } from "@ace/ui-core";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Select, type SelectOption } from "@/components/ui/select.tsx";
+import { Select, selectTrigger, type SelectOption } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 import { useModelChoices, useModelCatalogState } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -22,13 +22,10 @@ import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 type Effort = SettingsValues["providers.coder.reasoningEffort"];
-const efforts: Effort[] = ["default", "minimal", "low", "medium", "high", "xhigh", "max"];
-const effortOptions: SelectOption<Effort>[] = efforts.map((value) => ({
-  value,
-  label: value === "default" ? "Default effort" : effortLabel(value),
-}));
+const effortOptions: readonly SelectOption<Effort>[] = roleEffortChoices;
 const rows = {
   build: "roles.build",
   judgment: "roles.judgment",
@@ -90,29 +87,25 @@ function RoleRow(props: { role: RunRole }) {
               label={`${row.title} effort`}
               value={effort ?? "default"}
               options={effortOptions}
+              className="w-28"
               disabled={offline}
               onValueChange={(next) => write.run(() => setEffort(next))}
             />
           )}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
-              render={
-                // The width and shape of a Select, so the Roles column lines up with the others.
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={offline}
-                  className="h-8 min-w-36 justify-between pr-2 pl-2.5 font-normal"
-                />
-              }
+              // Drawn as a Select, so the Roles column matches the selects around it.
+              data-slot="select"
+              {...part("select", offline && "disabled", "model")}
+              disabled={offline}
+              className={cn(selectTrigger, "min-w-36")}
               aria-label={`${row.title}: ${label}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 {provider && (
                   <ProviderAccountIcon provider={provider} size={14} accountLabel={false} />
                 )}
-                <span className="max-w-48 truncate">{label}</span>
+                <span className="truncate">{label}</span>
               </span>
               <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
             </PopoverTrigger>
@@ -120,6 +113,7 @@ function RoleRow(props: { role: RunRole }) {
               <button
                 type="button"
                 aria-pressed={!provider}
+                {...part("menu-item", !provider && "checked")}
                 className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
                 onClick={() => pick(null)}
               >

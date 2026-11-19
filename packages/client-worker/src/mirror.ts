@@ -13,7 +13,7 @@ import {
   type ThreadReader,
   type ThreadSource,
 } from "@ace/client";
-import type { ContextMeter, Item, ThreadListEntry, ThreadView } from "@ace/protocol";
+import type { ContextMeter, Item, TextSource, ThreadListEntry, ThreadView } from "@ace/protocol";
 import { hasText, splitKey, type AgentLinks, type Patch } from "./patches.ts";
 import { toError, trusted } from "./trusted.ts";
 import type { ErrorShape } from "./wire.ts";
@@ -34,9 +34,10 @@ export class MirrorThread implements ThreadSource {
   private failure: ClientError | undefined;
   private catchingUp = false;
   private copy = false;
+  /** The worker's store holds only a small tail until its full snapshot lands. */
+  private owing = false;
   private meta: ThreadView["thread"] | undefined;
   private queued: ThreadView["queue"] | undefined;
-  private card: ThreadView["offshift"];
   private ids: readonly string[] = none;
   private seq: number | undefined;
   private before: number | null | undefined;
@@ -74,7 +75,7 @@ export class MirrorThread implements ThreadSource {
       this.snapshots,
     ];
     const held: unknown[] = [this.meta, this.queued, this.ids, this.links, this.interactionList];
-    held.push(this.taskList, this.card);
+    held.push(this.taskList);
     for (const map of maps) held.push(Array.from(map));
     return JSON.stringify(held).length * 2 + (this.cut.size + this.removed.size) * 64;
   }
@@ -87,14 +88,14 @@ export class MirrorThread implements ThreadSource {
   get unconfirmed() {
     return this.copy;
   }
+  get filling() {
+    return this.owing;
+  }
   get thread() {
     return this.meta;
   }
   get queue() {
     return this.queued;
-  }
-  get offshift() {
-    return this.card;
   }
   get context() {
     const root = this.meta?.rootAgentId;
@@ -169,9 +170,9 @@ export class MirrorThread implements ThreadSource {
     this.failure = errorOf(copy.error);
     this.catchingUp = copy.syncing ?? false;
     this.copy = copy.unconfirmed ?? false;
+    this.owing = view?.partial !== undefined;
     this.meta = view?.thread;
     this.queued = view?.queue;
-    this.card = view?.offshift;
     this.ids = view?.itemOrder ?? none;
     this.seq = view?.seq;
     this.before = view?.itemsBefore;
@@ -213,14 +214,14 @@ export class MirrorThread implements ThreadSource {
       case "unconfirmed":
         this.copy = v === true;
         return;
+      case "filling":
+        this.owing = v === true;
+        return;
       case "thread":
         this.meta = trusted<ThreadView["thread"] | undefined>(v);
         return;
       case "queue":
         this.queued = trusted<ThreadView["queue"]>(v);
-        return;
-      case "offshift":
-        this.card = trusted<ThreadView["offshift"]>(v);
         return;
       case "order":
         this.ids = trusted<readonly string[] | undefined>(v) ?? none;
@@ -274,15 +275,19 @@ export class MirrorThread implements ThreadSource {
     else if (patch.append === undefined && patch.v === undefined) this.seqs.delete(id);
     if (patch.append === undefined) return set(this.items, id, patch.v);
     const item = this.items.get(id);
+    const slid = (text: string) => (patch.drop ? text.slice(patch.drop) : text) + patch.append;
     if (item && hasText(item)) {
-      this.items.set(id, { ...item, text: item.text + patch.append });
+      this.items.set(id, { ...item, text: slid(item.text) });
       return;
     }
     if (item?.type !== "message") return;
     const parts = [...item.parts];
     const last = parts.at(-1);
     if (last?.type !== "text") return;
-    parts[parts.length - 1] = { ...last, text: last.text + patch.append };
+    const text = { ...last, text: slid(last.text) };
+    // The worker's client decoded the source with @ace/protocol before sending it (wire.ts).
+    if (patch.source !== undefined) text.source = trusted<TextSource>(patch.source);
+    parts[parts.length - 1] = text;
     this.items.set(id, { ...item, parts });
   }
 }

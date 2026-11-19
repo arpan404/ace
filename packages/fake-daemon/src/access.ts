@@ -1,11 +1,13 @@
 import {
   Device,
+  type DeviceScope,
   PairingRedemption,
   PairingRequest,
   PendingPairing,
   type RemoteAccessStatus,
 } from "@ace/protocol";
 import { settingsFixture } from "./scenarios/settings.ts";
+import type { FakeMachineAccount } from "./machine-account.ts";
 
 const pairingLifetimeMs = 5 * 60_000;
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -24,7 +26,9 @@ function reply(status: number, body: unknown): Response {
  */
 export class FakeAccess {
   private devices: Device[];
-  remoteStatus: () => RemoteAccessStatus;
+  private listeners: () => RemoteAccessStatus;
+  /** This machine's ace account and code; a machine without ace accounts has none. */
+  machineAccount: FakeMachineAccount | undefined;
   private clock: () => number;
   private pairings = 0;
   /** Open links by code; the latest is the one `completePairing` redeems. */
@@ -41,8 +45,13 @@ export class FakeAccess {
     }),
   ) {
     this.clock = clock;
-    this.remoteStatus = remoteStatus;
+    this.listeners = remoteStatus;
     this.devices = settingsFixture(clock()).devices;
+  }
+  /** What `GET /v1/status` reports as `remoteAccess`, with the account when there is one. */
+  remoteStatus(): RemoteAccessStatus {
+    const account = this.machineAccount?.status();
+    return { ...this.listeners(), ...(account ? { account } : {}) };
   }
   /** Paired devices that are still allowed in, as `GET /v1/devices` lists them. */
   list(): Device[] {
@@ -128,6 +137,34 @@ export class FakeAccess {
     if (latest) this.pending.delete(latest[0]);
     return this.admit(latest?.[1] ?? { scopes: ["read", "operate"] }, name);
   }
+  /** A paired device by id, revoked or not. */
+  get(id: string): Device | undefined {
+    return this.devices.find((device) => device.id === id);
+  }
+  /** Stage a paired device (another fake machine's link credential, as linking would pair it). */
+  seedDevice(device: Device): void {
+    this.devices = [...this.devices.filter((each) => each.id !== device.id), device];
+  }
+  /** `scope` allowed or not for an active paired device, as the daemon's `fleet.request` sets it. */
+  setScope(
+    id: string,
+    scope: DeviceScope,
+    allowed: boolean,
+  ): Device | { code: string; message: string } {
+    const held = this.list().find((device) => device.id === id);
+    if (!held) return { code: "not_found", message: "That device isn't paired anymore." };
+    const scopes = allowed
+      ? [...new Set([...held.scopes, scope])]
+      : held.scopes.filter((each) => each !== scope);
+    if (scopes.length === 0)
+      return {
+        code: "invalid",
+        message: "A device keeps at least one kind of access. Remove it instead.",
+      };
+    const device = Device.parse({ ...held, scopes });
+    this.seedDevice(device);
+    return device;
+  }
   revoke(id: string): boolean {
     const at = this.clock();
     if (!this.list().some((device) => device.id === id)) return false;
@@ -170,7 +207,7 @@ export class FakeAccess {
     if (path === "/v1/devices" && method === "GET") return reply(200, this.list());
     if (path === "/v1/pairings" && method === "POST") {
       const remote = this.remoteStatus();
-      if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
+      if (remote.networks?.lan.state !== "on" && remote.networks?.tailscale.state !== "on")
         return reply(409, { error: "Remote access unavailable" });
       const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (!PairingRequest.safeParse(body).success) return reply(400, { error: "Invalid scopes" });

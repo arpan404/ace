@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
-import type { McpAttribution, ThreadId } from "@ace/protocol";
+import { WaitResult, type McpAttribution, type ThreadId } from "@ace/protocol";
+import type { Fact } from "@ace/core";
 import { createAgentControlPort } from "@ace/daemon";
 import { setup } from "./test-support.ts";
 import { task } from "../engine/test-support.ts";
@@ -33,6 +34,21 @@ const message = (
   );
 
 const received = (h: Harness, id: ThreadId) => h.inputs.get(id) ?? [];
+const quotaEnd: Fact = {
+  type: "turn.ended",
+  agent: "root",
+  outcome: "failed",
+  error: { kind: "quota", message: "You've hit your usage limit." },
+};
+const waitOn = async (h: Harness, parent: McpAttribution, child: ThreadId) => {
+  const result = await createAgentControlPort(h.store, h.service).execute(
+    parent,
+    { op: "wait", threadIds: [child], mode: "all", timeoutSeconds: 600 },
+    new AbortController().signal,
+  );
+  expect(result.ok).toBe(true);
+  return WaitResult.parse(result.data);
+};
 const later = (h: Harness, ms: number) => h.clock.advance(h.clock.now() + ms);
 
 test("a parent's message reaches its running child's turn now when the provider steers", async () => {
@@ -46,11 +62,14 @@ test("a parent's message reaches its running child's turn now when the provider 
   expect(h.store.getThread(child)?.status.state).toBe("working");
 });
 
-test("on a provider whose steer restarts the turn, the parent is told the turn restarts", async () => {
+test("on a provider whose steer restarts the turn, a parent's message waits for the turn instead of stopping it", async () => {
   const { h, parent, child } = await runningChild(true, "interrupt-restart");
   const sent = await message(h, parent, child, "New repo rule");
-  expect(sent).toMatchObject({ ok: true, data: { arrival: "restarting" } });
+  expect(sent).toMatchObject({ ok: true, data: { arrival: "queued" } });
   await h.engine.flush();
+  expect(received(h, child)).not.toContain("New repo rule");
+  expect(h.interrupts).toEqual([]);
+  await h.complete(child, "first pass");
   expect(received(h, child)).toContain("New repo rule");
 });
 
@@ -74,7 +93,8 @@ test("a parent's message starts the child's next turn while its background comma
   const { h, parent, child } = await runningChild(true);
   await h.emit(child, task);
   await h.complete(child, "Started the dev server");
-  expect(h.store.getThread(child)?.status).toEqual({ state: "waiting", on: "background_task" });
+  // The child's reply is its result; the dev server is left running (ADR 0116).
+  expect(h.store.getThread(child)?.status).toEqual({ state: "done" });
   const sent = await message(h, parent, child, "Now run the tests", "queue");
   expect(sent).toMatchObject({ ok: true, data: { arrival: "starting" } });
   await h.engine.flush();
@@ -163,24 +183,116 @@ test("a message the person removed from the child's queue is refused on retry, w
   expect(retried).toMatchObject({ ok: false, hint: expect.stringContaining("removed") });
 });
 
-test("a message to a thread that isn't the agent's child waits for its turn by default", async () => {
-  const { h, parent } = await runningChild(true);
+/** A running top-level thread in the parent's project, as the person would start one. */
+async function otherThread(h: Harness, parent: McpAttribution) {
   const workspaceId = h.store.getThread(parent.threadId)?.workspaceId;
   if (!workspaceId) throw new Error("No workspace");
   const other = h.service.command(randomUUID(), {
     type: "thread.create",
     workspaceId,
     provider: "claude",
+    access: "ask",
     input: [{ type: "text", text: "The person's own work" }],
   });
   if (!other.ok || !other.threadId) throw new Error("No thread");
   await h.engine.flush();
-  expect(await message(h, parent, other.threadId, "Pick this up")).toMatchObject({
+  return other.threadId;
+}
+/** What the agent of `id` received with ace's sender line, and the words after it. */
+const fromPeer = (h: Harness, id: ThreadId, sender: ThreadId) =>
+  received(h, id).filter(
+    (text) =>
+      text.startsWith("[ace-origin:agent.message from the thread") && text.includes(`(${sender})`),
+  );
+
+test("a message to a thread that isn't the agent's own steers its running turn, labelled as that agent's", async () => {
+  const { h, parent } = await runningChild(true);
+  const other = await otherThread(h, parent);
+  expect(await message(h, parent, other, "Pick this up")).toMatchObject({
     ok: true,
-    data: { arrival: "queued" },
+    data: { arrival: "steering", threadId: other, as: "peer" },
   });
   await h.engine.flush();
-  expect(received(h, other.threadId)).not.toContain("Pick this up");
+  // Its agent reads who sent it, not the person; the provider is told it isn't the person's.
+  const [text] = fromPeer(h, other, parent.threadId);
+  expect(text).toMatch(/not the person\. .*\]\nPick this up$/);
+  expect(h.inputMessages.get(other)?.at(-1)).toMatchObject({ delivery: "steer", origin: "agent" });
+  // The transcript names the sending thread.
+  const bubble = Object.values(h.store.snapshotThread(other).items).find(
+    (item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      "origin" in item &&
+      item.origin?.kind === "parent_agent",
+  );
+  expect(bubble && "origin" in bubble ? bubble.origin : undefined).toMatchObject({
+    parentThreadId: parent.threadId,
+  });
+  expect(h.store.getThread(other)?.status.state).toBe("working");
+});
+
+test("a thread another agent wrote to answers it in one call, though its access is narrower", async () => {
+  const { h, parent } = await runningChild(true);
+  const other = await otherThread(h, parent);
+  // Before the full-access thread writes, the "ask" thread can't reach it.
+  expect(await message(h, h.caller(other), parent.threadId, "Unasked")).toMatchObject({
+    ok: false,
+    code: "forbidden",
+    hint: expect.stringContaining("broader access"),
+  });
+  await message(h, parent, other, "Which port does the relay use?");
+  const reply = await message(h, h.caller(other), parent.threadId, "Port 8443");
+  expect(reply).toMatchObject({ ok: true, data: { threadId: parent.threadId, as: "peer" } });
+  await h.engine.flush();
+  expect(fromPeer(h, parent.threadId, other).at(-1)).toMatch(/\nPort 8443$/);
+});
+
+test("another agent's child takes a peer's steer but never its queue, restart or cancel", async () => {
+  const { h, parent, child } = await runningChild(true);
+  const peer = await h.parent();
+  for (const delivery of ["queue", "restart"] as const)
+    expect(await message(h, peer, child, "Start over", delivery)).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+  const cancel = await createAgentControlPort(h.store, h.service).execute(
+    peer,
+    { op: "agent.cancel", threadId: child, requestId: "cancel-other" },
+    new AbortController().signal,
+  );
+  // The refusal names the thread that owns it.
+  expect(cancel).toMatchObject({
+    ok: false,
+    code: "forbidden",
+    hint: expect.stringContaining(parent.threadId),
+  });
+  await h.engine.flush();
+  expect(received(h, child)).not.toContain("Start over");
+  expect(h.interrupts).toEqual([]);
+  expect(await message(h, peer, child, "The schema moved to v2")).toMatchObject({
+    ok: true,
+    data: { arrival: "steering", threadId: child },
+  });
+  await h.engine.flush();
+  expect(fromPeer(h, child, peer.threadId).at(-1)).toContain("not the person or your parent");
+  expect(h.store.getThread(child)?.status.state).toBe("working");
+});
+
+test("a peer's message to another agent's finished child goes to its top-level thread, which the result names", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.complete(child, "first pass");
+  later(h, 1050);
+  await h.engine.flush();
+  expect(h.service.journal.get(child)?.phase).toBe("settled");
+  const peer = await h.parent();
+  expect(await message(h, peer, child, "Your tests broke main")).toMatchObject({
+    ok: true,
+    data: { threadId: parent.threadId, as: "peer" },
+  });
+  await h.engine.flush();
+  expect(fromPeer(h, parent.threadId, peer.threadId).at(-1)).toContain(`(${child}) under you`);
+  expect(received(h, child).join("\n")).not.toContain("Your tests broke main");
+  expect(h.service.journal.get(child)?.phase).toBe("settled");
 });
 
 test("a steer the provider refuses as the turn ends is kept for the next turn and the parent is told", async () => {
@@ -242,4 +354,73 @@ test("a steer lost in transit is never resent, and the parent is told it may not
   });
   await h.complete(child, "first pass");
   expect(received(h, child)).not.toContain("New repo rule");
+});
+
+test("a child stopped by its usage limit tells its parent once instead of leaving it waiting", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.emit(child, quotaEnd);
+  expect(h.store.getThread(child)?.status.state).toBe("limited");
+  later(h, 100);
+  await h.engine.flush();
+  const told = () => received(h, parent.threadId).filter((text) => text.includes("usage_limited"));
+  expect(told()).toHaveLength(1);
+  expect(told()[0]).toContain(child);
+  // Nothing more happening to the held child tells the parent again.
+  later(h, 5000);
+  await h.engine.flush();
+  expect(told()).toHaveLength(1);
+  // A wait returns the same failed outcome immediately, without cancelling the child.
+  expect(await waitOn(h, parent, child)).toMatchObject({
+    status: "ready",
+    threads: [{ threadId: child, state: "failed", failure: { code: "usage_limited" } }],
+  });
+  expect(h.service.monitor.snapshot(parent).children[0]?.state).toBe("failed");
+});
+
+test("a wait on a child that hits its usage limit returns its failure, and no second notice follows", async () => {
+  const { h, parent, child } = await runningChild(true);
+  const pending = waitOn(h, parent, child);
+  await h.engine.flush();
+  await h.emit(child, quotaEnd);
+  expect(await pending).toMatchObject({
+    status: "ready",
+    threads: [{ threadId: child, state: "failed", failure: { code: "usage_limited" } }],
+  });
+  // The wait told the parent; no message repeats it.
+  later(h, 100);
+  await h.engine.flush();
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
+});
+
+test("a provider retrying a rate limit inside its turn is still working: no notice, and a wait keeps waiting", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.emit(child, {
+    type: "retry",
+    agent: "root",
+    on: "rate_limit",
+    until: h.clock.now() + 60_000,
+    message: "Rate limited, retrying",
+  });
+  expect(h.store.getThread(child)?.status.state).toBe("limited");
+  let returned = false;
+  const pending = waitOn(h, parent, child).then((result) => ((returned = true), result));
+  await h.engine.flush();
+  for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
+  expect(returned).toBe(false);
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
+  await h.complete(child, "done after the retry");
+  expect(await pending).toMatchObject({ status: "ready", threads: [{ state: "done" }] });
+});
+
+test("a limit the provider first retried, then ended the turn on, still tells the parent", async () => {
+  const { h, parent, child } = await runningChild(true);
+  // Codex reports the quota error, then completes the turn with it, in separate batches.
+  await h.emit(child, { type: "retry", agent: "root", on: "rate_limit" });
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
+  await h.emit(child, quotaEnd);
+  later(h, 100);
+  await h.engine.flush();
+  expect(
+    received(h, parent.threadId).filter((text) => text.includes("usage_limited")),
+  ).toHaveLength(1);
 });

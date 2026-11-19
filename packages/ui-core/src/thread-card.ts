@@ -2,13 +2,15 @@ import type {
   CatalogModel,
   MachineIcon,
   ProviderKind,
+  SnoozeWoke,
   ThreadListEntry,
   ThreadReadStateResponse,
   ThreadDetails,
 } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
-import { describeWake } from "./snooze.ts";
+import { snoozeLabel } from "./snooze.ts";
+import { backFromSnooze, wokeSentence, wokeShort } from "./snooze-woke.ts";
 import { projectBadge, type ProjectBadge } from "./project-badge.ts";
 import {
   runningSubagents,
@@ -25,7 +27,9 @@ import {
   childAskingLabel,
   describeLive,
   listTreeFacts,
+  liveStatusSince,
   liveStatusText,
+  resumesLabel,
   threadLiveFact,
   treeWaiting,
   treeWorking,
@@ -34,7 +38,6 @@ import {
   type LiveFact,
 } from "./live-status.ts";
 
-import { offshiftPhaseNames, runNotice } from "@ace/projection/offshift-mark";
 import { recoveryAttention } from "./recovery-attention.ts";
 import { rowAttention, syncingAttention, syncingWord, type RowAttention } from "./row-attention.ts";
 
@@ -144,8 +147,14 @@ export interface ThreadCard {
   prs: CardDetails["prs"];
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
-  /** "tomorrow 9:00 AM" while snoozed. */
+  /** "until tomorrow 9:00 AM", "until it needs you" while snoozed (`snoozeLabel`). */
   wake: string | undefined;
+  /**
+   * Back from a snooze that ended by itself, until the person reads it (`backFromSnooze`): the
+   * row's few words ("checks failed") and the whole sentence for its tooltip. Absent while
+   * anything says more: work under way, a recovery, a request or a fresh failure.
+   */
+  woke: { short: string; sentence: string } | undefined;
   machine: string | undefined;
   machineIcon: MachineIcon | undefined;
   /**
@@ -159,6 +168,8 @@ export interface ThreadCard {
     mark: ThreadMarkKind;
     compact: string;
     since?: number | undefined;
+    /** While the tree only waits on its subagents: how many it waits on. */
+    waitingOn?: number | undefined;
   };
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
@@ -169,11 +180,8 @@ export interface ThreadCard {
   subagents: number;
   /** "Codex · 2 subagents running". */
   providerLabel: string;
-  /**
-   * The latest Offshift run, while the tree has settled with it open or blocked: its phase
-   * word ("Verify") and the full line ("Run stopped at Verify"). Never set while the tree works.
-   */
-  run: { phase: string; blocked: boolean; label: string } | undefined;
+  /** The outside MCP client that started the thread (ADR 0122), by its name. */
+  startedByClient?: string | undefined;
 }
 
 export interface ThreadCardInput {
@@ -253,11 +261,14 @@ function compactStatus(
   // The transcript's live line reads the same rule, so the two never disagree.
   if (tree) return tree.kind === "waiting" ? "Waiting" : "Working";
   if (fact?.kind === "watching") return fact.count ? `Background · ${fact.count}` : "Background";
+  if (fact?.kind === "left-running") return `Done · ${fact.count} running`;
   if (fact?.kind === "child-asking") return childAskingLabel(fact.agent);
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";
   }
+  if (fact?.kind === "limited" && fact.resumesAt !== undefined && fact.resumesAt > now)
+    return resumesLabel(fact.resumesAt, now, locale);
   if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
     return `Limited ${formatShortClock(fact.until, locale)}`;
   if (entry.status.state === "waiting") return "Waiting";
@@ -300,27 +311,17 @@ function unconfirmedCard(card: ThreadCard, failedSend: boolean): ThreadCard {
       : syncingAttention,
     pill: failedSend ? { label: notSent, tone: "failed", icon: "failed" } : undefined,
     announceUnread: false,
+    woke: undefined,
     status: failedSend
       ? { label: notSent, tone: "failed", mark: "failed", compact: notSent }
       : { label: syncingWord, tone: "idle", mark: "none", compact: syncingWord },
     subagents: 0,
     providerLabel: providerLabel(providerDisplayName(card.provider, card.acpAgentId), 0),
-    run: undefined,
   };
 }
 
-/**
- * The run a settled row names: only a done tree (nothing working, waiting or asking) whose
- * latest run is open or blocked. A delivered run adds nothing; Done stays the tree's word.
- */
-function settledRun(entry: ThreadListEntry): ThreadCard["run"] {
-  const notice = entry.run && runNotice(entry.run, entry.status.state);
-  if (!notice || notice.outcome === "delivered") return undefined;
-  return {
-    phase: offshiftPhaseNames[notice.phase],
-    blocked: notice.outcome === "blocked",
-    label: notice.headline,
-  };
+function wokeWords(woke: SnoozeWoke | undefined): ThreadCard["woke"] {
+  return woke && { short: wokeShort(woke), sentence: wokeSentence(woke) };
 }
 
 function currentCard(input: ThreadCardInput): ThreadCard {
@@ -337,7 +338,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
   // waits on its subagents.
   const tree = treeState(entry);
   const working = tree !== undefined;
-  const since = entry.live?.workingSince ?? activityOf(entry);
+  const since = liveStatusSince(entry.live, tree?.kind === "waiting") ?? activityOf(entry);
   // Every surface's word for a running tree is Working or Waiting, spoken label and hover card
   // included; what it waits on or runs only follows it.
   const live = working ? undefined : described;
@@ -345,19 +346,29 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     tree?.kind === "waiting"
       ? { label: waitingOnSubagentsLabel(tree.subagents), tone: "waiting" as const }
       : tree && { label: workingLabel(fact), tone: "working" as const };
-  // A settled tree with its run left open waits on whoever picks it up: never Done.
-  const run = recovery || working || live ? undefined : settledRun(entry);
   const { label, tone } =
     recovery ??
     (treeStatus
       ? treeStatus
       : live
         ? { label: liveStatusText(live), tone: live.tone }
-        : run
-          ? { label: `Waiting · ${run.label}`, tone: "waiting" as const }
-          : threadStatusLabel(entry.status));
-  const compact =
-    recovery?.label ?? (run ? "Waiting" : compactStatus(entry, fact, tree, now, input.locale));
+        : threadStatusLabel(entry.status));
+  const compact = recovery?.label ?? compactStatus(entry, fact, tree, now, input.locale);
+  const attention = rowAttention({
+    tone,
+    word: compact,
+    unread,
+    settled: input.settled,
+    recovery: recovery !== undefined,
+  });
+  // Why it woke only while nothing says more: no running tree or live work, no recovery to act
+  // on, nothing that needs the person or just failed.
+  const quiet =
+    !working &&
+    !live &&
+    !recovery &&
+    attention.level !== "needs-you" &&
+    attention.level !== "failed";
   return {
     id: entry.id,
     title: entry.title,
@@ -365,13 +376,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     badge: projectBadge({ id: entry.workspaceId, name: input.projectName ?? entry.workspaceId }),
     age: formatAge(activityOf(entry), now),
     flags,
-    attention: rowAttention({
-      tone,
-      word: compact,
-      unread,
-      settled: input.settled,
-      recovery: recovery !== undefined,
-    }),
+    attention,
     pill: input.settled
       ? undefined
       : recovery
@@ -382,14 +387,12 @@ function currentCard(input: ThreadCardInput): ThreadCard {
             ? { label: "Working", tone: "working", icon: "working", since }
             : live
               ? livePill(live)
-              : run
-                ? { label: "Waiting", tone: "waiting", icon: "waiting" }
-                : entry.queuedLaunch && entry.status.state === "new"
-                  ? queuedPill
-                  : taskPill(entry.status, {
-                      unread,
-                      since: entry.live?.workingSince ?? activityOf(entry),
-                    }),
+              : entry.queuedLaunch && entry.status.state === "new"
+                ? queuedPill
+                : taskPill(entry.status, {
+                    unread,
+                    since: entry.live?.workingSince ?? activityOf(entry),
+                  }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
@@ -398,10 +401,8 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     prState: details?.prState,
     prs: details?.prs,
     announceUnread: unread && !needsYou,
-    wake:
-      snoozed && entry.snoozedUntil !== undefined
-        ? describeWake(entry.snoozedUntil, now, input.locale)
-        : undefined,
+    wake: snoozed ? snoozeLabel(entry, now, input.locale) : undefined,
+    woke: quiet ? wokeWords(backFromSnooze(entry, now)) : undefined,
     machine: details?.machine,
     machineIcon: details?.machineIcon,
     branch: details?.branch
@@ -418,12 +419,13 @@ function currentCard(input: ThreadCardInput): ThreadCard {
       mark: recovery?.mark ?? threadStatusMark(entry.status),
       compact,
       ...(working ? { since } : {}),
+      ...(tree?.kind === "waiting" && !recovery ? { waitingOn: tree.subagents } : {}),
     },
     provider: entry.provider,
     subagents,
     acpAgentId: entry.acpAgentId,
     account: entry.execution?.instanceId ?? entry.live?.account,
     providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
-    run,
+    startedByClient: entry.startedByClient?.name,
   };
 }

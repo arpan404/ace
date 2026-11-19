@@ -1,0 +1,168 @@
+import { deriveAccent } from "./accent-fit.ts";
+import { rowFills } from "./row-fills.ts";
+import { tintedLike } from "./surface-tint.ts";
+import { oklchToHex, parseOpaqueColor, readableAcross, rgbToOklch } from "./colour.ts";
+import { ace } from "./sources/ace.ts";
+import { dusk } from "./sources/dusk.ts";
+import { grove } from "./sources/grove.ts";
+import { harbor } from "./sources/harbor.ts";
+import { midnight } from "./sources/midnight.ts";
+import { paper } from "./sources/paper.ts";
+import { glassTintAlpha } from "./glass-floor.ts";
+import { paletteSurfaces } from "./surfaces.ts";
+import type {
+  Base,
+  Material,
+  Palette,
+  Scheme,
+  SchemeSource,
+  ThemeDefinition,
+  ThemeSource,
+} from "./types.ts";
+
+export { rampSteps } from "./types.ts";
+export { rowStatusColours, sharedStatus, type RowStatusColour } from "./status.ts";
+export type {
+  Accent,
+  Base,
+  Material,
+  Palette,
+  PaletteColour,
+  Ramp,
+  RampStep,
+  Scheme,
+  StatusSet,
+  Syntax,
+  ThemeDefinition,
+  ThemeFonts,
+} from "./types.ts";
+
+/*
+ * The themes (docs/design/visual-language.md, "Themes"). A theme is a material, not an accent:
+ * each one owns its neutral ramp, contrast, status hues, code colours, fonts and glass, and its
+ * own accent. Every colour comes from the theme's source table in `sources/`; the only derived
+ * values are the pressed accent and the shadow tint. Another accent is a separate choice
+ * (`accent.ts`) fitted over any theme. Every palette passes WCAG AA on every surface
+ * (`contrast.ts`).
+ */
+
+const rgb = (hex: string) => parseOpaqueColor(hex) ?? ([0, 0, 0] as const);
+
+/** The pressed fill continues past hover by half a hover-sized step in lightness. */
+function pressed(accent: string, hover: string): string {
+  const [rest, over] = [rgbToOklch(rgb(accent)), rgbToOklch(rgb(hover))];
+  const l = Math.min(1, Math.max(0, over.l + (over.l - rest.l) / 2));
+  return oklchToHex(l, rest.c, rest.h);
+}
+
+/** "r g b" of the shadow: the ink in light schemes, black in dark ones. */
+function shadowTint(source: SchemeSource, scheme: Scheme): string {
+  if (scheme === "dark") return "0 0 0";
+  return rgb(source.text).join(" ");
+}
+
+/**
+ * The sources clear AA on the prototype's surfaces (page, sidebar, cards, floating, hover,
+ * active, code). The app also draws text on glass and on selected-row washes, and needs faint
+ * icons at 3:1, so a role that falls short there steps toward black (light) or white (dark)
+ * just far enough; one that passes keeps its source value exactly.
+ */
+function fitted(draft: Palette, scheme: Scheme): Palette {
+  const dark = scheme === "dark";
+  const page = parseOpaqueColor(draft.s0);
+  const faint = page ? readableAcross(draft.faint, [page], dark, 3) : undefined;
+  const surfacesOf = (p: Palette) => paletteSurfaces(p, scheme).map((surface) => surface.rgb);
+  // The ink comes first: selected rows are a wash of it, so the other roles fit to its result.
+  const text = readableAcross(draft.text, surfacesOf(draft), dark) ?? draft.text;
+  const inked: Palette = { ...draft, text, t1: text, faint: faint ?? draft.faint };
+  const surfaces = surfacesOf(inked);
+  const words = (colour: string) => readableAcross(colour, surfaces, dark) ?? text;
+  const muted = words(draft.muted);
+  const subtle = words(draft.subtle);
+  return {
+    ...inked,
+    muted,
+    t2: muted,
+    subtle,
+    t3: subtle,
+    accentText: words(draft.accentText),
+    workingText: words(draft.workingText),
+    needsText: words(draft.needsText),
+    doneText: words(draft.doneText),
+    failedText: words(draft.failedText),
+  };
+}
+
+/**
+ * One scheme of a theme as the app draws it, from every colour as designed: the derived pressed
+ * accent and shadow, the solved glass tint, and text roles fitted to read on every surface. A
+ * Suit's palette (ADR 0150) is built the same way, from its base theme's source and its own
+ * colours.
+ */
+export function schemePalette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
+  // A raised surface is the canvas lifted: its hue and chroma, at its own lightness.
+  const raised = tintedLike(source.raised, source.canvas);
+  // The glass is solved against the designed text, before any fitting: fitting only moves text
+  // further from the surfaces, so the tint stays thick enough and never shifts with it.
+  const glassTint = glassTintAlpha(
+    { s2: raised, t1: source.text, t2: source.muted, t3: source.subtle, material },
+    scheme,
+  );
+  const draft: Palette = {
+    glassTint,
+    ...source,
+    raised,
+    // Hover and the open row must show on the sidebar's panel, the surface rows sit on.
+    ...rowFills(source),
+    s0: source.canvas,
+    s1: source.surface,
+    s2: raised,
+    t1: source.text,
+    t2: source.muted,
+    t3: source.subtle,
+    accentPressed: pressed(source.accent, source.accentHover),
+    shadow: shadowTint(source, scheme),
+    material,
+  };
+  return fitted(draft, scheme);
+}
+
+/** A palette with `accentColour` fitted to it (AA labels, marks and links on its surfaces). */
+export function withAccent(base: Base, scheme: Scheme, accentColour: string): Palette {
+  return { ...base, ...deriveAccent(accentColour, scheme, base) };
+}
+
+function theme(source: ThemeSource): ThemeDefinition {
+  return {
+    name: source.name,
+    character: source.character,
+    fonts: source.fonts,
+    accent: { light: source.light.accent, dark: source.dark.accent },
+    light: schemePalette(source.light, "light", source.material.light),
+    dark: schemePalette(source.dark, "dark", source.material.dark),
+  };
+}
+
+/** In the order Settings shows them, the default first. */
+export const themeIds = ["ace", "paper", "midnight", "grove", "harbor", "dusk"] as const;
+export type ThemeId = (typeof themeIds)[number];
+export const defaultThemeId: ThemeId = "ace";
+
+/** Each theme as designed, before `schemePalette` builds it. */
+export const themeSources: Record<ThemeId, ThemeSource> = {
+  ace,
+  paper,
+  midnight,
+  grove,
+  harbor,
+  dusk,
+};
+
+export const themes: Record<ThemeId, ThemeDefinition> = {
+  ace: theme(ace),
+  paper: theme(paper),
+  midnight: theme(midnight),
+  grove: theme(grove),
+  harbor: theme(harbor),
+  dusk: theme(dusk),
+};

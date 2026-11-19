@@ -1,3 +1,4 @@
+import { mergeDisabledFeatures } from "./chrome-features.ts";
 import { videoExtensionId } from "./video-extension.ts";
 
 /**
@@ -10,6 +11,13 @@ import { videoExtensionId } from "./video-extension.ts";
  * - No sound reaches the daemon machine's speakers: audio output goes to a fake device, so a page
  *   here (an agent's, or one nobody watches) is never heard there. Not `--mute-audio`: a muted
  *   page's sound reaches tab capture as silence, and remote viewers can unmute (ADR 0088, Audio).
+ * - Every process keeps normal priority: a headless Chrome has no visible window, so Chrome would
+ *   run its extension and renderer processes at background priority, and on a busy machine the
+ *   video encoder and the page's screencast then stall for seconds. The switches stop the old
+ *   backgrounding; the performance manager's priority policy backgrounds them again unless it is
+ *   off too.
+ * - Chrome reads only the last `--disable-features`, so features `extra` disables (or a bare
+ *   `--disable-features`) join ace's own in one flag instead of replacing them.
  */
 export function chromeArgs(options: {
   profileDir: string;
@@ -19,7 +27,7 @@ export function chromeArgs(options: {
 }): string[] {
   if (!Number.isFinite(options.deviceScaleFactor) || options.deviceScaleFactor < 1)
     throw new Error("Invalid browser device scale factor");
-  return [
+  return mergeDisabledFeatures([
     "--headless=new",
     "--remote-debugging-pipe",
     "--enable-unsafe-extension-debugging",
@@ -30,6 +38,7 @@ export function chromeArgs(options: {
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
+    "--disable-features=PMProcessPriorityPolicy",
     "--disable-audio-output",
     // ace's video extension may capture tabs without a click on it (ADR 0088).
     `--allowlisted-extension-id=${videoExtensionId}`,
@@ -39,5 +48,5 @@ export function chromeArgs(options: {
       ? []
       : [`--force-device-scale-factor=${options.deviceScaleFactor}`]),
     ...(options.extra ?? []),
-  ];
+  ]);
 }

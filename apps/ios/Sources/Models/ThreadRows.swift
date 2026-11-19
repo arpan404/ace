@@ -23,6 +23,8 @@ struct StepLine: Codable, Sendable, Equatable {
     var expandable: Bool? = nil
     /// What the opened row shows, bounded by the bridge.
     var detail: StepDetail? = nil
+    /// A call still in flight: when it started, in ms since 1970; nil once it settles.
+    var startedAt: Double? = nil
 }
 /// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
 struct StepDetail: Codable, Sendable, Equatable {
@@ -87,6 +89,8 @@ struct BlockRow: Codable, Sendable, Equatable {
             var meta: String = ""
             /// The paired machine it runs on, when that is another one.
             var machine: String = ""
+            /// That machine's host id, to open the child there; empty when unknown.
+            var machineHost: String = ""
             /// Its second line: what it does now, waits on, failed with or found.
             var detail: String = ""
             /// "live", "result", "human", "failed" or empty.
@@ -107,8 +111,17 @@ struct BlockRow: Codable, Sendable, Equatable {
         let status: String
         let entries: [Entry]
         var counts: [Count]? = nil
-        /// "3 subagents".
+        /// "3 subagents", or "3 subagents ran" once all have ended.
         var title: String = ""
+        /// One child still at work shows as its own row; otherwise the group folds. Nil from
+        /// older bridges, which show a lone entry alone.
+        var single: Bool? = nil
+        /// Any child still works, waits or asks; nil from older bridges, read as settled so
+        /// the group always shows.
+        var live: Bool? = nil
+        /// Every child still at work is one the live tree counts (the tree the pill and the Agents
+        /// sheet read); nil from older bridges, read as not, so the group keeps its row.
+        var counted: Bool? = nil
         /// The group's worst child, as a status palette key.
         var token: String = ""
         /// Its facts are stale while it ran: "Last seen: " leads the counts.
@@ -135,6 +148,15 @@ struct BlockRow: Codable, Sendable, Equatable {
     }
     /// Where a fork's own work starts: the thread it was forked from.
     struct Forked: Codable, Sendable, Equatable { let threadId: String }
+    /// The turn's live line while the agent compacts its context (`@ace/ui-core` turn activity).
+    struct Live: Codable, Sendable, Equatable {
+        /// "Compacting context".
+        let label: String
+        /// "Compacting context for", before the time ticking from `since`.
+        let timed: String
+        /// Ms since 1970; nil when no time is shown.
+        let since: Double?
+    }
     let index: Int?
     let kind: String
     let items: [String]
@@ -146,6 +168,8 @@ struct BlockRow: Codable, Sendable, Equatable {
     let started: Started?
     var question: Question? = nil
     var forked: Forked? = nil
+    /// A "live" block's line; nil while the pill alone says what the turn does.
+    var live: Live? = nil
     /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
     var room: Room? = nil
     struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
@@ -153,6 +177,14 @@ struct BlockRow: Codable, Sendable, Equatable {
     var ordinal: Int? = nil
     /// The work log's rows, as the web groups them (`bridge/work-log.ts`).
     var log: [LogRow]? = nil
+    /// A settled head's moments (a restart, a limit's wait, results landing), drawn where the
+    /// opened log's `moment` rows name them; nothing shows them while it is folded.
+    var moments: [Moment]? = nil
+    struct Moment: Codable, Sendable, Equatable {
+        let id: String
+        /// Nil when none of its items is loaded.
+        let event: EventRow?
+    }
     /// ace's own steps, worded with what earlier steps of the log said about them.
     var aceSteps: [AceStep]? = nil
     /// Failed steps a later step ran again with success.
@@ -163,6 +195,9 @@ struct BlockRow: Codable, Sendable, Equatable {
     var background: [Background]? = nil
     /// An answer block: its text still arrives while its turn runs.
     var streaming: Bool? = nil
+    /// While it streams, the word VoiceOver hears on the answer's row (`@ace/ui-core`
+    /// `answerWritingLabel`, "Writing"); nil otherwise.
+    var writing: String? = nil
     /// An event block's one row as the web decides it (`@ace/ui-core` `eventView`); nil for the
     /// person's own bubble.
     var event: EventRow? = nil
@@ -178,13 +213,16 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// Ms since 1970.
         let startedAt: Double
         let endedAt: Double?
+        /// Settled, or running and counted by the live tree the pill reads (its "1 command"); nil
+        /// from older bridges, read as not, so a running line keeps its row.
+        var counted: Bool? = nil
     }
 }
 
 /// Something that happened to the thread rather than in the conversation, flattened by the bridge
 /// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
 /// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
-/// "handoff", "user", "none"; others draw the item as it is.
+/// "handoff", "task", "merged", "user", "none"; others draw the item as it is.
 struct EventRow: Codable, Sendable, Equatable {
     let kind: String
     let icon: String
@@ -196,8 +234,28 @@ struct EventRow: Codable, Sendable, Equatable {
     let mono: Bool
     /// Ms since 1970; 0 when the row shows no time.
     let at: Double
+    /// Where a span the row covers ends, in ms since 1970 ("9:23–9:30 AM"); 0 or nil for one time.
+    var until: Double? = nil
     /// How many identical rows this one stands for.
     let count: Int
+    /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
+    var fenced: Bool? = nil
+    /// "task" and "merged": the thread the row's chip opens (a handoff's source, the merged
+    /// fork); empty or nil when there is none.
+    var threadId: String? = nil
+    /// A message another thread's agent sent (`kind` "sent"): who sent it and its bubble.
+    var sent: SentBy? = nil
+    /// The thread that sent a message, as the bridge read it (`@ace/ui-core` `sentBy`).
+    struct SentBy: Codable, Sendable, Equatable {
+        /// Empty when ace doesn't know the sender: the line then opens nothing.
+        let threadId: String
+        /// The sender's machine when it isn't this one; empty for this machine.
+        let hostId: String
+        /// "Sent by <title as recorded>", "Sent from another thread", with " · <machine>" when remote.
+        let line: String
+        /// Its words, without ace's frame, as the person's bubble draws them.
+        let bubble: BubbleLine
+    }
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
@@ -211,6 +269,17 @@ struct ControlsRow: Codable, Sendable, Equatable {
     var providerName: String?
     let model: String
     let switching: String
+    /// Why the model named isn't running yet: "Applies at the agent's next turn".
+    var note: String? = nil
+    /// The next message starts a new thread on that model.
+    var continues: Bool? = nil
+    /// A guest session (ADR 0105): agents on another machine use this one's tools, so there is
+    /// no composer, only whose work it is. Nil for a thread the person talks to.
+    var guest: Guest? = nil
+    struct Guest: Codable, Sendable, Equatable {
+        /// "Used by agents on Linux box. Stop to end their work."
+        let line: String
+    }
 }
 /// The daemon queue's follow-ups for the open thread, with the shared summary line.
 struct QueueRow: Codable, Sendable, Equatable {
@@ -221,35 +290,113 @@ struct QueueRow: Codable, Sendable, Equatable {
         let state: String
         let attachments: Int
     }
+    /// A queue-wide choice, worded by the bridge (`bridge/queue-hold.ts`): Pause queue, Resume,
+    /// Continue, a limit's Resume at reset; `choose_model` opens the model sheet and `queue` the
+    /// queue's.
+    struct Action: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let label: String
+        var instanceId: String? = nil
+        var primary: Bool? = nil
+    }
+    /// What holds the queue, as the one sentence above the composer and its ways on.
+    struct Strip: Codable, Sendable, Equatable {
+        let kind: String
+        let sentence: String
+        var detail: String = ""
+        let actions: [Action]
+        /// What leads the sentence: the row's own icon for the hold (`holdStripLead`).
+        var lead: StripLeadRow? = nil
+    }
+    /// The message a failed send left at the queue's head, shown in the transcript.
+    struct NotSent: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let text: String
+        let attachments: Int
+        let reason: String
+        let detail: String
+        /// Its strip above the composer: "Not sent · …" with the message's opening words.
+        var strip: StripLineRow? = nil
+    }
     let revision: Int
     let label: String
     let when: String
     let messages: [Message]
     let more: Int
+    /// The queue's own Pause queue or Resume queue; nil from older bridges.
+    var control: Action? = nil
+    var strip: Strip? = nil
+    var notSent: NotSent? = nil
 }
-struct ModelOption: Codable, Sendable, Equatable, Identifiable {
-    let id: String
-    let label: String
-    let detail: String
-    let current: Bool
-}
-
-/// The open thread's model sheet (`thread.models`): its provider's models, the one in use marked,
-/// the ids starred among them in the order they were starred, and why the last star didn't save.
+/// The open thread's model sheet (`thread.models`, `bridge/thread-model-sheet.ts`): every
+/// set-up account's models as New thread lists them, the model checked, and what picking a row
+/// does. A row missing from `moves` switches at once; one with a note can't be picked; one with an
+/// ask is confirmed first in the words of `asks`. Decoded leniently: a part that doesn't read is
+/// left empty rather than failing the frame.
 struct ThreadModels: Decodable, Sendable, Equatable {
-    var state = "idle"
-    var models: [ModelOption] = []
-    var favorites: [String] = []
-    var starProblem: String? = nil
+    struct Move: Decodable, Sendable, Equatable { var ask: Int?; var note: String? }
+    /// The shared `switchQuestion`: a switch names the model (`detail`), a continuation may warn
+    /// about files the new thread's model can't read.
+    struct Ask: Decodable, Sendable, Equatable {
+        let title: String; let message: String; let action: String
+        var detail: String?; var warning: String?
+        /// The alert's body: the message, then the model or the warning.
+        var body: String { [message, detail, warning].compactMap { $0 }.joined(separator: "\n\n") }
+    }
+    var read = ComposeAgentsRead()
+    var current: NewThreadPickerRows.Chosen?
+    /// The checked model's name when the catalog doesn't list it.
+    var currentLabel = ""
+    var moves: [String: Move] = [:]
+    var asks: [Ask?] = []
+    var state: String { read.state }
 
     init() {}
-    private enum Keys: String, CodingKey { case state, models, favorites, starProblem }
+    private enum Keys: String, CodingKey { case state, tabs, providers, favorites, starProblem, current, currentLabel, rows, asks }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
-        state = try box.decode(String.self, forKey: .state)
-        models = try box.decode([ModelOption].self, forKey: .models)
-        favorites = try box.decodeIfPresent([String].self, forKey: .favorites) ?? []
-        starProblem = try box.decodeIfPresent(String.self, forKey: .starProblem)
+        read = ComposeAgentsRead(
+            state: try box.decode(String.self, forKey: .state),
+            agents: (try? box.decodeIfPresent(Lenient<ComposeAgent>.self, forKey: .providers))?.items ?? [],
+            tabs: (try? box.decodeIfPresent(Lenient<ComposeTab>.self, forKey: .tabs))?.items ?? [],
+            favorites: (try? box.decodeIfPresent([String].self, forKey: .favorites)) ?? [],
+            starProblem: try? box.decodeIfPresent(String.self, forKey: .starProblem))
+        current = try? box.decodeIfPresent(NewThreadPickerRows.Chosen.self, forKey: .current)
+        currentLabel = (try? box.decodeIfPresent(String.self, forKey: .currentLabel)) ?? ""
+        moves = (try? box.decodeIfPresent([String: Lenient<Move>.One].self, forKey: .rows))?.compactMapValues(\.value) ?? [:]
+        // Positions matter (rows name an ask by index): one that doesn't read stays as a gap.
+        asks = (try? box.decodeIfPresent(Lenient<Ask>.Kept.self, forKey: .asks))?.items ?? []
+    }
+    /// What confirms a move to `row` (a picker row id), if it asks.
+    func ask(_ row: String) -> Ask? {
+        guard let index = moves[row]?.ask, asks.indices.contains(index) else { return nil }
+        return asks[index]
+    }
+}
+
+/// A list decoded element by element: one entry that doesn't read is dropped (`items`), or kept
+/// as a gap where positions matter (`Kept`), so it never empties the rest.
+struct Lenient<Element: Decodable>: Decodable {
+    let items: [Element]
+    init(from decoder: any Decoder) throws {
+        var box = try decoder.unkeyedContainer()
+        var items: [Element] = []
+        while !box.isAtEnd { if let item = try box.decode(One.self).value { items.append(item) } }
+        self.items = items
+    }
+    struct Kept: Decodable {
+        let items: [Element?]
+        init(from decoder: any Decoder) throws {
+            var box = try decoder.unkeyedContainer()
+            var items: [Element?] = []
+            while !box.isAtEnd { items.append(try box.decode(One.self).value) }
+            self.items = items
+        }
+    }
+    /// One value that may not read; decoding it always moves past it.
+    struct One: Decodable {
+        let value: Element?
+        init(from decoder: any Decoder) throws { value = try? Element(from: decoder) }
     }
 }
 
@@ -261,6 +408,8 @@ extension ApprovalRow {
         let label: String
         let scope: String
         let emphasis: String
+        /// The action named once with what it covers ("Always allow here"); nil from older bridges.
+        var name: String? = nil
     }
     struct Other: Codable, Sendable, Equatable {
         let option: Int

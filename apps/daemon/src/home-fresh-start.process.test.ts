@@ -9,6 +9,7 @@ import { exitCodes } from "./cli/output.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { readConfig, startDaemon } from "./index.ts";
 import { daemonCli, launchDaemon } from "./process-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -79,6 +80,7 @@ test("daemon logs land in the new home after a fresh start, and the backup is lo
   const home = await userHome("ace-fresh-logs-");
   const root = await legacyHome(home);
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_PORT: "0", ACE_LOG_LEVEL: "info" }, home),
     modelInstances: [],
     history: { instances: [] },
@@ -175,6 +177,7 @@ test("~/.ace-next from interim builds is never read, moved or written", async ()
   await writeFile(join(interim, "events.sqlite"), "interim threads");
   await writeFile(join(interim, "legacy-home.json"), "{}");
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }, home),
     modelInstances: [],
     history: { instances: [] },

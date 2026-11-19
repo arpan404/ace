@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { BrowserAnnotationCapture } from "@ace/protocol";
 import { designTokens } from "@ace/design-tokens";
-import { annotationFixture, executablePath, isColour } from "./annotation-test-support.ts";
+import { sharedAnnotationFixture, executablePath, isColour } from "./annotation-test-support.ts";
 
 const test = it.skipIf(!executablePath);
 const overlayPresent = "document.querySelector('ace-annotation-layer') !== null";
@@ -12,8 +12,8 @@ const overlayPresent = "document.querySelector('ace-annotation-layer') !== null"
  * the right-most accent run inside the glass is that pill.
  */
 async function sendButton(
-  f: Awaited<ReturnType<typeof annotationFixture>>,
-  person: ReturnType<Awaited<ReturnType<typeof annotationFixture>>["connect"]>,
+  f: Awaited<ReturnType<typeof sharedAnnotationFixture>>,
+  person: ReturnType<Awaited<ReturnType<typeof sharedAnnotationFixture>>["connect"]>,
 ): Promise<{ x: number; y: number }> {
   const width = Number(await person.evaluate("innerWidth"));
   const height = Number(await person.evaluate("innerHeight"));
@@ -49,7 +49,7 @@ async function sendButton(
 }
 
 test("pressing Send on the page ends annotate mode even when the client never stops it", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await f.pin(person, "p.lead", "Send this");
   const send = await sendButton(f, person);
@@ -63,7 +63,7 @@ test("pressing Send on the page ends annotate mode even when the client never st
 }, 60_000);
 
 test("a person's annotate commands never wait behind an agent's input that waits for them", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await f.pin(person, "p.lead", "Tighter");
   // The person just used the page, so the agent's key press politely waits for a pause.

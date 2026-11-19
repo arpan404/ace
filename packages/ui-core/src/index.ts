@@ -1,5 +1,21 @@
 export { accountShortLabel } from "@ace/accounts/labels";
-export { accountBadge } from "./account-badge.ts";
+export {
+  accountBadge,
+  accountBadgePreview,
+  accountBadgeProblem,
+  type AccountBadgeDraft,
+  type AccountBadgePreview,
+} from "./account-badge.ts";
+export { splitCommand } from "./command-line.ts";
+export {
+  checkMcpServer,
+  mcpServersNote,
+  mcpServerWord,
+  providerHasMcpServers,
+  type McpServerCheck,
+  type McpServerDraft,
+  type McpServerStatus,
+} from "./mcp-server-form.ts";
 export { threadAttention, withoutPortableHandoff } from "@ace/projection";
 export * from "./notice-text.ts";
 /*
@@ -8,13 +24,20 @@ export * from "./notice-text.ts";
  * TypeScript over @ace/protocol and @ace/client types; no React, DOM or platform APIs.
  */
 export * from "./accounts.ts";
+export * from "./profile-activity.ts";
 export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./remote-contact.ts";
+export * from "./agent-tally.ts";
+export * from "./agent-forest.ts";
+export * from "./summary-now.ts";
 export * from "./lost-child.ts";
 export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";
 export * from "./arrange.ts";
+export * from "./agent-settings.ts";
+export * from "./settings-scope.ts";
 export * from "./attachment-fit.ts";
 export * from "./attachment-limits.ts";
 export * from "./context-errors.ts";
@@ -22,6 +45,7 @@ export * from "./turn-options.ts";
 export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
+export * from "./work-checkout.ts";
 export * from "./action-errors.ts";
 export * from "./inbox-words.ts";
 export * from "./pull-request.ts";
@@ -30,10 +54,18 @@ export * from "./forge-lists.ts";
 export * from "./forge-marks.ts";
 export * from "./pr-readiness.ts";
 export * from "./pr-row-steps.ts";
+export * from "./pr-work-groups.ts";
 export * from "./pr-gates.ts";
 export * from "./pr-primary-action.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
+export * from "./composer-text-edits.ts";
+export * from "./composer-lines.ts";
+export * from "./composer-lists.ts";
+export * from "./composer-bold.ts";
+export * from "./composer-blocks.ts";
+export * from "./composer-block-edits.ts";
+export * from "./composer-markers.ts";
 export * from "./browser-annotation-prompt.ts";
 export * from "./browser-annotation-parse.ts";
 export * from "./content-hash.ts";
@@ -41,19 +73,36 @@ export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
-export { gitPatchFiles } from "./git-patch.ts";
+export {
+  gitPatchFiles,
+  patchSections,
+  truncatedPatchNotice,
+  type PatchSection,
+} from "./git-patch.ts";
+export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
 export * from "./first-launch.ts";
+export * from "./chat-list.ts";
+export * from "./home-history.ts";
 export * from "./home-rows.ts";
+export * from "./thread-standing.ts";
+export * from "./thread-place.ts";
+export * from "./place-signals.ts";
 export * from "./list-selection.ts";
 export * from "./pin-drag.ts";
 export * from "./pin-order.ts";
 export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
+export * from "./limit-words.ts";
+export * from "./past-sessions.ts";
+export * from "./media-pipeline-settings.ts";
+export * from "./beta-switches.ts";
+export * from "./notification-settings.ts";
+export * from "./simulator-settings.ts";
 export * from "./models.ts";
 export * from "./model-catalog-read.ts";
 export * from "./new-thread-payload.ts";
@@ -61,12 +110,16 @@ export * from "./model-switch-route.ts";
 export * from "./model-picker.ts";
 export * from "./picker-entries.ts";
 export * from "./model-favorites.ts";
+export * from "./cli-install-controller.ts";
+export * from "./provider-configuration-edit.ts";
+export * from "./provider-models-view.ts";
 export * from "./speed.ts";
 export * from "./model-groups.ts";
 export * from "./model-label.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./organize-patch.ts";
+export * from "./organize-pending.ts";
 export * from "./permissions.ts";
 export * from "./plan.ts";
 export * from "./goal.ts";
@@ -77,6 +130,16 @@ export * from "./machine-mark.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
+export * from "./forge-hosts.ts";
+export * from "./source-control-problem.ts";
+export * from "./forge-error-copy.ts";
+export * from "./hosted-reviews.ts";
+export * from "./project-repositories.ts";
+export * from "./project-repository-edit.ts";
+export * from "./review-sources.ts";
+export * from "./skill-library.ts";
+export * from "./skill-update.ts";
+export * from "./plugin-source.ts";
 export * from "./provider-slots.ts";
 export * from "./subagent-row.ts";
 export * from "./row-room.ts";
@@ -84,20 +147,28 @@ export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
 export * from "./provider-account-model.ts";
 export * from "./provider-services.ts";
+export * from "./service-search.ts";
 export * from "./questions.ts";
 export * from "./answered-questions.ts";
 export * from "./question-line.ts";
 export * from "./question-draft.ts";
 export * from "./composer-reply.ts";
 export * from "./queue.ts";
+export * from "./queue-actions.ts";
+export * from "./retained-input.ts";
+export * from "./last-sent.ts";
 export * from "./queued-input.ts";
+export * from "./queued-steer.ts";
 export * from "./snooze.ts";
+export * from "./snooze-woke.ts";
 export * from "./live-status.ts";
-export * from "./offshift.ts";
 export { newestAgentPage, opensAgentPage } from "./agent-page.ts";
 export * from "./status.ts";
 export * from "./storage.ts";
 export * from "./thread-card.ts";
+export * from "./thread-match.ts";
+export * from "./thread-menu.ts";
+export { readAceLink, type AceLink } from "./ace-link.ts";
 export * from "./thread-state.ts";
 export * from "./thread-title.ts";
 export * from "./time.ts";
@@ -111,6 +182,7 @@ export * from "./agent-changes.ts";
 export * from "./agent-step.ts";
 export * from "./catch-up.ts";
 export * from "./check-runs.ts";
+export * from "./summary-results.ts";
 export * from "./needs-you.ts";
 export * from "./jump-window.ts";
 export * from "./held-range.ts";
@@ -128,16 +200,43 @@ export * from "./browser-logs.ts";
 export * from "./browser-zoom.ts";
 export * from "./browsing-history.ts";
 export * from "./browser-words.ts";
+export * from "./browser-settings.ts";
+export * from "./browser-connection.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./folder-tree.ts";
+export * from "./script-choices.ts";
 export * from "./checkout-errors.ts";
+export * from "./checkout-quick-open.ts";
+export * from "./checkout-transfer-words.ts";
 export * from "./projects.ts";
+export * from "./project-edit.ts";
+export * from "./device-pairing.ts";
+export * from "./outside-clients.ts";
+export * from "./fleet-rules.ts";
+export * from "./list-names.ts";
+export * from "./machine-update.ts";
+export { publicationProblem } from "./publication-copy.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
+export * from "./usage-axis.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
+export * from "./usage-format.ts";
+export * from "./usage-breakdown.ts";
+export * from "./usage-growth.ts";
+export * from "./usage-headroom.ts";
+export * from "./usage-hues.ts";
+export * from "./usage-projection.ts";
+export * from "./usage-when.ts";
+export * from "./usage-ledger.ts";
+export * from "./usage-ledger-read.ts";
 export * from "./usage-limits.ts";
+export * from "./usage-machines.ts";
+export * from "./join-names.ts";
+export { hostPlatform } from "./host-platform.ts";
 export * from "./usage-report.ts";
+export * from "./usage-tokens.ts";
 export * from "./step-display.ts";
 export * from "./worktree-creation.ts";
 export * from "./tool-labels.ts";
@@ -148,19 +247,57 @@ export * from "./repeated-events.ts";
 export * from "./background-groups.ts";
 export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
+export * from "./sent-by.ts";
+export * from "./bubble-markdown.ts";
+export {
+  mergeReceipts,
+  receiptEntry,
+  receiptResults,
+  turnSubagents,
+} from "./delegation-receipts.ts";
 export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./command-risk.ts";
 export * from "./follow-up.ts";
 export * from "./stop-fence.ts";
+export * from "./fork-point.ts";
+export * from "./continuation.ts";
+export * from "./edit-point.ts";
+export * from "./resend.ts";
+export * from "./tex-text.ts";
 export {
   composerInput,
   editComposerTokens,
+  inputWithText,
+  referenceContext,
   tokensFromInput,
   withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
+export {
+  actionKind,
+  attachmentsEntry,
+  catalogGroups,
+  commandArguments,
+  commandSuggestions,
+  heldReferences,
+  mentionSuggestions,
+  pickSuggestion,
+  referenceLimits,
+  suggestionToken,
+  tooManyReferences,
+  triggerAt,
+  type CommandScope,
+  type ComposerSuggestion,
+  type ComposerTrigger,
+  type HeldReferences,
+  type MentionScope,
+  type MentionTab,
+  type MentionThread,
+  type SuggestionPick,
+} from "./composer-suggestions.ts";
 
 export { threadIsRunning } from "./live-status.ts";
 export {
@@ -190,6 +327,18 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
+export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
+export {
+  rowStatusLook,
+  spokenRowStatus,
+  waitingOnAgentsLabel,
+  type RowStatusIconKind,
+  type RowStatusLook,
+  type RowStatusTone,
+} from "./row-status-display.ts";
+export { rowStatusState, type RowStatusState } from "./row-status-state.ts";
+export { hoverStatusLine, type HoverStatusLine } from "./row-hover-status.ts";
+export { appList, browsingLabel, computerUseLabel } from "./agent-use.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,
@@ -227,7 +376,11 @@ export { livePlanStep } from "./plan.ts";
 export { isThreadStartCall, startedThreadOf, type StartedThread } from "./started-thread.ts";
 export { saidAt } from "./fork-marker.ts";
 /** The utility model for titles and commit/PR drafts: the same resolution the daemon runs. */
-export { resolveUtilityModel, type UtilityModel } from "@ace/models/utility-model";
+export {
+  resolveUtilityModel,
+  utilityProviders,
+  type UtilityModel,
+} from "@ace/models/utility-model";
 
 export {
   JumpController,
@@ -237,6 +390,7 @@ export {
   type LiveTail,
 } from "./jump-controller.ts";
 export * from "./person-message.ts";
+export * from "./turn-moments.ts";
 export * from "./held-turn.ts";
 export { continueMessage } from "@ace/core";
 export * from "./bubble-segments.ts";
@@ -246,8 +400,38 @@ export * from "./not-sent.ts";
 export * from "./notice-error.ts";
 export * from "./event-view.ts";
 export * from "./forge-timeline.ts";
+export * from "./forge-timeline-pushes.ts";
+export * from "./message-quotes.ts";
+export * from "./guest-session.ts";
 export * from "./forge-comments.ts";
 export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
+export * from "./new-pr-words.ts";
+export * from "./forge-inbox-writes.ts";
+export * from "./merge-run-words.ts";
+export * from "./start-from-rows.ts";
+export * from "./pr-check-model.ts";
+export * from "./pr-fix-requests.ts";
+export * from "./pr-conflicts-model.ts";
+export * from "./pr-stack-labels.ts";
+export * from "./pr-stack-controls.ts";
+export * from "./pr-revert.ts";
+export * from "./forge-code-review.ts";
+export * from "./forge-history-pages.ts";
+export * from "./forge-rendered-model.ts";
+export * from "./forge-file-kind.ts";
+export * from "./diff-scope.ts";
+export * from "./diff-rows.ts";
+export {
+  lockedUseLabel,
+  lockedUseRefusal,
+  lockedUseShown,
+  lockedUseSwitchOn,
+  lockedUseUnavailable,
+} from "./locked-use.ts";
+export * from "./forge-review-submit.ts";
+export * from "./forge-fix-marks.ts";
+
+export * from "./forge-capability.ts";

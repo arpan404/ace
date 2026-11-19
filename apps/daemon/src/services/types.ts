@@ -28,8 +28,14 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  /** Deletes a thread as the person's Delete does; bound once the server's lifecycle starts. */
+  threadDeletion?: (
+    command: import("@ace/protocol").Command,
+  ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
@@ -37,13 +43,24 @@ export interface Services {
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
+  /** Shares provider CLI probes between status and engine discovery until the engine is up. */
+  startupProbes?: import("@ace/provider-kit/discovery").StartupProbes;
   utility?: import("./utility.ts").UtilityService;
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
+  /** Agents' automations: their own store and scheduler, and whether an owner thread is live. */
+  agentAutomations?: {
+    store: import("@ace/automations").AutomationStore;
+    service: import("@ace/automations").AutomationService;
+    live(automationId: string): boolean;
+  };
+  /** Webhook automations' URLs, secrets and relayed requests (ADR 0173). */
+  automationWebhooks?: import("../automation-webhooks.ts").AutomationWebhookService;
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  sidebarPlacement?: import("../sidebar-placement.ts").SidebarPlacement;
   /** Local checks and verified batch merges of pull requests (ADR 0094). */
   verify?: import("../verify/verify-service.ts").Verify;
   icons?: import("../icons/icon-service.ts").IconService;
@@ -59,8 +76,21 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** Threads paired machines' agents started here (ADR 0078), for who owns what. */
+  machineThreads?: import("../machines/target-threads.ts").TargetThreads;
+  /** Data between agents across machines (ADR 0182). */
+  parcels?: import("../parcels/service.ts").DaemonParcels;
+  /** The paths this machine serves now (ADR 0114), set by the server once it knows them. */
+  servedPaths?: (() => import("@ace/protocol").MachinePath[]) | undefined;
+  /**
+   * A device grant on this machine's ace account for one of its paired devices elsewhere, set by
+   * the server; undefined while it isn't signed in (ADR 0182).
+   */
+  relayDeviceGrant?:
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
+    | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("../transfers/http.ts").TransferTarget;
+  transferTarget?: import("../transfers/serve.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
@@ -73,8 +103,14 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  /** What ace-media runs on (ADR 0148): its probe's list and each source's steps. */
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
   computer?: ComputerClient;
+  /** Cowork on the screen (ADR 0143): the person's lease per app, shared by tools and live view. */
+  screenCowork?: import("@ace/screen").ScreenCowork;
+  /** The locked use service owner (macOS); its service starts only when a gated call needs it. */
+  lockedUseRuntime?: import("../locked-use-runtime.ts").LockedUseRuntime;
   /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
   /** Threads whose browser an agent works in now (the task list's indicator). */
@@ -91,10 +127,27 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   promptFiles?: import("@ace/commands").PromptFiles;
   skillLibrary?: import("@ace/commands").SkillLibrary;
+  /** Spade, ace's assistant: its own service, which the daemon reads and forwards to (ADR 0123). */
+  spade?: import("../spade/link.ts").SpadeLink;
+  /** How many frames of a bot's running turn precede a call its CLI makes now (ADR 0133). */
+  spadeBrainSeq?: (threadId: import("@ace/protocol").ThreadId) => Promise<number | undefined>;
+  /** `<daemon>/spade/brains/*`: Spade's bots' turns on subscriptions (ADR 0133). */
+  spadeBrains?: (
+    request: import("node:http").IncomingMessage,
+    response: import("node:http").ServerResponse,
+  ) => void;
+  /** Whether a bearer is Spade's live grant (ADR 0123), for its loopback-only requests. */
+  spadeGrantVerify?: (bearer: string) => boolean;
+  /** Spade's bots on the person's other machines (ADR 0132). */
+  spadeRemote?: import("../spade/remote.ts").SpadeRemote;
+  /** Spade's bots' browsers and screen use (`spade.computer.*`). */
+  spadeComputers?: import("../spade/computers.ts").SpadeComputers;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178); present without a binary too. */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;
@@ -102,6 +155,17 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** Followers of the plugin service: told each time a (re)started one is published. */
+  pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
+  /** ace's marketplace (ADR 0168). */
+  marketplace?: import("../marketplace/service.ts").MarketplaceService;
+  /** The marketplace as the person or an agent reaches it (ADR 0178 §12.5). */
+  marketAgent?: import("../marketplace/market-agent.ts").MarketAgent;
+  /** The Suit library (ADR 0150). */
+  suits?: import("../suits/library.ts").SuitLibrary;
+  /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */
+  suitLooks?: import("../suits/looks.ts").SuitLooks;
+  suitChecks?: import("../suits/live-checks.ts").SuitLiveChecks;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(
     provider: Provider,
@@ -126,6 +190,8 @@ export interface Services {
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationAccess;
   notificationPublicKey?: string;
+  /** Pushes an outside client's sign-in request to admin phones (ADR 0122). */
+  accessPush?: import("../external-mcp/access-alerts.ts").AccessPush;
   review: ReturnType<typeof createDaemonReview>;
   historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;
   history?: DaemonHistory;
@@ -133,7 +199,14 @@ export interface Services {
 }
 export interface ServiceContext {
   signal: AbortSignal;
-  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
+  /**
+   * Reports the service's own state after its start returned. `rerun`, when the work can safely
+   * run again, lets startup repeat it on the retry schedule without restarting the service.
+   */
+  readiness?(
+    read: () => { state: "starting" | "ready" | "degraded"; error?: string },
+    rerun?: () => Promise<void>,
+  ): void;
   config: Config;
   options: DaemonOptions;
   store: Store;
@@ -147,5 +220,11 @@ export interface ServiceContext {
    * from the start; the server shares the same gate.
    */
   maintenance?: MaintenanceGate;
+  /** Hears failures that may be a full disk, which holds new work until space is back. */
+  diskFull?: {
+    observe(error: unknown): boolean;
+    /** Runs `listener` each time space comes back; returns its removal. */
+    onRoom(listener: () => void): () => void;
+  };
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
 }

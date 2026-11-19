@@ -1,13 +1,33 @@
 # HTML visualizations in chat
 
 Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
-their reply. Render validates first: a page with unsupported features fails with
-`invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
-nothing, so one call both checks and publishes. HTML in a normal message remains text.
+their reply. Render checks first, in two steps, and a page that fails either comes back as
+`invalid_html` with each problem in `issues`; nothing is published. HTML in a normal message
+remains text.
+
+### Checks before publishing
+
+The same page shows 360 px wide on a phone, about 760 px on a desktop and about 1200 px in the
+side panel.
+
+1. **Markup** (`checkHtmlForPublish`, `@ace/html`): the safety validator, then what breaks the
+   frame at any width (`lintHtmlLayout`). The frame grows to fit the page, so viewport units and
+   `height: 100%` on the root grow it without end, and `position: fixed` pins to the whole page.
+2. **Layout at 360 px.** A page that passes is laid out in the preview browser at the phone width
+   (`htmlLayout`, `apps/daemon/src/html-preview.ts`) and `measuredLayoutProblems` refuses what
+   reaches past the edge outside a sideways scroller (`overflow`) and text rendered under 9 px
+   (`text-too-small`). The result of an `html_preview` that included 360 px is reused for the
+   same document and mode (`MeasuredLayouts`, the last 32 pages, in memory). A measurement gets
+   10 seconds. If the browser is missing, slow to start or fails, `estimateHtmlLayout` guesses
+   from the markup instead: fixed widths over 360 px (`fixed-width`), font sizes under 10 px and
+   SVG labels that would shrink under 9 px (`svg-text-too-small`).
+
+Rendering applies the safety validator alone, so pages published before a rule existed still
+display.
 
 The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
 raster images inline as base64 `data:` URLs, with a 160-character title and an optional
-80–2000 px height cap. Only `html_render` (20 MiB, for JSON escaping) and `image_show`
+80–2000 px height cap. Only `html_render` and `html_preview` (20 MiB, for JSON escaping) and `image_show`
 receive a larger MCP input budget; the HTTP and stdio request envelopes admit the
 largest of them, and every other tool keeps its own budget (64 KiB unless it declares more).
 
@@ -18,6 +38,36 @@ attachment for the life of the thread, including after daemon restart. The
 attachment endpoint serves the bytes as plain text. No executable HTML endpoint,
 preview-gateway link, provider credential or daemon token enters the document.
 Remote and relay clients fetch through their owning connection's attachment API.
+
+## Previewing before publishing
+
+`html_preview({ html, mode?, scheme?, widths? })` lets an agent look at a page before it
+publishes it. A safety problem (`validateHtml`) fails with the same `invalid_html` error as
+`html_render`. What `html_render` would refuse for layout does not stop a preview: the frame
+rules and the 360 px check are listed under the report, beside the pictures that show them. It
+lays the page out in the transcript's own document (`inlineVisualizationUrl` with the current
+`styleKitVersion`: style kit, sandboxed out-of-process frame, CSP) at each of `widths`: 360
+(phone), 760 (desktop message column) and 1200 (full screen in the side panel), by default 360
+and 760. The theme comes
+from `@ace/design-tokens` for `scheme` (default `dark`), with the thread background behind the
+frame. Nothing is stored, posted or shown to the person, and no provider quota is spent.
+
+- **Engine.** `BrowserService.previewPage` drives a Chrome of ace's on its own profile
+  (`<dataDir>/browser/preview`) at device scale 1, whichever backend threads browse with. It
+  starts on the first preview and stops a minute after the last. Each preview gets a
+  throwaway browser context and one hidden tab, and every network request is failed.
+- **Settling.** It waits for load and `document.fonts.ready`, emulates reduced motion (the
+  kit's entry animation does not run), finishes finite authored animations, then waits two
+  frames before measuring and capturing.
+- **Result.** One terse line per width, then one image per width (PNG, JPEG above 900 KiB). Each
+  image is the full content height, cut at 2000 px. The line gives the content height, whether
+  the page overflows sideways and which outermost elements reach past the edge, boxes hiding
+  content with `overflow: hidden`, and visible text drawn under 11 px after every scale
+  (SVG `<text>` through its viewBox): a count and the three smallest.
+
+`previewMeasure` (the in-page measurement) and `previewReport` (facts to text) live in
+`@ace/html/src/preview.ts`. A warm preview takes about half a second; the first one starts the
+browser (about a second). The tool's timeout is 45 s, for a first use that downloads Chromium.
 
 ## Posted images
 
@@ -71,10 +121,13 @@ or inline handler, otherwise `interactive`. The daemon stores the resolved mode 
 item without one gets the same rule from the client. Desktop and web honour the stored mode;
 "Open in window" and downloads keep it. The UI shows no mode label.
 
-`@ace/html` owns the pure validator, the document builder and the two fixed bridge scripts
+`@ace/html` owns the pure validator, the layout lint, the document builder and the two fixed bridge scripts
 (`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
 plugins, `<link>`, base URLs, HTTP-equivalent metadata and every external URL in markup or
-CSS. Every display path wraps the page the same way:
+CSS. In CSS it allows only in-page `url(#id)` references (SVG markers, gradients, clip paths)
+and inline `data:` URLs (images, fonts, masks), which the page's CSP already admits; `@import`,
+files and web addresses in `url()`, `src()` and `image-set()` are refused. Every display path
+wraps the page the same way:
 
 - **Outer document.** A trusted document with `frame-src 'none'` holds the page in a
   `sandbox="allow-scripts"` `srcdoc` frame, so the page cannot navigate its frame elsewhere.
@@ -167,10 +220,16 @@ on the daemon's machine.
   fits the content height up to the item's `height` (default 800 px) and scrolls inside beyond
   it. In the side panel the frame fills the panel and the page scrolls inside it.
 - **Style kit.** Before the authored styles, every page gets `baseStyles` (`@ace/html`) in the
-  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and a
-  few component classes (`card`, `stat`, `badge`, `callout`, `tabs`, `grid`, …) drawn from the
-  theme variables, so plain markup reads as ace UI. Unlayered authored CSS always wins. The kit
-  sets no SVG paint, so chart attributes stand. The visualize skill lists the classes.
+  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and
+  component classes drawn from the theme variables (`ace-rows`, `ace-flow`, `ace-timeline`,
+  `ace-split`, `ace-frame`, `ace-stat`, `ace-badge`, …), so plain markup reads as ace UI.
+  Every kit class starts with `ace-`, so it never merges into a page's own `.row` or `.card`
+  rules. A `<button>` carrying a class of the page's own is reset to a plain box, so rows and
+  option cards built from buttons lay out as written; a bare button, one whose only class is a
+  state (`active`, `selected`, …) and the kit's variants keep the ace button look. Unlayered
+  authored CSS always wins. The kit sets no SVG paint, so chart attributes stand. The
+  visualize skill teaches agents to design their own pages and lists the kit's classes as
+  optional helpers.
 - **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
   text tiers, hairlines and control edges, primary, accent (the accent picker) and accent text, status colours (`--success`, `--warning`,
   `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode
@@ -244,8 +303,8 @@ provider and verifies reclamation. Additional guards cover pending spawn records
 missing evidence, denied inspection, failed recovery and fresh projections.
 
 The skill teaches when a page helps (explanations, interactive learning, comparisons,
-diagrams, mockups and charts), when to choose each mode,
-and how to write one: self-contained, theme variables, no
-network, fluid width, content-driven height, accessible controls. It covers preview before
-render and concise prose after publication. Native provider skill discovery sees it as part
+diagrams, mockups and charts), when to choose each mode, and how to write one: designed
+phone first in the page's own HTML and CSS, laid out with intrinsic sizing and container
+queries, self-contained, theme variables, content-driven height, accessible controls. It covers
+preview before render and concise prose after publication. Native provider skill discovery sees it as part
 of the `ace-builtins` plugin.

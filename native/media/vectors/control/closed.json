@@ -1,0 +1,7 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "closed",
+    "id": "source-1"
+  }
+}

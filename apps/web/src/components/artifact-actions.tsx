@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import { DownloadSimpleIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { DownloadSimpleIcon, ArrowSquareOutIcon } from "@ace/icons";
 import { useState } from "react";
 import {
   fileTab,

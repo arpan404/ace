@@ -31,7 +31,9 @@ export interface Lifetime {
 export function appLifetime(facts: LifetimeFacts): Lifetime {
   if (facts.window || facts.platform === "darwin" || facts.background)
     return { quit: false, tray: facts.background };
-  const { needsYou, working, held } = facts.work;
-  const busy = facts.browserPages > 0 || working > 0 || needsYou > 0 || held > 0;
+  const { needsYou, working, held, hostedWorking, hostedWaiting } = facts.work;
+  // Work a paired machine delegated here counts too: quitting would stop it under its owner.
+  const busy =
+    facts.browserPages > 0 || working + needsYou + held + hostedWorking + hostedWaiting > 0;
   return { quit: !busy, tray: busy };
 }

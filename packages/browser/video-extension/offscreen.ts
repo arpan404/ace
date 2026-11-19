@@ -1,6 +1,13 @@
-import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
+import {
+  EncodePacer,
+  EncoderWatchdog,
+  FirstPicture,
+  refreshPictureMs,
+} from "../src/video-pacing.ts";
 import { affordsSettleKey, QuantizerControl } from "../src/quantizer-control.ts";
+import { ReadStamper } from "@ace/media/epochs";
 import { TabAudio } from "./audio.ts";
+import { base64Bytes, IngestSink, videoCodec, type IngestTarget } from "./ingest.ts";
 
 /*
  * The video extension's offscreen document (ADR 0088): opens a tab capture and encodes it with
@@ -11,10 +18,17 @@ import { TabAudio } from "./audio.ts";
  * `aceVideoEmit` instead (`apps/desktop/src/main/browser/video-encoder.ts`).
  * Every chunk says how long ago (`age`, ms) its picture or sound was captured, so the daemon
  * stamps video and audio on one clock.
+ *
+ * Given an ingest target (`aceVideo.ingest`, docs/media/plan.md "Ingest framing"), a capture
+ * sends its chunks to ace-media instead, as binary `MediaFrame`s over a loopback WebSocket
+ * (`ingest.ts`), stamped with the privacy epoch it holds (`aceVideo.epoch`). Each chunk goes
+ * one way only, and every switch asks each encode for a keyframe.
  */
 
 interface EncodeSpec {
   key: string;
+  /** The encode's id in ace-media's frames; 0 when the daemon gave none. */
+  id?: number;
   codec: string;
   width: number;
   height: number;
@@ -43,6 +57,7 @@ interface Encoder {
   /** ace's own rate control, while the encoder runs in `quantizer` mode. */
   quantizer: QuantizerControl | undefined;
   description: string | undefined;
+  descriptionBytes: Uint8Array | undefined;
   /** The last keyframe's size in bits: what a whole picture costs at this rate. */
   keyBits: number | undefined;
   /** The last frame encoded was a keyframe the encoder sized itself (no `quantizer` mode). */
@@ -56,6 +71,10 @@ interface Capture {
   /** A tab capture's track and its frames; absent for a capture fed pushed pictures. */
   track: MediaStreamTrack | undefined;
   reader: FrameReader | undefined;
+  /** A tab capture's watch for its first picture; absent for pushed pictures. */
+  first: FirstPicture | undefined;
+  /** Ends the extra sink asking for a picture (`refreshPicture`) while one is open. */
+  probe: (() => void) | undefined;
   /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
   decoding: boolean;
   waiting: Uint8Array<ArrayBuffer> | undefined;
@@ -65,6 +84,10 @@ interface Capture {
   /** The tab's sound; absent when the capture has no audio track. */
   audio: TabAudio | undefined;
   stopped: boolean;
+  /** Where chunks go instead of the daemon, while a target is given and its socket is open. */
+  ingest: IngestSink | undefined;
+  /** The privacy epoch each chunk is stamped with, at the time it is read. */
+  stamper: ReadStamper;
 }
 
 const captures = new Map<string, Capture>();
@@ -161,17 +184,20 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
         if (generation !== entry.generation) return;
         entry.watchdog.output();
         const description = metadata?.decoderConfig?.description;
-        if (description)
-          entry.description = base64(
-            ArrayBuffer.isView(description)
-              ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
-              : new Uint8Array(description),
-          );
+        if (description) {
+          const copied = ArrayBuffer.isView(description)
+            ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+            : new Uint8Array(description);
+          entry.descriptionBytes = copied.slice();
+          entry.description = base64(copied);
+        }
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
         const key = chunk.type === "key";
         if (key) entry.keyBits = bytes.length * 8;
         entry.quantizer?.observe(bytes.length, key);
+        const age = Math.max(0, now() - chunk.timestamp / 1000);
+        if (toIngest(capture, entry, key, bytes, age)) return;
         emit(
           {
             t: "chunk",
@@ -185,7 +211,7 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
             codedWidth: entry.spec.width,
             codedHeight: entry.spec.height,
             // Frames are stamped with `now()` as they go in (`encode`).
-            age: Math.max(0, now() - chunk.timestamp / 1000),
+            age,
             ...(key && entry.description ? { description: entry.description } : {}),
           },
           bytes,
@@ -193,7 +219,9 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
       },
       error: (error) => {
         if (generation !== entry.generation) return;
-        void configure(capture, entry, String(error));
+        void configure(capture, entry, String(error)).catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
       },
     });
     encoder.configure(config);
@@ -210,17 +238,119 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
   emit({ t: "failed", capture: capture.id, encode: entry.spec.key, reason });
 }
 
-/** A running encode's new bit rate: the encoder reconfigures in place, keeping its stream. */
-function retune(entry: Encoder, bitrate: number): void {
-  if (entry.spec.bitrate === bitrate) return;
-  entry.spec = { ...entry.spec, bitrate };
-  // Configurations not tried yet take the new rate too.
-  entry.configs = entry.configs.map((config) => ({ ...config, bitrate }));
-  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one.
-  entry.quantizer?.retarget(bitrate, entry.spec.fps);
+/**
+ * Sends one chunk to ace-media when the capture streams there; false when it goes to the
+ * daemon. A backed-up socket drops deltas and asks for a keyframe.
+ */
+function toIngest(
+  capture: Capture,
+  entry: Encoder,
+  key: boolean,
+  bytes: Uint8Array,
+  age: number,
+): boolean {
+  const sink = capture.ingest;
+  if (!sink?.open() || videoCodec(entry.spec.codec) === 0) return false;
+  if (!key && sink.behind()) {
+    entry.pacer.requestKeyframe();
+    return true;
+  }
+  sink.video({
+    encode: entry.spec.id ?? 0,
+    key,
+    codec: entry.spec.codec,
+    width: entry.spec.width,
+    height: entry.spec.height,
+    ageMs: age,
+    epoch: capture.stamper.stamp(now()),
+    description: entry.descriptionBytes,
+    bytes,
+  });
+  return true;
+}
+
+/** The capture's sound, to ace-media when it streams there, else to the daemon. */
+function deliverAudio(capture: Capture, event: Record<string, unknown>, bytes: Uint8Array): void {
+  const sink = capture.ingest;
+  const { sampleRate, channels, age } = event;
+  if (
+    sink?.open() &&
+    typeof sampleRate === "number" &&
+    typeof channels === "number" &&
+    typeof age === "number"
+  ) {
+    sink.audio({ sampleRate, channels, ageMs: age, epoch: capture.stamper.stamp(now()), bytes });
+    return;
+  }
+  emit({ ...event, capture: capture.id }, bytes);
+}
+
+/** Every encode of the capture owes a keyframe: its stream just moved. */
+function keyframes(capture: Capture): void {
+  for (const entry of capture.encoders.values()) entry.pacer.requestKeyframe();
+}
+
+/**
+ * The capture's word on the daemon's path that its chunks move: sent there in order with its
+ * chunks, so the daemon hands on everything before it first (`PathMerge`).
+ */
+function moved(capture: Capture, to: "ingest" | "daemon"): void {
+  emit({ t: "moved", capture: capture.id, to });
+}
+
+/** Points the capture's chunks at ace-media's ingest, or (no target) back at the daemon. */
+function ingest(capture: Capture, target: IngestTarget | undefined): void {
+  const old = capture.ingest;
+  capture.ingest = undefined;
+  if (old) {
+    old.close();
+    // Chunks come to the daemon again from here; an old socket that never opened sent none.
+    moved(capture, "daemon");
+    keyframes(capture);
+  }
+  if (!target) return;
+  capture.stamper = new ReadStamper(target.epoch);
+  let sink: IngestSink;
+  try {
+    sink = new IngestSink(
+      target,
+      () => {
+        if (capture.ingest !== sink) return;
+        // The last thing on the daemon's path before the chunks go to ace-media.
+        moved(capture, "ingest");
+        keyframes(capture);
+      },
+      () => {
+        if (capture.ingest !== sink) return;
+        // ace-media went away or refused the token: back to the daemon until it gives another.
+        capture.ingest = undefined;
+        moved(capture, "daemon");
+        keyframes(capture);
+      },
+    );
+  } catch {
+    moved(capture, "daemon");
+    return;
+  }
+  capture.ingest = sink;
+}
+
+/**
+ * A running encode's new bit or frame rate (the link stepped it): the encoder reconfigures in
+ * place, keeping its stream, and the pacer takes frames at the new rate.
+ */
+function retune(entry: Encoder, bitrate: number, fps: number): void {
+  if (entry.spec.bitrate === bitrate && entry.spec.fps === fps) return;
+  entry.spec = { ...entry.spec, bitrate, fps };
+  entry.pacer.retime(fps);
+  // Configurations not tried yet take the new rates too.
+  entry.configs = entry.configs.map((config) => ({ ...config, bitrate, framerate: fps }));
+  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one, and its
+  // keyframes stay within half a second of it.
+  entry.quantizer?.retarget(bitrate, fps);
   const encoder = entry.encoder;
   if (!encoder || encoder.state !== "configured" || !entry.active || entry.quantizer) return;
-  entry.active = { ...entry.active, bitrate };
+  entry.active = { ...entry.active, bitrate, framerate: fps };
   try {
     encoder.configure(entry.active);
   } catch {
@@ -251,6 +381,7 @@ const busy = (entry: Encoder) => (entry.encoder?.encodeQueueSize ?? 0) > 2;
 
 /** A new captured frame: each encode takes it as its pacer says. The capture keeps it. */
 function feed(capture: Capture, frame: VideoFrame): void {
+  capture.first?.arrived();
   capture.last?.close();
   capture.last = frame;
   capture.lastAt = now();
@@ -288,12 +419,55 @@ function stop(id: string): void {
     if (entry.encoder?.state !== "closed") entry.encoder?.close();
   }
   capture.encoders.clear();
+  // The probe's clone holds the tab as much as the track does: a capture opened next on the
+  // same tab would be refused while it lives.
+  capture.probe?.();
   void capture.reader?.cancel().catch(() => {});
   capture.track?.stop();
   capture.waiting = undefined;
   capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
+  capture.ingest?.close();
+  capture.ingest = undefined;
+}
+
+/**
+ * Asks a tab capture for a picture now. Chrome sends a fresh picture to every sink of a capture
+ * when a sink is added, so a short-lived extra sink on a clone of the track brings one to the
+ * capture's own reader. The extra sink's pictures are closed unread: the encoders only ever
+ * take the reader's, in the order they come. The capture owns the probe: it ends with the
+ * first picture it sees, after `refreshPictureMs`, before the next one, or when the capture
+ * stops, whichever is first.
+ */
+function refreshPicture(capture: Capture, track: MediaStreamTrack): void {
+  capture.probe?.();
+  const clone = track.clone();
+  let reader: FrameReader | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const close = () => {
+    if (capture.probe === close) capture.probe = undefined;
+    clearTimeout(timer);
+    void reader?.cancel().catch(() => {});
+    clone.stop();
+  };
+  try {
+    reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
+  } catch {
+    clone.stop();
+    return;
+  }
+  capture.probe = close;
+  timer = setTimeout(close, refreshPictureMs);
+  void reader
+    .read()
+    .then(
+      ({ value }) => value?.close(),
+      () => {},
+    )
+    .finally(() => {
+      if (capture.probe === close) close();
+    });
 }
 
 /** Decodes a pushed-picture capture's newest waiting picture until none waits. */
@@ -319,18 +493,30 @@ async function decodePictures(capture: Capture): Promise<void> {
   }
 }
 
-// Owed keyframes on a still page, its sharper last picture, and encoders that stopped answering.
+// A tab capture still owed its first picture, owed keyframes on a still page, its sharper last
+// picture, and encoders that stopped answering.
 setInterval(() => {
   const at = now();
-  for (const capture of captures.values())
+  for (const capture of captures.values()) {
+    const step = capture.first?.step(at);
+    if (step === "refresh" && capture.track) refreshPicture(capture, capture.track);
+    if (step === "failed") {
+      // Not a picture in all that time: the daemon opens another capture.
+      stop(capture.id);
+      emit({ t: "ended", capture: capture.id, reason: "The tab capture sent no picture" });
+      continue;
+    }
     for (const entry of capture.encoders.values()) {
       if (entry.watchdog.stalled(at)) {
-        void configure(capture, entry, "The encoder stopped producing output");
+        void configure(capture, entry, "The encoder stopped producing output").catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
         continue;
       }
       const last = capture.last;
       if (!last) continue;
       if (entry.pacer.still(at, capture.lastAt, busy(entry))) encode(entry, last, true);
+      else if (entry.pacer.catchUp(at, busy(entry))) encode(entry, last, false);
       else if (entry.encoder?.state === "configured") {
         const idle = entry.encoder.encodeQueueSize === 0;
         if (entry.pacer.settle(at, capture.lastAt, idle)) {
@@ -339,6 +525,7 @@ setInterval(() => {
         }
       }
     }
+  }
 }, 50);
 
 Object.assign(globalThis, {
@@ -361,7 +548,7 @@ Object.assign(globalThis, {
     /**
      * Opens the tab capture `streamId` at exactly this size, replacing capture `id`. `audio:
      * false` leaves the tab's sound alone: capturing it takes it off the machine's speakers,
-     * which the desktop app's own views must keep.
+     * which the desktop app's own views must keep. Throws what Chrome refused it with.
      */
     async start(
       id: string,
@@ -382,20 +569,21 @@ Object.assign(globalThis, {
           maxFrameRate: 60,
         },
       };
-      // The tab's sound rides the same capture (ADR 0088, Audio); a capture that can't take it
-      // still streams its picture.
-      const capture = (audio: boolean): Promise<unknown> =>
-        Reflect.apply(navigator.mediaDevices.getUserMedia, navigator.mediaDevices, [
+      // The tab's sound rides the same capture (ADR 0088, Audio). One attempt: a stream id works
+      // once, so a capture that can't take the sound is retried by the daemon on a fresh id.
+      const stream: unknown = await Reflect.apply(
+        navigator.mediaDevices.getUserMedia,
+        navigator.mediaDevices,
+        [
           {
-            audio: audio
-              ? { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } }
-              : false,
+            audio:
+              options.audio === false
+                ? false
+                : { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
             video,
           },
-        ]);
-      const stream: unknown = await (options.audio === false
-        ? capture(false)
-        : capture(true).catch(() => capture(false)));
+        ],
+      );
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");
@@ -404,16 +592,24 @@ Object.assign(globalThis, {
         id,
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
+        first: new FirstPicture(now()),
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,
         lastAt: 0,
         encoders: new Map(),
-        audio: sound
-          ? new TabAudio(sound, (event, bytes) => emit({ ...event, capture: id }, bytes), now)
-          : undefined,
+        audio: undefined,
         stopped: false,
+        ingest: undefined,
+        stamper: new ReadStamper(0),
       };
+      if (sound)
+        opened.audio = new TabAudio(
+          sound,
+          (event, bytes) => deliverAudio(opened, event, bytes),
+          now,
+        );
       captures.set(id, opened);
       void pump(opened).catch((error: unknown) => {
         if (opened.stopped) return;
@@ -431,6 +627,8 @@ Object.assign(globalThis, {
         id,
         track: undefined,
         reader: undefined,
+        first: undefined,
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,
@@ -438,6 +636,8 @@ Object.assign(globalThis, {
         encoders: new Map(),
         audio: undefined,
         stopped: false,
+        ingest: undefined,
+        stamper: new ReadStamper(0),
       });
     },
     /** One pushed picture (a base64 JPEG) for capture `id`. */
@@ -445,11 +645,12 @@ Object.assign(globalThis, {
       const capture = captures.get(id);
       if (!capture || capture.track) return;
       capture.waiting = Uint8Array.from(atob(jpeg), (char) => char.charCodeAt(0));
-      if (!capture.decoding) void decodePictures(capture);
+      // A picture that fails to decode is skipped; the next pushed picture tries again.
+      if (!capture.decoding) void decodePictures(capture).catch(() => {});
     },
     /**
      * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
-     * running one given another bit rate takes it in place, without a keyframe.
+     * running one given another bit or frame rate takes it in place, without a keyframe.
      */
     encodes(id: string, specs: readonly EncodeSpec[]): void {
       const capture = captures.get(id);
@@ -464,7 +665,7 @@ Object.assign(globalThis, {
       for (const spec of specs) {
         const running = capture.encoders.get(spec.key);
         if (running) {
-          retune(running, spec.bitrate);
+          retune(running, spec.bitrate, spec.fps);
           continue;
         }
         const entry: Encoder = {
@@ -476,13 +677,38 @@ Object.assign(globalThis, {
           active: undefined,
           quantizer: undefined,
           description: undefined,
+          descriptionBytes: undefined,
           keyBits: undefined,
           sharpKey: false,
           generation: 0,
         };
         capture.encoders.set(spec.key, entry);
-        void configure(capture, entry, "No encoder supports this codec here");
+        void configure(capture, entry, "No encoder supports this codec here").catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
       }
+    },
+    /**
+     * Stream capture `id` into ace-media's ingest from now on, or (`null`) back to the daemon.
+     * Its chunks switch once the socket is open; until then, and if it fails, they go to the
+     * daemon.
+     */
+    ingest(id: string, target: { url: string; token: string; epoch: number } | null): void {
+      const capture = captures.get(id);
+      if (!capture) return;
+      ingest(
+        capture,
+        target
+          ? { url: target.url, token: base64Bytes(target.token), epoch: target.epoch }
+          : undefined,
+      );
+    },
+    /**
+     * Capture `id` holds privacy epoch `epoch` from now (`followsPrivate`: the previous one was
+     * private, so chunks read within 100 ms keep it). Returning is the acknowledgement.
+     */
+    epoch(id: string, epoch: number, followsPrivate: boolean): void {
+      captures.get(id)?.stamper.apply(epoch, followsPrivate, now());
     },
     /** Encode capture `id`'s sound too, or stop; it starts off. */
     audio(id: string, on: boolean): void {

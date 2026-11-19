@@ -5,12 +5,13 @@ import UIKit
 /// web's colours and change bars (Markdown rendered, with its source a tap away), an image, or a
 /// plain sentence saying why it can't be shown. Find uses the system find navigator. A thread's
 /// text files up to 1 MB can be edited and saved over the version that was opened; a file that
-/// changed meanwhile is only replaced when the person says so.
+/// changed meanwhile is only replaced when the person says so. A larger one is read and edited a
+/// part at a time (`LargeFileView`), with its own find.
 struct FileScreen: View {
     let model: ClientModel
     let scope: FilesScope
     let target: FileTarget
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     /// Where an Undo for this file goes once the screen closes after deleting it; without one
     /// the screen stays, saying the file is gone, with Undo.
     var deleted: ((FileStrip) -> Void)?
@@ -22,6 +23,8 @@ struct FileScreen: View {
     @State private var failure: String?
     @State private var source = false
     @State private var editing = false
+    /// A text file too large to edit whole, shown in parts so one can be edited.
+    @State private var inParts = false
     @State private var editSession = 0
     @State private var dirty = false
     @State private var saving = false
@@ -31,9 +34,13 @@ struct FileScreen: View {
     @State private var share: SharedFile?
     @State private var showChanges = false
     @State private var handle = SourceHandle()
+    /// Lines selected while reading: Mention lines puts them in the message.
+    @State private var selectedLines: ClosedRange<Int>?
+    @State private var mentioned = 0
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var actions: FileActions
 
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((String) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
+    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
         self.deleted = deleted
         self.model = model
         self.scope = scope
@@ -48,12 +55,24 @@ struct FileScreen: View {
     private var text: String? { content?.kind == "text" ? content?.text : nil }
     private var markdownPreview: Bool { content?.markdown == true && !source && !editing }
     private var canEdit: Bool { actions.canChange && content?.kind == "text" && content?.editable == true }
+    private var canEditParts: Bool { actions.canChange && content?.parts == true }
     private var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
 
     var body: some View {
         main
             .background(AceTheme.Colours.background)
-            .threadTitle(name, subtitle: folder)
+            .navigationTitle(name)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: AceTheme.Spacing.none) {
+                        Text(name).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
+                        if !folder.isEmpty {
+                            Text(folder).aceMonospace(AceDesign.TextRole.meta)
+                                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(editing)
             .toolbar { if editing { editToolbar } else { viewToolbar } }
@@ -67,8 +86,19 @@ struct FileScreen: View {
                 Button("Discard changes", role: .destructive) { stopEditing() }
                 Button("Keep editing", role: .cancel) {}
             }
+            .overlay(alignment: .bottom) { mentionLines }
+            .animation(.default, value: selectedLines)
+            .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
+            .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
+    }
+
+    /// The switcher picked another open file: show it here, as a tab switch would.
+    private func switchTo(_ picked: String) {
+        guard picked != path, !editing else { return }
+        content = nil; image = nil; failure = nil; source = false; inParts = false
+        path = picked
     }
 
     // MARK: Content
@@ -77,25 +107,18 @@ struct FileScreen: View {
         if let content {
             switch content.kind {
             case "missing":
-                ContentUnavailableView {
-                    Label("Not in the checkout", systemImage: "doc.questionmark")
-                } description: {
-                    Text("Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.")
-                } actions: {
+                EmptyState(systemImage: "doc.questionmark", title: "Not in the checkout",
+                           line: "Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.") {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                ContentUnavailableView {
-                    Label("Too large to show here", systemImage: "doc.text")
-                } description: {
-                    Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
-                } actions: { Button("Share") { shareFile() } }
+                LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
+                                  marks: content.markedLines)
             case "binary":
-                ContentUnavailableView {
-                    Label("Binary file", systemImage: "doc")
-                } description: {
-                    Text("\(name) (\(size(content.size))) isn't text, so there's nothing to read here.")
-                } actions: { Button("Share") { shareFile() } }
+                EmptyState(systemImage: "doc", title: "Binary file",
+                           line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
+                    Button("Share") { shareFile() }
+                }
             case "image":
                 ScrollView {
                     VStack(spacing: AceTheme.Spacing.md) {
@@ -104,63 +127,110 @@ struct FileScreen: View {
                         Text(size(content.size)).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
                     }
-                    .padding(AceTheme.Spacing.xl)
+                    .padding(AceDesign.Space.margin)
                 }
             default:
-                textBody(content)
+                if inParts {
+                    LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
+                                  marks: content.markedLines)
+                } else {
+                    textBody(content)
+                }
             }
         } else if let failure {
-            ContentUnavailableView {
-                Label("Couldn't open \(name)", systemImage: "exclamationmark.triangle")
-            } description: { Text(failure) } actions: {
+            EmptyState(icon: nil, title: "Couldn't open \(name)", line: failure, failed: true) {
                 Button("Try again") { self.failure = nil; Task { await load() } }
             }
         } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            SkeletonPage(label: "Loading \(name)")
         }
     }
 
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
-            ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
+            EmptyState(systemImage: "doc.text", title: "Empty file", line: "\(name) has no content.")
         } else if markdownPreview {
             ScrollView {
-                MarkdownView(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
+                AceMarkdown(text: text).padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin)
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
-                                                    colours: content.colours ?? [], runs: content.runs ?? [],
-                                                    marks: Dictionary((content.marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { a, _ in a })),
-                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 })
+                                                    language: content.language,
+                                                    marks: content.markedLines),
+                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
+                           selected: mention == nil ? nil : { selectedLines = $0 },
+                           mention: mention == nil ? nil : { mentionSelection($0) })
                 .ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    /// While lines are selected, one glass capsule over the text says what Mention puts in the
+    /// message: "Mention line 12" or "Mention lines 12–20".
+    @ViewBuilder private var mentionLines: some View {
+        if let lines = selectedLines, mention != nil, !editing {
+            Button { mentionSelection(lines) } label: {
+                Text(lines.count == 1 ? "Mention line \(lines.lowerBound)" : "Mention lines \(lines.lowerBound)–\(lines.upperBound)")
+                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .monospacedDigit()
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                    .frame(minHeight: AceDesign.Size.tap)
+                    .contentShape(AceShape.capsule)
+            }
+            .buttonStyle(.plain)
+            .floatingGlass()
+            .padding(.bottom, AceTheme.Spacing.lg)
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier("preview.mentionLines")
+        }
+    }
+    private func mentionSelection(_ lines: ClosedRange<Int>) {
+        mentioned += 1
+        selectedLines = nil
+        mention?(ComposerMention(path: path, lines: lines))
     }
 
     // MARK: Toolbars
 
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if text != nil, !markdownPreview {
+            OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
+            if text != nil, !markdownPreview, !inParts {
                 Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }
             if canEdit {
                 Button("Edit", systemImage: "pencil") { editing = true }.accessibilityIdentifier("file.edit")
+            } else if canEditParts, content?.kind == "text" {
+                // Over 1 MB: shown in parts, each with its own Edit.
+                Button(inParts ? "Done" : "Edit in parts", systemImage: inParts ? "checkmark" : "pencil") { inParts.toggle() }
+                    .accessibilityIdentifier("file.editParts")
             }
             Menu { fileMenu } label: { Label("File options", systemImage: "ellipsis") }
                 .accessibilityIdentifier("file.menu")
         }
     }
 
+    /// This file on the computer, for Open in.
+    private var hostTarget: HostOpenTarget {
+        switch scope {
+        case .thread(let id): HostOpenTarget(threadId: id, path: path, line: target.line)
+        case .project(let id): HostOpenTarget(workspaceId: id, path: path, line: target.line)
+        }
+    }
     @ViewBuilder private var fileMenu: some View {
         if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") } }
         if content?.markdown == true {
             Button(source ? "View preview" : "View source", systemImage: source ? "eye" : "chevron.left.forwardslash.chevron.right") { source.toggle() }
         }
         if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", systemImage: "at") { mention(path) }.accessibilityIdentifier("preview.mention") }
+        if let mention { Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        if content?.kind != "missing" {
+            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", systemImage: "arrow.up.forward.app") }
+                .accessibilityIdentifier("file.openIn")
+        }
         if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
         if actions.canChange, content?.kind != "missing" {
             Divider()
@@ -283,11 +353,14 @@ struct SharedFile: Identifiable {
     var id: URL { url }
 }
 
-/// The system share sheet for one file.
+/// The system share sheet for one file; `finished` runs once the person shares or cancels.
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var finished: (() -> Void)? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let finished { controller.completionWithItemsHandler = { _, _, _, _ in finished() } }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

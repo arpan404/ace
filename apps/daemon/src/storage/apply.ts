@@ -1,5 +1,5 @@
 import { WorktreeRemovalRefused } from "@ace/git";
-import type { StorageApply } from "@ace/protocol";
+import type { StorageApply, StorageRetention } from "@ace/protocol";
 import type { StorageOwner } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
 import type { StorageJournal, CleanupJournal, CompactionJournal } from "./journal.ts";
@@ -20,6 +20,7 @@ export async function applyStorageItems(
   journal: StorageJournal,
   state: CleanupJournal,
   allowed: () => boolean,
+  retention: StorageRetention = state.plan.retention,
 ): Promise<StorageApply> {
   owner.cleanupPlanId = state.plan.id;
   try {
@@ -48,7 +49,7 @@ export async function applyStorageItems(
           current &&
           planStorageItem(
             current,
-            state.plan.retention,
+            retention,
             owner.now(),
             new Set(entry.item.forced ? [entry.item.id] : []),
           );

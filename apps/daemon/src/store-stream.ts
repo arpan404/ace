@@ -1,6 +1,9 @@
-import { Event, type EventPayload, type ThreadId } from "@ace/protocol";
+import type { Event, EventPayload, ThreadId } from "@ace/protocol";
+import { canonicalEvent } from "./canonical-event.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
+import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
+import { isDiskFull } from "./sqlite-failure.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
 import {
   compactDeltas,
@@ -32,7 +35,8 @@ export class StoreStream {
   // would duplicate its rows, so it waits for that transaction's outcome.
   private sealed = false;
   private cause: unknown;
-  // Consecutive failures that were not contention; only these lead to quarantine.
+  // Consecutive failures that were neither contention nor a full disk; only these lead to
+  // quarantine. Both of those are the store's state, not the rows': the batch waits them out.
   private strikes = 0;
   resyncs = 0;
   constructor(privateOptions: {
@@ -48,6 +52,8 @@ export class StoreStream {
     /** Whether this exact envelope (sequence and id) is already stored. */
     stored(event: Event): boolean;
     publish(events: Event[]): void;
+    /** Shared with the server's wire encoder: each published event is serialised once. */
+    encodings?: EventEncodings;
     report(error: unknown): void;
     /** A thread's batch could not be stored and was dropped; its session must stop. */
     quarantined(thread: ThreadId, error: Error): void;
@@ -56,6 +62,7 @@ export class StoreStream {
     this.buffer = new LiveWriteBuffer({
       scheduler: privateOptions.scheduler,
       attempt: () => this.scheduled(),
+      ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
     });
   }
   private readonly options;
@@ -89,7 +96,7 @@ export class StoreStream {
   append(id: ThreadId, payloads: EventPayload[], at: number, snapshot: BufferedSnapshot): void {
     let seq = this.buffer.head ?? this.options.sequences.head();
     const events = payloads.map((payload) =>
-      Event.parse({
+      canonicalEvent({
         seq: (seq = this.options.sequences.next(seq)),
         id: this.options.nextId(),
         threadId: id,
@@ -167,7 +174,7 @@ export class StoreStream {
       // Nothing left pinned: no retry to wait for.
       if (!this.buffer.size) throw error;
       this.cause = error;
-      if (!isStoreBusy(error)) this.strikes++;
+      if (!waitsForStore(error)) this.strikes++;
       const ms = this.buffer.retry();
       this.options.report(new Error(`Live writes failed; retrying in ${ms} ms`, { cause: error }));
       throw this.waiting();
@@ -181,8 +188,8 @@ export class StoreStream {
     try {
       this.write(thread, true);
     } catch (error) {
-      // Contention says nothing about the rows; the whole batch retries on the backoff.
-      if (isStoreBusy(error)) throw error;
+      // Contention or a full disk says nothing about the rows; the whole batch retries.
+      if (waitsForStore(error)) throw error;
       this.buffer.discard(thread);
       quarantined.push([
         thread,
@@ -248,4 +255,9 @@ export class StoreStream {
     this.publishedThrough = this.buffer.head ?? this.publishedThrough;
     this.options.publish(events);
   }
+}
+
+/** A failure that clears on its own (contention, or space freed on a full disk). */
+function waitsForStore(error: unknown): boolean {
+  return isStoreBusy(error) || isDiskFull(error);
 }

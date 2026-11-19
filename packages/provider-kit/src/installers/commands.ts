@@ -34,7 +34,12 @@ export function installerCommands(
         npm,
         action === "uninstall"
           ? ["uninstall", "-g", spec.package]
-          : ["install", "-g", ...(spec.npmFlags ?? []), `${spec.package}@latest`],
+          : [
+              "install",
+              "-g",
+              ...(spec.npmFlags ?? []),
+              `${spec.package}@${spec.channel ?? "latest"}`,
+            ],
       ),
     ];
   if (method === "bun" && bun && spec.bun && spec.package)
@@ -66,7 +71,7 @@ export function installerCommands(
         "-o",
         "pipefail",
         "-c",
-        `${installCommand(curl, ["-fsSL", spec.script]).display} | ${installCommand(bash).display}`,
+        `${installCommand(curl, ["-fsSL", spec.script]).display} | ${installCommand(bash, spec.channel ? ["-s", spec.channel] : []).display}`,
       ]),
     ];
   }

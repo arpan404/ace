@@ -6,7 +6,6 @@ import {
   Helper,
   ScreenManager,
   computerUseHandler,
-  linuxBackend,
   installedLinuxHelper,
   localScreenManager,
   type Frame,
@@ -18,11 +17,17 @@ const command = {
   args: [new URL("./testing/fake-helper-linux.ts", import.meta.url).pathname],
   protocolVersion: 2 as const,
 };
-it("Linux prefers the portal over XWayland and refuses a missing selected display", () => {
-  expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" })).toBe("wayland");
-  expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "x11")).toBe("x11");
-  expect(() => linuxBackend({ DISPLAY: ":0" }, "wayland")).toThrow("No display");
-  expect(() => linuxBackend({})).toThrow("No graphical session");
+it("Linux live view starts in a Wayland session and names an X11 session as unsupported", () => {
+  const launch = linuxLaunch({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "/ace/screen");
+  expect(launch.expectedPlatform).toBe("linux-wayland");
+  expect(launch.args).toEqual([
+    "--restore-token",
+    "/ace/screen/portal/restore-token",
+    "--data-dir",
+    "/ace",
+  ]);
+  expect(() => linuxLaunch({ DISPLAY: ":0" }, "/ace/screen")).toThrow("X11 session");
+  expect(() => linuxLaunch({}, "/ace/screen")).toThrow("No graphical session");
   expect(installedLinuxHelper("/ace", "arm64")).toBe(
     "/ace/helpers/screen-linux/arm64/ace-screen-helper-linux",
   );
@@ -53,7 +58,7 @@ it("a session that appears after start is used by the next helper start", async 
     protocolVersion: 2,
     launch: async () => {
       const launch = linuxLaunch(env, directory);
-      // The fake helper takes no backend flags; keep only what the launch decided.
+      // The fake helper takes no restore-token flag; keep only what the launch decided.
       return { ...launch, args: command.args };
     },
     nextId: ids(),
@@ -63,8 +68,8 @@ it("a session that appears after start is used by the next helper start", async 
   try {
     await manager.enable(true);
     await expect(manager.capabilities()).rejects.toThrow("No graphical session");
-    env = { DISPLAY: ":0" };
-    expect((await manager.capabilities())?.platform).toBe("linux-x11");
+    env = { WAYLAND_DISPLAY: "wayland-0" };
+    expect((await manager.capabilities())?.platform).toBe("linux-wayland");
   } finally {
     await manager.close();
     await rm(directory, { recursive: true, force: true });
@@ -74,7 +79,7 @@ it("v2 negotiates its display backend and delivers frames with scale and aliases
   const frame = deferred<Frame>();
   const helper = await Helper.open({
     ...command,
-    expectedPlatform: "linux-x11",
+    expectedPlatform: "linux-wayland",
     nextId: ids(),
     onFrame: (f) => frame.resolve(f),
     onFailure: () => {},
@@ -104,7 +109,7 @@ it("v2 negotiates its display backend and delivers frames with scale and aliases
   await expect(
     Helper.open({
       ...command,
-      expectedPlatform: "linux-wayland",
+      expectedPlatform: "windows",
       nextId: ids(),
       onFrame: () => {},
       onFailure: () => {},
@@ -205,6 +210,8 @@ it("revoked capture permission discards the shared helper before a replacement s
   const directory = await mkdtemp(join(tmpdir(), "screen-v2-revoke-"));
   const manager = new ScreenManager({
     ...command,
+    // A Linux helper is checked on a Linux host, whatever machine runs the test.
+    platform: "linux",
     env: { REVOKE_SCREEN: "1" },
     nextId: ids(),
     recordingDirectory: directory,
@@ -222,7 +229,11 @@ it("revoked capture permission discards the shared helper before a replacement s
         { kind: "key.press", key: "Enter", modifiers: [] },
         "agent",
       ),
-    ).rejects.toThrow("permission denied");
+    ).rejects.toMatchObject({
+      code: "permission_denied",
+      // The fake reports no requirements, so the host names none and points at the checklist.
+      message: "Linux desktop access denied. Check computer use requirements on the host machine.",
+    });
     expect(manager.states()).toEqual([]);
     const replacement = await manager.start(target);
     expect((await manager.capabilities())?.pid).not.toEqual(before?.pid);
@@ -273,3 +284,70 @@ it("the last Linux viewer releases capture after input drains while retaining th
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("a Linux screenshot shows a change made while nobody was watching", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-linux-watch-"));
+  const manager = new ScreenManager({
+    ...command,
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    const state = await manager.start(target);
+    manager.controller(state.sessionId, "agent", "agent-a");
+    manager.mode(state.sessionId, "foreground");
+    // Nobody watches: the desktop's change waits in the helper, unencoded.
+    await computerUseHandler(
+      manager,
+      state.sessionId,
+      "agent-a",
+    )("screen_ui_act", {
+      ref: "stable-entry",
+      action: "setValue",
+      value: "typed while unwatched",
+    });
+    const frame = await manager.captureScreenshot(state.sessionId);
+    expect(frame.payload.toString()).toBe("screen:typed while unwatched");
+    expect(frame.header.captureGeneration).toBeGreaterThan(0);
+    await manager.stop(state.sessionId);
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it.runIf(process.platform !== "win32")(
+  "portal keyboard input works without AT-SPI while semantic actions require it",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "screen-portal-access-"));
+    const manager = new ScreenManager({
+      ...command,
+      platform: "linux",
+      env: { AT_SPI_DISABLED: "1" },
+      nextId: ids(),
+      recordingDirectory: directory,
+      publishArtifact: async () => {},
+    });
+    try {
+      await manager.enable(true);
+      const state = await manager.start(target);
+      manager.controller(state.sessionId, "human", "viewer");
+      await expect(
+        manager.input(
+          state.sessionId,
+          "human",
+          { kind: "key.press", key: "Enter", modifiers: [] },
+          "viewer",
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        manager.uiAct(state.sessionId, "human", { ref: "stable-entry", action: "press" }, "viewer"),
+      ).rejects.toThrow("Linux desktop access denied");
+    } finally {
+      await manager.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

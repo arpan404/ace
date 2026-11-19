@@ -1,6 +1,6 @@
 # 0030: Shared typed daemon client
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-02. Status: accepted. Amended by [ADR 0128](0128-resume-kept-threads.md) (restored stores resume from their cursor).
 
 ## Context
 

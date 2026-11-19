@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { query, setup } from "./test-support.ts";
+import { defaultPrices } from "./index.ts";
 
 describe("usage accounting", () => {
   it("parents include every descendant once while thread totals remain additive", () => {
@@ -141,7 +142,7 @@ describe("usage accounting", () => {
       overrideVersion: "contract-v2",
     });
     expect(h.totals()).toMatchObject({ providerReportedUsd: 8, estimatedUsd: 2 });
-    expect(h.store.summary(query).priceVersion).toBe("2026-10-07.1/contract-v2");
+    expect(h.store.summary(query).priceVersion).toBe(`${defaultPrices.version}/contract-v2`);
   });
   it("a failed transaction rolls back counters, rollups and replay progress", () => {
     const h = setup();

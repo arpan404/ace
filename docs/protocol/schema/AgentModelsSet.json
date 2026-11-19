@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentModelsSet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accounts": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "defaultEffort": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "efforts": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "ids": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "legacy": {
+      "const": true,
+      "type": "boolean"
+    },
+    "names": {
+      "additionalProperties": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "propertyNames": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "ids"
+  ],
+  "type": "object"
+}

@@ -4,7 +4,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing/locked-use-host": "./src/locked-use-fake-mac.ts",
+    "./testing/locked-use-service": "./src/testing/fake-locked-use-service.ts",
+    "./testing/support": "./src/testing/support.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -14,8 +17,10 @@
     "@ace/browser": "workspace:*",
     "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
+    "@ace/media": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/redaction": "workspace:*",
     "zod": "^4.1.12"
   }
 }

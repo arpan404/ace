@@ -1,6 +1,8 @@
+import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Link } from "@tanstack/react-router";
+import { useRef, useState, type ReactNode } from "react";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SearchField } from "@/components/search-field.tsx";
@@ -8,6 +10,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { CatalogMenu } from "./catalog-menu.tsx";
 import { controllerOf } from "./controller-label.tsx";
@@ -15,9 +18,8 @@ import { deviceCatalog, type PlatformFilter } from "@ace/ui-core/devices";
 import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
-import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import { RunningTiles } from "./running-tiles.tsx";
-import { ToolReadiness, ToolSetupDialog } from "./tool-readiness.tsx";
+import { ToolReadiness } from "./tool-readiness.tsx";
 import { useDevices } from "./use-devices.ts";
 
 /** The workspace tab that shows one device (`device` kind, one tab per simulator or emulator). */
@@ -27,16 +29,6 @@ export const deviceTab = (row: Pick<DeviceRow, "id" | "name">) => ({
   title: row.name,
 });
 
-/** The wall clock, read once a minute, for "used 2h ago". */
-function useMinute(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
 const platforms: readonly { value: PlatformFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "ios", label: "iOS" },
@@ -45,7 +37,7 @@ const platforms: readonly { value: PlatformFilter; label: string }[] = [
 
 function Section(props: { label: string; count?: number; children: ReactNode }) {
   return (
-    <section aria-label={props.label} className="flex flex-col gap-1.5">
+    <section aria-label={props.label} {...part("page-section")} className="flex flex-col gap-1.5">
       <h3 className="flex items-baseline gap-1.5 px-2 text-ui font-medium text-muted-foreground">
         {props.label}
         {props.count !== undefined && (
@@ -71,10 +63,8 @@ export function DevicesTab(props: { threadId: string }) {
   const uses = useRecentUses();
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
-  const [setUp, setSetUp] = useState(false);
-  const [disabling, setDisabling] = useState(false);
   const search = useRef<HTMLDivElement>(null);
-  const now = useMinute();
+  const now = useNow();
   const { view } = devices;
   const ready = view.connected && view.enabled;
   useHotkey("/", () => search.current?.querySelector("input")?.focus(), {
@@ -87,6 +77,13 @@ export function DevicesTab(props: { threadId: string }) {
     actions.open(deviceTab(row));
   };
 
+  if (view.throughAccount)
+    return (
+      <EmptyState
+        title="Simulators and emulators"
+        description="Opened through your ace account, which doesn't carry devices yet. Pair this device with the machine to use its simulators and emulators."
+      />
+    );
   if (!view.connected)
     return view.failure ? (
       <EmptyState
@@ -97,23 +94,16 @@ export function DevicesTab(props: { threadId: string }) {
     ) : (
       <ListSkeleton label="Connecting to devices" shape="row" rows={4} className="px-4 pt-3" />
     );
+  // On and off is a machine setting, kept in Settings › Simulators with the rest of them.
   if (!view.enabled)
     return (
       <EmptyState
-        title="Simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators, and let this thread's agents use them."
+        title="Simulators and emulators are off"
+        description="They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them."
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
-              Enable devices
-            </Button>
-            {view.problem && (
-              <Problem
-                problem={view.problem}
-                className="max-w-[44ch] text-sm text-muted-foreground"
-              />
-            )}
-          </div>
+          <Link to="/settings/simulators" {...buttonLook({ variant: "primary" })}>
+            Open Settings
+          </Link>
         }
       />
     );
@@ -122,7 +112,10 @@ export function DevicesTab(props: { threadId: string }) {
   const searching = query.trim() !== "" || platform !== "all";
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className={cn("flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-2", toolbarEdge)}>
+      <div
+        {...part("filter-bar")}
+        className={cn("flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-2", toolbarEdge)}
+      >
         <div ref={search} className="min-w-0 flex-1">
           <SearchField
             label="Search devices"
@@ -139,12 +132,7 @@ export function DevicesTab(props: { threadId: string }) {
           options={platforms}
           onValueChange={setPlatform}
         />
-        <CatalogMenu
-          pending={view.pending}
-          onRefresh={devices.refresh}
-          onSetUp={() => setSetUp(true)}
-          onDisable={() => setDisabling(true)}
-        />
+        <CatalogMenu pending={view.pending} onRefresh={devices.refresh} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-3 pb-4">
         {view.problem && (
@@ -160,9 +148,14 @@ export function DevicesTab(props: { threadId: string }) {
               title="No simulators or emulators on this machine"
               description="Create one in Xcode or Android Studio, then refresh."
               action={
-                <Button size="sm" onClick={devices.refresh}>
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Link to="/settings/simulators" hash="tools" {...buttonLook({ size: "sm" })}>
+                    Set up tools…
+                  </Link>
+                  <Button size="sm" onClick={devices.refresh}>
+                    Refresh
+                  </Button>
+                </div>
               }
             />
           )
@@ -218,7 +211,12 @@ export function DevicesTab(props: { threadId: string }) {
                 groups={catalog.groups}
                 searching={searching}
                 open={open}
+                pending={view.pending}
                 onOpen={openDevice}
+                onBoot={(row) => {
+                  requestBoot(row.id);
+                  openDevice(row);
+                }}
               />
             </Section>
           </>
@@ -242,15 +240,9 @@ export function DevicesTab(props: { threadId: string }) {
           </Button>
         )}
         <div className="mt-auto px-2">
-          <ToolReadiness onSetUp={() => setSetUp(true)} />
+          <ToolReadiness />
         </div>
       </div>
-      <ToolSetupDialog open={setUp} onOpenChange={setSetUp} />
-      <DisableDevicesDialog
-        open={disabling}
-        onOpenChange={setDisabling}
-        onDisable={() => devices.enable(false)}
-      />
     </div>
   );
 }

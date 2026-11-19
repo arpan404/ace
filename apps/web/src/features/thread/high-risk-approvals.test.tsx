@@ -60,7 +60,8 @@ function request(command: string): Scenario {
   };
 }
 
-for (const command of ["rm -rf ./cache", "git push --force origin main"])
+// Which commands are high risk is commandRisk's table (packages/ui-core); one is enough here.
+for (const command of ["rm -rf ./cache"])
   test(`${command} opens on Deny, cannot be approved by number keys, and allows a deliberate click`, async () => {
     const app = harness({
       matchMedia: (query) => ({

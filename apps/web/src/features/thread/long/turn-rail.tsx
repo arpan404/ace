@@ -26,16 +26,23 @@ function forwardWheel(event: WheelEvent, target: HTMLElement | null | undefined)
   target.scrollBy({ top: event.deltaY * unit });
 }
 
-export function TurnRail({
-  nav,
-  scroller,
-}: {
+interface RailProps {
   nav: ThreadNav;
   /** The transcript beside the rail: a wheel over the rail scrolls it. */
   scroller?: RefObject<HTMLElement | null>;
-}) {
-  const head = useTurnHead(nav.threadId);
-  const count = head?.count ?? 0;
+}
+
+export function TurnRail(props: RailProps) {
+  const count = useTurnHead(props.nav.threadId)?.count ?? 0;
+  if (count < railTurns) return null;
+  return <RailBox {...props} count={count} />;
+}
+
+/**
+ * The rail in its box. The box mounts with it, so its height is measured from the first frame;
+ * measured before it existed, the rail would take the window's height and run past the pane.
+ */
+function RailBox({ nav, scroller, count }: RailProps & { count: number }) {
   const current = useWatched(nav.currentTurn);
   const bottom = useWatched(nav.bottomTurn);
   const following = useWatched(nav.following);
@@ -59,7 +66,6 @@ export function TurnRail({
     () => markers.filter((m) => m.ordinal >= reading && m.ordinal <= last).map((m) => m.id),
     [markers, reading, last],
   );
-  if (count < railTurns) return null;
   return (
     <div ref={box} className="absolute top-20 bottom-24 left-0 z-[6] grid place-items-center">
       <ConversationRail

@@ -14,6 +14,11 @@ import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation
 import { probeOutput } from "@ace/provider-kit/process";
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
+  /**
+   * Settles once the daemon's PATH is final (`login-path-handoff.ts`). No CLI is probed before:
+   * rows stay `refreshing` meanwhile rather than report what a saved PATH would find.
+   */
+  pathReady?: Promise<unknown>;
   piExecutable?: string;
   configuration?: (
     provider: Status["provider"],
@@ -32,10 +37,14 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     row: Status,
   ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail" | "instanceId">>;
   authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
+  /** The provider's own tools for the selected account, from config files only (ADR 0138). */
+  nativeTools?(row: Status): Promise<Pick<Status, "nativeTools" | "toolSource">>;
   versions?(
     row: Status,
     signal: AbortSignal,
   ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
+  /** Drops cached update answers (registries, agent catalog) before the person's own Refresh. */
+  forgetVersions?(): Promise<void>;
   checked?(rows: readonly Status[]): void;
   modelsAvailable?(provider: Status["provider"]): boolean;
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
@@ -47,6 +56,8 @@ export interface ProviderStatusRuntime {
   schedule(expire: () => void, ms: number): () => void;
 }
 const providers = ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const;
+/** How old a check may grow while someone is looking before it runs again. */
+const refreshMs = 300_000;
 /** Bounded metadata only, in memory. Startup and cached reads never wait for probes. */
 export class ProviderStatuses {
   private rows: Status[] = providers.map((provider) => ({
@@ -62,9 +73,45 @@ export class ProviderStatuses {
   private observations = new Map<Status["provider"], string>();
   private followup: Promise<void> | undefined;
   private listeners = new Set<(rows: Status[]) => void>();
+  /**
+   * Checks repeat every five minutes while the rows matter right now: while a client listens
+   * (every main socket with read access: desktop, web, iPhone, LAN and relay clients), or
+   * while an installed CLI fails its version check, since the person may update it outside
+   * ace and scheduled or remote runs only learn the new version from a check. A client that
+   * attaches after a longer gap gets a check at once. Otherwise no CLI runs on a timer: a
+   * stale read (outside MCP clients, the CLI's own requests) answers from the cache and starts
+   * a check behind it.
+   */
   listen(listener: (rows: Status[]) => void): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    if (this.listeners.size === 1) this.watch();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size || this.blocked()) return;
+      this.cancelTimer?.();
+      this.cancelTimer = undefined;
+    };
+  }
+  /** An installed CLI too old or unreadable to run: model admission waits on its next check. */
+  private blocked(): boolean {
+    return this.rows.some(
+      (row) =>
+        row.installed === true &&
+        row.versionCheck !== undefined &&
+        row.versionCheck.status !== "ok",
+    );
+  }
+  private watch(): void {
+    if (this.flight || this.cancelTimer || this.controller.signal.aborted) return;
+    const age = this.lastChecked === undefined ? Infinity : this.runtime.now() - this.lastChecked;
+    if (age >= refreshMs) {
+      void this.refresh().catch(() => {});
+      return;
+    }
+    this.cancelTimer = this.runtime.schedule(() => {
+      this.cancelTimer = undefined;
+      void this.refresh().catch(() => {});
+    }, refreshMs - age);
   }
   publish(): void {
     const rows = this.readiness();
@@ -81,8 +128,10 @@ export class ProviderStatuses {
   private runtime: ProviderStatusRuntime;
   private controller = new AbortController();
   private flight: Promise<void> | undefined;
-  private cancelTimer?: () => void;
+  private cancelTimer: (() => void) | undefined;
+  private lastChecked: number | undefined;
   private readonly first: Promise<void>;
+  private pathFinal = false;
   constructor(options: ProviderStatusOptions, runtime: ProviderStatusRuntime) {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
@@ -130,6 +179,8 @@ export class ProviderStatuses {
   }
   list(): Status[] {
     const now = this.runtime.now();
+    // Nobody listens, so no timer runs: an old answer read on demand starts a fresh check.
+    if (this.lastChecked !== undefined && now - this.lastChecked >= refreshMs) this.watch();
     return this.rows.map((cached) => {
       const selection = this.selection(cached);
       const observed = this.observations.get(cached.provider);
@@ -167,7 +218,7 @@ export class ProviderStatuses {
         ...account,
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: selection.configuration?.enabled !== false,
-        stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
+        stale: row.checkedAt === undefined || now - row.checkedAt >= refreshMs,
         refreshing: Boolean(this.flight),
       });
     });
@@ -178,7 +229,23 @@ export class ProviderStatuses {
   refresh(): Promise<void> {
     if (this.flight) return this.flight;
     if (this.controller.signal.aborted) return Promise.resolve();
+    const { pathReady } = this.options;
+    if (pathReady && !this.pathFinal) {
+      this.flight = pathReady.then(
+        () => {
+          this.pathFinal = true;
+          this.flight = undefined;
+          return this.refresh();
+        },
+        // Never ready (the daemon is stopping): no CLI is probed, and nothing waits on it.
+        () => {
+          this.flight = undefined;
+        },
+      );
+      return this.flight;
+    }
     this.cancelTimer?.();
+    this.cancelTimer = undefined;
     const options = {
       ...this.options,
       signal: this.controller.signal,
@@ -254,17 +321,27 @@ export class ProviderStatuses {
           ...providerStatusRow(row, probed && discovery(probed), this.runtime.now()),
           ...(instanceId ? { instanceId } : {}),
         };
+        // An update or account-info check that fails leaves the installation as discovered.
         const versions =
           result.installed && this.options.versions
-            ? await this.options.versions(result, this.controller.signal)
+            ? await this.options
+                .versions(result, this.controller.signal)
+                .catch(() => previousVersionFacts(row, result))
             : {};
         assertSelection(row);
-        const authInfo = await this.options.authInfo?.(result, this.controller.signal);
+        const authInfo = await this.options
+          .authInfo?.(result, this.controller.signal)
+          .catch(() => undefined);
+        assertSelection(row);
+        const tools = result.installed
+          ? await this.options.nativeTools?.(result).catch(() => undefined)
+          : undefined;
         assertSelection(row);
         return {
           ...result,
           ...versions,
           ...authInfo,
+          ...tools,
         };
       } catch {
         return {
@@ -300,9 +377,8 @@ export class ProviderStatuses {
       .finally(() => {
         this.flight = undefined;
         if (!this.controller.signal.aborted) {
-          this.cancelTimer = this.runtime.schedule(() => {
-            void this.refresh();
-          }, 300_000);
+          this.lastChecked = this.runtime.now();
+          if (this.listeners.size || this.blocked()) this.watch();
           this.publish();
         }
       });
@@ -328,6 +404,12 @@ export class ProviderStatuses {
     this.rows = updated;
     this.publish();
   }
+  /** The person's Refresh: asks the registries again instead of reusing their cached answers. */
+  async recheck(): Promise<void> {
+    await this.flight;
+    await this.options.forgetVersions?.().catch(() => {});
+    await this.refresh();
+  }
   async refreshAfterMutation(): Promise<void> {
     await this.flight;
     await this.refresh();
@@ -338,6 +420,23 @@ export class ProviderStatuses {
     await this.flight;
     this.listeners.clear();
   }
+}
+
+/** The last update facts, while they describe the same installed version. */
+function previousVersionFacts(
+  previous: Status,
+  current: Status,
+): Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">> {
+  if (!previous.latestVersion || previous.version !== current.version) return {};
+  return {
+    latestVersion: previous.latestVersion,
+    ...(previous.versionCheckedAt !== undefined
+      ? { versionCheckedAt: previous.versionCheckedAt }
+      : {}),
+    ...(previous.updateAvailable !== undefined
+      ? { updateAvailable: previous.updateAvailable }
+      : {}),
+  };
 }
 
 function discovery({

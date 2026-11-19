@@ -8,6 +8,8 @@ import type { WebContents } from "electron";
 export interface Shortcut {
   keymapId: string;
   accelerator: string;
+  /** Windows and Linux, where the web keymap binds other keys (its `nonApple`). */
+  nonApple?: string;
   /** The native menu item's label; absent for chords that are not menu items. */
   label?: string;
   /** An embedded browser page keeps this chord for itself (its own Back, Forward and Find). */
@@ -22,7 +24,12 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "back", label: "Back", accelerator: "CmdOrCtrl+[", pageOwned: true },
   { keymapId: "forward", label: "Forward", accelerator: "CmdOrCtrl+]", pageOwned: true },
   { keymapId: "toggleSidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+\\" },
-  { keymapId: "rightPanel", label: "Side Panel", accelerator: "CmdOrCtrl+Shift+B" },
+  {
+    keymapId: "rightPanel",
+    label: "Side Panel",
+    accelerator: "CmdOrCtrl+Shift+B",
+    nonApple: "CmdOrCtrl+Alt+B",
+  },
   { keymapId: "fullView", label: "Full View", accelerator: "CmdOrCtrl+Shift+F" },
   { keymapId: "agents", label: "Agents", accelerator: "Ctrl+Shift+A" },
   { keymapId: "changes", label: "Changes", accelerator: "CmdOrCtrl+Shift+D" },
@@ -32,7 +39,7 @@ export const shortcuts: readonly Shortcut[] = [
   // An embedded browser page reloads itself on ⌘R (its toolbar's Reload).
   { keymapId: "reloadApp", label: "Reload", accelerator: "CmdOrCtrl+R", pageOwned: true },
   // Not menu items: the app still answers them while an embedded browser page has focus.
-  { keymapId: "newTab", accelerator: "CmdOrCtrl+Alt+T" },
+  { keymapId: "newTab", accelerator: "CmdOrCtrl+Alt+T", nonApple: "CmdOrCtrl+Shift+Alt+T" },
   { keymapId: "closeTab", accelerator: "CmdOrCtrl+Alt+W" },
   { keymapId: "nextTab", accelerator: "CmdOrCtrl+Shift+]" },
   { keymapId: "previousTab", accelerator: "CmdOrCtrl+Shift+[" },
@@ -44,6 +51,11 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "logs", accelerator: "Ctrl+Shift+L" },
   { keymapId: "newTerminal", accelerator: "Ctrl+Shift+`" },
 ];
+
+/** The accelerator a shortcut has on `platform`. */
+export function acceleratorFor(shortcut: Shortcut, platform: NodeJS.Platform): string {
+  return platform === "darwin" ? shortcut.accelerator : (shortcut.nonApple ?? shortcut.accelerator);
+}
 
 type Modifier = "meta" | "control" | "shift" | "alt";
 
@@ -125,7 +137,8 @@ export function appChord(input: KeyInput, platform: NodeJS.Platform): string | u
   if (!key) return undefined;
   for (const shortcut of shortcuts) {
     if (shortcut.pageOwned) continue;
-    const chord = acceleratorToKey(shortcut.accelerator, platform);
+    const accelerator = acceleratorFor(shortcut, platform);
+    const chord = acceleratorToKey(accelerator, platform);
     if (chord.keyCode !== key) continue;
     const held = new Set(chord.modifiers);
     if (
@@ -134,7 +147,7 @@ export function appChord(input: KeyInput, platform: NodeJS.Platform): string | u
       held.has("shift") === input.shift &&
       held.has("alt") === input.alt
     )
-      return shortcut.accelerator;
+      return accelerator;
   }
   return undefined;
 }

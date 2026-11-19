@@ -1,45 +1,13 @@
-import { useClient, useConnectionState } from "@ace/client-react";
+import { useConnectionState } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
-import type { ReadinessTone } from "@ace/ui-core";
+import { formatElapsed, type ReadinessTone } from "@ace/ui-core";
+import { checkStatusWords, hostChecks, unknownCheck } from "@ace/ui-core/host-care";
 import { StatusLine } from "@/components/provider-tile.tsx";
-
-import { catalogKey } from "@/lib/model-catalog.ts";
-import { refreshProviders } from "@/lib/provider-readiness.ts";
-import { useQueryClient } from "@tanstack/react-query";
-import type { DiagnosticReport, DiagnosticRepair } from "@ace/protocol";
-import { useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
-
-/** Longer than the daemon's largest integrity budget, so the daemon reports first. */
-const CHECKS_TIMEOUT_MS = 16 * 60_000;
-
-const checks: Record<string, { label: string; fix: string }> = {
-  "home.permissions": {
-    label: "Data folder access",
-    fix: "Run safe repairs, or restore owner access to the ace data folder.",
-  },
-  "logs.directory": {
-    label: "Log folder",
-    fix: "Run safe repairs to create the log folder or restore owner access.",
-  },
-  node: { label: "App runtime", fix: "Update ace and restart it." },
-  git: { label: "Git", fix: "Install Git. On a Mac, install the Xcode Command Line Tools." },
-  "node-pty": { label: "Terminal", fix: "Reinstall ace, then try opening a terminal again." },
-  chromium: { label: "Browser", fix: "Install Chrome or Chromium to use the browser tools." },
-  disk: {
-    label: "Storage",
-    fix: "Free some disk space and check that ace can read and write its data folder.",
-  },
-  sqlite: {
-    label: "Saved conversations",
-    fix: "Quit ace and back up its data folder before restoring a known-good backup.",
-  },
-  "remote.openssl": {
-    label: "Secure connections",
-    fix: "Install OpenSSL to use secure remote connections.",
-  },
-};
+import { part } from "@/lib/suit-part.ts";
+import { useSeconds } from "@/lib/time.ts";
+import { useChecksRun } from "./use-checks-run.ts";
 
 export function RunChecks(props: {
   providers: readonly {
@@ -50,37 +18,12 @@ export function RunChecks(props: {
     ready: boolean;
   }[];
 }) {
-  const client = useClient();
-  const queries = useQueryClient();
   const ready = useConnectionState() === "ready";
-  const [report, setReport] = useState<DiagnosticReport>();
-  const [repairs, setRepairs] = useState<DiagnosticRepair[]>([]);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string>();
-  const run = async (operation: "doctor" | "fix") => {
-    setRunning(true);
-    setError(undefined);
-    try {
-      const result = await client.request(
-        { type: "diagnostics.request", operation },
-        // The integrity check scales with database size, up to 15 minutes on the daemon.
-        { timeoutMs: CHECKS_TIMEOUT_MS },
-      );
-      if (!result.report || result.error) throw new Error();
-      setReport(result.report);
-      setRepairs(result.repairs ?? []);
-      await client.request({ type: "providers.request", operation: "refresh" });
-      // Discovery includes installed ACP agents as well as the built-in providers.
-      await client.request({ type: "models.refresh", filter: {} }, { timeoutMs: 30_000 });
-      await queries.invalidateQueries({ queryKey: catalogKey });
-      refreshProviders(queries);
-      setReport(result.report);
-    } catch {
-      setError("Couldn't finish the checks. Reconnect to this computer and try again.");
-    } finally {
-      setRunning(false);
-    }
-  };
+  const { run, since, error, start } = useChecksRun();
+  const running = run.state === "running" ? run : undefined;
+  const now = useSeconds(running !== undefined);
+  const report = run.state === "done" ? run.report : undefined;
+  const repairs = run.state === "done" ? (run.repairs ?? []) : [];
   return (
     <>
       <div className="flex min-h-(--setting-row-height) items-center justify-between gap-3 text-ui">
@@ -88,59 +31,70 @@ export function RunChecks(props: {
         <Button
           size="sm"
           variant="secondary"
-          disabled={!ready || running}
-          onClick={() => void run("doctor")}
+          disabled={!ready || running !== undefined}
+          onClick={() => void start("doctor")}
         >
           {running ? "Checking…" : "Run checks"}
         </Button>
       </div>
+      {running && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {running.operation === "fix"
+            ? `Repairing for ${formatElapsed(now - (since ?? now))}.`
+            : `Checking for ${formatElapsed(now - (since ?? now))}. You can leave this page; the checks keep running.`}
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
       {!!repairs.length && (
-        <ul aria-label="Repair results" className="space-y-2 py-2 text-sm">
+        <ul
+          aria-label="Repair results"
+          {...part("list", undefined, "repairs")}
+          className="space-y-2 py-2 text-sm"
+        >
           {repairs.map((repair) => (
-            <li key={repair.id}>
+            <li
+              key={repair.id}
+              {...part("list-row", repair.status === "fixed" ? "done" : "failed", "repair")}
+            >
               {repair.status === "fixed" ? "Repaired" : "Needs attention"}: {repair.message}
             </li>
           ))}
         </ul>
       )}
       {report && (
-        <ul aria-label="Check results" className="divide-y">
+        <ul aria-label="Check results" {...part("list", undefined, "checks")} className="divide-y">
           {report.checks
             .filter((check) => !check.id.startsWith("provider."))
             .map((check) => {
-              const info = checks[check.id];
+              const info = hostChecks[check.id] ?? unknownCheck;
               return (
-                <li key={check.id}>
+                <li
+                  key={check.id}
+                  {...part("list-row", check.status === "ok" ? "done" : "failed", "check")}
+                >
                   <div className="flex h-8 items-center justify-between gap-2 text-sm">
-                    <span>{info?.label ?? "Additional check"}</span>
+                    <span>{info.label}</span>
                     <StatusLabel
                       tone={check.status === "ok" ? "done" : "failed"}
-                      label={
-                        check.status === "ok"
-                          ? "Passed"
-                          : check.status === "warn"
-                            ? "Needs attention"
-                            : "Needs a fix"
-                      }
+                      label={checkStatusWords[check.status]}
                     />
                   </div>
                   <p className="pb-2 text-sm text-muted-foreground">{check.message}</p>
                   {check.status !== "ok" && (
-                    <p className="pb-2 text-sm text-muted-foreground">
-                      {info?.fix ??
-                        "Update ace and run the checks again. If this continues, export a support bundle."}
-                    </p>
+                    <p className="pb-2 text-sm text-muted-foreground">{info.fix}</p>
                   )}
                 </li>
               );
             })}
           {props.providers.map((provider) => (
-            <li key={provider.id}>
+            <li
+              key={provider.id}
+              {...part("list-row", provider.ready ? "done" : "failed", "provider")}
+            >
               <div className="flex min-h-8 items-center justify-between gap-2 text-sm">
                 <span>{provider.name}</span>
                 <StatusLine tone={provider.tone} text={provider.text} />
@@ -162,8 +116,8 @@ export function RunChecks(props: {
           <Button
             size="sm"
             variant="secondary"
-            disabled={!ready || running}
-            onClick={() => void run("fix")}
+            disabled={!ready || running !== undefined}
+            onClick={() => void start("fix")}
           >
             Run safe repairs
           </Button>

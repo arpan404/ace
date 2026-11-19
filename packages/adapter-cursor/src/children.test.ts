@@ -167,7 +167,7 @@ it("preserves child-owned shell work and closes child text before foreground tas
   );
   expect(shell).toMatchObject({ complete: false, call: { status: "running" } });
   expect(Object.values(r.state.tasks)).toMatchObject([{ status: "unknown" }]);
-  expect(deriveThreadStatus(r.state)).toEqual({ state: "waiting", on: "background_task" });
+  expect(deriveThreadStatus(r.state)).toEqual({ state: "done" });
   expect(
     Object.values(r.state.items).find(
       (item) => item.type === "message" && item.role === "assistant",

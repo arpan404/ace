@@ -11,7 +11,14 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  InputRejected,
+  SteerTargetLost,
+  type InputSource,
+  type ProviderSession,
+  type SessionContext,
+  type SteerFence,
+} from "@ace/engine-api";
 import { encodeContent } from "./content.ts";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { JsonRpcPeer, MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
@@ -40,7 +47,9 @@ interface Queued {
   batch: Batch;
   input: ContentPart[];
   commandId?: string;
-  origin?: "ace";
+  origin?: InputSource;
+  /** A fenced steer: written only while its turn is still current (ACP writes when idle). */
+  fence?: SteerFence;
   bytes: number;
   resolve(): void;
   reject(error: unknown): void;
@@ -137,6 +146,11 @@ class AcpSession implements ProviderSession {
   promptFrames = 0;
   readonly started: number;
   readonly now: () => number;
+  /**
+   * Windows has no SIGTERM for a console child: taskkill without /F cannot end it. Closing the
+   * agent's stdin is the polite stop there, before the tree stop escalates.
+   */
+  readonly windows: boolean;
   constructor(
     ctx: SessionContext,
     quirks: AcpQuirks,
@@ -146,6 +160,7 @@ class AcpSession implements ProviderSession {
   ) {
     this.launch = launch;
     this.now = runtime.now;
+    this.windows = (runtime.platform ?? process.platform) === "win32";
     this.started = runtime.now();
     this.shells = new ShellSettlement(quirks);
     this.routing = new SessionRouting(ctx.threadId, ctx.resume?.nativeSessionId ?? "");
@@ -182,27 +197,31 @@ class AcpSession implements ProviderSession {
       this.routing.receive(object(notification.params));
       this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.clearGrace();
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     };
     proc.stdout.once("close", this.stdoutClosed);
     proc.stderr.on("line", (line) => this.frame("stderr", "stdio", line));
     ctx.signal.addEventListener("abort", this.abort, { once: true });
-    void proc.exited.then((exit) => {
-      this.closed = true;
-      ctx.mcp?.end();
-      this.clearGrace();
-      ctx.signal.removeEventListener("abort", this.abort);
-      this.cancelQuestions();
-      this.rejectQueue(new Error("ACP process exited"));
-      this.frame("note", "recorder", {
-        event: "process-exit",
-        detail: { ...exit, deliberate: this.deliberate },
-      });
-      ctx.onExit({
-        deliberate: this.deliberate,
-        message: `ACP process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
-      });
-    });
+    // exited never rejects; the exit itself reaches the engine through onExit.
+    void proc.exited
+      .then((exit) => {
+        this.closed = true;
+        ctx.mcp?.end();
+        this.clearGrace();
+        ctx.signal.removeEventListener("abort", this.abort);
+        this.cancelQuestions();
+        this.rejectQueue(new Error("ACP process exited"));
+        this.frame("note", "recorder", {
+          event: "process-exit",
+          detail: { ...exit, deliberate: this.deliberate },
+        });
+        ctx.onExit({
+          deliberate: this.deliberate,
+          message: `ACP process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+        });
+      })
+      .catch(() => {});
     this.frame("note", "recorder", { event: "process-start" });
     if (ctx.signal.aborted) this.abort();
   }
@@ -224,10 +243,17 @@ class AcpSession implements ProviderSession {
     this.cancelQuestions();
     this.rejectQueue(error);
     this.rpc.stopRequests(error);
-    void this.proc.stop();
+    if (this.windows) {
+      // stopTree notes a tree that survives its stop itself.
+      void this.stopTree().catch(() => {});
+      return;
+    }
+    // stop() warns a surviving tree itself.
+    void this.proc.stop().catch(() => {});
   }
   abort = (): void => {
-    void this.close("shutdown");
+    // A tree that outlived its stop is noted by stopTree; shutdown goes on.
+    void this.close("shutdown").catch(() => {});
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
     const redacted = redactLease(data, this.ctx.mcp?.secrets ?? []);
@@ -347,7 +373,8 @@ class AcpSession implements ProviderSession {
       throw sanitizedError(error, this.ctx);
     } finally {
       this.selecting = false;
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     }
   }
 
@@ -359,9 +386,10 @@ class AcpSession implements ProviderSession {
   }
   async send(
     input: ContentPart[],
-    _delivery: "steer" | "queue",
+    delivery: "steer" | "queue",
     commandId?: string,
-    origin?: "ace",
+    origin?: InputSource,
+    fence?: SteerFence,
   ): Promise<void> {
     // Refusals before queueing write nothing, so the agent provably took none of the input.
     if (this.closed) throw new InputRejected("ACP session closed");
@@ -376,11 +404,18 @@ class AcpSession implements ProviderSession {
       throw new InputRejected("ACP input queue capacity reached");
     const batch: Batch = { written: false };
     try {
-      await this.enqueue(inputs, batch, commandId, origin);
+      await this.enqueue(
+        inputs,
+        batch,
+        commandId,
+        origin,
+        delivery === "steer" ? fence : undefined,
+      );
     } catch (error) {
       if (batch.written) throw error;
       // No prompt of this send reached the agent; drop the rest so none goes out later.
       this.dropBatch(batch);
+      if (error instanceof InputRejected) throw error;
       throw new InputRejected(error instanceof Error ? error.message : String(error), {
         cause: error,
       });
@@ -390,7 +425,8 @@ class AcpSession implements ProviderSession {
     inputs: ContentPart[][],
     batch: Batch,
     commandId: string | undefined,
-    origin: "ace" | undefined,
+    origin: InputSource | undefined,
+    fence: SteerFence | undefined,
   ): Promise<void[]> {
     return Promise.all(
       inputs.map(
@@ -403,12 +439,14 @@ class AcpSession implements ProviderSession {
               input: structuredClone(parts),
               ...(commandId ? { commandId } : {}),
               ...(origin ? { origin } : {}),
+              ...(fence ? { fence } : {}),
               bytes: partBytes,
               resolve,
               reject,
             });
             this.queueChanged();
-            void this.drain();
+            // drain() settles each turn it takes, so its rejection has no reporter here.
+            void this.drain().catch(() => {});
           }),
       ),
     );
@@ -435,6 +473,13 @@ class AcpSession implements ProviderSession {
       return;
     const next = this.queue.shift();
     if (!next) return;
+    // Its turn ended before ACP was idle to take it: refused unread, never written into another.
+    if (next.fence && !next.fence.current() && !next.batch.written) {
+      this.queuedBytes -= next.bytes;
+      next.reject(new SteerTargetLost());
+      this.queueChanged();
+      return void this.drain();
+    }
     this.queuedBytes -= next.bytes;
     this.active = true;
     this.queueChanged();
@@ -495,7 +540,8 @@ class AcpSession implements ProviderSession {
       next.reject(sanitizedError(error, this.ctx));
     } finally {
       this.active = false;
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     }
   }
   handleRequest(request: ServerRequest): unknown | Promise<unknown> {
@@ -532,7 +578,8 @@ class AcpSession implements ProviderSession {
     const answer = encodeResolution(pending.request.method, validated, request);
     this.pending.delete(key);
     pending.answer(answer);
-    void this.drain();
+    // drain() settles each turn it takes, so its rejection has no reporter here.
+    void this.drain().catch(() => {});
   }
   cancelQuestions(owners?: Set<string>): void {
     for (const [key, pending] of this.pending)
@@ -555,10 +602,11 @@ class AcpSession implements ProviderSession {
     const id = child?.id ?? this.nativeSessionId;
     const descendants = target.cascade ? this.routing.descendants(id) : [];
     this.cancelQuestions(new Set([id, ...descendants.map((value) => value.id)]));
-    this.rpc.notify("session/cancel", { sessionId: id });
+    // notify() reports a failed send through the peer's onError.
+    void this.rpc.notify("session/cancel", { sessionId: id }).catch(() => {});
     for (const descendant of descendants)
       if (descendant.live && descendant.cancel)
-        this.rpc.notify("session/cancel", { sessionId: descendant.id });
+        void this.rpc.notify("session/cancel", { sessionId: descendant.id }).catch(() => {});
   }
   async stopTask(_task: string): Promise<void> {
     throw new Error("ACP does not expose individual background task control");
@@ -575,8 +623,27 @@ class AcpSession implements ProviderSession {
       this.ctx.signal.removeEventListener("abort", this.abort);
     }
     this.ctx.mcp?.end();
+    if (this.windows) {
+      await this.stopTree();
+      this.rpc.close();
+      return;
+    }
     await this.proc.stop();
     this.rpc.close();
+  }
+  /** Windows: EOF is the polite stop; the recorded tree is gone before this resolves. */
+  #treeStop: Promise<unknown> | undefined;
+  stopTree(): Promise<unknown> {
+    if (this.#treeStop) return this.#treeStop;
+    const stopping = import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
+      stopTreeAfterEof(this.proc, 5_000),
+    );
+    // Awaiting callers still see the failure; a voided stop (a transport fault) leaves it here.
+    stopping.catch((error: unknown) =>
+      this.frame("note", "transport", { event: "tree-stop-failed", message: String(error) }),
+    );
+    this.#treeStop = stopping;
+    return stopping;
   }
   rejectQueue(error: Error): void {
     for (const job of this.queue.splice(0)) job.reject(error);

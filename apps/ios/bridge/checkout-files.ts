@@ -1,33 +1,45 @@
 import { readFile, type ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
-import { GitStatusFile, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
 import {
+  FolderPage,
+  GitStatusFile,
+  ThreadId,
+  WorkspaceFileChange,
+  type FileOperation,
+} from "@ace/protocol";
+import {
+  ArchivePreview,
   CheckoutError,
+  archiveLeavesOut,
+  archiveName,
+  archiveSummary,
   checkoutEditLimit,
   checkoutError,
   checkoutViewLimit,
-  fileLanguage,
   fromCode,
   imageType,
   isCheckoutPath,
   isMarkdownPath,
   isText,
   parentPath,
+  parseQuickOpen,
   pathParts,
+  quickOpenRows,
 } from "@ace/ui-core";
 import { checkoutLinkPath, localLinkLine, localLinkPath } from "@ace/ui-core/file-references";
 import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
-import { changedLines, colourRuns } from "./checkout-colours.ts";
+import { changedLines, highlightLanguage } from "./checkout-marks.ts";
 import {
-  Listing,
   Stat,
   Trash,
   type FilesOperation,
   type FilesScope,
   type NativeFilesRequest,
 } from "./checkout-request.ts";
-import { checkoutTree, searchRows } from "./checkout-tree.ts";
+import { searchRows } from "./checkout-tree.ts";
+import { readPage } from "./checkout-pages.ts";
+import { partFileLimit, writePart } from "./checkout-part-write.ts";
 
 /*
  * The Files screen's requests (`native.files`), answered one at a time like the web's checkout
@@ -39,14 +51,17 @@ import { checkoutTree, searchRows } from "./checkout-tree.ts";
 /** What the Files screen needs of the SDK. */
 export type FilesOwner = Pick<
   ClientCore,
-  "request" | "state" | "connectionState" | "send" | "cachedThread"
+  "request" | "state" | "connectionState" | "connectionGeneration" | "send" | "cachedThread"
 >;
 /** A project's file search before a thread exists (`ComposeSearch.complete`). */
 export type ProjectSearch = (
   workspaceId: string,
   query: string,
   limit: number,
-) => Promise<string[]>;
+) => Promise<{ paths: string[]; ready: boolean }>;
+
+/** A scope's recent files, newest first (`CheckoutMemory.recent`). */
+export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
 
 /** The most Share or a linked file carries to the phone. */
 export const shareLimit = 16 * 1024 * 1024;
@@ -62,9 +77,15 @@ const failed = (error: unknown) => {
 export class CheckoutFiles {
   readonly #owner: FilesOwner;
   readonly #projectSearch: ProjectSearch;
-  constructor(owner: FilesOwner, projectSearch: ProjectSearch) {
+  readonly #recent: RecentFiles;
+  constructor(
+    owner: FilesOwner,
+    projectSearch: ProjectSearch,
+    recent: RecentFiles = async () => [],
+  ) {
     this.#owner = owner;
     this.#projectSearch = projectSearch;
+    this.#recent = recent;
   }
 
   /** One request's answer: `ok: true` with its fields, or `ok: false` with the sentence. */
@@ -77,9 +98,10 @@ export class CheckoutFiles {
   }
 
   async #run(scope: Scope, op: Operation, signal: AbortSignal): Promise<Record<string, unknown>> {
-    if (op.op === "tree") return this.#tree(scope, signal);
     if (op.op === "search") return this.#search(scope, op.query, signal);
+    if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
+    if (op.op === "page") return readPage(this.#owner, scope, op, signal);
     if (op.op === "download") {
       const bytes = await this.#bytes(scope, { op: "download", path: op.path, offset: 0 }, signal);
       return { name: pathParts(op.path).name, data: base64(bytes) };
@@ -101,6 +123,23 @@ export class CheckoutFiles {
           data: base64(bytes),
         };
       }
+      case "archive": {
+        const preview = ArchivePreview.parse(
+          await this.#files(
+            scope,
+            { op: "archive.preview", path: op.path, includeIgnored: op.includeIgnored },
+            signal,
+          ),
+        );
+        return {
+          previewId: preview.previewId,
+          entries: preview.entries,
+          bytes: preview.bytes,
+          name: archiveName(op.path),
+          summary: archiveSummary(preview),
+          leavesOut: archiveLeavesOut(op.includeIgnored),
+        };
+      }
       case "trash":
         return Trash.parse(
           await this.#files(
@@ -111,6 +150,8 @@ export class CheckoutFiles {
         );
       case "write":
         return this.#write(scope, op.path, op.text, op.expected, signal);
+      case "part.write":
+        return writePart(this.#owner, threadId, op, signal);
       case "create":
         return this.#mutate(
           scope,
@@ -172,26 +213,42 @@ export class CheckoutFiles {
     return reply.result;
   }
 
-  async #tree(scope: Scope, signal: AbortSignal) {
-    const [listing, status] = await Promise.all([
-      this.#files(scope, { op: "list", path: "", limit: 1000 }, signal).then((value) =>
-        Listing.parse(value),
+  /** One folder's page for the live tree (`checkout-tree-live.ts`): `""` is the checkout's root. */
+  async listFolder(
+    scope: Scope,
+    folder: string,
+    cursor: string | undefined,
+    limit: number,
+    signal: AbortSignal,
+  ): Promise<FolderPage> {
+    return FolderPage.parse(
+      await this.#files(
+        scope,
+        {
+          op: "list.folder",
+          path: folder,
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
       ),
-      // The marks are extra: a checkout git can't read still lists its files.
-      "threadId" in scope
-        ? this.#workspace(scope.threadId, "git.status", signal).catch(() => undefined)
-        : Promise.resolve(undefined),
-    ]);
-    const changes =
-      status?.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
-    return { ...checkoutTree(listing.paths, changes), truncated: listing.truncated };
+    );
+  }
+
+  /** The checkout's uncommitted files and the marks the tree letters them with. */
+  async status(threadId: string, signal: AbortSignal): Promise<readonly GitStatusFile[]> {
+    const status = await this.#workspace(threadId, "git.status", signal);
+    return status.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
   }
 
   async #search(scope: Scope, query: string, signal: AbortSignal) {
     let paths: string[];
-    if ("workspaceId" in scope)
-      paths = await this.#projectSearch(scope.workspaceId, query, searchLimit);
-    else {
+    let ready = true;
+    if ("workspaceId" in scope) {
+      const found = await this.#projectSearch(scope.workspaceId, query, searchLimit);
+      paths = found.paths;
+      ready = found.ready;
+    } else {
       const reply = await this.#owner
         .request(
           {
@@ -212,8 +269,51 @@ export class CheckoutFiles {
       if (reply.result.kind !== "completion")
         throw new CheckoutError("protocol", "Couldn't read the reply. Try again.");
       paths = reply.result.paths;
+      ready = reply.result.ready;
     }
-    return { query, rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)) };
+    return {
+      query,
+      rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)),
+      ready,
+    };
+  }
+
+  /**
+   * Quick open's rows: the daemon's matches for what was typed, or with nothing typed the files
+   * opened recently and then the files changed since the last commit, each with its heading.
+   */
+  async #quick(scope: Scope, text: string, signal: AbortSignal) {
+    const { query, line } = parseQuickOpen(text);
+    const [search, recent, changed] = await Promise.all([
+      query ? this.#search(scope, query, signal) : undefined,
+      query ? [] : this.#recent(scope),
+      query || !("threadId" in scope) ? [] : this.#changed(scope.threadId, signal),
+    ]);
+    const found = search?.rows ?? [];
+    const paths = found.map((row) => row.path);
+    const rows = quickOpenRows(query, paths, recent, changed, "Changed in this checkout");
+    const named = new Map(found.map((row) => [row.path, row]));
+    return {
+      text,
+      query,
+      ...(line ? { line } : {}),
+      ready: search?.ready ?? true,
+      rows: rows.map(({ path, group }) =>
+        Object.assign({}, named.get(path) ?? searchRows("", [path])[0], { group }),
+      ),
+    };
+  }
+
+  /** The checkout's changed files still on disk, as git lists them; none when git can't. */
+  async #changed(threadId: string, signal: AbortSignal): Promise<string[]> {
+    const status = await this.#workspace(threadId, "git.status", signal).catch(() => undefined);
+    if (status?.kind !== "gitStatus") return [];
+    return z
+      .array(GitStatusFile)
+      .catch([])
+      .parse(status.files)
+      .filter((file) => file.status !== "deleted")
+      .map((file) => file.path);
   }
 
   async #stat(scope: Scope, path: string, signal: AbortSignal) {
@@ -271,8 +371,19 @@ export class CheckoutFiles {
       throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
     const { version } = read;
     const editable = "threadId" in scope;
+    // Too large to edit whole: a thread's file is edited a part at a time instead.
+    const parts = (size: number) => editable && size > checkoutEditLimit && size <= partFileLimit;
+    // Read in parts on the phone, with the same change bars beside each part's lines.
     if (read.kind === "large")
-      return { kind: "large", path, size: read.size, version, editable: false };
+      return {
+        kind: "large",
+        path,
+        size: read.size,
+        version,
+        editable: false,
+        parts: parts(read.size),
+        marks: "threadId" in scope ? await this.#marks(scope.threadId, path, signal) : [],
+      };
     const bytes = read.bytes;
     const size = bytes.length;
     const image = imageType(path);
@@ -280,10 +391,7 @@ export class CheckoutFiles {
       return { kind: "image", path, size, version, editable: false, data: base64(bytes) };
     if (!isText(bytes)) return { kind: "binary", path, size, version, editable: false };
     const text = new TextDecoder().decode(bytes);
-    const [colours, marks] = await Promise.all([
-      colourRuns(text, fileLanguage(path)),
-      "threadId" in scope ? this.#marks(scope.threadId, path, signal) : Promise.resolve([]),
-    ]);
+    const marks = "threadId" in scope ? await this.#marks(scope.threadId, path, signal) : [];
     return {
       kind: "text",
       path,
@@ -292,8 +400,8 @@ export class CheckoutFiles {
       text,
       markdown: isMarkdownPath(path),
       editable: editable && size <= checkoutEditLimit,
-      colours: colours?.colours ?? [],
-      runs: colours?.runs ?? [],
+      parts: parts(size),
+      language: highlightLanguage(path) ?? null,
       marks,
     };
   }

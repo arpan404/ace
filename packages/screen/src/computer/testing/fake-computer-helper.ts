@@ -4,12 +4,15 @@
  * every op it receives to FAKE_LOG.
  *   FAKE_CRASH_ONCE=<file>  exit on the first state request, then answer normally
  *   FAKE_HANG_ONCE=<file>   never answer the first act request (cancel is ignored)
- *   FAKE_LOG_SESSION=1      log the DISPLAY it was started with, before any op
+ *   FAKE_LOG_SESSION=1      log the WAYLAND_DISPLAY it was started with, before any op
  *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
+ *   FAKE_LOCKED=<file>      while the file reads "locked", state and act refuse as screen_locked
+ *   FAKE_NO_DISPLAYS=1      answer like a helper from before display pictures
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { createInterface } from "node:readline";
 
 const env = process.env;
@@ -87,7 +90,18 @@ interface Action {
   when?: { text?: string; gone?: boolean };
 }
 
+let heldFirstAct = false;
 async function act(request: Request, app: App): Promise<unknown> {
+  const port = env["FAKE_ACT_GATE_PORT"];
+  if (port && !heldFirstAct) {
+    heldFirstAct = true;
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(Number(port), "127.0.0.1", () => socket.write("reached\n"));
+      socket.once("end", resolve);
+      socket.once("error", reject);
+      socket.resume();
+    });
+  }
   const actions = (request["actions"] ?? []) as Action[];
   const done: string[] = [];
   for (const [index, action] of actions.entries()) {
@@ -131,9 +145,48 @@ async function act(request: Request, app: App): Promise<unknown> {
   };
 }
 
+const running = (app: App) => env["FAKE_STOPPED_APP"] !== app.name;
+
+const locked = () =>
+  !!env["FAKE_LOCKED"] &&
+  existsSync(env["FAKE_LOCKED"]) &&
+  readFileSync(env["FAKE_LOCKED"], "utf8").trim() === "locked";
+const lockedReply = (id: string) => ({
+  id,
+  ok: false,
+  error: {
+    code: "screen_locked",
+    message: "The Mac is locked and macOS is not exposing this app's window controls.",
+  },
+});
+
+/** Two displays, with Calculator, Ghostty, ace and TextEdit on screen. */
+const screens = [
+  { index: 1, name: "Built-in Retina Display", width: 1512, height: 982, main: true },
+  { index: 2, name: "PHL 241V8LB", width: 1080, height: 1920, rotation: 270 },
+];
+const onScreen = ["calculator", "ghostty", "ace", "textedit"].flatMap((key) => apps[key] ?? []);
+
+function captureDisplays(request: Request): unknown {
+  const include = (request["include"] ?? []) as string[];
+  log(`included ${include.join(",")}`);
+  const wanted = (request["displays"] ?? []) as number[];
+  const pictured = [];
+  for (const screen of screens) {
+    if (!wanted.includes(screen.index)) continue;
+    const jpeg = Buffer.from(`display ${screen.index}`).toString("base64");
+    pictured.push(
+      Object.assign({ screenshot: { jpeg, width: screen.width, height: screen.height } }, screen),
+    );
+  }
+  return { displays: pictured };
+}
+
 /** Answers one request; undefined means it never replies. */
 async function answer(request: Request): Promise<unknown> {
   const app = find(request["app"]);
+  if ((request.op === "state" || request.op === "act") && app && locked())
+    return lockedReply(request.id);
   const missing = {
     id: request.id,
     ok: false,
@@ -153,28 +206,44 @@ async function answer(request: Request): Promise<unknown> {
           apps: Object.values(apps).map(({ bundleId, name }) => ({
             bundleId,
             name,
-            running: true,
+            running: running({ bundleId, name }),
           })),
         },
       };
     case "resolve":
-      return app ? { id: request.id, ok: true, result: { ...app, running: true } } : missing;
+      return app
+        ? { id: request.id, ok: true, result: { ...app, running: running(app) } }
+        : missing;
     case "state":
       if (!app) return missing;
+      if (!running(app)) log(`launched ${app.name}`);
       if (once(env["FAKE_CRASH_ONCE"])) process.exit(3);
       if (app.name === "Stuck") return undefined;
       return { id: request.id, ok: true, result: state(app, request["screenshot"] === true) };
+    case "displays":
+    case "capture_displays":
+      if (env["FAKE_NO_DISPLAYS"]) break;
+      return {
+        id: request.id,
+        ok: true,
+        result:
+          request.op === "displays"
+            ? {
+                displays: screens,
+                apps: onScreen.map(({ bundleId, name }) => ({ bundleId, name })),
+              }
+            : captureDisplays(request),
+      };
     case "act":
       if (!app) return missing;
       if (app.name === "Stuck" || once(env["FAKE_HANG_ONCE"])) return undefined;
       return { id: request.id, ok: true, result: await act(request, app) };
-    default:
-      return { id: request.id, ok: false, error: { code: "bad_request", message: "Unknown op." } };
   }
+  return { id: request.id, ok: false, error: { code: "bad_request", message: "Unknown op." } };
 }
 
 if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);
-if (env["FAKE_LOG_SESSION"]) log(`session DISPLAY=${env["DISPLAY"] ?? ""}`);
+if (env["FAKE_LOG_SESSION"]) log(`session WAYLAND_DISPLAY=${env["WAYLAND_DISPLAY"] ?? ""}`);
 let queue = Promise.resolve();
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line) as Request;

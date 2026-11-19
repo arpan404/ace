@@ -1,3 +1,4 @@
+import { freshLimitsWaitMs } from "../account-management.ts";
 import { logError } from "@ace/diagnostics";
 import type { RunRole } from "@ace/protocol";
 import { runRoles } from "@ace/settings/roles";
@@ -7,6 +8,9 @@ import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
 import { systemClock } from "../engine/actor.ts";
+import { providerFacts } from "../agent-control/provider-facts.ts";
+import { refreshAcpAgentAuth } from "../acp-agent-status.ts";
+import { probeOutput } from "@ace/provider-kit/process";
 import type { ServiceContext } from "./types.ts";
 import { createWorkspaceDelegations } from "../agent-control/workspaces.ts";
 import { createConversationStarts } from "../agent-control/conversations.ts";
@@ -15,8 +19,22 @@ export function startAgentControl(context: ServiceContext): void {
   const { services, store, options, now, id, log, resources, onListen } = context;
   const engine = services.engine;
   if (!engine || !services.models) return;
-  let maintenance: { admit(): boolean } | undefined = context.maintenance;
+  type Gate = Pick<import("@ace/service").MaintenanceGate, "admit" | "held" | "onChange">;
+  let maintenance: Gate | undefined = context.maintenance;
+  // Queued children say they wait for disk space while the storage hold lasts (ADR 0176).
+  let storageHeld = false;
+  let stopWatching: (() => void) | undefined;
+  const follow = (gate: Gate | undefined) => {
+    stopWatching?.();
+    stopWatching = gate?.onChange(() => {
+      const held = gate.held("storage");
+      if (held === storageHeld) return;
+      storageHeld = held;
+      delegations.storageChanged();
+    });
+  };
   onListen.push((server) => {
+    if (server.maintenance !== maintenance) follow(server.maintenance);
     maintenance = server.maintenance;
   });
   const delegations = new DelegationService({
@@ -28,6 +46,8 @@ export function startAgentControl(context: ServiceContext): void {
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(services.modelsReady ? { modelsReady: services.modelsReady } : {}),
+    freshLimits: () =>
+      services.accountManagement?.limits.fresh(freshLimitsWaitMs) ?? Promise.resolve(),
     // A model the person set in Settings → Roles for this provider covers an invalid agent
     // guess; the role the child's name suggests is tried first.
     async configuredModel(_caller, request) {
@@ -49,9 +69,35 @@ export function startAgentControl(context: ServiceContext): void {
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     maxRunningChildren: () => services.childLimit?.current(),
     admitsWork: () => maintenance?.admit() ?? false,
+    storageFull: () => maintenance?.held("storage") ?? false,
+    refreshProvider: providerFacts({
+      ensureProvider: (provider) => engine.ensureProvider(provider),
+      async acpLogin(instanceId, signal) {
+        const registry = services.accountRegistry;
+        const agents = services.agentRegistry;
+        if (!registry || !agents) return;
+        await refreshAcpAgentAuth({
+          registry,
+          installed: agents.inventory.all(),
+          env: options.providerStatus?.env ?? process.env,
+          now,
+          probe: probeOutput,
+          signal,
+          only: instanceId,
+        });
+      },
+      now,
+      schedule(run, milliseconds) {
+        const timer = setTimeout(run, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    }),
     onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());
+  follow(maintenance);
+  resources.own(() => stopWatching?.());
   const stopFollowing = services.childLimit?.onChange(() => delegations.limitChanged());
   if (stopFollowing) resources.own(stopFollowing);
   resources.onShutdown(() => delegations.close());
@@ -87,6 +133,12 @@ export function startAgentControl(context: ServiceContext): void {
       const transfers = services.transfers;
       if (!transfers) throw new AgentControlError("machine_unavailable", "transfers_not_ready");
       return transfers.agents.transfer(caller, operation);
+    },
+    // Parcels start after this service too (ADR 0182).
+    parcels: async (caller, operation) => {
+      const parcels = services.parcels;
+      if (!parcels) throw new AgentControlError("machine_unavailable", "parcels_not_ready");
+      return parcels.agent(caller, operation);
     },
     runRole: (role) => services.roles?.get(role),
     startConversation: createConversationStarts(context, delegations, delegations.conversations),

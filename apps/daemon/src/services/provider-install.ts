@@ -1,3 +1,4 @@
+import { followLoginPath } from "../login-path-handoff.ts";
 import { logFields } from "@ace/diagnostics";
 import { createAcpInstance } from "@ace/accounts";
 import { registryInstaller } from "../provider-install/registry.ts";
@@ -11,7 +12,10 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function startProviderInstalls(context: ServiceContext): void {
   const installs = new ProviderInstalls(
     {
-      env: { ...process.env, ...context.options.providerStatus?.env },
+      env: followLoginPath(context.options.loginPath, {
+        ...process.env,
+        ...context.options.providerStatus?.env,
+      }),
       home: context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
       ...(context.services.agentRegistry
         ? {
@@ -64,6 +68,19 @@ export function startProviderInstalls(context: ServiceContext): void {
       log(command) {
         context.log.log("info", "Provider installer", logFields([["command", command]]));
       },
+      failed(plan, message, output) {
+        context.log.log(
+          "warn",
+          "Provider installer failed",
+          logFields([
+            ["provider", plan.agent ? `${plan.provider}/${plan.agent}` : plan.provider],
+            ["action", plan.action],
+            ["method", plan.method ?? null],
+            ["message", message],
+            ["output", output.join("\n")],
+          ]),
+        );
+      },
       async changed(plan, version) {
         if (plan.action !== "uninstall") {
           await context.services.rediscoverProviders?.();
@@ -94,8 +111,10 @@ export function createProviderInstallsSession(context: SocketContext): SocketSer
     authenticated(channel) {
       if (channel !== undefined || stop || !context.authorize("operate")) return;
       stop = context.options.providerInstalls?.listen((owner, progress) => {
-        if (owner === context.device() && context.connected() && context.authorize("operate"))
+        if (owner === context.device() && context.connected() && context.authorize("operate")) {
           context.send({ type: "provider.install.progress", progress });
+          context.options.providerInstalls?.delivered(progress);
+        }
       });
     },
     close() {

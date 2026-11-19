@@ -18,8 +18,28 @@ async function serviceCommand(home: string, args: string[]): Promise<unknown> {
  * anything it can't validate. Otherwise the app runs its own daemon.
  */
 export function loginService(home: string): SupervisorPorts["service"] {
+  if (process.platform === "win32") return windowsLoginService(home);
   if (process.platform !== "darwin" && process.platform !== "linux") return undefined;
   if (!existsSync(join(home, "bin/ace"))) return undefined;
+  try {
+    installedVersion(home);
+  } catch {
+    return undefined;
+  }
+  return {
+    active: async () => ServiceState.parse(await serviceCommand(home, ["status"])).active,
+    start: async () => {
+      ServiceState.parse(await serviceCommand(home, ["start"]));
+    },
+  };
+}
+
+/**
+ * Windows: the standalone install's Task Scheduler task (`ace service install`), behind its
+ * `bin\ace.cmd` launcher. The desktop's own launch at login is Electron's login item instead.
+ */
+function windowsLoginService(home: string): SupervisorPorts["service"] {
+  if (!existsSync(join(home, "bin", "ace.cmd"))) return undefined;
   try {
     installedVersion(home);
   } catch {

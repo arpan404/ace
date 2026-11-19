@@ -1,12 +1,13 @@
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { CSSProperties, ReactNode } from "react";
 
 /**
  * One-of-n choice (Light / Dark / System, Unified / Split). A pill track with a flat thumb
  * that slides to the pressed segment on the spring. Pressing the current segment keeps it
- * selected.
+ * selected. A value that is none of the options (machines that differ) presses nothing.
  */
 function SegmentedControl<T extends string>(props: {
   label: string;
@@ -17,10 +18,8 @@ function SegmentedControl<T extends string>(props: {
   className?: string;
   disabled?: boolean | undefined;
 }) {
-  const index = Math.max(
-    0,
-    props.options.findIndex((option) => option.value === props.value),
-  );
+  const found = props.options.findIndex((option) => option.value === props.value);
+  const index = Math.max(0, found);
   const style = { "--n": props.options.length, "--i": index } as CSSProperties;
   return (
     <ToggleGroup
@@ -32,6 +31,7 @@ function SegmentedControl<T extends string>(props: {
         if (picked) props.onValueChange(picked.value);
       }}
       style={style}
+      {...part("segmented", props.disabled && "disabled")}
       className={cn(
         "relative inline-grid auto-cols-fr grid-flow-col rounded-full bg-(--seg-bg) p-0.5",
         props.disabled && "pointer-events-none opacity-50",
@@ -40,12 +40,17 @@ function SegmentedControl<T extends string>(props: {
     >
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) transition-transform duration-(--motion-slow) ease-spring motion-reduce:transition-none"
+        {...part("segmented-thumb")}
+        className={cn(
+          "absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) transition-transform duration-(--motion-slow) ease-spring motion-reduce:transition-none",
+          found < 0 && "opacity-0",
+        )}
       />
       {props.options.map((option) => (
         <Toggle
           key={option.value}
           value={option.value}
+          {...part("segment", option.value === props.value && "selected")}
           className={cn(
             "relative z-1 rounded-full text-center whitespace-nowrap text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground",
             "data-pressed:font-medium data-pressed:text-foreground",

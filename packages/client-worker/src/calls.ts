@@ -35,6 +35,7 @@ const Read = z.object({
   offset: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
 });
+const WholeRequest = z.object({ threadId: z.string(), interactionId: z.string() });
 const Page = z.object({
   threadId: z.string(),
   before: z.number().optional(),
@@ -79,14 +80,17 @@ const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadS
 const schemas = {
   markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
+  editFailedSend: z.tuple([z.string().min(1).max(256), CommandPayload]),
   command: z.tuple([CommandPayload, Options, z.string().optional()]),
   submitNew: z.tuple([CommandPayload, Options]),
   registry: z.tuple([RegistryInput, Options]),
   itemsPage: z.tuple([Page, Options]),
   loadOlder: z.tuple([z.string(), z.number().int().positive(), Options]),
   outputRead: z.tuple([Read, Options]),
+  readInteraction: z.tuple([WholeRequest, Options]),
   networkOnline: z.tuple([z.boolean()]),
   reconnectNow: z.tuple([]),
+  wake: z.tuple([]),
   request: z.tuple([ServiceInput, Options]),
 };
 
@@ -140,6 +144,12 @@ export async function callArgs(
       const intent = client.intent(sent).getSnapshot();
       return { id: sent, intent, pending: intent && pendingSend(intent) };
     }
+    case "editFailedSend": {
+      const [id, payload] = decode(schemas.editFailedSend, args);
+      await client.editFailedSend(id, payload);
+      const intent = client.intent(id).getSnapshot();
+      return { intent, pending: intent && pendingSend(intent) };
+    }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);
       const result = await client.command(payload, options(parsed, signal), id);
@@ -185,11 +195,19 @@ export async function callArgs(
       const [read, parsed] = decode(schemas.outputRead, args);
       return client.outputRead(read, options(parsed, signal));
     }
+    case "readInteraction": {
+      const [input, parsed] = decode(schemas.readInteraction, args);
+      return client.readInteraction(input, options(parsed, signal));
+    }
     case "request":
       return requestArgs(client, args, signal);
     case "reconnectNow":
       decode(schemas.reconnectNow, args);
       client.reconnectNow();
+      return;
+    case "wake":
+      decode(schemas.wake, args);
+      client.wake();
       return;
     case "networkOnline": {
       const [online] = decode(schemas.networkOnline, args);
@@ -283,7 +301,14 @@ export function iterateArgs(
       z.tuple([
         TextSource,
         RequestOptions.extend({
-          offset: z.number().int().nonnegative().multipleOf(2).optional(),
+          // Not `.multipleOf(2)`: browser builds leave it out (apps/web/zod-methods.ts).
+          // Offsets are utf-16le bytes, so they must be even.
+          offset: z
+            .number()
+            .int()
+            .nonnegative()
+            .refine((value) => value % 2 === 0)
+            .optional(),
         }).optional(),
       ]),
       args,

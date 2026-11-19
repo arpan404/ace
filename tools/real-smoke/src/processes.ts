@@ -2,7 +2,7 @@ import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Finding } from "./checks.ts";
 
 const Ready = z.object({

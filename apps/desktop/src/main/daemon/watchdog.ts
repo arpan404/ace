@@ -1,3 +1,16 @@
+/** The app's main thread coming back from a freeze: when, and after how long. */
+export interface Thaw {
+  at: number;
+  frozenMs: number;
+  /** The gap was the computer sleeping, not the app freezing (the OS said it resumed). */
+  slept?: boolean | undefined;
+}
+
+/** Tells when the app's main thread last came back from a freeze (`diagnostics/main-beat.ts`). */
+export interface FreezeSignal {
+  lastThaw(): Thaw | undefined;
+}
+
 export interface WatchdogOptions {
   /** Pause between one check's outcome and the next check. */
   intervalMs: number;
@@ -8,16 +21,37 @@ export interface WatchdogOptions {
   /** Asks the daemon once; true when it answered healthy. */
   probe(): Promise<boolean>;
   timers: { set(delayMs: number, callback: () => void): () => void };
+  /** Monotonic milliseconds, to tell when this process's own timers ran late. */
+  now(): number;
+  /**
+   * How late this process's timers may run before a check is treated as the app freezing
+   * rather than the daemon missing it. Default 2 s.
+   */
+  lateToleranceMs?: number;
   log(level: "info" | "warn", message: string, data: Record<string, unknown>): void;
+  /**
+   * The app's one main-thread beat, read on `now`'s clock. Without it the watch beats on its
+   * own every 500 ms to notice the app freezing.
+   */
+  freezes?: FreezeSignal | undefined;
   /** Called once, after `failures` missed checks in a row. The watchdog has stopped by then. */
   onUnresponsive(missed: number): void;
 }
+
+/** How often the watch beats, to notice the app's own main thread freezing. */
+const BEAT_MS = 500;
 
 /**
  * Watches a running daemon's health. A check that is answered late but healthy, even after
  * it was counted as missed, resets the count: a busy daemon is slow, not gone. Only one probe
  * is ever in flight; a check that finds the previous probe still pending waits on it again
- * rather than sending another. Returns a function that stops the watch.
+ * rather than sending another.
+ *
+ * The checks run on this process's timers, so a frozen app (or a computer that slept) sees every
+ * one of them late: a timeout fires long after its deadline and a request's own abort beats the
+ * answer that waited unread in the socket. Neither says anything about the daemon. A check
+ * during which the app's timers ran late is not counted; it is sent again once the app runs. Only checks the
+ * app saw on time can stop a daemon. Returns a function that stops the watch.
  */
 export function watchHealth(options: WatchdogOptions): () => void {
   let stopped = false;
@@ -26,6 +60,23 @@ export function watchHealth(options: WatchdogOptions): () => void {
   /** The probe last counted as missed: if it still answers healthy, the count resets. */
   let late: Promise<boolean> | undefined;
   let cancel: (() => void) | undefined;
+  const tolerance = options.lateToleranceMs ?? 2_000;
+  /** When the app was last seen coming back from a freeze, by its own beat. */
+  let ownThaw: Thaw | undefined;
+  let beatAt = options.now();
+  let cancelBeat: (() => void) | undefined;
+  const beat = () => {
+    const now = options.now();
+    const gap = now - beatAt - BEAT_MS;
+    if (gap > tolerance) ownThaw = { at: now, frozenMs: Math.round(gap) };
+    beatAt = now;
+    if (!stopped) cancelBeat = options.timers.set(BEAT_MS, beat);
+  };
+  const freezes = options.freezes;
+  if (!freezes) cancelBeat = options.timers.set(BEAT_MS, beat);
+  const lastThaw = () => (freezes ? freezes.lastThaw() : ownThaw);
+  /** When the in-flight probe was sent. */
+  let sentAt = 0;
 
   const next = () => {
     if (stopped) return;
@@ -37,25 +88,56 @@ export function watchHealth(options: WatchdogOptions): () => void {
   const send = (): Promise<boolean> => {
     const probe = options.probe().catch(() => false);
     inFlight = probe;
-    void probe.then((ok) => {
-      if (inFlight === probe) inFlight = undefined;
-      if (late !== probe) return;
-      late = undefined;
-      if (!ok || stopped || missed === 0) return;
-      options.log("info", "The daemon answered a late health check", { missed });
-      missed = 0;
-    });
+    sentAt = options.now();
+    // probe answers false for a probe that failed, so only a throw in the log is left.
+    void probe
+      .then((ok) => {
+        if (inFlight === probe) inFlight = undefined;
+        if (late !== probe) return;
+        late = undefined;
+        if (!ok || stopped || missed === 0) return;
+        options.log("info", "The daemon answered a late health check", { missed });
+        missed = 0;
+      })
+      .catch(() => {});
     return probe;
   };
   const check = () => {
     if (stopped) return;
+    const startedAt = options.now();
     const probe = inFlight ?? send();
+    const since = Math.min(startedAt, sentAt);
     let settled = false;
     const outcome = (answer: boolean | "timeout") => {
       if (settled || stopped) return;
       settled = true;
       cancel?.();
       cancel = undefined;
+      const now = options.now();
+      // Past the check's own deadline by more than the tolerance, whatever the answer: this
+      // process's timers ran late (the app froze, or the computer slept and its request failed
+      // on waking before the beat noticed), so the answer says nothing about the daemon.
+      const lateMs = now - startedAt - options.timeoutMs;
+      const thaw = lastThaw();
+      if (answer !== true && (lateMs > tolerance || (thaw?.at ?? -1) >= since)) {
+        const slept = thaw?.slept === true && thaw.at >= since;
+        options.log(
+          "info",
+          slept
+            ? "The computer slept during a daemon health check; checking again"
+            : "The app froze during a daemon health check; checking again",
+          {
+            [slept ? "sleptMs" : "frozenMs"]: Math.round(Math.max(thaw?.frozenMs ?? 0, lateMs)),
+            missed,
+          },
+        );
+        // After the I/O the freeze held back: an answer waiting in the socket counts.
+        cancel = options.timers.set(0, () => {
+          cancel = undefined;
+          check();
+        });
+        return;
+      }
       if (answer === true) {
         if (missed > 0)
           options.log("info", "The daemon answered its health check again", { missed });
@@ -79,7 +161,8 @@ export function watchHealth(options: WatchdogOptions): () => void {
       cancel = undefined;
       outcome("timeout");
     });
-    void probe.then(outcome);
+    // probe answers false for a probe that failed, so only a throw in the log is left.
+    void probe.then(outcome).catch(() => {});
   };
 
   next();
@@ -87,5 +170,6 @@ export function watchHealth(options: WatchdogOptions): () => void {
     stopped = true;
     cancel?.();
     cancel = undefined;
+    cancelBeat?.();
   };
 }

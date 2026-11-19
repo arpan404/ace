@@ -18,6 +18,22 @@ const request = { op: "cleanup.plan", kinds: ["worktrees"], forceItems: [] } sat
   StorageService["plan"]
 >[1];
 
+test("settling again after final inspection keeps the checkout and releases cleanup admission", async () => {
+  const f = await setup();
+  const plan = await f.storage.plan("owner", request);
+  f.edge.beforeCleanup = async () => {
+    f.store.appendEvents(
+      f.thread.id,
+      [{ type: "thread.client.updated", changes: { settledAt: f.now() } }],
+      f.now(),
+    );
+  };
+  const result = await f.storage.apply("owner", plan.id, plan.revision);
+  expect(result.items).toMatchObject([{ state: "protected", reason: "changed" }]);
+  await access(f.path);
+  expect(() => f.store.workspaceReservations.assertAvailable(f.path)).not.toThrow();
+});
+
 test("unmanaged linked checkouts outside and inside the managed root never become removable", async () => {
   const f = await setup();
   const outside = join(f.root, "handmade"),

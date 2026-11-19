@@ -17,6 +17,17 @@ const watch = (client: ClientApi) =>
     read: (message) => (message.type === "browser.browsing" ? new Set(message.threads) : undefined),
   });
 
+/** Hears every change to the threads an agent works in the browser of. */
+export function onBrowsingThreads(
+  client: ClientApi,
+  listener: (threads: ReadonlySet<string>) => void,
+): () => void {
+  const current = watch(client);
+  const changed = () => listener(current.value);
+  current.listeners.add(changed);
+  return () => void current.listeners.delete(changed);
+}
+
 /** True while an agent works in this thread's browser. */
 export function useThreadBrowsing(threadId: string): boolean {
   const client = useClient();

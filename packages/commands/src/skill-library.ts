@@ -1,7 +1,14 @@
-import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
-import { CommandCatalog } from "./catalog.ts";
-import { CommandFiles, type WatchSource } from "./files.ts";
-import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
+import {
+  SkillOperation,
+  type SkillAgent,
+  type SkillEntry,
+  type SkillResult,
+  type SkillUsage,
+} from "@ace/protocol";
+import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
+import { commandCallOwner, commandRootSettled } from "./posix.ts";
+import type { WatchSource } from "./files.ts";
+import { RecoveryLoop, type RecoveryScheduler, type RecoveryTimer } from "./recovery-loop.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { editSkill, newSkill } from "./skill-markdown.ts";
 import {
@@ -12,13 +19,21 @@ import {
   unlinkSkill,
   withSkillFolder,
 } from "./skill-files.ts";
-import { SkillDisk } from "./skill-disk.ts";
+import { SkillDisk, sameDirectory } from "./skill-disk.ts";
+import { listSkillFolder, readSkillFolderFile } from "./skill-folder-files.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
-import { canonicalRoot, skillRoots, type SkillHomes } from "./skill-roots.ts";
+import {
+  canonicalRoot,
+  skillRootLane,
+  skillRoots,
+  type SkillHomes,
+  type SkillRoot,
+} from "./skill-roots.ts";
 import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
+import { SkillWatches } from "./skill-watch.ts";
 export type { PluginSkill } from "./skill-listing.ts";
 
 /** An error and its cause, in one line for the daemon log. */
@@ -40,12 +55,18 @@ export interface SkillLibraryOptions {
   usage?: SkillUsageReader | undefined;
   watch?: WatchSource | undefined;
   schedule?: RecoveryScheduler | undefined;
+  /** Ends a folder watch some time after its last subscriber leaves; tests run it at once. */
+  linger?: RecoveryTimer | undefined;
   /** The descriptor primitive every mutation opens through; tests wrap it to race a swap. */
   openChild?: OpenCommandChild | undefined;
   id(): string;
 }
-const watchedRoot = (path: string, scope: "user" | "workspace", home: string): DiscoveryRoot => ({
-  path,
+const watchedRoot = (
+  root: SkillRoot,
+  scope: "user" | "workspace",
+  home: string,
+): DiscoveryRoot => ({
+  path: root.path,
   format: "claude",
   scope,
   skill: true,
@@ -56,16 +77,31 @@ export class SkillLibrary {
   private readonly options: SkillLibraryOptions;
   private readonly updates: SkillUpdates | undefined;
   private readonly disk: SkillDisk;
-  private readonly watchers = new Map<string, { files: CommandFiles; users: number }>();
+  private readonly watches: SkillWatches<Listed[]>;
   private readonly listeners = new Set<() => void>();
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
+  /** A change is running: its own reads must see what it just wrote, never the cache. */
+  private changing = false;
   private closed = false;
   private stopRetry: (() => void) | undefined;
+  /** Every file call the library makes; closing cancels it, so no stuck folder holds it open. */
+  private readonly calls = commandCallOwner();
   constructor(options: SkillLibraryOptions) {
     this.options = options;
-    this.disk = new SkillDisk(options.openChild);
+    this.disk = new SkillDisk(options.openChild, this.calls);
     this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
+    const home = options.homes.home;
+    this.watches = new SkillWatches({
+      roots: (workspace) =>
+        skillRoots(options.homes, workspace || undefined)
+          .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
+          .map((root) => watchedRoot(root, workspace ? "workspace" : "user", home)),
+      changed: () => this.notify(),
+      watch: options.watch,
+      schedule: options.schedule,
+      linger: options.linger,
+    });
   }
   /**
    * Self-heal after a crash mid-update. Queued ahead of requests, so it never blocks the caller
@@ -97,6 +133,14 @@ export class SkillLibrary {
       return false;
     }
   }
+  /** Once the folder's stuck call has returned, settle whatever it left half done. */
+  private recoverOnceSettled(root: string): void {
+    void commandRootSettled(root)
+      .then(() => {
+        if (!this.closed) void this.start().catch(() => {});
+      })
+      .catch(() => {});
+  }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);
     if (!parsed.success)
@@ -109,8 +153,40 @@ export class SkillLibrary {
       });
     this.pending++;
     const result = this.tail
-      .then(() => this.perform(parsed.data))
+      // A request still waiting when the library closes never runs: its calls would be refused.
+      .then(() =>
+        this.closed
+          ? ({
+              kind: "error",
+              code: "unavailable",
+              message: "Skills are closing. Try again in a moment.",
+            } satisfies SkillResult)
+          : this.run(parsed.data),
+      )
       .catch((error: unknown): SkillResult => {
+        const unknown = writeOutcomeUnknown(error);
+        if (unknown) {
+          this.recoverOnceSettled(unknown.root);
+          return {
+            kind: "error",
+            code: "unavailable",
+            message:
+              "This change took too long, so the skill may or may not have changed. Reload the list to check.",
+          };
+        }
+        // Closing cancels the library's calls: whatever they found so far isn't an answer.
+        if (this.closed)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "Skills are closing. Try again in a moment.",
+          };
+        if (error instanceof CommandFilesystemUnavailable)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "A skill folder isn't responding. Try again in a moment.",
+          };
         if (error instanceof SkillError)
           return { kind: "error", code: error.code, message: error.message };
         if (error instanceof Error && error.message === "invalid_frontmatter")
@@ -134,30 +210,59 @@ export class SkillLibrary {
   /** Changes from disk or from this library. Watches personal roots and, if named, the project's. */
   subscribe(workspaceId: string | undefined, listener: () => void): () => void {
     if (this.closed || this.listeners.size >= 64) throw new Error("Skill subscription limit");
-    const keys = ["", ...(workspaceId ? [this.workspace(workspaceId)] : [])];
-    for (const key of keys) this.watch(key);
+    const releases: (() => void)[] = [];
+    try {
+      for (const key of this.keys(workspaceId)) releases.push(this.watches.hold(key));
+    } catch (error) {
+      for (const release of releases) release();
+      throw error;
+    }
     const wrapped = () => listener();
     this.listeners.add(wrapped);
     return () => {
       this.listeners.delete(wrapped);
-      for (const key of keys) this.unwatch(key);
+      for (const release of releases) release();
     };
   }
   async close(): Promise<void> {
     this.closed = true;
+    // Queued file calls fail now and a running one is let go, so the wait below is short.
+    this.calls.cancel();
     this.stopRetry?.();
     this.stopRetry = undefined;
     this.listeners.clear();
     await this.tail.catch(() => {});
-    for (const { files } of this.watchers.values()) await files.close();
-    this.watchers.clear();
+    await this.watches.close();
     await this.updates?.close();
+  }
+  /** The personal skill folders every agent reads, from this library's own homes. */
+  personalRoots(): string[] {
+    return skillRoots(this.options.homes)
+      .filter((root) => root.scope === "personal")
+      .map((root) => root.path);
+  }
+  /**
+   * The personal skills the person wrote, with their real folders: what ace's marketplace can
+   * publish (ADR 0174 §2). Builtin, plugin, project and `skills` CLI installs aren't theirs.
+   */
+  async publishable(): Promise<{ entry: SkillEntry; folder: string }[]> {
+    if (this.closed) return [];
+    return (await this.listAll(undefined))
+      .filter(
+        (listed) =>
+          listed.entry.scope === "personal" &&
+          listed.entry.editable &&
+          !listed.entry.source &&
+          listed.place.canonical !== undefined,
+      )
+      .map((listed) => ({ entry: listed.entry, folder: listed.place.real }));
   }
   /** Sources outside the watched folders changed, such as installed plugins. */
   invalidate(): void {
     this.notify();
   }
   private notify(): void {
+    this.watches.forget();
     for (const listener of this.listeners) {
       try {
         listener();
@@ -166,42 +271,33 @@ export class SkillLibrary {
       }
     }
   }
-  private watch(workspace: string): void {
-    const held = this.watchers.get(workspace);
-    if (held) {
-      held.users++;
-      return;
-    }
-    if (this.watchers.size >= 9) throw new Error("Skill watch limit");
-    const home = this.options.homes.home;
-    const roots = skillRoots(this.options.homes, workspace || undefined)
-      .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
-      .map((root) => watchedRoot(root.path, workspace ? "workspace" : "user", home));
-    const files = new CommandFiles(new CommandCatalog(() => 0), roots, {
-      ...(this.options.watch ? { watch: this.options.watch } : {}),
-      ...(this.options.schedule ? { schedule: this.options.schedule } : {}),
-    });
-    files.subscribe(() => this.notify());
-    void files.start().catch(() => {});
-    this.watchers.set(workspace, { files, users: 1 });
-  }
-  private unwatch(workspace: string): void {
-    const held = this.watchers.get(workspace);
-    if (!held || --held.users > 0) return;
-    this.watchers.delete(workspace);
-    void held.files.close();
-  }
   private workspace(workspaceId: string): string {
     const path = this.options.workspace(workspaceId);
     if (!path) throw new SkillError("not_found", "This project isn't on this machine.");
     return path;
   }
+  /** Watch keys behind a listing: personal folders, plus the project's when one is named. */
+  private keys(workspaceId: string | undefined): string[] {
+    return ["", ...(workspaceId ? [this.workspace(workspaceId)] : [])];
+  }
+  /** Reads are answered from the watched cache; a change reads the disk throughout. */
+  private async run(op: SkillOperation): Promise<SkillResult> {
+    if (op.op === "list" || op.op === "read" || op.op === "files" || op.op === "usage")
+      return this.perform(op);
+    this.changing = true;
+    try {
+      return await this.perform(op);
+    } finally {
+      this.changing = false;
+      // Whatever it wrote, or half wrote before failing, is read fresh next time.
+      this.watches.forget();
+    }
+  }
   private listAll(workspaceId: string | undefined): Promise<Listed[]> {
-    return listSkills({
-      ...this.options,
-      workspace: workspaceId ? this.workspace(workspaceId) : undefined,
-      locked: this.updates?.locked(),
-    });
+    const workspace = workspaceId ? this.workspace(workspaceId) : undefined;
+    const load = () =>
+      listSkills({ calls: this.calls, ...this.options, workspace, locked: this.updates?.locked() });
+    return this.changing ? load() : this.watches.read(this.keys(workspaceId), load);
   }
   private async find(id: string, workspaceId: string | undefined): Promise<Listed> {
     const found = (await this.listAll(workspaceId)).find((listed) => listed.entry.id === id);
@@ -295,7 +391,11 @@ export class SkillLibrary {
               "This skill changed elsewhere. Reload it before saving.",
             );
           const next = editSkill(current.text, op);
-          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id());
+          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id(), {
+            rootReal: canonical.rootReal,
+            name: canonical.name,
+            lane: skillRootLane(canonical.root),
+          });
         });
         this.notify();
         return this.skill(op.id, op.workspaceId);
@@ -307,18 +407,48 @@ export class SkillLibrary {
       }
       case "delete": {
         const { place, canonical } = await this.editable(op.id, op.workspaceId);
-        await withSkillFolder(this.disk, canonical, async (root, folder) => {
+        const unchanged = async (folder: number) => {
           if ((await readPinnedSkill(this.disk, folder))?.hash !== op.expectedHash)
             throw new SkillError(
               "conflict",
               "This skill changed elsewhere. Reload it before deleting.",
             );
-          for (const link of place.members.filter((m) => m.link))
-            await unlinkSkill(this.disk, link);
-          // Contents go through the pinned folder; the name is removed only if it is still it.
-          await this.disk.empty(folder);
-          await this.disk.removeEmptyDirectory(root, canonical.name);
+        };
+        const pinned = await withSkillFolder(this.disk, canonical, async (_root, folder) => {
+          await unchanged(folder);
+          return this.disk.identityOf(folder);
         });
+        // Links live under other roots: they go with nothing else pinned, since holding one
+        // root's thread while waiting for another's can deadlock when every thread is taken.
+        const links = place.members.filter((m) => m.link);
+        for (const link of links) await unlinkSkill(this.disk, link);
+        try {
+          await withSkillFolder(this.disk, canonical, async (root, folder) => {
+            // The same folder, not just the same SKILL.md: a replacement is never emptied.
+            if (!sameDirectory(await this.disk.identityOf(folder), pinned))
+              throw new SkillError(
+                "conflict",
+                "This skill changed elsewhere. Reload it before deleting.",
+              );
+            await unchanged(folder);
+            // Contents go through the pinned folder; the name is removed only if it is still it.
+            await this.disk.empty(folder);
+            await this.disk.removeEmptyDirectory(root, canonical.name);
+          });
+        } catch (error) {
+          if (!(error instanceof SkillError && error.code === "conflict")) throw error;
+          // Nothing was deleted: put its agents' links back, and say so if any can't be.
+          let restored = true;
+          for (const link of links)
+            await linkSkill(this.disk, link.root, link.name, canonical).catch(() => {
+              restored = false;
+            });
+          if (restored) throw error;
+          throw new SkillError(
+            "conflict",
+            "This skill changed elsewhere, so it wasn't deleted, but some agents' links to it were removed. Reload it to check.",
+          );
+        }
         this.notify();
         return { kind: "deleted", id: op.id };
       }
@@ -340,6 +470,8 @@ export class SkillLibrary {
         this.notify();
         return this.skill(op.id, op.workspaceId);
       }
+      case "files":
+        return this.files(op.id, op.workspaceId, op.path);
       case "cancelUpdate":
         await this.updates?.cancel(op.reviewId);
         return { kind: "cancelled", reviewId: op.reviewId };
@@ -355,6 +487,34 @@ export class SkillLibrary {
           ),
         };
       }
+    }
+  }
+  /** A skill's files, or one of them (ADR 0151), through its folder opened without links. */
+  private async files(
+    id: string,
+    workspaceId: string | undefined,
+    path: string | undefined,
+  ): Promise<SkillResult> {
+    const { place } = await this.find(id, workspaceId);
+    const supplier =
+      place.canonical ??
+      place.members.find((member) => member.real === place.real) ??
+      place.members[0];
+    // A plugin's skill has no folder here: its files are the plugin's.
+    if (!supplier) throw new SkillError("read_only", "Open the plugin to read this skill's files.");
+    const folder = await this.disk.openPath(
+      place.canonical?.real ?? place.real,
+      skillRootLane(supplier.root),
+    );
+    if (folder === undefined)
+      throw new SkillError("not_found", "This skill's folder moved. Reload the list.");
+    try {
+      if (path === undefined)
+        return { kind: "files", id, ...(await listSkillFolder(this.disk, folder)) };
+      const { file, bytes } = await readSkillFolderFile(this.disk, folder, path);
+      return { kind: "file", id, file, content: bytes.toString("base64") };
+    } finally {
+      await this.disk.closeDirectory(folder);
     }
   }
   private requireUpdates(): SkillUpdates {

@@ -102,3 +102,51 @@ test("cleanup inspection and removal never execute repository helpers", async ()
     await service.close();
   }
 });
+
+test.each([false, true])(
+  "cleanup compares full trees of diverged commits when submodule diffs are ignored (same tree: %s)",
+  async (sameTree) => {
+    const repo = await repository();
+    const source = await repository({ "nested.txt": "first revision\n" });
+    const first = await scalar(source, "rev-parse", "HEAD");
+    await put(source, "nested.txt", "second revision\n");
+    await git(source, "commit", "-am", "Advance nested revision");
+    const second = await scalar(source, "rev-parse", "HEAD");
+    await git(repo, "update-index", "--add", "--cacheinfo", `160000,${first},nested`);
+    await git(repo, "commit", "-m", "Track nested revision");
+    const base = await scalar(repo, "rev-parse", "HEAD");
+    const main = await scalar(repo, "commit-tree", "HEAD^{tree}", "-p", base, "-m", "Main");
+    await git(repo, "update-ref", "refs/remotes/origin/main", main);
+    await git(repo, "config", "diff.ignoreSubmodules", "all");
+    const service = new GitService();
+    const path = join(dirname(repo), "diverged");
+    try {
+      await service.createWorktree({ repo, path, branch: "diverged", baseRef: base });
+      if (!sameTree) await git(path, "update-index", "--cacheinfo", `160000,${second},nested`);
+      await git(path, "commit", "--allow-empty", "-m", "Topic");
+      const head = await scalar(path, "rev-parse", "HEAD");
+      // The configured diff reports equality even when the tracked gitlink changed.
+      await git(repo, "diff", "--quiet", head, main, "--");
+      const reviewed = await service.inspectWorktreeCleanup(repo, path);
+      expect(reviewed).toMatchObject({ dirty: false, unpushed: true, mergedIntoMain: sameTree });
+      const removal = service.cleanupWorktree({
+        repo,
+        path,
+        fingerprint: reviewed.fingerprint,
+        force: false,
+        removeBranch: true,
+      });
+      if (sameTree) {
+        await removal;
+        await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
+        expect(await service.branchHead({ repo, branch: "diverged" })).toBeUndefined();
+      } else {
+        await expect(removal).rejects.toMatchObject({ code: "dirty_worktree" });
+        await access(path);
+        expect(await service.branchHead({ repo, branch: "diverged" })).toBe(head);
+      }
+    } finally {
+      await service.close();
+    }
+  },
+);

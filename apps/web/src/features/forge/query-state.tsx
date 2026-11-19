@@ -3,25 +3,32 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useConnectionState } from "@ace/client-react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { actionErrorText } from "@ace/ui-core";
-import { failureCode } from "@/lib/forge-read.ts";
+import type { ForgeKind } from "@ace/protocol/forge";
+import { forgeErrorText } from "@ace/ui-core";
+import { ForgeReadError, failureCode } from "@/lib/forge-read.ts";
 
-/** A failed read in words: its code's sentence, or the error's own when it has no code. */
-export function readFailureText(error: Error): string {
+/**
+ * A failed read in words: its code's sentence on the Git host it was read from (`forge`, else
+ * the one the read named), or the error's own when it has no code.
+ */
+export function readFailureText(error: Error, forge?: ForgeKind): string {
   const code = failureCode(error);
-  return code ? actionErrorText(code) : error.message;
+  if (!code) return error.message;
+  return forgeErrorText(code, forge ?? (error instanceof ForgeReadError ? error.forge : undefined));
 }
 export function QueryState(props: {
   /** What is loading, as in "Loading <label>". */
   label: string;
   query: Pick<UseQueryResult, "isFetching" | "error" | "data" | "refetch">;
+  /** The Git host read, so a failure names its CLI. */
+  forge?: ForgeKind | undefined;
 }) {
   const ready = useConnectionState() === "ready";
   if (!ready) return <p role="status">Offline. Reconnect to refresh this repository.</p>;
   if (props.query.error)
     return (
       <p role="alert" className="flex flex-wrap items-center gap-2 text-muted-foreground">
-        {readFailureText(props.query.error)}
+        {readFailureText(props.query.error, props.forge)}
         <Button size="sm" onClick={() => void props.query.refetch()}>
           Retry
         </Button>

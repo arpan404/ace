@@ -14,17 +14,26 @@ import {
   type StorageResult,
 } from "@ace/protocol";
 import { initializeThreadCleanup } from "../thread-cleanup-journal.ts";
-import { StorageInventory } from "./inventory.ts";
+import { StorageInventory, type StorageScan } from "./inventory.ts";
 import { StorageJournal, type CleanupJournal, type CompactionJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
 import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
+import { WorktreeBackups } from "./worktree-backups.ts";
+import { WorktreeBatches } from "./worktree-batches.ts";
+import { UsageScanner } from "./usage-scanner.ts";
+import { UsageCache } from "./usage-cache.ts";
+import { UsageCoordinator, type UsageRuntime, type UsageScannerPort } from "./usage-schedule.ts";
+import { storageSchedule } from "./schedule.ts";
+import { sampleUsageActivity } from "./usage-activity.ts";
+import { SPACE_RECLAIMER, worthReclaiming } from "./space-reclaim-policy.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
 /** One bounded serializer owns planning, apply and crash recovery, not provider execution. */
 export class StorageService {
+  private usageCoordinator: UsageCoordinator;
   private owner: StorageOwner;
   private inventory: StorageInventory;
   private journal: StorageJournal;
@@ -33,12 +42,30 @@ export class StorageService {
   private closed = false;
   private closing: Promise<void> | undefined;
   private limits: CompactionLimits;
-  constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
+  private backups: WorktreeBackups;
+  private worktreeBatches = new WorktreeBatches();
+  constructor(
+    owner: StorageOwner,
+    limits: Partial<CompactionLimits> = {},
+    usage: { scanner?: UsageScannerPort; runtime?: Partial<UsageRuntime> } = {},
+  ) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
+    this.backups = new WorktreeBackups(owner);
+    this.usageCoordinator = new UsageCoordinator(
+      new UsageCache(owner.store, owner.root),
+      usage.scanner ?? new UsageScanner(owner.root),
+      {
+        now: owner.now,
+        schedule: storageSchedule,
+        activity: sampleUsageActivity,
+        failed: () => {},
+        ...usage.runtime,
+      },
+    );
   }
   private serial<T>(run: () => Promise<T>): Promise<T> {
     if (this.closed || this.queued >= 8) return Promise.reject(new Error("storage_busy"));
@@ -54,26 +81,13 @@ export class StorageService {
       (await this.owner.services.settings?.get("storage.retention", {}))?.value ?? {},
     );
   }
-  usage(): Promise<StorageUsage> {
-    return this.serial(async () => {
-      const { candidates, complete } = await this.inventory.scan(
-        new Set(StorageKind.options),
-        () => !this.closed,
-      );
-      return {
-        categories: StorageKind.options.map((kind) => {
-          const items = candidates.filter((candidate) => candidate.kind === kind);
-          return {
-            kind,
-            bytes: items.reduce((sum, item) => sum + item.bytes, 0),
-            items: items.length,
-          };
-        }),
-        ...(await this.database()),
-        measuredAt: this.owner.now(),
-        complete,
-      };
-    });
+  startUsage(): void {
+    this.usageCoordinator.start();
+  }
+  usage(force = false): Promise<StorageUsage> {
+    return this.usageCoordinator
+      .read(force)
+      .then((usage) => ({ ...usage, backups: this.backups.results() }));
   }
   /** File and WAL bytes on disk, plus free pages SQLite could hand back. */
   private async database() {
@@ -106,15 +120,66 @@ export class StorageService {
         checkpointed: false,
       };
       await this.owner.store.write(() => this.journal.saveCompaction(state));
-      await compactStorage(
-        this.owner,
-        this.journal,
-        state,
-        this.limits,
-        () => !this.closed && allowed(),
+      await this.usageCoordinator.mutation(() =>
+        compactStorage(
+          this.owner,
+          this.journal,
+          state,
+          this.limits,
+          () => !this.closed && allowed(),
+        ),
       );
       return this.compaction(state);
     });
+  }
+  /**
+   * Automatic, non-destructive space reclaim: one bounded compaction run that never deletes
+   * rows. It resumes any unfinished compaction, or starts one when the free list is worth
+   * returning to the OS. `pending` means free pages remain for the next run.
+   */
+  reclaimSpace(
+    maxChunks: number,
+    allowed: () => boolean,
+  ): Promise<"idle" | "pending" | "complete"> {
+    return this.serial(async () => {
+      if (this.closed || !allowed()) return "pending";
+      let state = this.journal.unfinishedCompaction();
+      if (!state) {
+        const space = readSqlitePageSpace({ prepare: (sql) => this.owner.store.statement(sql) });
+        // A file created without incremental vacuum has nothing this path can release.
+        if (
+          space.autoVacuum === 0 ||
+          !worthReclaiming({ fileBytes: space.pageBytes, freeBytes: space.reclaimableBytes })
+        )
+          return "idle";
+        const started: CompactionJournal = {
+          id: this.owner.id(),
+          owner: SPACE_RECLAIMER,
+          state: "running",
+          phase: "vacuum",
+          chunks: 0,
+          databaseBytesBefore: (await this.database()).databaseBytes,
+          incrementalUnavailable: false,
+          checkpointed: false,
+        };
+        await this.owner.store.write(() => this.journal.saveCompaction(started));
+        state = started;
+      }
+      await this.usageCoordinator.mutation(() =>
+        compactStorage(
+          this.owner,
+          this.journal,
+          state,
+          { ...this.limits, maxChunks: Math.min(maxChunks, this.limits.maxChunks) },
+          () => !this.closed && allowed(),
+        ),
+      );
+      return state.state === "running" ? "pending" : "complete";
+    });
+  }
+  /** True while a compaction cut short is journaled as running. */
+  compactionUnfinished(): boolean {
+    return this.journal.unfinishedCompaction() !== undefined;
   }
   /** Stop resuming an unfinished compaction. Chunks already released stay released. */
   abandonCompaction(id: string): Promise<StorageCompaction> {
@@ -156,6 +221,7 @@ export class StorageService {
     device: string,
     input: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
     allowed: () => boolean = () => true,
+    scanned?: StorageScan,
   ): Promise<CleanupJournal> {
     const operation = StorageRequest.shape.operation.parse(input);
     if (operation.op !== "cleanup.plan") throw new Error("storage_invalid_request");
@@ -163,7 +229,7 @@ export class StorageService {
     const kinds = new Set(operation.kinds ?? StorageKind.options);
     const force = new Set(operation.forceItems);
     const now = this.owner.now();
-    const scan = await this.inventory.scan(kinds, () => !this.closed && allowed());
+    const scan = scanned ?? (await this.inventory.scan(kinds, () => !this.closed && allowed()));
     const selected = scan.candidates
       .filter((candidate) => kinds.has(candidate.kind))
       .map((candidate) => ({
@@ -255,6 +321,53 @@ export class StorageService {
   status(device: string, planId: string): StorageApply {
     return this.journal.result(this.owned(device, planId));
   }
+  /** One bounded backup pass, independent of automatic deletion. */
+  backupWorktrees(allowed: () => boolean): Promise<void> {
+    return this.serial(() => this.backups.run(this.inventory, () => !this.closed && allowed()));
+  }
+  /** One bounded, host-authorized deletion pass. Backup failures never authorize removal. */
+  cleanupWorktrees(days: number, allowed: () => boolean): Promise<void> {
+    return this.serial(async () => {
+      if (!allowed() || this.closed) return;
+      for (const id of this.journal.pending()) {
+        const pending = this.journal.get(id);
+        if (pending?.owner === "storage:worktrees") {
+          const result = await this.run(pending, allowed);
+          if (result.state === "pending") return;
+          this.journal.discard(id);
+        }
+      }
+      const scan = await this.inventory.scanWorktrees(
+        // Ownership alone can forbid deletion. Save expensive Git inspection for candidates
+        // that might be removed; final admission still rechecks every owner and Git state.
+        this.worktreeBatches
+          .next(this.inventory.managed)
+          .filter(
+            (record) => this.inventory.worktreeOwnership(record.path).protections.length === 0,
+          ),
+        () => !this.closed && allowed(),
+      );
+      const draft = await this.draft(
+        "storage:worktrees",
+        {
+          op: "cleanup.plan",
+          kinds: ["worktrees"],
+          forceItems: [],
+          retention: StorageRetention.parse({ worktrees: days, worktreeMode: "settled" }),
+        },
+        allowed,
+        scan,
+      );
+      draft.entries = draft.entries.filter(
+        (entry) => entry.item.disposition === "remove" && !this.backups.failed(entry.item.label),
+      );
+      if (!draft.entries.length || !allowed() || this.closed) return;
+      draft.state = "applying";
+      this.journal.admit(draft, draft.plan.createdAt);
+      const result = await this.run(draft, allowed);
+      if (result.state !== "pending") this.journal.discard(draft.plan.id);
+    });
+  }
   private owned(device: string, planId: string): CleanupJournal {
     const journal = this.journal.get(planId);
     if (!journal || journal.owner !== device) throw new Error("storage_plan_not_found");
@@ -311,24 +424,44 @@ export class StorageService {
       return this.run(journal, allowed);
     });
   }
-  private run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
-    return applyStorageItems(
-      this.owner,
-      this.inventory,
-      this.journal,
-      journal,
-      () => !this.closed && allowed(),
+  private async run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
+    const configured =
+      journal.owner === "storage:worktrees" && this.owner.services.settings
+        ? (await this.owner.services.settings.get("storage.worktreeRetentionDays")).value
+        : undefined;
+    const retention =
+      configured === undefined
+        ? journal.plan.retention
+        : { ...journal.plan.retention, worktrees: configured };
+    return this.usageCoordinator.mutation(() =>
+      applyStorageItems(
+        this.owner,
+        this.inventory,
+        this.journal,
+        journal,
+        () => !this.closed && configured !== null && allowed(),
+        retention,
+      ),
     );
   }
   /** Automation hook. Host opt-in preauthorizes only the ordinary, non-forced retention policy. */
   async scheduledCleanup(allowed = () => true): Promise<StorageApply> {
-    await this.resume(() => allowed());
+    const worktreeDays = (await this.owner.services.settings?.get("storage.worktreeRetentionDays"))
+      ?.value;
+    await this.resume(
+      (reviewer) =>
+        allowed() && (reviewer !== "storage:worktrees" || typeof worktreeDays === "number"),
+    );
     const pending = this.journal.pending()[0];
     if (pending) {
       const journal = this.journal.get(pending);
       if (journal) return this.journal.result(journal);
     }
-    const plan = await this.plan("storage:scheduler");
+    const plan = await this.plan("storage:scheduler", {
+      op: "cleanup.plan",
+      forceItems: [],
+      kinds: StorageKind.options.filter((kind) => kind !== "worktrees"),
+    });
     return this.apply("storage:scheduler", plan.id, plan.revision, allowed);
   }
   async resume(allowed: (reviewer: string) => boolean = () => true): Promise<void> {
@@ -339,7 +472,9 @@ export class StorageService {
     const compaction = this.journal.unfinishedCompaction();
     if (compaction?.state === "running" && allowed(compaction.owner))
       await this.serial(() =>
-        compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
+        this.usageCoordinator.mutation(() =>
+          compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
+        ),
       );
   }
   async handle(device: string, value: unknown, allowed: () => boolean): Promise<StorageResult> {
@@ -350,7 +485,7 @@ export class StorageService {
       if (!allowed()) throw new Error("storage_forbidden");
       switch (op.op) {
         case "storage.usage":
-          result = { kind: "usage", usage: await this.usage() };
+          result = { kind: "usage", usage: await this.usage(op.force) };
           break;
         case "cleanup.plan":
           result = { kind: "plan", plan: await this.plan(device, op) };
@@ -394,10 +529,14 @@ export class StorageService {
   }
   stop(): void {
     this.closed = true;
+    this.usageCoordinator.stop();
   }
   /** Idempotent: closing the pinned root again could close a descriptor number reused elsewhere. */
   close(): Promise<void> {
     this.stop();
-    return (this.closing ??= this.tail.then(() => this.inventory.files.close()));
+    return (this.closing ??= Promise.all([
+      this.tail.then(() => this.inventory.files.close()),
+      this.usageCoordinator.close(),
+    ]).then(() => {}));
   }
 }

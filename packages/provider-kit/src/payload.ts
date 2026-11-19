@@ -1,10 +1,8 @@
 import { z } from "zod";
+import { isNativeRecord } from "./record.ts";
 
 export const maxProviderPayloadBytes = 1024 * 1024;
 const encoded = z.union([z.string(), z.instanceof(Uint8Array)]);
-const object = z.custom<Record<string, unknown>>(
-  (value) => value !== null && typeof value === "object" && !Array.isArray(value),
-);
 
 /** Own a bounded, immutable JSON value. No object-to-JSON admission path exists. */
 export class ProviderPayload {
@@ -32,13 +30,13 @@ export class ProviderPayload {
       if (Array.isArray(value)) {
         for (const child of value) pending.push(child);
         Object.freeze(value);
-      } else {
-        const record = object.parse(value);
-        for (const key in record) {
-          if (Object.hasOwn(record, key)) pending.push(record[key]);
+      } else if (isNativeRecord(value)) {
+        // A plain check, not a schema parse: this runs for every object node of every frame.
+        for (const key in value) {
+          if (Object.hasOwn(value, key)) pending.push(value[key]);
         }
-        Object.freeze(record);
-      }
+        Object.freeze(value);
+      } else throw new TypeError("Provider payload holds a non-JSON object");
     }
     Object.freeze(this);
   }

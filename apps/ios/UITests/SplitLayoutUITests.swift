@@ -2,7 +2,7 @@ import XCTest
 
 /// The Threads tab's split layout against the spike fixture: on iPad the list stays beside the
 /// thread it opens; on a large iPhone, turning it between portrait (compact) and landscape
-/// (regular) collapses and restores the list live, as an iPad window resize or the iPhone Duo
+/// (regular) turns the list into a drawer over the thread and back live, as an iPad window resize or the iPhone Duo
 /// folding does, keeping the open thread and its draft. Run on a fresh fixture,
 /// `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selecting its port; `ACE_IOS_SHOTS` (a folder) also saves
 /// each screenshot there.
@@ -27,22 +27,39 @@ import XCTest
         XCTAssertFalse(app.buttons["thread.ios-form"].isSelected)
     }
 
+    func testWithNothingOpenTheIPadPageSaysHowManyNeedYouAndOpensTheFirst() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        let app = launch()
+        let first = app.buttons["detail.empty.first"]
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        // The same count as the list's own line, never a bare "No thread open".
+        let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " need you")).firstMatch
+        XCTAssertTrue(count.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.needs"].label.hasPrefix(count.label))
+        screenshot("ipad-nothing-open")
+        first.tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
+        XCTAssertFalse(first.exists)
+    }
+
     func testTheIPadSidebarCarriesThreadsPullRequestsAndNewThread() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         let app = launch()
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         // No tab bar beside the list: its places sit at the sidebar's foot, New thread in its bar.
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
-        let threads = app.buttons["sidebar.threads"], pulls = app.buttons["sidebar.pulls"]
+        XCTAssertFalse(app.homeTab("threads").reachable)
+        let threads = app.buttons["sidebar.threads"], chats = app.buttons["sidebar.chats"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
-        // Pull requests show their own list and page, and Threads comes back to its open thread.
-        pulls.tap()
-        XCTAssertTrue(app.staticTexts["No pull request open"].waitForExistence(timeout: 10))
-        XCTAssertTrue(pulls.isSelected)
+        // The fixture's machine shows Spade (Settings › Beta), so its place follows Chats.
+        XCTAssertTrue(app.buttons["sidebar.spade"].reachable)
+        // Chats shows its own list, and Threads comes back to its open thread.
+        chats.tap()
+        XCTAssertTrue(app.buttons["detail.empty.compose"].waitForExistence(timeout: 10))
+        XCTAssertTrue(chats.isSelected)
         XCTAssertFalse(title("Deploy the preview", in: app).exists)
-        screenshot("ipad-sidebar-pulls")
+        screenshot("ipad-sidebar-chats")
         threads.tap()
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
@@ -76,14 +93,14 @@ import XCTest
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(close.waitForNonExistence(timeout: 10))
-        app.buttons["inbox.settings"].tap()
+        app.buttons["sidebar.place.settings"].tap()
         let settings = app.buttons["settings.close"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
-        // ⌘F searches the list.
+        // ⌘F goes to Search.
         app.typeKey("f", modifierFlags: .command)
-        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["search.place.settings"].waitForExistence(timeout: 10))
     }
 
     func testNarrowingAnIPadWindowBringsTheTabBarBackAndKeepsTheThreadAndItsDraft() throws {
@@ -105,20 +122,21 @@ import XCTest
         guard app.windows.firstMatch.frame.width < full.width - 100 else { throw XCTSkip("the window did not resize: windowed apps are off") }
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["sidebar.threads"].reachable)
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
+        XCTAssertFalse(app.homeTab("threads").reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
-        // Back to the list: the tab bar is there.
-        app.navigationBars.buttons["BackButton"].firstMatch.tap()
-        XCTAssertTrue(app.tabBars.buttons["Threads"].waitForHittable(timeout: 10))
+        // Back returns to the full-screen list and its tab bar.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
+        XCTAssertTrue(app.homeTab("threads").reachable)
         screenshot("ipad-narrow-window")
-        open("thread.ios-approval", in: app)
+        app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
         resize(app, toWidth: full.width, height: full.height)
         XCTAssertTrue(app.buttons["sidebar.threads"].waitForHittable(timeout: 10))
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertFalse(app.homeTab("threads").reachable)
         XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
         XCTAssertEqual(input.value as? String, "Keep this draft")
     }
@@ -134,7 +152,7 @@ import XCTest
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 20))
         // The first row, clear of the keyboard in landscape.
         let list = app.buttons["thread.ios-form"]
-        XCTAssertFalse(list.reachable, "a compact window stacks the list under the thread")
+        XCTAssertFalse(list.reachable, "a compact window gives the thread the whole window")
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         input.tap()
@@ -147,32 +165,35 @@ import XCTest
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("phone-landscape-split")
 
-        // Beside the list the tab bar's places are the sidebar's; Pull requests stays chosen as
-        // the window turns compact, where the tab bar is back.
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
-        app.buttons["sidebar.pulls"].tap()
-        XCTAssertTrue(app.buttons["sidebar.pulls"].isSelected)
+        // Beside the list the tab bar's places are the sidebar's; Chats stays chosen as the
+        // window turns compact, where the tab bar is back.
+        XCTAssertFalse(app.homeTab("chats").reachable)
+        app.buttons["sidebar.chats"].tap()
+        XCTAssertTrue(app.buttons["sidebar.chats"].isSelected)
         XCUIDevice.shared.orientation = .portrait
-        let pullsTab = app.tabBars.buttons["Pulls"]
-        XCTAssertTrue(pullsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
-        XCTAssertTrue(pullsTab.isSelected)
-        XCTAssertFalse(app.buttons["sidebar.pulls"].reachable)
-        app.tabBars.buttons["Threads"].tap()
+        let chatsTab = app.homeTab("chats")
+        XCTAssertTrue(chatsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
+        XCTAssertTrue(chatsTab.isSelected)
+        XCTAssertFalse(app.buttons["sidebar.chats"].reachable)
+        app.homeTab("threads").tap()
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
-        // Back from the thread is the list again, as on any phone.
-        app.navigationBars.buttons.firstMatch.tap()
+        // Back returns to the list, as on any phone.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(list.waitForHittable(timeout: 10))
     }
 
-    func testBackFromAPageOverTheThreadKeepsTheThreadOpen() {
+    func testBackFromAPageOverTheThreadKeepsTheThreadOpen() throws {
         let app = launch()
-        open("thread.ios-browser", in: app)
+        // The fixture's inbox runs past the fold, and this row sits below it.
+        app.revealRow("thread.ios-browser").tap()
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
+        // A window with room for the side panel opens the browser there instead (`WorkspacePanelUITests`).
+        if app.buttons["panel.tab.browser"].exists { throw XCTSkip("the browser opens in the side panel here") }
         // iOS 26 names the Back button; iOS 18 labels it with the thread's title.
         app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label BEGINSWITH 'Check the checkout flow'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForNonExistence(timeout: 10))
@@ -182,7 +203,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         // iPadOS keeps a window's size across launches: start each test from a full one.
         let screen = XCUIApplication(bundleIdentifier: "com.apple.springboard").frame
         if UIDevice.current.userInterfaceIdiom == .pad, app.windows.firstMatch.frame.width < screen.width - 1 {
@@ -211,7 +232,7 @@ import XCTest
         row.tap()
     }
     private func title(_ text: String, in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: "thread.title").matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+        app.threadTitle(named: text)
     }
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/Admission.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "busy": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "holds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MaintenanceHold.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "startup": {
+      "$ref": "https://ace.local/protocol/v1/StartupNotice.json"
+    },
+    "waiting": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "holds",
+    "busy",
+    "waiting"
+  ],
+  "type": "object"
+}

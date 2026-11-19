@@ -6,6 +6,9 @@ import type { CaptureViewer, ViewerSink } from "./viewer-sink.ts";
 import { screencastSettings } from "./capture-policy.ts";
 import { LiveVideo, type LiveVideoSource } from "./live-video.ts";
 
+const DevicePixelRatio = z.object({ result: z.object({ value: z.number().positive().finite() }) });
+const InitialFrame = z.object({ data: z.string().max(4 * 1024 * 1024) });
+
 const Ack = z.object({ sessionId: z.number().int() });
 /** How long the screencast keeps running after it was last needed: back-to-back agent commands
  * keep one screencast. */
@@ -46,6 +49,8 @@ export class LiveCapture {
   private linger: ReturnType<typeof setTimeout> | undefined;
   private queue: Promise<void> = Promise.resolve();
   private needed: () => boolean = () => false;
+  private videoStatus: () => void = () => {};
+  private watchListener: (watched: boolean) => void = () => {};
   /** `start` seeds after its own first sync; a later resume seeds in `begin`. */
   private starting = false;
   constructor(
@@ -64,7 +69,7 @@ export class LiveCapture {
     videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
-    this.video = new LiveVideo({ now, playing: () => {} });
+    this.video = new LiveVideo({ now, playing: () => {}, statusChanged: () => this.videoStatus() });
     this.tab = tab;
     this.scale = scale;
     this.cdp = cdp;
@@ -72,6 +77,25 @@ export class LiveCapture {
     this.onFrame = onFrame;
     this.privacy = privacy;
     this.viewport = viewport;
+  }
+  /** Told whenever `video.status()` changes (the video can't start, or plays again). */
+  onVideoStatus(listener: () => void): void {
+    this.videoStatus = listener;
+  }
+  /** Told when the first viewer starts watching the video, and when the last one stops. */
+  onWatched(listener: (watched: boolean) => void): void {
+    this.watchListener = listener;
+  }
+  /** Someone is shown the live video now. */
+  watched(): boolean {
+    return this.video.watched();
+  }
+  /** Runs a change to the video's viewers, and says if that started or ended all watching. */
+  private viewersChange(change: () => void): void {
+    const before = this.video.watched();
+    change();
+    const after = this.video.watched();
+    if (before !== after) this.watchListener(after);
   }
   /** Frames are also needed while this holds (a recording), viewers or not. */
   require(needed: () => boolean): void {
@@ -157,20 +181,22 @@ export class LiveCapture {
   subscribe(id: string, sink: ViewerSink, capture?: CaptureViewer): () => void {
     if (!this.sinks.has(id) && this.sinks.size >= 64) throw new Error("Browser subscriber limit");
     this.sinks.set(id, sink);
-    this.video.remove(id);
-    if (capture) this.configureVideo(id, sink, capture);
+    this.viewersChange(() => {
+      this.video.remove(id);
+      if (capture) this.configureVideo(id, sink, capture);
+    });
     this.tickVideo();
     return () => {
       if (this.sinks.get(id) !== sink) return;
       this.sinks.delete(id);
-      this.video.remove(id);
+      this.viewersChange(() => this.video.remove(id));
       this.tickVideo();
     };
   }
   /** What a viewer shows changed (`browser.capture`). */
   configure(id: string, capture: CaptureViewer): void {
     const sink = this.sinks.get(id);
-    if (sink) this.configureVideo(id, sink, capture);
+    if (sink) this.viewersChange(() => this.configureVideo(id, sink, capture));
   }
   /** A viewer that joined again starts over at a keyframe. */
   replay(id: string): void {
@@ -188,6 +214,17 @@ export class LiveCapture {
     }
   }
   /** One video step; a page that went away meanwhile skips it rather than throw in a timer. */
+  /**
+   * The shown page is about to be restored (shown again, thawed or reopened): no video is
+   * captured or delivered until `resumeVideo`, so a viewer never gets a hidden or stale picture.
+   */
+  holdVideo(): void {
+    this.video.hold();
+  }
+  /** The shown page is back; video starts again at a fresh keyframe. */
+  resumeVideo(): void {
+    this.video.resume();
+  }
   private stepVideo(): void {
     let viewport: { width: number; height: number };
     try {
@@ -219,7 +256,7 @@ export class LiveCapture {
   private configureVideo(id: string, sink: ViewerSink, capture: CaptureViewer): void {
     if (sink.video && capture.video) {
       if (this.video.has(id)) this.video.configure(id, capture);
-      else this.video.add(id, sink.video, capture, sink.audio, sink.local === true);
+      else this.video.add(id, sink.video, capture, sink.audio, { local: sink.local === true });
     } else this.video.remove(id);
   }
   private receive: (raw: unknown) => void = () => {};
@@ -288,17 +325,15 @@ export class LiveCapture {
     const sequence = this.sequence,
       epoch = this.privacy().epoch;
     const viewport = this.viewport();
-    const ratio = z
-      .object({ result: z.object({ value: z.number().positive().finite() }) })
-      .safeParse(
-        await this.cdp.send("Runtime.evaluate", {
-          expression: "window.devicePixelRatio",
-          returnByValue: true,
-        }),
-      );
+    const ratio = DevicePixelRatio.safeParse(
+      await this.cdp.send("Runtime.evaluate", {
+        expression: "window.devicePixelRatio",
+        returnByValue: true,
+      }),
+    );
     const dpr = ratio.success ? ratio.data.result.value : 1;
     const recording = this.needed();
-    const initial = z.object({ data: z.string().max(4 * 1024 * 1024) }).parse(
+    const initial = InitialFrame.parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: this.settings.quality,
@@ -365,6 +400,8 @@ export class LiveCapture {
     await previous.send("Page.stopScreencast").catch(() => {});
     this.cdp = cdp;
     this.closed = false;
+    // Another page (another tab, or a reopened browser's): nothing is being restored on it.
+    this.video.resume();
     this.lastFrame = -Infinity;
     this.settings = screencastSettings;
     await this.start();

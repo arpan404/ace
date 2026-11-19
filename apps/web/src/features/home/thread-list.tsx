@@ -1,4 +1,3 @@
-import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
@@ -15,17 +14,9 @@ import {
   type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
-import {
-  homeFootStart,
-  homeRowKey,
-  homeRowThread,
-  homeRows,
-  listOrderOf,
-  type HomeRow,
-  type RowBox,
-} from "@ace/ui-core";
+import { sceneThrough } from "@/components/ui/rules.ts";
+import { homeRowKey, homeRowThread, listOrderOf, type HomeRow, type RowBox } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
@@ -40,44 +31,51 @@ import {
 import { jumpTargets } from "./list-jump.ts";
 import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
 import { useFocusAfterExit } from "./use-exit-focus.ts";
-import { ManyDevices, useManyDevices } from "./row-parts.tsx";
-import { ThreadRow } from "./thread-row.tsx";
+import { ThreadRow, type RowLead } from "./thread-row.tsx";
 import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
-import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
-import { useHomeSort, type HomeList } from "./use-home-threads.ts";
+import { SectionRow } from "./section-rows.tsx";
+import { ChatRow } from "./chat-row.tsx";
+import { ListedOrFound } from "./found-row.tsx";
+import { useHomeSort } from "./use-home-threads.ts";
+import { SnoozeRequestContext } from "./snooze-request.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
-import { useSettledPaging } from "./settled-paging.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
-  useOrganizer,
-  useOrganizerState,
   useWindowThreads,
 } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. A
- * settled row is one 32px line.
+ * An Inbox row is three lines in 80px with 4px below it; a snoozed or settled thread and a chat
+ * are one 36px line (`--row-height`) with 2px below it: rows are apart by spacing, not rules. A
+ * label carries the 20px gap above it.
  */
 const estimates: Record<HomeRow["kind"], number> = {
-  "pinned-header": 33,
-  pinned: 84,
-  "pinned-end": 9,
-  thread: 84,
   unsent: 0,
-  "snoozed-header": 37,
-  snoozed: 84,
-  "settled-header": 37,
-  settled: 34,
-  "settled-more": 34,
+  thread: 84,
+  snoozed: 38,
+  settled: 38,
+  more: 40,
+  empty: 37,
+  "active-label": 49,
+  chat: 38,
+  "day-label": 49,
 };
 
-/** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
-const footPadding = 16;
+/** A row's expected height, before it is measured. */
+function estimateOf(row: HomeRow | undefined): number {
+  return estimates[row?.kind ?? "thread"];
+}
+
+/** An Inbox row: a task, three lines led by its project. */
+const isTask = (row: HomeRow) => row.kind === "thread";
+
+/** A snoozed or settled thread: one line, as a chat is. */
+const isLine = (row: HomeRow) => row.kind === "snoozed" || row.kind === "settled";
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
 const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 };
@@ -87,79 +85,50 @@ const loadDrag = () => import("./list-drag.ts");
 /** The bar for the picked threads, loaded once something is picked. */
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
-const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-3 text-xs font-medium text-subtle-foreground focus-ring-inset transition-colors duration-(--motion-fast)";
-
-/** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
-function HeadingText(props: { label: string; count?: number | undefined }) {
-  return (
-    <>
-      {props.label}
-      {/* A flex gap draws the space; the text keeps it for the heading's name. */}
-      {props.count !== undefined && " "}
-      {props.count !== undefined && <span className="font-normal tabular-nums">{props.count}</span>}
-    </>
-  );
-}
-
 /**
- * The Home list, virtualized: the Pinned group in the person's own order, then one row per
- * thread across projects (the work in hand, then threads at rest), then the collapsible Snoozed
- * and Settled sections at the foot: below the free space while the list is shorter than the
- * sidebar, so the work in hand always comes first. An open Settled section shows its first rows
- * and a "Show N more" row for the next batch; closing it starts again from the first rows. Only visible rows mount. Up and Down (or j and k) move
- * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
- * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
- * into, within and out of the Pinned group, and, when threads are sorted by hand (Settings ›
- * General › Sort threads), to any place below it. A finger drags only by a pinned row's handle, so a
- * finger on a row still scrolls the list; Space or Enter on the handle starts a keyboard move.
- * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
- * fade where they were, and the rest slide to their new places. While the person points at the
- * list or moves through it by keyboard, rows keep their places (`useHeldRows`); the Pinned
- * group, being theirs to order, never holds.
+ * The Threads panel's list, virtualized: Pinned, then the project tree, as `rows` says; the
+ * Chats panel draws its pinned chats and day groups through it too.
+ * Only visible rows mount. Up and Down (or j and k) move between rows and headings; Tab still
+ * walks each row's actions. On a row, P pins or unpins it, X picks it (⌘- and Shift-click too)
+ * and Space picks it up to move by keyboard; pinned rows drag into their own order under Pinned
+ * and, when threads are sorted by hand (Settings › General › Sort threads), any row of a project
+ * drags to a place among its own. A finger drags only by a pinned row's handle, so a finger on a row
+ * still scrolls the list; Space or Enter on the handle starts a keyboard move. Rows that arrive
+ * rise in, rows that go fade where they were, and the rest slide to their new places. While the
+ * person moves through the list by keyboard, rows keep their places (`useHeldRows`); a thread
+ * whose place changes (it settles out of Active into its project) still moves.
  */
-export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
-  const { pinned, active, recent, snoozed, settled } = props.list;
-  const { snoozedOpen, settledOpen, project } = useOrganizerState();
-  const organizer = useOrganizer();
-  const paging = useSettledPaging(project, settledOpen);
-  const current = useParams({ strict: false, select: (params) => params.threadId });
+export function ThreadList(props: {
+  rows: readonly HomeRow[];
+  /** Threads that need the person: they rise even while the list holds. */
+  needsYou: readonly string[];
+  /** Pinned threads: ordered by the person, they never hold. */
+  pinned: readonly string[];
+  /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
+  scrollTop?: number | undefined;
+  onScroll?: ((top: number) => void) | undefined;
+  /** The list's name for assistive tech: Projects, or Chats. */
+  label?: string | undefined;
+  /** Told whether the last few rows are in view, so older rows can page in as it scrolls. */
+  onNearEnd?: ((near: boolean) => void) | undefined;
+  /** On a focused row, E settles it and H opens its snooze menu (the Threads panel's). */
+  triage?: boolean | undefined;
+}) {
   const [moving, setMoving] = useState<readonly string[]>();
-  const settledTotal = props.settledTotal;
-  const settledShown = paging.shown;
-  const rows = useMemo(() => {
-    return homeRows(
-      { pinned, active, recent, snoozed, settled },
-      {
-        snoozedOpen,
-        settledOpen,
-        includeUnsent: true,
-        pinZone: moving !== undefined,
-        settledShown,
-        settledTotal,
-        current,
-      },
-    );
-  }, [
-    pinned,
-    active,
-    recent,
-    snoozed,
-    settled,
-    snoozedOpen,
-    settledOpen,
-    moving,
-    settledShown,
-    settledTotal,
-    current,
-  ]);
+  const rows = props.rows;
   const hold = useListHold(moving !== undefined);
-  const held = useHeldRows(rows, hold.state, props.list.needsYou);
+  const pinnedSet = useMemo(() => new Set(props.pinned), [props.pinned]);
+  const held = useHeldRows(rows, hold.state, props.needsYou, pinnedSet);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
   const viewport = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const keyboardMove = useRef<KeyboardMove>(undefined);
   const [announcement, setAnnouncement] = useState("");
+  const [snoozing, setSnoozing] = useState<string>();
+  const snoozeRequest = useMemo(
+    () => ({ id: snoozing, done: () => setSnoozing(undefined) }),
+    [snoozing],
+  );
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
   // Rows of every machine: each action runs on the row's own machine (ADR 0102).
@@ -170,21 +139,22 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const virtualizer = useVirtualizer({
     count: drawn.length,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => estimates[drawn[index]?.item.kind ?? "thread"],
+    estimateSize: (index) => estimateOf(drawn[index]?.item),
     paddingStart: 8,
     paddingEnd: 8,
     scrollPaddingStart: 8,
     scrollPaddingEnd: 8,
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
+    initialOffset: props.scrollTop ?? 0,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
-  // The foot sections sit at the sidebar's bottom while the rows above leave free space.
-  const footStart = homeFootStart(drawn);
-  const viewportHeight = useElementSize(viewport).height;
   const listHeight = virtualizer.getTotalSize();
-  const footGap = footStart < 0 ? 0 : Math.max(0, viewportHeight - footPadding - listHeight);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex, viewport);
+  const lastShown = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  const nearEnd = lastShown >= drawn.length - 4;
+  const { onNearEnd } = props;
+  useEffect(() => onNearEnd?.(nearEnd), [nearEnd, onNearEnd]);
   /** Thread ids top to bottom, as drawn: what a Shift-click range runs over. */
   const order = useMemo(
     () => drawn.flatMap((row) => (row.phase === "exit" ? [] : (homeRowThread(row.item) ?? []))),
@@ -197,13 +167,25 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const jumps = useMemo(() => jumpTargets(drawn), [drawn]);
   const numbers = useMemo(() => new Map(jumps.map((id, index) => [id, index + 1])), [jumps]);
   const hints = useJumpHints();
-  // Sorted by hand, the threads below Pinned are places a drag can drop at.
+  // Sorted by hand, Active's threads below the pinned ones are places a drag can drop at.
   const manual = useHomeSort() === "manual";
+  /** The pinned threads as drawn at the top of Active, top first. */
+  const pinned = drawn.flatMap((row) =>
+    row.phase !== "exit" && row.item.kind === "thread" && row.item.place === "pinned"
+      ? [row.item.id]
+      : [],
+  );
   // A drag outlives the render it started in: it reads the rows as drawn now.
   const latest = useRef({ drawn, pinned, manual });
   useLayoutEffect(() => {
     latest.current = { drawn, pinned, manual };
   });
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (element && props.scrollTop) element.scrollTop = props.scrollTop;
+    // Only on mount: the list then scrolls as the person moves it.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // One Tab stop for the whole list (a roving tabindex), kept as rows mount, move and leave.
   const lastFocused = useRef<Element | null>(null);
   useLayoutEffect(() => {
@@ -212,11 +194,31 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
 
   /** A row's thread as this window shows it, with organize actions not yet confirmed. */
   const shownEntry = (id: string) => threads.entry(id);
-  /** What a drag or keyboard move reads and does: measured rows, the pinned group, commands. */
-  const host = (): DragHost | undefined => {
+  /**
+   * What a move of `ids` reads and does: measured rows, the pinned threads, commands. A move
+   * stays inside the part of Active the thread it carries is in: the pinned ones, or the rest.
+   */
+  const host = (ids: readonly string[]): DragHost | undefined => {
     const scroller = viewport.current;
     const list = listRef.current;
     if (!scroller || !list) return undefined;
+    const first = ids[0] ?? "";
+    const fromPinned = latest.current.pinned.includes(first);
+    /** A thread row of the moving thread's own section. */
+    const ours = (
+      row: { item: HomeRow; phase: string } | undefined,
+    ): row is {
+      item: Extract<HomeRow, { kind: "thread" }>;
+      phase: string;
+    } =>
+      row !== undefined &&
+      row.phase !== "exit" &&
+      row.item.kind === "thread" &&
+      (fromPinned ? row.item.place === "pinned" : row.item.place === "active");
+    const pinnedHere = () =>
+      latest.current.drawn.flatMap((row) =>
+        ours(row) && latest.current.pinned.includes(row.item.id) ? [row.item.id] : [],
+      );
     return {
       viewport: scroller,
       list,
@@ -224,32 +226,23 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
         virtualizer.measurementsCache.flatMap((item): RowBox[] => {
           const row = latest.current.drawn[item.index];
           if (!row || row.phase === "exit") return [];
-          const kind = row.item.kind;
-          // The rule closing the Pinned group is a line at its middle: Unpin lights it up.
-          const middle = (item.start + item.end) / 2;
-          const edge = kind === "pinned-end" ? { top: middle, bottom: middle } : undefined;
+          const here = ours(row);
+          const isPinned = here && latest.current.pinned.includes(row.item.id);
           return [
             {
-              kind:
-                kind === "pinned-header"
-                  ? "pin-zone"
-                  : kind === "pinned"
-                    ? "pinned"
-                    : kind === "thread" && latest.current.manual
-                      ? "listed"
-                      : "other",
+              kind: isPinned ? "pinned" : here && latest.current.manual ? "listed" : "other",
               ...("id" in row.item ? { id: row.item.id } : {}),
-              top: edge?.top ?? item.start,
-              bottom: edge?.bottom ?? item.end,
+              top: item.start,
+              bottom: item.end,
             },
           ];
         }),
-      pinned: () => latest.current.pinned.map((id) => ({ id, order: shownEntry(id)?.pinOrder })),
+      pinned: () => pinnedHere().map((id) => ({ id, order: shownEntry(id)?.pinOrder })),
       listed: () =>
         latest.current.manual
           ? latest.current.drawn.flatMap((row) => {
               const entry =
-                row.item.kind === "thread" && row.phase !== "exit"
+                ours(row) && !latest.current.pinned.includes(row.item.id)
                   ? shownEntry(row.item.id)
                   : undefined;
               return entry ? [{ id: entry.id, order: listOrderOf(entry) }] : [];
@@ -268,13 +261,15 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const startKeyboardMove = (id: string) => {
     const ids = draggedWith(id);
     void loadDrag().then((module) => {
-      const target = host();
+      const target = host(ids);
       if (target) keyboardMove.current = module.startKeyboardMove(target, ids);
     });
   };
 
-  const pressed = (event: KeyboardEvent, id: "home.pin" | "home.select" | "home.move") =>
-    matchesChord(event.nativeEvent, parseChord(keys[id]));
+  const pressed = (
+    event: KeyboardEvent,
+    id: "home.pin" | "home.select" | "home.move" | "home.settle" | "home.snooze",
+  ) => matchesChord(event.nativeEvent, parseChord(keys[id]));
   /** A keyboard move takes every key first, before a row's tooltip or menu can claim Escape. */
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     if (
@@ -284,7 +279,10 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       return;
     const move = keyboardMove.current;
     // Escape lets the pick go (a row's tooltip, closing too, takes the key after this).
-    if (!move && event.key === "Escape" && picked.length) selection.clear();
+    if (!move && event.key === "Escape" && picked.length) {
+      event.preventDefault();
+      selection.clear();
+    }
     if (!move) return;
     if (move.key(event.nativeEvent)) {
       event.preventDefault();
@@ -326,6 +324,28 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       startKeyboardMove(id);
       return;
     }
+    if (props.triage && id && pressed(event, "home.settle")) {
+      event.preventDefault();
+      const shown = shownEntry(id);
+      // Settling leaves the list: the next row takes focus, as J would.
+      if (shown && shown.status.state !== "working" && shown.settledAt === undefined) {
+        void focusListRow({
+          viewport: viewport.current,
+          rows: drawn,
+          from: event.target,
+          index: Number(from.dataset.index),
+          step: 1,
+          mount: mountRow,
+        });
+        actions.settle(shown);
+      }
+      return;
+    }
+    if (props.triage && id && pressed(event, "home.snooze")) {
+      event.preventDefault();
+      setSnoozing(id);
+      return;
+    }
     const plain = !event.altKey && !event.metaKey && !event.ctrlKey;
     const end = event.key === "Home" ? 1 : event.key === "End" ? -1 : 0;
     if (end && plain && !event.shiftKey) {
@@ -341,8 +361,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       return;
     }
     const step = steps[event.key];
-    // Type to jump: a letter goes to the next thread whose title starts with it. Not prevented,
-    // so a letter may still start a sequence ("g h").
+    // 1, 2 and 3 switch the panel's tabs (`ThreadsPanelKeys`), never a jump.
+    if (props.triage && /^[123]$/.test(event.key)) return;
+    // Type to jump: a letter goes to the next thread whose title starts with it.
     if (!step && plain && event.key.length === 1 && /\S/.test(event.key)) {
       const titles = drawn.map((row) => {
         const thread = row.phase === "exit" ? undefined : homeRowThread(row.item);
@@ -403,20 +424,21 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     const start = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, id };
     const ids = draggedWith(id);
     void loadDrag().then((module) => {
-      const target = host();
+      const target = host(ids);
       if (target) module.trackPointer(target, start, ids);
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
-  const manyDevices = useManyDevices();
   return (
-    <ManyDevices value={manyDevices}>
+    <SnoozeRequestContext value={snoozeRequest}>
       <JumpKeys targets={jumps} />
       <div
         ref={viewport}
         {...hold.handlers}
         onPointerEnter={() => void loadDrag()}
+        onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
         data-virtual-viewport=""
+        data-part="thread-list"
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
@@ -426,7 +448,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
         <div
           ref={listRef}
           role="list"
-          aria-label="Threads"
+          aria-label={props.label ?? "Projects"}
           // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
           data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}
@@ -449,7 +471,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           // A row is a link: the browser's own link drag would fight ours.
           onDragStart={(event) => event.preventDefault()}
           className={cn("relative w-full", sliding && "fx-list-moving")}
-          style={{ height: listHeight + footGap }}
+          style={{ height: listHeight }}
         >
           {virtualizer.getVirtualItems().map((item) => {
             const entry = drawn[item.index];
@@ -460,11 +482,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
             return (
               <div
                 key={item.key}
-                role={
-                  leaving || row.kind === "pinned-end" || row.kind === "unsent"
-                    ? "presentation"
-                    : "listitem"
-                }
+                role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
                 aria-hidden={leaving || undefined}
                 inert={leaving}
                 ref={virtualizer.measureElement}
@@ -473,14 +491,16 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   // Inset from the sidebar's edges, with a small gap between rows: space, not
                   // rules, separates them.
                   "absolute inset-x-2 top-0",
-                  "id" in row ? "pb-1" : row.kind !== "unsent" && "pb-px",
+                  isTask(row) ? "pb-1" : "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
-                  sliding && "bg-sidebar",
+                  // Over a Suit's scene the sidebar colour would black the list out for the
+                  // slide, so the rows stay clear there and the scene shows through.
+                  sliding && cn("bg-sidebar", sceneThrough),
                   sliding && entry.rising && "z-[1]",
                 )}
                 style={{
-                  transform: `translateY(${item.start + (item.index >= footStart && footStart >= 0 ? footGap : 0)}px)`,
+                  transform: `translateY(${item.start}px)`,
                   ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
                 }}
               >
@@ -495,81 +515,36 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 )}
                 <div className={rowMotion(entry.phase)}>
                   {thread && machineRow(thread) ? (
-                    <MachineRow id={thread} settled={row.kind === "settled"} leaving={leaving} />
+                    <MachineRow
+                      id={thread}
+                      shape={row.kind === "chat" ? "chat" : "task"}
+                      lead={rowLead(row)}
+                      end={isLine(row) ? "work" : "status"}
+                      leaving={leaving}
+                      settled={row.kind === "settled" || (row.kind === "chat" && row.settled)}
+                    />
                   ) : (
                     <>
-                      {(row.kind === "thread" ||
-                        row.kind === "pinned" ||
-                        row.kind === "snoozed") && (
-                        <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                      {(isTask(row) || isLine(row)) && "id" in row && (
+                        // A settled thread only the search found draws from its hit.
+                        <ListedOrFound id={row.id}>
+                          <ThreadRow
+                            threadId={row.id}
+                            settled={row.kind === "settled"}
+                            leaving={leaving}
+                            lead={rowLead(row)}
+                            end={isLine(row) ? "work" : "status"}
+                          />
+                        </ListedOrFound>
                       )}
-                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
+                      {row.kind === "chat" && (
+                        <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
+                      )}
                     </>
                   )}
-                  {row.kind === "settled-more" && (
-                    <button
-                      type="button"
-                      data-section-toggle=""
-                      disabled={paging.loading}
-                      onClick={() => void paging.more()}
-                      className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui text-subtle-foreground/75 focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-hover hover:text-muted-foreground disabled:opacity-60"
-                    >
-                      <PlusIcon aria-hidden size={14} className="shrink-0" />
-                      {paging.loading
-                        ? "Loading…"
-                        : paging.error
-                          ? "Retry loading more"
-                          : `Show ${row.count} more`}
-                    </button>
-                  )}
                   {row.kind === "unsent" && <UnsentRows />}
-                  {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
-                  {row.kind === "pinned-header" && (
-                    <div data-pin-zone="" className={cn(header, "mt-0")}>
-                      {row.count ? (
-                        <HeadingText label="Pinned" count={row.count} />
-                      ) : (
-                        <HeadingText label="Drop here to pin" />
-                      )}
-                    </div>
-                  )}
-                  {row.kind === "snoozed-header" && (
-                    <button
-                      type="button"
-                      aria-expanded={snoozedOpen}
-                      data-section-toggle=""
-                      onClick={() => organizer.setSnoozedOpen(!snoozedOpen)}
-                      className={cn(header, "hover:text-muted-foreground")}
-                    >
-                      <span>Snoozed ({row.count})</span>
-                      <CaretDownIcon
-                        aria-hidden
-                        size={12}
-                        className={cn(
-                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
-                          !snoozedOpen && "-rotate-90",
-                        )}
-                      />
-                    </button>
-                  )}
-                  {row.kind === "settled-header" && (
-                    <button
-                      type="button"
-                      aria-expanded={settledOpen}
-                      data-section-toggle=""
-                      onClick={() => organizer.setSettledOpen(!settledOpen)}
-                      className={cn(header, "hover:text-muted-foreground")}
-                    >
-                      <span>Settled ({row.count})</span>
-                      <CaretDownIcon
-                        aria-hidden
-                        size={12}
-                        className={cn(
-                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
-                          !settledOpen && "-rotate-90",
-                        )}
-                      />
-                    </button>
+                  {!thread && row.kind !== "unsent" && (
+                    <SectionRow row={row} first={item.index === 0} />
                   )}
                 </div>
               </div>
@@ -585,8 +560,14 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           <BulkBar.Component />
         </Suspense>
       )}
-    </ManyDevices>
+    </SnoozeRequestContext>
   );
+}
+
+/** Inbox rows lead with their project, in three lines; chats, snoozed and settled rows with their provider. */
+function rowLead(row: HomeRow): RowLead {
+  if (isTask(row)) return "task";
+  return row.kind === "chat" || isLine(row) ? "provider" : "none";
 }
 
 /**

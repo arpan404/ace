@@ -1,12 +1,28 @@
-import { ProviderConfiguration, type ProviderKind } from "@ace/protocol";
+import type { ProviderKind } from "@ace/protocol";
+import {
+  binaryPathChange,
+  binaryPathProblem,
+  checkpointChange,
+  checkpointProblem,
+} from "@ace/ui-core";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { NativeModeRow } from "./native-mode.tsx";
 
-export function ProviderPreferences(props: { provider: ProviderKind; missing: boolean }) {
+/**
+ * A provider's own preferences, as rows of its page's Advanced group: where its CLI is, Cursor's
+ * checkpoint budget, a native mode, and turning it off (turning it back on is the page's
+ * problem line).
+ */
+export function ProviderPreferences(props: {
+  provider: ProviderKind;
+  name: string;
+  missing: boolean;
+  off: boolean;
+}) {
   const { value, disabled, update } = useProviderConfiguration(props.provider);
   const [path, setPath] = useState<string>();
   const [mb, setMb] = useState<string>();
@@ -17,36 +33,15 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
   const commitBudget = () => {
     if (budget === (value?.maxCheckpointMb === undefined ? "" : String(value.maxCheckpointMb)))
       return;
-    if (budget.trim() === "") {
-      setMbError(false);
-      void update((row) => {
-        const { maxCheckpointMb: _before, ...rest } = row;
-        return rest;
-      }).then((saved) => {
-        if (saved) setMb(undefined);
-      });
-      return;
-    }
-    const parsed = ProviderConfiguration.shape.maxCheckpointMb.safeParse(Number(budget));
-    if (!parsed.success) {
-      setMbError(true);
-      return;
-    }
-    setMbError(false);
-    void update((row) => ({ ...row, maxCheckpointMb: parsed.data })).then((saved) => {
+    const edit = checkpointChange(budget);
+    setMbError(!edit.ok);
+    if (!edit.ok) return;
+    void update(edit.change).then((saved) => {
       if (saved) setMb(undefined);
     });
   };
   return (
-    <SettingSection label="Provider settings">
-      <SettingRow title="Turn off provider" htmlFor="provider-enabled" inline>
-        <Switch
-          id="provider-enabled"
-          checked={value?.enabled === false}
-          disabled={disabled || props.missing}
-          onCheckedChange={(off) => void update((row) => ({ ...row, enabled: !off }))}
-        />
-      </SettingRow>
+    <>
       {props.provider !== "cursor" && (
         <SettingRow
           title="CLI path"
@@ -66,15 +61,10 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
               disabled={disabled}
               onBlur={() => {
                 if (binary === (value?.binaryPath ?? "")) return;
-                if (binary && !ProviderConfiguration.shape.binaryPath.safeParse(binary).success) {
-                  setError(true);
-                  return;
-                }
-                setError(false);
-                void update((row) => {
-                  const { binaryPath: _before, ...rest } = row;
-                  return binary ? { ...rest, binaryPath: binary } : rest;
-                }).then((saved) => {
+                const edit = binaryPathChange(binary);
+                setError(!edit.ok);
+                if (!edit.ok) return;
+                void update(edit.change).then((saved) => {
                   if (saved) setPath(undefined);
                 });
               }}
@@ -83,9 +73,9 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
         </SettingRow>
       )}
       {error && (
-        <p role="alert" className="text-sm text-status-failed">
-          Enter the full path to the executable, or clear it to find the CLI automatically.
-        </p>
+        <SettingNote role="alert" className="text-status-failed">
+          {binaryPathProblem}
+        </SettingNote>
       )}
       {props.provider === "cursor" && (
         <SettingRow title="Checkpoint budget per thread" htmlFor="cursor-checkpoint-mb">
@@ -94,8 +84,9 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
               id="cursor-checkpoint-mb"
               value={budget}
               placeholder="32"
+              type="number"
               inputMode="numeric"
-              className="min-w-0"
+              className="w-20 min-w-0"
               onChange={(event) => setMb(event.target.value)}
               disabled={disabled}
               onBlur={commitBudget}
@@ -105,11 +96,23 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
         </SettingRow>
       )}
       {mbError && (
-        <p role="alert" className="text-sm text-status-failed">
-          Enter a whole number of megabytes from 1 to 256, or clear it for the default.
-        </p>
+        <SettingNote role="alert" className="text-status-failed">
+          {checkpointProblem}
+        </SettingNote>
       )}
       {!props.missing && <NativeModeRow provider={props.provider} />}
-    </SettingSection>
+      {!props.missing && !props.off && (
+        <SettingRow title={`Turn off ${props.name}`} inline>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={disabled}
+            onClick={() => void update((row) => ({ ...row, enabled: false }))}
+          >
+            Turn off
+          </Button>
+        </SettingRow>
+      )}
+    </>
   );
 }

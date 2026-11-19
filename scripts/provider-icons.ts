@@ -1,11 +1,12 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
+import { flatten } from "./brand-marks/flatten.ts";
 
 /*
  * Turns the brand marks ace shows for providers, ACP agents and model families into plain path
  * data in `packages/ui-core/src/brand-art/`. The marks come from LobeHub Icons
- * (`@lobehub/icons-static-svg`, MIT, see NOTICE), except the few in `official` below, which come
+ * (`@lobehub/icons-static-svg`, MIT, see NOTICE), except the ones in `official` below, which come
  * unmodified from their maker's own brand kit and are kept in `scripts/brand-marks/`; nothing
  * else is read. Each brand becomes its own module so the web app loads a mark only when one is on
  * screen.
@@ -35,6 +36,8 @@ const brands: Record<string, { color: boolean; adapt?: string[]; drop?: string[]
   devin: { color: true },
   gemini: { color: true },
   geminicli: { color: true },
+  // GitHub's Invertocat; a one-colour brand.
+  github: { color: false },
   gemma: { color: true },
   githubcopilot: { color: false },
   goose: { color: false },
@@ -57,23 +60,79 @@ const brands: Record<string, { color: boolean; adapt?: string[]; drop?: string[]
 };
 
 /**
- * Marks drawn from their maker's brand kit instead of LobeHub, kept byte-for-byte as downloaded.
- * The kits pad a mark with clear space, so `viewBox` crops to the mark's own bounds and it fills
- * its box like the LobeHub marks; `ink` is the kit's fill, drawn in the text colour instead so the
- * mark follows every theme.
+ * Marks drawn from their maker's brand kit instead of LobeHub, kept byte-for-byte as downloaded
+ * and read by `brand-marks/flatten.ts`. The kits pad a mark with clear space, so `viewBox` crops
+ * to the mark's own bounds and it fills its box like the LobeHub marks.
+ *
+ * `mono` is the file the one-colour variant comes from: its `ink` fills are the brand's black (or
+ * its colours, flattened) and draw in the text colour so the mark follows every theme; `knockout`
+ * fills only paint a cutout, so they're left out and the surface shows through. Any other fill is
+ * an error. `color`, when the brand has colours, is the file drawn in them as it is.
  */
-const official: Record<string, { file: string; source: string; viewBox: string; ink: string }> = {
+interface OfficialMark {
+  source: string;
+  viewBox: string;
+  mono: { file: string; ink: string[]; knockout?: string[] };
+  color?: string;
+}
+const official: Record<string, OfficialMark> = {
   // The OpenAI Blossom, the mark ChatGPT and Codex carry, from OpenAI's brand guidelines
   // (https://openai.com/brand/): https://cdn.openai.com/brand/openai-logos.zip, file
   // OpenAI-logos/SVGs/OAI_OpenAI-Blossom_Black.svg. Its outline spans 180.5 to 535.17 on both
   // axes of the kit's 716 square.
   openai: {
-    file: "openai-blossom.svg",
     source:
       "OpenAI's brand kit https://cdn.openai.com/brand/openai-logos.zip " +
       "(OAI_OpenAI-Blossom_Black.svg, from https://openai.com/brand/)",
     viewBox: "180.49 180.49 354.69 354.69",
-    ink: "black",
+    mono: { file: "openai-blossom.svg", ink: ["black"] },
+  },
+  // Bitbucket's tile from Atlassian's own logo package, @atlaskit/logo 23.3.1 (Apache-2.0):
+  // the `svg` (brand colours) and `customThemeSvg` (one colour, the bucket cut out of the tile)
+  // strings of dist/esm/artifacts/logo-components/bitbucket/icon.js, written out unchanged.
+  bitbucket: {
+    source:
+      "Atlassian's @atlaskit/logo 23.3.1 https://www.npmjs.com/package/@atlaskit/logo " +
+      "(bitbucket/icon, Apache-2.0)",
+    viewBox: "0 0 24 24",
+    mono: { file: "bitbucket-icon-themed.svg", ink: ["currentColor"] },
+    color: "bitbucket-icon.svg",
+  },
+  // Forgejo's logo by Caesar Schinas, CC BY-SA 4.0, from the project's branding page
+  // (https://codeberg.org/forgejo/governance/src/branch/main/branding#logo): logo/forgejo.svg
+  // and logo/forgejo-monochrome.svg. Its strokes span 38.5 to 173.5 across, 0.5 to 211.5 down.
+  forgejo: {
+    source:
+      "Forgejo's branding https://codeberg.org/forgejo/governance/src/branch/main/branding " +
+      "(logo/forgejo.svg, logo/forgejo-monochrome.svg, by Caesar Schinas, CC BY-SA 4.0)",
+    viewBox: "38.5 0.5 135 211",
+    mono: { file: "forgejo-monochrome.svg", ink: ["currentColor"] },
+    color: "forgejo.svg",
+  },
+  // GitBucket's mark from its own repository (Apache-2.0):
+  // https://github.com/gitbucket/gitbucket/blob/master/src/main/webapp/assets/common/images/gitbucket.svg
+  gitbucket: {
+    source:
+      "GitBucket https://github.com/gitbucket/gitbucket " +
+      "(src/main/webapp/assets/common/images/gitbucket.svg, Apache-2.0)",
+    viewBox: "0 0 316 329",
+    mono: { file: "gitbucket.svg", ink: ["#303030"] },
+  },
+  // Gitea's teacup from its own repository (MIT): https://github.com/go-gitea/gitea/blob/main/assets/logo.svg.
+  // The white teabag is a cutout in the one-colour mark.
+  gitea: {
+    source: "Gitea https://github.com/go-gitea/gitea (assets/logo.svg, MIT)",
+    viewBox: "5 139 630 357",
+    mono: { file: "gitea-logo.svg", ink: ["#609926"], knockout: ["#FFFFFF"] },
+    color: "gitea-logo.svg",
+  },
+  // The GitLab tanuki as GitLab's own app draws it (MIT outside ee/):
+  // https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/views/shared/_logo.svg
+  gitlab: {
+    source: "GitLab https://gitlab.com/gitlab-org/gitlab (app/views/shared/_logo.svg, MIT)",
+    viewBox: "0 0 25 24",
+    mono: { file: "gitlab-tanuki.svg", ink: ["#E24329", "#FC6D26", "#FCA326"] },
+    color: "gitlab-tanuki.svg",
   },
 };
 const officialMarks = join(import.meta.dirname, "brand-marks");
@@ -246,13 +305,31 @@ for (const key of Object.keys(brands)) {
     ...(color ? { color: color.paths } : {}),
   });
 }
+const officialSvg = (file: string) =>
+  flatten(readFileSync(join(officialMarks, file), "utf8"), file);
 for (const [key, mark] of Object.entries(official)) {
-  const mono = art(join(officialMarks, mark.file), { adapt: [mark.ink] });
-  if (mono.paths.some((path) => path.fill !== undefined))
-    throw new Error(`${mark.file}: a fill other than ${mark.ink} would not follow the theme`);
+  const mono = officialSvg(mark.mono.file).paths.flatMap((path) => {
+    if (mark.mono.knockout?.includes(path.fill)) return [];
+    if (!mark.mono.ink.includes(path.fill))
+      throw new Error(`${mark.mono.file}: fill ${path.fill} would not follow the theme`);
+    const flat: Path = { d: path.d };
+    if (path.fillRule) flat.fillRule = path.fillRule;
+    return [flat];
+  });
+  const color = mark.color ? officialSvg(mark.color).paths : undefined;
   write(key, officialHeader(mark.source), {
     viewBox: paddedViewBox(mark.viewBox),
-    mono: mono.paths,
+    mono,
+    ...(color
+      ? {
+          color: color.map((path) => {
+            const painted: Path = { d: path.d };
+            if (path.fill !== "currentColor") painted.fill = path.fill;
+            if (path.fillRule) painted.fillRule = path.fillRule;
+            return painted;
+          }),
+        }
+      : {}),
   });
 }
 writeFileSync(

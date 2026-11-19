@@ -16,6 +16,7 @@ const codes = new Set<string>([
   "timeout",
   "aborted",
   "limit",
+  "no_room",
   "not_dispatched",
   "busy",
   "protocol",
@@ -23,6 +24,7 @@ const codes = new Set<string>([
   "auth",
   "identity",
   "storage",
+  "machine_code",
   "daemon",
 ]);
 const isCode = (code: string): code is ClientError["code"] => codes.has(code);

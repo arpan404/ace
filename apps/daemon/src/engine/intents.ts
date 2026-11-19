@@ -1,4 +1,5 @@
 import { hasNextTurnSelection } from "./input-delivery.ts";
+import { fencedOwnership } from "../thread-ownership-table.ts";
 import { z } from "zod";
 import type { StatementSync } from "node:sqlite";
 import { Command, CommandId, ThreadId, RunTrigger, InteractionId } from "@ace/protocol";
@@ -125,7 +126,14 @@ export class IntentStore {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
     return row ? Header.shape.status.parse(row.status) : undefined;
   }
-  *headers(id?: ThreadId): Iterable<IntentHeader> {
+  /**
+   * Live intents. With `unreadable`, one whose row this build can't read (a trigger or delivery
+   * another build wrote, say) is told to it, by its thread, and passed over; without, it throws.
+   */
+  *headers(
+    id?: ThreadId,
+    unreadable?: (thread: unknown, error: unknown) => void,
+  ): Iterable<IntentHeader> {
     let after = 0;
     for (;;) {
       const rows =
@@ -138,8 +146,15 @@ export class IntentStore {
             ).all(id, after);
       if (!rows.length) return;
       for (const row of rows) {
-        const value = header(row);
-        after = value.id;
+        after = Number(row.id);
+        let value: IntentHeader;
+        try {
+          value = header(row);
+        } catch (error) {
+          if (!unreadable) throw error;
+          unreadable(row.thread_id, error);
+          continue;
+        }
         yield value;
       }
     }
@@ -226,10 +241,13 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
-  /** The person's oldest waiting steer, ahead of any daemon result steering behind a command. */
+  /**
+   * The person's oldest waiting steer (one they sent, or a waiting message they chose to steer
+   * in), ahead of any daemon input steering behind a command.
+   */
   personSteer(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
-      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind='thread.send' AND delivery='steer' AND (trigger IS NULL OR trigger='user') AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind='thread.send' AND delivery='steer' AND (trigger IS NULL OR trigger='user' OR id IN (SELECT intent_id FROM engine_steer_notes WHERE person=1)) AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
     ).get(id);
     return row ? header(row) : undefined;
   }
@@ -257,7 +275,8 @@ export class IntentStore {
     return this.sql(`SELECT DISTINCT i.thread_id FROM intents i JOIN engine_queue q ON q.thread_id=i.thread_id
       WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds},'thread.switch','thread.merge') OR (q.paused=0 AND q.limited=0))
       AND NOT EXISTS(SELECT 1 FROM engine_transition_guards g WHERE g.thread_id=i.thread_id AND g.command_id<>i.command_id)
-      AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id) LIMIT ?`)
+      AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id)
+      AND NOT EXISTS(SELECT 1 FROM thread_ownership o WHERE o.thread_id=i.thread_id AND o.state IN (${fencedOwnership})) LIMIT ?`)
       .all(limit)
       .map((row) => ThreadId.parse(row.thread_id));
   }

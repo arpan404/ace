@@ -1,15 +1,18 @@
 import { AccessMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { readJson, type KeyValueStorage } from "@ace/ui-core";
+import { provisionalTitle, readJson, type KeyValueStorage } from "@ace/ui-core";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { Choices } from "./choices.ts";
 import { ComposerDraftSchema, readDraft } from "@/features/thread/index.ts";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 
 const Preparation = z.object({
   owner: z.string().optional(),
   revision: z.number().int().nonnegative().optional(),
   project: z.string(),
+  /** The machine `project` is on, while it isn't on this one yet: sending copies it here. */
+  from: z.string().optional(),
   skill: z.string().optional(),
   pullRequest: z.string().max(4096).optional(),
   issue: z.string().max(4096).optional(),
@@ -31,6 +34,14 @@ export type Preparation = z.infer<typeof Preparation>;
 const Records = z.array(z.tuple([z.string(), Preparation]));
 const storageKey = (host: string) => `ace.preparations:${host}`;
 export const preparationKey = newThreadDraftKey;
+
+/**
+ * A draft row's title: its words titled as the thread they start will be (plain words, without
+ * Markdown, mentions or the marker each file leaves), or `fallback` when no words are left.
+ */
+export function preparationTitle(text: string, fallback: string): string {
+  return provisionalTitle([{ type: "text", text }], fallback);
+}
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.
 const listeners = new Set<() => void>();
@@ -112,6 +123,10 @@ export function usePreparations(storage: KeyValueStorage | undefined, host: stri
 export function preparations(storage: KeyValueStorage | undefined, host: string) {
   return readJson(storage, storageKey(host), Records, []).map(
     ([key, row]): [string, Preparation] => {
+      // Older chat drafts saved the temporary folder's id in their navigation metadata.
+      // The durable key already names the chat, even after that folder has expired.
+      if (key === preparationKey(host, chatChoice, row.skill, row.issue ?? row.pullRequest))
+        row = { ...row, project: chatChoice };
       const retired = storage && retirements.get(storage)?.get(key);
       if (!retired) return [key, row];
       const waitingForScope = row.draftId === undefined && row.scopeEpoch === retired.epoch;

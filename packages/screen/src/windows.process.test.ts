@@ -10,8 +10,23 @@ import {
   computerUseHandler,
   type Frame,
 } from "./index.ts";
-import { spawnWindowsHelper } from "./windows-process.ts";
+import { spawnWindowsHelper } from "./helper.ts";
 import { deferred, ids, target } from "./testing/support.ts";
+
+const windowsPermissions = {
+  screenRecording: true,
+  accessibility: true,
+  platform: "win32",
+  requirements: [
+    {
+      kind: "interactiveDesktop",
+      state: "ready",
+      title: "Interactive Windows desktop",
+      message: "The helper can access the interactive input desktop.",
+    },
+  ],
+};
+import { windowsFakeOverrides } from "./testing/support.ts";
 async function fixture(env: NodeJS.ProcessEnv = {}) {
   const directory = await mkdtemp(join(tmpdir(), "screen-v2-"));
   const options = {
@@ -21,6 +36,7 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
     platform: "win32" as const,
     endpoint: `unix:${join(directory, "pipe")}`,
     env,
+    ...windowsFakeOverrides(directory),
   };
   return { options, directory, clean: () => rm(directory, { recursive: true, force: true }) };
 }
@@ -43,10 +59,7 @@ it("v2 negotiates capabilities and receives fragmented frames from a helper-owne
   });
   try {
     expect(helper.capabilities?.platform).toBe("windows");
-    expect(await helper.request({ op: "permissions" })).toEqual({
-      screenRecording: true,
-      accessibility: true,
-    });
+    expect(await helper.request({ op: "permissions" })).toEqual(windowsPermissions);
     await helper.request({
       op: "start",
       sessionId: "s",
@@ -97,7 +110,7 @@ it("one host helper serves inspections, restarts and semantic tools with control
     publishArtifact: async () => {},
   });
   try {
-    expect(await manager.permissions()).toEqual({ screenRecording: true, accessibility: true });
+    expect(await manager.permissions()).toEqual(windowsPermissions);
     await manager.enable(true);
     const before = await manager.targets();
     const session = await manager.start(target);
@@ -225,10 +238,7 @@ it("an oversized UTF-8 command is rejected without killing the helper", async ()
         allowlist: Array.from({ length: 64 }, () => "字".repeat(400)),
       }),
     ).rejects.toMatchObject({ code: "bounds" });
-    expect(await helper.request({ op: "permissions" })).toEqual({
-      screenRecording: true,
-      accessibility: true,
-    });
+    expect(await helper.request({ op: "permissions" })).toEqual(windowsPermissions);
   } finally {
     await helper.close();
     await f.clean();

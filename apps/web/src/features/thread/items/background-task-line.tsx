@@ -1,12 +1,13 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
-import { backgroundGroup } from "@ace/ui-core";
-import { TerminalIcon } from "@phosphor-icons/react";
+import { TerminalIcon } from "@ace/icons";
 import { Suspense, useCallback, useId, useMemo, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { StaticRow, TranscriptRow, rowClass, rowDetailIndent } from "./transcript-row.tsx";
+import { backgroundGroupLine } from "./live-words.ts";
 
 /**
  * A background task's line: only turns that start one show it, so its code loads on first use
@@ -75,7 +76,10 @@ export function BackgroundTaskGroup(props: {
       }),
     [taskIds],
   );
-  const group = backgroundGroup(useThread(props.threadId, keys, read, sameFacts) ?? []);
+  // How many still run is the copy's fact: while it isn't current, the count says only that.
+  const { live } = useThreadLiveState(props.threadId);
+  const group = backgroundGroupLine(live, useThread(props.threadId, keys, read, sameFacts) ?? []);
+  const { label } = group;
   const line = (index: number) => (
     <BackgroundTaskLine
       key={taskIds[index]}
@@ -85,17 +89,17 @@ export function BackgroundTaskGroup(props: {
     />
   );
   return (
-    <div role="group" aria-label={group.label}>
+    <div role="group" aria-label={label}>
       {group.listed.length ? (
         <TranscriptRow
           expanded={open}
           controls={list}
           onToggle={() => setOpen(!open)}
           lead={<TerminalIcon aria-hidden size={16} />}
-          title={group.label}
+          title={label}
         />
       ) : (
-        <StaticRow lead={<TerminalIcon aria-hidden size={16} />} title={group.label} />
+        <StaticRow lead={<TerminalIcon aria-hidden size={16} />} title={label} />
       )}
       {open && group.listed.length > 0 && (
         <div id={list} className={cn("fx-rise-in", rowDetailIndent)}>

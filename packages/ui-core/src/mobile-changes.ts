@@ -1,3 +1,4 @@
+import { can, type ForgeCapabilitySource } from "./forge-capability.ts";
 import type { ForgePrStatus, GitStatusFile, ThreadDetails } from "@ace/protocol";
 import { checkoutNote, checkoutOf, nextGitStep } from "./checkout.ts";
 import { readDiffText } from "./diff.ts";
@@ -161,6 +162,7 @@ export function changesNextStep(
   details: ThreadDetails | undefined,
   status: ForgePrStatus | null | undefined,
   changed?: { files: number; additions: number; deletions: number },
+  capabilities?: ForgeCapabilitySource,
 ): ChangesStep {
   const read = checkoutOf(details, status);
   if (!read)
@@ -179,7 +181,8 @@ export function changesNextStep(
         deletions: changed.deletions,
       }
     : read;
-  const step = nextGitStep(checkout);
+  const source = capabilities ?? checkout.repository;
+  const step = nextGitStep(checkout, source);
   const files = `${checkout.changed} ${checkout.changed === 1 ? "file" : "files"}`;
   if (step.kind === "commit")
     return {
@@ -211,6 +214,8 @@ export function changesNextStep(
     state: step.pr.state,
     title: step.pr.title ?? null,
   };
+  if (!can(source, "reviews.merge"))
+    return { kind: "none", label: `PR #${pr.number}`, detail: pr.title ?? "", blocked: null, pr };
   // Only the forge's own status can say a merge may run; without it, ask for a refresh.
   const same = status && status.ref.number === step.pr.number;
   return {

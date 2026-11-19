@@ -7,7 +7,9 @@ import {
   WaitResult,
   type AgentControlOperation,
 } from "@ace/protocol";
+import { join } from "node:path";
 import { invoke } from "../browser-mcp-test-support.ts";
+import { loadHostId } from "../local-files.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 
 const Machines = z.object({ machines: z.array(MachineSummary) });
@@ -81,7 +83,8 @@ it("a task delegated to another machine runs there, and wait here returns its re
     mode: "all",
     timeoutSeconds: 120,
   });
-  await pair.finish(threadId, "Two pull requests are ready to merge.");
+  // End the turn running the task, never a session still opening (a later turn would hang).
+  await pair.finishTask(threadId, delegation.task, "Two pull requests are ready to merge.");
   const waited = await waiting;
   expect(WaitResult.parse(waited.data)).toMatchObject({
     status: "ready",
@@ -99,7 +102,8 @@ it("a task delegated to another machine runs there, and wait here returns its re
   expect(status.children).toEqual([
     expect.objectContaining({ id: threadId, state: "done", machine: "Studio" }),
   ]);
-  // The parent's subagent row names the machine the child ran on.
+  // The parent's subagent row names the machine the child ran on, and its host id, so a window
+  // paired with that machine can open the child there.
   const parent = pair.source.daemon.store.readItemPage(
     pair.source.caller.threadId,
     pair.source.daemon.store.headSeq() + 1,
@@ -111,7 +115,11 @@ it("a task delegated to another machine runs there, and wait here returns its re
       type: "delegation.started",
       childThreadId: threadId,
       phase: "settled",
-      machine: { machine: "studio", name: "Studio" },
+      machine: {
+        machine: "studio",
+        name: "Studio",
+        hostId: loadHostId(join(pair.target.h.home, "daemon")),
+      },
     }),
   );
   expect(JSON.stringify([started, waited, status])).not.toContain(pair.credential.token);

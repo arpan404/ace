@@ -10,10 +10,9 @@ import {
 import { AgentStatus } from "@ace/protocol/agent-status";
 import { BackgroundTask } from "@ace/protocol/background";
 import { ThreadStatus } from "@ace/protocol/thread-status";
-import { runMark } from "@ace/projection/offshift-mark";
+import { QueueState } from "@ace/protocol/queue";
 import type { Event } from "@ace/protocol";
 import { InteractionLink, interactionLink } from "./model.ts";
-import { RunSignal } from "./run-signal.ts";
 
 const idBound = z.string().max(200);
 export const OwnerState = z
@@ -29,7 +28,6 @@ const interaction = z
   })
   .strict();
 const Payload = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("offshift.updated"), run: RunSignal }).strict(),
   z
     .object({
       type: z.literal("thread.client.updated"),
@@ -47,6 +45,11 @@ const Payload = z.discriminatedUnion("type", [
           archivedAt: Timestamp.optional(),
           deletedAt: Timestamp.optional(),
           snoozedUntil: Timestamp.optional(),
+          /**
+           * Never alerted here: delegated by a paired machine's agent (its owner is alerted
+           * there), or a host thread the daemon holds for Spade (ADR 0121), which no list shows.
+           */
+          remote: z.literal(true).optional(),
         })
         .strict(),
     })
@@ -57,7 +60,12 @@ const Payload = z.discriminatedUnion("type", [
       title: z.string().max(200).optional(),
       status: ThreadStatus.optional(),
       archivedAt: Timestamp.nullable().optional(),
+      remote: z.literal(true).optional(),
     })
+    .strict(),
+  /** Only why the queue is held: the person's own Stop silences its Done (`stoppedByPerson`). */
+  QueueState.pick({ paused: true, reason: true })
+    .extend({ type: z.literal("queue.updated") })
     .strict(),
   z
     .object({
@@ -125,6 +133,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
           archivedAt: p.thread.archivedAt,
           deletedAt: p.thread.deletedAt,
           snoozedUntil: p.thread.snoozedUntil,
+          ...(p.thread.delegatedFrom || p.thread.host ? { remote: true } : {}),
         },
       };
       break;
@@ -134,7 +143,11 @@ export function metadata(event: Event): MetadataEvent | undefined {
         title: p.title?.slice(0, 200),
         status: p.status,
         archivedAt: p.archivedAt,
+        ...(p.delegatedFrom ? { remote: true } : {}),
       };
+      break;
+    case "queue.updated":
+      payload = { type: p.type, paused: p.paused, reason: p.reason };
       break;
     case "agent.created":
       payload = {
@@ -174,18 +187,6 @@ export function metadata(event: Event): MetadataEvent | undefined {
     case "background_task.updated":
       payload = { type: p.type, taskId: p.taskId, status: p.status };
       break;
-    case "offshift.updated": {
-      const detail = (p.card.blocker ?? p.card.next)?.slice(0, 300);
-      payload = {
-        type: p.type,
-        run: {
-          key: `${p.card.id}:${p.card.version}`,
-          mark: runMark(p.card),
-          ...(detail ? { detail } : {}),
-        },
-      };
-      break;
-    }
     default:
       return undefined;
   }

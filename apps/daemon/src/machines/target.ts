@@ -1,18 +1,38 @@
 import {
   HostId,
   MachineCallRequest,
+  MachineCapability,
   type Device,
   type MachineAgentAccess,
   type MachineCall,
+  type MachineCallOrigin,
+  type MachineCommandJobsResult,
   type MachineDescription,
+  type MachinePath,
+  type MachineToolGroup,
   type ProviderKind,
 } from "@ace/protocol";
 import { ProviderKind as Providers } from "@ace/protocol";
 import { allows } from "../devices.ts";
 import type { Engine } from "../engine/index.ts";
+import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import type { TargetThreads } from "./target-threads.ts";
 import type { TargetBrowser } from "./target-browser.ts";
+import type { GuestSessions } from "./guest-sessions.ts";
+import type { MachineGrantStore } from "./grant-store.ts";
+import type { CapabilityHost, HostedCapability } from "./capability-hosts.ts";
+import type { SpadeConnection } from "../spade/forward.ts";
+import { forwardToInbox, inboxRisk } from "./target-spade.ts";
+import {
+  capabilityOf,
+  decide,
+  effectiveGrants,
+  grantsFor,
+  pairingLevel,
+  type GrantFacts,
+  type Risk,
+} from "./grant-rules.ts";
 
 export interface MachineTargetDeps {
   hostId: string;
@@ -22,70 +42,160 @@ export interface MachineTargetDeps {
   engine(): Engine | undefined;
   threads: TargetThreads;
   browser: TargetBrowser;
+  guests: GuestSessions;
+  grants: MachineGrantStore;
+  /** Devices, screen and commands, each when this machine has it (ADR 0105). */
+  hosts: Partial<Record<HostedCapability, CapabilityHost>>;
+  /** Whether the calling thread's session (if it has one) still runs these command jobs. */
+  commandJobs(session: string | undefined, jobIds: readonly string[]): MachineCommandJobsResult;
+  /** This machine's Spade while it answers, for inbox requests from other machines (ADR 0132). */
+  spade(): SpadeConnection | undefined;
+  /** This daemon's local token, which signs inbox requests for Spade (ADR 0132). */
+  inboxKey(): string | undefined;
+  /** The time, for inbox signatures. */
+  now(): number;
   log(message: string, fields: Record<string, unknown>): void;
+  /** Parcels between agents here and on the calling machine (ADR 0182), once they serve. */
+  parcels?(): import("../parcels/target.ts").ParcelTarget | undefined;
+  /** The paths this machine serves now (ADR 0114), told to paired devices in `describe`. */
+  paths?(): MachinePath[];
 }
 export interface MachineAnswer {
   status: number;
   body: unknown;
 }
-/** What each call needs: reading this machine's state, or acting on it. */
-function needs(call: MachineCall, browser: TargetBrowser): "read" | "operate" {
-  switch (call.op) {
-    case "describe":
-    case "status":
-    case "browser.session":
-      return "read";
-    case "browser":
-      return browser.readOnly(call.tool, call.args) ? "read" : "operate";
-    default:
-      return "operate";
-  }
-}
 
 /**
- * The target side of machine calls. Authority is the lower of this machine's agent access
- * setting and the calling device's pairing scope; every call, allowed or refused, is logged
- * with the device and the machine and thread that made it.
+ * The target side of machine calls. Each call is allowed by the grant rules (ADR 0105): this
+ * machine's switch, the calling device's grant for the capability and its pairing scope, and the
+ * calling thread's ceiling. Calls are logged with the device, the machine and thread that made
+ * it, and the capability: every call that does work or changes something, allowed or refused,
+ * while routine reads (status polls, descriptions) are logged only when refused (once per run of
+ * the same refusal) and when they are served again.
  */
 export function createMachineTarget(deps: MachineTargetDeps) {
-  async function grant(device: Device): Promise<"read" | "operate"> {
-    const access = await deps.access();
-    if (access === "off")
-      throw new TargetRefusal(
-        "machine_opted_out",
-        "Agents on other machines can't use this machine. The person can turn this on in Settings › Fleet.",
-      );
-    if (!allows(device, "read")) throw new TargetRefusal("machine_forbidden");
-    return access === "operate" && allows(device, "operate") ? "operate" : "read";
+  async function facts(device: Device, origin: MachineCallOrigin): Promise<GrantFacts> {
+    const master = await deps.access();
+    return {
+      master,
+      grants: grantsFor(master, deps.grants.chosen(device.id)),
+      pairing: pairingLevel({ read: allows(device, "read"), operate: allows(device, "operate") }),
+      ceiling: origin.ceiling ?? "operate",
+    };
   }
-  async function describe(device: Device, access: "read" | "operate") {
+  /** Whether this call only reads; asked after the grant allows at least reading. */
+  function risk(call: MachineCall): Risk {
+    switch (call.op) {
+      case "describe":
+      case "status":
+      case "browser.session":
+      case "command.jobs":
+        return "read";
+      case "browser":
+        return deps.browser.readOnly(call.tool, call.args) ? "read" : "operate";
+      case "devices":
+      case "screen":
+        return deps.hosts[call.op]?.readOnly(call.tool, call.args) ? "read" : "operate";
+      case "spade":
+        return inboxRisk(call.request);
+      // Pulling a parcel sent to the caller's own thread only reads (ADR 0182).
+      case "parcel":
+        return ["outbox", "read", "ack"].includes(call.parcel.action) ? "read" : "operate";
+      default:
+        return "operate";
+    }
+  }
+  /** The grant rules allow the call; refusals carry words the calling agent may read. */
+  async function admit(device: Device, origin: MachineCallOrigin, call: MachineCall) {
+    const known = await facts(device, origin);
+    const capability = capabilityOf(call, deps.guests);
+    const reading = decide(capability, "read", known);
+    if (!reading.allow) throw new TargetRefusal(reading.code, reading.message);
+    if (risk(call) === "operate") {
+      const acting = decide(capability, "operate", known);
+      if (!acting.allow) throw new TargetRefusal(acting.code, acting.message);
+    }
+    return known;
+  }
+  function serves(capability: MachineCapability): boolean {
+    if (capability === "agents") return true;
+    if (capability === "browser") return deps.browser.available();
+    return deps.hosts[capability]?.available() ?? false;
+  }
+  async function describe(device: Device, origin: MachineCallOrigin, known: GrantFacts) {
     const engine = deps.engine();
     const providers: ProviderKind[] = engine
       ? Providers.options.filter((kind) => engine.providerAvailability(kind).installed)
       : [];
+    const grants = effectiveGrants(known);
+    // Callers from before ADR 0105 send no ceiling and read only these two groups.
+    const groups: readonly MachineCapability[] =
+      origin.ceiling === undefined ? ["agents", "browser"] : MachineCapability.options;
+    const tools: MachineToolGroup[] = groups.filter(
+      (capability) => grants[capability] !== "off" && serves(capability),
+    );
     const description: MachineDescription = {
       hostId: HostId.parse(deps.hostId),
       name: (await deps.hostName()).slice(0, 256) || "ace",
-      access,
+      // What it meant before grants: whether this device's agents may start work here.
+      access: grants.agents === "operate" ? "operate" : "read",
+      grants,
       projects: deps.threads.projects(),
-      tools: deps.browser.available() ? ["agents", "browser"] : ["agents"],
+      tools,
       providers: providers.slice(0, 16),
       transfers: allows(device, "operate") && allows(device, "projects"),
+      delegateAccounts: true,
+      ...(grants.agents !== "off" ? { accounts: deps.threads.accounts() } : {}),
     };
+    const paths = deps.paths?.() ?? [];
+    if (paths.length > 0) description.paths = paths.slice(0, 16);
     return description;
   }
-  /** This machine's access and the device's scope allow the call. */
-  async function admit(device: Device, call: MachineCall): Promise<"read" | "operate"> {
-    const access = await grant(device);
-    if (needs(call, deps.browser) === "operate" && access !== "operate")
+  async function hosted(
+    device: Device,
+    origin: MachineCallOrigin,
+    call: Extract<MachineCall, { op: HostedCapability }>,
+    signal: AbortSignal,
+    ticket: number,
+    known: GrantFacts,
+  ) {
+    const host = deps.hosts[call.op];
+    if (!host?.call)
       throw new TargetRefusal(
-        "machine_forbidden",
-        "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Fleet.",
+        "not_supported",
+        "This machine allows it, but doesn't serve it to other machines yet.",
       );
-    return access;
+    if (!host.available())
+      throw new TargetRefusal(
+        "unavailable",
+        host.unavailable?.() ?? "This machine can't do that now.",
+      );
+    const session = await deps.guests.open(device, origin);
+    const serve = host.call.bind(host);
+    return deps.guests.run(
+      session,
+      {
+        capability: call.op,
+        risk: risk(call),
+        label: `${call.tool} from ${origin.hostName}`,
+        ticket,
+      },
+      signal,
+      (stop) =>
+        serve(
+          session,
+          call.tool,
+          call.args,
+          stop,
+          effectiveGrants(known)[call.op] === "operate" ? "operate" : "read",
+        ),
+    );
   }
   async function run(device: Device, request: MachineCallRequest, signal: AbortSignal) {
     const { call, origin } = request;
+    // Taken before the grant is read: a Stop or a lowered grant after this point still wins
+    // over a call that is only starting.
+    const ticket = deps.guests.ticket();
     const owned = (threadId: string) => {
       if (!deps.threads.owns(device, threadId))
         throw new TargetRefusal("not_found", "No such thread from that machine.");
@@ -94,7 +204,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       // A message refused here is refused for good: saved under its request before any copy
       // can be admitted, so the calling machine can stop waiting on it (ADR 0099).
       try {
-        await admit(device, call);
+        await admit(device, origin, call);
         owned(call.threadId);
       } catch (error) {
         if (error instanceof TargetRefusal)
@@ -103,10 +213,10 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       }
       return deps.threads.message(device, call);
     }
-    const access = await admit(device, call);
+    const known = await admit(device, origin, call);
     switch (call.op) {
       case "describe":
-        return describe(device, access);
+        return describe(device, origin, known);
       case "delegate":
         return deps.threads.delegate(device, origin, call);
       case "status":
@@ -119,33 +229,89 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         owned(call.threadId);
         return deps.threads.respond(device, call);
       case "browser.session":
-        return { threadId: deps.browser.session(device, origin) };
+        return { threadId: await deps.browser.session(device, origin) };
       case "browser":
-        return deps.browser.call(device, origin, call.tool, call.args, signal);
+        return deps.browser.call(
+          device,
+          origin,
+          { tool: call.tool, args: call.args, ticket },
+          signal,
+        );
+      case "devices":
+      case "screen":
+      case "commands":
+        return hosted(device, origin, call, signal, ticket, known);
+      case "command.jobs":
+        return deps.commandJobs(deps.guests.existing(device, origin), call.jobIds);
+      case "parcel": {
+        const parcels = deps.parcels?.();
+        if (!parcels)
+          throw new TargetRefusal("not_supported", "This machine doesn't take parcels yet.");
+        return parcels.handle(device, origin, call.parcel);
+      }
+      case "spade":
+        return forwardToInbox(
+          deps.spade(),
+          deps.inboxKey(),
+          device,
+          origin,
+          call.request,
+          signal,
+          deps.now(),
+        );
     }
   }
+  /** Calls each device's op is refused in a row, so a repeating poll logs once per run. */
+  const refusals = new FailureEpisodes();
   return {
+    /** The levels the person chose per linked machine, for Settings › Fleet. */
+    grants: deps.grants,
     async handle(device: Device, body: unknown, signal: AbortSignal): Promise<MachineAnswer> {
       const parsed = MachineCallRequest.safeParse(body);
       if (!parsed.success) return { status: 400, body: { error: "invalid" } };
       const { call, origin } = parsed.data;
+      const capability = capabilityOf(call, deps.guests);
       const fields = {
         device: device.name,
         deviceId: device.id,
         fromMachine: origin.hostName,
         fromThread: origin.threadId,
-        op: call.op === "browser" ? call.tool : call.op,
+        ...(origin.agentId ? { fromAgent: origin.agentId } : {}),
+        op:
+          "tool" in call
+            ? call.tool
+            : call.op === "parcel"
+              ? `parcel.${call.parcel.action}`
+              : call.op,
+        capability: typeof capability === "string" ? capability : "any",
       };
+      // Episodes only for the few routine ops: any other call is logged every time anyway, and
+      // its many tool names would each keep an entry.
+      const key = `${device.id}:${fields.op}`;
+      const routine = routineCall(fields.op);
       try {
         const result = await run(device, parsed.data, signal);
-        deps.log("Machine call from another device", { ...fields, outcome: "ok" });
+        const refused = routine ? refusals.succeeded(key) : 0;
+        // A remote parent polls status about once a second: routine reads that succeed are not
+        // logged per call, only when they work again after being refused.
+        if (refused > 0)
+          deps.log("Machine call from another device served again", {
+            ...fields,
+            outcome: "ok",
+            attempts: refused + 1,
+          });
+        else if (!routine)
+          deps.log("Machine call from another device", { ...fields, outcome: "ok" });
         return { status: 200, body: result };
       } catch (error) {
         const refusal = error instanceof TargetRefusal ? error : new TargetRefusal("unavailable");
-        deps.log("Machine call from another device refused", {
-          ...fields,
-          outcome: refusal.code,
-        });
+        const episode = routine ? refusals.failed(key, refusal.code) : { log: true, attempts: 1 };
+        if (episode.log)
+          deps.log("Machine call from another device refused", {
+            ...fields,
+            outcome: refusal.code,
+            ...(routine ? { attempts: episode.attempts } : {}),
+          });
         return { status: refusal.status, body: refusal.body() };
       }
     },

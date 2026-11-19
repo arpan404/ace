@@ -16,12 +16,25 @@ export interface ThreadRecord {
   version: typeof readRecordVersion;
   view: NonNullable<ThreadExport["view"]>;
   truncated: string[];
+  /** The daemon database the view's cursor came from, when it named one (ADR 0128). */
+  databaseId?: string;
 }
 
-/** What a thread store keeps of `exported`, or undefined when it holds no view yet. */
-export function threadRecord(exported: ThreadExport): ThreadRecord | undefined {
+/**
+ * What a thread store keeps of `exported`, or undefined when it holds no view yet. `databaseId`
+ * is the database its cursor came from, when known.
+ */
+export function threadRecord(
+  exported: ThreadExport,
+  databaseId?: string,
+): ThreadRecord | undefined {
   if (!exported.view) return undefined;
-  return { version: readRecordVersion, view: exported.view, truncated: exported.truncated };
+  return {
+    version: readRecordVersion,
+    view: exported.view,
+    truncated: exported.truncated,
+    ...(databaseId ? { databaseId } : {}),
+  };
 }
 
 /**
@@ -31,7 +44,7 @@ export function threadRecord(exported: ThreadExport): ThreadRecord | undefined {
 export function parseThreadRecord(
   value: unknown,
   threadId: string,
-): { view: ThreadView; truncated: string[] } | undefined {
+): { view: ThreadView; truncated: string[]; databaseId: string | undefined } | undefined {
   if (typeof value !== "object" || value === null || !("version" in value)) return undefined;
   if (value.version !== readRecordVersion || !("view" in value)) return undefined;
   const raw = value.view;
@@ -53,7 +66,11 @@ export function parseThreadRecord(
           (id): id is string => typeof id === "string" && Object.hasOwn(view.items, id),
         )
       : [];
-  return { view, truncated };
+  const databaseId =
+    "databaseId" in value && typeof value.databaseId === "string" && value.databaseId
+      ? value.databaseId
+      : undefined;
+  return { view, truncated, databaseId };
 }
 
 /** Which half of the thread list a sidebar record holds: the one its filter shows. */

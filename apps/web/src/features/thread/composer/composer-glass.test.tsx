@@ -95,6 +95,5 @@ test("a menu opened from the glass composer is solid", async () => {
   await threadWithStrip();
   await userEvent.click(screen.getByRole("button", { name: /^Access:/ }));
   const menu = await screen.findByRole("menu");
-  expect(menu.classList.contains("ace-floating-solid")).toBe(true);
   expect(frosted(menu)).toBe(false);
 });

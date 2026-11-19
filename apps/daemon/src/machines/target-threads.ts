@@ -1,9 +1,16 @@
+import { childStoppedOnLimit } from "../agent-control/limit-settlement.ts";
+import { threadAccount } from "../agent-control/failure-account.ts";
+import { TargetOutcomes, type SettledView } from "./target-outcomes.ts";
+import { accountLaunchRefusal } from "../agent-control/account-availability.ts";
+import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 import { createHash } from "node:crypto";
 import { isAgentProse } from "@ace/projection";
 import { z } from "zod";
 import {
   Command,
   CommandId,
+  DeviceId,
+  HostId,
   ThreadId,
   type CommandResult,
   type Device,
@@ -32,26 +39,89 @@ import {
 import { messageArrival } from "../agent-control/message-arrival.ts";
 import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts";
 import { TargetRefusal } from "./target-refusal.ts";
-import { TargetLaunches } from "./target-launches.ts";
+import { TargetLaunches, heldRetryMs } from "./target-launches.ts";
+import { isStoreRetry } from "../store-busy.ts";
 import { MessageRejections, messageKey } from "./target-rejections.ts";
-import { queuedStatus, queuedStep, unlaunchedResult } from "../agent-control/child-status.ts";
+import { HeldMessages, type HeldMessage } from "./held-messages.ts";
+import {
+  diskWait,
+  diskWaitStep,
+  queuedChildStatus,
+  queuedStep,
+  unlaunchedResult,
+} from "../agent-control/child-status.ts";
+import { isDiskFull } from "../sqlite-failure.ts";
 import { accountModelName } from "../agent-control/models.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
+import type { NamedAccount } from "../agent-control/account-names.ts";
+import { checkAccountModel, machineAccount } from "./target-accounts.ts";
+
+const NoticeRow = z.object({ command_id: z.string(), code: z.string(), text: z.string() });
+const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
+
+/**
+ * The projects other machines may see and delegate into: registered ones the person opened,
+ * never a hidden kind (a chat's folder, or Spade's own, ADR 0121), as for agents here.
+ */
+const listedProjects = `SELECT w.id AS id, w.name AS name FROM workspaces w
+  LEFT JOIN workspace_metadata m ON m.workspace_id=w.id
+  WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+  AND m.kind IS NULL ORDER BY w.rowid DESC`;
 
 export interface TargetThreadDeps {
   store: Store;
+  registry?(): import("@ace/accounts").AccountRegistry | undefined;
+  accountEnabled?(provider: import("@ace/protocol").ProviderKind, id: string): boolean;
   engine(): Engine | undefined;
   /** This machine's model catalog, which a loosely written model name is matched against. */
   models?(): import("@ace/models").ModelCatalogApi | undefined;
   journal(): DelegationJournal | undefined;
+  /** This machine's accounts, which an account another machine names is matched against. */
+  accounts?(): readonly NamedAccount[];
+  /** This machine's name, for refusals the calling agent reads. */
+  hostName?(): Promise<string>;
   now(): number;
   /** This machine's running-children limit, read live; undefined is no limit. */
   limit(): number | undefined;
   schedule(ms: number, run: () => void): () => void;
   report(error: unknown): void;
+  /** Admission here (ADR 0041): while closed, children other machines send wait queued. */
+  admitsWork?(): boolean;
+  /** Whether this machine's disk is too full for new work (the `storage` hold, ADR 0176). */
+  storageFull?(): boolean;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
-const Owner = z.object({ device_id: z.string(), kind: z.enum(["delegate", "browser"]) });
+/** Held messages delivered per tick: a backlog drains over many turns of the event loop. */
+const heldBatch = 16;
+/** Engine answers that mean "not now", never "not ever": a held message tries again later. */
+const notNow: ReadonlySet<string> = new Set([
+  "engine_capacity_exceeded",
+  "engine_starting",
+  "daemon_shutting_down",
+  "maintenance",
+]);
+/** A send the engine can't take yet: the held message keeps its place and is tried again. */
+class HeldBack extends Error {
+  override name = "HeldBack";
+}
+/** A step of a delivery the engine refused, said as the caller reads it. */
+function refuse(text: string, error: string | undefined): never {
+  if (error !== undefined && notNow.has(error)) throw new HeldBack(text);
+  throw new TargetRefusal("unavailable", text);
+}
+/** `browser` rows are browser threads from before guest sessions (ADR 0105). */
+const Owner = z.object({
+  device_id: z.string(),
+  kind: z.enum(["delegate", "browser", "guest"]),
+});
+
+/** A delegated thread from before `delegatedFrom` was recorded on it. */
+const UnmarkedDelegate = z.object({
+  thread_id: z.string(),
+  origin_host: HostId,
+  origin_thread: ThreadId,
+  name: z.string().min(1).nullable(),
+});
 
 /**
  * Threads a paired device's agents started on this machine. Ownership is per device: one
@@ -65,8 +135,18 @@ export class TargetThreads {
   readonly launches: TargetLaunches;
   /** Messages refused before they reached their thread, which no copy of can ever run. */
   readonly rejections: MessageRejections;
+  /** Messages that arrived while admission here was closed, delivered once it reopens. */
+  private held: HeldMessages;
+  /** The scheduled replay of held messages, and how many in a row found it still blocked. */
+  private cancelHeld: (() => void) | undefined;
+  private heldBlocked = 0;
+  private closed = false;
+  private unhookHeld: () => void;
+  private outcomes: TargetOutcomes;
+  private cancelAttempts = 0;
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
+    this.outcomes = new TargetOutcomes(deps.store);
     deps.store.atomic((db) =>
       // The store's migrations own machine_threads (machine-tables.ts).
       db.exec(`CREATE TABLE IF NOT EXISTS machine_thread_notices (
@@ -78,8 +158,54 @@ export class TargetThreads {
     });
     this.launches = new TargetLaunches(deps);
     this.rejections = new MessageRejections(deps.store, deps.now);
+    this.held = new HeldMessages(deps.store);
+    // A deleted thread's held messages go in the transaction that deletes it, whichever path.
+    this.unhookHeld = deps.store.onWrite((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.deletedAt === "number"
+        )
+          this.held.forget(event.threadId);
+    });
+    this.markDelegatedFrom();
+  }
+  /**
+   * Threads delegated here before ace recorded where their parent lives were listed as this
+   * machine's own threads; marking them keeps them under their parent on the other machine.
+   */
+  private markDelegatedFrom() {
+    const rows = this.deps.store.atomic((db) =>
+      db
+        .prepare(
+          `SELECT m.thread_id, m.origin_host, m.origin_thread, d.name FROM machine_threads m
+           JOIN threads t ON t.id = m.thread_id LEFT JOIN devices d ON d.id = m.device_id
+           WHERE m.kind = 'delegate' AND json_extract(t.transitions, '$.delegatedFrom') IS NULL
+           AND json_extract(t.client, '$.deletedAt') IS NULL`,
+        )
+        .all(),
+    );
+    for (const row of rows) {
+      const unmarked = UnmarkedDelegate.safeParse(row);
+      if (!unmarked.success) continue;
+      const { thread_id, origin_host, origin_thread, name } = unmarked.data;
+      this.deps.store.appendEvents(ThreadId.parse(thread_id), [
+        {
+          type: "thread.updated",
+          delegatedFrom: {
+            hostId: origin_host,
+            threadId: origin_thread,
+            ...(name ? { hostName: name.slice(0, 256) } : {}),
+          },
+        },
+      ]);
+    }
   }
   close() {
+    this.closed = true;
+    this.cancelHeld?.();
+    this.cancelHeld = undefined;
+    this.unhookHeld();
     this.unsubscribe();
     this.launches.close();
   }
@@ -88,9 +214,23 @@ export class TargetThreads {
    * agents_status and parent hear of it through `view`, as they would for a local child.
    */
   private observe(event: Event) {
+    const { payload } = event;
+    // It runs again, or it is deleted (a deleted thread reads as deleted): its outcome goes.
+    // Only threads another machine owns keep one, so other threads' events cost no write.
+    const outcomeEnds =
+      payload.type === "run.started" ||
+      (payload.type === "thread.client.updated" && payload.changes.deletedAt !== undefined);
+    // Codex can end a turn on systemError and only then report the usage limit: an outcome kept
+    // without that reason is read again, so the other machine hears what stopped it.
+    const limitArrived = payload.type === "thread.updated" && payload.status?.state === "limited";
     const notice = deliveryNotice(event);
+    if (!outcomeEnds && !notice && !limitArrived) return;
+    if (!this.owner(event.threadId)) return;
+    if (outcomeEnds) this.outcomes.forget(event.threadId);
+    else if (limitArrived && this.outcomes.get(event.threadId)?.failure?.code !== "usage_limited")
+      this.outcomes.forget(event.threadId);
     const engine = this.deps.engine();
-    if (!notice || !engine || !this.owner(event.threadId)) return;
+    if (!notice || !engine) return;
     if (!engine.messageFacts(event.threadId, CommandId.parse(notice.commandId)).fromParent) return;
     const title = this.deps.store.getThread(event.threadId)?.title ?? "the child";
     this.deps.store.atomic((db) =>
@@ -113,9 +253,7 @@ export class TargetThreads {
     );
     const engine = this.deps.engine();
     if (!row || !engine) return undefined;
-    const kept = z
-      .object({ command_id: z.string(), code: z.string(), text: z.string() })
-      .parse(row);
+    const kept = NoticeRow.parse(row);
     if (engine.inputFate(threadId, CommandId.parse(kept.command_id)).state === "delivered")
       return undefined;
     return { text: kept.text.slice(0, 400), commandId: kept.command_id, code: kept.code };
@@ -142,7 +280,7 @@ export class TargetThreads {
   record(
     device: Device,
     threadId: ThreadId,
-    kind: "delegate" | "browser",
+    kind: "delegate" | "guest",
     origin: MachineCallOrigin,
   ) {
     this.deps.store.atomic((db) =>
@@ -150,20 +288,30 @@ export class TargetThreads {
         .prepare("INSERT OR IGNORE INTO machine_threads VALUES (?,?,?,?,?,?)")
         .run(threadId, device.id, kind, origin.hostId, origin.threadId, this.deps.now()),
     );
-    // Started by an agent elsewhere, it is still work on this machine: list it like any task.
+    // Started by an agent elsewhere, it is a task here, never an empty draft: search and links
+    // reach it. A delegated one names its parent's machine, so it stays under that parent and
+    // off this machine's own lists, as a local child stays under its parent.
     this.deps.store.appendEvents(threadId, [
       { type: "thread.client.updated", changes: { hasSentMessage: true } },
+      ...(kind === "delegate"
+        ? [
+            {
+              type: "thread.updated" as const,
+              delegatedFrom: {
+                hostId: origin.hostId,
+                hostName: origin.hostName,
+                threadId: origin.threadId,
+                ...(origin.threadTitle ? { threadTitle: origin.threadTitle } : {}),
+                ...(origin.provider ? { provider: origin.provider } : {}),
+              },
+            },
+          ]
+        : []),
     ]);
   }
   project(name: string | undefined): WorkspaceId {
-    const rows = this.deps.store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 64",
-        )
-        .all(),
-    );
-    const projects = z.array(z.object({ id: z.string(), name: z.string() })).parse(rows);
+    const rows = this.deps.store.atomic((db) => db.prepare(`${listedProjects} LIMIT 64`).all());
+    const projects = ProjectRows.parse(rows);
     const found =
       name === undefined
         ? projects.length === 1
@@ -181,24 +329,18 @@ export class TargetThreads {
     return WorkspaceId.parse(found.id);
   }
   projects(): { workspaceId: WorkspaceId; name: string }[] {
-    const rows = this.deps.store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 32",
-        )
-        .all(),
-    );
-    return z
-      .array(z.object({ id: z.string(), name: z.string() }))
-      .parse(rows)
-      .map((row) => ({ workspaceId: WorkspaceId.parse(row.id), name: row.name.slice(0, 256) }));
+    const rows = this.deps.store.atomic((db) => db.prepare(`${listedProjects} LIMIT 32`).all());
+    return ProjectRows.parse(rows).map((row) => ({
+      workspaceId: WorkspaceId.parse(row.id),
+      name: row.name.slice(0, 256),
+    }));
   }
   /**
    * A retried request returns the same thread; receipts make creation run once. The thread is
    * prepared first, so what can never run (no such project, provider or model) is refused at
    * once; its task then starts, or waits for a slot like a local child (ADR 0099).
    */
-  delegate(device: Device, origin: MachineCallOrigin, call: Delegate) {
+  async delegate(device: Device, origin: MachineCallOrigin, call: Delegate) {
     const engine = this.deps.engine();
     if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
     const key = createHash("sha256")
@@ -214,8 +356,77 @@ export class TargetThreads {
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
     const workspaceId = this.project(call.project);
-    const model = call.model ? this.modelNamed(call.provider, call.model) : undefined;
+    const accountId = call.account ? await this.account(call.provider, call.account) : undefined;
+    const model = call.model ? this.modelNamed(call.provider, call.model, accountId) : undefined;
+    if (accountId && model)
+      await checkAccountModel({
+        catalog: this.deps.models?.(),
+        provider: call.provider,
+        account: accountId,
+        model,
+        host: await this.host(),
+        schedule: this.deps.schedule,
+      });
     const { store } = this.deps;
+    // A retry that raced this one past the receipt check above gets the same thread.
+    const raced = store.getThread(threadId);
+    if (raced && this.owner(threadId)?.device_id === device.id)
+      return {
+        threadId,
+        title: raced.title,
+        ...(this.launches.queued(threadId) ? { queued: true } : {}),
+      };
+    let instance: string;
+    try {
+      instance = engine.targetInstance(call.provider, accountId ? { accountId } : {});
+    } catch (error) {
+      // A provider this machine can't run is refused with its reason, before anything is made.
+      const reason = error instanceof Error ? error.message : "provider not ready";
+      throw new TargetRefusal("unavailable", `This machine could not start it: ${reason}`);
+    }
+    const refusal = this.freeModel(call.provider, instance, model)
+      ? undefined
+      : accountLaunchRefusal(
+          this.deps.registry?.()?.list() ?? [],
+          instance,
+          this.deps.now(),
+          (id) => this.deps.accountEnabled?.(call.provider, id) !== false,
+        );
+    if (refusal) throw new TargetRefusal("unavailable", refusal);
+    try {
+      return this.prepareAndLaunch(device, origin, call, {
+        key,
+        threadId,
+        workspaceId,
+        model,
+        accountId,
+      });
+    } catch (error) {
+      // Nothing was made: the disk refused even the thread's record. Said plainly, not as SQL.
+      if (isDiskFull(error))
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine's disk is full; new work there waits until space is freed.",
+        );
+      throw error;
+    }
+  }
+  private prepareAndLaunch(
+    device: Device,
+    origin: MachineCallOrigin,
+    call: Delegate,
+    made: {
+      key: string;
+      threadId: ThreadId;
+      workspaceId: string;
+      model: string | undefined;
+      accountId: string | undefined;
+    },
+  ) {
+    const { store } = this.deps;
+    const engine = this.deps.engine();
+    if (!engine) throw new TargetRefusal("unavailable", "This machine is still starting.");
+    const { key, threadId, workspaceId, model, accountId } = made;
     return store.atomic(() => {
       const command = Command.parse({
         id: `machine-prepare:${key}`,
@@ -226,6 +437,7 @@ export class TargetThreads {
           workspaceId,
           provider: call.provider,
           ...(model ? { model } : {}),
+          ...(accountId ? { accountId } : {}),
           mode: "local",
           title: clip(call.role, 256) || "Task",
         },
@@ -257,12 +469,61 @@ export class TargetThreads {
       };
     });
   }
+  /** The accounts a delegate here may name, ids and labels only. ACP logins aren't chosen so. */
+  accounts(): import("@ace/protocol").MachineAccount[] {
+    return (this.deps.accounts?.() ?? [])
+      .filter((account) => account.provider !== "acp")
+      .slice(0, 64)
+      .map((account) => {
+        const entry: import("@ace/protocol").MachineAccount = {
+          provider: account.provider,
+          id: account.id.slice(0, 256),
+        };
+        const label = account.label.trim().slice(0, 256);
+        if (label && label !== account.id) entry.label = label;
+        return entry;
+      });
+  }
+  private async host(): Promise<string> {
+    return (await this.deps.hostName?.())?.trim() || "This machine";
+  }
+  /** The account the other machine named, as one of this machine's own account ids. */
+  private async account(provider: import("@ace/protocol").ProviderKind, name: string) {
+    if (provider === "acp")
+      throw new TargetRefusal(
+        "invalid",
+        "An ACP agent on another machine runs on its own login there; omit accountId.",
+      );
+    return machineAccount(this.deps.accounts?.() ?? [], provider, name, await this.host());
+  }
+  /** A model that needs no sign-in spends no account usage, so a limit never refuses it. */
+  private freeModel(
+    provider: import("@ace/protocol").ProviderKind,
+    instance: string,
+    model: string | undefined,
+  ): boolean {
+    const catalog = this.deps.models?.();
+    if (!catalog?.resolveCached || model === undefined) return false;
+    const resolved = catalog.resolveCached({ provider, instance, model, role: "delegate" });
+    return (
+      resolved.ok &&
+      modelsAvailableWithoutAuth([resolved.model], catalog.list({ provider, instance }).instances)
+    );
+  }
   /** A model the other machine named loosely ("opus 5.5"), as this machine's catalog id. */
-  private modelNamed(provider: import("@ace/protocol").ProviderKind, name: string): string {
+  private modelNamed(
+    provider: import("@ace/protocol").ProviderKind,
+    name: string,
+    account?: string,
+  ): string {
     const catalog = this.deps.models?.();
     if (!catalog) return name;
     try {
-      return accountModelName(catalog, { provider }, name);
+      return accountModelName(
+        catalog,
+        { provider, ...(account ? { instance: account } : {}) },
+        name,
+      );
     } catch (error) {
       if (error instanceof AgentControlError)
         throw new TargetRefusal("invalid", error.publicDetail ?? error.message);
@@ -274,14 +535,22 @@ export class TargetThreads {
     if (!engine) throw new TargetRefusal("unavailable");
     // A child still waiting for a slot settles cancelled without ever running.
     if (this.launches.cancel(threadId)) return { ok: true };
+    // Each cancel is its own attempt: a child that ignored an earlier interrupt, or ran again
+    // since one, is interrupted again. Interrupting a stopped thread changes nothing.
+    const attempt = `${this.deps.store.headSeq()}-${this.deps.now()}-${++this.cancelAttempts}`;
     const command = Command.parse({
-      id: `machine-cancel:${threadId}`,
+      id: `machine-cancel:${threadId}:${attempt}`,
       deviceId: device.id,
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
-    const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      engine.internalHandler.handle(command, commandContext(this.deps.store)),
-    );
+    // The parent's cancel is final, as for a child delegated here locally (ADR 0052): what it
+    // queued (a first message that was never sent, say) is retired, not held for a person here
+    // to resume, so the child settles and its parent stops waiting on it.
+    const result = this.deps.store.recordCommand(command.id, command.deviceId, () => {
+      engine.discardRecovery(threadId);
+      engine.cancelDelegatedInputs(threadId);
+      return engine.internalHandler.handle(command, commandContext(this.deps.store));
+    });
     return { ok: result.ok };
   }
   /**
@@ -307,9 +576,27 @@ export class TargetThreads {
       );
     const engine = this.deps.engine();
     if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
+    // While admission is closed (a pause, an update, a full disk) the message is kept, once, and
+    // delivered when it reopens; nothing starts meanwhile. One already delivered is answered as
+    // before, and one never overtakes a message held before it.
+    const delivered = this.deps.store.commandReceipt(
+      CommandId.parse(`machine-message:${key}`),
+      DeviceId.parse(device.id),
+    );
+    if (!delivered && (!this.admits() || this.held.waiting(call.threadId))) {
+      if (this.held.hold(key, device.id, call) === "full")
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine is holding too many messages while it takes no new work; send this one again once it does.",
+        );
+      this.resumeHeld();
+      return { arrival: "held" as const };
+    }
     try {
-      return this.deliver(device, call, engine, key);
+      return this.deliver(device.id, call, engine, key);
     } catch (error) {
+      // Live, a send the engine can't take now is answered as before.
+      if (error instanceof HeldBack) throw new TargetRefusal("unavailable", error.message, true);
       // Each refusal from here follows a step recorded under the request (the restart's stop, the
       // send, the queue move, the message's own fate), so every copy of the request gets the same
       // answer and none runs anew: the caller can stop sending it.
@@ -319,13 +606,13 @@ export class TargetThreads {
   }
   /** The message itself: each step is recorded under the request, so a retry repeats its answer. */
   private deliver(
-    device: Device,
+    deviceId: string,
     call: Extract<MachineCall, { op: "message" }>,
     engine: Engine,
     key: string,
   ) {
     const run = (id: string, payload: unknown): CommandResult => {
-      const command = Command.parse({ id, deviceId: device.id, payload });
+      const command = Command.parse({ id, deviceId, payload });
       return this.deps.store.recordCommand(command.id, command.deviceId, () =>
         engine.internalHandler.handle(command, commandContext(this.deps.store)),
       );
@@ -340,8 +627,7 @@ export class TargetThreads {
         threadId: call.threadId,
         cascade: true,
       });
-      if (!stopped.ok)
-        throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
+      if (!stopped.ok) refuse(`This machine could not stop it: ${stopped.error}`, stopped.error);
     }
     const id = CommandId.parse(`machine-message:${key}`);
     // New work reopens a child that settled before it ever ran: its old outcome goes in the
@@ -354,14 +640,13 @@ export class TargetThreads {
         delivery: restart ? "queue" : call.delivery,
         trigger: "parent_agent",
       });
-      if (result.ok) this.launches.reopen(call.threadId);
+      if (result.ok) {
+        this.launches.reopen(call.threadId);
+        this.outcomes.forget(call.threadId);
+      }
       return result;
     });
-    if (!sent.ok)
-      throw new TargetRefusal(
-        "unavailable",
-        `This machine did not take the message: ${sent.error}`,
-      );
+    if (!sent.ok) refuse(`This machine did not take the message: ${sent.error}`, sent.error);
     this.forgetNotice(call.threadId);
     const queue = engine.queue(call.threadId);
     if (restart && queue.messages[0]?.id !== id) {
@@ -377,6 +662,86 @@ export class TargetThreads {
     const reading = messageArrival(engine.messageFacts(call.threadId, id), restart);
     if (!reading.ok) throw new TargetRefusal("invalid", reading.hint);
     return { arrival: reading.arrival };
+  }
+  /**
+   * Asks for the messages held while admission was closed to be delivered, oldest first, once it
+   * is open: one bounded batch per scheduled tick, so a backlog never holds the event loop (ADR
+   * 0170). Safe to call any time; with nothing held, or admission closed, a tick does nothing.
+   */
+  resumeHeld(delayMs = 0): void {
+    if (this.closed || this.cancelHeld) return;
+    this.cancelHeld = this.deps.schedule(delayMs, () => {
+      this.cancelHeld = undefined;
+      this.replayHeld();
+    });
+  }
+  /** One batch. A message the engine can't take yet keeps its place, and the rest wait too. */
+  private replayHeld(): void {
+    // Closed again: the next reopen asks.
+    if (this.closed || !this.admits()) return;
+    const engine = this.deps.engine();
+    if (!engine) return this.heldLater();
+    let batch: ReturnType<HeldMessages["oldest"]>;
+    try {
+      batch = this.held.oldest(heldBatch, (key, error) =>
+        this.deps.report(new Error(`Held message ${key} can't be read; kept`, { cause: error })),
+      );
+    } catch (error) {
+      this.deps.report(error);
+      return this.heldLater();
+    }
+    if (!batch.length) {
+      this.heldBlocked = 0;
+      return;
+    }
+    for (const message of batch) {
+      if (!this.admits()) return;
+      if (this.replay(message, engine) === "later") return this.heldLater();
+    }
+    this.heldBlocked = 0;
+    this.resumeHeld();
+  }
+  /**
+   * Delivers one held message, in one transaction with its removal. A send the engine can't take
+   * now (full, starting, a busy or full store) rolls back whole, its failure receipt with it, and
+   * the message stays for a later try. Only a lasting answer ends it: its device lost access, its
+   * thread is gone, or this machine refuses it for good.
+   */
+  private replay(message: HeldMessage, engine: Engine): "done" | "later" {
+    const thread = this.deps.store.getThread(message.call.threadId);
+    try {
+      if (
+        !this.rejections.active({ id: DeviceId.parse(message.deviceId) }) ||
+        !thread ||
+        thread.deletedAt !== undefined
+      ) {
+        this.held.remove(message.key);
+        return "done";
+      }
+      this.deps.store.atomic(() => {
+        this.deliver(message.deviceId, message.call, engine, message.key);
+        this.held.remove(message.key);
+      });
+      return "done";
+    } catch (error) {
+      if (error instanceof HeldBack || isStoreRetry(error)) return "later";
+      this.deps.report(error);
+      if (!(error instanceof TargetRefusal)) return "later";
+      try {
+        this.held.remove(message.key);
+      } catch (removal) {
+        this.deps.report(removal);
+        return "later";
+      }
+      return "done";
+    }
+  }
+  /** Tries the held messages again after a backoff, up to 30 s, until they go in. */
+  private heldLater(): void {
+    this.resumeHeld(heldRetryMs(++this.heldBlocked));
+  }
+  private admits(): boolean {
+    return this.deps.admitsWork?.() !== false;
   }
   /** The person's answer from another device goes through this machine's own consent owners. */
   respond(device: Device, call: Extract<MachineCall, { op: "respond" }>) {
@@ -419,24 +784,40 @@ export class TargetThreads {
     if (waiting) return waiting;
     const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
     const rootIdle = !!root && ["idle", "blocked", "interrupted"].includes(root.status.state);
-    const state = watchedState(thread, undefined, false, rootIdle);
+    const engine = this.deps.engine();
     const notice = this.notice(threadId);
-    const settled = settledStates.has(state);
-    const base = {
+    const shared = {
       threadId,
-      state,
       title: clip(thread.title, 120),
-      elapsedSeconds: elapsedSeconds(
-        thread.createdAt,
-        settled ? thread.updatedAt : this.deps.now(),
-      ),
       status: thread.status,
       requests: this.requests(thread),
       ...(notice ? { notice } : {}),
     };
+    const kept = this.keptOutcome(thread);
+    if (kept) return { ...shared, ...kept };
+    const stoppedOnLimit = childStoppedOnLimit(thread, engine, this.deps.journal());
+    const state = stoppedOnLimit ? "failed" : watchedState(thread, undefined, false, rootIdle);
+    const settled = settledStates.has(state);
+    const base = {
+      ...shared,
+      state,
+      elapsedSeconds: elapsedSeconds(
+        thread.createdAt,
+        settled ? thread.updatedAt : this.deps.now(),
+      ),
+    };
     if (settled) {
-      const outcome = threadOutcome(store, thread, state === "cancelled");
-      return { ...base, result: outcome.result, truncated: outcome.truncated };
+      const account = threadAccount(thread, engine, this.deps.registry?.(), this.deps.now());
+      const outcome = threadOutcome(store, thread, state === "cancelled", account);
+      const view = {
+        state,
+        elapsedSeconds: base.elapsedSeconds,
+        ...(outcome.failure ? { failure: outcome.failure } : {}),
+        result: outcome.result,
+        truncated: outcome.truncated,
+      };
+      this.outcomes.save(threadId, view);
+      return { ...base, ...view };
     }
     const step = root ? agentStep(root.status) : undefined;
     const last = this.lastOutput(thread);
@@ -456,6 +837,25 @@ export class TargetThreads {
     };
   }
   /**
+   * The outcome the thread settled with, while it is still that stop. Anything live in its
+   * tree (a background task or retry that started without a new run, a request, a descendant,
+   * a resume ace has scheduled) means it went on, so the saved outcome is dropped and the live
+   * state is read instead.
+   */
+  private keptOutcome(thread: Thread): SettledView | undefined {
+    const engine = this.deps.engine();
+    if (
+      engine?.treeActive(thread.id) ||
+      (this.deps.journal()?.liveDescendants(thread.id).length ?? 0) > 0
+    ) {
+      // A read, not a write, on each look at a live thread.
+      if (this.outcomes.get(thread.id)) this.outcomes.forget(thread.id);
+      return undefined;
+    }
+    if (["needs_you", "working"].includes(thread.status.state)) return undefined;
+    return this.outcomes.get(thread.id);
+  }
+  /**
    * A thread whose task has not run: queued for a slot, which keeps the parent elsewhere open,
    * or settled before it started, which gives that parent its result.
    */
@@ -470,8 +870,9 @@ export class TargetThreads {
         ...base,
         state: "queued",
         elapsedSeconds: elapsedSeconds(thread.createdAt, this.deps.now()),
-        status: queuedStatus,
-        step: queuedStep,
+        // Its parent's machine reads why it waits: a free slot, or here the disk (ADR 0176).
+        status: queuedChildStatus(this.deps.storageFull?.() ? diskWait : undefined),
+        step: this.deps.storageFull?.() ? diskWaitStep : queuedStep,
       };
     // Work admitted since (a run starting clears the outcome) is never shown as the old outcome.
     const idle = ["new", "done", "failed"].includes(thread.status.state);

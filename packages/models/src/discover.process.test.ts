@@ -7,7 +7,6 @@ import {
   normalizeCodex,
   normalizeClaude,
   normalizeAcp,
-  normalizeOpenCode,
   openModelStorage,
 } from "./index.ts";
 import { Clock, codexPayload, deferred, fakeCli, instance, workspace } from "./testing/support.ts";
@@ -315,12 +314,6 @@ test("malformed native model metadata is rejected instead of producing picker ch
     normalizeAcp(
       { configOptions: [{ id: "model", type: "select", options: [{ value: 5, name: "Bad" }] }] },
       instance("acp"),
-    ),
-  ).toThrow();
-  expect(() =>
-    normalizeOpenCode(
-      'local/a\n{"id":"b","providerID":"local","name":"Bad"}',
-      instance("opencode"),
     ),
   ).toThrow();
 });

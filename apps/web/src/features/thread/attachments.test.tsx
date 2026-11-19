@@ -4,6 +4,7 @@ import { DeviceId, type Attachment, type ContentPart, type ContextResult } from 
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { editorText } from "@/test/editor-text.ts";
 import { harness } from "@/test/harness.tsx";
 
 /*
@@ -125,7 +126,9 @@ test("a native image captured after the answer arrives appears inline from its o
     ),
   ]);
   await within(feed).findByText(/in the chat/);
-  expect(within(feed).queryByRole("img", { name: "Remote result" })).toBeNull();
+  // Until the capture lands, the image has no bytes to show (markit draws its alt text).
+  const pending = await within(feed).findByRole("img", { name: "Remote result" });
+  expect(pending.getAttribute("src")).toBeNull();
   act(() =>
     app.daemon.apply("thread-shots", [
       {
@@ -140,46 +143,97 @@ test("a native image captured after the answer arrives appears inline from its o
       },
     ]),
   );
-  const image = await within(feed).findByRole("img", { name: "Remote result" });
+  await waitFor(() => expect(pending.getAttribute("src")).not.toBeNull());
+  const image = within(feed).getByRole("img", { name: "Remote result" });
   expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
   expect(image.closest("p")?.textContent).toContain("in the chat.");
   expect(image.closest("p")?.querySelector("div")).toBeNull();
 });
 
-test("source links open the thread checkout and links outside it download from the host", async () => {
+test("source links open the thread checkout and links outside it open beside the thread", async () => {
   const { app, feed } = await openMessage({}, [
     facts.message(
       "root",
       "answer",
       "assistant",
-      "Read [source](/work/shop/src/main.ts:12) and [the guide](</Users/me/Downloads/Study Guide.pdf>).",
+      "Read [source](/work/shop/src/main.ts:12), [the guide](</Users/me/Downloads/Study Guide.pdf>) and [the demo](/tmp/out/demo.webm).",
     ),
   ]);
+  const answer = app.daemon.itemId("thread-shots", "answer") ?? "";
   app.daemon.checkouts.seedLinked(
     "thread-shots",
-    app.daemon.itemId("thread-shots", "answer") ?? "",
+    answer,
     "/Users/me/Downloads/Study Guide.pdf",
     "%PDF guide",
   );
-  await userEvent.click(await within(feed).findByRole("button", { name: "source" }));
+  app.daemon.checkouts.seedLinked("thread-shots", answer, "/tmp/out/demo.webm", "webm bytes");
+  await userEvent.click(await within(feed).findByRole("link", { name: "source" }));
   await screen.findByRole("tab", { name: /main.ts/ });
+
+  await userEvent.click(within(feed).getByRole("link", { name: "the guide" }));
+  await screen.findByRole("tab", { name: /Study Guide\.pdf/ });
+  const guide = await screen.findByRole("region", { name: "Study Guide.pdf" });
+  const frame = await within(guide).findByTitle("Study Guide.pdf");
+  const pdf = objectUrls.get(frame.getAttribute("src") ?? "");
+  expect(pdf?.type).toBe("application/pdf");
+  expect(await pdf?.text()).toBe("%PDF guide");
+
+  // Download still saves the original under its name.
   const downloads: { name: string; blob: Blob | undefined }[] = [];
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
     this: HTMLAnchorElement,
   ) {
     downloads.push({ name: this.download, blob: objectUrls.get(this.href) });
   });
-  await userEvent.click(within(feed).getByRole("button", { name: "the guide" }));
+  await userEvent.click(screen.getByRole("button", { name: "Download Study Guide.pdf" }));
   await waitFor(() => expect(downloads).toHaveLength(1));
   expect(downloads[0]?.name).toBe("Study Guide.pdf");
   expect(await downloads[0]?.blob?.text()).toBe("%PDF guide");
+
+  await userEvent.click(within(feed).getByRole("link", { name: "the demo" }));
+  const demo = await screen.findByRole("region", { name: "demo.webm" });
+  const video = await within(demo).findByLabelText("demo.webm");
+  expect(video.tagName).toBe("VIDEO");
+  expect(await objectUrls.get(video.getAttribute("src") ?? "")?.text()).toBe("webm bytes");
+});
+
+test("absolute paths an answer writes as code or prose open beside the thread, inside the project or not", async () => {
+  const { app, feed } = await openMessage({}, [
+    facts.message(
+      "root",
+      "answer",
+      "assistant",
+      "Saved `/Users/me/Downloads/report.pdf`; the build wrote /work/shop/dist/build.log:3.",
+    ),
+  ]);
+  const answer = app.daemon.itemId("thread-shots", "answer") ?? "";
+  app.daemon.checkouts.seedLinked(
+    "thread-shots",
+    answer,
+    "/Users/me/Downloads/report.pdf",
+    "%PDF report",
+  );
+  app.daemon.checkouts.seedLinked("thread-shots", answer, "/work/shop/dist/build.log", "built\n");
+
+  await userEvent.click(
+    await within(feed).findByRole("link", { name: "/Users/me/Downloads/report.pdf" }),
+  );
+  const report = await screen.findByRole("region", { name: "report.pdf" });
+  const frame = await within(report).findByTitle("report.pdf");
+  expect(await objectUrls.get(frame.getAttribute("src") ?? "")?.text()).toBe("%PDF report");
+
+  // Under the project but not in its file index (build output): still opens.
+  await userEvent.click(within(feed).getByRole("link", { name: "/work/shop/dist/build.log:3" }));
+  const log = await screen.findByRole("region", { name: "build.log" });
+  const contents = await within(log).findByLabelText("Contents of build.log");
+  await waitFor(() => expect(contents.textContent).toContain("built"));
 });
 
 test("a link outside the checkout that the host can't serve says so", async () => {
   const { feed } = await openMessage({}, [
     facts.message("root", "answer", "assistant", "See [other](/remote/other/main.ts)."),
   ]);
-  await userEvent.click(await within(feed).findByRole("button", { name: "other" }));
+  await userEvent.click(await within(feed).findByRole("link", { name: "other" }));
   expect(await screen.findByRole("heading", { name: "Couldn't open main.ts" })).toBeTruthy();
 });
 
@@ -260,8 +314,9 @@ test("a delayed capture outside the loaded transcript refreshes the answer's ima
     ),
     facts.message("root", "latest-chart", "assistant", "![Delayed chart](./home.png)"),
   ];
-  const { app, feed } = await openMessage({}, old, "Delayed chart");
-  await within(feed).findByText("Delayed chart");
+  const { app, feed } = await openMessage({}, old, "Older message 204");
+  const pending = await within(feed).findByRole("img", { name: "Delayed chart" });
+  expect(pending.getAttribute("src")).toBeNull();
   act(() =>
     app.daemon.apply("thread-shots", [
       {
@@ -283,7 +338,8 @@ test("a delayed capture outside the loaded transcript refreshes the answer's ima
       },
     ]),
   );
-  const image = await within(feed).findByRole("img", { name: "Delayed chart" }, { timeout: 3000 });
+  await waitFor(() => expect(pending.getAttribute("src")).not.toBeNull(), { timeout: 3000 });
+  const image = within(feed).getByRole("img", { name: "Delayed chart" });
   expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
 });
 
@@ -470,13 +526,12 @@ test("a saved artifact opens its checkout file and downloads the original bytes"
   expect(within(feed).getByText("src/index.ts")).toBeTruthy();
   expect(feed.textContent).not.toContain("/work/shop");
   await user.click(within(panel).getByRole("button", { name: "Edit file" }));
-  const draft = await within(panel).findByRole("textbox", { name: "Edit src/index.ts" });
-  await user.type(draft, "\n// Unsaved note");
+  const draft = await within(panel).findByRole("textbox", { name: "index.ts" });
+  await user.click(draft);
+  await user.keyboard("{Control>}{End}{/Control}{Enter}// Unsaved note");
   await user.click(within(feed).getByRole("button", { name: "Open saved file" }));
-  expect(
-    (within(panel).getByRole("textbox", { name: "Edit src/index.ts" }) as HTMLTextAreaElement)
-      .value,
-  ).toContain("// Unsaved note");
+  const editing = await within(panel).findByRole("region", { name: "Editing src/index.ts" });
+  expect(editorText(editing)).toContain("// Unsaved note");
 });
 
 /*
@@ -643,25 +698,11 @@ test("a refused copy says what happened instead of failing silently", async () =
       const img = within(dialog).getByRole("img", { name: "big.png" });
       expect(objectUrls.get(img.getAttribute("src") ?? "")?.size).toBe(fullBytes.length);
     });
-    vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(new Error("denied"));
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(
+      new Error("Document is not focused."),
+    );
     await user.click(await within(dialog).findByRole("button", { name: "Copy image" }));
-    expect(
-      await screen.findByRole("alertdialog", { name: "Couldn't copy the image" }),
-    ).toBeTruthy();
+    const toast = await screen.findByRole("alertdialog", { name: "Couldn't copy the image" });
+    expect(within(toast).getByText("Document is not focused.")).toBeTruthy();
   });
-});
-
-test("download triggers a save of the full image under its own name", async () => {
-  const clicked: HTMLAnchorElement[] = [];
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    clicked.push(this);
-  });
-  const { feed } = await openBig();
-  const { dialog } = await openLightbox(feed);
-  within(dialog).getByRole("link", { name: "Download" }).click();
-  expect(clicked).toHaveLength(1);
-  expect(clicked[0]?.getAttribute("download")).toBe("big.png");
-  expect(objectUrls.get(clicked[0]?.getAttribute("href") ?? "")?.size).toBe(fullBytes.length);
 });

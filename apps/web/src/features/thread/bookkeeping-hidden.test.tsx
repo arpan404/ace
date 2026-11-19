@@ -31,7 +31,7 @@ async function turnEndedLeaving(left: readonly Fact[]) {
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${id}`);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: new RegExp(`^${title}`) },
   );
@@ -88,8 +88,10 @@ test("a thread whose only open work stands for a subagent waits on 1 subagent, i
 
 test("ace's own bookkeeping holds the thread open but no surface lists or names it", async () => {
   const { row } = await turnEndedLeaving([bookkeeping]);
-  // Something still holds the thread: never Done, yet nothing is counted or named.
-  expect(await within(row).findByText("Background", { exact: true })).toBeTruthy();
+  // Something still holds the thread: its row's status says it still runs in the background,
+  // never Done, yet nothing is counted or named.
+  const status = await within(row).findByRole("img", { name: "Running in background" });
+  expect(status.querySelector('[data-icon="background"]')).toBeTruthy();
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
   expect(screen.queryByRole("status", { name: /^Running \d|^Waiting for/ })).toBeNull();
   expect(screen.queryByText(/exceeded its limit/)).toBeNull();

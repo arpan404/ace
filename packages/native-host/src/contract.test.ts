@@ -56,10 +56,36 @@ const platform = (without: ("inflate" | "trace")[] = []) => {
     DecompressionStream?: typeof DecompressionStream;
     atob: typeof atob;
     btoa: typeof btoa;
+    AbortController: typeof AbortController;
+    AbortSignal: typeof AbortSignal;
   };
 };
 
 describe("Web APIs backed by the host", () => {
+  it("combines cancellation signals and preserves the first abort reason", () => {
+    const { AbortController, AbortSignal } = platform();
+    const first = new AbortController();
+    const second = new AbortController();
+    const combined = AbortSignal.any([first.signal, second.signal]);
+    let aborts = 0;
+    combined.addEventListener("abort", () => aborts++);
+    second.abort("cancelled read");
+    first.abort("later cancellation");
+    expect(combined.aborted).toBe(true);
+    expect(combined.reason).toBe("cancelled read");
+    expect(aborts).toBe(1);
+    expect(AbortSignal.any([second.signal]).reason).toBe("cancelled read");
+  });
+
+  it("aborts an expired deadline through the host timer", async () => {
+    const { AbortSignal } = platform();
+    const signal = AbortSignal.timeout(1);
+    expect(signal.aborted).toBe(false);
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toMatchObject({ name: "TimeoutError" });
+  });
+
   it("encodes into a short buffer only the whole characters that fit", () => {
     const { TextEncoder } = platform();
     const destination = new Uint8Array(5);
@@ -104,6 +130,13 @@ describe("Web APIs backed by the host", () => {
       "?x=1",
     ]);
     expect(() => new URL("/v1/socket")).toThrow(TypeError);
+  });
+
+  it("answers URL.parse with the URL, or null where the constructor throws", () => {
+    const { URL } = platform();
+    expect(URL.parse("wss://relay.example.test/client")?.host).toBe("relay.example.test");
+    expect(URL.parse("/v1/socket")).toBeNull();
+    expect(URL.canParse("https://192.168.1.4:7443")).toBe(true);
   });
 
   it("round-trips binary strings through base64", () => {

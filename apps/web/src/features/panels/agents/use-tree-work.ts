@@ -56,6 +56,7 @@ export function useTreeWork(threadId: string) {
       agents: allAgents,
       tasks: allTasks,
       interactions: pending,
+      status,
       work: agentTreeWork(allAgents, allTasks, pending, status),
     }),
     [allAgents, allTasks, pending, status],

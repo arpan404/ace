@@ -8,6 +8,8 @@ struct PlanRequest: Codable, Sendable, Equatable {
     let markdown: String
     let truncated: Bool
     let todos: [Todo]
+    /// The strip's one line, "Plan ready · Kill-all filters · 3 steps"; nil from older bridges.
+    var line: String? = nil
 }
 /// An MCP server's form or consent page. Values travel as typed text; the bridge validates them.
 struct FormRequest: Codable, Sendable, Equatable {
@@ -33,7 +35,12 @@ struct FormRequest: Codable, Sendable, Equatable {
     let fields: [Field]
 }
 /// A browser tab on the agent's machine that needs the person.
-struct HelpRequest: Codable, Sendable, Equatable { let title: String; let detail: String }
+struct HelpRequest: Codable, Sendable, Equatable {
+    let title: String
+    let detail: String
+    /// Mirrored from another machine: its tab is there, not in this thread's browser.
+    var elsewhere: Bool? = nil
+}
 
 /// Effort and speed for the next message (`bridge/thread-tune.ts`).
 struct TuneRow: Codable, Sendable, Equatable {
@@ -54,6 +61,9 @@ struct TuneRow: Codable, Sendable, Equatable {
     let pending: Bool
     let canReset: Bool
     let notice: String
+    /// The model's own default level and speed, which the model sheet marks.
+    var effortPreset: String? = nil
+    var speedPreset: String? = nil
 }
 /// The thread's access (`bridge/thread-access.ts`): the mode in effect, or the one picked to
 /// replace it at the agent's next turn, and the modes its provider supports. `state` "none" has
@@ -75,10 +85,53 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let state: String
     let progress: Double
     let error: String
+    /// The file's type, for drawing a video; absent from older bridges.
+    var mimeType: String? = nil
+    /// A file the thread already stores, carried from an edited message: read through that message.
+    var carried: Carried? = nil
+    struct Carried: Codable, Sendable, Equatable { let itemId: String; let ref: String; let thumbnail: Bool }
+}
+/// One browser annotation on the next message (`bridge/thread-annotations.ts`): its marker's
+/// number, the comment, what was pinned, and its crop's upload.
+struct AnnotationChip: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let number: Int
+    let comment: String
+    let region: Bool
+    let label: String
+    /// The crop staged on the phone, for its thumbnail.
+    let image: String?
+    /// uploading, ready or failed.
+    let state: String
+}
+/// A passage of an agent's message the next message replies to (`bridge/thread-quotes.ts`).
+struct QuoteChip: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let text: String
 }
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
 /// opens (`agents`, `queue`, `goal`; empty opens nothing).
+/// What leads a composer strip's sentence: the asking agent's provider mark, or a status icon
+/// and its colour (`StripLead` in `@ace/ui-core/mobile`).
+struct StripLeadRow: Codable, Sendable, Equatable {
+    var provider: String? = nil
+    var icon: String? = nil
+    var tone: String? = nil
+}
+/// One composer strip's words (`StripLine`): the sentence, and at most one line under it, a mono
+/// payload (a command, a path) or a muted detail (the question asked).
+struct StripLineRow: Codable, Sendable, Equatable {
+    let lead: StripLeadRow
+    let sentence: String
+    var payload: String = ""
+    var detail: String = ""
+}
+/// Commands a stopped or finished turn left running: their strip, and the tasks its Stop ends.
+struct LeftRunningRow: Codable, Sendable, Equatable {
+    let strip: StripLineRow
+    let taskIds: [String]
+}
 struct PillRow: Codable, Sendable, Equatable {
     struct Status: Codable, Sendable, Equatable {
         /// "Working", "Waiting on 2", "Running".
@@ -100,10 +153,20 @@ struct PillRow: Codable, Sendable, Equatable {
         let label: String
         let opens: String
         let live: Bool
+        /// A goal's progress ("182K tokens · 32m 0s · 3 checks"); empty or nil when none.
+        var detail: String? = nil
         var id: String { kind }
+    }
+    /// Which live facts the pill names (`pillCovers` in `bridge/thread-pill.ts`).
+    struct Covers: Codable, Sendable, Equatable {
+        let subagents: Bool
+        let commands: Bool
+        static let nothing = Covers(subagents: false, commands: false)
     }
     let status: Status?
     let segments: [Segment]
+    /// Nil from older bridges: the pill names nothing, and the transcript keeps its live rows.
+    var covers: Covers? = nil
 }
 /// The goal's sheet: its words, progress and the changes ace can make to it.
 struct GoalRow: Codable, Sendable, Equatable {
@@ -131,6 +194,14 @@ struct StepsHeader: Codable, Sendable, Equatable {
     var thoughts: [BlockRow.Thought]? = nil
 }
 
+/// A move the bridge wants confirmed first: the row it was for and the question, by request.
+struct SwitchAsk: Decodable, Sendable, Equatable {
+    let id: String
+    let key: String
+    let account: String
+    let ask: ThreadModels.Ask
+}
+
 /// The thread screen's patches beyond blocks and controls: finished steps, effort and speed,
 /// attachments and a subagent's lane. Scoped to the thread and navigation generation like the rest.
 enum ScreenPatch: Sendable {
@@ -140,24 +211,57 @@ enum ScreenPatch: Sendable {
     case stepsReleased(ordinal: Int)
     case tune(TuneRow)
     case access(ThreadAccessRow)
-    case attachments([AttachmentFile])
+    /// `locked`: why no file can be added now (a new thread is starting from this message).
+    case attachments([AttachmentFile], locked: String?)
+    case annotations([AnnotationChip])
+    /// The passages the next message replies to; `full` once no more fit; `kept`, each whole for
+    /// the draft to keep.
+    case quotes([QuoteChip], full: Bool, kept: [DraftQuote])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
-    case pill(PillRow?, GoalRow?)
+    /// What the open lane's subagent is: its prompt, branch state, requests and controls.
+    case laneInfo(lane: String, info: SubagentInfo?)
+    case pill(PillRow?, GoalRow?, LeftRunningRow?)
+    /// The next message started a new thread carrying this one's context: open it.
+    case continued(String)
+    /// A move sent without the question it needs (the rows were older than the thread): ask it.
+    case switchAsk(SwitchAsk)
+    /// What stops the checkout, or nil when nothing does.
+    case work(WorkLine?)
+    /// What the thread's menu and messages offer: Retry's answer, the last turn, the parent.
+    case transitions(TransitionsRow)
+    /// The fork written in the composer; nil once it is closed or started.
+    case fork(ForkDraftRow?)
+    /// What bringing this fork back to its parent starts with.
+    case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal }
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.quotes", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, leftRunning, opened, draft, items, info, full, kept }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
         case "thread.steps": self = .steps(try StepsHeader(from: decoder))
         case "thread.stepsPage":
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
+        case "thread.continued": self = .continued(try box.decode(String.self, forKey: .opened))
+        case "thread.switchAsk": self = .switchAsk(try SwitchAsk(from: decoder))
+        case "thread.work": self = .work(try box.decodeIfPresent(WorkLine.self, forKey: .row))
         case "thread.stepsReleased": self = .stepsReleased(ordinal: try box.decode(Int.self, forKey: .ordinal))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
-        case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
-        case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
+        case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal),
+                                         try? box.decodeIfPresent(LeftRunningRow.self, forKey: .leftRunning))
+        case "thread.attachments":
+            self = .attachments(try box.decode([AttachmentFile].self, forKey: .files), locked: try box.decodeIfPresent(String.self, forKey: .locked))
+        case "thread.transitions": self = .transitions(try TransitionsRow(from: decoder))
+        case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
+        case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
+        case "thread.annotations": self = .annotations(try box.decode([AnnotationChip].self, forKey: .items))
+        case "thread.quotes":
+            self = .quotes(try box.decode([QuoteChip].self, forKey: .items), full: try box.decodeIfPresent(Bool.self, forKey: .full) ?? false,
+                           kept: try box.decodeIfPresent([DraftQuote].self, forKey: .kept) ?? [])
+        case "thread.laneInfo":
+            self = .laneInfo(lane: try box.decode(String.self, forKey: .lane), info: try box.decodeIfPresent(SubagentInfo.self, forKey: .info))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

@@ -6,13 +6,17 @@ import {
   ledgerOf,
   startedThreadOf,
   subagentLabels,
-  subagentStatusCounts,
+  subagentGroupCounts,
+  subagentGroupTitle,
   subagentStatusLine,
+  rollupSubagent,
   agentName,
   blockRoom,
   closedMeta,
   closedQuestionWords,
   questionTitle,
+  readTurnActivity,
+  timedWords,
   subagentDetail,
   subagentElapsed,
   subagentGroupStatus,
@@ -25,11 +29,33 @@ import {
   summarizeWork,
   thoughtMs,
   workCounts,
+  receiptEntry,
+  receiptResults,
+  resultLead,
+  turnSubagents,
   type SubagentGroupStatus,
   type SubagentState,
 } from "@ace/ui-core";
 import type { StatusToken } from "@ace/ui-core/mobile";
-import { readSubagentGroup, type SubagentEntry } from "@ace/ui-core/subagent-group";
+import {
+  readSubagentGroup,
+  readSubagentResults,
+  type SubagentEntry,
+} from "@ace/ui-core/subagent-group";
+
+/**
+ * A delegated child's state as the thread list has it (`listedSubagentState`): after a reconnect
+ * it can be newer than the parent's copy on the launch row. Undefined while the list can't say.
+ */
+export type ListedState = (threadId: string) => SubagentState | undefined;
+
+/** An entry at the worse of its own state and the list's: never ended while either says it runs. */
+function rolledUp(entry: SubagentEntry, listed: ListedState | undefined): SubagentEntry {
+  const known = entry.childThreadId ? listed?.(entry.childThreadId) : undefined;
+  const state = known ? rollupSubagent(entry.state, known) : entry.state;
+  if (state === entry.state) return entry;
+  return { ...entry, state, endedAt: subagentTerminal(state) ? entry.endedAt : undefined };
+}
 import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
@@ -37,8 +63,8 @@ import { preview } from "./presentation.ts";
 import { endingRow, filesRow } from "./turn-ending.ts";
 import { backgroundRows } from "./background-rows.ts";
 import { stepContext } from "./thread-rows.ts";
-import { workLog, type LogFacts } from "./work-log.ts";
-import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
+import { placedWorkLog, type LogFacts, type PlacedMoment } from "./work-log.ts";
+import { eventFollows, messageBlock, momentRow, streamingOf } from "./thread-messages.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
 
 /*
@@ -76,6 +102,22 @@ const tokens: Record<SubagentState, StatusToken> = {
   cancelled: "neutral",
   done: "done",
 };
+
+type MomentBlock = Extract<Block, { kind: "moment" }>;
+
+/** The moments a settled head folds (restarts, a limit's wait, results landing), in order. */
+function foldedMoments(block: WorkBlock): MomentBlock[] {
+  return (block.folded ?? []).filter((inner): inner is MomentBlock => inner.kind === "moment");
+}
+
+/**
+ * Where an opened head places its moments among its steps: by when each began. The answer shown
+ * under the head stays out.
+ */
+export function placedMoments(block: Block | undefined): PlacedMoment[] {
+  if (block?.kind !== "work") return [];
+  return foldedMoments(block).map((moment) => ({ id: moment.key, at: moment.at }));
+}
 
 /** A folded head's steps, without the answer shown under it. */
 function workItems(block: WorkBlock): string[] {
@@ -145,14 +187,48 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
     result: preview(entry.result ?? "", 512),
     meta: preview(subagentMeta(entry) ?? "", 128),
     machine: preview(entry.machine ?? "", 128),
+    /** That machine's host id, so the phone opens the child there; empty when unknown. */
+    machineHost: entry.machineHost ?? "",
     detail: preview(detail ?? "", 256),
     detailKind: kind ?? "",
     ...elapsedRow(subagentElapsed({ ...entry, running: subagentRunning(entry.state) }, fresh)),
   };
 }
 
-function subagents(store: ThreadSource, ids: readonly string[]) {
-  const entries = readSubagentGroup(store, ids).value;
+/** The children receipts of delegated work delivered, each at its latest result. */
+function received(store: ThreadSource, receiptIds: readonly string[]): SubagentEntry[] {
+  const { results, deliveredAt } = receiptResults(receiptIds.map((id) => store.item(id)));
+  const threads = new Set(results.map((result) => result.threadId));
+  const launches = new Map(
+    readSubagentResults(store, threads).value.map((entry) => [entry.childThreadId, entry]),
+  );
+  return results.map((result) =>
+    receiptEntry(
+      result,
+      launches.get(result.threadId),
+      undefined,
+      deliveredAt,
+      resultLead(result.result),
+    ),
+  );
+}
+
+function subagents(
+  store: ThreadSource,
+  ids: readonly string[],
+  listed: ListedState | undefined,
+  receiptIds: readonly string[] = [],
+) {
+  const launched = readSubagentGroup(store, ids).value.map((entry) => rolledUp(entry, listed));
+  // A completed turn's group also holds the children it was handed work by receipts.
+  // Receipts' children read at the worse of what they delivered and what the list says now, so
+  // one launched earlier that took new work or waits on the person never reads done here.
+  const entries = receiptIds.length
+    ? turnSubagents(
+        launched,
+        received(store, receiptIds).map((entry) => rolledUp(entry, listed)),
+      )
+    : launched;
   const states = entries.map((entry) => entry.state);
   // A copy the daemon hasn't confirmed shows its last-seen states and never live activity.
   const fresh = store.unconfirmed !== true;
@@ -160,13 +236,31 @@ function subagents(store: ThreadSource, ids: readonly string[]) {
   const slots = providerSlots(entries.map((entry) => entry.provider));
   return {
     status: preview(subagentStatusLine(states), 256),
-    title: `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`,
+    /** "2 subagents" while any works or waits, "2 subagents ran" once all have ended. */
+    title: subagentGroupTitle(states),
+    /**
+     * Any child still works, waits or asks: the pill over the composer says it while it shows,
+     * and the transcript keeps the group as the record once every child has ended.
+     */
+    live: states.some((state) => !subagentTerminal(state)),
+    /**
+     * Every child still at work is one the thread's live tree counts, the tree the pill and the
+     * Agents sheet read. False when the group knows a live child the tree doesn't (a delegated
+     * child the list shows working while the parent's copy is stale): only this row shows it.
+     */
+    counted: entries.every(
+      (entry) =>
+        subagentTerminal(entry.state) ||
+        (entry.agentId !== undefined && turnTreeOf(store).countsAgent(entry.agentId)),
+    ),
+    /** One child still at work shows as its own row; otherwise the group folds. */
+    single: entries.length === 1 && !subagentTerminal(states[0] ?? "done"),
     /** The group reads as its worst child: needs you, failed, working, done. */
     token: groupTokens[subagentGroupStatus(states)],
     /** "Last seen: " leads the counts while a running group's facts are stale. */
     stale: !fresh && span?.running === true,
     /** The status line's parts, worst first, each in its own status colour: "2 working". */
-    counts: subagentStatusCounts(states).map((part) => ({
+    counts: subagentGroupCounts(states).map((part) => ({
       text: `${part.count} ${part.word}`,
       token: tokens[part.state],
     })),
@@ -204,6 +298,26 @@ function questionLine(store: ThreadSource, interactionId: string) {
   };
 }
 
+/**
+ * The turn's live line while the agent compacts its context: "Compacting context", ticking from
+ * when the stretch began (the shared turn activity). Any other work is the pill's to say: null.
+ */
+function compactingLine(store: ThreadSource) {
+  const thread = store.thread;
+  const rootId = thread?.rootAgentId ?? "";
+  const status = store.agent(rootId)?.status;
+  if (status?.state !== "working" || status.activity !== "compacting") return null;
+  const activity = readTurnActivity(store, rootId, { threadStatus: thread?.status }).activity;
+  if (!activity) return null;
+  const label = preview(activity.label, 256);
+  /** "Compacting context for", before the ticking time. */
+  return {
+    label,
+    timed: preview(timedWords(activity.label), 256),
+    since: activity.elapsedFrom ?? null,
+  };
+}
+
 /** What a log of this thread reads with: its turns' ends, thoughts' times, steps' contexts. */
 export function logFacts(store: ThreadSource): LogFacts {
   return {
@@ -225,7 +339,12 @@ function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined
   return undefined;
 }
 
-export function blockRow(store: ThreadSource, block: Block, index: number | undefined) {
+export function blockRow(
+  store: ThreadSource,
+  block: Block,
+  index: number | undefined,
+  listed?: ListedState,
+) {
   const read = (id: string) => store.item(id);
   // A step whose turn is over is settled, whatever its stream last said.
   const facts = logFacts(store);
@@ -251,12 +370,21 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     case "work": {
       const items = workItems(block);
       const background = backgroundRows(store, items);
-      const log = workLog(items, read, { ...facts, background });
+      const folded = foldedMoments(block);
+      // A moment's own items read as its row, never as steps.
+      const own = new Set(folded.flatMap((moment) => moment.itemIds));
+      const steps = own.size ? items.filter((id) => !own.has(id)) : items;
+      const log = placedWorkLog(steps, read, placedMoments(block), { ...facts, background });
       return {
         ...base,
         items,
         work: workSummary(store, block, items),
         log: log.rows,
+        /** Its moments' rows, which an opened log draws in place; nothing shows them folded. */
+        moments: folded.map((moment) => ({
+          id: moment.key,
+          event: momentRow(store, moment.moment, moment.itemIds, moment.since),
+        })),
         background,
         aceSteps: log.ace,
         retried: log.retried,
@@ -265,7 +393,11 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       };
     }
     case "subagents":
-      return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds) };
+      return {
+        ...base,
+        items: [...blockItems(block)],
+        agents: subagents(store, block.itemIds, listed, block.receiptIds),
+      };
     case "question":
       return {
         ...base,
@@ -275,18 +407,15 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       };
     case "end": {
       const items = block.itemIds ?? [];
-      // A usage-limit pause keeps the work it did, a tap away.
-      const background = block.ending === "paused" ? backgroundRows(store, items) : [];
-      const log = block.ending === "paused" ? workLog(items, read, { ...facts, background }) : null;
       return {
         ...base,
         items: [...items],
         ending: endingRow(store, block),
-        log: log?.rows ?? null,
-        background,
-        aceSteps: log?.ace ?? [],
-        retried: log?.retried ?? [],
-        thoughts: log?.thoughts ?? [],
+        log: null,
+        background: [],
+        aceSteps: [],
+        retried: [],
+        thoughts: [],
       };
     }
     case "files":
@@ -311,7 +440,17 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     case "forked":
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
-      return base;
+      return { ...base, live: compactingLine(store) };
+    case "moment": {
+      // One row for the whole moment, drawn as an event row on its first item.
+      const items = block.itemIds.slice(0, 1);
+      return {
+        ...base,
+        kind: "event",
+        items,
+        event: momentRow(store, block.moment, block.itemIds, block.since),
+      };
+    }
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
@@ -334,7 +473,14 @@ export function followBlocks(
   store: ThreadSource,
   put: Put,
   scope?: BlockScope,
-): { tap: ChangeTap; block(key: string): Block | undefined } {
+  listed?: ListedState,
+): {
+  tap: ChangeTap;
+  /** The thread list moved: subagent groups redraw with their children's listed states. */
+  relist(): void;
+  block(key: string): Block | undefined;
+  snapshot(): readonly Block[];
+} {
   turnTreeOf(store);
   ledgerOf(store);
   const read = createBlockReader(scope?.agentId);
@@ -352,6 +498,10 @@ export function followBlocks(
   const ordered = new Set<string>();
   /** An event block's one item → that block, which redraws when the item does. */
   const single = new Map<string, string>();
+  /** Every shown answer's item → its block, so its item changes find it in one lookup. */
+  const answers = new Map<string, string>();
+  /** The answers among them still streaming; one redraws as it stops or starts again. */
+  const answering = new Set<string>();
   const emit = (key: string) =>
     put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
@@ -359,7 +509,7 @@ export function followBlocks(
         type,
         ...lane,
         id: key,
-        row: block ? blockRow(store, block, positions.get(key)) : null,
+        row: block ? blockRow(store, block, positions.get(key), listed) : null,
       };
     });
   const forget = (key: string) => {
@@ -368,18 +518,31 @@ export function followBlocks(
     const block = blocks.get(key);
     if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
       if (single.get(block.itemId) === key) single.delete(block.itemId);
+    if (block?.kind === "moment")
+      for (const id of block.itemIds) if (single.get(id) === key) single.delete(id);
+    if (block?.kind === "message" && answers.get(block.itemId) === key) {
+      answers.delete(block.itemId);
+      answering.delete(block.itemId);
+    }
     if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")
       following.add(block.key);
-    // An answer's streaming ends with its turn; its own deltas never touch the block.
-    if (block.kind === "message" && streamingOf(store, store.item(block.itemId)))
-      following.add(block.key);
+    // An answer's streaming ends with its turn or its item; its own deltas never touch the block.
+    if (block.kind === "message") {
+      answers.set(block.itemId, block.key);
+      if (streamingOf(store, store.item(block.itemId))) {
+        following.add(block.key);
+        answering.add(block.itemId);
+      }
+    }
     if (block.kind === "user" || block.kind === "event" || block.kind === "item") {
       single.set(block.itemId, block.key);
       if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
     }
+    // A moment's row reads every item it gathers.
+    if (block.kind === "moment") for (const id of block.itemIds) single.set(id, block.key);
     if (block.kind !== "work") return;
     if (block.ongoing || block.outcome === undefined) following.add(block.key);
     for (const id of workItems(block))
@@ -434,6 +597,8 @@ export function followBlocks(
       blocks = new Map();
       positions.clear();
       counted.clear();
+      answers.clear();
+      answering.clear();
       following.clear();
       ordered.clear();
       single.clear();
@@ -444,16 +609,45 @@ export function followBlocks(
         if (structural.has(key) || watch.has(key)) regroup = true;
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
+        // Catching up or caught up: a streaming answer's Writing goes or comes back. A settled
+        // answer can stay following while its block is unchanged; it has no Writing to move.
+        if (key === "sync")
+          for (const shownId of following) {
+            const shown = blocks.get(shownId);
+            if (shown?.kind === "message" && streamingOf(store, store.item(shown.itemId)))
+              touched.add(shownId);
+          }
         if (key.startsWith("item:")) {
           const id = key.slice(5);
           for (const block of counted.get(id) ?? []) touched.add(block);
           const block = single.get(id);
+          // An answer finished before its turn, or its provider opened it again (`item.upsert`
+          // may set `complete` back to false): its streaming and Writing move now. A delta costs
+          // one lookup and never redraws it.
+          const answer = answers.get(id);
+          if (answer) {
+            const streaming = streamingOf(store, store.item(id));
+            if (streaming !== answering.has(id)) {
+              if (streaming) {
+                answering.add(id);
+                following.add(answer);
+              } else {
+                answering.delete(id);
+                following.delete(answer);
+              }
+              touched.add(answer);
+            }
+          }
           if (block) touched.add(block);
           // A launch updates in place to its child's status, outcome and result: its group
           // redraws, since no receipt row says it for the group (`buildBlocks`).
           for (const shownId of following) {
             const shown = blocks.get(shownId);
-            if (shown?.kind === "subagents" && shown.itemIds.includes(id)) touched.add(shownId);
+            if (
+              shown?.kind === "subagents" &&
+              (shown.itemIds.includes(id) || shown.receiptIds?.includes(id))
+            )
+              touched.add(shownId);
           }
         }
         if (key === "order") for (const block of ordered) touched.add(block);
@@ -465,5 +659,8 @@ export function followBlocks(
     }
     for (const key of touched) emit(key);
   };
-  return { tap, block: (key) => blocks.get(key) };
+  const relist = () => {
+    for (const [key, block] of blocks) if (block.kind === "subagents") emit(key);
+  };
+  return { tap, relist, block: (key) => blocks.get(key), snapshot: () => [...blocks.values()] };
 }

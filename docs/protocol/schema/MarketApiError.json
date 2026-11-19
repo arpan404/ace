@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketApiError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "$ref": "https://ace.local/protocol/v1/MarketApiErrorCode.json"
+    },
+    "message": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketProblem.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+    }
+  },
+  "required": [
+    "error",
+    "message"
+  ],
+  "type": "object"
+}

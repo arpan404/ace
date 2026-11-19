@@ -1,6 +1,6 @@
 import { findAndroidTools } from "@ace/devices/android-tools";
 import { findExecutable } from "@ace/provider-kit/discovery";
-import { probeOutput } from "@ace/provider-kit/process";
+import { probeOutput, type ProbeThread } from "@ace/provider-kit/process";
 import type { Toolchain } from "@ace/protocol";
 
 type Run = (command: string, args: string[]) => Promise<string | undefined>;
@@ -18,6 +18,26 @@ function adbToolsVersion(output: string | undefined): string | undefined {
 }
 
 /**
+ * A tool's version command as a bounded probe: its output, or undefined when it fails. The
+ * probes run on `thread`, else on the package's own probe worker.
+ */
+export function toolchainProbe(env: NodeJS.ProcessEnv, thread?: ProbeThread): Run {
+  return async (command, args) => {
+    try {
+      const result = await probeOutput(command, args, {
+        env,
+        timeoutMs: 5000,
+        maxBytes: 4096,
+        ...(thread ? { thread } : {}),
+      });
+      return result.code === 0 ? result.stdout.trim().slice(0, 2048) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+/**
  * Tools ace uses but never bundles: git (workspaces, review), Xcode (iOS Simulator) and the
  * Android tools (adb for phones, network devices and emulators). Missing tools get a setup hint
  * instead of an error.
@@ -25,14 +45,7 @@ function adbToolsVersion(output: string | undefined): string | undefined {
 export async function detectToolchains(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
-  exec: Run = async (command, args) => {
-    try {
-      const result = await probeOutput(command, args, { env, timeoutMs: 5000, maxBytes: 4096 });
-      return result.code === 0 ? result.stdout.trim().slice(0, 2048) : undefined;
-    } catch {
-      return undefined;
-    }
-  },
+  exec: Run = toolchainProbe(env),
 ): Promise<Toolchain[]> {
   const gitPath = await findExecutable("git", env);
   const git = gitPath ? await exec(gitPath, ["--version"]) : undefined;

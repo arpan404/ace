@@ -9,6 +9,16 @@ import { SimulatorFrames } from "./simulator-frames.ts";
 import { InventoryWatch } from "./inventory.ts";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 
+/** A whole JPEG, as far as its markers go, whose coded data is `label`: never decoded here. */
+const labelled = (label: string) =>
+  Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 200, 0, 100, 1, 1, 0x11, 0]),
+    Buffer.from([0xff, 0xda, 0, 8, 1, 1, 0, 0, 63, 0]),
+    Buffer.from(label, "ascii"),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+const label = (jpeg: Buffer) => jpeg.subarray(25, -2).toString("ascii");
+
 function clock() {
   let now = 0;
   const timers = new Set<{ at: number; run(): void }>();
@@ -100,17 +110,17 @@ it("the final Simulator frame is published after throttling even when no more fr
       throw error;
     },
     publish(image) {
-      frames.push(image.bytes.toString());
+      frames.push(label(image.bytes));
       ready.resolve();
     },
   });
-  capture.push(Buffer.from("before"), 100, 200);
+  capture.push(labelled("before"), 100, 200);
   await ready.promise;
   ready = Promise.withResolvers<void>();
   time.advance(5);
-  capture.push(Buffer.from("intermediate"), 100, 200);
+  capture.push(labelled("intermediate"), 100, 200);
   time.advance(5);
-  capture.push(Buffer.from("after"), 100, 200);
+  capture.push(labelled("after"), 100, 200);
   expect(frames).toEqual(["before"]);
   time.advance(24);
   await ready.promise;

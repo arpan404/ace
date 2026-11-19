@@ -1,5 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { WorkspaceId, type HistorySession, type HistoryListRequest } from "@ace/protocol";
+import { openPastSession, pastSessionProblems, type PastSessionAction } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/projects.ts";
@@ -84,40 +85,26 @@ export function useOpenSession(project: Project | undefined) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const open = async (session: HistorySession, action: "import" | "continue") => {
+  const open = async (session: HistorySession, action: PastSessionAction) => {
     if (!project) return;
     setBusy(true);
     setError(undefined);
     try {
-      const imported = await client.request({
-        type: "history.import",
-        sourceId: session.id,
-        workspaceId: WorkspaceId.parse(project.id),
-      });
-      if (imported.status !== "imported") {
-        setError(
-          "This saved conversation couldn't be imported. Open it in its original app, then try again.",
-        );
+      const opened = await openPastSession(
+        {
+          importSession: (request) => client.request(request),
+          continueSession: (request) => client.request(request),
+        },
+        { sourceId: session.id, workspaceId: WorkspaceId.parse(project.id) },
+        action,
+      );
+      if (opened.threadId === null) {
+        setError(opened.problem);
         return;
       }
-      if (action === "continue") {
-        const continued = await client.request({
-          type: "history.continue",
-          threadId: imported.threadId,
-          mode: "resume",
-          input: [],
-          delivery: "queue",
-        });
-        if (continued.status !== "continued") {
-          setError(
-            "The conversation was imported, but couldn't continue. Use Import to read it, or check the provider in Settings.",
-          );
-          return;
-        }
-      }
-      await navigate({ to: "/t/$threadId", params: { threadId: imported.threadId } });
+      await navigate({ to: "/t/$threadId", params: { threadId: opened.threadId } });
     } catch {
-      setError("The saved conversation couldn't be opened. Find past sessions again and retry.");
+      setError(pastSessionProblems.notOpened);
     } finally {
       setBusy(false);
     }

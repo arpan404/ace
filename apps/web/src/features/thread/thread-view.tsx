@@ -1,6 +1,21 @@
+import { isChatEntry } from "@ace/ui-core";
+import { useIsChat } from "@/lib/projects.ts";
+import { startedByWords } from "@ace/ui-core/outside-clients";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
+import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -39,6 +54,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
@@ -48,13 +64,17 @@ import { StartingMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./items/live-head.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
-import { ThreadCrumb } from "./header/thread-crumb.tsx";
+import { ProjectGlyph, ThreadCrumb, useHasParentCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
-import { useRememberedWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { WorkCardTreeFollower } from "./header/work-card-tree.tsx";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
+import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
+import { ThreadLinkedFiles } from "@/components/linked-file.tsx";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -86,40 +106,73 @@ export interface ThreadTarget {
 
 /**
  * A thread: the transcript and composer in the main column; in the header its title, the ⋯
- * menu, the thread details icon and the side panel toggle; its panel tabs include Summary, Changes,
- * terminals, Files and Browser. A long
+ * menu, the thread details icon and the side panel toggle; its panel starts with Summary, and
+ * opens Changes, terminals, Files and Browser on demand. A long
  * thread adds its turns and search.
  */
-export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
+export function ThreadView(props: {
+  threadId: string;
+  target?: ThreadTarget | undefined;
+  /** Where the thread sits, in place of its own crumb: a delegated child's parent elsewhere. */
+  crumb?: ReactNode;
+}) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
   if (isPendingThread(props.threadId)) return <PendingThread threadId={props.threadId} />;
   return (
     <ThreadNavProvider threadId={props.threadId}>
       <Suspense
         fallback={
-          <Screen title="">
+          <Screen page="thread" title="">
             <ThreadLoading />
           </Screen>
         }
       >
         <ThreadForgeLinks threadId={props.threadId}>
-          <ThreadScreen threadId={props.threadId} target={props.target} />
+          <ThreadLinkedFiles threadId={props.threadId}>
+            <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
+          </ThreadLinkedFiles>
         </ThreadForgeLinks>
       </Suspense>
     </ThreadNavProvider>
   );
 }
 
-function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
+/**
+ * What the thread screen itself shows of its thread. The thread changes identity on every
+ * metadata update (a tool step sends one); reading only these keeps the screen, its header and
+ * the composer's thread from re-rendering on each.
+ */
+const screenFacts = (thread: ThreadRecord) => ({
+  workspaceId: thread.workspaceId,
+  provider: thread.provider,
+  title: thread.title,
+  delegatedBy: thread.delegatedBy,
+  lineage: thread.lineage,
+  startedByClient: thread.startedByClient,
+  queuedLaunch: thread.queuedLaunch,
+  chat: isChatEntry(thread),
+});
+
+function ThreadScreen(props: {
+  threadId: string;
+  target: ThreadTarget | undefined;
+  crumb: ReactNode;
+}) {
   const nav = useThreadNav();
-  const meta = useThreadMeta(props.threadId);
+  const meta = useThreadField(props.threadId, screenFacts, shallowEqual);
+  const parentThreadId = useVisibleParent(meta?.delegatedBy);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
   if (requests?.length) use(DeferredComposerStrip.preload());
   const error = useThreadError(props.threadId);
+  // A chat (ADR 0099) is its own Suit page (`data-page=chat`).
+  const isChatProject = useIsChat();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  // Asked with the screen, not when ⋯ opens, so "Continue on…" is in the menu from the start
+  // instead of appearing under the pointer once the answer comes back.
+  useHasLinkedMachines();
   const id = props.threadId;
   const openForkOf = useOpenFork();
   const openFork = useCallback((point: ForkPoint) => openForkOf(id, point), [openForkOf, id]);
@@ -158,10 +211,11 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     void router.loadRouteChunk(router.routesById["/_home/new"])?.catch(() => {});
   }, [router]);
   const title = useShownTitle(id, meta?.title);
+  const parented = useHasParentCrumb(id);
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  const workCard = useRememberedWorkCardStore();
+  const [workCard] = useState(() => createWorkCardStore());
   useHotkey(keymap.workCard.keys, workCard.toggle, { id: "workCard" });
   const thread = useMemo<ThreadRef | undefined>(
     () =>
@@ -173,18 +227,24 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   return (
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
+        <WorkCardTreeFollower key={id} threadId={id} />
         <Screen
-          crumb={meta && <ThreadCrumb threadId={id} />}
+          page={meta && (meta.chat || isChatProject(meta.workspaceId)) ? "chat" : "thread"}
+          crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}
+          mark={meta && !props.crumb && !parented && <ThreadGlyph threadId={id} />}
           title={
             renaming && thread ? (
               <Suspense fallback={null}>
                 <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
               </Suspense>
             ) : error ? (
-              "Thread unavailable"
+              ""
             ) : (
               (title ?? "")
             )
+          }
+          subtitle={
+            meta?.startedByClient && !error ? startedByWords(meta.startedByClient.name) : undefined
           }
           progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
           menu={
@@ -201,7 +261,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             )
           }
           tools={thread && !error && <WorkButton threadId={id} />}
-          workspace={{ scope: id, definition: threadWorkspace }}
+          // A thread that couldn't be opened has nothing to show beside it or below it.
+          workspace={error ? undefined : { scope: id, definition: threadWorkspace }}
         >
           {error ? (
             <ThreadLoadError error={error} />
@@ -219,11 +280,13 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 {drop.overlay}
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
+                    threadId={id}
                     text={meta.queuedLaunch.text}
-                    parentThreadId={meta.delegatedBy}
+                    parentThreadId={parentThreadId}
                     slotLimit={meta.queuedLaunch.slotLimit}
                     slotsInUse={meta.queuedLaunch.slotsInUse}
                     queuePosition={meta.queuedLaunch.queuePosition}
+                    waitingFor={meta.queuedLaunch.waitingFor}
                   />
                 ) : (
                   <div className="col-start-1 row-start-1 min-h-0 min-w-0">
@@ -244,14 +307,12 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   </div>
                 </div>
                 {thread && (
-                  <DelegateBottom thread={meta} onFork={forkPoint && (() => openFork(forkPoint))}>
-                    <ThreadComposer
-                      thread={thread}
-                      status={meta?.status}
-                      composer={composer}
-                      requestTarget={props.target?.itemId}
-                    />
-                  </DelegateBottom>
+                  <ThreadBottom
+                    thread={thread}
+                    onFork={forkPoint && (() => openFork(forkPoint))}
+                    composer={composer}
+                    requestTarget={props.target?.itemId}
+                  />
                 )}
               </div>
             </ForkOpener>
@@ -271,6 +332,35 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         </Screen>
       </WorkCardContext>
     </ThreadPartsProvider>
+  );
+}
+
+/** The project mark beside the title, which reads the whole thread. */
+function ThreadGlyph(props: { threadId: string }) {
+  const meta = useThreadMeta(props.threadId);
+  return meta ? <ProjectGlyph thread={meta} /> : null;
+}
+
+/** Under the transcript: the composer, inside a delegated or guest thread's bars. */
+function ThreadBottom(props: {
+  thread: ThreadRef;
+  onFork: (() => void) | undefined;
+  composer: RefObject<ComposerHandle | null>;
+  requestTarget: string | undefined;
+}) {
+  const meta = useThreadMeta(props.thread.id);
+  if (!meta) return null;
+  return (
+    <DelegateBottom thread={meta} onFork={props.onFork}>
+      <GuestBottom thread={meta} requestTarget={props.requestTarget}>
+        <ThreadComposer
+          thread={props.thread}
+          status={meta.status}
+          composer={props.composer}
+          requestTarget={props.requestTarget}
+        />
+      </GuestBottom>
+    </DelegateBottom>
   );
 }
 

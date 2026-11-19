@@ -1,0 +1,449 @@
+# How the CLI's commands behave
+
+Notes on behaviour behind the commands: idempotency, waits, chat, remotes, storage and repair. They
+use the spellings from before [ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md);
+§8 there maps each to its new name, and [the command reference](../daemon/cli.md) is generated from
+the command table.
+
+`ace` connects to the daemon in `ACE_HOME`, defaulting to the existing ace home.
+Start it with `ace start` before sending work. Providers use your installed CLIs.
+
+Published releases include a target-specific npm tarball for `npx`, for example
+`npx --yes https://github.com/arpan404/ace/releases/download/vVERSION/ace-cli-VERSION-linux-x64.tgz --help`.
+Choose the matching OS and architecture. It runs the same packaged CLI and Node
+runtime with no service installation. See [release publication](../../tools/release/README.md).
+
+```
+ace run "Fix the parser" --provider codex --project /path/to/repo --json
+printf 'Review the diff' | ace run --provider claude --worktree --stream jsonl
+ace threads list --json
+ace thread read THREAD --json
+ace thread send THREAD "Add a regression test" --idempotency-key followup-1
+ace thread steer THREAD "Keep the public API unchanged"
+ace thread wait THREAD --tree --timeout 10m --json
+ace thread approve THREAD --interaction INTERACTION
+ace thread deny THREAD --interaction INTERACTION
+ace thread cancel THREAD
+ace task spawn "Review the diff" --parent THREAD --provider claude --idempotency-key review-1
+ace task status CHILD --json
+ace task wait CHILD --timeout 10m --json
+ace task cancel CHILD --idempotency-key cancel-review-1
+```
+
+`run` returns an admission and thread id. `--stream jsonl` also waits for the tree.
+`--project` accepts a registered workspace id or a path. Paths register through
+ace's existing project owner. `--worktree` asks that owner to prepare a worktree.
+`thread read` returns the bounded live transcript window and its older-page cursor.
+`threads list` returns the current bounded list window and pagination metadata.
+A task is an independently owned delegated child of `--parent`, and its id is
+its child thread id. Cancellation is acceptance of a cascade, not proof of exit.
+
+All commands accept `--json`; `--jq EXPR` implies JSON and uses your installed jq.
+The executable and filter syntax are checked before any command effects. Filter
+evaluation can still fail on the returned data; retain mutation keys for retries.
+JSONL streams have admission/status/event/outcome records. Waits return on a human
+interaction so automation can hand back control. Supply `--interaction` when more
+than one is pending. Approval defaults to allow-once; `--option` selects a native
+option explicitly. Questions and elicitation require a suitable client.
+Held input requiring intervention returns needs-human, uncertain delivery returns
+uncertain, and queued input awaiting automatic resumption keeps the wait open.
+Tree outcomes include authoritative queue metadata for each member. Unresponsive
+task status returns uncertain. Interactive account login progress is shown as it
+arrives, on stderr when JSON output is selected.
+
+Exit codes: 0 successful operation, 1 failed work, 2 needs human input, 3 observation
+timeout, 4 refused/invalid invocation, 5 uncertain outcome, 6 `ace start` found its port
+in use. A wait timeout leaves
+work running. An acknowledgement timeout is uncertain; retry the identical mutation
+with its printed idempotency key. The SDK persists pending commands before sending
+and validates daemon identity before replay. No disconnect is treated as completion.
+Never reuse a key with different input. Task receipts are scoped to their parent.
+
+## Process and provider control
+
+```
+ace stop --json
+ace kill-all --provider claude --json
+ace capabilities --json
+ace providers status --json
+ace login codex --stream jsonl
+ace login claude --json
+ace mcp enroll --scope read --ttl 1h --project WORKSPACE
+ace mcp enroll --allow threads:start,threads:message,browser --ttl 30d --name "My agent"
+ace mcp list --json
+ace mcp revoke GRANT --json
+```
+
+`stop` waits for a correlated cleanup receipt and reports cleanup failures. A closed
+listener alone does not prove shutdown completion. `kill-all` records cancellation;
+subsequent waits return failed with the cancelled thread IDs. Provider and project
+filters apply to every terminated thread. `--thread` selects its subtree.
+Idle provider sessions are closed without changing completed work outcomes.
+Only unfinished selected work receives cancellation metadata; subtree cleanup
+also preserves the results of completed descendants.
+Without filters it also stops owned supervised groups. Retrying its key returns the
+receipt and does not terminate a later generation. Unfinished receipts are uncertain.
+The shared process supervisor journals kernel start identity, owner identity and
+non-secret labels in `processes.sqlite`. Startup kills verified orphan groups;
+recycled or unverifiable live groups fail closed. Existing terminal guardians retain
+PTY session ownership and already clean up on daemon death.
+
+MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
+server, for clients outside ace (ADR 0122). Each enrollment is a grant kept in the
+daemon database, so it survives a restart; revoking marks it revoked and keeps the row
+so history can still name the client. Its token is stored only as a hash and lasts as
+long as the grant. Every request reads the grant again, so a revoke, a change or the
+expiry applies to the next request. A grant's identity is its own: it never impersonates
+an agent in an ace thread.
+
+A grant holds scopes: `threads:read` (projects, models, threads, transcripts and
+whole-tree state; always included), `threads:start`, `threads:message` (queue or
+steer), `threads:stop`, `browser` (the agent browser, in a private session of the
+grant's own that closes when the grant ends or loses `browser`, and never reaches this machine or its local network) and `computer` (the screen tools, under
+every computer-use rule; Stop on the screen line takes it out of the grant). `--scope read` is `threads:read`; `--scope operate` adds
+start, message and stop; `--allow` names scopes exactly, comma-separated. `--project`
+takes one or more project ids, comma-separated; omitted, the grant covers every
+project. `--ttl` takes `30m`, `12h`, `30d` or `never`. A client lists only the tools its
+grant allows; calling another gets HTTP 403 with `WWW-Authenticate: Bearer
+error="insufficient_scope", scope="…"`. No grant answers approvals or questions, or
+reaches files or daemon settings. Clients also get ace's `context` and `tools_find`,
+plus `tools_call` when they ask for a core or static listing; `ace capabilities --json`
+lists every tool under `externalMcp`. Starts and messages are recorded under the
+grant, and a thread it starts records `startedByClient`. A start or send is keyed by
+grant and idempotency key, so a retry after a disconnect or restart runs once.
+Only local host administrators can enroll, list and revoke from the CLI; admin devices
+do the same over `outside.request`. Enrollment writes the bearer to a private 0600
+file. The setup command loads `ACE_MCP_TOKEN` from that file; Claude and Codex config
+reference the variable. The paste-ready commands and config contain no token
+literals. Revocation and expiry remove the credential file. `mcp list` reports the
+endpoint's URL: its port is saved and kept across restarts, and moves only if another program took it, which the daemon log says. Launch the provider from the
+shell where the variable is exported. JSON output also includes the bearer once. No
+provider credential is read or persisted.
+The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
+and [Codex HTTP MCP configuration](https://developers.openai.com/codex/mcp).
+
+Clients that sign in by themselves use OAuth instead of a pasted token. Each way in
+serves the MCP endpoint at `<base>/mcp` and is its own authorization server (issuer
+`<base>`): protected-resource metadata at `/.well-known/oauth-protected-resource/mcp`
+(path inserted before the resource path, as the 401's `resource_metadata` names it),
+authorization-server metadata at `/.well-known/oauth-authorization-server`, and
+`/authorize`, `/token` and `/register`. Codes need PKCE S256, last 60 seconds and work
+once; refresh tokens rotate. `resource` must name that base's MCP URL, and a token
+works only there: one issued at the relay is refused at Tailscale or on loopback.
+Clients with an HTTPS `client_id` (a metadata document) are fetched by the daemon from
+public addresses only and shown with their domain; clients registered through
+`/register` are shown as unverified and expire after a day unless approved. Redirects
+may be HTTPS, `http://localhost`/`127.0.0.1` (a registration without a port allows any
+port) or an app's own scheme such as `cursor://`; the person approving is shown where the
+code goes, with a warning when it goes to an app on the signing-in device. The sign-in
+page decides nothing: it shows the client, what it asks for and a match code, and the
+person approves in ace (`outside.request` `decide`). Every sign-in makes its own grant; a
+client that needs more scopes signs in again, and an existing grant widens only when the
+person edits it in ace.
+
+The ways in, each listed with its URL by `outside.request` `endpoints`:
+
+| Path      | Setting               | URL                                                                                         |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| local     | always on             | `http://127.0.0.1:<port>/mcp`                                                               |
+| tailscale | `remote.tailscaleMcp` | `https://<machine>.<tailnet>.ts.net:<port>/mcp`, while Tailscale has issued the certificate |
+| relay     | `remote.relayMcp`     | `https://cloud.acehq.dev/m/<hostId>/mcp`, while signed in to ace's relay                    |
+| custom    | `remote.mcpPublicUrl` | `<your origin>/mcp`                                                                         |
+
+For the custom path, point Tailscale Funnel, a tunnel or a reverse proxy at the loopback
+endpoint (`http://127.0.0.1:<port>`, the port `ace mcp list` shows) and set
+`remote.mcpPublicUrl` to the public `https` origin, without a path. The proxy must end
+TLS and keep the original `Host` header: the daemon serves a loopback request as the
+custom URL only when its `Host` names that origin, and refuses unknown hosts. A proxy that
+rewrites `Host` to `127.0.0.1` doesn't work: a request carrying `Forwarded` or any
+`X-Forwarded-*` header is never served as the loopback endpoint, so pasted tokens stay
+usable from this computer only.
+For example, with Caddy: `ace.example.com { reverse_proxy 127.0.0.1:<port> }`.
+
+Login uses the reviewed supervised native CLI device/browser flow. Verification
+URLs and device codes go to stderr, or typed JSONL records. Providers without an
+SSH-compatible reviewed flow return needs-human with native terminal instructions.
+ace cancels and drains an active supervised session before printing fallback
+instructions, so a new login can start immediately.
+The CLI never accepts provider API keys or performs a token exchange.
+
+## Projects and opening ace
+
+```
+ace add
+ace project add ./another-repository --json
+ace project list --limit 50 --json
+ace project list --after WORKSPACE_ID --json
+ace project rename WORKSPACE_ID "A clearer name"
+ace project remove WORKSPACE_ID
+ace project open WORKSPACE_ID
+ace open ./repository --web
+```
+
+`add` defaults to the current directory. The daemon applies its project policy and
+canonicalizes the path, so aliases register the same project. Listing includes
+projects with no threads and returns a bounded page with a `next` cursor. Removal
+unregisters a project and deletes its threads; its files stay on disk. Running threads
+require explicit `--stop-threads`, using the same policy as the GUI.
+
+`open` registers the path and opens its project. `project open` selects an existing
+registered ID. Local opening starts the daemon if needed, then dispatches the
+existing `ace://open?folder=...` deep link; `--web` selects the web route. An unavailable
+desktop handler falls back to the web route. Opening requires an OS URL handler;
+headless hosts receive needs-human with the URL. No token is placed in the URL.
+Remote project paths must be absolute paths on the remote host. Remote opening uses
+that host's web app after the CLI verifies the profile connection.
+
+## Terminal chat
+
+```
+ace chat --project . --provider claude
+ace chat --thread THREAD
+ace chat --thread THREAD --stream jsonl
+```
+
+Chat creates a real ace thread on the first prompt, or attaches to `--thread`.
+Its messages and approvals appear in the GUI and mobile clients. `/stop` interrupts
+the tree, `/steer TEXT` redirects work, `/model MODEL` changes the thread's selection,
+and `/resume [THREAD]` resumes its held input or session. `/approve [INTERACTION]
+[OPTION]` and `/deny [INTERACTION]` resolve permissions. A single displayed approval
+also accepts `y` or `n`. Questions and elicitation require a suitable ace client.
+Use `//` to send a prompt that begins with `/`. On a terminal, with the composer
+empty, `↑` and `↓` walk the transcript's "Worked for" lines and `↵` unfolds the one
+reached: its steps print below it in the scrollback, or open in place while that
+turn still runs.
+
+The interactive home (bare `ace` on a terminal) draws its first frame from the
+rows the last run kept in `ACE_HOME/cli-home-rows.json` (the first 40, readable
+only by the person, never for a remote), before the daemon answers. A kept row
+keeps only what it is (title, project, branch, provider) and says "Syncing" in
+place of a status until the live list replaces it, so a stale copy never shows a
+thread as done while it works or waits on the person. The live list is kept again
+once the daemon has confirmed it, and on the way out.
+
+Tree status includes descendant work and queue attention. A disconnected observer
+shows uncertainty. `/quit` or EOF detaches and leaves work running; that successful
+detach does not claim that work completed. Chat has no default observation deadline;
+an explicit `--timeout` limits the session. Human terminals show a bounded streaming
+preview above the input prompt, then print the completed message. Terminal control
+sequences in provider text are stripped. Piped human output streams text directly.
+`--json` and `--stream jsonl` emit one typed chat record per line, with admitted IDs
+and retry keys when an action becomes uncertain.
+Credential revocation stops chat input and returns uncertain with the latest
+thread and retry key. `/quit` also interrupts receipt observation immediately;
+an unacknowledged command remains in the durable outbox for a later retry.
+
+## Server and remote profiles
+
+```
+ace serve --json
+ace service install --linger --json
+ace pair redeem - --name "SSH client" --profile workstation --json
+ace remote add workstation https://host:4243/ --fingerprint SPKI_SHA256 --device DEVICE_ID --token-file /private/device-token
+ace remote list --json
+ace remote use workstation
+ace threads list --json
+ace thread read THREAD --remote workstation --json
+ace remote use local
+ace remote remove workstation
+```
+
+`serve` runs the daemon without a desktop and selects the headless browser backend.
+`service install --linger` uses Linux `loginctl enable-linger` for the invoking user
+so the user service survives logout. It refuses other operating systems.
+
+Pipe the one-time pairing URL into `pair redeem`; the host chooses device scopes.
+Redemption consumes it once, validates its SPKI pin and saves only ace device access.
+`remote add` requires an explicit HTTPS origin, SPKI pin, device id and private token
+file, and confirms pinned ticket exchange before storing the profile. `remote list`
+hides tokens. Profile names have separate SDK outboxes and host bindings. Removal
+clears selection, not the daemon's device registration; `devices revoke` owns that.
+
+The active profile selects WebSocket work commands. `--remote NAME` overrides it;
+`--remote local` selects the local host token. Runtime, service, enrollment, pairing,
+cloud wrappers and local log files are local operations. Use a registered workspace
+id when starting work on a remote profile. Each connection exchanges its device
+token for a fresh ticket before pinned WSS hello. No provider credentials enter a
+profile or the SDK outbox.
+Temporary ticket transport failures, rate limits and server outages retry through
+the SDK. Rejected credentials and changed public-key pins remain fatal.
+
+## ace account and machine code
+
+```
+ace login [--origin https://account.example] --json
+ace logout --json
+printf '%s\n' "$CODE" | ace machine-code set --json
+ace machine-code set          # prompts without echo on a terminal
+ace machine-code clear
+```
+
+A bare `ace login` signs this machine's daemon in to an ace account; `ace login codex`
+and `ace login claude` still sign in a provider CLI. It prints the sign-in address (on
+stderr with `--json`) and waits until you finish in a browser, or exits 3 when the sign-in
+expires. The account address is `--origin`, else the daemon's `ACE_ACCOUNT_URL`. `ace logout`
+signs the machine out and ends a session `ace login` created. A machine signed in to an
+account opens to every device on that account with admin access; `ace machine-code set`
+makes those devices enter a code once per code version. See
+[remote access](remote-access.md#your-ace-account-and-the-machine-code).
+
+## Cloud, logs, browser and automations
+
+```
+ace cloud codex exec "Review the repository" --env ENV_ID --idempotency-key review-cloud --json
+ace cloud codex list --json
+ace cloud codex status TASK_ID --json
+ace cloud codex diff TASK_ID --json
+ace cloud codex apply TASK_ID --json
+ace logs -f --json
+ace browser shot THREAD --url https://example.com --output shot.png --json
+ace browser record THREAD --duration 10s --output recording.mp4 --json
+ace automation list --json
+ace automation run ID --variables '{"branch":"main"}' --json
+```
+
+Cloud commands invoke the installed, logged-in `codex cloud` in the current
+checkout. JSON envelopes retain bounded native stdout, operation and exit status;
+cloud execution success means submission succeeded. Status/diff/apply depend on
+the installed Codex version. No provider HTTP API or credential store is added.
+Exec/apply receipts prevent repeat submission after retries. A crash/timeout before
+a receipt is uncertain and is never automatically resubmitted. Inspect the native
+cloud task list before choosing a new key.
+
+Logs read the local daemon's redacted JSONL with native tail rotation handling.
+`-f --json` emits one typed log record per line until interrupted. Browser commands
+reuse the thread's browser and ownership. Recording subscribes
+and acknowledges frames, then finalizes through the browser owner. Artifacts are
+downloaded through `@ace/client` even for remote profiles. Output files are created
+exclusively; existing files are never replaced. Recording requires the daemon's
+Chromium/ffmpeg prerequisites. Automation runs use the existing durable owner.
+
+See [cloud CLI evaluation](../research/cli-cloud.md) for the other vendor wrappers
+considered for this phase.
+
+## Storage and cleanup
+
+```
+ace storage --json
+ace clean --dry-run --worktrees --older-than 7d --json
+ace clean --logs --yes
+ace clean apply PLAN_ID --revision REVISION --json
+ace clean status PLAN_ID --json
+```
+
+`storage` measures bounded daemon-owned usage. `clean` asks the daemon for a
+reviewed plan, prints it, then applies that exact plan ID and revision. On a
+terminal it asks for confirmation first; answering anything but `y`, closing
+input or interrupting the prompt removes nothing and exits refused (4). Without
+a terminal it requires `--yes` and otherwise refuses (exit 4) before planning.
+A bare `ace clean` therefore applies after confirmation; it no longer previews
+only. `--dry-run` stops after printing the plan.
+
+Select kinds with `--threads`, `--attachments`, `--artifacts`, `--logs`,
+`--worktrees` and `--caches` (or `--kinds logs,artifacts`); no selection plans
+every kind under the saved retention. `--older-than 30d` requires at least one
+selected kind: it judges those kinds against that many days and disables removal
+for the rest, so it never re-enables a kind disabled in settings that you didn't
+name. `--retention` instead accepts the daemon's six-key retention JSON object.
+Neither changes saved settings.
+
+JSON output of an applied clean is `{ plan, apply }`; `apply` is `null` when the
+plan removes nothing. The plan ID is the durable retry key. If the connection
+drops during apply, `clean` exits uncertain (5) and prints the plan ID and
+revision: read `clean status PLAN_ID` or run `clean apply` with the same pair.
+Pending effects return uncertain; stale plans return refused and need a new
+plan. Forcing protected items is preview-only: `--force-items` takes individual
+IDs from an earlier preview as JSON and requires `--dry-run`; review the forced
+plan, then apply it with `clean apply`. `storage plan` takes the same selection
+options and only previews.
+
+The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
+inventory or deletion implementation. Whole-tree protection, reviewed file
+identities and recovery remain with that owner. Plans and application require
+host administration; paired read authority can see usage.
+
+```
+ace clean --compact --json
+ace clean --compact --abandon COMPACTION_ID --json
+```
+
+The daemon compacts its database automatically when enough space is free, so
+`--compact` is rarely needed. It runs the same incremental compaction now, needs host
+administration and is never part of a cleanup plan. A run that hits its chunk limit returns
+`pending` with uncertain exit status; repeat `--compact` to resume it, or pass
+`--abandon` to stop it. A database created before incremental vacuum reports
+`incrementalUnavailable` and is left unchanged. There is no full rebuild; see
+[Compaction](storage-cleanup.md#compaction).
+
+## Triage and doctor repairs
+
+`ace triage` starts a coding agent to help when ace isn't working. It needs neither the
+app nor the daemon, so it works when they crash or won't start.
+
+It asks nothing up front. It writes a playbook and this computer's facts to a temporary
+folder, then you pick an installed Claude Code, Codex, Cursor CLI or OpenCode. The facts
+cover versions, whether the daemon runs, agent CLIs, where logs and data live, which
+files never to open, recent warnings and errors, and anything it couldn't check. The
+agent starts in that folder, asks what went wrong, and investigates. Before changing
+anything on your computer or posting an issue, it shows you exactly what it will do
+and waits for a yes. Ctrl-C inside the agent interrupts the agent, not ace.
+
+```sh
+ace triage                     # pick an agent and start
+ace triage --provider opencode # skip the picker
+ace triage --print             # playbook and facts on stdout, to paste anywhere
+ace triage --json              # just the file paths
+```
+
+`ace doctor` checks this computer's ace setup, then lists the repairs it can make. It
+shows only problems by default; `--all` lists every check.
+
+```sh
+ace doctor            # report; in a terminal, choose repairs from a checklist
+ace doctor --all      # every check, passing ones included
+ace doctor --dry-run  # report and list repairs, change nothing
+ace doctor --fix      # run the recommended repairs without asking
+ace doctor --fix --json
+```
+
+What it checks:
+
+- **Setup**: Node, provider CLIs and their logins, git, a terminal, Chromium, disk, port,
+  ace folder access.
+- **Install**: the ace CLI, running daemon and desktop app are the same version; the data
+  folder's format is one this build reads; which `ace` commands are on PATH; Xcode and
+  the Android SDK (optional).
+- **Daemon**: if running, whether it answers, its event-loop delay, memory, queue
+  backlogs and log writes. If not, how its last run ended: a clean quit, a crash, a
+  failed or refused start with its error, or a stop that ran past its deadline.
+- **Recent errors**: warnings and errors from the last 24 hours, grouped.
+- **Storage**: database integrity (with time that scales with the database's size),
+  reusable space and WAL, what the data folder holds, leftover pre-upgrade backups, a
+  daemon lock naming a dead process, and free space for compaction.
+- **Accounts**: folders and sign-in for every configured account.
+- **Computer use** (macOS): the screen helper and its Accessibility and Screen Recording
+  grants.
+- **Remote access**: transport, Tailscale, relay, paired devices and certificate expiry.
+
+Checks that need the daemon say so when it isn't running; everything else reads files
+directly.
+
+- **Fix ace folder access** creates missing ace and log folders and makes them private
+  to you. It refuses links, non-directories and folders owned by someone else.
+- **Delete old database backups** removes copies older ace builds made before an upgrade
+  the current database has finished. The daemon deletes them itself when it starts; this
+  repair is for when it can't. It is never preselected, since it gives up rolling back, and is
+  blocked while integrity is unconfirmed or an update is running.
+- **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
+  reaches 32 MiB. The daemon already does this on its own once 64 MiB or 10% of the
+  file is free; the repair runs it now. The running local daemon compacts in small
+  journaled steps and checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
+  the repair is listed as unable to run and nothing is written. Legacy
+  `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
+  rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild
+  runs. See [Compaction](storage-cleanup.md#compaction).
+
+Checks run again after repairs, and failures keep a nonzero exit status. If findings
+remain, doctor offers to start `ace triage` with them. JSON output has `planned` (what
+doctor would do) and `repairs` (what it did). Run both commands on the affected
+computer; `--remote` is refused. Triage is available only in the CLI.

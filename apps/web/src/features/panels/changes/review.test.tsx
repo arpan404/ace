@@ -1,10 +1,11 @@
-import { coldStartReplay } from "@ace/fake-daemon";
+import { coldStartReplay, replayTs } from "@ace/fake-daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { showUncommitted, wholeFilePatch } from "@/test/uncommitted.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -14,12 +15,17 @@ const path = "apps/server/src/replay.ts";
 async function openChanges() {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
+  // The checkout holds the file as turn 2 left it: its uncommitted lines take comments.
+  app.daemon.workspace.setGitDiff(
+    threadId,
+    wholeFilePatch(path, replayTs.original, replayTs.afterTurn2),
+  );
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const replay = await within(panel).findByRole("region", { name: path });
+  const replay = await within(await showUncommitted(panel)).findByRole("region", { name: path });
   let serial = 0;
   const remote = (payload: unknown) =>
     app.daemon.command(
@@ -28,9 +34,14 @@ async function openChanges() {
   return { app, panel, replay, remote };
 }
 
-/** Two new-side lines next to each other in the file's diff: their code cells. */
+/**
+ * Two new-side lines next to each other in the file's diff: their code cells, the ones holding
+ * the line's comment button (a line's number can be picked too, so it carries the same marks).
+ */
 function adjacentNewLines(block: HTMLElement): [HTMLElement, HTMLElement, number] {
-  const cells = [...block.querySelectorAll<HTMLElement>('[data-side="new"][data-line]')];
+  const cells = [...block.querySelectorAll<HTMLElement>('[data-side="new"][data-line]')].filter(
+    (cell) => cell.querySelector('button[aria-label^="Comment on"]'),
+  );
   for (const cell of cells) {
     const line = Number(cell.dataset.line);
     const next = cells.find((other) => Number(other.dataset.line) === line + 1);
@@ -130,7 +141,7 @@ test("a comment from another device shows with its replies, and a reply here rea
   const commentId = added.review?.comment?.id;
   remote({ type: "review.reply", sessionId, commentId, text: "The agent agreed" });
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
   const card = await within(panel).findByRole("article", { name: `Comment on line ${line}` });
   const replies = await within(card).findByRole("list", { name: "Replies" });
@@ -160,7 +171,7 @@ test.each([false, true])(
           to: { kind: "working-tree" },
         },
       });
-      await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+      await userEvent.click(within(panel).getByRole("button", { name: "View" }));
       await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
     }
     expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
@@ -170,26 +181,6 @@ test.each([false, true])(
   },
   30000,
 );
-
-test("Request changes sends the unsent comments to the agent as a queued turn", async () => {
-  const { app, panel, replay } = await openChanges();
-  const [cell, , line] = adjacentNewLines(replay);
-  await userEvent.click(within(cell).getByRole("button", { name: `Comment on line ${line}` }));
-  await userEvent.type(
-    within(replay).getByRole("textbox", { name: `Comment on line ${line}` }),
-    "Cap it at 200",
-  );
-  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
-  const review = within(panel).getByRole("region", { name: "Review" });
-  await userEvent.click(within(review).getByRole("button", { name: "Request changes" }));
-  await waitFor(() =>
-    expect(within(review).getByRole("status").textContent).toBe("1 waiting for the agent"),
-  );
-  expect(app.daemon.review.comments()).toEqual([
-    expect.objectContaining({ text: "Cap it at 200", sent: true }),
-  ]);
-  await screen.findByText(/Review comments to address:/);
-});
 
 test("Send to agent says in plain words when the agent is unavailable", async () => {
   const { app, replay } = await openChanges();
@@ -235,7 +226,7 @@ test("comments sharing an ending line keep independent replies and resolve actio
     text: "Second same-line finding",
   }).review?.comment?.id;
   remote({ type: "review.status", sessionId, status: "changes-requested" });
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
   const cards = await within(replay).findAllByRole("article");
   expect(cards.map((card) => card.textContent)).toEqual([

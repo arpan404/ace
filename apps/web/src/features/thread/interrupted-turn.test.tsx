@@ -84,13 +84,16 @@ test("a provider that died mid-turn reads as a crash, and Continue still resumes
   expect(sent.filter((type) => type === "thread.send")).toHaveLength(0);
 });
 
-test("a message typed while stopped starts the next turn at once, never queued behind the stop", async () => {
+test("after the person's Stop nothing offers Continue, and the next message starts a new turn", async () => {
   const app = clocked();
   app.play(interruptedTurn(id)).runUntilBlocked();
   app.daemon.holdQueue(id, "stopped");
   await app.open(`/t/${id}`);
-  expect(await screen.findByRole("status", { name: "Agent stopped" })).toBeTruthy();
   const box = await screen.findByRole("combobox", { name: "Message" });
+  // Their turn is done: no stopped pill, no paused strip, no Continue anywhere.
+  expect(screen.queryByRole("status", { name: "Agent stopped" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  expect(screen.queryByText(/paused/i)).toBeNull();
   await userEvent.type(box, "try the other file{Enter}");
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Agent stopped" })).toBeNull();

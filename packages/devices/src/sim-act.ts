@@ -84,7 +84,24 @@ export async function simAct(
   args: SimAct,
   actor: Actor,
 ): Promise<unknown> {
-  const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), actor);
+  let waited: string | undefined;
+  const noted = (result: unknown) =>
+    !waited
+      ? result
+      : typeof result === "object" && result !== null && !Array.isArray(result)
+        ? { ...result, waited }
+        : { result, waited };
+  const request = async (operation: unknown) => {
+    const result = await service.request(DeviceOperation.parse(operation), actor);
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "waited" in result &&
+      typeof result.waited === "string"
+    )
+      waited = result.waited;
+    return result;
+  };
   const noteActivity = (element?: SimElement) => {
     const activity = simActivity(args, element);
     if (activity) service.noteAgentActivity(args.simId, activity);
@@ -92,7 +109,7 @@ export async function simAct(
   if (args.ref === undefined) {
     const result = await request(directOperation(args));
     noteActivity();
-    return result;
+    return noted(result);
   }
   const deviceId = args.simId;
   const known = state.refs.element(actor.owner, deviceId, args.ref);
@@ -158,5 +175,10 @@ export async function simAct(
       );
   }
   noteActivity(element);
-  return { ref: `@${args.ref.replace(/^@/, "")}`, role: element.role, name: element.name, result };
+  return noted({
+    ref: `@${args.ref.replace(/^@/, "")}`,
+    role: element.role,
+    name: element.name,
+    result,
+  });
 }

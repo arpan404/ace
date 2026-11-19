@@ -25,7 +25,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await address.fill(s.url);
       await address.press("Enter");
       await expect
-        .poll(() => s.daemon.browser.state(s.thread.id)?.backend, { timeout: 30000 })
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.backend, { timeout: 30000 })
         .toBe("embedded");
       const pageView = nativePage(s.app, p, s.url);
       const geometry = pageView.geometry;
@@ -163,23 +163,27 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.keyboard.press("Escape");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await click("a[href='/second']");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url + "second");
+      await expect
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.url)
+        .toBe(s.url + "second");
       await p
         .getByRole("region", { name: "Thread panel" })
         .getByRole("button", { name: "Back", exact: true })
         .click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url);
+      await expect.poll(async () => (await s.daemon.browser.state(s.thread.id))?.url).toBe(s.url);
       expect(await nativeRead("document.querySelector('#name').value")).toBe("abc");
       await p
         .getByRole("region", { name: "Thread panel" })
         .getByRole("button", { name: "Forward", exact: true })
         .click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url + "second");
+      await expect
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.url)
+        .toBe(s.url + "second");
       await p
         .getByRole("region", { name: "Thread panel" })
         .getByRole("button", { name: "Back", exact: true })
         .click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url);
+      await expect.poll(async () => (await s.daemon.browser.state(s.thread.id))?.url).toBe(s.url);
       await p.getByRole("button", { name: "Reload", exact: true }).click();
       await expect.poll(() => nativeRead("document.querySelector('#name').value")).toBe("");
       await p.getByRole("button", { name: "Browser options" }).click();
@@ -190,14 +194,14 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       // Browser chords and ordinary target=_blank links reuse the main page.
       const panel = p.getByRole("region", { name: "Thread panel" });
       await nativeChord("T");
-      expect(s.daemon.browser.state(s.thread.id)?.tabs).toHaveLength(1);
+      expect((await s.daemon.browser.state(s.thread.id))?.tabs).toHaveLength(1);
       await nativeRead(
         "(()=>{const a=document.createElement('a');a.href='/popup';a.target='_blank';document.body.append(a);a.click()})()",
       );
       await expect.poll(() => address.inputValue()).toContain("/popup");
-      expect(s.daemon.browser.state(s.thread.id)?.tabs).toHaveLength(1);
+      expect((await s.daemon.browser.state(s.thread.id))?.tabs).toHaveLength(1);
       await panel.getByRole("button", { name: "Back", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url);
+      await expect.poll(async () => (await s.daemon.browser.state(s.thread.id))?.url).toBe(s.url);
       await click("button[onclick*=alert]");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
       await p.getByRole("alertdialog").waitFor({ state: "hidden" });
@@ -268,16 +272,16 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await click("a[href='/download']");
       await expect
         .poll(
-          () =>
-            s.daemon.browser
-              .state(s.thread.id)
-              ?.downloads?.find((d) => d.filename === "fixture.txt")?.state,
+          async () =>
+            (await s.daemon.browser.state(s.thread.id))?.downloads?.find(
+              (d) => d.filename === "fixture.txt",
+            )?.state,
           { timeout: 30000 },
         )
         .toBe("complete");
-      const file = s.daemon.browser
-        .state(s.thread.id)
-        ?.downloads?.find((d) => d.filename === "fixture.txt")?.path;
+      const file = (await s.daemon.browser.state(s.thread.id))?.downloads?.find(
+        (d) => d.filename === "fixture.txt",
+      )?.path;
       if (!file) throw new Error("Download artifact missing");
       expect(await readFile(file, "utf8")).toBe("sandbox download\n");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
@@ -327,8 +331,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }).click();
       await expect
-        .poll(() => {
-          const state = s.daemon.browser.state(s.thread.id);
+        .poll(async () => {
+          const state = await s.daemon.browser.state(s.thread.id);
           return state.tabs?.find((tab) => tab.tabId === state.activeTabId)?.private;
         })
         .toBe(true);
@@ -368,7 +372,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       // With a profile per thread, another thread's page never sees this one's cookies.
       for (const thread of [s.thread, s.other])
         await s.daemon.browser.closeThread(thread.id, { kind: "human", connectionId: "e2e" });
-      s.useProfileScope("thread");
+      await s.useProfileScope("thread");
       await reopen();
       await setCookie("native-isolation=one");
       expect(await cookies(s.thread.id)).toContain("native-isolation=one");

@@ -1,0 +1,230 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Where ace-media keeps 32-byte secrets: the lane secret, connection tickets and ingest tokens
+//! (docs/media/plan.md, "Key hand-over"). Values never get `Debug`, `Display` or `Serialize`;
+//! they are compared in constant time, wiped when dropped, and kept on locked pages where the
+//! OS permits (best effort).
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, Zeroizing};
+
+pub const SECRET_LEN: usize = 32;
+/// Live tickets and tokens at once. A full vault refuses the grant rather than spill a secret
+/// onto an unlocked page.
+pub const VAULT_SLOTS: usize = 2048;
+
+/// One allocation of whole pages, so locking and unlocking it never touches another value.
+#[repr(align(65536))]
+struct Page([[u8; SECRET_LEN]; VAULT_SLOTS]);
+
+/// The slab, made on the heap. `Box::new` would build the 64 KiB-aligned value on the stack
+/// first, which faults on Windows x64.
+#[allow(unsafe_code)]
+fn zeroed_page() -> Box<Page> {
+    // All-zero bytes are a valid `Page`: it is only bytes.
+    let layout = std::alloc::Layout::new::<Page>();
+    // SAFETY: the layout has a non-zero size; a null result is handled.
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<Page>();
+    if ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: a fresh allocation of `Page`'s layout, zeroed, owned by nothing else.
+    unsafe { Box::from_raw(ptr) }
+}
+
+/// Every ticket and token of the process, in one locked slab.
+pub struct Vault {
+    page: Box<Page>,
+    locked: bool,
+    free: Vec<u16>,
+}
+
+/// A slot in the [`Vault`]. It names a secret; it is not one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SecretId(u16);
+
+impl Default for Vault {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Vault {
+    pub fn new() -> Self {
+        let page = zeroed_page();
+        let locked = media_noise::lock_memory(page.0.as_flattened());
+        Self {
+            page,
+            locked,
+            free: (0..VAULT_SLOTS as u16).rev().collect(),
+        }
+    }
+
+    /// Copies `bytes` into a free slot. None when it isn't 32 bytes or the vault is full.
+    pub fn store(&mut self, bytes: &[u8]) -> Option<SecretId> {
+        if bytes.len() != SECRET_LEN {
+            return None;
+        }
+        let slot = self.free.pop()?;
+        self.page.0[usize::from(slot)].copy_from_slice(bytes);
+        Some(SecretId(slot))
+    }
+
+    /// Wipes a slot and makes it free again.
+    pub fn erase(&mut self, id: SecretId) {
+        self.page.0[usize::from(id.0)].zeroize();
+        self.free.push(id.0);
+    }
+
+    /// The first of `candidates` whose secret equals `presented`. Every candidate is compared,
+    /// in constant time, whether or not an earlier one matched.
+    pub fn find<K: Copy>(
+        &self,
+        candidates: impl IntoIterator<Item = (K, SecretId)>,
+        presented: &[u8],
+    ) -> Option<K> {
+        let mut found = None;
+        for (key, id) in candidates {
+            let equal: bool = self.page.0[usize::from(id.0)]
+                .as_slice()
+                .ct_eq(presented)
+                .into();
+            if equal && found.is_none() {
+                found = Some(key);
+            }
+        }
+        found
+    }
+
+    pub fn live(&self) -> usize {
+        VAULT_SLOTS - self.free.len()
+    }
+}
+
+impl Drop for Vault {
+    fn drop(&mut self) {
+        self.page.0.as_flattened_mut().zeroize();
+        if self.locked || cfg!(windows) {
+            media_noise::unlock_memory(self.page.0.as_flattened());
+        }
+    }
+}
+
+/// The 32-byte lane secret from `init`'s payload, held until both socket lanes are up.
+pub struct LaneSecret {
+    bytes: Box<LanePage>,
+    locked: bool,
+}
+
+#[repr(align(4096))]
+struct LanePage([u8; SECRET_LEN]);
+
+impl LaneSecret {
+    /// Takes the secret from `init`'s payload. None unless it is exactly 32 bytes and not all
+    /// zero (a secret nobody chose proves nothing).
+    pub fn from_payload(payload: &[u8]) -> Option<Self> {
+        if payload.len() != SECRET_LEN || payload.iter().all(|byte| *byte == 0) {
+            return None;
+        }
+        let mut bytes = Box::new(LanePage([0; SECRET_LEN]));
+        let locked = media_noise::lock_memory(&bytes.0);
+        bytes.0.copy_from_slice(payload);
+        Some(Self { bytes, locked })
+    }
+
+    /// HMAC-SHA256 of `message` keyed by the secret: the lane hello's proofs. ring's key
+    /// schedule lives only for this call.
+    pub fn mac(&self, message: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.bytes.0);
+        let tag = ring::hmac::sign(&key, message);
+        let mut out = zeroize::Zeroizing::new([0u8; 32]);
+        out.copy_from_slice(tag.as_ref());
+        out
+    }
+
+    /// HKDF-SHA256 (RFC 5869) from the secret, `salt` and the concatenation of `info`: a
+    /// lane's directional key.
+    pub fn derive_key(&self, salt: &[u8], info: &[&[u8]]) -> Zeroizing<[u8; 32]> {
+        struct Length;
+        impl ring::hkdf::KeyType for Length {
+            fn len(&self) -> usize {
+                32
+            }
+        }
+        let mut out = Zeroizing::new([0u8; 32]);
+        let prk = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, salt).extract(&self.bytes.0);
+        // A 32-byte output is far within HKDF's limit, so expand and fill cannot fail.
+        if let Ok(okm) = prk.expand(info, Length) {
+            let _ = okm.fill(&mut out[..]);
+        }
+        out
+    }
+
+    /// Constant-time comparison with a presented secret of any length.
+    pub fn matches(&self, presented: &[u8]) -> bool {
+        self.bytes.0.as_slice().ct_eq(presented).into()
+    }
+}
+
+impl Drop for LaneSecret {
+    fn drop(&mut self) {
+        self.bytes.0.zeroize();
+        if self.locked || cfg!(windows) {
+            media_noise::unlock_memory(&self.bytes.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stored_secret_is_found_only_by_its_exact_bytes() {
+        let mut vault = Vault::new();
+        let a = vault.store(&[1; 32]).map(|id| ("a", id));
+        let b = vault.store(&[2; 32]).map(|id| ("b", id));
+        let candidates: Vec<_> = [a, b].into_iter().flatten().collect();
+        assert_eq!(vault.find(candidates.clone(), &[2; 32]), Some("b"));
+        assert_eq!(vault.find(candidates.clone(), &[3; 32]), None);
+        assert_eq!(vault.find(candidates.clone(), &[2; 31]), None);
+        let mut longer = vec![2; 32];
+        longer.push(0);
+        assert_eq!(vault.find(candidates, &longer), None);
+    }
+
+    #[test]
+    fn an_erased_secret_no_longer_matches_and_its_slot_is_reused() {
+        let mut vault = Vault::new();
+        let Some(id) = vault.store(&[7; 32]) else {
+            panic!("vault refused a 32-byte secret");
+        };
+        vault.erase(id);
+        assert_eq!(vault.find([((), id)], &[7; 32]), None);
+        assert_eq!(vault.live(), 0);
+        assert!(vault.store(&[8; 32]).is_some());
+    }
+
+    #[test]
+    fn a_full_vault_refuses_rather_than_storing_elsewhere() {
+        let mut vault = Vault::new();
+        for _ in 0..VAULT_SLOTS {
+            assert!(vault.store(&[1; 32]).is_some());
+        }
+        assert!(vault.store(&[1; 32]).is_none());
+        assert!(vault.store(&[1; 16]).is_none());
+    }
+
+    #[test]
+    fn the_lane_secret_needs_exactly_32_bytes_and_compares_whole() {
+        assert!(LaneSecret::from_payload(&[0; 31]).is_none());
+        // An all-zero secret proves nothing: refused like a wrong length.
+        assert!(LaneSecret::from_payload(&[0; 32]).is_none());
+        let Some(secret) = LaneSecret::from_payload(&[9; 32]) else {
+            panic!("refused a 32-byte lane secret");
+        };
+        assert!(secret.matches(&[9; 32]));
+        assert!(!secret.matches(&[9; 31]));
+        let mut near = [9; 32];
+        near[31] = 8;
+        assert!(!secret.matches(&near));
+    }
+}

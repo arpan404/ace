@@ -57,7 +57,12 @@ async function run(
   signal: AbortSignal,
   imageRuntime: ModelImageRuntime | undefined,
 ): Promise<SimResult> {
-  const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), actor);
+  // Every step of a call checks its signal first, so a stopped call (the person took over a
+  // Spade bot's computer) starts nothing more on the simulator.
+  const request = (operation: unknown) => {
+    signal.throwIfAborted();
+    return service.request(DeviceOperation.parse(operation), actor);
+  };
   switch (name) {
     case "sim_list":
       parseToolArguments(simSchemas.sim_list, args);

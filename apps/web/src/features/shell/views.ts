@@ -1,28 +1,29 @@
-import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
+import { StackIcon, TimerIcon } from "@ace/icons";
 import type { IconGlyph } from "@/components/icon.tsx";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "automations" | "skills" | "forge";
+  id: "home" | "chats" | "spade" | "automations" | "skills" | "forge";
   label: string;
-  to: "/" | "/automations" | "/skills" | "/pulls";
+  to: "/" | "/chats" | "/spade" | "/automations" | "/skills" | "/pulls";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
 }
 
-/** A view listed in the profile dropdown, with its icon. */
-export interface MenuView extends View {
+/** A view the rail lists with its own glyph (Threads, Chats and Code review draw theirs themselves). */
+export interface RailView extends View {
   icon: IconGlyph;
 }
 
-/** The profile dropdown's views, top to bottom. */
-export const menuViews: readonly MenuView[] = [
+/** The rail's places under Code review, top to bottom. */
+export const railViews: readonly RailView[] = [
   {
     id: "automations",
     label: "Automations",
-    icon: ClockIcon,
+    icon: TimerIcon,
     to: "/automations",
     matches: ["/automations"],
     shortcut: "goAutomations",
@@ -30,14 +31,14 @@ export const menuViews: readonly MenuView[] = [
   {
     id: "skills",
     label: "Skills",
-    icon: CubeIcon,
+    icon: StackIcon,
     to: "/skills",
     matches: ["/skills"],
     shortcut: "goSkills",
   },
 ];
 
-/** Pull requests (Inbox and Issues are tabs of it): a quiet row over the profile, not in its menu. */
+/** Code review in the rail: Inbox, Pull requests and Issues, opened on Pull requests. */
 const forgeView: View = {
   id: "forge",
   label: "Pull requests",
@@ -50,13 +51,52 @@ const forgeView: View = {
  * Every view, in the palette's order. Home is the thread list the sidebar always shows.
  */
 export const views: readonly View[] = [
-  { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
-  ...menuViews,
+  {
+    id: "home",
+    label: "Home",
+    to: "/",
+    matches: ["/t/", "/new", "/history"],
+    shortcut: "goHome",
+  },
+  // Chats (ADR 0099): a chat opens at its thread's own address, so `railPlace` tells them apart.
+  { id: "chats", label: "Chats", to: "/chats", matches: ["/chats"], shortcut: "goChats" },
+  // Spade, ace's assistant (ADR 0121): its conversations are its own, not threads.
+  { id: "spade", label: "Spade", to: "/spade", matches: ["/spade"] },
+  ...railViews,
   forgeView,
 ];
 
-export function activeView(pathname: string): View["id"] | "settings" | undefined {
+/** The rail's place for a path: Settings and Usage are ones too; Archived belongs to none. */
+export function activeView(pathname: string): View["id"] | "settings" | "usage" | undefined {
   if (pathname.startsWith("/settings")) return "settings";
+  if (pathname === "/usage" || pathname.startsWith("/usage/")) return "usage";
   if (pathname === "/") return "home";
   return views.find((view) => view.matches.some((prefix) => pathname.startsWith(prefix)))?.id;
+}
+
+/** The rail's current place. */
+export type RailPlace = ReturnType<typeof activeView>;
+
+/**
+ * The rail's place, with what is open: a chat's thread and New thread for a chat belong to Chats,
+ * every other thread to Threads. `openIsChat` is undefined while the open thread isn't known yet
+ * (a thread just started, or the list still loading): a chat just sent from New chat stays in
+ * Chats, so the panel never flickers; otherwise no place is current until the thread is known.
+ */
+export function railPlace(input: {
+  pathname: string;
+  /** New thread's `?project=`. */
+  newProject?: string | undefined;
+  openIsChat: boolean | undefined;
+  /** The place and path just before this one. */
+  previous?: { place: RailPlace; pathname: string } | undefined;
+}): RailPlace {
+  const view = activeView(input.pathname);
+  if (view !== "home") return view;
+  if (input.pathname.startsWith("/t/")) {
+    if (input.openIsChat !== undefined) return input.openIsChat ? "chats" : "home";
+    const started = input.previous?.place === "chats" && input.previous.pathname === "/new";
+    return started ? "chats" : undefined;
+  }
+  return input.pathname === "/new" && input.newProject === chatChoice ? "chats" : "home";
 }

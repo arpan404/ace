@@ -3,19 +3,25 @@ import XCTest
 @MainActor final class ParityUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testTaskEntryIsTheBottomToolbarComposeButtonAndOpensTheNativeDraft() {
+    func testTaskEntryIsTheRoundComposeButtonAndOpensTheNativeDraft() {
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
-        let filter = app.buttons["inbox.projects"]
-        XCTAssertTrue(filter.exists)
-        // The project chip sits under the header; New thread is the tab bar's round trailing button.
-        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
-        XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
+        // New thread is the header's round trailing button (the tab bar's prominent one on iOS 27).
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))
         capture("start-task")
+    }
+
+    func testSearchsPullRequestsPlaceOpensPullRequestsDirectly() {
+        let app = launch()
+        app.openPulls()
+        XCTAssertTrue(app.buttons["Issues"].waitForExistence(timeout: 10))
+        // Opened directly: the sheet closes, with no Back to another list.
+        XCTAssertFalse(app.navigationBars.buttons["BackButton"].exists)
+        app.buttons["settings.close"].tap()
+        XCTAssertTrue(app.buttons["search.place.pulls"].waitForExistence(timeout: 10))
     }
 
     func testCanonicalApprovalLabelsAndKeyboardKeepComposerVisible() {
@@ -52,13 +58,14 @@ import XCTest
         app.buttons["thread.menu"].tap()
         let terminal = app.threadMenuItem("thread.terminal")
         XCTAssertTrue(terminal.waitForExistence(timeout: 20)); terminal.tap()
-        XCTAssertTrue(app.buttons["New"].waitForExistence(timeout: 10)); app.buttons["New"].tap()
+        XCTAssertTrue(app.buttons["Open a terminal"].waitForExistence(timeout: 10)); app.buttons["Open a terminal"].tap()
         let input = app.textFields["terminal.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: input)
         wait(for: [enabled], timeout: 15)
         input.tap(); input.typeText("pwd\n")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "/fake")).firstMatch.waitForExistence(timeout: 15))
+        let output = app.descendants(matching: .any)["terminal.output"]
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS %@", "/fake"), evaluatedWith: output)], timeout: 15)
         capture("terminal")
     }
 
@@ -70,9 +77,55 @@ import XCTest
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
         let full = app.buttons["Open Interactive counter full screen"]
         XCTAssertTrue(full.waitForExistence(timeout: 20)); full.tap()
-        sleep(2)
-        XCTAssertFalse(app.staticTexts["Couldn't open media"].exists)
+        // Full screen over the thread, with the page's title, a live page and Copy source.
+        let screen = app.descendants(matching: .any)["visualization.screen"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Interactive counter"].exists)
+        XCTAssertTrue(app.webViews["canvas.content"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Couldn't load this visualization"].exists)
+        let composer = app.textViews["composer.input"]
+        XCTAssertFalse(composer.exists && composer.isHittable, "it covers the thread")
+        // Copy is enabled once the page and its source are read; it then says Copied for a while.
+        let copy = app.buttons["visualization.copy"].firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 10))
+        wait(for: [expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: copy)], timeout: 15)
+        copy.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copy)], timeout: 5)
         capture("canvas")
+        app.buttons["visualization.close"].firstMatch.tap()
+        XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
+    }
+    /// An answer's maths reaches VoiceOver whole and its Mermaid fence draws as a diagram whose
+    /// source is a tap away.
+    func testAnAnswersMathsAndMermaidDiagramRender() {
+        let app = launch()
+        app.revealRow("thread.ios-rich-answer").tap()
+        let any = app.descendants(matching: .any)
+        let prose = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "hypotenuse follows", "hypotenuse follows")).firstMatch
+        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        // Typeset maths still reads as its TeX to VoiceOver, so the tree can't tell typeset from
+        // not; `AnswerMarkdownTests` checks the formulas are drawn. Here: they reach VoiceOver whole.
+        let spoken = any.matching(NSPredicate(format: "value CONTAINS %@", "$$c = \\sqrt{a^2 + b^2}$$")).firstMatch
+        XCTAssertTrue(spoken.exists, "the display formula reads whole, in its delimiters")
+        let diagram = app.images["answer.diagram"]
+        XCTAssertTrue(diagram.waitForExistence(timeout: 20), "the Mermaid fence draws as a diagram")
+        XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Phone --> Daemon", "Phone --> Daemon")).firstMatch.exists,
+                       "the drawn diagram replaces its code")
+        capture("answer-maths-diagram")
+        let showSource = app.buttons["answer.diagram.source"].firstMatch
+        XCTAssertTrue(showSource.waitForExistence(timeout: 10))
+        if showSource.isHittable { showSource.tap() }
+        // Over a picture XCUITest may not find a hit point; the button still takes a real touch.
+        else { showSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        let source = app.staticTexts["diagram.source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(source.label.contains("Phone --> Daemon"))
+        let copySource = app.buttons["diagram.copy"].firstMatch
+        copySource.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copySource)], timeout: 5)
+        capture("answer-diagram-source")
+        app.buttons["diagram.close"].firstMatch.tap()
+        XCTAssertTrue(source.waitForNonExistence(timeout: 10))
     }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()
@@ -81,6 +134,19 @@ import XCTest
         XCTAssertTrue(image.waitForExistence(timeout: 20)); image.tap()
         XCTAssertTrue(app.images["Orange fixture image"].waitForExistence(timeout: 20))
         capture("image")
+    }
+    /// The menu leaves before the sheet it picked arrives; a sheet asked for while the menu is
+    /// still leaving would never show.
+    func testThreadMenuItemsThatOpenASheetOpenIt() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30)); app.buttons["thread.ios-approval"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20)); app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.search").tap()
+        XCTAssertTrue(app.navigationBars["Search conversation"].waitForExistence(timeout: 10))
+        app.closeSheet()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10)); app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.tools").tap()
+        XCTAssertTrue(app.buttons["MCP servers"].waitForExistence(timeout: 10))
     }
     func testThreadMcpControlsUpdateCanonicalServerState() {
         let app = launch()
@@ -99,7 +165,7 @@ import XCTest
 
     func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
         XCTAssertTrue(app.buttons["Tokens"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["62% left"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.descendants(matching: .any)["service.problem"].exists)
@@ -111,9 +177,9 @@ import XCTest
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         app.openBrowseDestination("settings.machines")
         app.buttons["machines.row.ios-spike-host"].tap()
-        // The tab bar keeps its own Threads tab: scope the row to the pushed list.
-        for _ in 0..<6 where !app.collectionViews.buttons["Threads"].isHittable { app.swipeUp() }
-        app.collectionViews.buttons["Threads"].tap()
+        let agents = app.buttons["machine.settings.Agents"].firstMatch
+        for _ in 0..<6 where !agents.isHittable { app.swipeUp() }
+        agents.tap()
         XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
         capture("machine-settings")
     }
@@ -121,7 +187,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func capture(_ name: String) {

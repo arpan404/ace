@@ -17,7 +17,8 @@ so nothing reaches a provider and no quota is spent.
   see (instructions, the tool list, tool results). It measures what the surface makes possible.
 - A **checker** judges success from real effects: store state, child outcomes, browser logs.
 - **Correctness tasks are hard gates** (`[gate]` in the test names). They must pass on every PR;
-  a call-count win never excuses a status regression.
+  a call-count win never excuses a status regression. `bun run test` runs only the gates; the
+  measurement tasks and the catalogue run with `bun run eval:mcp`, which writes the report.
 
 Tasks:
 

@@ -12,9 +12,11 @@ export interface Refusal {
   detail?: string | undefined;
 }
 
-/** The running sentence, by phase. */
+/** The running sentence, by phase; a working thread's move by its stage (ADR 0191). */
 export function runningWords(transfer: Transfer): string {
   const to = transfer.target.name;
+  const live = liveWords(transfer);
+  if (live) return live;
   switch (transfer.phase) {
     case "preparing":
       return `Getting ready to send to ${to}`;
@@ -33,15 +35,50 @@ export function runningWords(transfer: Transfer): string {
   }
 }
 
-/** Done: where the work is now, and how many ignored files that project already had. */
-export function doneWords(transfer: Pick<Transfer, "kind" | "target" | "result">): string {
+/**
+ * A working thread on its way: "Getting Studio ready · 312 MB of 1.2 GB" while the agent goes on
+ * here, "Stopping the work here", then "Moving to Studio" until the other machine answers.
+ */
+function liveWords(transfer: Transfer): string | undefined {
+  const to = transfer.target.name;
+  switch (transfer.live?.stage) {
+    case "readying":
+      return transfer.totalBytes && transfer.phase === "sending"
+        ? `Getting ${to} ready · ${formatBytes(transfer.sentBytes)} of ${formatBytes(transfer.totalBytes)}`
+        : `Getting ${to} ready`;
+    case "stopping":
+      return "Stopping the work here";
+    case "handing":
+      return `Moving to ${to}`;
+    default:
+      return undefined;
+  }
+}
+
+const files = (count: number, kind = "") => `${count} ${kind}${count === 1 ? "file" : "files"}`;
+
+/**
+ * Done: where the work is now, the branch it is on when the checkout there was busy and left
+ * alone, and how many files that project already had and kept.
+ */
+export function doneWords(
+  transfer: Pick<Transfer, "kind" | "target" | "result"> & Pick<Partial<Transfer>, "live">,
+): string {
+  const result = transfer.result;
   const done =
-    transfer.kind === "thread"
-      ? `Continued on ${transfer.target.name}`
-      : `Opened on ${transfer.target.name}`;
-  const kept = transfer.result?.ignoredSkipped ?? 0;
-  if (!kept) return done;
-  return `${done} · kept its own copy of ${kept} ignored ${kept === 1 ? "file" : "files"}`;
+    transfer.live?.stage === "moved"
+      ? `Moved to ${transfer.target.name}`
+      : transfer.kind === "thread"
+        ? `Continued on ${transfer.target.name}`
+        : `Opened on ${transfer.target.name}`;
+  const parts = [
+    result?.branchOnly && result.branch ? `${done} on ${result.branch}` : done,
+    ...(result?.keptFiles ? [`kept its own copy of ${files(result.keptFiles)}`] : []),
+    ...(result?.ignoredSkipped
+      ? [`kept its own copy of ${files(result.ignoredSkipped, "ignored ")}`]
+      : []),
+  ];
+  return parts.join(" · ");
 }
 
 /**
@@ -65,6 +102,14 @@ function codeWords(code: string | undefined, machine: string): string {
       return "That thread isn't on this machine any more.";
     case "thread_busy":
       return "The thread is still working. Try again once it stops.";
+    case "thread_is_child":
+      return "This is a subagent's thread. Continue its parent on the other machine instead.";
+    case "thread_moving":
+      return "This thread is already moving to another machine.";
+    case "thread_moved":
+      return "This thread moved to another machine. Continue it there.";
+    case "target_too_old":
+      return `${machine} runs an older ace that can't take a working thread. Let it finish here, or update ace there.`;
     case "workspace_change_in_progress":
       return "The thread's checkout is still being changed. Try again once that's done.";
     case "workspace_preparing":
@@ -82,8 +127,9 @@ function codeWords(code: string | undefined, machine: string): string {
     case "machine_unavailable":
       return `${machine} is offline or unreachable. Try again once it's on.`;
     case "machine_forbidden":
+      return `${machine} doesn't allow projects from this machine. Allow them on ${machine} in Settings › Fleet.`;
     case "machine_refused":
-      return `${machine} doesn't allow projects from this machine. Link it again with Projects allowed.`;
+      return `${machine} doesn't accept this machine's link. Link them again in Settings › Fleet.`;
     // Cancelling.
     case "too_late":
       return `It already reached ${machine}; the work is there now.`;

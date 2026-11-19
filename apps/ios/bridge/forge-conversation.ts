@@ -1,7 +1,10 @@
 import type { ForgeComment, ForgePrStatus, ForgeReviewState } from "@ace/protocol";
 import {
+  commentFixRequest,
   authoredReviewComment,
   canHide,
+  can,
+  type ForgeCapabilitySource,
   commentUrl,
   forgeReactions,
   hiddenReasonOf,
@@ -11,7 +14,6 @@ import {
   threadPlace,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
-import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * A pull request's comments and line conversations as the phone draws them, with what this
@@ -36,9 +38,8 @@ export interface CommentView {
   source: "issue" | "inline" | "review";
   author: string;
   at: number | null;
+  /** The text as shown, which the phone draws (markit) and task offsets index. */
   body: string;
-  /** The text as the phone draws it. */
-  blocks: RichBlock[];
   /** "Hidden as off topic" while GitHub hides it; its text then waits behind Show. */
   hidden: string | null;
   /** Every reaction GitHub offers, counted; empty when reactions can't be read or given. */
@@ -55,6 +56,8 @@ export interface CommentView {
   editBody: string;
   /** Its task boxes tick and save (the viewer may edit it). */
   tasks: boolean;
+  /** What "Fix with agent" puts in the thread's composer; null for a comment with no text. */
+  fix: string | null;
 }
 export interface ThreadView {
   id: string;
@@ -78,8 +81,11 @@ export const shownKey = (source: CommentSource, id: number) => `${source}:${id}`
 
 export interface Conversation {
   state: ForgeReviewState | undefined;
+  capabilities?: ForgeCapabilitySource;
   /** The pull request's address, under which each comment has its own. */
   url: string;
+  /** Its number, which "Fix with agent" names. */
+  number: number;
   /** Its repository, for GitHub's links in comment text. */
   repository: { host: string; owner: string; name: string };
   /** Locked to this account: comments, reviews and reactions are refused. */
@@ -99,6 +105,7 @@ const writable = (conversation: Conversation) => !!conversation.state && !conver
 function reactionsOf(conversation: Conversation, comment: ForgeComment): ReactionView[] {
   const known = conversation.state?.reactions;
   // Without the viewer's own reactions a press can't know whether it adds or removes.
+  if (conversation.capabilities && !can(conversation.capabilities, "reactions")) return [];
   if (!known || comment.kind === "review" || !writable(conversation)) return [];
   const groups =
     known.find(
@@ -131,7 +138,6 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     author: conversation.preview(comment.author, 100),
     at: epoch(comment.createdAt ?? comment.updatedAt),
     body: conversation.preview(comment.body, 65_536),
-    blocks: repositoryBlocks(conversation.preview(comment.body, 65_536), conversation.repository),
     hidden: reason === undefined ? null : `Hidden as ${hiddenWord(reason)}`,
     reactions: reactionsOf(conversation, comment),
     url: commentUrl(conversation.url, comment),
@@ -143,12 +149,23 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     unhide: hideable && reason !== undefined,
     editBody: own ? conversation.preview(authoredReviewComment(comment.body), 65_536) : "",
     tasks: own && writable(conversation),
+    fix:
+      comment.body.trim() === ""
+        ? null
+        : conversation.preview(
+            commentFixRequest(comment, { number: conversation.number, url: conversation.url }),
+            // The whole request, as the web's: a 64k comment quoted line by line can pass 90k.
+            200_000,
+          ),
   };
 }
 
 export function threadView(conversation: Conversation, thread: ReviewThread): ThreadView {
   const { state } = conversation;
-  const answers = !!state?.canComment || conversation.locked;
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const answers =
+    (!!state?.canComment || conversation.locked) &&
+    can(conversation.capabilities, "reviews.comments.reply");
   return {
     id: thread.id,
     place: conversation.preview(threadPlace(thread), 4_200),

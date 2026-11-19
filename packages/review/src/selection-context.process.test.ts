@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { afterAll, expect, it } from "vitest";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { repository } from "./test-support.ts";
@@ -23,6 +23,33 @@ async function snapshot(before = original, after = changed) {
   if (!session) throw new Error("No review snapshot");
   return { repo, session };
 }
+/**
+ * One snapshot per table: each case comments at its own side and line and checks only the
+ * comments at that position, so cases stay independent of each other and of order.
+ */
+function shared(before?: string, after?: string) {
+  let opened: ReturnType<typeof snapshot> | undefined;
+  afterAll(async () => {
+    if (opened) await (await opened).repo.close();
+  });
+  return () => (opened ??= snapshot(before, after));
+}
+async function commentsAt(
+  repo: Awaited<ReturnType<typeof snapshot>>["repo"],
+  sessionId: string,
+  position: { file: string; side: string; start: number; end: number },
+) {
+  const comments = (await repo.send({ type: "review.list", sessionId })).review?.comments ?? [];
+  return comments.filter(
+    (comment) => JSON.stringify(comment.originalAnchor.position) === JSON.stringify(position),
+  );
+}
+const folded = shared();
+const unterminated = original.trimEnd();
+const boundary = shared(
+  unterminated,
+  unterminated.replace("line 4\n", "changed line 4\n").replace("line 17\n", "changed line 17\n"),
+);
 
 it.each([
   {
@@ -52,33 +79,28 @@ it.each([
 ])(
   "a comment on $side line $line checks folded context against its immutable file instead of the clipped Git hunk",
   async ({ side, line, before, after }) => {
-    const { repo, session } = await snapshot();
-    try {
-      // A live-file read would be wrong even though both immutable sides still match the UI.
-      await repo.write("The checkout changed after the review opened.\n");
-      const result = await repo.send({
-        type: "review.comment",
-        sessionId: session.id,
-        position: { file: "file.ts", side, start: line, end: line },
-        expectedFingerprint: { before, lines: [`line ${line}`], after },
+    const { repo, session } = await folded();
+    // A live-file read would be wrong even though both immutable sides still match the UI.
+    await repo.write("The checkout changed after the review opened.\n");
+    const position = { file: "file.ts", side, start: line, end: line };
+    const result = await repo.send({
+      type: "review.comment",
+      sessionId: session.id,
+      position,
+      expectedFingerprint: { before, lines: [`line ${line}`], after },
+      text: "Review the visible context line",
+    });
+    expect(result.ok).toBe(true);
+    expect(await commentsAt(repo, session.id, position)).toEqual([
+      expect.objectContaining({
         text: "Review the visible context line",
-      });
-      expect(result.ok).toBe(true);
-      expect(
-        (await repo.send({ type: "review.list", sessionId: session.id })).review?.comments,
-      ).toEqual([
-        expect.objectContaining({
-          text: "Review the visible context line",
-          originalAnchor: expect.objectContaining({
-            position: { file: "file.ts", side, start: line, end: line },
-            fingerprint: expect.objectContaining({ lines: [`line ${line}`] }),
-          }),
+        originalAnchor: expect.objectContaining({
+          position,
+          fingerprint: expect.objectContaining({ lines: [`line ${line}`] }),
         }),
-      ]);
-      expect(await repo.read()).toBe("The checkout changed after the review opened.\n");
-    } finally {
-      await repo.close();
-    }
+      }),
+    ]);
+    expect(await repo.read()).toBe("The checkout changed after the review opened.\n");
   },
   30000,
 );
@@ -115,51 +137,41 @@ it.each([
 ])(
   "a selection at $side file boundary line $line is admitted with only the available context",
   async ({ side, line, before, after }) => {
-    const unterminated = original.trimEnd();
-    const updated = unterminated
-      .replace("line 4\n", "changed line 4\n")
-      .replace("line 17\n", "changed line 17\n");
-    const { repo, session } = await snapshot(unterminated, updated);
-    try {
-      await repo.write("A newer checkout must not supply boundary context.\n");
-      const position = { file: "file.ts", side, start: line, end: line };
-      const fingerprint = {
-        before,
-        lines: [`line ${line}`],
-        after,
-        ...(line === 20 ? { noFinalNewline: true } : {}),
-      };
-      const result = await repo.send({
-        type: "review.comment",
-        sessionId: session.id,
-        position,
-        expectedFingerprint: fingerprint,
+    const { repo, session } = await boundary();
+    await repo.write("A newer checkout must not supply boundary context.\n");
+    const position = { file: "file.ts", side, start: line, end: line };
+    const fingerprint = {
+      before,
+      lines: [`line ${line}`],
+      after,
+      ...(line === 20 ? { noFinalNewline: true } : {}),
+    };
+    const result = await repo.send({
+      type: "review.comment",
+      sessionId: session.id,
+      position,
+      expectedFingerprint: fingerprint,
+      text: "Keep the boundary selection",
+    });
+    expect(result.ok).toBe(true);
+    const mismatched = await repo.send({
+      type: "review.comment",
+      sessionId: session.id,
+      position,
+      expectedFingerprint: { ...fingerprint, lines: ["different boundary text"] },
+      text: "Reject stale boundary text",
+    });
+    expect(mismatched).toMatchObject({ ok: false, error: "review_selection_mismatch" });
+    expect(await commentsAt(repo, session.id, position)).toEqual([
+      expect.objectContaining({
         text: "Keep the boundary selection",
-      });
-      expect(result.ok).toBe(true);
-      const mismatched = await repo.send({
-        type: "review.comment",
-        sessionId: session.id,
-        position,
-        expectedFingerprint: { ...fingerprint, lines: ["different boundary text"] },
-        text: "Reject stale boundary text",
-      });
-      expect(mismatched).toMatchObject({ ok: false, error: "review_selection_mismatch" });
-      expect(
-        (await repo.send({ type: "review.list", sessionId: session.id })).review?.comments,
-      ).toEqual([
-        expect.objectContaining({
-          text: "Keep the boundary selection",
-          originalAnchor: expect.objectContaining({
-            position,
-            fingerprint: expect.objectContaining(fingerprint),
-          }),
+        originalAnchor: expect.objectContaining({
+          position,
+          fingerprint: expect.objectContaining(fingerprint),
         }),
-      ]);
-      expect(await repo.read()).toBe("A newer checkout must not supply boundary context.\n");
-    } finally {
-      await repo.close();
-    }
+      }),
+    ]);
+    expect(await repo.read()).toBe("A newer checkout must not supply boundary context.\n");
   },
   30000,
 );

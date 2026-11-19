@@ -15,6 +15,7 @@ import {
   zodWithoutUnusedMethods,
 } from "../../zod-methods.ts";
 import { zodPureSchemas } from "../../zod-pure-schemas.ts";
+import { protocolPieces } from "../../protocol-pieces.ts";
 import { workerJsonZod } from "../../worker-json-zod.ts";
 import { pageZod, workerZod } from "../../worker-zod.ts";
 import { protocolCorpus, type ProtocolCorpus } from "./protocol-corpus.ts";
@@ -39,7 +40,7 @@ export { Appearance } from "@/theme/appearance.ts";
 export { ShellLayout } from "@/lib/layout.tsx";
 export { ScopeWorkspaceSchema } from "@/lib/workspace/model.ts";
 export { Choices } from "@/features/home/new-thread/choices.ts";
-export { AutomationForm } from "@/features/automations/automation-values.ts";
+export { AutomationForm } from "@ace/ui-core/automations";
 export { PluginNameInput, PluginRepository } from "@/features/skills/skills-model.ts";
 export { number, object, string, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
 `;
@@ -401,6 +402,8 @@ beforeAll(async () => {
   ]);
   const workerCode = await bundle(
     [
+      // As in the worker build: every protocol module split into one module per declaration.
+      protocolPieces(),
       workerZodWithoutJsonSchema(),
       workerJsonZod(),
       zodWithoutMetadata(),
@@ -415,10 +418,16 @@ beforeAll(async () => {
       export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
       export { string, object, number, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
-      // The machine-pool and client workers' entries load with the worker build's Zod, so a
-      // schema that calls a dropped method while its module loads fails here, not in a build.
+      // Every worker entry loads with the worker build's Zod, so a schema that calls a dropped
+      // method while its module loads fails here, not in a build. The notification service
+      // worker is built with the page's methods, which keep everything the workers' keep.
       import "@/boot/machine-worker.ts";
       import "@/boot/client-worker.ts";
+      import "@/boot/perf-worker.ts";
+      import "@/lib/diffs/diff.worker.ts";
+      import "@/components/markdown/highlight.worker.ts";
+      import "@/features/panels/files/find.worker.ts";
+      import "@/notification-worker.ts";
     `,
   );
   const recorded = await protocolCorpus();

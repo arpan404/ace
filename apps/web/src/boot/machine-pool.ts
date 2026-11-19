@@ -1,12 +1,21 @@
+import { documentVisibility } from "@/lib/page-visibility.ts";
+import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
-import { MachinePool } from "@ace/client-worker/machines";
-import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  MachinePool,
+  type AccountMachineOptions,
+  type OffMachines,
+} from "@ace/client-worker/machines";
+import { readJson, type KeyValueStorage } from "@ace/ui-core";
+import * as z from "zod/mini";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
+import { pairedUrls } from "./machine-routes.ts";
+import { machineSocketUrl } from "./worker-target.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -32,14 +41,6 @@ function directoryStorage(storage: KeyValueStorage): Storage {
   };
 }
 
-/** A directory URL as the socket address the client worker dials. */
-function socketUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.protocol === "http:") parsed.protocol = "ws:";
-  if (parsed.protocol === "https:") parsed.protocol = "wss:";
-  return parsed.toString();
-}
-
 const timers = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -48,7 +49,7 @@ const timers = {
 };
 
 /** One dedicated client worker per machine; never shared between machines. */
-function dedicatedWorker(name: string, url: string): SpawnedWorker {
+function dedicatedWorker(name: string, urls: readonly string[]): SpawnedWorker {
   // Vite bundles the worker from this literal constructor call.
   const worker = new Worker(new URL("./machine-worker.ts", import.meta.url), {
     type: "module",
@@ -63,7 +64,8 @@ function dedicatedWorker(name: string, url: string): SpawnedWorker {
   };
   worker.addEventListener("error", fail);
   worker.addEventListener("messageerror", fail);
-  const ready = authorizeDaemonUrl(url).then(
+  // The desktop app allows each address this machine's paths dial before the worker starts.
+  const ready = Promise.all(urls.map((url) => authorizeDaemonUrl(url))).then(
     () => true,
     () => {
       fail();
@@ -97,15 +99,28 @@ function dedicatedWorker(name: string, url: string): SpawnedWorker {
   };
 }
 
-/** What a machine's worker is handed: the same connection its cached threads are filed under. */
-function machineConfig(entry: MachineEntry, url: string, token: string): MachineTarget {
+/**
+ * What a machine's worker is handed: the same connection its cached threads are filed under. A
+ * machine paired through a self-hosted relay keeps the relay host key it pins in its entry's
+ * `ticketReference`.
+ */
+function machineConfig(
+  entry: MachineEntry,
+  url: string,
+  token: string,
+  installId?: string,
+): MachineTarget {
   return {
-    url: socketUrl(url),
+    ...(installId ? { installId } : {}),
+    url: machineSocketUrl(url),
     token,
     deviceId: entry.deviceId,
     pairedDeviceId: entry.deviceId,
     seed: null,
     hostId: entry.hostId,
+    ...(entry.target.kind === "relay" ? { relayHostId: entry.target.ticketReference } : {}),
+    ...(entry.paths?.length ? { paths: entry.paths } : {}),
+    ...(entry.lastPath ? { lastPath: entry.lastPath } : {}),
   };
 }
 
@@ -115,7 +130,7 @@ class ForgettingDirectory extends MachineDirectory {
     const entry = (await this.load()).find((candidate) => candidate.hostId === hostId);
     const token = entry && (await this.token(entry).catch(() => undefined));
     await super.remove(hostId);
-    if (entry?.target.kind !== "direct" || !token) return;
+    if (!entry || entry.target.kind === "account" || !token) return;
     await forgetReadSnapshots(machineConfig(entry, entry.target.url, token)).catch(
       (error: unknown) => console.error("ace: couldn't delete a removed machine's threads", error),
     );
@@ -131,6 +146,8 @@ export function browserMachinePool(options: {
   storage: KeyValueStorage;
   session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
+  /** Machines on the person's ace account (`account-machine-options.ts`). */
+  account?: AccountMachineOptions | undefined;
 }): MachinePool {
   const directory = new ForgettingDirectory(
     directoryStorage(options.storage),
@@ -139,14 +156,23 @@ export function browserMachinePool(options: {
   );
   return new MachinePool({
     directory,
-    remote: { scheduler: timers },
+    // A hidden or frozen window can't hear its workers; that silence must not end a connection.
+    remote: { scheduler: timers, visibility: documentVisibility, now: () => Date.now() },
+    ...(options.account ? { account: options.account } : {}),
+    off: offMachines(options.storage),
     spawn(entry, token) {
-      if (entry.target.kind !== "direct")
-        throw new ClientError("offline", "Relay machines aren't supported in this window yet");
+      // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
+      if (entry.target.kind === "account")
+        throw new ClientError("offline", "Account machines don't run in a machine worker");
+      const config = machineConfig(
+        entry,
+        entry.target.url,
+        token,
+        browserInstallId(options.storage),
+      );
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
-        : dedicatedWorker(`ace-machine-${entry.hostId}`, entry.target.url);
-      const config = machineConfig(entry, entry.target.url, token);
+        : dedicatedWorker(`ace-machine-${entry.hostId}`, pairedUrls(config, config.paths));
       return {
         port: worker.port,
         config,
@@ -156,4 +182,19 @@ export function browserMachinePool(options: {
       };
     },
   });
+}
+
+const offKey = "ace.machines.off";
+/** Machines turned off in this browser or desktop app (ADR 0115), by host id. Never synced. */
+export function offMachines(storage: KeyValueStorage): OffMachines {
+  return {
+    load: () =>
+      readJson(
+        storage,
+        offKey,
+        z.array(z.string().check(z.maxLength(256))).check(z.maxLength(200)),
+        [],
+      ),
+    save: (hostIds) => storage.setItem(offKey, JSON.stringify(hostIds.slice(0, 200))),
+  };
 }

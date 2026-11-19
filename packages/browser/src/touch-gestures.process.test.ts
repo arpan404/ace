@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 const owner = { kind: "human", connectionId: "owner" } as const;
 
 /** A person on a touch screen, with the fixture's tall page open at a phone's size. */
 async function touchPage() {
-  const f = await fixture();
+  const f = await sharedFixture();
   await f.navigate();
   await f.service.execute(
     "thread",
@@ -28,12 +28,6 @@ async function touchPage() {
 }
 
 describe.skipIf(!executablePath)("the person's touches in ace's headless Chrome", () => {
-  it("lays the page out as a touch screen after a touch-screen resize", async () => {
-    const { evaluate } = await touchPage();
-    expect(await evaluate("matchMedia('(pointer: coarse)').matches")).toBe(true);
-    expect(await evaluate("navigator.maxTouchPoints > 0")).toBe(true);
-  }, 60_000);
-
   it("a tap clicks the element under the finger", async () => {
     const { evaluate, touch, until } = await touchPage();
     const box = await evaluate(

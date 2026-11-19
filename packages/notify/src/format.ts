@@ -1,2 +1,5 @@
-/** The only notification database format this build reads. Pre-release builds carry no migrations (AGENTS.md). */
-export const FORMAT = 4;
+/**
+ * The notification database format this build writes. It reads only this one and format 4,
+ * which it upgrades in place (see `NotificationDatabase`); older stores are refused.
+ */
+export const FORMAT = 5;

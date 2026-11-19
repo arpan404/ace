@@ -1,101 +1,83 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
-import type { MarkdownLinks } from "./link-options.ts";
-import type { MarkdownExtensions } from "./extensions.ts";
-import { loadMarkdown } from "./load.ts";
-import { scheduleMathWarmup } from "./math-warm.ts";
+import { loadMarkitProse } from "./load.ts";
 import { MarkdownLoading } from "./loading.tsx";
 
-type Renderer = Awaited<ReturnType<typeof loadMarkdown>>["Markdown"];
+type MarkitRenderer = Awaited<ReturnType<typeof loadMarkitProse>>["MarkitProse"];
 
-// The lexer and renderer load as their own chunk, so the route stays inside its bundle budget
+// The markit renderer loads as its own chunk, so the route stays inside its bundle budget
 // (ADR 0045). The thread route starts loading it when it matches, and this module once it runs.
-let renderer: Renderer | undefined;
-let failure: { cause: unknown } | undefined;
-let loading: Promise<unknown> | undefined;
-const listeners = new Set<() => void>();
-const settle = () => {
-  for (const listener of listeners) listener();
+let markitRenderer: MarkitRenderer | undefined;
+let markitFailure: { cause: unknown } | undefined;
+let markitLoading: Promise<unknown> | undefined;
+const markitListeners = new Set<() => void>();
+const markitSettle = () => {
+  for (const listener of markitListeners) listener();
 };
-const load = () =>
-  (loading ??= loadMarkdown().then(
+const markitLoad = () =>
+  (markitLoading ??= loadMarkitProse().then(
     (module) => {
-      renderer = module.Markdown;
-      // The app is interactive once prose can render; warm KaTeX at idle so
-      // the first formula shows with no chunk wait. Never on the critical
-      // startup path, mobile, or metered links (see `math-warm.ts`).
-      scheduleMathWarmup();
-      settle();
+      markitRenderer = module.MarkitProse;
+      markitSettle();
     },
     (cause: unknown) => {
-      loading = undefined;
-      failure = { cause };
-      settle();
+      markitLoading = undefined;
+      markitFailure = { cause };
+      markitSettle();
     },
   ));
-void load();
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  void load();
-  return () => listeners.delete(listener);
+void markitLoad();
+const markitSubscribe = (listener: () => void) => {
+  markitListeners.add(listener);
+  void markitLoad();
+  return () => markitListeners.delete(listener);
 };
-const status = () => (renderer ? "ready" : failure ? "failed" : "loading");
-/** A boundary's retry after a failed load: loading again, from the next render. */
-const retry = () => {
-  failure = undefined;
-  void load();
-  settle();
+const markitStatus = () => (markitRenderer ? "ready" : markitFailure ? "failed" : "loading");
+/** A boundary's retry after a failed markit load. */
+const markitRetry = () => {
+  markitFailure = undefined;
+  void markitLoad();
+  markitSettle();
 };
 
-/**
- * Whether the renderer's code has loaded. Until then the caller shows a skeleton and re-renders
- * the moment it arrives. It never suspends: a revealed Suspense boundary waits out React's
- * reveal throttle, which held a thread's first messages as skeletons for a third of a second
- * after their code was there. A failed load goes to the nearest boundary, which can retry.
- */
-function useRendererLoaded(): boolean {
-  const state = useSyncExternalStore(subscribe, status, status);
-  if (state === "failed") throw new DeferredLoadError(failure?.cause, retry);
+/** Whether the markit renderer's code has loaded; same no-suspense contract as before. */
+function useMarkitLoaded(): boolean {
+  const state = useSyncExternalStore(markitSubscribe, markitStatus, markitStatus);
+  if (state === "failed") throw new DeferredLoadError(markitFailure?.cause, markitRetry);
   return state === "ready";
 }
 
 /**
  * Agent prose as markdown, with readable live text while the renderer loads. `stream`
- * names a message whose text grows while `streaming` (see `Markdown`).
+ * names a message whose text grows while `streaming`.
+ *
+ * All prose renders through markit, the shared Rust renderer (`@markit/web`, installed prebuilt
+ * from its release; code, math, tables, streaming).
  */
 export function Prose(props: {
   text: string;
-  links?: MarkdownLinks | undefined;
   stream?: string;
   streaming?: boolean;
   className?: string;
-  tail?: ReactNode;
   thread?: { threadId: string; cwd?: string; itemId?: string };
-  /** What a feature draws instead of the defaults (forge text); none for agent prose. */
-  extensions?: MarkdownExtensions | undefined;
+  /** Forge text: draws `@name`, `#12` and commit hashes as links to these addresses. */
+  forgeReference?: (reference: { kind: string; target: string }) => string | undefined;
 }) {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
-  const Markdown = useRendererLoaded() ? renderer : undefined;
-  if (!Markdown)
+  const MarkitProse = useMarkitLoaded() ? markitRenderer : undefined;
+  if (!MarkitProse)
     return (
-      <MarkdownLoading
-        text={props.text}
-        className={props.className}
-        streaming={props.streaming}
-        tail={props.tail}
-      />
+      <MarkdownLoading text={props.text} className={props.className} streaming={props.streaming} />
     );
   return (
-    <Markdown
+    <MarkitProse
       text={props.text}
-      links={props.links}
-      thread={props.thread}
       stream={props.stream}
       streaming={props.streaming}
       className={props.className}
-      tail={props.tail}
-      extensions={props.extensions}
+      thread={props.thread}
+      forgeReference={props.forgeReference}
     />
   );
 }

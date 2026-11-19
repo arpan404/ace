@@ -1,0 +1,213 @@
+import type { FakeSpadeApi } from "@ace/fake-daemon";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, expect, test } from "vitest";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+
+configure({ asyncUtilTimeout: 10_000 });
+beforeEach(() => localStorage.clear());
+
+const withTravel = (spade: FakeSpadeApi) => {
+  withEndpoint(spade);
+  spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  return spade.addAgent({ id: "travel", name: "Travel" });
+};
+
+const texts = (spade: FakeSpadeApi, agent: string | null) =>
+  spade.notes.notes.filter((note) => note.agent === agent).map((note) => note.text);
+
+test("a bot's Memory adds, edits in place and deletes its notes through Spade", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
+    withTravel(api);
+    api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+    api.notes.add({ text: "Lives in Leeds" });
+  });
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  // The pill opens its profile, where its notes are in Library, edited in place.
+  const dialog = await openMemory();
+  // Its own notes only: the shared ones live in About you.
+  const list = within(await dialog.findByRole("list", { name: "Travel's memory" }));
+  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+    "Prefers window seatsDelete",
+  ]);
+
+  await userEvent.type(await addField(dialog), "Flies from Manchester{Enter}");
+  await waitFor(() =>
+    expect(texts(spade, "travel")).toEqual(["Prefers window seats", "Flies from Manchester"]),
+  );
+  await dialog.findByRole("button", { name: "Edit: Flies from Manchester" });
+  expect(
+    dialog.getByRole<HTMLInputElement>("textbox", { name: "Add something for Travel to remember" })
+      .value,
+  ).toBe("");
+
+  await userEvent.click(dialog.getByRole("button", { name: "Edit: Prefers window seats" }));
+  const field = dialog.getByRole("textbox", { name: "Note" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "Prefers aisle seats{Enter}");
+  await dialog.findByRole("button", { name: "Edit: Prefers aisle seats" });
+  expect(spade.sent("PATCH", "/v1/notes/n_1")).toEqual([
+    { text: "Prefers aisle seats", updated_at: expect.any(Number) },
+  ]);
+
+  await userEvent.click(dialog.getByRole("button", { name: "Delete: Flies from Manchester" }));
+  await waitFor(() => expect(texts(spade, "travel")).toEqual(["Prefers aisle seats"]));
+  await waitFor(() =>
+    expect(dialog.queryByRole("button", { name: "Edit: Flies from Manchester" })).toBeNull(),
+  );
+  expect(texts(spade, null)).toEqual(["Lives in Leeds"]);
+});
+
+/** Travel's chat with one finished reply whose memory_save remembered `note`. */
+const rememberedChat = (api: FakeSpadeApi) => {
+  const travel = withTravel(api);
+  const note = api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+  const c = travel.conversation;
+  api.store(c, { type: "user_message", text: "I always pick the window" });
+  api.store(c, { type: "reply_started", reply: "r1" });
+  api.store(c, {
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "k1", name: "memory_save", arguments: { text: note.text } }],
+  });
+  api.store(c, { type: "tool_started", reply: "r1", call_id: "k1", name: "memory_save" });
+  api.store(c, {
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "k1",
+    name: "memory_save",
+    content: JSON.stringify({ saved: { id: note.id, text: note.text, shared: false } }),
+  });
+  api.store(c, { type: "step_finished", reply: "r1", text: "Got it." });
+  api.store(c, { type: "reply_finished", reply: "r1", text: "Got it." });
+};
+
+/** Travel's notes: its profile's Library. */
+const openMemory = async () => {
+  await openProfile("Travel");
+  const profile = within(await screen.findByRole("region", { name: "Travel's profile" }));
+  await userEvent.click(profile.getByRole("tab", { name: "Library" }));
+  const heading = await profile.findByRole("heading", { name: "Notes" });
+  return within(heading.closest("section") ?? document.body);
+};
+
+/** Add a note opens its field, which stays open for the next one. */
+const addField = async (notes: ReturnType<typeof within>) => {
+  const open = notes.queryByRole("button", { name: "Add a note" });
+  if (open) await userEvent.click(open);
+  return notes.getByRole("textbox", { name: "Add something for Travel to remember" });
+};
+
+test("a note the bot saved stays out of the chat and is in its memory", async () => {
+  await spadeApp("/spade/travel", rememberedChat);
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
+  await chat.findByText("Got it.");
+  expect(chat.queryByText(/window seats/i)).toBeNull();
+  expect(chat.queryByText(/memory|remembered/i)).toBeNull();
+  // Its notes are in its profile's Library.
+  const dialog = await openMemory();
+  expect(await dialog.findByRole("button", { name: "Edit: Prefers window seats" })).toBeTruthy();
+});
+
+test("an open note follows the bot's changes until typed in, then Save won't overwrite them", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
+    withTravel(api);
+    api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+  });
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  const dialog = await openMemory();
+  await userEvent.click(await dialog.findByRole("button", { name: "Edit: Prefers window seats" }));
+  const field = await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" });
+  expect(field.value).toBe("Prefers window seats");
+
+  // Untouched: the bot's newer text replaces it when the list is read again.
+  const aisleAt = spade.notes.rewrite("n_1", "Prefers aisle seats").updated_at;
+  await userEvent.type(await addField(dialog), "Flies from Manchester{Enter}");
+  await dialog.findByRole("button", { name: "Edit: Flies from Manchester" });
+  await waitFor(() => expect(field.value).toBe("Prefers aisle seats"));
+
+  // Typed in: the draft stays, and Save is refused because the bot changed the note again.
+  await userEvent.clear(field);
+  await userEvent.type(field, "Prefers front rows");
+  spade.notes.rewrite("n_1", "Prefers exit rows");
+  await userEvent.type(field, "{Enter}");
+  expect((await screen.findAllByText("Changed since you opened it")).length).toBeGreaterThan(0);
+  expect(spade.sent("PATCH", "/v1/notes/n_1")).toEqual([
+    { text: "Prefers front rows", updated_at: aisleAt },
+  ]);
+  expect(texts(spade, "travel")).toContain("Prefers exit rows");
+  expect(field.value).toBe("Prefers front rows");
+
+  // The draft now stands on the note as it is, so saving again replaces it.
+  await userEvent.type(field, "{Enter}");
+  await waitFor(() => expect(texts(spade, "travel")).toContain("Prefers front rows"));
+  await dialog.findByRole("button", { name: "Edit: Prefers front rows" });
+});
+
+test("a failed read keeps an open note and its draft, and says so inline", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
+    withTravel(api);
+    api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+  });
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  const dialog = await openMemory();
+  await userEvent.click(await dialog.findByRole("button", { name: "Edit: Prefers window seats" }));
+  const field = await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "Prefers front rows");
+
+  // The bot moves the note on, so Save is refused, and the read after it fails.
+  spade.notes.rewrite("n_1", "Prefers aisle seats");
+  spade.notes.failReads = 5;
+  await userEvent.type(field, "{Enter}");
+  expect(await dialog.findByText("Couldn't read the notes")).toBeTruthy();
+  const still = dialog.getByRole<HTMLInputElement>("textbox", { name: "Note" });
+  expect(still.value).toBe("Prefers front rows");
+  expect(texts(spade, "travel")).toEqual(["Prefers aisle seats"]);
+});
+
+test("suggested notes wait under Suggested: Keep moves one into the notes, Dismiss deletes it", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
+    withTravel(api);
+    api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+    api.notes.suggest({ text: "Flies from Leeds", agent: "travel" });
+    api.notes.suggest({ text: "Likes trains", agent: "travel" });
+  });
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  const dialog = await openMemory();
+  const suggested = within(await dialog.findByRole("list", { name: "Suggested" }));
+  expect(
+    suggested
+      .getAllByRole("listitem")
+      .map((row) => row.textContent)
+      .toSorted(),
+  ).toEqual(["Flies from LeedsDismissKeep", "Likes trainsDismissKeep"]);
+  const kept = within(dialog.getByRole("list", { name: "Travel's memory" }));
+  expect(kept.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+    "Prefers window seatsDelete",
+  ]);
+
+  await userEvent.click(suggested.getByRole("button", { name: "Keep: Flies from Leeds" }));
+  await dialog.findByRole("button", { name: "Edit: Flies from Leeds" });
+  expect(spade.sent("POST", "/v1/notes/n_2/accept")).toHaveLength(1);
+  expect(suggested.queryByText("Flies from Leeds")).toBeNull();
+
+  await userEvent.click(suggested.getByRole("button", { name: "Dismiss: Likes trains" }));
+  await waitFor(() => expect(dialog.queryByRole("list", { name: "Suggested" })).toBeNull());
+  expect(texts(spade, "travel").toSorted()).toEqual(["Flies from Leeds", "Prefers window seats"]);
+  expect(spade.notes.notes.some((note) => note.suggested)).toBe(false);
+});
+
+test("a question from the bot shows as its bubble, and its row says it asked you", async () => {
+  await spadeApp("/spade/travel", (api) => {
+    const travel = withTravel(api);
+    api.question(travel, "q1", "Which airport do you fly from?");
+  });
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
+  const bubble = await chat.findByRole("article", { name: "Travel" });
+  expect(bubble.textContent).toContain("Which airport do you fly from?");
+  // It waits on the person: no working line says so again under the question.
+  expect(chat.queryByRole("status")).toBeNull();
+  expect((await botRow("Travel")).textContent).toMatch(/Asked you a question$/);
+});

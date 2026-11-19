@@ -6,19 +6,30 @@ const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
 );
 import { AppearanceSettings } from "./appearance-page.tsx";
+import { BetaSettings } from "./beta-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { ViewListPage } from "@/features/shell/index.ts";
-const FleetPage = lazy(() =>
-  import("./fleet-page.tsx").then((module) => ({ default: module.FleetPage })),
-);
+// Fleet's two views load together, so switching between them never waits on a chunk.
+const fleetViews = () => import("./fleet-views.ts");
+const FleetPage = lazy(() => fleetViews().then((module) => ({ default: module.FleetPage })));
+const FleetMapPage = lazy(() => fleetViews().then((module) => ({ default: module.FleetMapPage })));
 const FleetMachinePage = lazy(() =>
   import("./fleet-machine-page.tsx").then((module) => ({ default: module.FleetMachinePage })),
+);
+const FleetMachineAppsPage = lazy(() =>
+  import("./fleet-machine-apps-page.tsx").then((module) => ({
+    default: module.FleetMachineAppsPage,
+  })),
+);
+const FleetAcrossPage = lazy(() =>
+  import("./fleet-across-page.tsx").then((module) => ({ default: module.FleetAcrossPage })),
 );
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
+import { FleetTabs } from "./fleet-tabs.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
 
@@ -27,6 +38,19 @@ import { useSettingsMachine } from "./machine-scope.tsx";
 const GeneralSettings = lazy(() =>
   import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
 );
+
+const ProfilePage = lazy(() =>
+  import("./profile/page.tsx").then((module) => ({ default: module.ProfilePage })),
+);
+
+/** Profile names itself (its own `SettingsBody`) once its page has loaded. */
+export function ProfileSettingsScreen() {
+  return (
+    <Suspense fallback={null}>
+      <ProfilePage />
+    </Suspense>
+  );
+}
 
 export function GeneralSettingsScreen() {
   return (
@@ -111,13 +135,33 @@ export function ProviderDetailScreen(props: { id: string }) {
   );
 }
 
+/** Settings › Fleet; the page says its own sentence under the title once it has read the fleet. */
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody page="Fleet">
-      <Suspense fallback={<ListSkeleton label="fleet" shape="row" rows={4} />}>
-        <FleetPage />
-      </Suspense>
-    </SettingsBody>
+    <Suspense
+      fallback={
+        <SettingsBody page="Fleet" tabs={<FleetTabs />}>
+          <ListSkeleton label="fleet" shape="row" rows={4} />
+        </SettingsBody>
+      }
+    >
+      <FleetPage />
+    </Suspense>
+  );
+}
+
+/** Settings › Fleet › Map: the fleet as a network diagram. */
+export function FleetMapScreen() {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Fleet" wide tabs={<FleetTabs />}>
+          <ListSkeleton label="fleet map" shape="row" rows={4} />
+        </SettingsBody>
+      }
+    >
+      <FleetMapPage />
+    </Suspense>
   );
 }
 
@@ -136,6 +180,36 @@ export function FleetMachineScreen(props: { id: string }) {
   );
 }
 
+/** A machine's apps and webhooks, a page inside its own. */
+export function FleetMachineAppsScreen(props: { id: string }) {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Apps and webhooks">
+          <ListSkeleton label="apps" shape="row" rows={3} />
+        </SettingsBody>
+      }
+    >
+      <FleetMachineAppsPage id={props.id} />
+    </Suspense>
+  );
+}
+
+/** Settings › Fleet › Same for every machine. */
+export function FleetAcrossScreen() {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Same for every machine">
+          <ListSkeleton label="settings" shape="row" rows={3} />
+        </SettingsBody>
+      }
+    >
+      <FleetAcrossPage />
+    </Suspense>
+  );
+}
+
 export function NotificationSettingsScreen() {
   return (
     <SettingsBody page="Notifications">
@@ -146,8 +220,19 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody page="Keyboard">
+    <SettingsBody
+      page="Keyboard"
+      lede="These shortcuts are for this device only. Other apps and browsers keep their own."
+    >
       <KeyboardShortcuts />
+    </SettingsBody>
+  );
+}
+
+export function BetaSettingsScreen() {
+  return (
+    <SettingsBody page="Beta">
+      <BetaSettings />
     </SettingsBody>
   );
 }
@@ -179,10 +264,10 @@ export function ComputerUseSettingsScreen() {
 
 /**
  * `/settings`: on a narrow window, where the sidebar is a sheet, the page list is the page (and
- * leaves the sheet to the threads); wider, Overview.
+ * leaves the sheet to the threads); wider, General.
  */
 export function SettingsIndexScreen() {
-  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/agents" replace />} />;
+  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/general" replace />} />;
 }
 
 const Prompts = lazy(() =>
@@ -212,10 +297,7 @@ const SourceControlSettings = lazy(() =>
 );
 export function SourceControlSettingsScreen() {
   return (
-    <SettingsBody
-      page="Source control"
-      lede="GitHub through this machine's gh CLI. Credentials stay with gh and Git."
-    >
+    <SettingsBody page="Source control" lede="Credentials stay with your local tools and Git.">
       <Suspense fallback={null}>
         <SourceControlSettings />
       </Suspense>
@@ -235,6 +317,20 @@ export function BrowserSettingsScreen() {
     <SettingsBody page="Browser">
       <Suspense fallback={null}>
         <BrowserSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+const SimulatorsSettings = lazy(() =>
+  import("./simulators-page.tsx").then((module) => ({ default: module.SimulatorsSettings })),
+);
+
+export function SimulatorsSettingsScreen() {
+  return (
+    <SettingsBody page="Simulators">
+      <Suspense fallback={null}>
+        <SimulatorsSettings />
       </Suspense>
     </SettingsBody>
   );

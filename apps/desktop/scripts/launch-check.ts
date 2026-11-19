@@ -1,10 +1,12 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { launchVerdict } from "../src/packaging/launch-verdict.ts";
+import { e2eSwitches } from "./common.ts";
 
 const launchTimeoutMs = 90_000;
 const quitTimeoutMs = 20_000;
@@ -23,7 +25,7 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
   env.ACE_HOME = join(scratch, "home");
   env.ACE_DESKTOP_USER_DATA = join(scratch, "electron");
   env.ACE_PORT = String(await freePort());
-  const child = spawn(join(app, "Contents/MacOS/ace"), [], {
+  const child = spawn(join(app, "Contents/MacOS/ace"), e2eSwitches(process.platform), {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -54,13 +56,25 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
       });
     });
   } finally {
-    // Quitting stops the daemon the app started; a stuck app is killed.
+    // A stuck app is killed. Its daemon outlives it (ADR 0186), so it is stopped next.
     child.kill("SIGTERM");
     const quit = setTimeout(() => child.kill("SIGKILL"), quitTimeoutMs);
     await exited;
     clearTimeout(quit);
+    stopDaemon(env);
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/** Stops the daemon the check's app left running, with the `ace` command the app wrote. */
+function stopDaemon(env: NodeJS.ProcessEnv): void {
+  const ace = join(env.ACE_HOME ?? "", "bin", "ace");
+  if (!existsSync(ace)) return;
+  const stop = spawnSync(ace, ["stop"], { env, encoding: "utf8", timeout: quitTimeoutMs });
+  if (stop.status !== 0)
+    console.warn(
+      `The launch check's daemon may still be running (ace stop: ${stop.error?.message ?? (stop.stderr || stop.stdout).trim()})`,
+    );
 }
 
 function freePort(): Promise<number> {

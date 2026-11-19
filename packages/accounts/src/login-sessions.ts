@@ -78,6 +78,11 @@ interface Job {
   timer(): void;
   expired: boolean;
 }
+/** Wire text is at most 256 characters. */
+function clip(text: string): string {
+  return text.length <= 256 ? text : `${text.slice(0, 255)}…`;
+}
+
 /** Ephemeral challenges belong to the authenticated device, never an event log or transcript. */
 export class ProviderLoginSessions {
   private options: LoginSessionsOptions;
@@ -217,23 +222,37 @@ export class ProviderLoginSessions {
       job.timer = this.options.schedule(() => {
         job.expired = true;
         job.controller.abort();
-        void job.done.then(async () => {
-          if (this.active.get(job.key) === job) return;
-          try {
-            await job.settled?.("failed");
-            job.settled = undefined;
-            job.timer = this.options.schedule(() => this.jobs.delete(session), 60_000);
-          } catch {
-            this.active.set(job.key, job);
-            this.emit(job, {
-              state: "verifying",
-              message: "Account cleanup needs attention. Retry cancellation.",
-            });
-          }
-        });
+        void job.done
+          .then(async () => {
+            if (this.active.get(job.key) === job) return;
+            try {
+              await job.settled?.("failed");
+              job.settled = undefined;
+              job.timer = this.options.schedule(() => this.jobs.delete(session), 60_000);
+            } catch {
+              this.active.set(job.key, job);
+              this.emit(job, {
+                state: "verifying",
+                message: "Account cleanup needs attention. Retry cancellation.",
+              });
+            }
+          })
+          .catch((error: unknown) =>
+            this.options.report?.(error, {
+              provider: job.progress.provider,
+              action: job.progress.action,
+            }),
+          );
       }, lifetime);
       // Install ownership before preparation can perform I/O or invoke a callback.
-      job.done = Promise.resolve().then(() => this.run(job));
+      job.done = Promise.resolve()
+        .then(() => this.run(job))
+        .catch((error: unknown) =>
+          this.options.report?.(error, {
+            provider: job.progress.provider,
+            action: job.progress.action,
+          }),
+        );
       return reply(job);
     }
     const job = this.jobs.get(request.session);
@@ -290,8 +309,13 @@ export class ProviderLoginSessions {
     }
     return reply(job);
   }
+  /**
+   * Never throws: it runs from the driver's progress callback and at the end of an unawaited run,
+   * where a throw would leave the sign-in without its final state. Text past the wire's limit is
+   * shortened; an update that still does not fit keeps only its state.
+   */
   private emit(job: Job, update: LoginUpdate): void {
-    job.progress = ProviderLoginProgress.parse({
+    const base = {
       session: job.progress.session,
       provider: job.progress.provider,
       instance: job.progress.instance,
@@ -299,10 +323,26 @@ export class ProviderLoginSessions {
       ...(job.progress.method ? { method: job.progress.method } : {}),
       expiresAt: job.progress.expiresAt,
       sequence: job.progress.sequence + 1,
+    };
+    const parsed = ProviderLoginProgress.safeParse({
+      ...base,
       ...update,
+      ...(update.message === undefined ? {} : { message: clip(update.message) }),
+      ...(update.prompt === undefined ? {} : { prompt: clip(update.prompt) }),
     });
-    for (const listener of this.listeners)
-      listener(job.owner, ProviderLoginProgress.parse(job.progress));
+    job.progress = parsed.success
+      ? parsed.data
+      : ProviderLoginProgress.parse({ ...base, state: update.state });
+    for (const listener of this.listeners) {
+      try {
+        listener(job.owner, ProviderLoginProgress.parse(job.progress));
+      } catch (error) {
+        this.options.report?.(error, {
+          provider: job.progress.provider,
+          action: job.progress.action,
+        });
+      }
+    }
   }
   private async run(job: Job): Promise<void> {
     const signal = job.controller.signal;

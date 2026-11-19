@@ -9,6 +9,7 @@ import { ComposeActions } from "./compose-actions.ts";
 import { threadRow } from "./presentation.ts";
 import { NativeReads } from "./native-reads.ts";
 import type { NewThreadMemory } from "./new-thread.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -21,6 +22,8 @@ const pump = new PatchPump();
 native.ack = (accepted) => pump.ack(accepted);
 const sent: string[] = [];
 let client: ClientCore | undefined;
+/** While set, the outbox's saves wait for it: a new thread stays unsaved until then. */
+let slowSaves: Promise<void> | undefined;
 let sidebar: { release(): void } | undefined;
 
 afterEach(async () => {
@@ -29,14 +32,17 @@ afterEach(async () => {
   client = undefined;
   native.frames.length = 0;
   sent.length = 0;
+  slowSaves = undefined;
 });
 
 async function connect(
   daemon: FakeDaemon,
   chunks?: ChunkReader,
   memory?: (owner: ClientCore) => NewThreadMemory,
+  dismissed?: DismissedSends,
+  /** The outbox this phone keeps between launches; a fresh one each launch by default. */
+  outbox: { saved: string | null } = { saved: null },
 ): Promise<ComposeActions> {
-  let saved: string | null = null;
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-compose-test"),
     expectedHostId: HostId.parse("ios-test-host"),
@@ -53,9 +59,10 @@ async function connect(
     },
     credential: async () => ({ token: "ios-test-token" }),
     storage: {
-      load: async () => saved,
+      load: async () => outbox.saved,
       save: async (value) => {
-        saved = value;
+        await slowSaves;
+        outbox.saved = value;
       },
     },
     scheduler: {
@@ -80,6 +87,7 @@ async function connect(
     () => Date.now(),
     chunks,
     memory?.(owner),
+    dismissed,
   );
 }
 
@@ -216,7 +224,24 @@ test("an existing folder on the computer is found, added as a project and offere
     const patch = latest("compose.projects");
     return patch?.state === "ready" && patch;
   });
-  expect((projects.projects as { id: string }[]).map((row) => row.id)).toContain(added.projectId);
+  expect(
+    (projects.projects as { id: string; name: string }[]).find((row) => row.id === added.projectId),
+  ).toMatchObject({ name: "notes" });
+});
+
+test("a folder outside the computer's project folders is refused in words, with Allow offered", async () => {
+  const daemon = fixture();
+  daemon.projects.seedFolders("/home/ada", [{ path: "/home/ada/code/notes" }], {
+    roots: ["/home/ada/code/other"],
+  });
+  const compose = await connect(daemon);
+  compose.compose({ kind: "addProject", path: "/home/ada/code/notes", requestId: "add-outside" });
+  const refused = await until(() => latest("compose.added", "add-outside"));
+  expect(refused).toMatchObject({
+    ok: false,
+    canAllow: true,
+    message: expect.stringContaining("Allow it here"),
+  });
 });
 
 const photo = Buffer.alloc(70 * 1024, 9);
@@ -425,6 +450,37 @@ test("a thread started from an issue links that issue", async () => {
   });
 });
 
+test("a thread started from a pull request opens in a worktree of the head the person saw", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const pullRequest = {
+    ref: {
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+      number: 233,
+    },
+    headSha: "a".repeat(40),
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-pull-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Fix the failing test",
+    pullRequest,
+  });
+  await until(() => latest("admission", "draft-pull-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    mode: "worktree",
+    pullRequest,
+  });
+});
+
 test("New thread opens again on its last projects and agents, and keeps them when the reread fails", async () => {
   const daemon = fixture();
   const compose = await connect(
@@ -499,4 +555,276 @@ test("a chat with no project starts in its own hidden project, with its photo, a
   expect(ids).toContain("ace");
   expect(ids).not.toContain(first?.workspaceId);
   expect(ids).not.toContain(second?.workspaceId);
+});
+
+test("a file picked while the new thread is being saved is refused on its row, never dropped", async () => {
+  const compose = await connect(fixture(), staged);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string };
+  compose.compose({ kind: "attach", workspaceId: "ace", file: picked });
+  await until(
+    () => (latest("compose.attachments") as Attachments | undefined)?.files[0]?.state === "ready",
+  );
+  const { promise, resolve } = Promise.withResolvers<void>();
+  slowSaves = promise;
+  compose.compose({
+    kind: "create",
+    commandId: "draft-command-0030",
+    workspaceId: "ace",
+    provider: start.provider,
+    model: start.model,
+    mode: "local",
+    text: "Start with this",
+  });
+  type Locked = { files: { id: string; state: string; error: string }[]; locked?: string };
+  const tray = () => latest("compose.attachments") as Locked | undefined;
+  await until(() => tray()?.locked);
+  compose.compose({
+    kind: "attach",
+    workspaceId: "ace",
+    file: { ...picked, localId: "photo-late-0002", name: "late.png" },
+  });
+  await until(() => tray()?.files.some((file) => file.id === "photo-late-0002"));
+  expect(tray()?.files.find((file) => file.id === "photo-late-0002")).toMatchObject({
+    state: "failed",
+    error: expect.stringMatching(/Wait for the thread to start/),
+  });
+  slowSaves = undefined;
+  resolve();
+  expect((await until(() => latest("admission", "draft-command-0030"))).ok).toBe(true);
+  // The thread took only the photo it was sent with.
+  expect(createPayloads().at(-1)).toMatchObject({
+    context: { attachments: [{ sha256: photoSha }] },
+  });
+});
+
+test("a star the computer refuses says stars are changed there, not to reconnect", async () => {
+  const daemon = new FakeDaemon({
+    clock: Date.now,
+    hostId: "ios-test-host",
+    token: "ios-test-token",
+    deviceScopes: { "ios-compose-test": ["read", "operate"] },
+  });
+  const compose = await connect(daemon);
+  await readyAgents(compose);
+  compose.compose({ kind: "favorite", key: "claude\u0000sonnet" });
+  const agents = await until(() => {
+    const patch = latest("compose.agents");
+    return patch?.starProblem ? patch : undefined;
+  });
+  expect(agents.starProblem).toBe("Stars are changed in ace on the computer.");
+});
+
+interface WorktreeCard {
+  headline: string;
+  running: boolean;
+  failed: boolean;
+  steps: { label: string; state: string; percent: number | null }[];
+  note: string;
+  refused: string;
+  actions: { id: string; label: string }[];
+  details: string[];
+  message: string;
+  workspaceId: string;
+  canReturn: boolean;
+}
+/** The start's card as last sent: null once it says nothing, undefined before any patch. */
+const worktreeCard = (id: string) =>
+  latest("compose.worktree", id)?.card as WorktreeCard | null | undefined;
+
+async function startInWorktree(compose: ComposeActions, commandId: string) {
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  compose.compose({
+    kind: "create",
+    commandId,
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "worktree",
+    text: "Fix the export",
+  });
+}
+
+test("a worktree start shows its card step by step until the thread starts in it", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0001");
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0001");
+    return shown?.steps.some((step) => step.label === "Checking out files") && shown;
+  });
+  expect(card.headline).toBe("Creating a worktree");
+  expect(card.running).toBe(true);
+  expect(card.steps[0]).toMatchObject({ label: "Preparing workspace", state: "done" });
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Cancel"]);
+  const started = await until(() => latest("compose.start", "draft-tree-0001"));
+  expect(started).toMatchObject({ ok: true });
+  // Once made the card says nothing more: the thread opens instead.
+  await until(() => worktreeCard("draft-tree-0001") === null);
+  expect(latest("compose.worktree", "draft-tree-0001")?.made).toBe(started.threadId);
+});
+
+test("Cancel stops the worktree: the card says the message wasn't sent and offers Retry", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0002");
+  await until(() => worktreeCard("draft-tree-0002")?.running);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0002", action: "cancel" });
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0002");
+    return shown?.headline === "Worktree cancelled" && shown;
+  });
+  expect(card.note).toBe("Your message hasn't been sent. Retry, or send it on the local checkout.");
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Retry"]);
+  // The start is refused, but the card speaks for it: it stays, with its way forward.
+  await until(() => latest("compose.start", "draft-tree-0002"));
+  expect(worktreeCard("draft-tree-0002")?.headline).toBe("Worktree cancelled");
+});
+
+test("a worktree that can't be made is refused with the daemon's reason, not its code", async () => {
+  const daemon = fixture();
+  daemon.workspace.git.setRepository("ace", "none");
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0003");
+  const started = await until(() => latest("compose.start", "draft-tree-0003"));
+  expect(started).toMatchObject({
+    ok: false,
+    message: "This project isn't a Git repository, so it can't have worktrees.",
+  });
+  const card = await until(() => worktreeCard("draft-tree-0003"));
+  expect(card).toMatchObject({ failed: true, headline: "Couldn't create the worktree" });
+});
+
+test("a worktree start still in the outbox is followed again by a New thread that starts later", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0004");
+  await until(() => worktreeCard("draft-tree-0004")?.running);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0004", action: "cancel" });
+  await until(() => worktreeCard("draft-tree-0004")?.headline === "Worktree cancelled");
+  // The app starts again on the same outbox: nothing is sent, yet the card comes back.
+  native.frames.length = 0;
+  if (!client) throw new Error("no client");
+  const later = new ComposeActions(client, pump, (text, limit) => text.slice(0, limit), Date.now);
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0004");
+    return shown?.headline === "Worktree cancelled" && shown;
+  });
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Retry"]);
+  expect(card.message).toBe("Fix the export");
+  expect(card.workspaceId).toBe("ace");
+  expect(card.canReturn).toBe(true);
+  later.close();
+});
+
+test("Back to New thread forgets the stopped start on the daemon and its card goes", async () => {
+  const daemon = fixture();
+  const kept = new Set<string>();
+  const compose = await connect(daemon, undefined, undefined, {
+    has: (id) => kept.has(id),
+    dismiss: async (id) => !!kept.add(id),
+    restore: async (id) => kept.delete(id),
+    loaded: async () => {},
+    observe: () => () => {},
+  });
+  await startInWorktree(compose, "draft-tree-0005");
+  await until(() => worktreeCard("draft-tree-0005")?.running);
+  // While it is being made there is nothing to go back with: Cancel comes first.
+  expect(worktreeCard("draft-tree-0005")?.canReturn).toBe(false);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "cancel" });
+  await until(() => worktreeCard("draft-tree-0005")?.canReturn);
+  compose.compose({ kind: "worktreeBack", commandId: "draft-tree-0005", requestId: "back-0005" });
+  expect(await until(() => latest("receipt", "back-0005"))).toMatchObject({ ok: true });
+  await until(() => worktreeCard("draft-tree-0005") === null);
+  // Its Unsent row is dealt with on this phone too.
+  expect(kept.has("draft-tree-0005")).toBe(true);
+  // Taken back, not refused: New thread's wait ends without saying the thread didn't start.
+  expect(latest("compose.worktree", "draft-tree-0005")?.returned).toBe(true);
+  const asked = sent.filter((text) => text.includes('"action":"dismiss"'));
+  expect(asked).toHaveLength(1);
+});
+
+test("after a failed setup script Retry runs the worktree again, and Continue starts the thread", async () => {
+  const daemon = fixture();
+  daemon.workspace.git.failSetup("ace", ["$ bun install", "error: lockfile had changes"]);
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0006");
+  const failed = await until(() => {
+    const shown = worktreeCard("draft-tree-0006");
+    return shown?.actions.some((action) => action.id === "continue") && shown;
+  });
+  expect(failed.actions.map((action) => action.label)).toEqual([
+    "Don't use worktree",
+    "Retry",
+    "Continue without setup",
+  ]);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0006", action: "retry" });
+  await until(() => worktreeCard("draft-tree-0006")?.running);
+  await until(() =>
+    worktreeCard("draft-tree-0006")?.actions.some((action) => action.id === "continue"),
+  );
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0006", action: "continue" });
+  const made = await until(() => latest("compose.worktree", "draft-tree-0006")?.made);
+  expect(typeof made).toBe("string");
+  expect(worktreeCard("draft-tree-0006")).toBeNull();
+});
+
+/** Worktree cards the bridge sent Swift, and worktree requests the phone sent the daemon. */
+const cards = () => native.frames.filter((frame) => frame.type === "compose.worktree").length;
+const asks = () => sent.filter((text) => text.includes('"worktree.creation.request"')).length;
+
+test("a stopped start a fresh daemon never knew sends its card once, not on every list New thread reads", async () => {
+  const outbox = { saved: null as string | null };
+  const first = await connect(fixture(), undefined, undefined, undefined, outbox);
+  await startInWorktree(first, "draft-tree-0008");
+  await until(() => worktreeCard("draft-tree-0008")?.running);
+  first.compose({ kind: "worktree", commandId: "draft-tree-0008", action: "cancel" });
+  await until(() => latest("compose.start", "draft-tree-0008"));
+  first.close();
+  sidebar?.release();
+  await client?.close();
+  // The phone launches again against a fresh daemon that has never heard of that start.
+  const later = await connect(fixture(), undefined, undefined, undefined, outbox);
+  later.compose({ kind: "open" });
+  later.compose({ kind: "projects" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const before = { cards: cards(), asks: asks() };
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(cards() - before.cards).toBeLessThanOrEqual(1);
+  expect(asks() - before.asks).toBeLessThanOrEqual(1);
+  later.close();
+});
+
+test("each project names its logical project's ids, so another machine's checkout of it is found", async () => {
+  const daemon = fixture();
+  const P = "11111111-1111-4111-8111-111111111111";
+  const Q = "22222222-2222-4222-8222-222222222222";
+  daemon.projects.seedFolders("/home/ada", [
+    { path: "/home/ada/code/weather", git: true },
+    { path: "/home/ada/review/weather", git: true },
+    { path: "/home/ada/code/notes", git: true },
+  ]);
+  const ids = ["/home/ada/code/weather", "/home/ada/review/weather", "/home/ada/code/notes"].map(
+    (path) => daemon.projects.command({ type: "workspace.add", path })?.workspace?.id ?? "",
+  );
+  const [main, review, notes] = ids;
+  daemon.projects.identities.set(main ?? "", P);
+  daemon.projects.identities.set(review ?? "", Q);
+  // Q was merged into P here: the review checkout still says Q, and P's alias joins them.
+  daemon.projects.identities.alias(Q, P);
+  const compose = await connect(daemon);
+  compose.compose({ kind: "projects" });
+  const patch = await until(
+    () => latest("compose.projects")?.state === "ready" && latest("compose.projects"),
+  );
+  const rows = patch.projects as { id: string; logical: string[] }[];
+  const logical = (id: string | undefined) => rows.find((row) => row.id === id)?.logical;
+  expect(logical(main)).toEqual([P, Q]);
+  expect(logical(review)).toEqual([P, Q]);
+  // Its own logical project, which nothing else here shares.
+  expect(logical(notes)).toHaveLength(1);
+  expect(logical(notes)).not.toContain(P);
+  // An older thread's project, never added by this ace, has none.
+  expect(logical("ace")).toEqual([]);
 });

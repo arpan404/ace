@@ -18,6 +18,8 @@ import {
 import type { OpenTerminalOptions } from "@ace/terminal";
 import type { ProviderKind, ProviderLoginInput } from "@ace/protocol";
 
+const EmptyResult = z.object({});
+
 const Method = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(128),
@@ -222,7 +224,8 @@ export function acpLoginDriver(options: {
       const { child, peer } = connected;
       const stop = () => {
         peer.close();
-        void child.stop({ graceMs: 0 });
+        // Only a head start: the finally block stops the same process again and reports there.
+        void child.stop({ graceMs: 0 }).catch(() => {});
       };
       signal.addEventListener("abort", stop, { once: true });
       if (signal.aborted) stop();
@@ -242,7 +245,7 @@ export function acpLoginDriver(options: {
           throw new Error("Unexpected installed agent");
         if (options.action === "logout") {
           if (!init.agentCapabilities?.auth?.logout) return { success: false };
-          z.object({}).parse(await peer.request("logout", {}, { signal }));
+          EmptyResult.parse(await peer.request("logout", {}, { signal }));
           return { success: true };
         }
         // Secrets stay in the installed agent, including its advertised interactive terminal. A
@@ -300,7 +303,8 @@ export function acpLoginDriver(options: {
             name: "Agent sign-in",
           });
           const cancel = () => {
-            void terminal?.stop();
+            // Stopping the person's terminal is best effort; its exit is awaited below.
+            void terminal?.stop().catch(() => {});
           };
           signal.addEventListener("abort", cancel, { once: true });
           if (signal.aborted) cancel();
@@ -350,7 +354,7 @@ export function acpLoginDriver(options: {
               },
         );
         // Bounded like the sign-in session itself: an agent that never answers can't hold it.
-        z.object({}).parse(
+        EmptyResult.parse(
           await peer.request("authenticate", { methodId }, { signal, timeoutMs: authenticateMs }),
         );
         signedInWith = methodId;

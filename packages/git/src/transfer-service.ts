@@ -13,7 +13,10 @@ import {
 } from "./transfer-checkout.ts";
 import { cloneFromBundle, type BundleCloneOptions } from "./transfer-clone.ts";
 import { ignoredPaths } from "./transfer-ignored.ts";
+import { fetchOrigin, hasCommit } from "./transfer-origin-fetch.ts";
 import { bundleRefs, createBranch, deleteRef, pinRef, transferOrigin } from "./transfer-refs.ts";
+import { sourceCheckout, type SourceCheckout } from "./transfer-source.ts";
+import { checkoutFacts } from "./checkout-facts.ts";
 
 /** A repository directory the caller holds open, entered by descriptor instead of by path. */
 export interface Held {
@@ -52,17 +55,28 @@ export class GitTransfer {
     return this.repository.serial(path, () => operation(path, directoryFd));
   }
 
+  /** Whether `path` is in a work tree (and where its top is), a plain folder, or refused. */
+  sourceCheckout(path: string): Promise<SourceCheckout> {
+    return sourceCheckout(this.repository, path);
+  }
   /** `origin`'s fetch URL and its `normalizeRemoteUrl` key; undefined without an origin. */
   transferOrigin(path: string) {
     return this.within(path, (root) => transferOrigin(this.repository, root));
+  }
+  /** Every remote and the folder inside the work tree; undefined outside Git (ADR 0180). */
+  checkoutFacts(path: string) {
+    return checkoutFacts(this.repository, path);
   }
   /** Uncommitted changes as a commit on HEAD at `ref`; checkout and index untouched. */
   captureChanges(path: string, options: { ref: string; message?: string | undefined }) {
     return this.within(path, (root) => captureChanges(this.repository, root, options));
   }
-  /** Paths Git ignores; a whole ignored folder once, ending in `/`. See `ignoredPaths`. */
-  ignoredPaths(path: string): Promise<string[]> {
-    return this.within(path, (root) => ignoredPaths(this.repository, root));
+  /**
+   * Paths Git ignores, relative to the work tree's top; a whole ignored folder once, ending in
+   * `/`. `under` (work-tree relative) narrows them to one folder. See `ignoredPaths`.
+   */
+  ignoredPaths(path: string, under?: string): Promise<string[]> {
+    return this.within(path, (root) => ignoredPaths(this.repository, root, under));
   }
   bundleRefs(path: string) {
     return this.within(path, (root) => bundleRefs(this.repository, root));
@@ -105,6 +119,21 @@ export class GitTransfer {
   ): Promise<void> {
     return this.at(path, held, (root, directoryFd) =>
       fetchBundle(this.repository, root, bundle, refspecs, { directoryFd }),
+    );
+  }
+  /** Whether the repository has `commit`; never fetches. */
+  hasCommit(path: string, commit: string, held?: Held): Promise<boolean> {
+    return this.at(path, held, (root, fd) => hasCommit(this.repository, root, commit, fd));
+  }
+  /** Every branch of `origin` into `refs/remotes/origin/*`; local branches untouched. */
+  fetchOrigin(
+    path: string,
+    options: { timeoutMs?: number; signal?: AbortSignal | undefined } = {},
+    policy?: ProjectGitPolicy,
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    return this.within(path, (root) =>
+      fetchOrigin(this.repository, root, { ...options, timeoutMs }, policy),
     );
   }
   applyChanges(path: string, commit: string, held?: Held): Promise<void> {

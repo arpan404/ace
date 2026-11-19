@@ -32,3 +32,17 @@ test("ids that look like paths still name a profile inside ace's profiles folder
     expect(dir.slice(join(root, "profiles").length + 1)).toMatch(/^(project|thread)-[a-f0-9]{32}$/);
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "Windows: ids that look like drive or UNC paths still name a profile inside ace's profiles folder",
+  () => {
+    const hostile = { threadId: "..\\..\\Windows", workspaceId: "\\\\server\\share\\C:\\Users" };
+    for (const scope of ["project", "thread"] as const) {
+      const dir = scopedProfileDir(root, scope, hostile);
+      expect(dir.startsWith(`${join(root, "profiles")}\\`)).toBe(true);
+      expect(dir.slice(join(root, "profiles").length + 1)).toMatch(
+        /^(project|thread)-[a-f0-9]{32}$/,
+      );
+    }
+  },
+);

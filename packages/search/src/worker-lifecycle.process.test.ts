@@ -1,16 +1,16 @@
 import { EventEmitter } from "node:events";
 import { setImmediate as yieldTurn } from "node:timers/promises";
 import { expect, test } from "vitest";
-import { z } from "zod";
 import { SearchQueries, type SearchWorker } from "./index.ts";
+import type { SearchWorkerRequest } from "./worker-protocol.ts";
 
 /** Only the worker I/O is controlled; admission and cleanup use the public reader. */
 class ControlledWorker extends EventEmitter implements SearchWorker {
   onTerminate: (() => void) | undefined;
   private readonly stopped = Promise.withResolvers<number>();
   private id: number | undefined;
-  postMessage(message: unknown): void {
-    this.id = z.object({ id: z.number().int().positive() }).parse(message).id;
+  postMessage(message: SearchWorkerRequest): void {
+    this.id = message.id;
   }
   terminate(): Promise<number> {
     this.onTerminate?.();
@@ -41,7 +41,7 @@ test("worker startup failure rejects a query through its promise and closing sti
   await expect(queries.query({ text: "needle" })).rejects.toThrow("search_failed");
 });
 
-test.each(["close", "malformed"])(
+test.each(["close", "error"])(
   "reentrant worker shutdown shares the cleanup completion signal after %s",
   async (trigger) => {
     const worker = new ControlledWorker();
@@ -51,7 +51,7 @@ test.each(["close", "malformed"])(
       reentrant = queries.close();
     };
     const query = Promise.allSettled([queries.query({ text: "needle" })]);
-    if (trigger === "malformed") worker.emit("message", { invalid: true });
+    if (trigger === "error") worker.emit("error", new Error("worker crashed"));
     const closing = queries.close();
     let reentrantEnded = false;
     const observer = reentrant?.then(() => {
@@ -95,7 +95,7 @@ test("closing waits for both reader workers while immediately rejecting outstand
   await expect(queries.query({ text: "needle" })).rejects.toThrow("search_failed");
 });
 
-test("malformed worker responses reject pending work and recovery waits for cleanup", async () => {
+test("a failed worker rejects pending work and recovery waits for cleanup", async () => {
   const failed = new ControlledWorker();
   const replacement = new ControlledWorker();
   const available = [failed, replacement];
@@ -106,7 +106,7 @@ test("malformed worker responses reject pending work and recovery waits for clea
   });
   try {
     const first = queries.query({ text: "needle" });
-    failed.emit("message", { invalid: true });
+    failed.emit("error", new Error("worker crashed"));
     await expect(first).rejects.toThrow("search_failed");
     await expect(queries.query({ text: "needle" })).rejects.toThrow("search_failed");
     failed.finish();

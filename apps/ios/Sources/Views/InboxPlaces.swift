@@ -1,18 +1,116 @@
 import SwiftUI
 
-/// Threads and Pull requests at the foot of the sidebar, where a regular window (iPad, the
-/// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
-/// switch, the place showing filled. A compact window has the tab bar back.
-struct InboxPlaces: View {
+/// The places at the foot of the iPad sidebar, where a regular window (iPad, the unfolded iPhone
+/// Duo, a large iPhone turned) keeps them instead of the tab bar. Two glass capsules: at the
+/// leading edge the places the window switches between, in the web rail's order (Projects, Chats,
+/// Spade while a machine shows it, Search), the one showing on a filled capsule; at the trailing
+/// edge what opens over it: More (Automations and Skills, then Usage, History and Archived) and
+/// Settings. Code review sits in the Projects list's top bar, as on a phone. A phone has the
+/// same system drawn as its tab bar (`HomeBar`): the same glass, glyphs and chosen fill.
+struct SidebarPlaces: View {
     @Binding var tab: InboxTab
+    /// Opens one of the places outside the lists.
+    let open: (SearchPlace) -> Void
+    /// Each switchable place's dot: something there needs the person while it isn't showing.
+    var needsYou: (InboxTab) -> Bool = { _ in false }
+    @Environment(\.showsSpade) private var showsSpade
+    @Namespace private var fill
+
+    /// The machine tools, then the rail's quieter places, in one menu before Settings.
+    private static let tools: [SearchPlace] = [.automations, .skills]
+    private static let more: [SearchPlace] = [.usage, .history, .archived]
 
     var body: some View {
-        GlassSwitch(selection: $tab, choices: [
-            .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
-            .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls"),
-        ])
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm)
+        HStack(spacing: AceDesign.Space.related) {
+            HStack(spacing: AceDesign.Space.tight) {
+                ForEach(HomeTabs.footPlaces(spade: showsSpade), id: \.self) { place in switchItem(place) }
+            }
+            // Only the chosen fill slides; the tab it opens shows at once, as the tab bar's do.
+            .animation(.default, value: tab)
+            .padding(AceDesign.Size.tabInset)
+            .barGlass(in: AceShape.capsule)
+            .floatingShadow()
+            Spacer(minLength: AceTheme.Spacing.none)
+            HStack(spacing: AceDesign.Space.tight) {
+                Menu {
+                    Section { ForEach(Self.tools) { place in menuItem(place) } }
+                    Section { ForEach(Self.more) { place in menuItem(place) } }
+                } label: { placeGlyph(.dotsThree) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More")
+                .accessibilityIdentifier("sidebar.more")
+                placeButton(.settings)
+            }
+            .padding(AceDesign.Size.tabInset)
+            .barGlass(in: AceShape.capsule)
+            .floatingShadow()
+        }
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.vertical, AceDesign.Space.related)
+    }
+
+    private func menuItem(_ place: SearchPlace) -> some View {
+        Button(place.title, ace: place.icon) { open(place) }
+            .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
+    }
+
+    private func placeButton(_ place: SearchPlace) -> some View {
+        Button { open(place) } label: { placeGlyph(place.icon) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(place.title)
+            .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
+    }
+
+    private func placeGlyph(_ icon: AceIcon.Name) -> some View {
+        AceIcon(icon, size: AceDesign.Size.barIcon)
+            .foregroundStyle(AceDesign.Ink.muted)
+            .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
+            .contentShape(AceShape.capsule)
+            .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.navButton)
+    }
+
+    private func switchItem(_ place: InboxTab) -> some View {
+        let chosen = tab == place
+        let dot = !chosen && needsYou(place)
+        return Button {
+            tab = place
+        } label: {
+            HomePlaceGlyph(place: place, chosen: chosen)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.navButton)
+                .overlay(alignment: .topTrailing) {
+                    if dot {
+                        Circle().fill(AceTheme.RowStatus.needsYou)
+                            .frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
+                            .padding(AceDesign.Space.tight)
+                    }
+                }
+                .background {
+                    if chosen {
+                        AceShape.capsule.fill(AceDesign.Surface.fill).matchedGeometryEffect(id: "chosen", in: fill)
+                    }
+                }
+                .contentShape(AceShape.capsule)
+                .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.tap)
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
+        .accessibilityLabel(HomeTabs.title(place))
+        .accessibilityValue(dot ? "Needs you" : "")
+        .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
+        .accessibilityIdentifier("sidebar.\(HomeTabs.identifier(place))")
+    }
+}
+
+/// The system's tab bar never shows: a phone has ace's own (`HomeBar`), a regular window the
+/// sidebar's foot. Set on the tab bar controller too (`TabBarPlace`), or its first layout keeps
+/// room for the bar.
+struct HomeTabBar: ViewModifier {
+    /// Changes when the tabs may be laid out again (`TabBarPlace.relayout`).
+    var relayout = "home"
+    func body(content: Content) -> some View {
+        content
+            .toolbarVisibility(.hidden, for: .tabBar)
+            .background { TabBarPlace(hidden: true, relayout: relayout).frame(width: 0, height: 0) }
     }
 }
 
@@ -33,10 +131,10 @@ extension View {
                 VStack(spacing: AceTheme.Spacing.none) {
                     LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: AceTheme.Spacing.xl)
+                        .frame(height: AceDesign.Space.fade)
                     AceTheme.Colours.background
                 }
-                .padding(.top, -AceTheme.Spacing.xl)
+                .padding(.top, -AceDesign.Space.fade)
                 .ignoresSafeArea(edges: .bottom)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

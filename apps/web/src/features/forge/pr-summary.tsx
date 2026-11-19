@@ -1,87 +1,63 @@
+import { can } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
-import { PrAttention } from "./pr-attention.tsx";
-import { PrPeople } from "./pr-people.tsx";
 import { PrChangesGlance } from "./pr-changes-glance.tsx";
 import { PrDescription } from "./pr-description.tsx";
 import { PrStackSummary } from "./pr-stack-summary.tsx";
-import { PrChecks } from "./pr-checks.tsx";
-import { PrComments } from "./pr-comments.tsx";
 
 /**
- * The Summary tab, top to bottom: what needs attention, reviewers and labels, the biggest
- * changes, the description, the stack, the checks (folded) and the conversation. Every write
- * lives in the header and its ⋯ menu.
+ * The Summary tab, laid out as GitHub lays out a pull request: a main column of boxes (the
+ * description, the merge box, the files changed, the stack) and a sidebar (`about`) with the
+ * people, labels, the agent and what it's filed under. A narrow view stacks the sidebar under
+ * the column.
  */
 export function PrSummary(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
-  hostThreadId?: string | undefined;
   stack?: { number: number; size: number; position: number } | undefined;
-  refreshing: boolean;
-  /** Bumped by the Checks gate: the checks open and scroll into view. */
-  revealChecks?: number | undefined;
-  onRefresh(): void;
   onOpen(number: number): void;
-  onOpenCode(path?: string): void;
-  /** Opens the reviewer request, when this PR can take one. */
-  onRequestReview: (() => void) | undefined;
+  onOpenCode(path?: string, line?: number): void;
   /** Opens the details editor, when GitHub lets this account edit them. */
   onEdit: (() => void) | undefined;
-  /** The milestone, linked issues, lock and branch, under the reviewers. */
-  details?: ReactNode;
+  /** Reviewers, assignees, labels, the agent, the milestone and linked issues. */
+  about?: ReactNode;
+  /** The merge box (`PrMergeBox`), with what blocks the merge at its top. */
+  merge: ReactNode;
   /** Saves the description with one task box ticked, when the viewer may edit it. */
   onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const { context } = props;
   const { detail } = context;
   return (
-    <div className="space-y-3 px-[var(--forge-gutter,1rem)] pt-2 pb-10">
-      <PrAttention
-        workspaceId={context.workspaceId}
-        detail={detail}
-        hostThreadId={props.hostThreadId}
-        disabled={context.disabled}
-      />
-      <PrPeople
-        context={context}
-        extensions={props.extensions}
-        onRequestReview={props.onRequestReview}
-        onEdit={props.onEdit}
-      />
-      {props.details}
-      <PrChangesGlance
-        workspaceId={context.workspaceId}
-        detail={detail}
-        onOpenCode={props.onOpenCode}
-      />
-      <PrDescription
-        context={context}
-        extensions={props.extensions}
-        onOpen={props.onOpen}
-        onEdit={props.onEdit}
-        onTasks={props.onTasks}
-      />
-      {props.stack && (
-        <PrStackSummary
-          workspaceId={context.workspaceId}
-          detail={detail}
-          stack={props.stack}
-          onRefresh={() => void context.refresh()}
+    <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-5 pb-12 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15.5rem] @min-[50rem]/pr:gap-8">
+      <div className="min-w-0 space-y-5">
+        <PrDescription
+          context={context}
+          extensions={props.extensions}
           onOpen={props.onOpen}
+          onEdit={props.onEdit}
+          onTasks={props.onTasks}
         />
-      )}
-      <PrChecks
-        context={context}
-        refreshing={props.refreshing}
-        reveal={props.revealChecks}
-        hostThreadId={props.hostThreadId}
-        onRefresh={props.onRefresh}
-        onOpen={props.onOpen}
-        onOpenCode={props.onOpenCode}
-      />
-      <PrComments status={detail.status} />
-      {props.extensions?.summary?.(context)}
+        {props.merge}
+        {can(detail, "reviews.files") && !detail.unavailableResources?.includes("files") && (
+          <PrChangesGlance
+            workspaceId={context.workspaceId}
+            detail={detail}
+            onOpenCode={props.onOpenCode}
+          />
+        )}
+        {props.stack && (
+          <PrStackSummary
+            workspaceId={context.workspaceId}
+            detail={detail}
+            stack={props.stack}
+            onRefresh={() => void context.refresh()}
+            onOpen={props.onOpen}
+          />
+        )}
+        {props.extensions?.summary?.(context)}
+      </div>
+      {props.about && <div className="min-w-0 @min-[50rem]/pr:pt-0.5">{props.about}</div>}
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { FileIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
+import { knownFileIcon } from "@/components/file-icon.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { FileName, kindGlyph } from "./attachment-face.tsx";
@@ -63,8 +62,7 @@ export function FileChip(props: {
 }) {
   const { file } = props;
   const meta = fileMeta(file) + (file.delivery ? ` · ${deliveryLabels[file.delivery]}` : "");
-  const byName = fileIcon(file.name);
-  const glyph = byName === FileIcon ? kindGlyph(describeFile(file).kind) : byName;
+  const glyph = knownFileIcon(file.name) ?? kindGlyph(describeFile(file).kind);
   const tip = (
     <>
       <span className="block tabular-nums">{meta}</span>
@@ -88,6 +86,8 @@ export function FileChip(props: {
         <button
           type="button"
           aria-label={`${file.name}, ${meta}`}
+          data-part="attachment"
+          data-variant="file"
           onClick={(event) => onOpen(file, event.currentTarget)}
           className={cn(
             chip,
@@ -97,8 +97,14 @@ export function FileChip(props: {
           {face}
         </button>
       ) : (
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-        <span tabIndex={0} aria-label={`${file.name}, ${meta}`} className={cn(chip, "focus-ring")}>
+        <span
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
+          tabIndex={0}
+          aria-label={`${file.name}, ${meta}`}
+          data-part="attachment"
+          data-variant="file"
+          className={cn(chip, "focus-ring")}
+        >
           {face}
         </span>
       )}

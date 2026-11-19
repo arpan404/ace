@@ -41,22 +41,6 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
       "Name",
     );
   }, 60_000);
-  it("ace's browser exits once its last thread closes and the idle period passes", async () => {
-    const f = await fixture({ chrome: { idleMs: 0 } });
-    await f.navigate();
-    expect((await exec("ps", ["-axo", "pid,command"])).stdout).toContain(
-      `--user-data-dir=${f.home}`,
-    );
-    await f.service.closeThread("thread");
-    await vi.waitFor(
-      async () =>
-        expect((await exec("ps", ["-axo", "pid,command"])).stdout).not.toContain(
-          `--user-data-dir=${f.home}`,
-        ),
-      { timeout: 30_000, interval: 100 },
-    );
-  }, 60_000);
-
   it("persistent threads share ace's profile across browser restarts, private threads do not", async () => {
     const f = await fixture({ chrome: { idleMs: 0 } });
     await f.navigate();

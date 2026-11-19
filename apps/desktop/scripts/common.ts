@@ -5,6 +5,7 @@ import {
   electronBinary as electronBinaryFrom,
   electronDist,
 } from "../src/packaging/electron-dist.ts";
+import { preferEsmBuilds } from "../src/packaging/esm-builds.ts";
 import { noNativeModules } from "../src/packaging/no-native-modules.ts";
 import { zodEnglishOnly } from "./zod-english.ts";
 
@@ -42,7 +43,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
     minify: true,
     sourcemap: "linked",
     external: ["electron"],
-    plugins: [zodEnglishOnly],
+    plugins: [zodEnglishOnly, preferEsmBuilds],
     logLevel: "warning",
     legalComments: "eof",
   };
@@ -57,9 +58,9 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       chunkNames: "chunks/[name]-[hash]",
       outExtension: { ".js": ".mjs" },
       // app.asar stages no native packages; the daemon owns them.
-      plugins: [zodEnglishOnly, noNativeModules],
+      plugins: [zodEnglishOnly, preferEsmBuilds, noNativeModules],
       platform: "node",
-      target: "node24",
+      target: "node26",
       // CommonJS dependencies bundled into ESM still call `require` for Node built-ins.
       banner: {
         js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
@@ -67,6 +68,22 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       define: {
         ACE_APP_VERSION: JSON.stringify(env.ACE_VERSION ?? appVersion()),
       },
+    },
+    {
+      ...shared,
+      // The main process's worker threads: the freeze watchdog and the CLI probe worker behind
+      // toolchain detection. Each is one self-contained file: they are unpacked from the asar
+      // archive, where shared chunks would not resolve.
+      entryPoints: {
+        "stall-watchdog-worker": join(repo, "packages/diagnostics/src/stall-watchdog-worker.ts"),
+        "probe-worker": join(repo, "packages/provider-kit/src/probe-worker.ts"),
+      },
+      outdir,
+      plugins: [zodEnglishOnly, preferEsmBuilds, noNativeModules],
+      format: "esm",
+      outExtension: { ".js": ".mjs" },
+      platform: "node",
+      target: "node26",
     },
     {
       ...shared,
@@ -95,6 +112,20 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
 
 /** The main-process entry `electronBundles` writes into its output directory. */
 export const mainEntry = "main.mjs";
+
+/**
+ * What electron-builder keeps outside app.asar (`asarUnpack`, relative to the app directory).
+ * Native addons and helper binaries cannot run from inside an asar archive, and a worker
+ * thread's module loader cannot read it either (the freeze watchdog and the toolchain probe
+ * worker, which load from `app.asar.unpacked`: src/main/bundled-worker.ts).
+ */
+export const asarUnpacked = [
+  "**/*.node",
+  "**/rg",
+  "**/rg.exe",
+  "stall-watchdog-worker.mjs",
+  "probe-worker.mjs",
+];
 
 /** The desktop app's version (`apps/desktop/package.json`). */
 export function appVersion(): string {
@@ -148,6 +179,24 @@ export async function electronBinary(): Promise<string> {
 /** The installed Electron build a local package reuses, downloaded on first use. */
 export function installedElectronDist(): string {
   return electronDist(join(desktop, "package.json"));
+}
+
+/**
+ * Chromium switches for every disposable launch of the app (e2e specs, measuring, launch
+ * checks), so none reaches the person's own secret store.
+ * - macOS: a mock keychain, never the login keychain. The app's first `safeStorage` call
+ *   creates its encryption key there; under a temporary HOME there is no login keychain, so
+ *   macOS asks to create one in a dialog nobody answers and the main process blocks in
+ *   `SecItemAdd`. With the real HOME it would write to the person's own keychain.
+ * - Linux: Chromium's plaintext store, never the session's libsecret or KWallet (the real
+ *   keyring, or an unlock dialog). `account-secrets.ts` refuses that store, so a disposable
+ *   launch can't save an ace account session; no spec saves one.
+ * - Windows: nothing. DPAPI asks no one and its key file lives in the launch's own data folder.
+ */
+export function e2eSwitches(platform: NodeJS.Platform): string[] {
+  if (platform === "darwin") return ["--use-mock-keychain"];
+  if (platform === "linux") return ["--password-store=basic"];
+  return [];
 }
 
 /**

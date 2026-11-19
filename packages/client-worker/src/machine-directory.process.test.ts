@@ -153,3 +153,40 @@ test("failed pairing metadata persistence rolls back the new secret without chan
   expect(f.directory.machines.map((entry) => entry.hostId)).toEqual(["existing"]);
   expect(f.raw()).toBe(raw);
 });
+
+test("a machine saved before paths existed keeps its route and remembers the paths it names", async () => {
+  const f = persistence();
+  await f.storage.save(
+    JSON.stringify({
+      version: 1,
+      machines: [
+        {
+          hostId: "laptop",
+          displayName: "Laptop",
+          deviceId: "device",
+          target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+        },
+      ],
+    }),
+  );
+  const [entry] = await f.directory.load();
+  expect(entry).toMatchObject({ hostId: "laptop", target: { url: "wss://192.168.1.4:7443/" } });
+  const lan = {
+    kind: "lan",
+    url: "https://192.168.1.4:7443",
+    fingerprint: "b".repeat(64),
+  } as const;
+  await f.directory.remember("laptop", { paths: [lan], lastPath: "lan" });
+  const reopened = await new MachineDirectory(f.storage, f.secrets).load();
+  expect(reopened).toEqual([
+    expect.objectContaining({
+      hostId: "laptop",
+      target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+      paths: [lan],
+      lastPath: "lan",
+    }),
+  ]);
+  // A machine that isn't saved learns nothing: paths come only with its own entry.
+  await f.directory.remember("stranger", { paths: [lan] });
+  expect((await f.directory.load()).map((saved) => saved.hostId)).toEqual(["laptop"]);
+});

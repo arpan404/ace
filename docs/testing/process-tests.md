@@ -1,5 +1,25 @@
 # Process test reliability
 
+## Tiers and budgets
+
+`scripts/test-run.ts` runs the suite in tiers made of Vitest projects: `test:fast` (`unit`,
+`web`, `client-react`), `test:process` (`process`), `test:slow` (`slow-process`, which holds the
+release, web-perf, real-smoke and `*.perf` process suites, plus `browser-process` and
+`history-scale`) and `test` (everything). CI runs locally, so run `test:fast` or `test:changed`
+on every change, `test:process` before merging to main and `test:slow` before a release.
+
+`test:changed` passes the merge-base with `origin/main` to Vitest's `--changed`, which follows
+imports through workspace packages, so a change in `packages/git` also selects the daemon tests
+that import `@ace/git`. Changing a `package.json` or Vitest config reruns everything. Files read
+at runtime rather than imported (fixtures, JSON) don't count as dependencies.
+
+Each run writes per-file timings to `test-timings/last.json`; a run without extra arguments also
+keeps `test-timings/<tier>.json`. Budgets measure a file's tests and hooks, not its imports: 5s in
+the fast tier and 30s in the process tier. Over-budget files are listed after every run, and
+`test:fast` fails unless `scripts/test-budgets.json` allows the file with a reason. Durations are
+wall time with other workers competing for CPU; `ACE_TEST_BUDGET_SCALE=2` loosens every budget
+on slower machines such as the Windows VM.
+
 The `process` Vitest project owns tests that launch real CLIs, child processes,
 Node workers or listening sockets. Its per-test and hook deadlines come from
 `PROCESS_TEST_TIMEOUT` in the public `@ace/provider-kit/testing` module. All
@@ -107,10 +127,8 @@ worker resolves beside the real source. That merged behavior needs run at merge.
 | `packages/orchestrator/src/git.process.test.ts`                 | Real Git processes and temporary repositories             |
 | `packages/provider-kit/src/discovery/discovery.process.test.ts` | Real Node/shell processes; discovery also uses a TCP gate |
 | `packages/provider-kit/src/jsonrpc.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/live.process.test.ts`                | Opt-in installed CLI handshakes and local server          |
+| `packages/provider-kit/src/live.process.test.ts`                | Opt-in installed CLI handshakes                           |
 | `packages/provider-kit/src/process.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/sse-recovery.process.test.ts`        | Real HTTP/SSE server                                      |
-| `packages/provider-kit/src/sse.process.test.ts`                 | Real HTTP/SSE server                                      |
 | `tools/recorder/src/stdio.process.test.ts`                      | Synthetic Node CLI processes; no subscription use         |
 
 The additional suites from `19a7e14` are:

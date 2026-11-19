@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
 import { AdapterRegistry } from "@ace/daemon";
-import { ready, setup } from "./test-support.ts";
+import { ready, sharedDaemon } from "./test-support.ts";
 
 /** A daemon whose Cursor runs on the SDK, so its Cursor sign-in service is up; never opened. */
 function cursorEngine() {
@@ -21,10 +21,12 @@ function cursorEngine() {
   return { registry };
 }
 
+const harness = sharedDaemon({ engine: cursorEngine() });
+
 test.each(["cursor.auth.status", "cursor.auth.select", "cursor.auth.logout"] as const)(
   "%s reports an unavailable instance outside the durable intent outbox",
   async (type) => {
-    const h = await setup(undefined, undefined, cursorEngine());
+    const h = await harness();
     const { client, faults } = h.make();
     try {
       await ready(client);

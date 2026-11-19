@@ -78,6 +78,9 @@ export function attachFilesChannel(
       ...(error instanceof FileError && error.current !== undefined
         ? { current: error.current }
         : {}),
+      ...(error instanceof FileError && typeof error.recovery === "string"
+        ? { recovery: error.recovery }
+        : {}),
     });
   const stop = async (id: number) => {
     const state = outgoing.get(id);
@@ -140,8 +143,14 @@ export function attachFilesChannel(
           state.credits = Math.max(1, state.credits);
       }
     } catch (error) {
-      if (!state.cancelled && !closed) failure(error, { channel: id });
-      await stop(id);
+      // pump() is never awaited: the failure goes to the client, and a close that fails too
+      // (EIO on a volume that went away) leaves nothing more to tell it.
+      try {
+        if (!state.cancelled && !closed) failure(error, { channel: id });
+        await stop(id);
+      } catch {
+        /* The channel is already gone from outgoing. */
+      }
     } finally {
       state.pumping = false;
     }
@@ -167,13 +176,15 @@ export function attachFilesChannel(
         throw new FileError("QUOTA", "Credit window exceeded");
       state.credits += message.credits;
       armIdle(message.channel, state);
-      void pump(message.channel, state);
+      // pump() carries its own failure to the client.
+      void pump(message.channel, state).catch(() => {});
       return;
     }
     if (
       message.type === "files.abort" ||
       message.type === "files.pull" ||
-      message.type === "files.chunk"
+      message.type === "files.chunk" ||
+      message.type === "files.watch"
     )
       throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;
@@ -212,7 +223,8 @@ export function attachFilesChannel(
         size: download.size,
         validator: download.validator,
       });
-      void pump(id, state);
+      // pump() carries its own failure to the client.
+      void pump(id, state).catch(() => {});
       return;
     }
     if (operation.op === "upload.begin" || operation.op === "upload.resume") {
@@ -280,8 +292,9 @@ export function attachFilesChannel(
     closed = true;
     unsubscribe();
     stopClose?.();
-    for (const id of outgoing.keys()) void stop(id);
-    for (const id of incoming.keys()) void stop(id);
+    // The client is gone: a transfer whose close fails has nobody left to tell.
+    for (const id of outgoing.keys()) void stop(id).catch(() => {});
+    for (const id of incoming.keys()) void stop(id).catch(() => {});
   };
   stopClose = transport.onClose(close);
   if (closed) stopClose();

@@ -38,6 +38,10 @@ export interface BrowserView {
   features?: string[];
   /** The connection with annotate mode open (ADR 0082). */
   annotation?: { owner: string };
+  /** A recording of the person's view runs (`browser.recording.start`). */
+  recording?: { by: { kind: "human" | "agent" | "page"; agentId?: string } };
+  /** What its live video runs on (ADR 0148), set by `setAcceleration`. */
+  acceleration?: import("@ace/protocol").MediaAcceleration;
 }
 export interface ScreenFrame {
   sequence: number;
@@ -93,6 +97,8 @@ export class FakeBrowser {
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
+  /** Scripting: whether a desktop app is there to host `embedded` pages, as the daemon reports. */
+  desktop = true;
   /**
    * The daemon's first browser needs Chromium downloaded (ADR 0055 acquisition). While set, the
    * next `browser.open` reports download progress and waits for `finishDownload()`.
@@ -103,6 +109,10 @@ export class FakeBrowser {
   readonly wireInputs: { threadId: string; tabId?: string; input: BrowserInput }[] = [];
   /** What a person's right click finds under the pointer (`context_target`). */
   contextTarget: { link?: string; image?: string } | undefined;
+  /** The extensions the engine runs (`extensions`); none unless a test or scenario adds them. */
+  extensions: { id: string; name: string; version?: string; enabled: boolean }[] = [];
+  /** A finished download's bytes, for `browser.download.read`; keyed by thread and download. */
+  readonly downloadBytes = new Map<string, Uint8Array>();
   get version(): number {
     return this.revision;
   }
@@ -169,16 +179,27 @@ export class FakeBrowser {
     this.use(tab, options.agentId);
     this.load(entry, tab, new URL(url).href, "site");
   }
-  /** Scripting: an agent works in a tab (its cursor at `pointer`), marking it in use. */
+  /**
+   * Scripting: an agent works in a tab (its cursor at `pointer`), marking it in use. With `at`
+   * (when it acted), the tab also carries the cowork pointer its fading cursor draws (ADR 0143).
+   */
   agentWorks(
     threadId: string,
-    options: { tabId?: string; agentId?: string; pointer?: { x: number; y: number } } = {},
+    options: {
+      tabId?: string;
+      agentId?: string;
+      pointer?: { x: number; y: number };
+      at?: number;
+    } = {},
   ): void {
     const tab = this.tab(threadId, options.tabId);
     if (!tab || tab.private) throw new Error("Browser tab unavailable");
     this.use(tab, options.agentId);
-    if (options.pointer)
+    if (options.pointer) {
       tab.pointer = { ...options.pointer, sequence: (tab.pointer?.sequence ?? 0) + 1 };
+      if (options.at !== undefined)
+        tab.agentPointer = { ...options.pointer, kind: "click", at: options.at };
+    }
     this.changed();
   }
   /**
@@ -595,6 +616,36 @@ export class FakeBrowser {
     if (tab?.certificate_error?.url !== url) throw new Error("Certificate error no longer shown");
     delete tab.certificate_error;
     tab.url = url;
+    this.changed();
+  }
+  /**
+   * The daemon draws agents' cursors in the page itself (the `page-cursor` feature), so the
+   * frames already show them; or it stops.
+   */
+  setPageCursor(threadId: string, on: boolean): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    const others = (view.features ?? []).filter((feature) => feature !== "page-cursor");
+    view.features = on ? [...others, "page-cursor"] : others;
+    this.changed();
+  }
+  /** A person's recording of the thread's view starts or stops; the state says so. */
+  setRecording(threadId: string, on: boolean): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    if (on) view.recording = { by: { kind: "human" } };
+    else delete view.recording;
+    this.changed();
+  }
+  /** Scripting: what the thread's live video runs on (ADR 0148); `undefined` takes it away. */
+  setAcceleration(
+    threadId: string,
+    acceleration: import("@ace/protocol").MediaAcceleration | undefined,
+  ): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    if (acceleration) view.acceleration = acceleration;
+    else delete view.acceleration;
     this.changed();
   }
   downloadsList(threadId: string): BrowserDownload[] {

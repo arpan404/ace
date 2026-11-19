@@ -1,0 +1,16 @@
+{
+  "backends": [
+    {
+      "id": "searxng",
+      "name": "SearXNG (your own)",
+      "kind": "searxng",
+      "base_url": "http://127.0.0.1:8888/"
+    },
+    {
+      "id": "brave",
+      "name": "Brave Search",
+      "kind": "brave",
+      "key": { "env": "BRAVE_API_KEY" }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { expect, it } from "vitest";
@@ -87,3 +88,37 @@ it("rejects a SQLite blob whose bytes no longer match its stored identity", asyn
     await f.close();
   }
 });
+
+it.runIf(process.platform === "win32")(
+  "Windows blob export loads SQLite from the real System32 even when SystemRoot points elsewhere",
+  async () => {
+    const f = await fixture();
+    const database = join(f.root, "source.sqlite");
+    const decoy = join(f.home, "decoy-windows");
+    const db = new DatabaseSync(database);
+    const previous = process.env.SystemRoot;
+    // A planted, unloadable winsqlite3.dll where SystemRoot claims System32 is.
+    await mkdir(join(decoy, "System32"), { recursive: true });
+    await writeFile(join(decoy, "System32", "winsqlite3.dll"), "not a library");
+    process.env.SystemRoot = decoy;
+    const exporter = createBlobExport();
+    try {
+      db.exec("CREATE TABLE blobs(bytes BLOB)");
+      db.prepare("INSERT INTO blobs VALUES (?)").run(Buffer.from("same"));
+      const temporary = join(f.home, "exported");
+      await exporter.export({
+        database,
+        temporary,
+        rowid: 1,
+        size: 4,
+        sha256: createHash("sha256").update("same").digest("hex"),
+      });
+      expect(await readFile(temporary, "utf8")).toBe("same");
+    } finally {
+      process.env.SystemRoot = previous;
+      await exporter.close();
+      db.close();
+      await f.close();
+    }
+  },
+);

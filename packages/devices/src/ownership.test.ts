@@ -25,6 +25,7 @@ async function fixture() {
     await gate?.promise;
   };
   const service = new DevicesService({
+    cowork: false,
     platform,
     env: {},
     recordingDirectory: "/unused",

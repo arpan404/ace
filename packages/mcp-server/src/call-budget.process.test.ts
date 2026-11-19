@@ -1,5 +1,10 @@
 import { afterEach, expect, test } from "vitest";
-import { agentControlToolkit, cursorSdkInjection, knowledgeToolkit } from "./index.ts";
+import {
+  agentControlToolkit,
+  claudeInjection,
+  cursorSdkInjection,
+  knowledgeToolkit,
+} from "./index.ts";
 import { harness, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -68,4 +73,20 @@ test("a client without a call limit keeps the wait it asked for", async () => {
     arguments: { question: "Which one?", timeoutSeconds: 200 },
   });
   expect(waits).toEqual([240, 200]);
+});
+
+test("Claude waits return before its timeout even when no progress was requested", async () => {
+  const { h, waits } = await daemon();
+  const { Authorization: _, ...headers } = claudeInjection({
+    url: "http://127.0.0.1:1/mcp",
+    bearer: "b".repeat(64),
+  }).mcpServers.ace.headers;
+  const { client } = await h.connect(scope("claude-parent", ["agents"]), "legacy", headers);
+  await client.callTool({ name: "wait", arguments: { threadIds: ["child"], timeoutSeconds: 600 } });
+  await client.callTool({
+    name: "delegate",
+    arguments: { tasks: [{ requestId: "r2", role: "Review", task: "Review" }], waitSeconds: 600 },
+  });
+  await client.callTool({ name: "ask", arguments: { question: "Which?", timeoutSeconds: 240 } });
+  expect(waits).toEqual([240, 240, 240]);
 });

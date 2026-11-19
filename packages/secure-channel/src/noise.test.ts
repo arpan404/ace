@@ -127,3 +127,17 @@ it("the last permitted nonce works once and the reserved nonce permanently exhau
   expect(() => sender.rekey()).toThrow("closed");
   expect(() => receiver.rekey()).toThrow("closed");
 });
+const message = (text: string) => new TextEncoder().encode(text);
+it("a cipher resumed from its snapshot continues the same ordered session", () => {
+  const [a, b] = pair();
+  b.receive.decrypt(a.send.encrypt(message("first")));
+  const saved = b.receive.snapshot();
+  b.receive.destroy();
+  const resumed = new CipherState(saved.key, saved.nonce);
+  expect(new TextDecoder().decode(resumed.decrypt(a.send.encrypt(message("second"))))).toBe(
+    "second",
+  );
+  const replay = a.send.encrypt(message("third"));
+  resumed.decrypt(replay);
+  expect(() => resumed.decrypt(replay)).toThrow();
+});

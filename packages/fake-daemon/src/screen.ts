@@ -57,6 +57,10 @@ export class FakeScreen {
   readonly acks: ScreenAck[] = [];
   /** Every stream a view asked a session for, in order. */
   readonly streamRequests: { sessionId: string; settings: ScreenStreamSettings }[] = [];
+  /** While set, every change of a session's controls waits for it (`holdControl`). */
+  private controlHeld: Promise<void> | undefined;
+  /** The person's input that reached a session, in order. */
+  readonly inputs: { sessionId: string; input: unknown }[] = [];
   private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
@@ -73,6 +77,8 @@ export class FakeScreen {
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
+  /** How to drop each open dedicated channel, for `dropChannels`. */
+  private readonly drops = new Set<() => void>();
   private sequence = 0;
   constructor(options: FakeScreenOptions) {
     this.options = options;
@@ -133,6 +139,15 @@ export class FakeScreen {
         queueMicrotask(() => {
           if (epoch === stamp) events.ready();
         });
+        const drop = () => {
+          this.drops.delete(drop);
+          if (epoch !== stamp) return;
+          epoch++;
+          connection?.close();
+          connection = undefined;
+          events.close();
+        };
+        this.drops.add(drop);
       },
       send: (message) => {
         if (!connection) throw new Error("Screen channel is not authenticated");
@@ -197,6 +212,9 @@ export class FakeScreen {
       mode: "background",
       secureInputAllowed: false,
       indicator: controller === "agent",
+      // The person's Take control is exclusive; otherwise the session is shared (ADR 0143).
+      sharing: controller === "human" ? "exclusive" : undefined,
+      personActive: undefined,
     };
     return this.publish(session);
   }
@@ -243,9 +261,47 @@ export class FakeScreen {
     };
     return this.publish(session);
   }
+  /**
+   * The agent acted in a session at a point of its picture (`agentPointer`), or the person's input
+   * made it wait (`personActive`), as the daemon reports both in the session's state.
+   */
+  agentActivity(
+    sessionId: string,
+    activity: Pick<ScreenState, "agentPointer" | "personActive">,
+  ): ScreenState | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    session.state = { ...session.state, ...activity };
+    return this.publish(session);
+  }
+  /** What a session's live video runs on (ADR 0148), as the daemon reports it; `undefined` clears it. */
+  setAcceleration(
+    sessionId: string,
+    acceleration: ScreenState["acceleration"],
+  ): ScreenState | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    const { acceleration: _, ...rest } = session.state;
+    session.state = acceleration ? { ...rest, acceleration } : rest;
+    return this.publish(session);
+  }
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
   answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
     for (const session of this.sessions.values()) session.answer?.(answer);
+  }
+  /** Every open screen channel drops, as a lost connection drops them. */
+  dropChannels(): void {
+    // Each drop removes itself from the set, so walk a copy.
+    for (const drop of Array.from(this.drops)) drop();
+  }
+  /** Holds every change of controls until the result is called, in the order asked. */
+  holdControl(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.controlHeld = held.promise;
+    return () => {
+      this.controlHeld = undefined;
+      held.resolve();
+    };
   }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;
@@ -335,6 +391,8 @@ export class FakeScreen {
             indicator: false,
             target: op.target,
             permissions: { ...this.permissions },
+            // The thread it was started for, for its whole life (ScreenState `threadId`).
+            ...(op.threadId ? { threadId: op.threadId } : {}),
           }),
         };
         this.sessions.set(session.state.sessionId, session);
@@ -361,6 +419,7 @@ export class FakeScreen {
     this.requireEnabled();
     switch (op.op) {
       case "controller": {
+        if (this.controlHeld) await this.controlHeld;
         const watchOnly = session.state.capabilities?.watchOnly;
         if (op.controller === "human" && watchOnly)
           throw new FakeScreenError("not_supported", watchOnly);
@@ -382,6 +441,8 @@ export class FakeScreen {
             );
           return this.controller(session, "agent", holder);
         }
+        // Letting go leaves the session with nobody; anything else is the person taking it.
+        if (op.controller === "none") return this.controller(session, "none");
         return this.controller(session, "human", undefined, channel);
       }
       case "mode":
@@ -402,17 +463,26 @@ export class FakeScreen {
         return;
       case "action":
       case "input":
-      case "ui.act":
-        if (session.state.controller !== "human" || session.owner !== channel)
-          throw new FakeScreenError("denied", "Controller lease required");
+      case "ui.act": {
+        const held = session.state.controller === "human" && session.owner === channel;
+        // Shared (cowork): the person's input goes in while an agent or nobody holds it, and the
+        // agent waits while it is recent.
+        const shared = op.op === "input" && session.state.controller !== "human";
+        if (!held && !shared) throw new FakeScreenError("denied", "Controller lease required");
         if (!this.permissions.accessibility)
           throw new FakeScreenError("permission_denied", "Accessibility permission required");
+        if (op.op === "input") this.inputs.push({ sessionId: op.sessionId, input: op.input });
+        if (shared && session.state.controller === "agent" && !session.state.personActive) {
+          session.state = { ...session.state, personActive: true };
+          this.publish(session);
+        }
         this.paint(session);
         return {
           mode: session.state.mode,
           snapshot: { nodes: [], truncated: false },
           fallback: false,
         };
+      }
       case "ui.tree":
       case "ui.find":
         return { nodes: [], truncated: false };

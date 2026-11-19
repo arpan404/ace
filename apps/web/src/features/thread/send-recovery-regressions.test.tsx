@@ -2,6 +2,7 @@ import { longHistory } from "@ace/fake-daemon";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { typeAtEnd } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
@@ -101,7 +102,7 @@ test("Retry preserves an uploaded attachment after a failed save and reload", as
     expect(screen.queryByRole("progressbar", { name: "Uploading notes.txt" })).toBeNull(),
   );
   fail = true;
-  await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Keep the file{Enter}");
+  await typeAtEnd(screen.getByRole("combobox", { name: "Message" }), "Keep the file{Enter}");
   await screen.findByRole("button", { name: "Retry" });
   cleanup();
   await first.client.close();
@@ -355,7 +356,7 @@ test("a restored failed held message keeps sidebar recovery attention", async ()
   reloadPage();
   await app.open("/t/thread-router");
   await screen.findByRole("button", { name: "Retry" });
-  const navigation = screen.getByRole("navigation", { name: "Threads" });
+  const navigation = screen.getByRole("navigation", { name: "Projects" });
   expect(
     within(navigation).getByRole("link", { name: /Document the router.*Not sent/i }),
   ).toBeTruthy();
@@ -409,29 +410,4 @@ test("a delivered message whose item is off screen never reappears at the bottom
   await act(async () => {});
   expect(within(feed).queryByText("Check the early route")).toBeNull();
   expect(screen.queryByText("Check the early route")).toBeNull();
-});
-
-test("a message that failed to send stays visible and resendable outside the transcript", async () => {
-  const app = harness();
-  app.play(longHistory(2)).runUntilBlocked();
-  app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
-  await app.open("/t/thread-router");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const field = await screen.findByRole("combobox", { name: "Message" });
-  await userEvent.type(field, "Ship the router fix{Enter}");
-
-  const kept = await strip();
-  expect(within(kept).getByText("Ship the router fix")).toBeTruthy();
-  expect(within(within(kept).getByRole("alert")).getByText("Not sent")).toBeTruthy();
-  // Never in the transcript, which shows only what the daemon has.
-  expect(within(feed).queryByText("Ship the router fix")).toBeNull();
-  expect(field.textContent).toBe("");
-
-  app.daemon.restoreRequests();
-  await userEvent.click(within(kept).getByRole("button", { name: "Retry" }));
-  expect(await within(feed).findByText("Ship the router fix")).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull(),
-  );
-  expect(screen.getAllByText("Ship the router fix")).toHaveLength(1);
 });

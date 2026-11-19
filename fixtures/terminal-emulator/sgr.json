@@ -1,0 +1,140 @@
+{
+ "cases": [
+  {
+   "name": "colours and styles land on the cells they were set for",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[31mr\u001b[0m \u001b[38;5;208mo\u001b[38;2;10;20;30mt\u001b[1;4;7mB\u001b[22;24;27mn\u001b[44;97mx"
+    }
+   ],
+   "expect": {
+    "cells": [
+     {
+      "row": 0,
+      "column": 0,
+      "fg": "idx:1"
+     },
+     {
+      "row": 0,
+      "column": 1,
+      "fg": "default",
+      "bg": "default",
+      "flags": []
+     },
+     {
+      "row": 0,
+      "column": 2,
+      "fg": "idx:208"
+     },
+     {
+      "row": 0,
+      "column": 3,
+      "fg": "rgb:10,20,30"
+     },
+     {
+      "row": 0,
+      "column": 4,
+      "flags": [
+       "bold",
+       "underline",
+       "inverse"
+      ]
+     },
+     {
+      "row": 0,
+      "column": 5,
+      "flags": []
+     },
+     {
+      "row": 0,
+      "column": 6,
+      "bg": "idx:4",
+      "fg": "idx:15"
+     }
+    ]
+   }
+  },
+  {
+   "name": "colon separated colours are read like semicolon ones",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[38:2::1:2:3m\u001b[48:5:17ma\u001b[38:2:4:5:6mb"
+    }
+   ],
+   "expect": {
+    "cells": [
+     {
+      "row": 0,
+      "column": 0,
+      "fg": "rgb:1,2,3",
+      "bg": "idx:17"
+     },
+     {
+      "row": 0,
+      "column": 1,
+      "fg": "rgb:4,5,6"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a flood of colon sub-parameters drops the sequence",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[1;38:5:208:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0mX"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "X",
+     "",
+     "",
+     "",
+     ""
+    ],
+    "cells": [
+     {
+      "row": 0,
+      "column": 0,
+      "flags": [],
+      "fg": "default"
+     }
+    ]
+   }
+  },
+  {
+   "name": "erase uses the current background",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[41m\u001b[2K\u001b[0mok"
+    }
+   ],
+   "expect": {
+    "cells": [
+     {
+      "row": 0,
+      "column": 10,
+      "bg": "idx:1"
+     },
+     {
+      "row": 0,
+      "column": 0,
+      "bg": "default"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -38,6 +38,8 @@ function link() {
       random: () => 0.5,
       id: () => "id",
       now: () => now,
+      // The heartbeat's monotonic clock: this test's manual time.
+      monotonic: () => now,
     },
     new WireCodec(),
     {

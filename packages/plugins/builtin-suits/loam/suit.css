@@ -1,0 +1,487 @@
+/*
+ * Loam: a blocky voxel sandbox. Stone and oak panels with square corners, every raised thing
+ * bevelled like a block (light top-left edge, dark bottom-right edge), hard pixel shadows, and
+ * a pixel face for titles, buttons and tabs. Body text stays in a readable sans.
+ */
+
+@font-face {
+  font-family: "Loam Pixel";
+  src: url("assets/fonts/PixelifySans.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: fallback;
+}
+
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-pixel: "Loam Pixel", var(--font-sans);
+  --suit-wash: color-mix(in oklab, var(--color-foreground) 6%, transparent);
+  --suit-oak-wash: color-mix(in oklab, var(--color-tint) 18%, transparent);
+  --suit-oak-wash-2: color-mix(in oklab, var(--color-tint) 28%, transparent);
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-bevel: inset 2px 2px 0 rgb(255 255 255 / 0.07), inset -2px -2px 0 rgb(0 0 0 / 0.38);
+  --suit-sunk: inset 2px 2px 0 rgb(0 0 0 / 0.4), inset -2px -2px 0 rgb(255 255 255 / 0.05);
+  --suit-drop: 4px 4px 0 rgb(0 0 0 / 0.45);
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"] {
+  --suit-bevel: inset 2px 2px 0 rgb(255 255 255 / 0.85), inset -2px -2px 0 rgb(24 25 27 / 0.14);
+  --suit-sunk: inset 2px 2px 0 rgb(24 25 27 / 0.14), inset -2px -2px 0 rgb(255 255 255 / 0.8);
+  --suit-drop: 4px 4px 0 rgb(24 25 27 / 0.16);
+}
+
+/* ── Pixel type for titles and controls ──────────────────────────────────────────────── */
+
+[data-part="page-title"],
+[data-part="header-title"],
+[data-part="button"],
+[data-part="badge"],
+[data-part="kbd"],
+[data-part="tool-group-header"],
+[data-part="turn-divider"],
+[data-part="segment"],
+[data-part="tooltip"] {
+  font-family: "Loam Pixel", var(--font-sans);
+  letter-spacing: 0.02em;
+}
+[data-part="page-title"] {
+  letter-spacing: 0.01em;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────────────────── */
+
+/* One quiet hairline round the sidebar: ace's frame, thinned and toned down. */
+[data-part="app"] {
+  --suit-sidebar-border: 1px solid var(--color-border);
+  --suit-sidebar-shadow: none;
+  /* A thin tint, no blur: the backdrop runs on behind the sidebar as one picture,
+     dimmed about as much as it is behind the transcript. */
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 76%, transparent);
+  --suit-sidebar-backdrop-filter: none;
+}
+[data-part="sidebar"] {
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+/* A strip of turf under the sidebar's title: a grass band over speckled dirt. */
+[data-part="sidebar-header"]::after {
+  content: "";
+  display: block;
+  height: 8px;
+  margin-top: 8px;
+  background:
+    linear-gradient(90deg, #5f9e3b 0 6px, #74b347 6px 10px, #5f9e3b 10px 18px, #6aa940 18px 24px) 0
+      0 / 24px 3px repeat-x,
+    linear-gradient(90deg, #7a5536 0 4px, #8e6542 4px 9px, #6c4a2e 9px 12px, #8e6542 12px 16px) 0
+      3px / 16px 5px repeat-x;
+  image-rendering: pixelated;
+}
+[data-part="thread-row"],
+[data-part="chat-row"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"],
+[data-part="rail-item"] {
+  border-radius: 0;
+  transition:
+    background-color 120ms steps(2),
+    box-shadow 120ms steps(2);
+}
+[data-part="rail-item"] {
+  color: var(--color-muted-foreground);
+}
+[data-part="thread-row"]:hover,
+[data-part="chat-row"]:hover,
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"]:hover,
+[data-part="rail-item"]:hover {
+  background: var(--color-hover);
+}
+[data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
+[data-part="chat-row"][data-state="active"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"][data-state="active"] {
+  background: var(--color-active);
+  box-shadow: var(--suit-bevel);
+}
+[data-part="rail-item"][data-state="active"] {
+  background: var(--color-active);
+  color: var(--color-foreground);
+  box-shadow: var(--suit-bevel);
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 600;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────────────────── */
+
+[data-part="header"] {
+  box-shadow: inset 0 -2px 0 var(--color-border);
+}
+
+/* ── Transcript ──────────────────────────────────────────────────────────────────────── */
+
+[data-part="message-user"] {
+  background: var(--color-surface-1);
+  border-radius: 0;
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="link"]:not([data-variant]) {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 45%, transparent);
+}
+[data-part="link"]:not([data-variant]):hover {
+  text-decoration-color: var(--color-link);
+}
+[data-part="inline-code"] {
+  background: var(--color-code);
+  border-radius: 0;
+  padding: 0 0.3em;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-radius: 0;
+  background: var(--color-code);
+  box-shadow: var(--suit-sunk);
+}
+[data-part="tool-row"],
+[data-part="tool-group-header"] {
+  border-radius: 0;
+}
+[data-part="tool-group-header"] {
+  background: var(--color-background);
+}
+[data-part="tool-row"]:hover,
+[data-part="tool-group-header"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="tool-icon"] {
+  color: var(--color-faint-foreground);
+}
+[data-part="tool-row"]:hover [data-part="tool-icon"] {
+  color: var(--color-link);
+}
+
+/* ── Composer ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="composer"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="composer"]:focus-within {
+  border-color: var(--color-tint);
+}
+[data-part="composer-send"] {
+  border-radius: 0;
+  box-shadow: var(--suit-bevel);
+}
+[data-part="composer-strip"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border);
+  border-bottom: 0;
+  background: var(--color-surface-1);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--color-active);
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="button"] {
+  border-radius: 0;
+  box-shadow: var(--suit-bevel);
+  transition:
+    background-color 120ms steps(2),
+    transform 80ms steps(1);
+}
+[data-part="button"]:active {
+  box-shadow: var(--suit-sunk);
+  transform: translateY(1px);
+}
+[data-part="button"][data-variant="ghost"] {
+  box-shadow: none;
+}
+[data-part="button"][data-variant="secondary"] {
+  background: var(--color-surface-2);
+}
+[data-part="button"]:focus-visible,
+[data-part="icon-button"]:focus-visible,
+[data-part="input"]:focus-visible,
+[data-part="select"]:focus-visible,
+[data-part="tab"]:focus-visible,
+[data-part="segment"]:focus-visible {
+  outline: 2px solid var(--color-tint);
+  outline-offset: 1px;
+}
+[data-part="icon-button"] {
+  border-radius: 0;
+}
+[data-part="icon-button"]:hover {
+  background: var(--color-hover);
+}
+[data-part="icon-button"]:disabled,
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+}
+[data-part="icon-button"][data-state="active"] {
+  background: var(--color-active);
+  box-shadow: var(--suit-bevel);
+}
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 0;
+  box-shadow: var(--suit-sunk);
+}
+[data-part="input"]:focus,
+[data-part="search-field"]:focus-within {
+  border-color: var(--color-tint);
+}
+[data-part="switch"],
+[data-part="switch-thumb"],
+[data-part="checkbox"],
+[data-part="slider-thumb"],
+[data-part="segmented"],
+[data-part="segment"],
+[data-part="segmented-thumb"],
+[data-part="progress"] {
+  border-radius: 0;
+}
+[data-part="switch"] {
+  box-shadow: var(--suit-sunk);
+}
+[data-part="switch-thumb"],
+[data-part="slider-thumb"],
+[data-part="segmented-thumb"] {
+  box-shadow: var(--suit-bevel);
+}
+[data-part="segmented"] {
+  box-shadow: var(--suit-sunk);
+}
+[data-part="badge"],
+[data-part="label-chip"],
+[data-part="branch-chip"] {
+  border-radius: 0;
+}
+[data-part="kbd"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border-strong);
+  border-bottom-width: 3px;
+}
+[data-part="scrollbar"] {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* ── Side panel: a stone cabinet with inventory-slot tabs ─────────────────────────────── */
+
+[data-part="app"] {
+  --suit-header-background: var(--color-sidebar);
+  --suit-right-panel-background: var(--color-sidebar);
+}
+[data-part="header"] {
+  background: var(--color-sidebar);
+}
+[data-part="right-panel"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 2px 0 0 var(--color-border);
+}
+[data-part="panel-header"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 0 -2px 0 var(--color-border);
+}
+/* Tabs are slots: sunk and quiet at rest, a raised bevelled block when selected. */
+[data-part="panel-tab"] {
+  border-radius: 0;
+  color: var(--color-muted-foreground);
+  background: transparent;
+  transition: background-color 120ms steps(2);
+}
+[data-part="panel-tab"]:hover {
+  background: var(--color-hover);
+  color: var(--color-foreground);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  background: var(--color-surface-2);
+  color: var(--color-foreground);
+}
+[data-part="panel-toolbar"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 -2px 0 var(--color-border),
+    var(--suit-bevel);
+}
+[data-part="panel-body"] {
+  background: var(--color-background);
+}
+[data-part="panel-body"][data-variant="terminal"],
+[data-part="terminal"] {
+  background: var(--color-code);
+}
+[data-part="terminal-tab"] {
+  border-radius: 0;
+}
+[data-part="terminal-tab"]:hover {
+  background: var(--color-hover);
+}
+[data-part="file-tree"] {
+  background: var(--color-sidebar);
+}
+[data-part="diff-file"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border);
+  box-shadow: var(--suit-bevel);
+}
+[data-part="browser-panel"] {
+  background: var(--color-sidebar);
+}
+
+/* ── Full pages ──────────────────────────────────────────────────────────────────────── */
+
+[data-part="page-header"] {
+  box-shadow: inset 0 -2px 0 var(--color-border);
+}
+[data-part="card"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border);
+  box-shadow: var(--suit-bevel);
+}
+[data-part="card"][data-variant="settings-group"] {
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 2px solid var(--color-border);
+}
+[data-part="list-row"],
+[data-part="table-row"],
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  border-radius: 0;
+}
+[data-part="list-row"]:hover,
+[data-part="table-row"]:hover,
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--color-hover);
+}
+[data-part="stat"] {
+  border-radius: 0;
+  border-left: 4px solid var(--color-tint);
+  font-variant-numeric: tabular-nums;
+}
+[data-part="merge-box"],
+[data-part="review-thread"],
+[data-part="check-row"],
+[data-part="avatar"] {
+  border-radius: 0;
+}
+
+/* ── Menus, dialogs, overlays ────────────────────────────────────────────────────────── */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="command-palette"],
+[data-part="dialog"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border-strong);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="menu-item"] {
+  border-radius: 0;
+}
+[data-part="menu-item"]:hover {
+  background: var(--suit-oak-wash);
+}
+[data-part="tooltip"],
+[data-part="toast"] {
+  border-radius: 0;
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: var(--suit-oak-wash-2);
+}
+
+/* Light mode: a denser sidebar tint, so the softened backdrop reads as an even wash, not patches. */
+[data-scheme="light"] [data-part="app"] {
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
+}
+
+/* ── Section heads, Spade and the Marketplace ──────────────────────────────────────────── */
+
+/* Every section's head in the pixel face, as the page's title is. */
+[data-part="section-title"] {
+  font-family: "Loam Pixel", var(--font-sans);
+  letter-spacing: 0.02em;
+}
+/* A sheet's search row is one sunk field: the input inside it isn't sunk again. */
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus,
+[data-part="command-palette"] [data-part="search-field"] {
+  box-shadow: none;
+}
+/* The composer's Access chip sits flat, as the model chip beside it does. */
+[data-part="composer-toolbar"] [data-part="select"] {
+  box-shadow: none;
+}
+
+/* Spade: square blocks with a bevel and a hard drop, like every raised thing here. */
+[data-part="spade-message"],
+[data-part="header-title"][data-variant="spade-pill"] {
+  border-radius: 0;
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="card"]:is([data-variant="spade-question"], [data-variant="spade-request"]) {
+  border-radius: 0;
+  border: 2px solid var(--color-tint);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+
+/*
+ * The Marketplace: an entry is a picture or a small mark with its words, so the bevel goes on the
+ * picture, not round the words. The pick beside the hero is pressed in like the open row.
+ */
+[data-part="card"]:is(
+  [data-variant="market-entry"],
+  [data-variant="market-lockup"],
+  [data-variant="market-collection"],
+  [data-variant="market-publisher"]
+) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-part="market-stage"] {
+  border-radius: 0;
+  box-shadow:
+    inset 0 0 0 2px var(--color-border),
+    var(--suit-bevel);
+}
+[data-part="list-row"][data-variant="market-pick"][data-state="selected"] {
+  background: var(--color-active);
+  box-shadow: var(--suit-sunk);
+}
+[data-part="market-try"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border-strong);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}

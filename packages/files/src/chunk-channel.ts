@@ -120,6 +120,8 @@ export function chunkFilesChannel(options: {
     assertOpening();
     if (message.type === "files.credit")
       throw new FileError("INVALID_MESSAGE", "Use files.pull for chunk channels");
+    if (message.type === "files.watch")
+      throw new FileError("INVALID_MESSAGE", "A folder watch has no file channel");
     if (message.type === "files.pull" || message.type === "files.chunk") {
       const channel = channels.get(message.channel);
       if (!channel) throw new FileError("NOT_FOUND", "File channel unavailable");

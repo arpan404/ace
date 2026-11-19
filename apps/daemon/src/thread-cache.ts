@@ -77,10 +77,20 @@ export class ThreadCache {
     const thread = this.lookup(id);
     return thread && structuredClone(thread);
   }
-  /** The shared frozen thread and the caller's own copy of it, from one lookup. */
-  checkout(id: string): { base: FrozenThread; thread: Thread } | undefined {
+  /**
+   * The shared frozen thread from one lookup, and the caller's own copy of it, made the first
+   * time `thread` is read: an event that changes no column never needs one.
+   */
+  checkout(id: string): { base: FrozenThread; readonly thread: Thread } | undefined {
     const base = this.lookup(id);
-    return base && { base, thread: structuredClone(base) };
+    if (!base) return undefined;
+    let copy: Thread | undefined;
+    return {
+      base,
+      get thread() {
+        return (copy ??= structuredClone(base));
+      },
+    };
   }
   /**
    * The store's own writer just wrote `written` to this thread's row, which now has
@@ -136,8 +146,8 @@ export class ThreadCache {
     if (hit && hit.revision === known) return hit.thread;
     const pending = known === undefined ? undefined : this.pending?.get(id);
     if (pending && pending.revision === known) return pending.thread;
-    // Freeze a private clone: parsed output can share nested default objects with the schema.
-    const thread = deepFreeze(structuredClone(decodeThreadRow(row)));
+    // The decode is private (no shared schema defaults), so it can be frozen as it is.
+    const thread = deepFreeze(decodeThreadRow(row));
     if (known === undefined) return thread;
     const weights = weigh(row);
     const entry = { revision: known, thread, weights, bytes: total(weights) };

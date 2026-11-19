@@ -21,17 +21,18 @@ struct TransferFolderPicker: View {
             case "ready":
                 Section {
                     ForEach(folders?.folders ?? []) { folder in row(folder.name, subtitle: folder.path, path: folder.path) }
-                    if folders?.folders.isEmpty == true { Text("No folders match").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    if folders?.folders.isEmpty == true { EmptyState(systemImage: "folder", title: "No folders match").listRowBackground(Color.clear) }
                 } header: { InsetHeader("Folders on \(machine)") }
                 .insetRowBackground()
             case "forbidden":
-                Text("\(machine) doesn't let this phone browse its folders.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                EmptyState(systemImage: "desktopcomputer", title: "Can't browse folders", line: "\(machine) doesn't let this phone browse its folders.")
                     .listRowBackground(Color.clear)
-            case "failed":
-                Text("Couldn't search the folders on \(machine).").foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .listRowBackground(Color.clear)
+            case "failed" where folders?.query == query:
+                // A failure for an older query falls through to loading: its newer search is already on the way.
+                ProblemRow("Couldn't search the folders on \(machine).", detail: "Check the connection and try again.",
+                           id: "transfer.folders.problem") { search(query) }
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                SkeletonRows(count: 3, label: "Reading folders").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
         }
         .insetGroupedList()
@@ -41,9 +42,10 @@ struct TransferFolderPicker: View {
         .task(id: query) {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
             guard !Task.isCancelled else { return }
-            client.composeAction(["kind": "folders", "query": query])
+            search(query)
         }
     }
+    private func search(_ text: String) { client.composeAction(["kind": "folders", "query": text]) }
     private func row(_ title: String, subtitle: String, path: String?) -> some View {
         Button { choose(path); dismiss() } label: {
             HStack(spacing: AceTheme.Spacing.md) {

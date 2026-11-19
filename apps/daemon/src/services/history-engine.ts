@@ -8,6 +8,8 @@ import type { AdapterRegistry } from "../engine/registry.ts";
 import type { Engine } from "../engine/index.ts";
 import type { HistoryAdapterPort } from "../history-continuation.ts";
 
+const EngineHomeRow = z.object({ home: z.string(), instance: z.string(), provider: z.string() });
+
 /** History homes are host registration, independent of account scheduling. */
 export async function historySessionContext(context: ServiceContext, session: SessionContext) {
   const source = context.options.history?.instances.find((home) => home.id === session.instanceId);
@@ -29,9 +31,7 @@ export async function historySessionContext(context: ServiceContext, session: Se
         .prepare("SELECT home,instance,provider FROM imported_engine_homes WHERE thread_id=?")
         .get(session.threadId);
       if (saved) {
-        const binding = z
-          .object({ home: z.string(), instance: z.string(), provider: z.string() })
-          .parse(saved);
+        const binding = EngineHomeRow.parse(saved);
         if (
           binding.home !== resolve(source.homeDir) ||
           binding.instance !== source.id ||

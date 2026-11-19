@@ -5,21 +5,28 @@ import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
-import { loginShellPath } from "./login-path.ts";
+import { loginShellPath } from "@ace/service/login-path";
+import { readSavedPath, writeSavedPath } from "./login-path.ts";
+import { launchPaths, type LaunchPaths, type SpawnPath } from "./spawn-path.ts";
+import { watchEndpointFile } from "./endpoint-watch.ts";
 import {
+  daemonHealth,
   findRunningDaemon,
-  healthy,
   maintenanceBlockers,
   maintenanceStatus,
   readLocalDaemon,
   setMaintenance,
+  setUpdateHold,
   type LocalDaemon,
 } from "./probe.ts";
+import { expectedLocalDaemon } from "./expected.ts";
 import { loginService } from "./service.ts";
+import { ownershipPorts } from "./ownership-ports.ts";
 import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
 import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
+import type { FreezeSignal } from "./watchdog.ts";
 
 /**
  * The app's daemon target from its environment, with the daemon home chosen by
@@ -60,8 +67,19 @@ export interface RuntimeOptions {
   spawnDaemon?: (options: SpawnOptions) => DaemonProcess;
   /** The supervisor's decisions and the runtime's own records. */
   log: Log;
-  /** Each line the spawned daemon prints; by default logged as `daemon: <line>`. */
-  daemonOutput?: (line: string, stream: "stdout" | "stderr") => void;
+  /**
+   * Milliseconds since the app launched, for the launch steps the log records (login PATH,
+   * first lookup, spawn, running). Without it those records are not written.
+   */
+  sinceLaunch?: () => number;
+  /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
+  freezes?: FreezeSignal;
+  /**
+   * Where the login shell's PATH is saved between launches (in the app's data folder), so the
+   * next launch can spawn the daemon without waiting for the shell. Without it, every spawn
+   * waits for the shell.
+   */
+  savedPathFile?: string;
 }
 
 /**
@@ -73,8 +91,9 @@ export class DaemonRuntime {
   readonly supervisor: DaemonSupervisor | undefined;
   private options: RuntimeOptions;
   private path: Promise<string>;
+  private paths: LaunchPaths;
   private status: DaemonStatus;
-  private resolvedPath = "";
+  private spawnPath: SpawnPath = { path: "" };
   private listeners = new Set<(status: DaemonStatus) => void>();
 
   constructor(options: RuntimeOptions) {
@@ -88,6 +107,24 @@ export class DaemonRuntime {
         platform: options.platform ?? process.platform,
       });
     this.path = loginShellPath(options.env);
+    const launchStep = (message: string, data: Record<string, unknown> = {}) => {
+      if (options.sinceLaunch)
+        options.log("info", message, { ...data, sinceLaunchMs: Math.round(options.sinceLaunch()) });
+    };
+    // loginShellPath answers the current PATH when the shell fails: this cannot reject.
+    void this.path.then(() => launchStep("The login shell's PATH is ready")).catch(() => {});
+    const savedPathFile = options.savedPathFile;
+    this.paths = launchPaths({
+      saved: savedPathFile ? readSavedPath(savedPathFile) : undefined,
+      login: this.path,
+      save: (path) => {
+        if (!savedPathFile) return;
+        void writeSavedPath(savedPathFile, path).catch((error: unknown) =>
+          options.log("warn", `Could not save the login shell's PATH: ${String(error)}`),
+        );
+      },
+    });
+    let looked = false;
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
     this.status =
@@ -110,25 +147,48 @@ export class DaemonRuntime {
           : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
-      const prioritize = daemonLaunchPolicy(systemLaunchPort(options.platform ?? process.platform));
+      const launchPolicy = daemonLaunchPolicy(
+        systemLaunchPort(options.platform ?? process.platform),
+      );
       this.supervisor = new DaemonSupervisor(
         {
           spawn:
             this.target.kind === "managed"
-              ? () =>
-                  (options.spawnDaemon ?? spawnDaemon)({
-                    ...this.spawnOptions(home, this.resolvedPath),
-                    prioritize,
-                    onOutput:
-                      options.daemonOutput ??
-                      ((line, stream) =>
-                        options.log(stream === "stderr" ? "warn" : "info", `daemon: ${line}`)),
-                  })
+              ? ({ safeMode }) => {
+                  const { path, confirm } = this.spawnPath;
+                  launchStep("Spawning the daemon", { safeMode, savedPath: Boolean(confirm) });
+                  return (options.spawnDaemon ?? spawnDaemon)({
+                    ...this.spawnOptions(home, path, safeMode),
+                    loginPath: confirm,
+                    prioritize: launchPolicy.wrap,
+                    report: (line) => options.log("warn", `daemon: ${line}`),
+                  });
+                }
               : undefined,
-          find: () => findRunningDaemon(home),
-          healthy,
+          prepareSpawn: async () => {
+            const [path] = await Promise.all([this.paths.next(), launchPolicy.ready()]);
+            this.spawnPath = path;
+          },
+          watchEndpoint: () => watchEndpointFile(home),
+          find: async () => {
+            const found = await findRunningDaemon(home);
+            if (!looked) launchStep("Looked for a running daemon", { found: Boolean(found) });
+            looked = true;
+            return found;
+          },
+          health: daemonHealth,
+          // Only the managed daemon is ever the app's; development's is `bun run daemon`'s.
+          ...(this.target.kind === "managed"
+            ? ownershipPorts({
+                home,
+                version: options.version,
+                platform: options.platform ?? process.platform,
+                now: Date.now,
+              })
+            : {}),
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
+          setUpdateHold,
           blockers: maintenanceBlockers,
           maintenance: maintenanceStatus,
           timers: {
@@ -138,16 +198,28 @@ export class DaemonRuntime {
             },
           },
           now: Date.now,
+          freezes: options.freezes,
           log: options.log,
         },
         {},
       );
-      this.supervisor.onStatus((status) => this.update(status));
+      let ran = false;
+      this.supervisor.onStatus((status) => {
+        if (status.state === "running" && !ran) {
+          ran = true;
+          launchStep("The daemon is running", { source: status.source });
+        }
+        this.update(status);
+      });
     }
   }
 
+  /**
+   * Adopting a daemon that already runs needs no PATH. A spawn uses the PATH saved last launch
+   * and hands the login shell's (seconds on a busy shell profile) to the daemon once it answers;
+   * only a first launch, with nothing saved, waits for the shell (`spawn-path.ts`).
+   */
   async start(): Promise<void> {
-    this.resolvedPath = await this.path;
     if (this.target.kind === "remote" || this.target.kind === "fake") {
       this.update({
         ...this.status,
@@ -195,7 +267,30 @@ export class DaemonRuntime {
       url: daemon.url,
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+      ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
     };
+  }
+
+  /**
+   * The connection the renderer will most likely get, without waiting for the daemon: a remote
+   * target as configured, or the local daemon its home's files name, or at the address the page
+   * was last handed (`remembered`; `expectedLocalDaemon`).
+   * The page opens on what it kept for that daemon while it starts; `connection()` still says
+   * which one it is. Null when there's no telling.
+   */
+  async expected(remembered?: string): Promise<DaemonConnection | null> {
+    if (this.target.kind === "remote") return this.connection();
+    if (this.target.kind !== "managed" && this.target.kind !== "attach") return null;
+    const daemon = await expectedLocalDaemon(this.target.home, remembered);
+    return daemon
+      ? {
+          mode: "daemon",
+          url: daemon.url,
+          token: daemon.token,
+          ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+          ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
+        }
+      : null;
   }
 
   /** The local daemon's address, once running (managed or dev). */
@@ -255,9 +350,17 @@ export class DaemonRuntime {
     return this.supervisor.busy();
   }
 
-  /** Stop only a daemon this app started. */
+  /**
+   * Stop the daemon this app started (an earlier launch's included), never anyone else's: "Quit
+   * ace completely", and before an update installs.
+   */
   async stop(): Promise<void> {
     await this.supervisor?.stop();
+  }
+
+  /** A plain quit: the app goes and its daemon keeps running for the next launch (ADR 0186). */
+  async release(): Promise<void> {
+    await this.supervisor?.release();
   }
 
   /** Whether the local daemon files exist at all (for the "not running" state in dev). */
@@ -266,14 +369,12 @@ export class DaemonRuntime {
     return Boolean(await readLocalDaemon(this.target.home));
   }
 
-  private spawnOptions(home: string, path: string) {
-    return {
-      home,
-      resources: this.options.resources,
-      path,
-      version: this.options.version,
-      env: this.options.env,
-    };
+  private spawnOptions(home: string, path: string, safeMode = false) {
+    const env = { ...this.options.env };
+    // Only the supervisor decides a safe start, never an inherited environment.
+    if (safeMode) env.ACE_SAFE_MODE = "1";
+    else delete env.ACE_SAFE_MODE;
+    return { home, resources: this.options.resources, path, version: this.options.version, env };
   }
 
   private update(status: DaemonStatus): void {

@@ -25,7 +25,7 @@ struct ThreadFileRoutes: ViewModifier {
     let subtitle: String
     @Binding var showFiles: Bool
     /// Puts `@path` into the composer; nil when this phone can't send.
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     @State private var linked: FileTarget?
     @State private var preview: URL?
     @State private var opening: String?
@@ -47,23 +47,23 @@ struct ThreadFileRoutes: ViewModifier {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                     .floatingGlass()
                     .padding(.top, AceTheme.Spacing.sm)
                     .accessibilityIdentifier("files.opening")
                 }
             }
             .alert("Couldn't open the file", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK") { problem = nil }
+                Button("Dismiss") { problem = nil }
             } message: { Text(problem ?? "") }
     }
 
-    private var mentionAndReturn: ((String) -> Void)? {
+    private var mentionAndReturn: ((ComposerMention) -> Void)? {
         guard let mention else { return nil }
-        return { path in
+        return { picked in
             showFiles = false
             linked = nil
-            mention(path)
+            mention(picked)
         }
     }
 
@@ -96,7 +96,7 @@ struct ThreadFileRoutes: ViewModifier {
     }
 }
 
-extension MarkdownView {
+extension AceMarkdown {
     /// An agent's local links open through the thread (`fileLinks`); web links open as usual.
     func fileLinks(_ opener: FileLinkOpener?, itemId: String) -> some View {
         environment(\.openURL, OpenURLAction { url in

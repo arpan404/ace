@@ -1,9 +1,9 @@
 import { afterEach, expect, test, vi } from "vitest";
-import type { ClientCore } from "@ace/client";
+import type { ClientCore, ReadSnapshotStorage } from "@ace/client";
 import { facts } from "@ace/fake-daemon";
 import { ItemId, ThreadId } from "@ace/protocol";
 import { connect, fixture, native, open, pump, reset, until } from "./thread-harness.ts";
-import { NativeTranscript } from "./native-transcript.ts";
+import { NativeTranscript, phoneWindow } from "./native-transcript.ts";
 
 /*
  * The phone's history window, over the real SDK, the fake daemon and the production pump
@@ -23,7 +23,11 @@ const thread = ThreadId.parse("long");
 const live = 1;
 
 /** A thread of `count` messages, one ask every fifth, and the phone's 200-item live tail. */
-async function longThread(count: number, text = (index: number) => `Step ${index}`) {
+async function longThread(
+  count: number,
+  text = (index: number) => `Step ${index}`,
+  storage?: ReadSnapshotStorage,
+) {
   const fake = fixture();
   fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
   fake.apply("long", [facts.rootAgent("codex"), facts.turn("root")]);
@@ -35,7 +39,7 @@ async function longThread(count: number, text = (index: number) => `Step ${index
       );
     fake.apply("long", batch);
   }
-  const client = connect(fake, { items: 200 });
+  const client = connect(fake, { items: 200, ...(storage ? { readSnapshots: storage } : {}) });
   open(client, "long");
   await until(() => native.frames.some((frame) => frame.type === "thread.ready"), "the thread");
   return { fake, client };
@@ -45,9 +49,10 @@ function reader(client: ClientCore, bounds = { capacity: 300, weight: 4 * 1024 *
   transcript = new NativeTranscript(client, pump, bounds);
   const reading = transcript;
   return async (
-    operation: "hold" | "older" | "newer" | "live" | "item",
+    operation: "hold" | "follow" | "older" | "newer" | "live" | "item",
     epoch = -1,
     itemId?: string,
+    anchorItemId?: string,
   ) => {
     const state = await reading.read(
       {
@@ -56,6 +61,7 @@ function reader(client: ClientCore, bounds = { capacity: 300, weight: 4 * 1024 *
         epoch,
         operation,
         ...(itemId ? { itemId: ItemId.parse(itemId) } : {}),
+        ...(anchorItemId ? { anchorItemId: ItemId.parse(anchorItemId) } : {}),
       },
       new AbortController().signal,
     );
@@ -150,6 +156,52 @@ test("each page's rows reach Swift before the read says it settled", async () =>
   }
 });
 
+test("history read back once stays loaded through a return to the end and a second read back", async () => {
+  const { client } = await longThread(1500);
+  const read = reader(client, phoneWindow);
+  const reads = vi.spyOn(client, "itemsWindow");
+  await read("hold");
+  let state = await read("older");
+  for (let pages = 0; state.hasOlder && pages < 20; pages++) state = await read("older");
+  expect(state.hasOlder).toBe(false);
+  const loaded = held(-1);
+  expect(loaded[0]).toBe(message(0));
+  expect(loaded.at(-1)).toBe(message(1499));
+  expect(contiguous(loaded)).toBe(true);
+  const asked = reads.mock.calls.length;
+  // Back down to the end, then up again over the same history, twice.
+  for (let trip = 0; trip < 2; trip++) {
+    expect(await read("follow")).toMatchObject({ active: true, joined: true, hasNewer: false });
+    await read("hold");
+    expect(await read("older")).toMatchObject({ hasOlder: false });
+  }
+  expect(reads.mock.calls.length).toBe(asked);
+  expect(held(-1)).toEqual(loaded);
+});
+
+test("an older page only adds rows above the ones the reader holds", async () => {
+  const { client } = await longThread(1500);
+  const read = reader(client, phoneWindow);
+  await read("hold");
+  await read("older");
+  const before = held(-1);
+  const mark = native.frames.length;
+  await read("older");
+  const page = native.frames.slice(mark).filter((frame) => frame.epoch === -1);
+  const after = held(-1);
+  // The rows already held stay, in order, at the end; the page's rows come before them.
+  expect(after.slice(after.length - before.length)).toEqual(before);
+  expect(after.length).toBeGreaterThan(before.length);
+  expect(page.some((frame) => frame.type === "thread.reset")).toBe(false);
+  // Only the row the page meets may change (it gains a neighbour); the rest are never re-sent,
+  // so Swift re-lays out nothing the reader was looking at.
+  const kept = new Set(before.slice(1));
+  const resent = page.filter(
+    (frame) => frame.type === "thread.item" && typeof frame.id === "string" && kept.has(frame.id),
+  );
+  expect(resent).toEqual([]);
+});
+
 test("paging newer after reading old history joins the live tail again", async () => {
   const { client } = await longThread(1500);
   const read = reader(client);
@@ -164,6 +216,24 @@ test("paging newer after reading old history joins the live tail again", async (
   const rows = held(-1);
   expect(rows.at(-1)).toBe(message(1499));
   expect(contiguous(rows)).toBe(true);
+});
+
+test("following the live end keeps previously read history open instead of shrinking to the tail", async () => {
+  const { client, fake } = await longThread(600);
+  const read = reader(client, { capacity: 400, weight: 4 * 1024 * 1024 });
+  await read("hold");
+  await read("older");
+  const before = held(-1);
+  expect(before.length).toBeGreaterThan(200);
+  const followed = await read("follow");
+  expect(followed).toMatchObject({ active: true, joined: true });
+  expect(held(-1)).toEqual(before);
+  fake.apply("long", [facts.message("root", "after-follow", "assistant", "Still following")]);
+  await until(
+    () => text(-1, String(idOf(live, "Still following"))) === "Still following",
+    "the joined history to stream",
+  );
+  expect(held(-1)).toContain(idOf(live, "Still following"));
 });
 
 test("jumping to an old item opens a window around it, and going live returns to the end", async () => {
@@ -236,4 +306,128 @@ test("a window joined to the live tail keeps streaming its live rows", async () 
   const stream = idOf(live, "Working") ?? "";
   expect(text(-1, stream)).toMatch(/delta 9$/);
   expect(held(-1).slice(-2)).toEqual([stream, idOf(-1, "Afterwards")]);
+});
+
+test("offline history is explicitly cached and reconnect rebuilds it around the reader before becoming current", async () => {
+  const values = new Map<string, unknown>();
+  const storage: ReadSnapshotStorage = {
+    get: async (key) => structuredClone(values.get(key)),
+    set: async (key, value) => {
+      values.set(key, structuredClone(value));
+    },
+    clear: async () => {
+      values.clear();
+    },
+    delete: async (key) => {
+      values.delete(key);
+    },
+    deletePrefix: async (prefix) => {
+      for (const key of values.keys()) if (key.startsWith(prefix)) values.delete(key);
+    },
+  };
+  const { client, fake } = await longThread(600, undefined, storage);
+  const read = reader(client, { capacity: 400, weight: 4 * 1024 * 1024 });
+  const current = await read("older");
+  expect(current.freshness).toBe("current");
+  expect(held(-1)).toContain(message(350));
+  await read("live");
+  fake.disconnectAll();
+  await until(() => client.state !== "ready", "disconnect");
+  const cached = await read("older", -2);
+  expect(cached.freshness).toBe("cached");
+  expect(held(-2)).toContain(message(350));
+  fake.apply("long", [facts.message("root", "m-350", "assistant", "Edited during disconnect")]);
+  client.reconnectNow();
+  await until(
+    () =>
+      client.state === "ready" &&
+      !transcript?.source("long")?.unconfirmed &&
+      !transcript?.source("long")?.syncing,
+    "reconnect confirmation",
+  );
+  const fresh = await read("hold", -2, undefined, message(350));
+  expect(fresh.freshness).toBe("current");
+  expect(text(-2, message(350))).toBe("Edited during disconnect");
+});
+
+test("reconnecting an open history view refreshes its old pages even without an offline read", async () => {
+  const values = new Map<string, unknown>();
+  const storage: ReadSnapshotStorage = {
+    get: async (key) => structuredClone(values.get(key)),
+    set: async (key, value) => {
+      values.set(key, structuredClone(value));
+    },
+    deletePrefix: async (prefix) => {
+      for (const key of values.keys()) if (key.startsWith(prefix)) values.delete(key);
+    },
+  };
+  const { client, fake } = await longThread(600, undefined, storage);
+  const read = reader(client, { capacity: 400, weight: 4 * 1024 * 1024 });
+  await read("older");
+  fake.disconnectAll();
+  await until(() => client.state !== "ready", "disconnect with history open");
+  fake.apply("long", [
+    facts.message("root", "m-350", "assistant", "Edited without an offline read"),
+  ]);
+  client.reconnectNow();
+  await until(
+    () =>
+      client.state === "ready" &&
+      !transcript?.source("long")?.unconfirmed &&
+      !transcript?.source("long")?.syncing,
+    "new connection snapshot",
+  );
+  const fresh = await read("hold", -1, undefined, message(350));
+  expect(fresh.freshness).toBe("current");
+  expect(text(-1, message(350))).toBe("Edited without an offline read");
+});
+
+test("reconnecting history without visible geometry retains its resident range", async () => {
+  const { client, fake } = await longThread(600);
+  const read = reader(client, { capacity: 400, weight: 4 * 1024 * 1024 });
+  await read("older");
+  const first = held(-1)[0];
+  expect(first).toBeDefined();
+  fake.disconnectAll();
+  await until(() => client.state !== "ready", "disconnect");
+  client.reconnectNow();
+  await until(() => client.state === "ready", "reconnected transport");
+  const refreshed = await read("hold");
+  expect(refreshed.freshness).toBe("current");
+  expect(held(-1)).toContain(first);
+});
+
+test("opening another task after reconnect never transfers the old task's history lease", async () => {
+  const { client, fake } = await longThread(600);
+  fake.createThread({ id: "other", workspaceId: "ace", title: "Other task", provider: "codex" });
+  fake.apply("other", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Other task only"),
+  ]);
+  const other = client.thread("other");
+  try {
+    await until(() => other.store.order.length === 1, "other task loaded");
+    const read = reader(client);
+    await read("older");
+    fake.disconnectAll();
+    await until(() => client.state !== "ready", "disconnect");
+    client.reconnectNow();
+    await until(() => client.state === "ready" && !other.store.syncing, "other task confirmed");
+    const state = await transcript?.read(
+      {
+        type: "native.transcript",
+        threadId: ThreadId.parse("other"),
+        epoch: -2,
+        operation: "hold",
+      },
+      new AbortController().signal,
+    );
+    await pump.drained();
+    expect(state?.count).toBe(1);
+    expect(held(-2)).toHaveLength(1);
+    expect(text(-2, held(-2)[0] ?? "")).toBe("Other task only");
+  } finally {
+    other.release();
+  }
 });

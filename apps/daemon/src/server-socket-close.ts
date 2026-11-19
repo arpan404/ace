@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryRuntime } from "./delivery-runtime.ts";
 
 /**
@@ -17,9 +18,9 @@ interface Grace {
 
 export interface SocketCloser {
   /** Send `code`/`reason` when the socket can carry it, then bound the drop. */
-  gracefulClose(socket: WebSocket, code: number, reason: string): void;
+  gracefulClose(socket: MainSocket, code: number, reason: string): void;
   /** The error path's share of the same bound (a `1009` already on the wire). */
-  boundClosingSocket(socket: WebSocket): void;
+  boundClosingSocket(socket: MainSocket): void;
 }
 
 /**
@@ -34,9 +35,9 @@ export function createSocketCloser(
   delay: Delay,
   graceMs: number = DAEMON_CLOSE_GRACE_MS,
 ): SocketCloser {
-  const grace = new WeakMap<WebSocket, Grace>();
+  const grace = new WeakMap<MainSocket, Grace>();
 
-  const cancel = (socket: WebSocket): void => {
+  const cancel = (socket: MainSocket): void => {
     const entry = grace.get(socket);
     if (!entry) return;
     grace.delete(socket);
@@ -47,7 +48,7 @@ export function createSocketCloser(
     }
   };
 
-  const drop = (socket: WebSocket): void => {
+  const drop = (socket: MainSocket): void => {
     cancel(socket);
     try {
       socket.terminate();
@@ -56,7 +57,7 @@ export function createSocketCloser(
     }
   };
 
-  const arm = (socket: WebSocket, closeSent: boolean): void => {
+  const arm = (socket: MainSocket, closeSent: boolean): void => {
     const existing = grace.get(socket);
     if (existing) {
       if (closeSent && !existing.closeSent) {
@@ -78,7 +79,7 @@ export function createSocketCloser(
     socket.once("close", () => cancel(socket));
   };
 
-  const gracefulClose = (socket: WebSocket, code: number, reason: string): void => {
+  const gracefulClose = (socket: MainSocket, code: number, reason: string): void => {
     if (grace.get(socket)?.closeSent) return;
     if (socket.readyState === WebSocket.OPEN) {
       try {
@@ -97,7 +98,7 @@ export function createSocketCloser(
     // CLOSED: nothing to deliver or bound.
   };
 
-  const boundClosingSocket = (socket: WebSocket): void => {
+  const boundClosingSocket = (socket: MainSocket): void => {
     if (socket.readyState === WebSocket.CLOSING) {
       arm(socket, false);
       return;

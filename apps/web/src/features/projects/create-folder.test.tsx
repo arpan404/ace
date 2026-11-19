@@ -74,7 +74,11 @@ test("a folder created for another machine is made on that machine, not this one
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await userEvent.click(await screen.findByRole("option", { name: "Build server" }));
+  // Add project starts on this machine; Ctrl+M lists the others.
+  await screen.findByRole("listbox", { name: "Project sources" });
+  await userEvent.keyboard("{Control>}m{/Control}");
+  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  await userEvent.click(await within(machines).findByRole("option", { name: "Build server" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   const input = await field();
   await userEvent.clear(input);
@@ -119,4 +123,23 @@ test("Settings offers to create a missing project folder, and Enter creates and 
   await userEvent.type(box, "{Enter}");
   expect(await screen.findByRole("button", { name: `Actions for ${home}/work` })).toBeTruthy();
   expect(made.daemon.services.settings.get("projects.roots")).toEqual([home, `${home}/work`]);
+});
+
+test("New project folds its branch away, and a branch Git won't take opens it instead of creating", async () => {
+  const made = host();
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "orbit");
+  const branch = screen.getByRole("textbox", { name: "Initial branch", hidden: true });
+  // jsdom has no layout: whether the folded part is open is what hides it.
+  const shown = () => branch.closest("details")?.open;
+  expect(shown()).toBe(false);
+  await userEvent.click(screen.getByText("Branch and .gitignore"));
+  await userEvent.type(branch, "bad branch");
+  await userEvent.click(screen.getByText("Branch and .gitignore"));
+  await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+  expect(await screen.findByText("That isn't a branch name Git accepts.")).toBeTruthy();
+  expect(shown()).toBe(true);
+  expect(registered(made)).toEqual([]);
 });

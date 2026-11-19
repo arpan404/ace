@@ -1,4 +1,5 @@
 import { commandNotDispatched } from "../command-not-dispatched.ts";
+import { isSpadeProject } from "../project-storage.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import type { CreationProgress } from "../creation-progress.ts";
 import { loadHostId } from "../local-files.ts";
@@ -18,8 +19,14 @@ import {
   WorkspaceActionResult,
 } from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
+import { backgroundFailure } from "./background.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+/**
+ * Background Git reads (lock hygiene, checkout refresh) wait this long after startup, so they
+ * don't compete with the first clients for the daemon's thread and the machine's CPU.
+ */
+const startupQuietMs = 3_000;
 export async function startWorkspaceActions({
   store,
   config,
@@ -28,6 +35,7 @@ export async function startWorkspaceActions({
   now,
   options,
   log,
+  diskFull,
 }: ServiceContext): Promise<void> {
   const explicitTimeout = options.workspaceActions?.preparationTimeoutMs;
   let configuredTimeout = explicitTimeout;
@@ -45,6 +53,9 @@ export async function startWorkspaceActions({
   }
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
+    hostSkillRoots: () => services.skillLibrary?.personalRoots() ?? [],
+    // A thread moving to another machine, or its subagent, opens no terminal (ADR 0191).
+    moveRefusal: (id) => services.engine?.ownershipRefusal(id)?.code,
     ...options.workspaceActions,
     ...(configuredTimeout != null ? { preparationTimeoutMs: configuredTimeout } : {}),
     git: {
@@ -75,6 +86,7 @@ export async function startWorkspaceActions({
     reconcileThread: async (id) => {
       await services.engine?.reconcileThread(id);
     },
+    runsProviderWork: (id) => services.engine?.runsProviderWork(id) ?? false,
     changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
       return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);
@@ -102,49 +114,74 @@ export async function startWorkspaceActions({
     }
   }
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
+  const settle = () =>
+    workspace.settleWorkspaceChanges((id, error) =>
+      log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
+    );
   const heal = () =>
     workspace
       .sweepStaleLeases((path, error) =>
         log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
       )
-      .then(() =>
-        workspace.settleWorkspaceChanges((id, error) =>
-          log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
-        ),
-      );
-  let sweep = heal();
+      .then(settle);
+  // A move a restart cut off is settled at once: until then its project's other threads can't
+  // send. The lease sweep, which spawns Git in every project, waits until a starting daemon has
+  // served its clients; it settles again after, should a stale lease have held a move.
+  // A pass that fails (the store unreadable a moment) is logged; the next pass runs as usual. An
+  // uncaught failure would end the daemon, and a rejected chain would skip every later pass.
+  const failed = backgroundFailure({ log, config, options }, "Git lock sweep failed");
+  let sweep = settle().catch(failed);
+  const firstHeal = setTimeout(() => {
+    sweep = sweep.then(heal).catch(failed);
+  }, startupQuietMs);
+  firstHeal.unref();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
   // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
-    sweep = sweep.then(heal);
+    sweep = sweep.then(heal).catch(failed);
   }, 60_000);
   healing.unref();
   resources.own(() => {
+    clearTimeout(firstHeal);
     clearInterval(healing);
     return sweep;
-  });
+  }, "Git lock sweep");
   services.canReadThread = (_device, id) => {
     const thread = store.readThread(id);
     return thread !== undefined && thread.deletedAt === undefined;
   };
-  resources.own(() => workspace.close());
+  resources.own(() => workspace.close(), "workspace Git");
   const prLinks = new PullRequestAutoLink(store, workspace, (error) =>
     log.log("debug", "Created pull request could not be linked", logError(error)),
   );
-  resources.own(() => prLinks.close());
+  resources.own(() => prLinks.close(), "pull request links");
   // A read that times out means something hangs (a Git or forge call); say so once per kind
   // of read, so a stuck checkout is visible without repeating every minute.
   const timedOut = new Set<string>();
-  const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) => {
-    const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
-    if (error instanceof RefreshTimeout) timedOut.add(error.step);
-    log.log(
-      first ? "warn" : "debug",
-      first ? "Workspace refresh read timed out" : "Workspace metadata unavailable",
-      logError(error),
-    );
-  });
-  resources.own(() => refresh.close());
+  const refresh = new WorkspaceRefresh(
+    store,
+    workspace,
+    now,
+    undefined,
+    (error) => {
+      // A due mark the disk refused is held and retried; the full disk itself is a condition.
+      if (diskFull?.observe(error)) return;
+      const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
+      if (error instanceof RefreshTimeout) timedOut.add(error.step);
+      log.log(
+        first ? "warn" : "debug",
+        first ? "Workspace refresh read timed out" : "Workspace metadata unavailable",
+        logError(error),
+      );
+    },
+    undefined,
+    startupQuietMs,
+  );
+  const stopResuming = diskFull?.onRoom(() => refresh.resume());
+  resources.own(() => {
+    stopResuming?.();
+    return refresh.close();
+  }, "workspace refresh");
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
@@ -290,7 +327,9 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       if (message.type !== "workspace.request") return false;
       const op = message.operation;
       const scope =
-        op.op === "git.draft.generate" || op.op === "git.draft.cancel" ? "operate" : "read";
+        op.op === "git.draft.generate" || op.op === "git.draft.cancel" || op.op === "host.open"
+          ? "operate"
+          : "read";
       if (
         !authorize(scope) ||
         ("threadId" in op && op.threadId !== undefined && !canReadThread(op.threadId))
@@ -340,12 +379,35 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         refuse("workspace_reads_unavailable");
         return true;
       }
+      // Spade's hidden project is an empty folder, never a repository (ADR 0121): its reads are
+      // answered at once, with no Git or forge work and nothing logged.
+      if (
+        (op.op.startsWith("forge.") || op.op.startsWith("git.")) &&
+        "workspaceId" in op &&
+        typeof op.workspaceId === "string" &&
+        isSpadeProject(options.store, op.workspaceId)
+      ) {
+        send({
+          type: "workspace.result",
+          requestId: message.requestId,
+          result: { kind: "error", code: "not_a_repo" },
+        });
+        return true;
+      }
       const controller = new AbortController();
       if (op.op === "git.draft.generate")
         generations.set(op.input.generationId, { threadId: op.threadId, controller });
       const read = () => {
         const task = runtime
-          .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
+          .read(
+            message,
+            AbortSignal.any([lifetime.signal, controller.signal]),
+            // `host.open` outside every project needs the owner's `admin`, decided on the host.
+            (need = scope) =>
+              connected() &&
+              authorize(need) &&
+              (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId)),
+          )
           .then((result) => {
             if (
               connected() &&
@@ -368,7 +430,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
           });
         tasks.add(task);
-        void task.finally(() => tasks.delete(task));
+        // The task answers its own failure above; this only forgets it.
+        void task.finally(() => tasks.delete(task)).catch(() => {});
         return task;
       };
       if (!reads.admit(read)) {

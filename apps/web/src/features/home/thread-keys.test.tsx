@@ -11,25 +11,25 @@ async function openApp(path = "/") {
   const app = harness();
   for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
 /** The sidebar's thread rows, top to bottom. */
 const rows = () =>
-  within(screen.getByRole("list", { name: "Threads" })).getAllByRole("link", { hidden: true });
+  within(screen.getByRole("list", { name: "Projects" })).getAllByRole("link", { hidden: true });
 const titleOf = (row: HTMLElement) => row.getAttribute("aria-label")?.split(/[.,]/)[0] ?? "";
 const heading = () => screen.findByRole("heading", { level: 1 });
 
-test("⌥⌘↓ and ⌥⌘↑ move to the next and previous thread in the sidebar's order", async () => {
+test("⌥⌘↓ and ⌥⌘↑ (Alt+Shift+↓ and ↑ off Apple) move to the next and previous thread in the sidebar's order", async () => {
   await openApp();
   const [first, second] = rows();
   if (!first || !second) throw new Error("The list needs two threads");
   await userEvent.click(first);
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(first)));
-  await userEvent.keyboard("{Alt>}{Meta>}{ArrowDown}{/Meta}{/Alt}");
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}");
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(second)));
-  await userEvent.keyboard("{Alt>}{Meta>}{ArrowUp}{/Meta}{/Alt}");
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowUp}{/Shift}{/Alt}");
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(first)));
 });
 
@@ -44,23 +44,29 @@ test("⌥⌘J moves to the next thread that needs you", async () => {
 
 test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async () => {
   await openApp();
-  const list = screen.getByRole("list", { name: "Threads" });
-  screen.getByRole("link", { name: "New thread" }).focus();
-  // New thread is the last control above the list, so one Tab lands in it.
+  const list = screen.getByRole("list", { name: "Projects" });
+  /** Every stop the arrows reach: Unsent links and rows. */
+  const stops = () => [
+    ...list.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
+  ];
+  // The open tab (Inbox) is the last stop above the list, so one Tab lands on the list's first
+  // stop.
+  screen.getByRole("tab", { selected: true }).focus();
   await userEvent.tab();
   const entered = document.activeElement;
-  expect(rows()).toContain(entered);
+  expect(stops()).toContain(entered);
   // One stop: the next Tab leaves the list rather than visiting each row and its actions.
   await userEvent.tab();
   expect(list.contains(document.activeElement)).toBe(false);
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(entered);
+  // ↓ walks the stops in order: the next stop is the Inbox's next row.
   await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(stops()[stops().findIndex((stop) => stop === entered) + 1]);
   const moved = document.activeElement;
-  expect(moved).not.toBe(entered);
   expect(rows()).toContain(moved);
   // The row arrows reached is the list's Tab stop now.
-  expect(rows().filter((row) => row.tabIndex === 0)).toEqual([moved]);
+  expect(stops().filter((stop) => stop.tabIndex === 0)).toEqual([moved]);
   // Its actions are reached with →, and ← comes back to the row.
   await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);

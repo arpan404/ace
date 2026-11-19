@@ -150,13 +150,12 @@ export async function settledResult(
   return { mode: manager.state(sessionId).mode, ...actionMetadata(raw), snapshot };
 }
 
+const ActionMetadata = z.object({
+  mode: z.enum(["background", "foreground"]).optional(),
+  method: z.string().max(64).optional(),
+  warnings: z.array(z.string().max(1024)).max(8).optional(),
+  notes: z.array(z.string().max(1024)).max(8).optional(),
+});
 function actionMetadata(raw: unknown) {
-  return z
-    .object({
-      mode: z.enum(["background", "foreground"]).optional(),
-      method: z.string().max(64).optional(),
-      warnings: z.array(z.string().max(1024)).max(8).optional(),
-      notes: z.array(z.string().max(1024)).max(8).optional(),
-    })
-    .parse(raw ?? {});
+  return ActionMetadata.parse(raw ?? {});
 }

@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from "react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import { CaretRightIcon } from "@ace/icons";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrComment } from "./pr-comment.tsx";
-import { plural, previewOf, threadPlace } from "@ace/ui-core";
+import { can, plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
+import { PrThreadEarlierCode } from "./pr-earlier-code.tsx";
+import { useFixingNow } from "./pr-fix-marks.ts";
+import { OwnWriteNote, useOwnWrite } from "./pr-own-write.tsx";
+import { TextAction } from "./pr-text-action.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
@@ -32,7 +37,7 @@ export const replyField = (threadId: string, place: ReplyPlace = "thread") =>
   place === "thread" ? threadId : `${place}:${threadId}`;
 
 /**
- * A reply to a review thread: under its conversation, one quiet "Reply…" line until chosen;
+ * A reply to a review thread: under its conversation, a quiet "Reply" text action until chosen;
  * elsewhere, opened by its own Reply button. Then the Markdown editor with Cancel and Reply.
  * Its text survives reloads, and its open state survives the row scrolling away; only the
  * person's own action focuses it.
@@ -42,6 +47,8 @@ export function PrReplyField(props: {
   /** GitHub takes replies on the thread's first comment. */
   rootCommentId: number;
   place?: ReplyPlace;
+  /** How the closed field shows under its conversation; a quiet "Reply" word by default. */
+  closed?: ComponentType<{ onOpen(): void }> | undefined;
   className?: string | undefined;
 }) {
   const review = usePrReview();
@@ -71,9 +78,12 @@ export function PrReplyField(props: {
     },
     place === "thread",
   );
-  const canComment = !!review?.state?.canComment;
+  const own = useOwnWrite();
+  const detail = usePrDetail();
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const canComment = !!review?.state?.canComment && can(detail, "reviews.comments.reply");
   const locked = !!review?.commentsLocked;
-  const disabled = !review?.ready || review.pending || !canComment || locked;
+  const disabled = !review?.ready || own.saving || !canComment || locked;
   if (!review?.state || (!canComment && !locked)) return null;
   // Under a locked conversation the reply line stays, off, with GitHub's reason.
   if (locked && !typed)
@@ -89,29 +99,33 @@ export function PrReplyField(props: {
       </p>
     ) : null;
   const close = () => setAsked(undefined);
-  const send = () => {
+  // A review the viewer started on GitHub can take this reply, unsent until they submit it.
+  const hostedPending = review.state.hostedPending;
+  const send = (toReview: boolean) => {
     const body = draft.text;
     if (disabled || !body.trim()) return;
-    void review.run({ kind: "reply", commentId: props.rootCommentId, body }).then((ok) => {
-      if (ok && draft.clear(body)) close();
-    });
+    void own
+      .send({
+        kind: "reply",
+        commentId: props.rootCommentId,
+        body,
+        ...(toReview && hostedPending
+          ? { pendingReview: { reviewId: hostedPending.id, threadId: props.threadId } }
+          : {}),
+      })
+      .then((ok) => {
+        if (ok && draft.clear(body)) close();
+      });
+  };
+  const Closed = props.closed;
+  const opener = () => {
+    setAsked(true);
+    askFocus();
   };
   if (!open)
-    return place === "thread" ? (
-      <button
-        type="button"
-        onClick={() => {
-          setAsked(true);
-          askFocus();
-        }}
-        className={cn(
-          "flex h-8 w-full items-center rounded-md px-3 text-left text-ui text-subtle-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] hover:text-muted-foreground focus-ring",
-          props.className,
-        )}
-      >
-        Reply…
-      </button>
-    ) : null;
+    return place === "thread"
+      ? (Closed && <Closed onOpen={opener} />) || <TextAction onClick={opener}>Reply</TextAction>
+      : null;
   return (
     <div ref={box} className={cn("space-y-2", props.className)}>
       <MarkdownEditor
@@ -121,14 +135,15 @@ export function PrReplyField(props: {
         value={draft.text}
         disabled={locked}
         onChange={draft.setText}
-        onSubmit={send}
+        onSubmit={() => send(false)}
       />
       {locked && (
         <p role="status" className="text-xs text-muted-foreground">
           {lockedText}
         </p>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        <OwnWriteNote status={own.status} saving="Posting…" className="mr-auto" />
         <Button
           variant="ghost"
           onClick={() => {
@@ -138,8 +153,21 @@ export function PrReplyField(props: {
         >
           Cancel
         </Button>
-        <Button variant="primary" disabled={disabled || !draft.text.trim()} onClick={send}>
-          Reply
+        {hostedPending && (
+          <Button
+            variant="secondary"
+            disabled={disabled || !draft.text.trim()}
+            onClick={() => send(true)}
+          >
+            Add to your pending review
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          disabled={disabled || !draft.text.trim()}
+          onClick={() => send(false)}
+        >
+          {hostedPending ? "Reply now" : "Reply"}
         </Button>
       </div>
     </div>
@@ -147,25 +175,57 @@ export function PrReplyField(props: {
 }
 
 /** Resolve or unresolve a review thread, where GitHub lets the viewer. */
-export function PrResolveButton(props: { thread: ReviewThread }) {
+export function PrResolveButton(props: { thread: ReviewThread; className?: string | undefined }) {
   const review = usePrReview();
+  const own = useOwnWrite();
   if (!review?.state?.resolvableThreads.includes(props.thread.id)) return null;
   const { thread } = props;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={!review.ready || review.pending}
-      onClick={() =>
-        void review.run({
-          kind: thread.resolved ? "thread.unresolve" : "thread.resolve",
-          threadId: thread.id,
-        })
-      }
-    >
-      {thread.resolved ? "Unresolve conversation" : "Resolve conversation"}
-    </Button>
+    <>
+      {own.status?.state === "failed" && <OwnWriteNote status={own.status} />}
+      <TextAction
+        className={props.className}
+        disabled={!review.ready || own.saving}
+        onClick={() =>
+          void own.send({
+            kind: thread.resolved ? "thread.unresolve" : "thread.resolve",
+            threadId: thread.id,
+          })
+        }
+      >
+        {thread.resolved ? "Unresolve conversation" : "Resolve conversation"}
+      </TextAction>
+    </>
   );
+}
+
+/**
+ * A conversation's view state: open or folded (resolved ones start folded; the person's own
+ * choice holds until it is resolved or reopened, and survives the row scrolling away), which
+ * comments are expanded, and whether an agent is fixing it.
+ */
+/** A review thread's Suit part: an agent fixing it, resolved, or open or folded; outdated. */
+export function threadPart(thread: ReviewThread, view: { open: boolean; fixing: boolean }) {
+  const state = view.fixing ? "working" : thread.resolved ? "done" : view.open ? "open" : "closed";
+  return part("review-thread", state, thread.outdated ? "outdated" : undefined);
+}
+
+export function useThreadView(thread: ReviewThread) {
+  const [fold, setFold] = useFold(thread.id);
+  const open = fold && fold.resolved === thread.resolved ? fold.open : !thread.resolved;
+  const setOpen = (next: boolean) => setFold({ open: next, resolved: thread.resolved });
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
+  const state = usePrReview()?.state;
+  const fixing = useFixingNow(`thread:${thread.id}`);
+  const first = thread.comments[0];
+  const preview = first && previewOf(state, first);
+  const toggle = (id: number) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  return { open, setOpen, expanded, toggle, fixing, first, preview };
 }
 
 /**
@@ -178,33 +238,22 @@ export function PrThread(props: {
   className?: string | undefined;
 }) {
   const { thread } = props;
-  // Resolved conversations start folded. The person's own choice holds until the conversation
-  // is resolved or reopened, and survives the row scrolling away (`pr-ui-store`).
-  const [fold, setFold] = useFold(thread.id);
-  const open = fold && fold.resolved === thread.resolved ? fold.open : !thread.resolved;
-  const setOpen = (next: boolean) => setFold({ open: next, resolved: thread.resolved });
-  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
-  const state = usePrReview()?.state;
-  const first = thread.comments[0];
-  const preview = first && previewOf(state, first);
-  const toggle = (id: number) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+  const { open, setOpen, expanded, toggle, fixing, first, preview } = useThreadView(thread);
   const marks = (
     <>
       {thread.outdated && <span className="shrink-0 text-xs text-subtle-foreground">Outdated</span>}
       {thread.resolved && <span className="shrink-0 text-xs text-subtle-foreground">Resolved</span>}
+      {fixing && <span className="shrink-0 text-xs text-status-working">Agent fixing this</span>}
     </>
   );
+  const header = !!props.place || thread.resolved || thread.outdated;
   return (
     <section
+      {...threadPart(thread, { open, fixing })}
       aria-label={`Conversation on ${threadPlace(thread)}`}
       className={cn("min-w-0 space-y-3 font-sans whitespace-normal", props.className)}
     >
-      {(props.place || thread.resolved || thread.outdated) && (
+      {header && (
         <button
           type="button"
           aria-expanded={open}
@@ -240,8 +289,15 @@ export function PrThread(props: {
           )}
         </button>
       )}
+      {!header && fixing && (
+        <p role="status" className="text-xs text-status-working">
+          Agent fixing this
+        </p>
+      )}
       {open && (
         <>
+          {/* On the diff the code is drawn already; elsewhere, or once outdated, it isn't. */}
+          {(props.place || thread.outdated) && <PrThreadEarlierCode thread={thread} />}
           <ol className="list-none space-y-3 p-0">
             {thread.comments.map((comment) => (
               <li key={comment.id}>
@@ -256,11 +312,11 @@ export function PrThread(props: {
             ))}
           </ol>
           {first && (
-            <div className="flex flex-wrap items-start gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
               <PrReplyField
                 threadId={thread.id}
                 rootCommentId={first.id}
-                className="min-w-0 flex-1 basis-64"
+                className="min-w-0 flex-1 basis-full"
               />
               <PrResolveButton thread={thread} />
             </div>

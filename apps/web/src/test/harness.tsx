@@ -1,4 +1,5 @@
 import { createTimeSource, TimeContext } from "@/lib/time.ts";
+import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
@@ -7,7 +8,7 @@ import { fakeClient } from "./fake-client.ts";
 export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
@@ -20,6 +21,7 @@ import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
+import type { DeviceScope } from "@ace/protocol";
 
 // Load deferred test UI before test deadlines begin. Under merge load, transforming
 // these modules inside the first open() can time out and race cleanup with mounting.
@@ -35,7 +37,11 @@ await threadWorkspace.load();
 await Promise.all(threadWorkspace.kinds().map((kind) => kind.load()));
 
 const running: { close(): Promise<void> }[] = [];
+// The app unmounts before its clients close, as a window does. (This hook runs before the
+// setup file's cleanup: Vitest runs after-hooks last registered first.) A client closed under a
+// mounted app has every live view subscribe again to a client that refuses them.
 afterEach(async () => {
+  cleanup();
   await Promise.all(running.splice(0).map((client) => client.close()));
 });
 
@@ -69,7 +75,11 @@ export function harness(
     connection?: DaemonConnection;
     history?: RouterHistory;
     storage?: KeyValueStorage;
+    /** The window's own storage (session storage), which outlives a reload of this window. */
+    windowStorage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
+    /** The browser draws without graphics acceleration. */
+    softwareRendering?: boolean;
     /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
@@ -84,7 +94,14 @@ export function harness(
      * Other machines in the window's machine pool (ADR 0059), each a fake daemon of its own.
      * This daemon is then "This Mac".
      */
-    machines?: readonly { hostId: string; name: string }[];
+    machines?: readonly {
+      hostId: string;
+      name: string;
+      /** What this window's device may do there; everything when absent. */
+      scopes?: readonly DeviceScope[];
+      /** false: a daemon from before logical project identity (ADR 0180). */
+      projectIdentity?: false;
+    }[];
     /**
      * "pending": this device hasn't been through provider setup, so an empty Home opens it (the
      * first run). By default setup is done, as it is on every device after its first launch.
@@ -97,6 +114,10 @@ export function harness(
     worktreeSchedule?: (callback: () => void, delay: number) => () => void;
     /** The app's query cache, for a test that seeds what an earlier session kept. */
     queryClient?: QueryClient;
+    /** The daemon's Suit library (ADR 0150), faked at the transport. */
+    suits?: SuitTransport;
+    /** `?suit=off` this session. */
+    suitsOff?: boolean;
   } = {},
 ) {
   const time = createTimeSource(options.uiClock ?? (() => Date.now()));
@@ -108,6 +129,8 @@ export function harness(
         clock,
         hostId: machine.hostId,
         displayName: machine.name,
+        ...(machine.scopes ? { deviceScopes: { "test-device": machine.scopes } } : {}),
+        ...(machine.projectIdentity === false ? { projectIdentity: false as const } : {}),
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
       }),
   );
@@ -115,6 +138,8 @@ export function harness(
     options.daemon ??
     new FakeDaemon({
       clock,
+      // As a daemon's first start precedes what it lists: work before this window opened is seen.
+      seenBefore: (options.uiClock ?? (() => Date.now()))(),
       ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
       ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
       ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
@@ -167,6 +192,8 @@ export function harness(
               storage,
               root: document.documentElement,
               matchMedia: options.matchMedia,
+              softwareRendering: options.softwareRendering,
+              suitsOff: options.suitsOff,
             }}
           >
             <DaemonConnectionContext.Provider value={connection}>
@@ -174,8 +201,10 @@ export function harness(
                 client={client}
                 queryClient={options.queryClient ?? createQueryClient()}
                 storage={storage}
+                windowStorage={options.windowStorage}
                 history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
                 machines={machines}
+                suits={options.suits}
               />
             </DaemonConnectionContext.Provider>
           </AppFrame>

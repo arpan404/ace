@@ -25,39 +25,47 @@ async function openStep(made: ReturnType<typeof harness>) {
   return screen.findByRole("dialog", { name: "New thread in" });
 }
 
-/** The step's rows, in order. */
+/** The step's rows, in order, as read aloud: decorative project badges are skipped. */
 const rows = async (step: HTMLElement) => {
   const list = await within(step).findByRole("listbox", { name: "Projects" });
   return within(list)
     .getAllByRole("option")
-    .map((option) => option.textContent ?? "");
+    .map((option) => {
+      const spoken = option.cloneNode(true) as HTMLElement;
+      for (const hidden of spoken.querySelectorAll("[aria-hidden]")) hidden.remove();
+      return spoken.textContent ?? "";
+    });
 };
-/** The machine's projects: every row but the chat and Add project, which always follow them. */
+/** The machine's projects: every row but the chat first and Add project last. */
 const projectNames = async (step: HTMLElement) =>
   (await rows(step)).filter((row) => row !== "No project" && !row.startsWith("Add project"));
+
+/** Every machine's projects, as New thread in lists them with more than one machine. */
+const everywhere = ["apiBuild server", "weatherThis Mac"];
 
 test("New thread in lists another machine's projects by keyboard and opens New thread there", async () => {
   const { made } = world([{ hostId: "build", name: "Build server" }]);
   const step = await openStep(made);
-  await waitFor(async () => expect(await projectNames(step)).toEqual(["weather"]));
+  await waitFor(async () => expect(await projectNames(step)).toEqual(everywhere));
 
   // Tab reaches the machine chip; Enter lists the machines, arrows and Enter choose one.
   await userEvent.tab();
   expect(document.activeElement).toBe(
-    within(step).getByRole("button", { name: "Machine: This Mac" }),
+    within(step).getByRole("button", { name: "Machine: All machines" }),
   );
   await userEvent.keyboard("{Enter}");
   await within(step).findByRole("listbox", { name: "Machines" });
-  await userEvent.keyboard("{ArrowDown}{Enter}");
+  // All machines, This Mac, then Build server.
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
   await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
-  // Another machine's step still ends with a chat there and Add project.
-  expect((await rows(step)).slice(-2)).toEqual([
-    "No project",
-    expect.stringMatching(/^Add project/),
-  ]);
+  // Another machine's step still starts with a chat there and ends with Add project.
+  const listed = await rows(step);
+  expect(listed[0]).toBe("No project");
+  expect(listed.at(-1)).toEqual(expect.stringMatching(/^Add project/));
   expect(within(step).getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
 
-  await userEvent.keyboard("{Enter}");
+  // No project leads, so step down to the project before opening it.
+  await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
 });
@@ -65,7 +73,15 @@ test("New thread in lists another machine's projects by keyboard and opens New t
 test("Backspace in the machine list returns to the projects of the machine already chosen", async () => {
   const { made } = world([{ hostId: "build", name: "Build server" }]);
   const step = await openStep(made);
-  await userEvent.click(await within(step).findByRole("button", { name: "Machine: This Mac" }));
+  await userEvent.click(await within(step).findByRole("button", { name: "Machine: All machines" }));
+  await within(step).findByRole("listbox", { name: "Machines" });
+  await userEvent.keyboard("{Backspace}");
+  await waitFor(async () => expect(await projectNames(step)).toEqual(everywhere));
+  // Picked, then back: the machine picked stays.
+  await userEvent.click(within(step).getByRole("button", { name: "Machine: All machines" }));
+  await userEvent.click(await within(step).findByRole("option", { name: "This Mac" }));
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["weather"]));
+  await userEvent.click(within(step).getByRole("button", { name: "Machine: This Mac" }));
   await within(step).findByRole("listbox", { name: "Machines" });
   await userEvent.keyboard("{Backspace}");
   await waitFor(async () => expect(await projectNames(step)).toEqual(["weather"]));
@@ -78,7 +94,7 @@ test("a machine that isn't connected shows its status in New thread in and can't
   ]);
   const step = await openStep(made);
   made.crashMachine("studio");
-  await userEvent.click(await within(step).findByRole("button", { name: "Machine: This Mac" }));
+  await userEvent.click(await within(step).findByRole("button", { name: "Machine: All machines" }));
   const studio = await within(step).findByRole("option", { name: "Studio, Offline" });
   expect(studio.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(studio);
@@ -94,6 +110,20 @@ test("with one machine New thread in lists its projects and names no machine", a
   expect(within(step).queryByRole("button", { name: /^Machine:/ })).toBeNull();
 });
 
+test("Ctrl+M flips between projects and machines without leaving the field", async () => {
+  const { made } = world([{ hostId: "build", name: "Build server" }]);
+  const step = await openStep(made);
+  await waitFor(async () => expect(await projectNames(step)).toEqual(everywhere));
+
+  await userEvent.keyboard("{Control>}m{/Control}");
+  await within(step).findByRole("combobox", { name: "Search machines" });
+  await within(step).findByRole("listbox", { name: "Machines" });
+
+  await userEvent.keyboard("{Control>}m{/Control}");
+  await within(step).findByRole("combobox", { name: "Search projects" });
+  await waitFor(async () => expect(await projectNames(step)).toEqual(everywhere));
+});
+
 test("a folder created from the project picker on Build server is made there and stays chosen", async () => {
   const { made, build } = world([{ hostId: "build", name: "Build server" }]);
   if (!build) throw new Error("no build server");
@@ -105,5 +135,25 @@ test("a folder created from the project picker on Build server is made there and
   expect(await screen.findByRole("button", { name: "Project: jobs" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
   expect(paths(build)).toContain("/home/ci/services/jobs");
+  expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
+});
+
+test("Add project from New thread in keeps the chosen machine", async () => {
+  const { made, build } = world([{ hostId: "build", name: "Build server" }]);
+  if (!build) throw new Error("no build server");
+  const step = await openStep(made);
+  await userEvent.click(await within(step).findByRole("button", { name: "Machine: All machines" }));
+  await userEvent.click(await within(step).findByRole("option", { name: "Build server" }));
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
+
+  // Add project opens on the build server, without asking again.
+  const sources = await screen.findByRole("listbox", { name: "Project sources" });
+  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await userEvent.click(within(sources).getByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
+  expect(await screen.findByText("~/services/jobs")).toBeTruthy();
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() => expect(paths(build)).toContain("/home/ci/services/jobs"));
   expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
 });

@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketScanCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanCheckId.json"
+    },
+    "sentence": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanVerdict.json"
+    }
+  },
+  "required": [
+    "id",
+    "verdict",
+    "sentence",
+    "findings"
+  ],
+  "type": "object"
+}

@@ -1,4 +1,12 @@
-import { Client, ClientCore, type Scheduler, type ThreadSource, type Storage } from "@ace/client";
+import {
+  Client,
+  ClientCore,
+  type ClientOptions,
+  type Limits,
+  type Scheduler,
+  type ThreadSource,
+  type Storage,
+} from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { ServerMessage, type ServerMessage as Message, DeviceId } from "@ace/protocol";
 import { z } from "zod";
@@ -17,6 +25,9 @@ export function world(
   hostOptions: Partial<HostOptions> = {},
   projectScheduler?: (callback: () => void) => void,
   outbox?: Storage,
+  limits?: Partial<Limits>,
+  /** Other options for the worker's client, such as `openTail`. */
+  client: Partial<ClientOptions> = {},
 ) {
   let now = 1;
   let ids = 0;
@@ -108,6 +119,8 @@ export function world(
             scheduler: timers,
             random: () => 0.5,
             id: () => `id-${++ids}`,
+            ...(limits ? { limits } : {}),
+            ...client,
           }),
       };
     },

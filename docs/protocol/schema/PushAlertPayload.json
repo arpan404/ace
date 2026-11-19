@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/PushAlertPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hostId": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "notification": {
+      "$ref": "https://ace.local/protocol/v1/Notification.json"
+    },
+    "v": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "v",
+    "hostId",
+    "notification"
+  ],
+  "type": "object"
+}

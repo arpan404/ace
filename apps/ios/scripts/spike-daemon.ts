@@ -1,32 +1,58 @@
-import { FakeDaemon, facts, seedForgeBrowse } from "@ace/fake-daemon";
+import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
+import { seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
+import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { CommandId, DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
-import { manyActions, snapshotFrames } from "./many-actions.ts";
+import { manyActions } from "./many-actions.ts";
+import { socketFrames } from "./socket-frames.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
-import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { askLater, RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
+import { seedWork, WorkScenario } from "./work-scenario.ts";
+import { seedSubagents } from "./subagent-scenario.ts";
+import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
-import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
-import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
+import { seedChats } from "./chats-scenario.ts";
+import { seedMessageAttachments, seedNativeMedia, seedRichAnswer } from "./media-scenario.ts";
+import {
+  answerScreenshot,
+  browserControl,
+  degradedBrowser,
+  realVideo,
+  seedBrowser,
+} from "./spike-browser.ts";
+import { spikePoster } from "./spike-poster.ts";
+import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { SpikeAccount } from "./spike-account.ts";
 import { seedFiles } from "./files-scenario.ts";
+import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
 import { seedLongSteps } from "./long-steps-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
 import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
+import { seedQueues } from "./queue-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
+import { seedRouting } from "./routing-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
+import { seedTransitions } from "./transitions-scenario.ts";
+import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
+import { richRound, seedRichWork } from "./rich-work-scenario.ts";
+import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
+import { seedSkills } from "./skills-scenario.ts";
+import { ReadMarkScenario } from "./read-mark-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -56,6 +82,8 @@ const daemon = new FakeDaemon({
   clock: Date.now,
   hostId,
   displayName: machineName,
+  // The fixture's machine is a Mac: computer use offers locked use.
+  platform: "darwin",
   token: "ios-spike-token",
   snapshotItems: 200,
   ...(peerPort ? { projectScheduler: paced } : {}),
@@ -65,12 +93,17 @@ const daemon = new FakeDaemon({
 daemon.services.settings.seed({
   "host.icon": { kind: separate ? (port % 2 === 0 ? "server" : "desktop") : "laptop" },
 });
+seedStorage(daemon, Date.now());
+seedAppUpdate(daemon);
+seedMachineUpdate(daemon);
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Seeded first, so they are the list's oldest finished threads and never push the others down.
+seedTransitions(daemon, details);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-stream",
@@ -111,6 +144,12 @@ daemon.apply("ios-stream", [
 // many deltas (about nine hours at 20 a second), in one append, to check that a thread that has
 // run for hours opens as fast as a new one.
 const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
+/** `ACE_IOS_SPIKE_DEGRADED=1`: the browser's video reports it runs on the processor. */
+const degraded = degradedBrowser(process.env.ACE_IOS_SPIKE_DEGRADED === "1");
+/** `ACE_IOS_SPIKE_POSTER=1`: browser subscribes bring a poster; `hold` also holds video back. */
+const poster = spikePoster(daemon, process.env.ACE_IOS_SPIKE_POSTER);
+/** `ACE_IOS_SPIKE_MEDIA=1`: ace-media's media listener, played on this port (`spike-media.ts`). */
+const media = spikeMedia(port, process.env.ACE_IOS_SPIKE_MEDIA === "1");
 if (Number.isSafeInteger(streamed) && streamed > 0)
   daemon.apply("ios-stream", [
     facts.stream(
@@ -122,6 +161,45 @@ if (Number.isSafeInteger(streamed) && streamed > 0)
       ).join(""),
     ),
   ]);
+// One row with every field the desktop row shows: pinned, a long branch, two linked pull
+// requests, lines changed, running subagents and an agent using Mac apps.
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-rich-row",
+  workspaceId: "ace",
+  title: "Rewrite the relay outbox streams",
+  provider: "claude",
+  details: {
+    ...details("feat/rewrite-the-relay-outbox-streams"),
+    diff: { files: 4, additions: 120, deletions: 8 },
+    linkedPrs: [
+      {
+        number: 1188,
+        state: "open",
+        title: "Rewrite the relay outbox streams",
+        url: "https://github.com/arpan404/ace/pull/1188",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        updatedAt: 1,
+      },
+      {
+        number: 214,
+        state: "draft",
+        title: "Relay: stream backpressure",
+        url: "https://github.com/arpan404/relay/pull/214",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "relay" },
+        updatedAt: 1,
+      },
+    ],
+  },
+  live: { model: "opus 5.5 · medium", subagentCount: 2, backgroundTaskCount: 0 },
+});
+daemon.apply("ios-rich-row", [facts.rootAgent("claude"), facts.turn("root")]);
+daemon.computerUsing.use("ios-rich-row", ["Simulator", "Xcode"]);
+daemon.command({
+  id: CommandId.parse("seed-rich-row-pin"),
+  deviceId: DeviceId.parse("seed"),
+  payload: { type: "thread.pin", threadId: ThreadId.parse("ios-rich-row"), pinned: true },
+});
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-done",
@@ -152,6 +230,25 @@ daemon.createThread({
 seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
+  id: "ios-subagents",
+  workspaceId: "ace",
+  title: "Harden process cleanup",
+  provider: "claude",
+  details: details("fix/process-cleanup"),
+});
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-big-tree",
+  workspaceId: "ace",
+  title: "Shard the test suite",
+  provider: "codex",
+  details: details("perf/shards"),
+});
+seedSubagents(daemon);
+seedElsewhere(daemon, { hostId, name: machineName });
+seedWorktreeStops(daemon);
+daemon.createThread({
+  hasSentMessage: true,
   id: "ios-snoozed",
   workspaceId: "ace",
   title: "Release notes for 0.9",
@@ -179,6 +276,7 @@ threadScenarios(daemon, details);
 seedForks(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
+seedQueues(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 const busy = Number(process.env.ACE_IOS_SPIKE_INBOX ?? 0);
 const busyTimer =
@@ -187,25 +285,58 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
+seedChats(daemon);
+seedOutside(daemon, Date.now());
+seedSpade(daemon, Date.now());
+// Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
+if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
+// PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
+seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
+seedRichAnswer(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
+seedChanges(daemon, details);
+const readMarks = new ReadMarkScenario(daemon, details);
 seedWorkLogs(daemon);
 seedLongSteps(daemon);
 seedMessages(daemon, details);
 seedReading(daemon, details);
+seedToolBurst(daemon, details);
+let bursts = 0;
+const burstPace = (run: () => void, ms: number) => void setTimeout(run, ms);
+// `ACE_IOS_SPIKE_BURST_MS=2000` sends ios-burst a burst of 30 tool calls that often.
+const burstEvery = Number(process.env.ACE_IOS_SPIKE_BURST_MS ?? 0);
+const burstTimer =
+  Number.isSafeInteger(burstEvery) && burstEvery > 0
+    ? setInterval(() => toolBurst(daemon, ++bursts, 30, burstPace), burstEvery)
+    : undefined;
+seedRichWork(daemon, details);
+let rounds = 0;
+// `ACE_IOS_SPIKE_RICH_MS=5000` adds a round of tall, mixed work to ios-rich that often.
+const richEvery = Number(process.env.ACE_IOS_SPIKE_RICH_MS ?? 0);
+const richTimer =
+  Number.isSafeInteger(richEvery) && richEvery > 0
+    ? setInterval(() => richRound(daemon, ++rounds, burstPace), richEvery)
+    : undefined;
 requestScenarios(daemon, details);
+seedAutomations(daemon, details, Date.now());
 spikeDevices(daemon, details);
 let fresh = 0;
+let works = 0;
 let naps = 0;
 
-const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
+const connections = new Map<ServerWebSocket<SpikeSocketData>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
 let deltas = streamed > 0 ? streamed : 0;
+/** The ios-stream answer the timer streams into; `/stream/finish` moves it on. */
+let streamKey = "stream";
+let answers = 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
@@ -237,7 +368,9 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
   });
 }
 const lostReceipt = new LostReceipt();
-const server = Bun.serve<undefined>({
+// The account backend `--spike-account` signs in to, on this same port.
+const spikeAccount = new SpikeAccount(() => Date.now());
+const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
   async fetch(request, listener) {
@@ -250,17 +383,52 @@ const server = Bun.serve<undefined>({
       }
       return Response.json(lostReceipt.state());
     }
+    if (path === "/review/outside" && request.method === "GET")
+      return Response.json({
+        pending: daemon.outside.access.map((entry) => entry.requestId),
+        decisions: daemon.outside.decisions,
+        grants: daemon.outside.grants.map(({ id, scopes, projects, expiresAt, revokedAt }) => ({
+          id,
+          scopes,
+          projects,
+          expiresAt,
+          revokedAt,
+        })),
+      });
+    if (path === "/review/outside" && request.method === "POST") {
+      const kinds = [
+        "ask",
+        "screen",
+        "clear",
+        "elsewhere",
+        "home",
+      ] as const satisfies OutsideScenario[];
+      outsideScenario(daemon, z.enum(kinds).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
+    if (path === "/review/spade" && request.method === "POST") {
+      const kinds = ["off", "on", "stream", "hold", "release"] as const satisfies SpadeScenario[];
+      spadeScenario(daemon, z.enum(kinds).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
     if (path === "/review/many" && request.method === "POST") {
       const input = z
         .object({
           id: z
             .string()
-            .regex(/^ios-many-[a-z]+$/)
+            .regex(/^ios-many-[a-zA-Z0-9-]+$/)
             .max(64),
         })
         .parse(await request.json());
       manyActions(daemon, input.id);
       return Response.json({ ok: true });
+    }
+    if (path === "/review/burst" && request.method === "POST") {
+      const input = z
+        .object({ size: z.number().int().min(1).max(200).default(30) })
+        .parse(await request.json());
+      toolBurst(daemon, ++bursts, input.size, burstPace);
+      return Response.json({ ok: true, burst: bursts });
     }
     if (path === "/review/approval" && request.method === "POST") {
       approvalRetryScenario(
@@ -281,6 +449,32 @@ const server = Bun.serve<undefined>({
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
+    }
+    // An approval arriving in a thread the test already has open (a fresh one, never a shared one).
+    if (path === "/review/ask" && request.method === "POST") {
+      const { threadId } = z
+        .object({ threadId: z.string().min(1).max(64) })
+        .parse(await request.json());
+      askLater(daemon, threadId);
+      return Response.json({ ok: true });
+    }
+    // A new thread for one Work test: its checkout moves, links and recoveries stay its own.
+    if (path === "/review/work" && request.method === "POST") {
+      const scenario = WorkScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-work-${scenario}-${++works}`;
+      seedWork(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
+    }
+    // GitHub's branch moves on (`remoteHead`), so a plain push from the thread's checkout is
+    // rejected; an empty one lets pushes through again. Drives a merge whose push failed.
+    if (path === "/review/push-rejects" && request.method === "POST") {
+      const { threadId, remoteHead } = z
+        .object({ threadId: z.string().min(1), remoteHead: z.string() })
+        .parse(await request.json());
+      daemon.workspace.git.setRemoteDiverged(threadId, remoteHead);
+      return Response.json({ ok: true });
     }
     // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
     // the fixture has been running.
@@ -306,10 +500,16 @@ const server = Bun.serve<undefined>({
       );
       return Response.json({ ok: true });
     }
+    const posterReply = poster.control(request);
+    if (posterReply) return posterReply;
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
+    const accountReply = await spikeAccount.handle(request);
+    if (accountReply) return accountReply;
     const devicesReply = devicesControl(daemon, request);
     if (devicesReply) return devicesReply;
+    const readMarkReply = await readMarks.control(request);
+    if (readMarkReply) return readMarkReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
@@ -323,11 +523,24 @@ const server = Bun.serve<undefined>({
         replays,
         fragmentParts,
       });
+    // Finishes the answer streaming on ios-stream and starts the next, so the thread keeps
+    // streaming for whatever runs after; the finished answer's key.
+    if (path === "/stream/finish" && request.method === "POST") {
+      const finished = streamKey;
+      streamKey = `stream-${++answers}`;
+      daemon.apply("ios-stream", [
+        facts.finish("root", finished),
+        facts.message("root", streamKey, "assistant", "And the next step:", false),
+      ]);
+      return Response.json({ finished });
+    }
     if (path === "/control" && request.method === "POST") {
       online = Control.parse(await request.json()).online;
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    // What Open on computer (`host.open`) opened on this fake machine, in order.
+    if (path === "/host-opened") return Response.json({ opened: daemon.workspace.opened });
     if (path === "/queue")
       return Response.json({
         texts: await queuedTexts(
@@ -342,11 +555,25 @@ const server = Bun.serve<undefined>({
           threadId: ThreadId.parse(new URL(request.url).searchParams.get("thread") ?? "ios-stream"),
         }),
       );
-    if (online && listener.upgrade(request)) return;
+    const mediaReply = media.control(request);
+    if (mediaReply) return mediaReply;
+    if (path === "/media")
+      return listener.upgrade(request, { data: { media: true } })
+        ? undefined
+        : new Response("No", { status: 400 });
+    if (online && listener.upgrade(request, { data: {} })) return;
     return new Response("Unavailable", { status: 503 });
   },
   websocket: {
     open(socket) {
+      if (socket.data?.media) return;
+      const main: PhoneMain = {
+        send: (text) => socket.send(text),
+        forward: (text) => connections.get(socket)?.receive(text),
+      };
+      socket.data = { main };
+      // Pieces for a thread delivered on the media connection, held with the rest for a poster.
+      const toMedia = poster.gate((bytes) => media.socketFor(main)?.send(bytes));
       connections.set(
         socket,
         daemon.connect({
@@ -358,26 +585,38 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of snapshotFrames(text)) {
+            for (const frame of socketFrames(poster.rewrite(media.toPhone(main, degraded(text))))) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
           },
           close: (code) => socket.close(code),
-          binary: realVideo(daemon, (bytes) => socket.send(bytes)),
+          binary: realVideo(
+            daemon,
+            poster.gate((bytes) => socket.send(bytes)),
+            (threadId) => (media.route(main, threadId) ? toMedia : undefined),
+          ),
         }),
       );
     },
     message(socket, data) {
+      if (socket.data?.media)
+        return media.message(socket, typeof data === "string" ? data : new Uint8Array(data));
+      const main = socket.data?.main;
+      if (typeof data === "string" && main && media.fromPhone(main, data)) return;
       if (typeof data === "string") {
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        readMarks.observe(data);
+        poster.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);
       }
     },
     close(socket) {
+      if (socket.data?.media) return media.close(socket);
+      if (socket.data?.main) media.mainClosed(socket.data.main);
       featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);
@@ -387,12 +626,14 @@ const server = Bun.serve<undefined>({
 const timer = setInterval(() => {
   deltas++;
   daemon.apply("ios-stream", [
-    facts.stream("root", "stream", ` Next step ${deltas}: wire the safe kill-all filters.`),
+    facts.stream("root", streamKey, ` Next step ${deltas}: wire the safe kill-all filters.`),
   ]);
 }, 50);
 process.on("SIGINT", () => {
   clearInterval(timer);
   clearInterval(busyTimer);
+  clearInterval(burstTimer);
+  clearInterval(richTimer);
   server.stop(true);
   stopPeer?.();
 });

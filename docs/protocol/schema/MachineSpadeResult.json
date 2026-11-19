@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineSpadeResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {},
+    "status": {
+      "maximum": 599,
+      "minimum": 100,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "status",
+    "body"
+  ],
+  "type": "object"
+}

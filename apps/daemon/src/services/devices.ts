@@ -1,34 +1,51 @@
 import type { DevicesService } from "@ace/devices";
 import { deviceControlDelivery } from "@ace/devices/tools";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { logFields } from "@ace/diagnostics";
-import { mayCompress } from "../compression-policy.ts";
+import { logError, logFields } from "@ace/diagnostics";
+import { installScreenHelper } from "@ace/screen";
 import { ThreadId, AgentId, ItemId } from "@ace/protocol";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import type { ServiceContext } from "./types.ts";
+import { followDevicesSetting } from "../devices-setting.ts";
 import { LazyDevices, lazyDevices } from "../lazy-devices.ts";
+import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
+import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { writeDeviceMessage } from "./device-write.ts";
+import { startMedia } from "./media.ts";
 
-export function startDevices(context: ServiceContext): void {
+export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
   const devices = options.devices
     ? LazyDevices.of(options.devices)
-    : new LazyDevices(() => buildDevices(context));
-  resources.own(() => devices.close());
+    : new LazyDevices((enabled) => buildDevices(context, enabled));
+  resources.own(() => devices.close(), "device sessions");
   services.devices = devices;
+  // Settings › Devices: on or off for the whole machine, kept across restarts.
+  if (services.settings)
+    resources.own(
+      await followDevicesSetting(devices, services.settings, (error) =>
+        context.log.log("warn", "Devices setting not applied", logError(error)),
+      ),
+    );
 }
 /** The devices implementation, imported and built the first time something uses devices. */
-async function buildDevices(context: ServiceContext): Promise<DevicesService> {
+async function buildDevices(context: ServiceContext, enabled: boolean): Promise<DevicesService> {
   const { config, services, now, id } = context;
   const directory = join(config.dataDir, "artifacts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const root = await realpath(directory);
   const { DevicesService, DevicePlatform, renderDeviceVideo, consumeDeviceRecording } =
     await import("@ace/devices");
+  const frameEncoder = await deviceHelper(context);
+  const media = startMedia(context);
   return new DevicesService({
+    enabled,
+    // The person and agents share devices; agents wait while the person uses one (ADR 0143).
+    cowork: true,
     platform: new DevicePlatform({
       platform: process.platform,
       arch: process.arch,
@@ -36,10 +53,9 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
       env: process.env,
       toolsDirectory: join(config.dataDir, "tools"),
       node: process.execPath,
-      // The screen helper encodes Android emulators' pictures on the Mac (`--encode-frames`).
-      ...(process.platform === "darwin" && config.screenHelper
-        ? { frameEncoder: config.screenHelper }
-        : {}),
+      // The screen helper encodes Android emulators' pictures on the Mac (`--encode-frames`),
+      // and touches, folds and re-encodes Simulators.
+      ...(frameEncoder ? { frameEncoder } : {}),
       // Read at each boot, so a change in Settings applies to the next emulator ace starts.
       emulatorWindow: async () =>
         (await services.settings?.get("devices.emulatorWindow"))?.value === true,
@@ -47,6 +63,7 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
     }),
     runtime: {
       now,
+      monotonic: () => performance.now(),
       id,
       spawn: spawnRawSupervised,
       after(ms, run) {
@@ -56,6 +73,8 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
     },
     env: process.env,
     ...(services.screen ? { screen: services.screen } : {}),
+    // ace-media (ADR 0147, phase 2): device video streams into it while `media.encode` is auto.
+    ...(media ? { media: { attach: (producer) => media.attach(producer) } } : {}),
     log: (level, message, fields) =>
       context.log.log(
         level,
@@ -102,10 +121,28 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
     },
   });
 }
+/**
+ * The screen helper executable the device tools start, on a Mac. A helper that can't be
+ * installed leaves devices without it (serve-sim alone), never without devices.
+ */
+async function deviceHelper({ config, log }: ServiceContext): Promise<string | undefined> {
+  const configured = config.screenHelper;
+  if (process.platform !== "darwin" || !configured) return undefined;
+  try {
+    return await screenHelperExecutable(configured, (bundle) =>
+      installScreenHelper(bundle, config.dataDir, config.screenHelperManifest),
+    );
+  } catch (error) {
+    log.log("warn", "Screen helper unavailable for devices", logError(error));
+    return undefined;
+  }
+}
 export function createDevicesSession(context: SocketContext): SocketService {
-  let channel: ReturnType<typeof import("@ace/devices").connectDevices> | undefined;
+  let channel: ReturnType<typeof import("@ace/devices").reserveDevices> | undefined;
   let stopWaiting: (() => void) | undefined;
   let closed = false;
+  /** The client accepts device pushes only once it has its welcome. */
+  let welcomed = false;
   const delivery = deviceControlDelivery({
     bufferedBytes: () => context.socket.bufferedAmount,
     after(ms, run) {
@@ -116,13 +153,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
     async write(message) {
       if (!context.connected() || !context.authorize("admin"))
         throw new Error("Device socket revoked");
-      await new Promise<void>((resolve, reject) =>
-        context.socket.send(
-          JSON.stringify(message),
-          { compress: mayCompress(message.type) },
-          (error) => (error ? reject(error) : resolve()),
-        ),
-      );
+      await writeDeviceMessage(context.socket, message);
     },
   });
   return {
@@ -145,6 +176,10 @@ export function createDevicesSession(context: SocketContext): SocketService {
             context.socket.close(4013, "connection_limit");
         });
       });
+    },
+    welcomed() {
+      welcomed = true;
+      channel?.activate();
     },
     close() {
       closed = true;
@@ -189,15 +224,18 @@ export function createDevicesSession(context: SocketContext): SocketService {
   };
   async function open(service: DevicesService): Promise<void> {
     if (channel || closed || !context.connected() || !context.authorize("admin")) return;
-    const { connectDevices } = await import("@ace/devices");
+    const { reserveDevices } = await import("@ace/devices");
     if (channel || closed) return;
-    channel = connectDevices(service, context.sessionId, {
+    channel = reserveDevices(service, context.sessionId, {
       authorize: () => context.connected() && context.authorize("admin"),
+      acceleration: context.options.mediaAcceleration,
       canReadThread: (threadId) => context.canReadThread(ThreadId.parse(threadId)),
       agentExists: (threadId, agentId) =>
         context.options.store.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
         undefined,
       send: delivery.send,
+      // Subscribes naming a media connection go to ace-media (D1) while it serves devices.
+      delivery: { owner: () => mediaOwner(context), port: () => context.options.mediaDelivery?.() },
       media: {
         bufferedBytes: () => context.socket.bufferedAmount,
         write: (piece) =>
@@ -210,5 +248,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
           }),
       },
     });
+    // Opened before welcome (the service was already loaded), it waits for `welcomed`.
+    if (welcomed) channel.activate();
   }
 }

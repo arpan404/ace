@@ -20,9 +20,14 @@ export function parseAppList(text: string): string[] {
 
 /**
  * Apps agents can't use (`computer.blockedApps`): app ids (a macOS bundle id, a Linux
- * desktop-file id) or names, saved on Enter or blur.
+ * desktop-file id, a Windows .exe name or AppUserModelID) or names, saved on Enter or blur.
  * The daemon adds them to its own list (password managers, terminals, ace itself).
  */
+/** Windows ids are .exe names or AppUserModelIDs; the desktop bridge sets the platform. */
+function windowsHost(): boolean {
+  return document.documentElement.dataset.platform === "win32";
+}
+
 export function BlockedAppsRow() {
   const id = useId();
   const toast = useToast();
@@ -46,13 +51,19 @@ export function BlockedAppsRow() {
     <SettingRow
       id="computer.blockedApps"
       title="Apps agents can't use"
-      description="Password managers, terminals and ace itself are always off limits."
+      description={
+        windowsHost()
+          ? "Password managers, terminals, File Explorer, Task Manager and ace itself are always off limits. Use app names, .exe names (notepad.exe) or AppUserModelIDs."
+          : "Password managers, terminals and ace itself are always off limits."
+      }
       htmlFor={id}
     >
       <Input
         id={id}
         value={draft ?? shown}
-        placeholder="App names or ids, e.g. Messages"
+        placeholder={
+          windowsHost() ? "App names or ids, e.g. notepad.exe" : "App names or ids, e.g. Messages"
+        }
         disabled={!ready || stored === undefined}
         spellCheck={false}
         onChange={(event) => setDraft(event.target.value)}

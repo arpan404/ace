@@ -323,7 +323,7 @@ test("a locally rebased stack reviews each layer's leased push before publishing
     "#42 api bbbbbbb → 2222222",
     "#43 ui ccccccc → 3333333",
   ]);
-  await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm push" }));
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Push the stack" }));
   expect(await within(section).findByText(/This changed on GitHub since you looked/)).toBeTruthy();
 });
 
@@ -368,7 +368,9 @@ test("moved layers can be brought into the stack after reviewing each layer's ne
       .map((item) => item.textContent),
   ).toEqual(["#42 api bbbbbbb..9999999"]);
   expect(within(section).queryByText(/This changed on GitHub since you looked/)).toBeNull();
-  await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm stack action" }));
+  await userEvent.click(
+    within(confirmation).getByRole("button", { name: "Bring in GitHub commits" }),
+  );
   expect(await within(section).findByText(/This changed on GitHub since you looked/)).toBeTruthy();
 });
 
@@ -420,9 +422,7 @@ test.each([
     const confirmation = within(section).getByRole("group", { name: "Confirm stack action" });
     expect(within(confirmation).getByText(/Merge #41, #42 into main using squash/)).toBeTruthy();
     expect(within(section).queryByText(message)).toBeNull();
-    await userEvent.click(
-      within(confirmation).getByRole("button", { name: "Confirm stack merge" }),
-    );
+    await userEvent.click(within(confirmation).getByRole("button", { name: "Merge the stack" }));
     expect(await within(section).findByText(message)).toBeTruthy();
     await waitFor(() =>
       expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull(),

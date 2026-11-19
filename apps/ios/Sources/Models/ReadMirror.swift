@@ -69,6 +69,8 @@ import Observation
     static func key(_ payload: [String: Any]) -> String? {
         var named = payload
         named["fresh"] = nil
+        // A storage refresh replaces the page an ordinary visit draws first.
+        if named["type"] as? String == "host.storage" { named["force"] = nil }
         guard JSONSerialization.isValidJSONObject(named),
               let data = try? JSONSerialization.data(withJSONObject: named, options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
         return String(decoding: data, as: UTF8.self)

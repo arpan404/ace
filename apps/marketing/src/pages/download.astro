@@ -1,0 +1,81 @@
+---
+/*
+ * Download: the button for the visitor's own computer first; then every platform under tabs
+ * with its builds and three steps to install; then the questions people ask before downloading.
+ */
+import DownloadButton from "../components/DownloadButton.astro";
+import Platforms from "../components/download/Platforms.astro";
+import Faq from "../components/Faq.astro";
+import { downloadPage } from "../content/download.ts";
+import { faq } from "../content/product.ts";
+import { downloads } from "../content/release.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor, softwareApplication, sourceCode } from "../seo/schema.ts";
+
+const path = "/download/";
+const schema = schemaFor(Astro.site);
+
+const questions = faq.filter((entry) =>
+  [
+    "Which platforms does ace run on?",
+    "Is ace free?",
+    "Does ace need my API keys or a new subscription?",
+    "Do I need an ace account?",
+  ].includes(entry.question),
+);
+---
+
+<Page
+  path={path}
+  title={downloadPage.title}
+  description={downloadPage.description}
+  schema={[softwareApplication(schema), sourceCode(schema), faqPage(schema, path, questions)]}
+>
+  <section class="page opening">
+    <h1>{downloadPage.headline}</h1>
+    <p class="lead">
+      {downloadPage.intro}
+      {
+        downloads.version && (
+          <>
+            {" "}
+            {downloadPage.latest} <span data-release-version>{downloads.version}</span>.
+          </>
+        )
+      }
+    </p>
+    <div class="actions"><DownloadButton withNote /></div>
+  </section>
+
+  <Platforms />
+
+  <Faq items={questions} heading={downloadPage.questionsHeading} moreHref="/faq/" />
+</Page>
+
+<style>
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .opening {
+    padding-top: clamp(32px, 5vw, 64px);
+  }
+
+  h1 {
+    max-width: 12em;
+    font-size: clamp(44px, 7vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+</style>

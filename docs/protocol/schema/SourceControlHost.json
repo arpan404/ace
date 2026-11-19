@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlHost.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/ForgeAccount.json"
+    },
+    "forge": {
+      "$ref": "https://ace.local/protocol/v1/ForgeKind.json"
+    },
+    "host": {
+      "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
+    }
+  },
+  "required": [
+    "host"
+  ],
+  "type": "object"
+}

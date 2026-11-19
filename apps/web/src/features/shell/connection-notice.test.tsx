@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const offline = /^Offline/;
 /** The one connection notice; an activity card in the transcript can also say "Offline". */
 const outsideFeed = { ignore: "[role=feed] *, script, style" };
@@ -20,7 +20,7 @@ async function openHome() {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   // A screen without a thread composer: the header owns the connection notice there.
   await app.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -29,7 +29,8 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
   app.client.networkOnline(false);
   expect((await screen.findByText(offline, outsideFeed)).textContent).not.toContain("waiting");
 
-  // A message and an archive made while offline wait for the daemon.
+  // A message and a pin made while offline wait for the daemon. (An archive is refused offline:
+  // it decides on a list that may no longer be current.)
   void app.client.command({
     type: "thread.send",
     threadId: ThreadId.parse("thread-fan-out"),
@@ -38,8 +39,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
   const row = within(threads()).getByRole("link", { name: /^Backpressure/ });
   await userEvent.pointer({ keys: "[MouseRight]", target: row });
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
-  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
 
   const notice = await screen.findByRole("button", { name: /· 2 waiting$/ });
   expect(notice.textContent).toMatch(offline);
@@ -49,14 +49,14 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
     within(waiting)
       .getAllByRole("listitem")
       .map((item) => item.textContent),
-  ).toEqual(["Message · Retry with jitter", "Archive · Backpressure on broadcast fan-out"]);
+  ).toEqual(["Message · Retry with jitter", "Pin · Backpressure on broadcast fan-out"]);
 
   // Back online, both go out and the notice leaves.
   app.client.networkOnline(true);
   await waitFor(() => expect(screen.queryByText(offline, outsideFeed)).toBeNull());
   await waitFor(() => {
     const view = app.daemon.snapshot({ kind: "threads" });
-    expect(view?.kind === "threads" && view.threads["thread-fan-out"]?.archivedAt).toBeTruthy();
+    expect(view?.kind === "threads" && view.threads["thread-fan-out"]?.pinned).toBe(true);
   });
 }, 15_000);
 

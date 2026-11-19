@@ -8,7 +8,7 @@ import { _electron as electron, type ElectronApplication } from "playwright-core
 import { expect } from "vitest";
 import { BrowserService, connectBrowser } from "@ace/browser";
 import { decodeStreamMessage, StreamAssembler, type BrowserVideoChunk } from "@ace/browser/stream";
-import { appEnvironment, desktop, electronBinary } from "../../scripts/common.ts";
+import { appEnvironment, desktop, e2eSwitches, electronBinary } from "../../scripts/common.ts";
 import { credential, relayDaemon, token } from "../../src/main/browser/relay-test-support.ts";
 
 /*
@@ -43,7 +43,7 @@ export async function startVideoSession(
     outfile: join(out, "main.mjs"),
     format: "esm",
     platform: "node",
-    target: "node24",
+    target: "node26",
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },
@@ -81,7 +81,7 @@ export async function startVideoSession(
   cleanups.push(() => rm(userData, { recursive: true, force: true }));
   const app = await electron.launch({
     executablePath: await electronBinary(),
-    args: [join(out, "main.mjs")],
+    args: [...e2eSwitches(process.platform), join(out, "main.mjs")],
     env: {
       ...appEnvironment(process.env),
       ACE_E2E_USER_DATA: userData,

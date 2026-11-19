@@ -155,7 +155,7 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
   const payload = record.safeParse(call.input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
   if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
-  if (name === "html_render" || name === "image_show") return true;
+  if (name === "html_render" || name === "html_preview" || name === "image_show") return true;
   // A computer-use batch types, pastes, sets or selects document text in some of its steps.
   if (name === "screen_act")
     return (Array.isArray(payload?.actions) ? payload.actions : []).some(privateStep);

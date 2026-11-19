@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { HtmlHeightMessage, type HtmlMode } from "@ace/protocol";
+import { HtmlHeightMessage, type HtmlMode, type HtmlStyleKit } from "@ace/protocol";
 import {
   heightFromTitle,
+  inlineVisualizationUrl,
   themeMessage,
   visualizationPartition,
   visualizationUrl,
@@ -29,6 +30,8 @@ export function HtmlFrame(props: {
   html: string;
   /** The agent's choice: `static` strips and blocks the page's scripts. */
   mode: HtmlMode;
+  /** The style kit the page was published against; absent on pages from before kits had versions. */
+  kit: HtmlStyleKit | undefined;
   title: string;
   theme: HtmlTheme;
   /** Height held until the page reports its own (the agent's hint, or a default). */
@@ -47,17 +50,21 @@ export function HtmlFrame(props: {
   settled: boolean;
   onHeight(height: number): void;
 }) {
-  // A new document only for new HTML or mode; the theme then updates live.
+  // A new document only for new HTML, mode or fit; the theme then updates live. Inline, the
+  // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationUrl`).
+  const build = props.fill ? visualizationUrl : inlineVisualizationUrl;
   const [built, setBuilt] = useState(() => ({
     html: props.html,
     mode: props.mode,
-    source: visualizationUrl(props.html, props.theme, props.mode),
+    fill: props.fill,
+    source: build(props.html, props.theme, props.mode, props.kit),
   }));
-  if (built.html !== props.html || built.mode !== props.mode)
+  if (built.html !== props.html || built.mode !== props.mode || built.fill !== props.fill)
     setBuilt({
       html: props.html,
       mode: props.mode,
-      source: visualizationUrl(props.html, props.theme, props.mode),
+      fill: props.fill,
+      source: build(props.html, props.theme, props.mode, props.kit),
     });
   const height = props.fill ? "100%" : `${Math.max(48, props.measured ?? props.initialHeight)}px`;
   const Surface = props.webview ? WebviewSurface : IframeSurface;

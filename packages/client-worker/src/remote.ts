@@ -1,14 +1,17 @@
 import {
+  isPathKind,
   attachmentReadScope,
   fitsUtf8,
   matchesPendingThread,
   pendingSendsEqual,
+  SendOps,
   type PendingSend,
   deferredProjectsApi,
   transfersApi,
   type AttachmentInput,
   type FileDownloadInput,
   type FileUploadInput,
+  type StandingChallenge,
 } from "@ace/client";
 import {
   ClientError,
@@ -29,6 +32,8 @@ import {
   type Lease,
   type OneWayMessage,
   type OutputData,
+  type ReadRequest,
+  type WholeRequestInput,
   type RegistryQuery,
   type RequestOptions,
   type TextReadOptions,
@@ -42,6 +47,7 @@ import {
   type ThreadExport,
   type ThreadSource,
 } from "@ace/client";
+import type { MachinePathKind } from "@ace/protocol";
 import type {
   TurnsPageResponse,
   ItemsWindowResponse,
@@ -140,12 +146,18 @@ interface Pending {
 }
 interface Mirrored {
   refs: number;
+  /** Of `refs`, the foreground ones: with none, the worker holds the lease as optional. */
+  foreground: number;
   lease: number;
   scope: Scope;
   mirror: MirrorThread | MirrorSidebar;
 }
 
 const noop = () => {};
+const leaseMessage = (held: Mirrored) =>
+  held.foreground
+    ? { t: "lease" as const, lease: held.lease, scope: held.scope }
+    : { t: "lease" as const, lease: held.lease, scope: held.scope, optional: true };
 
 const states = new Set<string>([
   "connecting",
@@ -165,6 +177,10 @@ export class RemoteClient implements ClientApi {
   private options: RemoteOptions;
   private notifications: Notifications;
   private current: ConnectionState = "connecting";
+  private path: MachinePathKind | undefined;
+  private generation: number | undefined;
+  /** What the worker's socket asks a proof of the person's standing to name (ADR 0190). */
+  private standing: StandingChallenge | undefined;
   private failure: ClientError | undefined;
   private intents: IntentCache;
   private sends: SendCache;
@@ -173,6 +189,8 @@ export class RemoteClient implements ClientApi {
   private localSaving = new Set<string>();
   private pendingWatchers = 0;
   private mirrors = new Map<string, Mirrored>();
+  /** Spare thread subscriptions in the worker's client, as it last said (`threadRoom`). */
+  private room = 0;
   /** Released mirrors, kept for the next first render (`cachedThread`). */
   private released = new MirrorCache();
   private byLease = new Map<number, Mirrored>();
@@ -228,6 +246,19 @@ export class RemoteClient implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.current);
+  }
+  connectionGeneration(): Selection<number | undefined> {
+    return this.notifications.select(["connection"], () =>
+      this.current === "ready" ? this.generation : undefined,
+    );
+  }
+  standingChallenge(): Selection<StandingChallenge | undefined> {
+    return this.notifications.select(["connection"], () =>
+      this.current === "ready" ? this.standing : undefined,
+    );
+  }
+  activePath(): Selection<MachinePathKind | undefined> {
+    return this.notifications.select(["connection"], () => this.path);
   }
   intent(id: string): Selection<Intent | undefined> {
     const read = () => this.intents.get(id)?.value;
@@ -357,21 +388,34 @@ export class RemoteClient implements ClientApi {
   reconnectNow(): void {
     void this.call("reconnectNow", []).catch(() => {});
   }
+  wake(): void {
+    void this.call("wake", []).catch(() => {});
+  }
   networkOnline(online: boolean): void {
     this.online = online;
     void this.call("networkOnline", [online]).catch(() => {});
   }
-  thread(id: string): Lease<ThreadSource> {
+  thread(id: string, options?: { optional?: boolean | undefined }): Lease<ThreadSource> {
     return this.hold(
       `thread:${id}`,
       { kind: "thread", threadId: id },
       () => new MirrorThread(this.listeners),
+      options?.optional === true,
     );
   }
+  threadRoom(): Selection<number> {
+    return this.notifications.select(["room"], () => this.room);
+  }
   cachedThread(id: string): ThreadSource | undefined {
+    const thread = this.peekThread(id);
+    // A released copy asked for is now the most recently used.
+    if (thread) this.released.get(`thread:${id}`);
+    return thread;
+  }
+  peekThread(id: string): ThreadSource | undefined {
     if (this.closed || this.workerLost) return undefined;
     const key = `thread:${id}`;
-    const mirror = this.mirrors.get(key)?.mirror ?? this.released.get(key);
+    const mirror = this.mirrors.get(key)?.mirror ?? this.released.peek(key);
     return mirror instanceof MirrorThread ? mirror : undefined;
   }
   cachedThreads(): SidebarSource | undefined {
@@ -391,6 +435,22 @@ export class RemoteClient implements ClientApi {
   }
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
+  }
+  /** Edits and retries of failed sends shown in this tab, one at a time per send. */
+  readonly sendOps = new SendOps();
+  pendingSend(id: string): PendingSend | undefined {
+    return this.sends.get(id);
+  }
+  /** The worker's outbox saves the edit; its reply carries the send as it is now. */
+  async editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    const result = await this.call("editFailedSend", [id, payload]);
+    const { intent, pending } = trusted<{
+      intent: Intent | undefined;
+      pending: PendingSend | undefined;
+    }>(result);
+    this.intents.put(id, intent);
+    if (pending) this.sends.set(id, pending);
+    this.notifications.emit([`intent:${id}`, "pendingSends"]);
   }
   async enqueue(payload: CommandPayload, suppliedId?: string): Promise<string> {
     const id = suppliedId ?? this.nextCommandId();
@@ -513,7 +573,8 @@ export class RemoteClient implements ClientApi {
     return this.invoke<ServiceResponse<Q>>("request", [input, timeout(options)], options.signal);
   }
   onMessage(listener: (message: ServerMessage) => void): () => void {
-    if (this.closed || this.workerLost) throw new ClientError("offline");
+    // A closed client (or a lost worker, which never comes back) sends nothing more.
+    if (this.closed || this.workerLost) return () => {};
     if (this.messageListeners.size >= this.listeners) throw new ClientError("limit");
     if (this.messageListeners.size === 0) this.post({ t: "watchMessages" });
     this.messageListeners.add(listener);
@@ -523,7 +584,7 @@ export class RemoteClient implements ClientApi {
     };
   }
   onStream(listener: (message: StreamMessage) => void): () => void {
-    if (this.closed || this.workerLost) throw new ClientError("offline");
+    if (this.closed || this.workerLost) return () => {};
     if (this.streamListeners.size >= this.listeners) throw new ClientError("limit");
     if (this.streamListeners.size === 0) this.post({ t: "watchStreams" });
     this.streamListeners.add(listener);
@@ -623,6 +684,9 @@ export class RemoteClient implements ClientApi {
   ) {
     return this.invoke<OutputData>("outputRead", [payload, timeout(options)], options.signal);
   }
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return this.invoke<ReadRequest>("readInteraction", [input, timeout(options)], options.signal);
+  }
   text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     return this.stream<string>(
       "text",
@@ -660,8 +724,7 @@ export class RemoteClient implements ClientApi {
     if (this.streamListeners.size) this.post({ t: "watchStreams" });
     for (const [id, record] of this.intents.entries())
       if (record.watchers > 0) this.post({ t: "watchIntent", id });
-    for (const held of this.mirrors.values())
-      this.post({ t: "lease", lease: held.lease, scope: held.scope });
+    for (const held of this.mirrors.values()) this.post(leaseMessage(held));
     if (this.window) void this.call("threadsWindow", [this.window]).catch(noop);
     if (this.online === false) void this.call("networkOnline", [false]).catch(noop);
     for (const [call, pending] of this.pending) this.resend(call, pending);
@@ -679,23 +742,29 @@ export class RemoteClient implements ClientApi {
     }
     // The lost worker allocated this submitNew's id and the tab recorded it: whatever that
     // worker saved or sent went under this id, so it goes again as a command with it.
-    void allocated.recorded.then((ok) => {
-      if (this.pending.get(call) !== pending || generation !== this.link.generation) return;
-      if (pending.sentTo === generation) return;
-      if (!ok) {
-        this.pending.delete(call);
-        pending.reject(new ClientError("storage"));
-        return;
-      }
-      const [payload, options] = durable.args;
-      if (this.post({ t: "call", call, method: "command", args: [payload, options, allocated.id] }))
-        pending.sentTo = generation;
-    });
+    // recorded answers false when the tab could not record it; it never rejects.
+    void allocated.recorded
+      .then((ok) => {
+        if (this.pending.get(call) !== pending || generation !== this.link.generation) return;
+        if (pending.sentTo === generation) return;
+        if (!ok) {
+          this.pending.delete(call);
+          pending.reject(new ClientError("storage"));
+          return;
+        }
+        const [payload, options] = durable.args;
+        if (
+          this.post({ t: "call", call, method: "command", args: [payload, options, allocated.id] })
+        )
+          pending.sentTo = generation;
+      })
+      .catch(() => {});
   }
   private hold<T extends MirrorThread | MirrorSidebar>(
     key: string,
     scope: Scope,
     create: () => T,
+    optional = false,
   ): Lease<T> {
     if (this.closed || this.workerLost) throw new ClientError("offline");
     let held = this.mirrors.get(key);
@@ -703,13 +772,17 @@ export class RemoteClient implements ClientApi {
       // A released mirror paints until the worker's copy replaces it.
       held = {
         refs: 0,
+        foreground: optional ? 0 : 1,
         lease: ++this.sequence,
         scope,
         mirror: this.released.take(key) ?? create(),
       };
       this.mirrors.set(key, held);
       this.byLease.set(held.lease, held);
-      this.post({ t: "lease", lease: held.lease, scope });
+      this.post(leaseMessage(held));
+    } else if (!optional && held.foreground++ === 0) {
+      // A view the person opened now shares an optional lease: the worker holds it for them.
+      this.post(leaseMessage(held));
     }
     held.refs++;
     const owned = held;
@@ -719,7 +792,12 @@ export class RemoteClient implements ClientApi {
       release: () => {
         if (released) return;
         released = true;
-        if (--owned.refs) return;
+        const lastForeground = !optional && --owned.foreground === 0;
+        if (--owned.refs) {
+          // Only optional views still hold it: the worker may give its room away again.
+          if (lastForeground) this.post(leaseMessage(owned));
+          return;
+        }
         this.mirrors.delete(key);
         this.byLease.delete(owned.lease);
         this.post({ t: "release", lease: owned.lease });
@@ -893,11 +971,14 @@ export class RemoteClient implements ClientApi {
             () => false,
           );
         pending.allocated = { id: message.commandId, recorded };
-        void recorded.then((ok) => {
-          // A worker lost meanwhile never hears it; its successor gets the command instead.
-          if (this.pending.get(message.call) === pending && generation === this.link.generation)
-            this.post({ t: "command.recorded", call: message.call, ok });
-        });
+        // recorded answers false when the tab could not record it; it never rejects.
+        void recorded
+          .then((ok) => {
+            // A worker lost meanwhile never hears it; its successor gets the command instead.
+            if (this.pending.get(message.call) === pending && generation === this.link.generation)
+              this.post({ t: "command.recorded", call: message.call, ok });
+          })
+          .catch(() => {});
         return;
       }
       case "diagnostic":
@@ -920,7 +1001,18 @@ export class RemoteClient implements ClientApi {
       case "connection":
         if (!isState(message.state)) return;
         this.current = message.state;
+        this.path = isPathKind(message.path) ? message.path : undefined;
+        // An older worker names no socket: count each time it says ready instead.
+        this.generation =
+          message.generation ??
+          (message.state === "ready" ? (this.generation ?? 0) + 1 : this.generation);
         this.failure = message.error && toError(message.error);
+        this.standing = message.standing && {
+          host: message.standing.host,
+          nonce: message.standing.nonce,
+          binding: message.standing.binding,
+          device: message.standing.device,
+        };
         this.notifications.emit(["connection"]);
         return;
       case "pendingSends": {
@@ -980,6 +1072,10 @@ export class RemoteClient implements ClientApi {
         this.notifications.emit([`intent:${message.id}`]);
         return;
       }
+      case "room":
+        this.room = message.room;
+        this.notifications.emit(["room"]);
+        return;
       case "changes":
         for (const change of message.leases) {
           const held = this.byLease.get(change.lease);

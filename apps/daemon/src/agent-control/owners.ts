@@ -1,9 +1,9 @@
 import { logError } from "@ace/diagnostics";
+import { webhookSecrets } from "../automation-webhook-key.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
-import { createOffshifts } from "./offshift.ts";
 import { createThreadAutomations } from "./thread-automations.ts";
 import { join } from "node:path";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import {
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import { ownerThreadExecutor } from "./owner-thread-executor.ts";
+import { automationAdmission } from "../automation-executor.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
 const owner = z.object({ thread_id: ThreadId, agent_id: AgentId });
@@ -37,7 +38,9 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         .get(automationId);
       return row ? owner.parse(row) : undefined;
     });
-  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"));
+  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"), {
+    webhookSecrets: webhookSecrets(config.dataDir),
+  });
   resources.own(() => automationStore.close());
   const clock = context.options.engine?.clock;
   const automations = new AutomationService(automationStore, {
@@ -48,11 +51,15 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
       arm: (delay, callback) =>
         clock
           ? clock.setTimer(() => {
-              void callback();
+              void Promise.resolve(callback()).catch((error: unknown) =>
+                log.log("error", "Agent automation failed", logError(error)),
+              );
             }, delay)
           : (() => {
               const timer = setTimeout(() => {
-                void callback();
+                void Promise.resolve(callback()).catch((error: unknown) =>
+                  log.log("error", "Agent automation failed", logError(error)),
+                );
               }, delay);
               timer.unref();
               return () => clearTimeout(timer);
@@ -60,6 +67,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     },
     onError: (error) => log.log("error", "Agent automation failed", logError(error)),
     executor: ownerThreadExecutor(context, delegations, lookup),
+    ...automationAdmission(context),
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());
@@ -70,9 +78,14 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     return thread && thread.deletedAt === undefined ? thread.id : undefined;
   };
   const threadAutomations = createThreadAutomations(automations, live);
+  // Webhook automations agents make get their secret from the person, in this store (ADR 0173).
+  context.services.agentAutomations = {
+    store: automationStore,
+    service: automations,
+    live: (automationId) => live(automationId) !== undefined,
+  };
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
-  const offshifts = createOffshifts(context, delegations);
   return {
     previews,
     threadAutomations,
@@ -89,8 +102,6 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           return previews.close(operation.threadId, operation.previewId);
         case "thread.handoff":
           return handoffs.execute(caller, operation, signal);
-        case "offshift":
-          return offshifts.execute(caller, operation, signal);
         case "automation.manage": {
           const request = operation.request;
           if (request.type === "automation.list") {
@@ -199,7 +210,7 @@ export function completeTrigger(
   now: number,
   localZone: string,
 ): Automation["trigger"] {
-  if (trigger.kind === "manual") return trigger;
+  if (trigger.kind === "manual" || trigger.kind === "webhook") return trigger;
   const { schedule } = trigger;
   return {
     kind: "schedule",

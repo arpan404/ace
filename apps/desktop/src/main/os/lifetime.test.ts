@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { WorkTally } from "../link/thread-watch.ts";
 import { appLifetime, type LifetimeFacts } from "./lifetime.ts";
 
-const idle = { needsYou: 0, working: 0, held: 0 };
+const idle = { needsYou: 0, working: 0, held: 0, hostedWorking: 0, hostedWaiting: 0 };
 
 const closed: LifetimeFacts = {
   platform: "win32",
@@ -13,8 +13,9 @@ const closed: LifetimeFacts = {
   work: idle,
 };
 
-const entry = (status: ThreadStatus) =>
+const entry = (status: ThreadStatus, extra: Record<string, unknown> = {}) =>
   ThreadListEntry.parse({
+    ...extra,
     id: "a",
     workspaceId: "ace",
     title: "Thread a",
@@ -85,10 +86,26 @@ it("macOS keeps the app open without windows and shows the tray only by setting"
   expect(appLifetime({ ...closed, platform: "darwin" })).toEqual({ quit: false, tray: false });
   expect(appLifetime({ ...closed, platform: "darwin", browserPages: 3 }).tray).toBe(false);
   expect(
-    appLifetime({ ...closed, platform: "darwin", work: { needsYou: 2, working: 1, held: 0 } }),
+    appLifetime({
+      ...closed,
+      platform: "darwin",
+      work: { needsYou: 2, working: 1, held: 0, hostedWorking: 0, hostedWaiting: 0 },
+    }),
   ).toEqual({ quit: false, tray: false });
 });
 
 it("with a window open the app never quits on its own", () => {
   expect(appLifetime({ ...closed, window: true })).toEqual({ quit: false, tray: false });
+});
+
+it("work a paired machine delegated here keeps a windowless app running, like local work", () => {
+  const tally = new WorkTally();
+  const lifetime = () => appLifetime({ ...closed, platform: "linux", work: tally.summary() });
+  const fromPairedMachine = { delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" } };
+  tally.set("a", entry({ state: "working", agents: 1 }, fromPairedMachine));
+  expect(lifetime()).toEqual({ quit: false, tray: true });
+  tally.set("a", entry({ state: "needs_you", interactions: 1 }, fromPairedMachine));
+  expect(lifetime()).toEqual({ quit: false, tray: true });
+  tally.set("a", entry({ state: "done" }, fromPairedMachine));
+  expect(lifetime()).toEqual({ quit: true, tray: false });
 });

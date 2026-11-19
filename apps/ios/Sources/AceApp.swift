@@ -6,10 +6,23 @@ import QuartzCore
     @Environment(\.scenePhase) private var scenePhase
     @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
+    /// `--spike-unpaired`: the machines of a fresh install, none paired.
+    @State private var unpaired: MachinesModel?
     @State private var production = ProductionApp.make()
+    /// The person's ace account, for the header's avatar and Settings › Profile alike.
+    @State private var account = AceAccountModel()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
-    @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
-        ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+    @State private var drafts = AceApp.makeDrafts()
+    /// The app's drafts. A `--spike-unpaired` launch keeps its own in scratch storage and runs no
+    /// migration, so the app's real databases and defaults stay as they were.
+    private static func makeDrafts() -> ThreadDrafts? {
+        if SpikeConfiguration.unpaired { return ThreadDrafts(url: UnpairedScratch.root.appendingPathComponent("thread-drafts.json")) }
+        return (try? ProductionApp.storageDirectory()).map { directory in
+            let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+            // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
+            LegacyTakeBacks.drain(databases: directory, into: drafts)
+            return drafts
+        }
     }
     var body: some Scene {
         WindowGroup {
@@ -23,10 +36,16 @@ import QuartzCore
                 } else { storageUnavailable }
             }
             .environment(\.threadDrafts, drafts)
+            .environment(account)
+            .task { await account.restore() }
             .modifier(PhoneAppearance())
             .overlay(alignment: .topLeading) { PerfProbeView() }
+            .overlay(alignment: .topLeading) { LaunchProbeView() }
         }
-        .commands { ThreadCommands() }
+        .commands {
+            ThreadCommands()
+            PanelMenuCommands()
+        }
     }
     @ViewBuilder private var renderFixture: some View {
         #if ACE_FIXTURE
@@ -39,20 +58,34 @@ import QuartzCore
         EmptyState(icon: nil, title: "Storage unavailable", line: "ace couldn't open its storage on this phone.", failed: true)
             .frame(maxHeight: .infinity)
     }
+    /// `--spike-account`: the fixture's fake account backend, for Profile's signed-in half.
+    private func signInToSpikeAccount() async {
+        #if ACE_FIXTURE
+        if let origin = SpikeConfiguration.accountOrigin { await account.signInToSpike(origin: origin, token: SpikeConfiguration.accountToken) }
+        #endif
+    }
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
-            if started { InboxView(inbox: spikeInbox) }
+            if let unpaired { InboxView(inbox: unpaired.inbox, machines: unpaired) }
+            else if started || SpikeConfiguration.lateMachines { InboxView(inbox: spikeInbox) }
             else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
+            await signInToSpikeAccount()
+            if SpikeConfiguration.unpaired { await startUnpaired(); return }
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
+            if SpikeConfiguration.lateMachines { try? await Task.sleep(for: .seconds(4)) }
             // One runtime per fixture machine, as production runs one per paired computer.
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+                if SpikeConfiguration.viewOnly { model.canOperate = false }
+                model.readAheadAllowed = SpikeConfiguration.readAhead
+                // The fixture's host token is an administrator's.
+                model.canAdmin = true
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
                 await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)
@@ -76,6 +109,19 @@ import QuartzCore
             started = true
         }
     }
+    /// A fresh install: an empty machine list in its own scratch storage and defaults
+    /// (`UnpairedScratch`), so nothing a fixture launch paired leaks in and nothing here reaches
+    /// the fixtures.
+    private func startUnpaired() async {
+        guard unpaired == nil else { return }
+        let root = UnpairedScratch.root
+        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: ProductionApp.machineDirectory(in: root)),
+                                     storage: root.appendingPathComponent("machines", isDirectory: true),
+                                     defaults: UnpairedScratch.defaults,
+                                     makeClient: { ClientModel(now: { Date().timeIntervalSince1970 * 1000 }) })
+        unpaired = machines
+        await machines.load()
+    }
 }
 
 /// Paired machines, app lock and network observation for real daemons.
@@ -86,6 +132,7 @@ import QuartzCore
     /// Each remembered machine's runtime evaluates the client bundle from the first moment.
     private let warmup = RuntimeWarmup()
     private let network = NetworkMonitor()
+    private let readAhead = ReadAheadGate()
 
     private init(directory: URL) {
         self.directory = directory
@@ -108,12 +155,19 @@ import QuartzCore
     /// when the machine is removed. Background launches build their own.
     static func machines(directory: URL, notifications: NotificationCoordinator, warmup: RuntimeWarmup? = nil,
                          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) -> MachinesModel {
-        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
+        // One install id for this phone on every machine and path (ADR 0115).
+        let install = InstallIdentity.system
+        let installId = install.id()
+        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory), installId: installId),
+                                     account: AceAccountDirectory(install: install),
                                      storage: directory.appendingPathComponent("machines", isDirectory: true), now: now,
+                                     installId: installId,
                                      makeClient: { warmup.map { ClientModel(now: now, makeRuntime: $0.makeRuntime) } ?? ClientModel(now: now) })
         machines.afterLoad = { warmup?.releaseUnused() }
         machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
+        notifications.machineName = { [weak machines] hostId in machines?.inbox.names[hostId] }
         machines.afterRemove = { [weak notifications] model, _ in notifications?.detach(model) }
+        machines.afterTurnOff = { [weak notifications] hostId in notifications?.turnedOff(hostId) }
         return machines
     }
 
@@ -121,9 +175,13 @@ import QuartzCore
         let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
-            network.start { change in
+            network.start({ change in
                 Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
-            }
+            }, roomy: { [readAhead] roomy in
+                Task { @MainActor in readAhead.roomy = roomy }
+            })
+            readAhead.changed = { [weak machines] allowed in machines?.readAhead(allowed) }
+            readAhead.start()
         }
         return RootView(machines: machines, lock: lock)
     }

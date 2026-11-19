@@ -15,6 +15,22 @@ import Testing
          "base": base, "cut": cut, "append": append]
     }
 
+    @Test func editsDuringAReplacementApplyToIncomingTextWhileTheOldAnswerStaysVisible() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let reset: [String: Any] = ["type": "thread.reset", "threadId": "thread", "epoch": 1]
+        let ready: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1]
+        let original: [String: Any] = ["type": "thread.item", "threadId": "thread", "epoch": 1, "id": "a", "row": row("Old answer")]
+        #expect(model.receive(try frame([reset, original, ready])))
+        let replacement: [String: Any] = ["type": "thread.item", "threadId": "thread", "epoch": 1, "id": "a", "row": row("New")]
+        #expect(model.receive(try frame([reset, replacement])))
+        #expect(model.thread?.items["a"]?.row.text == "Old answer")
+        #expect(model.receive(try frame([edit(1, base: 3, cut: 0, append: " answer")])))
+        #expect(model.thread?.items["a"]?.row.text == "Old answer")
+        #expect(model.receive(try frame([ready])))
+        #expect(model.thread?.items["a"]?.row.text == "New answer")
+    }
+
     @Test func anEditExtendsOrSlidesTheRowShown() throws {
         let model = ClientModel(now: { 0 })
         model.open("thread")
@@ -41,5 +57,22 @@ import Testing
         #expect(model.receive(try frame([edit(epoch, base: 5, cut: 0, append: " 😀")])))
         #expect(!model.receive(try frame([edit(epoch, base: 10, cut: 7, append: "!")])))
         #expect(model.thread?.items["a"]?.row.text == "Hello 😀")
+    }
+
+    @Test func anEditWithoutARowKeepsEveryOtherFieldOfTheRowShown() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let epoch = try #require(model.thread?.epoch)
+        var shown = row("Hello")
+        shown["truncated"] = true
+        shown["detail"] = "Worked for 2m"
+        #expect(model.receive(try frame([["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": "a", "row": shown]])))
+        var edit = edit(epoch, base: 5, cut: 0, append: " world")
+        edit["row"] = nil
+        #expect(model.receive(try frame([edit])))
+        let item = try #require(model.thread?.items["a"])
+        #expect(item.row.text == "Hello world")
+        #expect(item.row.truncated)
+        #expect(item.row.detail == "Worked for 2m")
     }
 }

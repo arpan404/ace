@@ -1,7 +1,9 @@
 import { workbench } from "@ace/fake-daemon";
+import { attachmentMarker } from "@ace/ui-core";
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { readDraft } from "@/features/thread/index.ts";
 import { preparationKey } from "./preparations.ts";
@@ -44,12 +46,12 @@ test.each(["content", "row", "final row and rollback"])(
     await waitFor(() =>
       expect(screen.queryByRole("progressbar", { name: "Uploading retained.txt" })).toBeNull(),
     );
-    await userEvent.type(field, "Retain refused discard");
+    await typeAtEnd(field, "Retain refused discard");
     await screen.findByRole("link", { name: "Retain refused discard. Draft, Project relay" });
     const host = (await made.client.request({ type: "host.identity" })).identity.hostId;
     await waitFor(() =>
       expect(readDraft(storage, preparationKey(host, "relay"))?.text).toBe(
-        "Retain refused discard",
+        `${attachmentMarker}Retain refused discard`,
       ),
     );
     fail = true;
@@ -64,8 +66,8 @@ test.each(["content", "row", "final row and rollback"])(
     ).toBeTruthy();
     // The editor keeps the prompt and its file; when even the rollback was refused, this page
     // holds the only editable copy and says so.
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Retain refused discard",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "[retained.txt]Retain refused discard",
     );
     expect(screen.getByRole("button", { name: "Remove retained.txt" })).toBeTruthy();
     if (refusal === "final row and rollback")
@@ -76,8 +78,8 @@ test.each(["content", "row", "final row and rollback"])(
     cleanup();
     fail = false;
     await made.open("/new?project=relay");
-    expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-      "Retain refused discard",
+    expect(composerWords(await screen.findByRole("combobox", { name: "Message" }))).toBe(
+      "[retained.txt]Retain refused discard",
     );
     expect(screen.getByRole("button", { name: "Remove retained.txt" })).toBeTruthy();
     await waitFor(() =>

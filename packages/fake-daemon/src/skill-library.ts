@@ -140,6 +140,28 @@ export class FakeSkillLibrary {
   private readonly reviews = new Map<string, { id: string; after: string }>();
   private sequence = 0;
   private readonly listeners = new Set<() => void>();
+  /** Update preparations held back, as a slow fetch would; undefined while none are held. */
+  private preparing: (() => void)[] | undefined;
+  /**
+   * Hold every `prepareUpdate` until released, as a slow git fetch would: each is staged and
+   * answered on `release`, which also stops holding. Other skill requests answer meanwhile.
+   */
+  holdUpdatePreparations(): { waiting(): number; release(): void } {
+    const held: (() => void)[] = [];
+    this.preparing = held;
+    return {
+      waiting: () => held.length,
+      release: () => {
+        if (this.preparing === held) this.preparing = undefined;
+        for (const answer of held.splice(0)) answer();
+      },
+    };
+  }
+  /** Runs `answer` now, or on release while preparations are held. */
+  prepareLater(answer: () => void): void {
+    if (this.preparing) this.preparing.push(answer);
+    else answer();
+  }
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -229,6 +251,11 @@ export class FakeSkillLibrary {
       this.reviews.delete(operation.reviewId);
       return { kind: "cancelled", reviewId: operation.reviewId };
     }
+    // Seeded skills are SKILL.md alone.
+    if (operation.op === "files")
+      return operation.path === undefined
+        ? { kind: "files", id: operation.id, files: [], omitted: [] }
+        : error("not_found", `This skill has no file ${operation.path}.`);
     if (operation.op === "usage")
       return {
         kind: "usage",
@@ -292,10 +319,17 @@ export class FakeSkillLibrary {
       return { kind: "deleted", id: operation.id };
     }
     if (!seed.source) return error("invalid", "This skill wasn't installed from a source.");
-    const commit = digest(`${seed.source.url}:${seed.source.folderHash}`, 40);
-    if (operation.op === "checkUpdate")
-      return { kind: "updateStatus", id: operation.id, status: "available", commit };
+    // The source's one newer version: a skill is current once it has been applied.
+    const upstream = digest(`${seed.source.url}:${seed.source.path}:next`, 40);
+    const commit = digest(`${seed.source.url}:${upstream}`, 40);
+    if (operation.op === "checkUpdate") {
+      const status = seed.source.folderHash === upstream ? "current" : "available";
+      return { kind: "updateStatus", id: operation.id, status, commit };
+    }
     if (operation.op === "prepareUpdate") {
+      // The daemon stages at most eight reviews; one left open holds its place until let go.
+      if (this.reviews.size >= 8)
+        return error("limit", "Finish or cancel other update reviews first.");
       const id = `review-${++this.sequence}`;
       const after = `${frontmatter(seed)}\n## What's new\n\nA clearer checklist.\n`;
       this.reviews.set(id, { id, after });
@@ -305,7 +339,7 @@ export class FakeSkillLibrary {
           id,
           skillId: operation.id,
           commit,
-          folderHash: digest(after, 40),
+          folderHash: upstream,
           baseHash: current.hash,
           files: [
             { path: "SKILL.md", change: "changed", flagged: false },
@@ -322,7 +356,7 @@ export class FakeSkillLibrary {
       return error("conflict", "This skill changed since the review. Check for updates again.");
     this.reviews.delete(review.id);
     seed.body = `${seed.body}\n## What's new\n\nA clearer checklist.\n`;
-    seed.source = { ...seed.source, folderHash: digest(review.after, 40) };
+    seed.source = { ...seed.source, folderHash: upstream };
     return this.changed(operation.id, seed);
   }
   private changed(id: string, seed: SkillSeed): SkillResult {

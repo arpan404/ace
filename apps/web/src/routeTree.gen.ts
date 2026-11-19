@@ -15,9 +15,12 @@ import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
+import { Route as SpadeRouteImport } from "./routes/spade"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
+import { Route as HomeChatsRouteImport } from "./routes/_home.chats"
+import { Route as HomeHistoryRouteImport } from "./routes/_home.history"
 import { Route as HomeInboxRouteImport } from "./routes/_home.inbox"
 import { Route as HomeIssuesRouteImport } from "./routes/_home.issues"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
@@ -28,18 +31,24 @@ import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAgentsRouteImport } from "./routes/settings.agents"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsBetaRouteImport } from "./routes/settings.beta"
 import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
 import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
+import { Route as SettingsProfileRouteImport } from "./routes/settings.profile"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
+import { Route as SettingsSimulatorsRouteImport } from "./routes/settings.simulators"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as SkillsNewRouteImport } from "./routes/skills.new"
+import { Route as SpadeIndexRouteImport } from "./routes/spade.index"
+import { Route as SpadeAgentIdRouteImport } from "./routes/spade.$agentId"
+import { Route as SpadeNewRouteImport } from "./routes/spade.new"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -47,11 +56,21 @@ import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.pr
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
 import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
+import { Route as SettingsRemoteEveryMachineRouteImport } from "./routes/settings.remote.every-machine"
+import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
+import { Route as SettingsSpadeIndexRouteImport } from "./routes/settings.spade.index"
+import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.apps"
+import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
+import { Route as SettingsSpadeSearchRouteImport } from "./routes/settings.spade.search"
+import { Route as SettingsSpadeSecurityRouteImport } from "./routes/settings.spade.security"
+import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
+import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
 import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
+import { Route as SettingsRemoteMachineAppsRouteImport } from "./routes/settings.remote.$machine_.apps"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
@@ -83,6 +102,11 @@ const SkillsRoute = SkillsRouteImport.update({
   path: "/skills",
   getParentRoute: () => rootRouteImport,
 } as any)
+const SpadeRoute = SpadeRouteImport.update({
+  id: "/spade",
+  path: "/spade",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UsageRoute = UsageRouteImport.update({
   id: "/usage",
   path: "/usage",
@@ -96,6 +120,16 @@ const HomeIndexRoute = HomeIndexRouteImport.update({
 const HomeArchivedRoute = HomeArchivedRouteImport.update({
   id: "/archived",
   path: "/archived",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeChatsRoute = HomeChatsRouteImport.update({
+  id: "/chats",
+  path: "/chats",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeHistoryRoute = HomeHistoryRouteImport.update({
+  id: "/history",
+  path: "/history",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomeInboxRoute = HomeInboxRouteImport.update({
@@ -148,6 +182,11 @@ const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   path: "/appearance",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsBetaRoute = SettingsBetaRouteImport.update({
+  id: "/beta",
+  path: "/beta",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsBrowserRoute = SettingsBrowserRouteImport.update({
   id: "/browser",
   path: "/browser",
@@ -178,9 +217,19 @@ const SettingsOverviewRoute = SettingsOverviewRouteImport.update({
   path: "/overview",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsProfileRoute = SettingsProfileRouteImport.update({
+  id: "/profile",
+  path: "/profile",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
   id: "/prompts",
   path: "/prompts",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSimulatorsRoute = SettingsSimulatorsRouteImport.update({
+  id: "/simulators",
+  path: "/simulators",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
@@ -207,6 +256,21 @@ const SkillsNewRoute = SkillsNewRouteImport.update({
   id: "/new",
   path: "/new",
   getParentRoute: () => SkillsRoute,
+} as any)
+const SpadeIndexRoute = SpadeIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => SpadeRoute,
+} as any)
+const SpadeAgentIdRoute = SpadeAgentIdRouteImport.update({
+  id: "/$agentId",
+  path: "/$agentId",
+  getParentRoute: () => SpadeRoute,
+} as any)
+const SpadeNewRoute = SpadeNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => SpadeRoute,
 } as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
@@ -246,6 +310,52 @@ const SettingsRemoteMachineRoute = SettingsRemoteMachineRouteImport.update({
   path: "/remote/$machine",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsRemoteEveryMachineRoute =
+  SettingsRemoteEveryMachineRouteImport.update({
+    id: "/remote/every-machine",
+    path: "/remote/every-machine",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsRemoteMapRoute = SettingsRemoteMapRouteImport.update({
+  id: "/remote/map",
+  path: "/remote/map",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeIndexRoute = SettingsSpadeIndexRouteImport.update({
+  id: "/spade/",
+  path: "/spade/",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeAppsRoute = SettingsSpadeAppsRouteImport.update({
+  id: "/spade/apps",
+  path: "/spade/apps",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeModelsRoute = SettingsSpadeModelsRouteImport.update({
+  id: "/spade/models",
+  path: "/spade/models",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeSearchRoute = SettingsSpadeSearchRouteImport.update({
+  id: "/spade/search",
+  path: "/spade/search",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeSecurityRoute = SettingsSpadeSecurityRouteImport.update({
+  id: "/spade/security",
+  path: "/spade/security",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SpadeGroupsGroupIdRoute = SpadeGroupsGroupIdRouteImport.update({
+  id: "/groups/$groupId",
+  path: "/groups/$groupId",
+  getParentRoute: () => SpadeRoute,
+} as any)
+const SpadeGroupsNewRoute = SpadeGroupsNewRouteImport.update({
+  id: "/groups/new",
+  path: "/groups/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
@@ -271,6 +381,12 @@ const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   path: "/t/$threadId/fork",
   getParentRoute: () => HomeRoute,
 } as any)
+const SettingsRemoteMachineAppsRoute =
+  SettingsRemoteMachineAppsRouteImport.update({
+    id: "/remote/$machine_/apps",
+    path: "/remote/$machine/apps",
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const HomeTThreadIdAgentsAgentIdRoute =
   HomeTThreadIdAgentsAgentIdRouteImport.update({
     id: "/t/$threadId_/agents/$agentId",
@@ -285,8 +401,11 @@ export interface FileRoutesByFullPath {
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
+  "/spade": typeof SpadeRouteWithChildren
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/chats": typeof HomeChatsRoute
+  "/history": typeof HomeHistoryRoute
   "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
@@ -295,32 +414,48 @@ export interface FileRoutesByFullPath {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
+  "/spade/": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
+  "/settings/spade/": typeof SettingsSpadeIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
@@ -328,6 +463,8 @@ export interface FileRoutesByTo {
   "/setup": typeof SetupRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/chats": typeof HomeChatsRoute
+  "/history": typeof HomeHistoryRoute
   "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
@@ -336,33 +473,49 @@ export interface FileRoutesByTo {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
+  "/spade": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
+  "/settings/spade": typeof SettingsSpadeIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
@@ -373,8 +526,11 @@ export interface FileRoutesById {
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
+  "/spade": typeof SpadeRouteWithChildren
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
+  "/_home/chats": typeof HomeChatsRoute
+  "/_home/history": typeof HomeHistoryRoute
   "/_home/inbox": typeof HomeInboxRoute
   "/_home/issues": typeof HomeIssuesRoute
   "/_home/new": typeof HomeNewRoute
@@ -383,33 +539,49 @@ export interface FileRoutesById {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
+  "/spade/": typeof SpadeIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
+  "/settings/spade/": typeof SettingsSpadeIndexRoute
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
   "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine_/apps": typeof SettingsRemoteMachineAppsRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
@@ -421,8 +593,11 @@ export interface FileRouteTypes {
     | "/settings"
     | "/setup"
     | "/skills"
+    | "/spade"
     | "/usage"
     | "/archived"
+    | "/chats"
+    | "/history"
     | "/inbox"
     | "/issues"
     | "/new"
@@ -431,32 +606,48 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
+    | "/spade/$agentId"
+    | "/spade/new"
     | "/automations/"
     | "/settings/"
     | "/skills/"
+    | "/spade/"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
+    | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
+    | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
+    | "/settings/spade/"
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/settings/remote/$machine/apps"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -464,6 +655,8 @@ export interface FileRouteTypes {
     | "/setup"
     | "/usage"
     | "/archived"
+    | "/chats"
+    | "/history"
     | "/inbox"
     | "/issues"
     | "/new"
@@ -472,33 +665,49 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
+    | "/spade/$agentId"
+    | "/spade/new"
     | "/"
     | "/automations"
     | "/settings"
     | "/skills"
+    | "/spade"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
+    | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
+    | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
+    | "/settings/spade"
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/settings/remote/$machine/apps"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
@@ -508,8 +717,11 @@ export interface FileRouteTypes {
     | "/settings"
     | "/setup"
     | "/skills"
+    | "/spade"
     | "/usage"
     | "/_home/archived"
+    | "/_home/chats"
+    | "/_home/history"
     | "/_home/inbox"
     | "/_home/issues"
     | "/_home/new"
@@ -518,33 +730,49 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
+    | "/spade/$agentId"
+    | "/spade/new"
     | "/_home/"
     | "/automations/"
     | "/settings/"
     | "/skills/"
+    | "/spade/"
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
+    | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
+    | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
+    | "/settings/spade/"
     | "/_home/issues_/$project/$number"
     | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
     | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
+    | "/settings/remote/$machine_/apps"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
@@ -555,6 +783,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
+  SpadeRoute: typeof SpadeRouteWithChildren
   UsageRoute: typeof UsageRoute
 }
 
@@ -602,6 +831,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SkillsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    "/spade": {
+      id: "/spade"
+      path: "/spade"
+      fullPath: "/spade"
+      preLoaderRoute: typeof SpadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     "/usage": {
       id: "/usage"
       path: "/usage"
@@ -621,6 +857,20 @@ declare module "@tanstack/react-router" {
       path: "/archived"
       fullPath: "/archived"
       preLoaderRoute: typeof HomeArchivedRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/chats": {
+      id: "/_home/chats"
+      path: "/chats"
+      fullPath: "/chats"
+      preLoaderRoute: typeof HomeChatsRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/history": {
+      id: "/_home/history"
+      path: "/history"
+      fullPath: "/history"
+      preLoaderRoute: typeof HomeHistoryRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/inbox": {
@@ -693,6 +943,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/beta": {
+      id: "/settings/beta"
+      path: "/beta"
+      fullPath: "/settings/beta"
+      preLoaderRoute: typeof SettingsBetaRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/browser": {
       id: "/settings/browser"
       path: "/browser"
@@ -735,11 +992,25 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsOverviewRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/profile": {
+      id: "/settings/profile"
+      path: "/profile"
+      fullPath: "/settings/profile"
+      preLoaderRoute: typeof SettingsProfileRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/prompts": {
       id: "/settings/prompts"
       path: "/prompts"
       fullPath: "/settings/prompts"
       preLoaderRoute: typeof SettingsPromptsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/simulators": {
+      id: "/settings/simulators"
+      path: "/simulators"
+      fullPath: "/settings/simulators"
+      preLoaderRoute: typeof SettingsSimulatorsRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/settings/source-control": {
@@ -776,6 +1047,27 @@ declare module "@tanstack/react-router" {
       fullPath: "/skills/new"
       preLoaderRoute: typeof SkillsNewRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    "/spade/": {
+      id: "/spade/"
+      path: "/"
+      fullPath: "/spade/"
+      preLoaderRoute: typeof SpadeIndexRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/$agentId": {
+      id: "/spade/$agentId"
+      path: "/$agentId"
+      fullPath: "/spade/$agentId"
+      preLoaderRoute: typeof SpadeAgentIdRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/new": {
+      id: "/spade/new"
+      path: "/new"
+      fullPath: "/spade/new"
+      preLoaderRoute: typeof SpadeNewRouteImport
+      parentRoute: typeof SpadeRoute
     }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
@@ -826,6 +1118,69 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRemoteMachineRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/remote/every-machine": {
+      id: "/settings/remote/every-machine"
+      path: "/remote/every-machine"
+      fullPath: "/settings/remote/every-machine"
+      preLoaderRoute: typeof SettingsRemoteEveryMachineRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/remote/map": {
+      id: "/settings/remote/map"
+      path: "/remote/map"
+      fullPath: "/settings/remote/map"
+      preLoaderRoute: typeof SettingsRemoteMapRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/": {
+      id: "/settings/spade/"
+      path: "/spade"
+      fullPath: "/settings/spade/"
+      preLoaderRoute: typeof SettingsSpadeIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/apps": {
+      id: "/settings/spade/apps"
+      path: "/spade/apps"
+      fullPath: "/settings/spade/apps"
+      preLoaderRoute: typeof SettingsSpadeAppsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/models": {
+      id: "/settings/spade/models"
+      path: "/spade/models"
+      fullPath: "/settings/spade/models"
+      preLoaderRoute: typeof SettingsSpadeModelsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/search": {
+      id: "/settings/spade/search"
+      path: "/spade/search"
+      fullPath: "/settings/spade/search"
+      preLoaderRoute: typeof SettingsSpadeSearchRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/security": {
+      id: "/settings/spade/security"
+      path: "/spade/security"
+      fullPath: "/settings/spade/security"
+      preLoaderRoute: typeof SettingsSpadeSecurityRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/spade/groups/$groupId": {
+      id: "/spade/groups/$groupId"
+      path: "/groups/$groupId"
+      fullPath: "/spade/groups/$groupId"
+      preLoaderRoute: typeof SpadeGroupsGroupIdRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/groups/new": {
+      id: "/spade/groups/new"
+      path: "/groups/new"
+      fullPath: "/spade/groups/new"
+      preLoaderRoute: typeof SpadeGroupsNewRouteImport
+      parentRoute: typeof SpadeRoute
+    }
     "/_home/issues_/$project/$number": {
       id: "/_home/issues_/$project/$number"
       path: "/issues/$project/$number"
@@ -861,6 +1216,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeTThreadIdForkRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/settings/remote/$machine_/apps": {
+      id: "/settings/remote/$machine_/apps"
+      path: "/remote/$machine/apps"
+      fullPath: "/settings/remote/$machine/apps"
+      preLoaderRoute: typeof SettingsRemoteMachineAppsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/_home/t/$threadId_/agents/$agentId": {
       id: "/_home/t/$threadId_/agents/$agentId"
       path: "/t/$threadId/agents/$agentId"
@@ -873,6 +1235,8 @@ declare module "@tanstack/react-router" {
 
 interface HomeRouteChildren {
   HomeArchivedRoute: typeof HomeArchivedRoute
+  HomeChatsRoute: typeof HomeChatsRoute
+  HomeHistoryRoute: typeof HomeHistoryRoute
   HomeInboxRoute: typeof HomeInboxRoute
   HomeIssuesRoute: typeof HomeIssuesRoute
   HomeNewRoute: typeof HomeNewRoute
@@ -889,6 +1253,8 @@ interface HomeRouteChildren {
 
 const HomeRouteChildren: HomeRouteChildren = {
   HomeArchivedRoute: HomeArchivedRoute,
+  HomeChatsRoute: HomeChatsRoute,
+  HomeHistoryRoute: HomeHistoryRoute,
   HomeInboxRoute: HomeInboxRoute,
   HomeIssuesRoute: HomeIssuesRoute,
   HomeNewRoute: HomeNewRoute,
@@ -927,40 +1293,62 @@ interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsBetaRoute: typeof SettingsBetaRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsOverviewRoute: typeof SettingsOverviewRoute
+  SettingsProfileRoute: typeof SettingsProfileRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
+  SettingsSimulatorsRoute: typeof SettingsSimulatorsRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
+  SettingsRemoteEveryMachineRoute: typeof SettingsRemoteEveryMachineRoute
+  SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
+  SettingsSpadeAppsRoute: typeof SettingsSpadeAppsRoute
+  SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
+  SettingsSpadeSearchRoute: typeof SettingsSpadeSearchRoute
+  SettingsSpadeSecurityRoute: typeof SettingsSpadeSecurityRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
+  SettingsSpadeIndexRoute: typeof SettingsSpadeIndexRoute
+  SettingsRemoteMachineAppsRoute: typeof SettingsRemoteMachineAppsRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsBetaRoute: SettingsBetaRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsOverviewRoute: SettingsOverviewRoute,
+  SettingsProfileRoute: SettingsProfileRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
+  SettingsSimulatorsRoute: SettingsSimulatorsRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
+  SettingsRemoteEveryMachineRoute: SettingsRemoteEveryMachineRoute,
+  SettingsRemoteMapRoute: SettingsRemoteMapRoute,
+  SettingsSpadeAppsRoute: SettingsSpadeAppsRoute,
+  SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
+  SettingsSpadeSearchRoute: SettingsSpadeSearchRoute,
+  SettingsSpadeSecurityRoute: SettingsSpadeSecurityRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
+  SettingsSpadeIndexRoute: SettingsSpadeIndexRoute,
+  SettingsRemoteMachineAppsRoute: SettingsRemoteMachineAppsRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
@@ -982,6 +1370,24 @@ const SkillsRouteChildren: SkillsRouteChildren = {
 const SkillsRouteWithChildren =
   SkillsRoute._addFileChildren(SkillsRouteChildren)
 
+interface SpadeRouteChildren {
+  SpadeAgentIdRoute: typeof SpadeAgentIdRoute
+  SpadeNewRoute: typeof SpadeNewRoute
+  SpadeIndexRoute: typeof SpadeIndexRoute
+  SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
+  SpadeGroupsNewRoute: typeof SpadeGroupsNewRoute
+}
+
+const SpadeRouteChildren: SpadeRouteChildren = {
+  SpadeAgentIdRoute: SpadeAgentIdRoute,
+  SpadeNewRoute: SpadeNewRoute,
+  SpadeIndexRoute: SpadeIndexRoute,
+  SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
+  SpadeGroupsNewRoute: SpadeGroupsNewRoute,
+}
+
+const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
@@ -989,6 +1395,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
+  SpadeRoute: SpadeRouteWithChildren,
   UsageRoute: UsageRoute,
 }
 export const routeTree = rootRouteImport

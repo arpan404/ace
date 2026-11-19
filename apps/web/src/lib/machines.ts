@@ -1,10 +1,14 @@
-import type { MachineIcon } from "@ace/protocol";
+import type { MachineIcon, MachinePathKind } from "@ace/protocol";
 import type { ClientApi, ConnectionState } from "@ace/client";
+import type { MachineEntry } from "@ace/client/machines";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
 import { useHostIdentity } from "./host-name.ts";
 import { createContext, use, useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
+import type { MachineStatus, MachineVia } from "@ace/ui-core/fleet-map";
+
+export type { MachineStatus, MachineVia };
 
 /*
  * The machines a picker can target: this window's own daemon first, then every other machine
@@ -12,8 +16,6 @@ import { useMachinePool } from "./machine-pool.ts";
  * client that reaches it. Requests go to the chosen machine's client and never fall back to
  * another one.
  */
-
-export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed";
 
 export interface Machine {
   /** The daemon's host id; `primaryMachineId` for this window's daemon while it is unnamed. */
@@ -26,7 +28,19 @@ export interface Machine {
   /** This window's own daemon: the one the rest of the app shows. */
   primary: boolean;
   failed?: boolean;
+  /**
+   * How this window reaches it, from its saved target: straight to an address (LAN, Tailscale),
+   * through a relay, or through ace's relay as an account machine. Undefined for this window's own.
+   */
+  via?: MachineVia | undefined;
+  /** The path the connection uses now, when the machine has several (ADR 0114). */
+  path?: MachinePathKind | undefined;
 }
+
+const viaOf = (target: MachineEntry["target"]): MachineVia =>
+  target.kind === "account"
+    ? { kind: "account", url: target.relayUrl }
+    : { kind: target.kind, url: target.url };
 
 export const primaryMachineId = "primary";
 
@@ -92,6 +106,8 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
             client: reach,
             primary: false,
             failed: !!machine.error,
+            via: viaOf(machine.entry.target),
+            path: reach ? machine.path : undefined,
           },
         ];
       }),

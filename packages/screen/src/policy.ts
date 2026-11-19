@@ -33,12 +33,22 @@ export function takeControl(
     owner: controller === "none" ? undefined : owner,
   };
 }
-export function authorizeInput(control: Control, actor: "human" | "agent", owner: string): void {
+/**
+ * Whether `actor` may send input now. In cowork the person's input goes in while an agent (or
+ * nobody) holds the controls; only another person's Take control keeps it out.
+ */
+export function authorizeInput(
+  control: Control,
+  actor: "human" | "agent",
+  owner: string,
+  cowork = false,
+): void {
   const target = control.state.target;
   if (target.kind === "display") throw new Error("Display capture is view-only");
   // A screen picked in the machine's sharing dialog was granted to the person, not to agents.
   if (target.kind === "chooser" && target.picked?.source !== "window" && actor !== "human")
     throw new Error("A shared screen takes only the person's input");
+  if (cowork && actor === "human" && control.state.controller !== "human") return;
   if (control.state.controller !== actor || control.owner !== owner)
     throw new Error("Controller ownership required");
 }

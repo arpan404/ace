@@ -1,4 +1,10 @@
-import { currentCheckout, gitAction, machineRow, openWorkCard } from "@/test/open-work.ts";
+import {
+  currentCheckout,
+  gitAction,
+  machineRow,
+  openGitMenu,
+  openWorkCard,
+} from "@/test/open-work.ts";
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
 import { ForgePrStatus, ForgeMergeState, ThreadId, type CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -127,7 +133,7 @@ async function link(reference: string) {
 
 const linked = (app: ReturnType<typeof harness>) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
-  return view && "thread" in view ? view.thread.details?.linkedPr : undefined;
+  return view && "thread" in view ? (view.thread.details?.linkedPrs?.[0] ?? null) : undefined;
 };
 const links = (app: ReturnType<typeof harness>) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
@@ -138,19 +144,34 @@ test.each([
   {
     name: "failing checks",
     status: pr({ ci: "failure", checks: [check("lint", "success"), check("test", "failure")] }),
-    reason: "Fix the failing checks first",
+    reason: "Its checks are failing, so it can't merge yet.",
   },
   {
-    name: "conflicts",
-    status: pr({ mergeability: "conflicting", ci: "pending", checks: [check("test", "pending")] }),
-    reason: "Resolve the conflicts with main first",
+    name: "checks still running",
+    status: pr({ ci: "pending", checks: [check("test", "pending")] }),
+    reason: "Its checks are still running, so it can't merge yet.",
   },
-])("Merge on a PR with $name is off and says what to fix", async ({ status, reason }) => {
+])("Merge on a PR with $name is off and says why in a sentence", async ({ status, reason }) => {
   const app = await withPr(status);
   const card = await openWorkCard();
   const button = await within(card).findByRole("button", { name: "Merge pull request #42" });
   await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
-  expect(within(card).getByText(`Can't merge: ${reason}`)).toBeTruthy();
+  expect(within(card).getByText(reason)).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "Merge PR #42?" })).toBeNull();
+  expect(linked(app)).toMatchObject({ number: 42, state: "open" });
+});
+
+test("a PR that conflicts with its base offers Resolve conflicts in place of Merge, which opens the PR", async () => {
+  const app = await withPr(pr({ mergeability: "conflicting" }));
+  const card = await openWorkCard();
+  const resolve = await within(card).findByRole("button", {
+    name: "Resolve conflicts on pull request #42",
+  });
+  expect(within(card).queryByRole("button", { name: "Merge pull request #42" })).toBeNull();
+  expect(within(card).getByText("It conflicts with main, so it can't merge yet.")).toBeTruthy();
+  await userEvent.click(resolve);
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(await within(panel).findByRole("tab", { name: /#42/, selected: true })).toBeTruthy();
   expect(screen.queryByRole("dialog", { name: "Merge PR #42?" })).toBeNull();
   expect(linked(app)).toMatchObject({ number: 42, state: "open" });
 });
@@ -225,16 +246,6 @@ test("Request review from More git actions asks the GitHub users typed, and refu
   );
 });
 
-test("a draft PR can't merge from its line", async () => {
-  await withPr(pr({ state: "draft" }));
-  const card = await openWorkCard();
-  const button = await within(card).findByRole("button", { name: "Merge pull request #42" });
-  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
-  expect(
-    within(card).getByText("Can't merge: A draft can't merge: mark it ready for review on GitHub"),
-  ).toBeTruthy();
-});
-
 test("Link a pull request follows a valid address and explains malformed addresses", async () => {
   const app = await withPr(undefined);
   expect(screen.queryByRole("textbox", { name: "Pull request" })).toBeNull();
@@ -263,8 +274,7 @@ test("Create PR links the branch's existing PR instead of opening another, and a
   });
   await app.open("/t/thread-pr");
   await screen.findByRole("feed", { name: "Transcript" });
-  const card = await openWorkCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+  await gitAction("Create PR…");
   const dialog = await screen.findByRole(
     "dialog",
     { name: "Open a pull request" },
@@ -292,24 +302,14 @@ test("a forge refusal reads as a sentence with its fix, not its code", async () 
   expect(await screen.findAllByText(/, then retry\./)).not.toHaveLength(0);
 });
 
-test("a GitLab checkout says merge requests aren't supported before anything is tried", async () => {
+test("a GitLab checkout on a daemon that reports no capabilities offers no review creation", async () => {
   await withPr(undefined, {
     repository: { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "api" },
   });
-  const card = await openWorkCard();
-  const create = await within(card).findByRole("button", { name: "Create PR" });
-  expect(create.hasAttribute("disabled")).toBe(true);
-  expect(create.getAttribute("title")).toBe(
-    "GitLab merge requests aren't supported yet: open one on GitLab.",
-  );
-  await userEvent.click(within(card).getByRole("button", { name: "More git actions" }));
-  const menu = await screen.findByRole("menu");
-  expect(
-    within(menu)
-      .getByRole("menuitem", { name: /^Create PR…/ })
-      .getAttribute("aria-disabled"),
-  ).toBe("true");
-  expect(within(menu).queryByRole("menuitem", { name: /^Link a pull request/ })).toBeNull();
+  const menu = await openGitMenu();
+  // An older daemon says nothing about what GitLab supports, so only reads are assumed.
+  expect(within(menu).queryByRole("menuitem", { name: /^Create PR…/ })).toBeNull();
+  expect(within(menu).getByRole("menuitem", { name: /^Link a pull request/ })).toBeTruthy();
 });
 
 test("switching branch with uncommitted changes offers to bring them along", async () => {
@@ -341,7 +341,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   const app = await withPr(undefined, { mode: "worktree", worktree: "/fake/worktrees/thread-pr" });
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Local" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Local checkout" }));
   await waitFor(async () => expect(await currentCheckout()).toBe("Local"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
@@ -411,7 +411,7 @@ test("a live link publication leads the card's PR line, and the sidebar counts b
     pullRequests: { "thread-pr": pr({ ref: { repository, number: 283 } }) },
   });
   expect(await within(card).findByRole("button", { name: /^Open pull request #283/ })).toBeTruthy();
-  const sidebar = screen.getByRole("navigation", { name: "Threads" });
+  const sidebar = screen.getByRole("navigation", { name: "Projects" });
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
   expect(row.textContent).toContain("#283+1");
   expect(
@@ -475,8 +475,7 @@ test("Create PR sends the selected remote and the same reviewed head to push and
     return receive(command);
   };
   await app.open("/t/selected-remote");
-  const card = await openWorkCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+  await gitAction("Create PR…");
   const dialog = await screen.findByRole("dialog", { name: "Open a pull request" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Create PR/ }));
   await waitFor(() =>

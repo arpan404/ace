@@ -5,6 +5,7 @@ import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
+import { AgentMachine } from "./agent.ts";
 import {
   MergedForkContext,
   ExecutionSource,
@@ -17,10 +18,17 @@ import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp }
 import { ProviderKind, RawPayload } from "./provider.ts";
 import { ToolCall } from "./tools.ts";
 
+/**
+ * Where a text's whole value lives when the text carried beside it may be a preview. `bytes` is
+ * the whole stream's length. `offset` is where the carried text starts in it (both UTF-16LE
+ * bytes): absent, the text is the stream's head. A text that ends at `bytes` holds the stream's
+ * tail, so deltas extend it; any other text is left as sent while `bytes` counts on.
+ */
 export const TextSource = z.object({
   streamId: z.string().min(1),
   bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   encoding: z.literal("utf-16le"),
+  offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type TextSource = z.infer<typeof TextSource>;
 
@@ -61,11 +69,23 @@ export const MessageOrigin = z.object({
     "schedule",
     "background_completion",
   ]),
+  /**
+   * A `person` message an outside MCP client sent for the person (ADR 0122). Older clients
+   * ignore it and read the message as the person's own.
+   */
+  client: z
+    .object({ grantId: z.string().min(1).max(128), name: z.string().min(1).max(256) })
+    .optional(),
   commandId: CommandId.optional(),
   interactionId: InteractionId.optional(),
   threadIds: z.array(ThreadId).optional(),
+  /** `spawn`, `parent_agent`: the thread whose agent sent this message, on this machine. */
   parentThreadId: ThreadId.optional(),
   role: z.string().optional(),
+  /**
+   * A switch or handoff: the model it came from. `spawn`, `parent_agent`: the sending agent's
+   * provider (and model), so the transcript can name who sent it.
+   */
   from: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   to: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   /** A context handoff: every model whose work the new agent received, oldest first. */
@@ -84,10 +104,15 @@ const ItemBase = z.object({
   /** Exact inclusive native fork boundary, only when the adapter can establish it. */
   nativeId: z.string().max(256).optional(),
   executionSource: ExecutionSource.optional(),
-  /** False while the provider is still streaming into this item. */
-  complete: z.boolean(),
+  /** False while the provider is still streaming into this item. Omitted on the wire when true. */
+  complete: z.boolean().default(true),
   /** The source thread's, in a fork: ace's copy of its message, or a turn its provider brought. */
   inherited: InheritedItem.optional(),
+  /**
+   * Sent to a client whose hello asked for `raw-on-demand`: this item's raw payloads (a tool
+   * call's `call.raw`) were left out of the message, and `item.raw` reads them. Never stored.
+   */
+  rawOmitted: z.literal(true).optional(),
 });
 
 /** Agent-owned transcript entries always identify their owner. */
@@ -130,9 +155,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     generation: z.number().int().nonnegative(),
     outcome: DelegationOutcome.nullable().default(null),
     /** Set when the child runs on another paired machine; its thread lives there (ADR 0078). */
-    machine: z
-      .object({ machine: z.string().min(1).max(64), name: z.string().min(1).max(256) })
-      .optional(),
+    machine: AgentMachine.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
@@ -178,6 +201,13 @@ export const AgentItem = z.discriminatedUnion("type", [
     type: z.literal("compaction"),
     tokensBefore: z.number().int().optional(),
     tokensAfter: z.number().int().optional(),
+    /**
+     * The summary the provider wrote for the model to continue from. Provider-internal text:
+     * shown only inside the compaction's own row, never as a message.
+     */
+    summary: z.string().optional(),
+    /** The provider's own compaction frames, kept as they came. */
+    raw: z.array(RawPayload).default([]),
   }),
 ]);
 export type AgentItem = z.infer<typeof AgentItem>;
@@ -185,6 +215,11 @@ export type AgentItem = z.infer<typeof AgentItem>;
 /** Thread entries also include browser artifacts created before an agent starts. */
 export const Item = z.discriminatedUnion("type", [
   ...AgentItem.options,
+  ItemBase.extend({
+    type: z.literal("unknown"),
+    raw: z.array(RawPayload).default([]),
+    data: z.unknown(),
+  }),
   ItemBase.extend({
     type: z.literal("artifact"),
     filename: z.string().max(256).optional(),

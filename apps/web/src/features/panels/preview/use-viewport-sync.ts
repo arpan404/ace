@@ -9,7 +9,9 @@ const settle = 150;
  * rather than as a scaled-down picture. Sends the size once on mount (and whenever `active`
  * turns on, e.g. when the full view closes and the pane takes over again), then debounced on
  * every resize. A backend that can't resize keeps its size, and the frame is scaled to fit.
- * `touch` says the pane is on a touch screen; a change of it is sent as a new size.
+ * `touch` says the pane is on a touch screen; a change of it is sent as a new size. Never while
+ * the tab emulates a device: the caller turns `active` off then, and the source drops a size that
+ * would clear a device it learns of late.
  */
 export function useViewportSync(
   source: PreviewSource,
@@ -32,7 +34,9 @@ export function useViewportSync(
       const key = `${width}x${height}@${dpr}${touch ? " touch" : ""}`;
       if (key === last.current) return;
       last.current = key;
-      source.resize(threadId, width, height, touch, dpr);
+      // A tab with a device keeps it (ADR 0104): the source holds the size until it knows.
+      if (source.fitPane) source.fitPane(threadId, width, height, touch, dpr);
+      else source.resize(threadId, width, height, touch, dpr);
     };
     send();
     if (typeof ResizeObserver === "undefined") return;

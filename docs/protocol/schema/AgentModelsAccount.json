@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentModelsAccount.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "auth": {
+      "enum": [
+        "logged_out",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "availability": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "default": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "enabled": {
+      "const": false,
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installed": {
+      "const": false,
+      "type": "boolean"
+    },
+    "label": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}

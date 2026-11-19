@@ -1,3 +1,4 @@
+import { retryOf } from "./send-ops.ts";
 import { CommandId, type CommandPayload } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
 
@@ -9,15 +10,22 @@ import type { ClientApi } from "./api.ts";
 export async function retrySend(
   client: Pick<ClientApi, "request" | "command" | "enqueue">,
   commandId: string,
-  payload: CommandPayload,
+  /**
+   * The send, or how to read it: a function is read at the moment the retry is saved, so an edit
+   * made while the queue was being checked is the one that goes.
+   */
+  payload: CommandPayload | (() => CommandPayload | undefined),
 ): Promise<"resumed" | "resent"> {
-  if (payload.type === "thread.send") {
+  const read = () => (typeof payload === "function" ? payload() : payload);
+  const initial = read();
+  if (!initial) throw new Error("not_found");
+  if (initial.type === "thread.send") {
     let after: CommandId | undefined;
     let revision: number | undefined;
     do {
       const { queue } = await client.request({
         type: "queue.get",
-        threadId: payload.threadId,
+        threadId: initial.threadId,
         limit: 32,
         ...(after ? { after, expectedRevision: revision } : {}),
       });
@@ -25,7 +33,7 @@ export async function retrySend(
       if (queue.messages.some((message) => message.id === commandId)) {
         const result = await client.command({
           type: "queue.resume",
-          threadId: payload.threadId,
+          threadId: initial.threadId,
           expectedRevision: revision,
         });
         if (!result.ok) throw new Error(result.error);
@@ -34,6 +42,8 @@ export async function retrySend(
       after = queue.next ? CommandId.parse(queue.next) : undefined;
     } while (after);
   }
-  await client.enqueue(payload, `${commandId}:retry`);
+  const current = read();
+  if (!current) throw new Error("not_found");
+  await client.enqueue(current, retryOf(commandId));
   return "resent";
 }

@@ -15,8 +15,10 @@ extension ClientModel {
 /// Create PR open their editor (with an AI draft on request); Merge uses the method last picked
 /// on this phone and asks to confirm; an open PR can ask for review. Progress and the outcome
 /// float above the bottom edge.
-private struct ChangesActions: ViewModifier {
+private struct ChangesActions<Header: View>: ViewModifier {
     @Bindable var model: ClientModel
+    /// The sheet's heading, beside the actions (`screenBar`).
+    let header: Header
     let summary: ChangesSummary?
     let title: String
     @Binding var wrap: Bool
@@ -27,6 +29,7 @@ private struct ChangesActions: ViewModifier {
     @State private var confirmingMerge = false
     @State private var requestingReview = false
     @State private var reviewers = ""
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private var step: ChangesSummary.Step? { summary?.state == "ready" ? summary?.step : nil }
     private var outcome: GitOutcome? { request.flatMap { model.sheets.outcomes[$0] } }
     private var running: Bool { summary?.busy == true || (request != nil && outcome == nil) }
@@ -34,18 +37,50 @@ private struct ChangesActions: ViewModifier {
     private var method: MergeMethodOption? { methods.first { $0.method == savedMethod } ?? methods.first }
     private func label(_ step: ChangesSummary.Step) -> String { step.kind == "merge" ? method?.label ?? step.label : step.label }
 
+    @Environment(\.threadPage) private var inPage
+
+    /// A step that can't run yet stays in the menu with its reason, never greyed here.
+    @ViewBuilder private var trailing: some View {
+        menu
+        if let step = runnable { stepButton(step) }
+    }
+    private var runnable: ChangesSummary.Step? {
+        guard let step, step.kind != "none", step.blocked == nil, model.canOperate else { return nil }
+        return step
+    }
+
     func body(content: Content) -> some View {
-        content
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    menu
-                    // A step that can't run yet stays in the menu with its reason, never greyed here.
-                    if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
+        Group {
+            if inPage {
+                // A page of the thread: the thread's own bar stays the thread's, so the scope and
+                // the actions ride one row at the page's top.
+                // The menu and the next step are real buttons here (ADR 0184): ⋯ in clear glass,
+                // the step as the page's one way forward.
+                // At large text the actions go under the scope rather than squeeze its words.
+                content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: AceDesign.Space.related) {
+                            header.buttonStyle(.plain)
+                            Spacer(minLength: AceDesign.Space.related)
+                            pageActions
+                        }
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            header.buttonStyle(.plain)
+                            HStack(spacing: AceDesign.Space.related) { pageActions }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .padding(.vertical, AceDesign.Space.tight)
+                    .background(AceTheme.Colours.background)
                 }
+            } else {
+                content.screenBar { header } actions: { trailing }
             }
+        }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
-                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title) { send($0) } }
+                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title, opensOn: step.opensOn) { send($0) } }
             }
             .confirmationDialog("\(step.map(label) ?? "Merge") PR #\(step?.pr?.number ?? 0)?", isPresented: $confirmingMerge, titleVisibility: .visible) {
                 Button(step.map(label) ?? "Merge") { send(["kind": "merge", "method": method?.method ?? "squash"]) }
@@ -57,13 +92,19 @@ private struct ChangesActions: ViewModifier {
                 Button("Cancel", role: .cancel) {}
                 Button("Request review") { send(["kind": "request-review", "reviewers": reviewers]) }
                     .disabled(reviewers.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } message: { Text("GitHub usernames") }
+            } message: { Text("Usernames") }
+    }
+
+    /// The page's ⋯ in clear glass and the next step as its one way forward.
+    @ViewBuilder private var pageActions: some View {
+        menu.buttonStyle(.secondaryAction).buttonBorderShape(.circle)
+        if let step = runnable { stepButton(step).buttonStyle(.primaryAction) }
     }
 
     /// The next step itself, one tap away.
     private func stepButton(_ step: ChangesSummary.Step) -> some View {
         Button { start(step) } label: {
-            if running { ProgressView() } else { Image(systemName: icon(step)) }
+            if running { ProgressView() } else { Text(label(step)) }
         }
         .disabled(running)
         .accessibilityLabel(label(step))
@@ -82,12 +123,22 @@ private struct ChangesActions: ViewModifier {
                         }
                         .pickerStyle(.menu)
                         .accessibilityIdentifier("changes.mergeOptions")
-                        Button("Request review", systemImage: "person.badge.plus") { reviewers = ""; requestingReview = true }
                     }
                 }
             }
-            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", systemImage: "safari") } }
+            if summary?.canRequestReview == true, model.canOperate {
+                Button("Request review") { reviewers = ""; requestingReview = true }.disabled(running)
+            }
+            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(summary?.openOn ?? "Open in browser", destination: url) }
             Section {
+                if sizeClass == .regular {
+                    Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {
+                        Text("Unified").tag("unified")
+                        Text("Split").tag("split")
+                    } label: { Label("Layout", systemImage: "rectangle.split.2x1") }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("diff.layout")
+                }
                 Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
                     .accessibilityIdentifier("diff.wrap")
                 Button("Refresh", systemImage: "arrow.clockwise") { model.sheet(["kind": "changes.refresh"]) }
@@ -136,7 +187,8 @@ private struct ChangesActions: ViewModifier {
 }
 
 extension View {
-    func changesActions(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>) -> some View {
-        modifier(ChangesActions(model: model, summary: summary, title: title, wrap: wrap))
+    func changesActions<Header: View>(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>,
+                                      @ViewBuilder header: () -> Header) -> some View {
+        modifier(ChangesActions(model: model, header: header(), summary: summary, title: title, wrap: wrap))
     }
 }

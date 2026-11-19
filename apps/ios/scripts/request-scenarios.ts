@@ -1,3 +1,4 @@
+import { InteractionRequest } from "@ace/protocol";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import { z } from "zod";
 
@@ -9,7 +10,14 @@ import { z } from "zod";
  */
 
 type Details = (branch: string) => Record<string, unknown>;
-export const RequestScenario = z.enum(["approval", "question", "plan", "form", "stop"]);
+export const RequestScenario = z.enum([
+  "approval",
+  "question",
+  "plan",
+  "form",
+  "stop",
+  "browserHelp",
+]);
 export type RequestScenario = z.infer<typeof RequestScenario>;
 
 /** A model the fixture's catalog lists with effort levels and fast tiers (`workbenchServices`). */
@@ -19,6 +27,21 @@ const tunable = {
   instanceId: "codex-personal",
   options: {},
 };
+
+/** A sign-in the agent hands to the person in the browser. */
+const signIn = (key: string, tabId: string, url: string) => ({
+  type: "interaction.opened" as const,
+  agent: "root",
+  interaction: key,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "browser_help",
+    tabId,
+    reason: "login",
+    message: "Sign in with the team account",
+    url,
+  }),
+});
 
 const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: Details) => void> = {
   approval(daemon, id, details) {
@@ -63,6 +86,8 @@ const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: D
           kind: "approval",
           title: "Codex wants to run a command",
           description: "Publishes 2 commits to GitHub",
+          // As the Codex adapter names it, so lists show the command without the transcript.
+          target: { tool: "shell", command: "git push origin fix/queue", access: "execute" },
           options: [
             { id: "deny", label: "Deny", kind: "deny" },
             { id: "always", label: "Always here", kind: "allow_session" },
@@ -199,6 +224,23 @@ const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: D
       },
     ]);
   },
+  /** Two sign-ins the agent hands to the person, so a test can open the second one's browser. */
+  browserHelp(daemon, id, details) {
+    daemon.createThread({
+      id,
+      workspaceId: "ace",
+      title: "Sign in to both forges",
+      provider: "claude",
+      details: details("chore/forges"),
+    });
+    daemon.apply(id, [
+      facts.rootAgent("claude"),
+      facts.turn("root"),
+      facts.message("root", "ask", "user", "Sign in to GitHub and GitLab."),
+      signIn("help-github", "tab-1", "https://github.com/login"),
+      signIn("help-gitlab", "tab-2", "https://gitlab.com/users/sign_in"),
+    ]);
+  },
   stop(daemon, id, details) {
     daemon.createThread({
       id,
@@ -236,4 +278,56 @@ export function requestScenarios(daemon: FakeDaemon, details: Details): void {
   seedRequest(daemon, "plan", "ios-plan", details);
   seedRequest(daemon, "form", "ios-form", details);
   seedRequest(daemon, "stop", "ios-stop", details);
+  threeAsks(daemon, details);
+}
+
+/** One approval the agent asks for, with Deny, Always and Allow. */
+const ask = (key: string, title: string, target: Record<string, unknown>) => ({
+  type: "interaction.opened" as const,
+  agent: "root",
+  interaction: key,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "approval",
+    title,
+    target: { tool: "Bash", access: "execute", ...target },
+    options: [
+      { id: "deny", label: "Deny", kind: "deny" },
+      { id: "always", label: "Always", kind: "allow_session" },
+      { id: "allow", label: "Allow", kind: "allow_once" },
+    ],
+  }),
+});
+
+/** An approval arriving in a thread already open, as an agent asks for one mid-turn. */
+export function askLater(daemon: FakeDaemon, threadId: string): void {
+  daemon.apply(threadId, [ask("late", "Run bun run lint", { command: "bun run lint" })]);
+}
+
+/** ios-three-asks: three approvals waiting at once, so the strip pages them ("1 of 3"). */
+function threeAsks(daemon: FakeDaemon, details: Details): void {
+  const id = "ios-three-asks";
+  daemon.createThread({
+    hasSentMessage: true,
+    id,
+    workspaceId: "ace",
+    title: "Ship the relay fix",
+    provider: "claude",
+    details: details("fix/relay-ship"),
+    access: "ask",
+  });
+  daemon.apply(id, [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Ship the relay fix: test, edit the changelog, push."),
+    ask("test", "Run bun run test --filter relay", { command: "bun run test --filter relay" }),
+    ask("notes", "Edit CHANGELOG.md", {
+      tool: "Edit",
+      access: "write",
+      paths: ["/Users/dev/acme/packages/relay/CHANGELOG.md"],
+    }),
+    ask("push", "Run git push origin fix/relay-ship", {
+      command: "git push origin fix/relay-ship",
+    }),
+  ]);
 }

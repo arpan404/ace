@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/SnoozedPullRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checks": {
+      "enum": [
+        "pending",
+        "passed",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "head": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "pr": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "draft",
+        "merged",
+        "closed"
+      ],
+      "type": "string"
+    },
+    "updatedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "pr",
+    "state",
+    "updatedAt"
+  ],
+  "type": "object"
+}

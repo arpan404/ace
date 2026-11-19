@@ -1,5 +1,11 @@
-import type { ContentPart, MessageContext, MessageContextItem } from "@ace/protocol";
-import { composerInput, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
+import type { ContentPart, MessageContext } from "@ace/protocol";
+import {
+  composerInput,
+  referenceContext,
+  takeAttachmentMarkers,
+  type ComposerDraft,
+  type KeyValueStorage,
+} from "@ace/ui-core";
 import { mentionsIn } from "./draft.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
 
@@ -8,29 +14,48 @@ export interface SubmittedDraft {
   context?: MessageContext | undefined;
 }
 
-/** The message content, independent of the model, account or new daemon draft scope. */
+/**
+ * The message content, independent of the model, account or new daemon draft scope: its words
+ * without the file markers, and each marked file's offset in them (`at`, counted in text parts;
+ * `positions` has them by chip key, for the files still uploading).
+ */
 export function composerContent(draft: ComposerDraft) {
-  const tokens = draft.tokens ?? [];
+  const marked = takeAttachmentMarkers(draft.text, draft.tokens ?? []);
+  const { tokens } = marked;
+  const references = referenceContext(tokens, mentionsIn(marked.text, new Set(draft.mentions)));
+  // The same bytes added twice go once, at the first place they were added.
+  const at = new Map<string, number>();
+  for (const file of marked.files)
+    if (file.sha256 && !at.has(file.sha256)) at.set(file.sha256, file.at);
   return {
-    input: composerInput(draft.text, tokens),
-    threadRefs: tokens.flatMap((token): MessageContextItem[] =>
-      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
+    text: marked.text,
+    input: composerInput(marked.text, tokens),
+    threadRefs: references.items,
+    mentions: references.mentions,
+    attachments: draft.attachments.map((file) => {
+      const position = at.get(file.sha256);
+      return position === undefined
+        ? { sha256: file.sha256 }
+        : { sha256: file.sha256, at: position };
+    }),
+    positions: new Map(
+      marked.files.flatMap((file) => (file.key === undefined ? [] : [[file.key, file.at]])),
     ),
-    mentions: [
-      ...mentionsIn(draft.text, new Set(draft.mentions)).filter(
-        (mention) => !tokens.some((token) => token.file?.path === mention.path),
-      ),
-      ...tokens.flatMap((token) => (token.file ? [token.file] : [])),
-    ].filter(
-      (mention, index, all) =>
-        all.findIndex(
-          (other) =>
-            other.path === mention.path &&
-            JSON.stringify(other.lines) === JSON.stringify(mention.lines),
-        ) === index,
-    ),
-    attachments: draft.attachments.map((file) => ({ sha256: file.sha256 })),
   };
+}
+/** What two sends are compared by: words, references and which files, not where files sit. */
+function compared(message: {
+  input: readonly ContentPart[];
+  threadRefs: readonly unknown[];
+  mentions: readonly unknown[];
+  attachments: readonly { sha256: string }[];
+}) {
+  return JSON.stringify([
+    message.input,
+    message.threadRefs,
+    message.mentions,
+    message.attachments.map((file) => file.sha256),
+  ]);
 }
 function content(sent: SubmittedDraft) {
   return {
@@ -42,10 +67,10 @@ function content(sent: SubmittedDraft) {
   };
 }
 export function sameSubmittedDraft(a: SubmittedDraft, b: SubmittedDraft): boolean {
-  return JSON.stringify(content(a)) === JSON.stringify(content(b));
+  return compared(content(a)) === compared(content(b));
 }
 export function matchesSubmittedDraft(draft: ComposerDraft, sent: SubmittedDraft): boolean {
-  return JSON.stringify(composerContent(draft)) === JSON.stringify(content(sent));
+  return compared(composerContent(draft)) === compared(content(sent));
 }
 /** A confirmed send removes only its own unsent copy, preserving a newer message. */
 export function discardSubmittedDraft(

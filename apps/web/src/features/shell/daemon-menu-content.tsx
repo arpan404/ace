@@ -1,6 +1,6 @@
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@phosphor-icons/react";
+import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
 import { MenuGroup, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
@@ -10,8 +10,8 @@ import { connectionDot, connectionLabels } from "./connection-labels.ts";
 
 /**
  * The sidebar title's menu ("ace ▾"), loaded after the first paint: the daemon this window
- * talks to. Its state and address, pairing another device, the connection settings, and
- * leaving it. The person and the app are the avatar's menu.
+ * talks to. Its state and address, pairing another device, the connection settings (both on
+ * Settings › Fleet), and leaving it. The person and the app are the avatar's menu.
  */
 export function DaemonMenuItems() {
   const state = useConnectionState();
@@ -36,7 +36,13 @@ export function DaemonMenuItems() {
       </MenuItem>
       <MenuItem
         icon={<PlugsIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/settings/general", hash: "daemon.connection" })}
+        onClick={() =>
+          void navigate({
+            to: "/settings/remote/$machine",
+            params: { machine: "primary" },
+            hash: "daemon.connection",
+          })
+        }
       >
         Connection settings
       </MenuItem>

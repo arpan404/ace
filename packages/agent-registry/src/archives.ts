@@ -74,7 +74,8 @@ export async function extractTar(
       archive.destroy(error instanceof Error ? error : new Error("Archive extraction failed")),
     );
     active.add(task);
-    void task.then(() => active.delete(task));
+    // task reports its own failure through the archive stream; this only stops tracking it.
+    void task.then(() => active.delete(task)).catch(() => {});
   });
   try {
     const decompress =
@@ -119,7 +120,8 @@ export async function extractZip(
       };
       const abort = () => fail(new Error("Archive cancelled"));
       signal.addEventListener("abort", abort, { once: true });
-      zip.once("error", fail);
+      // Every error is heard: a read stream can report another after fail() closes the archive.
+      zip.on("error", fail);
       zip.once("end", () => {
         signal.removeEventListener("abort", abort);
         resolve();
@@ -186,7 +188,8 @@ export async function extractZip(
           zip.readEntry();
         })().catch(fail);
         active.add(task);
-        void task.then(() => active.delete(task));
+        // task reports its own failure through fail(); this only stops tracking it.
+        void task.then(() => active.delete(task)).catch(() => {});
       });
       if (signal.aborted) abort();
       else zip.readEntry();

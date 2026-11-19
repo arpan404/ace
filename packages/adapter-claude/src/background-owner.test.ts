@@ -65,15 +65,13 @@ test("a subagent's background shell listed before it starts belongs to the subag
   });
 });
 
-test("a subagent stays busy while its background shell runs after its own task ends", () => {
+test("a subagent's shell left running after every agent replied is listed, not waited on", () => {
   const h = subagentWithBackgroundShell();
   h.system("task_updated", { task_id: "agent", patch: { status: "completed" } });
   h.system("background_tasks_changed", { tasks: [shellTask] });
-  expect(h.state.agents[child]?.agent.status).toMatchObject({
-    state: "blocked",
-    on: "background_task",
-  });
-  expect(h.state.status.state).not.toBe("done");
+  expect(shellOwner(h)?.status).toBe("running");
+  // The subagent replied; Claude wakes the main agent for its result, the shell keeps no one.
+  expect(h.state.agents[child]?.agent.status).toEqual({ state: "idle" });
   h.system("background_tasks_changed", { tasks: [] });
   h.system("task_updated", { task_id: "shell", patch: { status: "completed" } });
   expect(rejections(h)).toEqual([]);

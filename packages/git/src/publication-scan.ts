@@ -5,6 +5,7 @@ import {
   incompletePublicationScan,
   inspectPublicationBatch,
   objectHeader,
+  publicationYamlName,
   sensitivePublicationPath,
   type ScanObject,
 } from "./publication-sensitive.ts";
@@ -58,7 +59,7 @@ export async function scanPublication(
     if (parsed[1] === "blob") {
       const id = hash(parsed[2]);
       objects.add(id);
-      if (/\.ya?ml$/i.test(parsed[3]) && !yamlObjects.has(id)) {
+      if (publicationYamlName(parsed[3]) && !yamlObjects.has(id)) {
         yamlObjects.add(id);
         yamlIds.push(id);
       }

@@ -4,7 +4,7 @@ import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { dictionary } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, announceAgentBranch } from "./tree.ts";
-import { cancelOpenWork } from "./cleanup.ts";
+import { cancelOpenWork, outlivingTurn } from "./cleanup.ts";
 
 type Started = Extract<Fact, { type: "turn.started" }>;
 type Ended = Extract<Fact, { type: "turn.ended" }>;
@@ -124,7 +124,7 @@ export function endTurn(
   // A delayed end for an older native turn cannot terminate the current turn.
   if (recoveredPast || (active && active.id !== run.id)) return;
   if (!fact.historical && fact.error?.kind === "quota")
-    record.limited = { message: fact.error.message };
+    record.limited = { ...record.limited, message: fact.error.message };
   // A turn the provider completed is proof the account could work: no limit holds it.
   else if (!fact.historical && fact.outcome === "completed") delete record.limited;
   delete record.processSettledStatus;
@@ -143,6 +143,6 @@ export function endTurn(
     record.agent.id,
     ctx.now,
     events,
-    fact.outcome === "interrupted" ? undefined : ctx.resolvingInteractions,
+    fact.outcome === "interrupted" ? undefined : outlivingTurn(state, ctx.resolvingInteractions),
   );
 }

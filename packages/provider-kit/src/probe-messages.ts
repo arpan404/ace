@@ -7,6 +7,8 @@ export const ProbeRequest = z.object({
   command: z.string().min(1),
   args: z.array(z.string()),
   env: z.record(z.string(), z.string()),
+  /** Where the probe runs: a version manager reads the project's own config from here. */
+  cwd: z.string().min(1).optional(),
   maxBytes: z.number().int().positive(),
 });
 export type ProbeRequest = z.infer<typeof ProbeRequest>;

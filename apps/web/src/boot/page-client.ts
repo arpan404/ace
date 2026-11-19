@@ -1,6 +1,7 @@
+import { browserInstallId } from "./install-id.ts";
 import { browserReadSnapshots } from "./read-snapshots.ts";
-import { browserCredential } from "./remote-credential.ts";
-import { webSocketTransport, type ClientApi } from "@ace/client";
+import { daemonRoute } from "./daemon-route.ts";
+import type { ClientApi } from "@ace/client";
 import { createBrowserClient, localOutbox } from "./client.ts";
 import type { DaemonTarget } from "./connection-settings.ts";
 import { diagnosticsReporter } from "./diagnostics.ts";
@@ -16,8 +17,8 @@ export function createPageClient(
   return createBrowserClient({
     report: diagnosticsReporter(),
     deviceId: device.deviceId,
-    transport: () => webSocketTransport(() => new WebSocket(target.url)),
-    credential: browserCredential(target),
+    installId: browserInstallId(),
+    ...daemonRoute(target),
     storage: localOutbox(device.outboxKey),
     readSnapshots: browserReadSnapshots({ ...target, deviceId: device.deviceId }),
     expectedHostId: target.localHostId,

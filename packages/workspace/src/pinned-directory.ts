@@ -20,6 +20,8 @@ import {
   descriptorNames,
   statAt,
   symlinkAt,
+  statWindowsFd,
+  sameWindowsFile,
   type Descriptor,
 } from "./descriptor.ts";
 
@@ -30,6 +32,12 @@ export class PinnedDirectory {
   private constructor(handle: Descriptor) {
     this.handle = handle;
     this.identity = fstatSync(handle.fd);
+    if (process.platform === "win32") {
+      // Windows reads open files and directories alike, so the type is checked here.
+      this.identity = statWindowsFd(handle.fd);
+      if (!this.identity.isDirectory())
+        throw Object.assign(new Error("Not a directory"), { code: "ENOTDIR" });
+    }
   }
   static open(canonical: string): PinnedDirectory {
     const handle = openRoot(canonical);
@@ -59,12 +67,18 @@ export class PinnedDirectory {
     return this.handle.fd;
   }
   stat(): Stats {
+    if (process.platform === "win32") return statWindowsFd(this.fd);
     return fstatSync(this.fd);
   }
   matches(canonical: string): boolean {
     const current = openRoot(canonical);
     try {
       const info = fstatSync(current.fd);
+      if (
+        process.platform === "win32" &&
+        !sameWindowsFile(statWindowsFd(current.fd), this.identity)
+      )
+        return false;
       return info.dev === this.identity.dev && info.ino === this.identity.ino;
     } finally {
       closeSync(current.fd);
@@ -100,6 +114,7 @@ export class PinnedDirectory {
     const file = openAt(this.fd, name, constants.O_RDONLY);
     try {
       const info = fstatSync(file.fd);
+      if (process.platform === "win32") Object.assign(info, statWindowsFd(file.fd));
       if (!info.isFile()) throw new Error("Expected a regular file");
       return info;
     } finally {
@@ -174,6 +189,10 @@ export class PinnedDirectory {
   }
   /** Atomically replaces a private file. Neither name is followed if it is a symlink. */
   replace(name: string, text: string): void {
+    if (process.platform === "win32") {
+      this.removeTemporary(name + ".pending");
+      return this.windowsStaged(name, text, () => {});
+    }
     const temporary = name + ".pending";
     this.removeTemporary(temporary);
     const fd = this.createExclusive(temporary);
@@ -187,6 +206,16 @@ export class PinnedDirectory {
     }
   }
   publish(name: string, text: string): void {
+    if (process.platform === "win32")
+      return this.windowsStaged(name, text, () => {
+        try {
+          this.metadata(name);
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+          throw error;
+        }
+        throw new Error(`Refusing to replace ${name}`);
+      });
     const temporary = name + ".pending";
     const fd = this.createExclusive(temporary);
     try {
@@ -200,6 +229,22 @@ export class PinnedDirectory {
       }
       renameAt(this.fd, temporary, name);
       fsyncSync(this.fd);
+    } finally {
+      closeSync(fd);
+      this.removeTemporary(temporary);
+    }
+  }
+  /**
+   * Windows: stage then rename, without the directory fsync Windows refuses on a read-only
+   * directory handle; NTFS journals the rename itself.
+   */
+  private windowsStaged(name: string, text: string, beforeRename: () => void): void {
+    const temporary = name + ".pending";
+    const fd = this.createExclusive(temporary);
+    try {
+      this.stage(fd, text);
+      beforeRename();
+      renameAt(this.fd, temporary, name);
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);

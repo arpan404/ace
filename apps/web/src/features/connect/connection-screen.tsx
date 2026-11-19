@@ -14,6 +14,8 @@ import { CopyCommand } from "@/components/copy-command.tsx";
 import { ConnectCard } from "./connect-card.tsx";
 import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
+import { AccountMachineScreen } from "./account-machine-screen.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
   auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
@@ -23,6 +25,12 @@ const problems: Record<ConnectionProblem, ReactNode> = {
     "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.",
   storage: "This window couldn't read the work it saved for this machine. Try again.",
   failed: "ace closed the connection. Check the address, then try again.",
+  // An account machine's own screen says these with its name (`account-machine-screen.tsx`).
+  signed_out: "Sign in to your ace account to open this machine.",
+  session_ended: "Your ace session ended. Sign in again.",
+  not_on_account: "This machine isn't on your ace account any more.",
+  other_account: "This machine is on your other ace account.",
+  machine_code: "This machine wants its machine code.",
 };
 
 /**
@@ -49,11 +57,17 @@ export function ConnectionScreen() {
         onDecline={handoff.decline}
       />
     );
+  if (connection.account)
+    return <AccountMachineScreen connection={connection} account={connection.account} />;
   const status = connection.status;
   const trying = status.kind === "connecting" || status.kind === "unreachable";
   return (
-    <ConnectCard labelledBy="connect-title">
-      <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="connect" variant="connect" labelledBy="connect-title">
+      <h1
+        id="connect-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         {pairing ? "Pair this device" : "Connect to ace"}
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">
@@ -61,8 +75,8 @@ export function ConnectionScreen() {
           "Give this device a name so you can recognize and revoke its access later."
         ) : pairing ? (
           <>
-            On the computer running ace, open Settings › Pair a device and scan its QR code or open
-            its link here. You can also paste the link below.
+            On the computer running ace, open Settings › Fleet, choose Pair a device and scan its QR
+            code or open its link here. You can also paste the link below.
           </>
         ) : connection.desktop ? (
           <>
@@ -111,11 +125,18 @@ export function ConnectionScreen() {
             alert={alertFor(connection)}
             {...buttonsFor(connection)}
           />
-          {!trying && (
-            <Button variant="ghost" className="mt-4" onClick={() => setPairing(true)}>
-              Have a pairing code?
-            </Button>
-          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!trying && (
+              <Button variant="ghost" onClick={() => setPairing(true)}>
+                Have a pairing code?
+              </Button>
+            )}
+            {connection.leave && (
+              <Button variant="ghost" onClick={() => connection.leave?.()}>
+                Not now
+              </Button>
+            )}
+          </div>
         </>
       )}
     </ConnectCard>

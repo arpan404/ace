@@ -5,7 +5,7 @@ import {
   type ErrorInput,
   type ErrorView,
 } from "@ace/ui-core";
-import { HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { HourglassMediumIcon, WarningCircleIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
@@ -91,7 +91,15 @@ export function ErrorRow(props: {
               >
                 Sign in
               </Button>
-            ) : elsewhere ? null : (
+            ) : elsewhere ? null : signInTo && signInTo !== "acp" ? (
+              <Link
+                to="/settings/providers/$provider"
+                params={{ provider: signInTo }}
+                className={linkButton}
+              >
+                Sign in
+              </Link>
+            ) : (
               <Link to="/settings/providers" className={linkButton}>
                 Sign in
               </Link>

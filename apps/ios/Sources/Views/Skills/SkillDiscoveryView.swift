@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The browser's project/provider catalog includes CLI-native skills as well as plugins.
+/// The browser's project/provider catalog includes CLI-native skills as well as plugins: choose
+/// the project and the coding agent, then open an entry to read what it does.
 struct SkillDiscoveryView: View {
     let model: ClientModel
     @State private var projects: [NativeProject] = []
@@ -8,42 +9,59 @@ struct SkillDiscoveryView: View {
     @State private var provider = "codex"
     @State private var entries: [CatalogReply.Entry] = []
     @State private var query = ""
-    @State private var problem: String?
+    /// Each read keeps its own failure: the projects read succeeding never erases the catalog's.
+    @State private var projectsProblem: String?
+    @State private var catalogProblem: String?
+    private var problem: String? { projectsProblem ?? catalogProblem }
     @State private var loading = false
     @State private var loaded = false
-    @State private var stale = false
+    @State private var notice: String?
     private var scope: [String] { [project, provider, model.connection] }
+    private var shown: [CatalogReply.Entry] {
+        entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }
+    }
     var body: some View {
         List {
-            Group {
-                Section {
-                    Picker("Project", selection: $project) { ForEach(projects) { Text($0.name).tag($0.id) } }
-                    Picker("Coding agent", selection: $provider) { ForEach(ProviderLabels.ids, id: \.self) { Text($0.capitalized).tag($0) } }
-                }
-                ForEach(entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }) { entry in
-                    NavigationLink {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
-                                MarkdownView(text: entry.description)
-                                Text("Use this entry from a conversation's Skills and commands menu.").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            }.padding(AceTheme.Spacing.lg)
-                        }.navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
-                    } label: {
-                        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                            LabeledContent(entry.title ?? entry.name, value: entry.kind.capitalized)
-                            Text(entry.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        }
-                    }.accessibilityIdentifier("skills.entry.\(entry.id)")
-                }
-                if loading { ProgressView("Reading CLI catalog…") }
-                if stale { Text("Showing cached entries. Refresh when the machine is ready.").foregroundStyle(AceTheme.Colours.mutedForeground) }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { if project.isEmpty { await readProjects() }; await read() } } }
-                if loaded && entries.isEmpty && problem == nil { ContentUnavailableView("No entries for this agent", systemImage: "book", description: Text("Choose another coding agent or project.")) }
+            Section {
+                Picker("Project", selection: $project) { ForEach(projects) { Text($0.name).tag($0.id) } }
+                    .pickerStyle(.menu)
+                Picker("Coding agent", selection: $provider) { ForEach(ProviderLabels.ids, id: \.self) { Text($0.capitalized).tag($0) } }
+                    .pickerStyle(.menu)
             }
             .insetRowBackground()
+            if let problem {
+                Section {
+                    ProblemRow(problem, id: "skills.discovery.problem") { Task { if project.isEmpty { await readProjects() }; await read() } }
+                }
+            }
+            if loading {
+                Section { SkeletonRows(count: 3, label: "Reading CLI catalog").listRowInsets(EdgeInsets()) }
+                    .listRowBackground(Color.clear)
+            }
+            if !shown.isEmpty || notice != nil {
+                Section {
+                    ForEach(shown) { entry in
+                        NavigationLink { CatalogEntryPage(entry: entry) } label: {
+                            InsetRow(systemImage: nil, title: entry.title ?? entry.name, subtitle: entry.description) {
+                                Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.action)
+                                    .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                            }
+                        }
+                        .accessibilityIdentifier("skills.entry.\(entry.id)")
+                    }
+                } footer: { if let notice { Text(notice) } }
+                .insetRowBackground()
+            }
+            if loaded && entries.isEmpty && problem == nil {
+                Section {
+                    EmptyState(systemImage: "book", title: "No entries for this agent", line: "Choose another coding agent or project.")
+                        .padding(.vertical, AceDesign.Space.group)
+                }
+                .listRowBackground(Color.clear)
+            }
         }
         .insetGroupedList()
+        .searchBarEdge()
         .searchable(text: $query, prompt: "Search skills and commands")
         .navigationTitle("Available CLI skills").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { if model.connection == "ready" { await readProjects() } }
@@ -52,29 +70,41 @@ struct SkillDiscoveryView: View {
     }
     private func readProjects() async {
         do {
-            var after: String?
-            var all: [NativeProject] = []
-            for _ in 0..<10 {
-                var operation: [String: Any] = ["op": "workspace.list", "limit": 100]
-                if let after { operation["after"] = after }
-                let reply = try await model.service(["type": "projects.request", "operation": operation], as: ProjectListReply.self)
-                guard reply.result.kind == "projects" else { throw ServiceFailure(message: "This pairing needs Projects access to discover CLI skills.") }
-                all += reply.result.projects ?? []
-                after = reply.result.next
-                if after == nil { break }
-            }
+            let all = try await model.allProjects()
             projects = all
+            projectsProblem = nil
             if !all.contains(where: { $0.id == project }) { project = all.first?.id ?? "" }
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch { if !Task.isCancelled { projectsProblem = error.localizedDescription } }
     }
     private func read() async {
         guard !project.isEmpty, model.connection == "ready" else { return }
-        loading = true; loaded = false; problem = nil; entries = []
+        loading = true; loaded = false; catalogProblem = nil; entries = []; notice = nil
         defer { loading = false }
         do {
-            let reply = try await model.service(["type": "catalog.list", "workspace": ["workspaceId": project, "provider": provider], "limit": 512], as: CatalogReply.self)
-            guard !Task.isCancelled else { return }
-            entries = reply.entries; stale = reply.stale; loaded = true
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            try await model.catalogPage(["workspace": ["workspaceId": project, "provider": provider]]) { reply in
+                guard !Task.isCancelled else { return }
+                entries = reply.entries; notice = reply.notice; loaded = true; loading = false
+            }
+        } catch { if !Task.isCancelled { notice = nil; catalogProblem = error.localizedDescription } }
+    }
+}
+
+/// One catalog entry's description, and where it is used.
+private struct CatalogEntryPage: View {
+    let entry: CatalogReply.Entry
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.row) {
+                AceMarkdown(text: entry.description)
+                Text("Use it from a conversation's Skills and commands menu.")
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+            }
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.related)
+        }
+        .background(AceDesign.Surface.background)
+        .barEdge()
+        .navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
     }
 }

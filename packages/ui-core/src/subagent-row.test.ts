@@ -21,6 +21,26 @@ test("a working subagent's second line names the step it runs, only while facts 
   expect(subagentDetail(entry, working, "Read row-parts.tsx", false)).toEqual({});
 });
 
+test("from a copy that isn't current, no subagent's line says anything: not waiting, queued or how it ended", () => {
+  const queued = {
+    state: "queued",
+    agentId: "a1",
+    slotLimit: 4,
+    slotsInUse: 4,
+    queuePosition: 2,
+  } as const;
+  expect(subagentDetail({ state: "human", agentId: "a1" }, working, "Edit", false)).toEqual({});
+  expect(subagentDetail(queued, undefined, undefined, false)).toEqual({});
+  expect(
+    subagentDetail(
+      { state: "done", agentId: "a1", result: "Found 3 issues" },
+      undefined,
+      undefined,
+      false,
+    ),
+  ).toEqual({});
+});
+
 test("a subagent waiting on the person says so, whatever its own agent reports", () => {
   expect(subagentDetail({ state: "human", agentId: "a1" }, working, "Edit", true)).toEqual({
     detail: "Waiting for you",
@@ -69,6 +89,18 @@ test("a queued subagent's line names its slot use and queue place, else the old 
   expect(
     subagentDetail({ state: "queued", agentId: "a1" }, undefined, undefined, true).detail,
   ).toBe("Starts when a running agent finishes");
+});
+
+test("a subagent queued while the disk is full says it waits for disk space, place or not", () => {
+  for (const place of [{}, { slotLimit: 4, slotsInUse: 4, queuePosition: 2 }])
+    expect(
+      subagentDetail(
+        { state: "queued", agentId: "a1", ...place, waitingFor: "storage" },
+        undefined,
+        undefined,
+        true,
+      ).detail,
+    ).toBe("Waiting for disk space");
 });
 
 test("queue places read as people say them", () => {

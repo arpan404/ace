@@ -66,18 +66,19 @@ function configuredServices(count: number): string {
   return `${count} service${count === 1 ? "" : "s"} configured`;
 }
 
+const OpenCodeAuthRows = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(256),
+      connections: z.array(z.object({ type: z.enum(["credential", "env"]) })).max(128),
+    }),
+  )
+  .max(512);
+
 /** Only integration IDs and connection counts leave the CLI status boundary. */
 export function parseOpenCodeAuthConnections(text: string): Map<string, number> | undefined {
   try {
-    const rows = z
-      .array(
-        z.object({
-          id: z.string().min(1).max(256),
-          connections: z.array(z.object({ type: z.enum(["credential", "env"]) })).max(128),
-        }),
-      )
-      .max(512)
-      .parse(JSON.parse(stripVTControlCharacters(text)));
+    const rows = OpenCodeAuthRows.parse(JSON.parse(stripVTControlCharacters(text)));
     return new Map(rows.map((row) => [row.id, row.connections.length]));
   } catch {
     return undefined;

@@ -84,6 +84,10 @@ export async function harness(
     discover?: import("@ace/models").DiscoverModels;
     usagePorts?: import("@ace/accounts").UsagePorts;
     limitsError?: import("./account-management.ts").AccountManagementOptions["limitsError"];
+    /** The daemon's clock and timers, and each Codex account's limit read, for limits tests. */
+    now?: () => number;
+    after?: import("./account-management.ts").AccountManagementOptions["after"];
+    readCodexUsage?: import("./account-limits.ts").ReadCliUsage;
     storage?: (
       storage: import("@ace/models").CatalogStorage,
     ) => import("@ace/models").CatalogStorage;
@@ -112,7 +116,8 @@ export async function harness(
     OPENAI_API_KEY: "ambient-fixture-value",
   };
   const registry = await openRegistry(join(dataDir, "accounts.sqlite"));
-  const accounts = new AccountService({ registry, env, now: () => 100, timeZone: "UTC" });
+  const now = options.now ?? (() => 100);
+  const accounts = new AccountService({ registry, env, now, timeZone: "UTC" });
   const storage = openModelStorage(join(dataDir, "models.sqlite"));
   const models = new ModelCatalog({
     storage: options.storage?.(storage) ?? storage,
@@ -128,7 +133,7 @@ export async function harness(
     accounts,
     dataDir,
     env,
-    now: () => 100,
+    now,
     id: randomUUID,
     terminal: options.terminal ?? { graceMs: 50 },
     ...(options.cursor ? { cursor: options.cursor } : {}),
@@ -136,6 +141,8 @@ export async function harness(
     ...(options.configuration ? { configuration: options.configuration } : {}),
     ...(options.usagePorts ? { usagePorts: options.usagePorts } : {}),
     ...(options.limitsError ? { limitsError: options.limitsError } : {}),
+    ...(options.after ? { after: options.after } : {}),
+    ...(options.readCodexUsage ? { readCodexUsage: options.readCodexUsage } : {}),
     models: () => models,
   });
   await management.initialize();

@@ -72,8 +72,6 @@ it("OpenCode, Pi and Cursor sessions start with ace's skills in a directory they
     const [directory] = opened[0]?.builtinSkills?.directories ?? [];
     if (!directory) throw new Error(`${provider} received no skills directory`);
     // Each skill sits at <directory>/<name>/SKILL.md, the layout all three providers scan.
-    // Guide-only topics such as offshift load on request, never as a native skill.
-    await expect(readFile(join(directory, "offshift", "SKILL.md"))).rejects.toThrow();
     for (const { name, description } of shipped.filter((guide) => native.has(guide.name))) {
       const text = await readFile(join(directory, name, "SKILL.md"), "utf8");
       expect(text, `${provider} ${name}`).toContain(`name: ${name}`);

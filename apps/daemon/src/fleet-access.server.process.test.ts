@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SettingsService } from "@ace/settings";
 import {
+  CommandId,
   FleetResult,
   PairingResponse,
   type FleetOperation,
@@ -155,9 +156,10 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
     deviceTtlMs: 7 * day,
   });
   const listed = await ask(host, { op: "pairings" });
+  // Both expire at once, so their order falls to their random ids (ORDER BY expires_at, id).
   expect(listed.result).toEqual({
     kind: "pairings",
-    pairings: [
+    pairings: expect.arrayContaining([
       { id: kept.id, label: "Phone", scopes: ["read"], expiresAt: kept.expiresAt },
       {
         id: cancelled.id,
@@ -165,8 +167,9 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
         expiresAt: cancelled.expiresAt,
         deviceTtlMs: 7 * day,
       },
-    ],
+    ]),
   });
+  expect(listed.result).toHaveProperty("pairings.length", 2);
   const text = JSON.stringify(listed);
   expect(text).not.toContain(kept.code);
   expect(text).not.toContain(cancelled.code);
@@ -185,8 +188,12 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
   const http = PairingResponse.parse(
     await f.request("/v1/pairings", { method: "POST", token, body: { scopes: ["read"] } }),
   );
+  // Same expiry again: the order falls to the random ids.
   expect((await ask(host, { op: "pairings" })).result).toMatchObject({
-    pairings: [{ id: kept.id }, { id: http.id }],
+    pairings: expect.arrayContaining([
+      expect.objectContaining({ id: kept.id }),
+      expect.objectContaining({ id: http.id }),
+    ]),
   });
 });
 
@@ -211,6 +218,86 @@ it("revoking every other device spares the caller's own, which the device list m
     [credential.device.id]: false,
   });
   await expect(f.ticket(phone.token)).rejects.toThrow("HTTP 401");
+});
+
+it("an administrator allows a scope it holds on a paired device, which keeps its credential", async () => {
+  const f = await setup();
+  const link = await f.pair(["read", "operate"]);
+  const change = (commandId: string, scope: "projects" | "read" | "operate", allowed: boolean) =>
+    ({
+      op: "scope",
+      commandId: CommandId.parse(commandId),
+      deviceId: link.device.id,
+      scope,
+      allowed,
+    }) as const;
+  // An administrator without Projects can't hand it out, here as with pairing links.
+  const { client: admin } = await pairedSocket(f, ["admin"]);
+  expect(await ask(admin, change("admin-allows", "projects", true))).toMatchObject({
+    error: { code: "forbidden" },
+  });
+  const host = await welcomed(await f.connect());
+  expect(await ask(host, change("host-allows", "projects", true))).toMatchObject({
+    result: { kind: "scoped", device: { scopes: ["read", "operate", "projects"] } },
+  });
+  // The same token still opens a session, now holding Projects.
+  expect((await f.ticket(link.token)).ticket).toBeTruthy();
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: link.device.id, scopes: ["read", "operate", "projects"] }),
+    ]),
+  });
+  // Narrowing needs only administrator access; the last scope stays, since removing is Remove.
+  expect(await ask(admin, change("admin-narrows", "projects", false))).toMatchObject({
+    result: { device: { scopes: ["read", "operate"] } },
+  });
+  await ask(host, change("no-operate", "operate", false));
+  expect(await ask(host, change("no-read", "read", false))).toMatchObject({
+    error: { code: "invalid" },
+  });
+  // The same id again for another device answers nothing as applied, and changes nothing.
+  const other = await f.pair(["read", "operate"]);
+  expect(
+    await ask(host, { ...change("host-allows", "projects", true), deviceId: other.device.id }),
+  ).toMatchObject({ error: { code: "invalid" } });
+  expect(await ask(host, change("host-allows", "projects", false))).toMatchObject({
+    error: { code: "invalid" },
+  });
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: other.device.id, scopes: ["read", "operate"] }),
+    ]),
+  });
+  // A command id another device used is its receipt, not this one's.
+  expect(await ask(admin, change("host-allows", "projects", true))).toMatchObject({
+    error: { code: "forbidden" },
+  });
+});
+
+it("a connection that is open when its device loses Projects is refused on its next request", async () => {
+  const f = await setup();
+  const { credential, client } = await pairedSocket(f, ["read", "operate", "projects"]);
+  let asked = 0;
+  const browse = async () => {
+    const requestId = `home-${++asked}`;
+    client.send({ type: "projects.request", requestId, operation: { op: "fs.home" } });
+    for (;;) {
+      const message: ServerMessage = await client.next();
+      if (message.type === "projects.result" && message.requestId === requestId)
+        return message.result;
+    }
+  };
+  expect(await browse()).not.toMatchObject({ kind: "error", code: "forbidden" });
+  const host = await welcomed(await f.connect());
+  await ask(host, {
+    op: "scope",
+    commandId: CommandId.parse("take-projects"),
+    deviceId: credential.device.id,
+    scope: "projects",
+    allowed: false,
+  });
+  // The same socket, never reconnected.
+  expect(await browse()).toMatchObject({ kind: "error", code: "forbidden" });
 });
 
 it("a device without administrator access can't use fleet requests", async () => {

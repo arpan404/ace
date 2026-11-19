@@ -19,9 +19,18 @@ export interface HelperConnectionOptions {
   maxReplyBytes: number;
   /** How long a cancelled or overdue request may take to reply before its helper is killed. */
   graceMs: number;
+  /** Windows: how long a helper may take to exit after stdin closes before it is killed. */
+  stopGraceMs?: number;
   /** Called when nothing is queued or running any more, and when work arrives again. */
   idle: (idle: boolean) => void;
   timing?: { now: () => number; report: (timing: ComputerRequestTiming) => void };
+}
+
+/** Checks at native dispatch; waiting releases this connection's queue slot. */
+export interface RequestDispatch {
+  ready(): Promise<boolean>;
+  authorize(): boolean;
+  wait(signal: AbortSignal): Promise<void>;
 }
 
 interface Job {
@@ -36,6 +45,7 @@ interface Job {
   child?: ChildProcessWithoutNullStreams;
   /** Set once the request is being stopped: why, for the error it ends with. */
   ending?: "cancelled" | "timeout";
+  dispatch?: RequestDispatch;
   stops: (() => void)[];
   timing?: ComputerRequestSpan;
   outcome?: "ok" | "error";
@@ -55,6 +65,7 @@ export class HelperConnection {
   private readonly options: HelperConnectionOptions;
   private readonly queue: Job[] = [];
   private current: Job | undefined;
+  private readonly parked = new Set<Job>();
   private child: ChildProcessWithoutNullStreams | undefined;
   private starting: Promise<ChildProcessWithoutNullStreams> | undefined;
   private closed = false;
@@ -65,7 +76,13 @@ export class HelperConnection {
 
   /** Running or waiting requests. */
   busy(): boolean {
-    return this.current !== undefined || this.queue.length > 0;
+    return this.current !== undefined || this.queue.length > 0 || this.parked.size > 0;
+  }
+
+  /** The helper's process id, starting the helper if none is running. */
+  async pid(): Promise<number | undefined> {
+    if (this.closed) return undefined;
+    return (await this.process()).pid;
   }
 
   request(
@@ -73,8 +90,12 @@ export class HelperConnection {
     payload: Record<string, unknown>,
     deadlineMs: number,
     signal: AbortSignal | undefined,
+    dispatch?: RequestDispatch,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new ComputerError("closed", "Computer use stopped."));
+    // An abort that already happened fires no `abort` event, so it is honoured here: the
+    // request is never queued or written.
+    if (signal?.aborted) return Promise.reject(new ComputerError("cancelled", "Cancelled."));
     const timing = this.options.timing
       ? new ComputerRequestSpan(op, this.options.timing.now)
       : undefined;
@@ -90,6 +111,7 @@ export class HelperConnection {
         resolve,
         reject,
         stops: [],
+        ...(dispatch ? { dispatch } : {}),
         ...(timing ? { timing } : {}),
       };
       if (signal) {
@@ -109,6 +131,8 @@ export class HelperConnection {
     this.closed = true;
     const error = new ComputerError("closed", "Computer use stopped.");
     for (const job of this.queue.splice(0)) this.settle(job, () => job.reject(error));
+    for (const job of this.parked) this.settle(job, () => job.reject(error));
+    this.parked.clear();
     const job = this.current;
     if (job) this.finish(job, () => job.reject(error));
     this.kill();
@@ -118,12 +142,13 @@ export class HelperConnection {
     if (this.current || this.closed) return;
     const job = this.queue.shift();
     if (!job) {
-      this.options.idle(true);
+      if (this.parked.size === 0) this.options.idle(true);
       return;
     }
     this.current = job;
     job.timing?.dequeue();
-    void this.write(job);
+    // write() settles its own job; a failed stdin write reaches kill through its callback.
+    void this.write(job).catch(() => {});
   }
 
   private async write(job: Job): Promise<void> {
@@ -145,6 +170,25 @@ export class HelperConnection {
     }
     // Cancelled while the helper started.
     if (this.current !== job || job.ending) return;
+    try {
+      const dispatch = job.dispatch;
+      if (dispatch) {
+        const ready = await dispatch.ready();
+        if (this.current !== job || job.ending) return;
+        if (!ready || !dispatch.authorize()) {
+          this.park(job, dispatch);
+          return;
+        }
+      }
+    } catch (error) {
+      if (this.current === job) this.finish(job, () => job.reject(this.dispatchError(error)));
+      return;
+    }
+    if (this.child !== child || child.exitCode !== null || child.killed) {
+      this.finish(job, () => job.reject(new ComputerError("helper_exited", exitedMessage)));
+      return;
+    }
+    // No await between the final authority check and writing native stdin.
     job.child = child;
     job.timing?.ready();
     job.stops.push(this.options.scheduler.after(job.deadlineMs, () => this.cancel(job, "timeout")));
@@ -153,10 +197,39 @@ export class HelperConnection {
     });
   }
 
+  private park(job: Job, dispatch: RequestDispatch): void {
+    this.parked.add(job);
+    this.current = undefined;
+    this.pump();
+    const stop = new AbortController();
+    job.stops.push(() => stop.abort());
+    void dispatch.wait(stop.signal).then(
+      () => {
+        if (!this.parked.delete(job)) return;
+        this.queue.push(job);
+        this.pump();
+      },
+      (error: unknown) => {
+        if (!this.parked.delete(job)) return;
+        this.settle(job, () => job.reject(this.dispatchError(error)));
+        this.pump();
+      },
+    );
+  }
+
+  private dispatchError(error: unknown): Error {
+    return error instanceof Error ? error : new ComputerError("cancelled", "Cancelled.");
+  }
+
   /** Stops a request: unsent ones end now; sent ones get a cancel and a grace period. */
   private cancel(job: Job, why: "cancelled" | "timeout"): void {
     if (job.ending) return;
     job.ending = why;
+    if (this.parked.delete(job)) {
+      this.settle(job, () => job.reject(endingError(job)));
+      this.pump();
+      return;
+    }
     const queued = this.queue.indexOf(job);
     if (queued !== -1) {
       this.queue.splice(queued, 1);
@@ -205,6 +278,14 @@ export class HelperConnection {
       }
     });
     child.stderr.resume();
+    // A pipe that breaks (EPIPE as the helper exits mid-write) leaves this helper unusable.
+    // Unheard, the stream's error event would end the daemon; the exit fails the running job.
+    const broken = () => {
+      if (this.child === child) this.kill();
+    };
+    child.stdin.on("error", broken);
+    child.stdout.on("error", broken);
+    child.stderr.on("error", () => {});
     const failed = (code: string, message: string) => () => {
       if (this.child === child) this.child = undefined;
       const job = this.current;
@@ -277,6 +358,15 @@ export class HelperConnection {
     this.child = undefined;
     if (!child) return;
     child.stdin.end();
+    // Windows: a kill can't be caught, so the helper first gets to stop on its own (it puts
+    // back a borrowed clipboard and releases held keys when stdin closes).
+    const stopGraceMs = this.options.stopGraceMs;
+    if (stopGraceMs !== undefined) {
+      this.options.scheduler.after(stopGraceMs, () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      });
+      return;
+    }
     // SIGTERM lets the helper put back the clipboard it borrowed for a paste.
     child.kill("SIGTERM");
   }

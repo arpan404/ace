@@ -13,6 +13,13 @@ it("literal redaction survives environment key collisions and JSON escaping with
   );
 });
 
+it("the daemon's listen mode stays readable in fix-it text while secrets beside it are scrubbed", () => {
+  const context = { env: { ACE_LISTEN: "tailscale", CURSOR_API_KEY: "opaque-key-value" } };
+  expect(
+    createTextRedactor(context)("Run `sudo tailscale set --operator=$USER` (opaque-key-value)"),
+  ).toBe("Run `sudo tailscale set --operator=$USER` (<ENV>)");
+});
+
 it("literal redaction returns omission prose when its context cannot be read", () => {
   const env = Object.defineProperty({}, "CURSOR_API_KEY", {
     enumerable: true,

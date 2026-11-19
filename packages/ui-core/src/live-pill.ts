@@ -1,6 +1,6 @@
 import type { ProviderGoal } from "@ace/protocol";
 import { pluralCount } from "./counts.ts";
-import { goalTitle } from "./goal.ts";
+import { goalTitle, goalUsage } from "./goal.ts";
 import { timedWords, type TurnActivity } from "./turn-activity.ts";
 import { waitWords } from "./wait-words.ts";
 
@@ -39,6 +39,8 @@ export interface PillSegment {
   opens: PillOpens;
   /** An active goal while the thread works sweeps like the status. */
   live: boolean;
+  /** A goal's progress, "120K / 500K tokens · 14m 2s · 3 checks"; absent when none is reported. */
+  detail?: string | undefined;
 }
 
 export interface LivePill {
@@ -53,6 +55,11 @@ export interface LivePillFacts {
   goal: ProviderGoal | null | undefined;
   /** A request card is in the composer's strip (an open request on this thread). */
   requestShown: boolean;
+  /**
+   * The strip already says the usage limit holding the turn: the pill keeps its counts but drops
+   * a status that would say it twice. Live work still shows.
+   */
+  holdShown?: boolean | undefined;
 }
 
 /** "Waiting on 2": the root does nothing itself while its subagents work. */
@@ -140,13 +147,16 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
     });
   if (queued > 0)
     segments.push({ kind: "queue", label: `${queued} queued`, opens: "queue", live: false });
-  if (goal)
+  if (goal) {
+    const detail = goalUsage(goal);
     segments.push({
       kind: "goal",
       label: goalTitle(goal.status),
       opens: "goal",
       live: goal.status === "active" && status?.live === true,
+      ...(detail ? { detail } : {}),
     });
+  }
   return segments;
 }
 
@@ -156,7 +166,16 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
  */
 export function livePill(facts: LivePillFacts): LivePill | undefined {
   if (facts.requestShown) return undefined;
-  const status = statusOf(facts.activity);
+  const read = statusOf(facts.activity);
+  // Only the turn's own pause repeats the hold: live work, a request and what the root waits on
+  // (subagents, commands) always show.
+  const repeats =
+    facts.holdShown === true &&
+    read !== undefined &&
+    !read.live &&
+    read.tone !== "needs-you" &&
+    read.opens === undefined;
+  const status = repeats ? undefined : read;
   const segments = segmentsOf(facts, status);
   return status || segments.length > 0 ? { status, segments } : undefined;
 }

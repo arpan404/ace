@@ -9,6 +9,13 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 
+const ObservedPr = z.object({
+  pr: z.looseObject({
+    requested_reviewers: z.array(z.object({ login: z.string() })).optional(),
+    auto_merge: z.object({ merge_method: z.string() }).nullable().optional(),
+  }),
+});
+
 export type RemoteForgeAction = Extract<
   z.infer<typeof ForgeCommand>,
   {
@@ -115,14 +122,7 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
       )
     );
   if (status.mergeState && observedMergeState(action, status.mergeState)) return true;
-  const raw = z
-    .object({
-      pr: z.looseObject({
-        requested_reviewers: z.array(z.object({ login: z.string() })).optional(),
-        auto_merge: z.object({ merge_method: z.string() }).nullable().optional(),
-      }),
-    })
-    .safeParse(status.raw);
+  const raw = ObservedPr.safeParse(status.raw);
   if (action.type === "forge.review.request") {
     if (!raw.success) return false;
     const observed = new Set(

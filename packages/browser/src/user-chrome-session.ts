@@ -27,9 +27,10 @@ const DialogOpening = z.object({
   type: BrowserDialog.shape.type,
   message: z.string(),
   defaultPrompt: z.string().optional(),
+  url: z.string().optional(),
 });
 /** A dialog the tab's page raised; `serial` tells one from the next. */
-export type UserTabDialog = Pick<BrowserDialog, "type" | "message" | "defaultPrompt"> & {
+export type UserTabDialog = Pick<BrowserDialog, "type" | "message" | "defaultPrompt" | "url"> & {
   serial: number;
 };
 
@@ -143,6 +144,7 @@ export async function userTabSession(
       ...(parsed.data.defaultPrompt !== undefined
         ? { defaultPrompt: parsed.data.defaultPrompt.slice(0, 4096) }
         : {}),
+      ...(parsed.data.url !== undefined ? { url: parsed.data.url.slice(0, 8192) } : {}),
     };
     request.changed?.();
   });

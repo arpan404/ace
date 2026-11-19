@@ -10,6 +10,8 @@ import {
 } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
 import type { Fact } from "@ace/core";
+import { InputRejected } from "@ace/engine-api";
+import { createDevThread } from "../commands.ts";
 
 afterEach(cleanupRecovery);
 const limited: Fact = {
@@ -28,11 +30,7 @@ const quotaEnd: Fact = {
 
 async function limitedThread(options: Parameters<typeof fixture>[2] = {}) {
   const frames = scriptFrames();
-  const h = await fixture(
-    [{ on: "send", frames: [frames.frame(start, quotaEnd, limited)] }],
-    frames,
-    options,
-  );
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames, options);
   const id = await h.create();
   h.command(
     { type: "thread.send", threadId: id, input: text("queued first") },
@@ -44,6 +42,8 @@ async function limitedThread(options: Parameters<typeof fixture>[2] = {}) {
     "device",
     "second-followup",
   );
+  // These inputs were queued during the turn, before its limit arrived.
+  h.contexts[0]?.onFrame(frames.frame(quotaEnd, limited));
   await h.engine.flush();
   const replacement = replaceProvider(h, frames, [
     { on: "send", frames: [frames.frame(start, end)] },
@@ -154,6 +154,55 @@ test("a persisted reset timer the person chose resumes a limited thread across a
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
+function limitAction(
+  h: Awaited<ReturnType<typeof limitedThread>>["h"],
+  id: Awaited<ReturnType<typeof limitedThread>>["id"],
+  action: "resume_at_reset" | "cancel_resume",
+) {
+  return h.command({
+    type: "thread.limit",
+    threadId: id,
+    expectedRevision: h.engine.queue(id).revision,
+    action,
+  });
+}
+
+test("cancelling a chosen resume at reset goes back to the limit and sends nothing at the reset", async () => {
+  const { h, id, replacement } = await limitedThread({ recovery: { resetAt: () => 5000 } });
+  expect(limitAction(h, id, "resume_at_reset").ok).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: 5000 });
+  expect(limitAction(h, id, "cancel_resume").ok).toBe(true);
+  // Clients read the plain limit again: held, with no resume promised.
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: null });
+  h.clock.advance(6000);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id).messages.map((message) => message.id)).toEqual([
+    "first-followup",
+    "second-followup",
+  ]);
+  // Nothing scheduled is left to cancel.
+  expect(limitAction(h, id, "cancel_resume").error).toBe("no_scheduled_resume");
+});
+
+test("a resume at reset the person chose survives a restart and resumes once at the reset", async () => {
+  const { h, id, replacement } = await limitedThread({ recovery: { resetAt: () => 5000 } });
+  expect(limitAction(h, id, "resume_at_reset").ok).toBe(true);
+  const recovered = await restart(h, { recovery: { resetAt: () => 5000 } });
+  expect(recovered.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: 5000 });
+  h.clock.advance(4999);
+  await recovered.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  h.clock.advance(5000);
+  await recovered.flush();
+  // The continuation, then the two queued messages: once each.
+  expect(sends(replacement)).toHaveLength(3);
+  h.clock.advance(60_000);
+  await recovered.flush();
+  expect(sends(replacement)).toHaveLength(3);
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
 test("snooze reaches its deadline without spending quota and leaves the queue available for manual resume", async () => {
   const { h, id, replacement } = await limitedThread({
     preferences: { limitPolicy: "snooze_until_reset" },
@@ -171,6 +220,74 @@ test("snooze reaches its deadline without spending quota and leaves the queue av
   expect(resume(h, h.engine, id).ok).toBe(true);
   await h.engine.flush();
   expect(sends(replacement)).toHaveLength(3);
+});
+
+test("a deadline this build can't read is put off on its own, and another thread's deadline still fires", async () => {
+  const failures: unknown[] = [];
+  const { h, id, replacement } = await limitedThread({
+    preferences: { limitPolicy: "snooze_until_reset" },
+    recovery: { resetAt: () => 5000, onError: (error) => failures.push(error) },
+  });
+  // Another thread whose earlier deadline names an action a newer build wrote.
+  const other = createDevThread(h.store, h.workspace).id;
+  h.store.atomic((db) => {
+    db.prepare(
+      "INSERT INTO thread_state(thread_id,state,seq) SELECT ?,state,seq FROM thread_state WHERE thread_id=?",
+    ).run(other, id);
+    db.prepare(
+      "INSERT OR REPLACE INTO engine_queue(thread_id,paused,reason,resume_at,timer_action) VALUES (?,1,'snooze',4000,'rewind')",
+    ).run(other);
+  });
+  h.clock.advance(5000);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual", resumeAt: null });
+  const deadline = () =>
+    h.store.atomic((db) =>
+      db.prepare("SELECT resume_at FROM engine_queue WHERE thread_id=?").get(other),
+    )?.resume_at;
+  expect(failures).toHaveLength(1);
+  expect(deadline()).toBe(6000);
+  // Still unreadable: tried again later and later, never every second.
+  h.clock.advance(6000);
+  expect(failures).toHaveLength(2);
+  expect(deadline()).toBe(8000);
+  h.clock.advance(7999);
+  expect(failures).toHaveLength(2);
+  // A new hold replaces that deadline: its retries start over, owing nothing to the old one.
+  h.store.atomic((db) =>
+    db
+      .prepare("UPDATE engine_queue SET resume_at=20000,hold_token=hold_token+1 WHERE thread_id=?")
+      .run(other),
+  );
+  h.clock.advance(8000);
+  expect(failures).toHaveLength(2);
+  h.clock.advance(20000);
+  expect(failures).toHaveLength(3);
+  expect(deadline()).toBe(21000);
+});
+
+test("a queued message whose trigger a newer build wrote is skipped at start, never stopping the engine", async () => {
+  const { h, id } = await limitedThread();
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE intents SET trigger='future_trigger' WHERE thread_id=? AND status IN ('pending','queued')",
+      )
+      .run(id),
+  );
+  const failures: unknown[] = [];
+  const recovered = await restart(h, { onError: (error) => failures.push(error) });
+  await expect(recovered.ready()).resolves.toBeUndefined();
+  expect(failures.map(String).join("\n")).toContain(id);
+  // Its rows stay for a build that reads them.
+  expect(
+    h.store.atomic((db) =>
+      db
+        .prepare("SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND trigger='future_trigger'")
+        .get(id),
+    )?.n,
+  ).toBeGreaterThan(0);
 });
 
 test("a resetless limit refuses a timed action, and the person's next message is sent, not held", async () => {
@@ -334,3 +451,149 @@ test("the default limit policy reloads layered settings when the active thread h
   await h.engine.flush();
   expect(h.engine.queue(id)).toMatchObject({ paused: true, resumeAt: 5000 });
 });
+
+test.each(["manual", "resume_at_reset", "snooze_until_reset"] as const)(
+  "a fresh message retries a timed limit under %s and cancels its continuation",
+  async (action) => {
+    const { h, id, replacement } = await limitedThread();
+    if (action !== "manual") {
+      expect(
+        h.command({
+          type: "thread.limit",
+          threadId: id,
+          expectedRevision: h.engine.queue(id).revision,
+          action,
+        }).ok,
+      ).toBe(true);
+    }
+    h.contexts[0]?.onExit({ deliberate: false, message: "quota exit" });
+    await h.engine.flush();
+    expect(h.command({ type: "thread.send", threadId: id, input: text("try again") }).ok).toBe(
+      true,
+    );
+    await h.engine.flush();
+    expect(sends(replacement).map((command) => command.input)).toEqual([
+      text("queued first"),
+      text("queued second"),
+      text("try again"),
+    ]);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, resumeAt: null, pendingCount: 0 });
+    h.clock.advance(5000);
+    await h.engine.flush();
+    expect(sends(replacement)).toHaveLength(3);
+  },
+);
+
+test("a fresh message preserves a manual pause during a usage limit", async () => {
+  const { h, id, replacement } = await limitedThread();
+  expect(
+    h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision })
+      .ok,
+  ).toBe(true);
+  h.command({ type: "thread.send", threadId: id, input: text("keep queued") });
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual" });
+  expect(h.engine.queue(id).messages.map((message) => message.input)).toEqual([
+    text("queued first"),
+    text("queued second"),
+    text("keep queued"),
+  ]);
+});
+
+test("a provider refusal holds the queue again after an early retry", async () => {
+  const { h, id, frames } = await limitedThread();
+  const replacement = replaceProvider(h, frames, [
+    { on: "send", frames: [frames.frame(start, quotaEnd, limited)] },
+  ]);
+  h.contexts[0]?.onExit({ deliberate: false, message: "quota exit" });
+  await h.engine.flush();
+  h.command({ type: "thread.send", threadId: id, input: text("try again") });
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(1);
+  expect(h.store.getThread(id)?.status).toEqual({ state: "limited", until: 4000 });
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit" });
+  expect(h.engine.queue(id).messages.map((message) => message.input)).toEqual([
+    text("queued second"),
+    text("try again"),
+  ]);
+});
+
+test.each(["resume_now", "resume_at_reset", "snooze_until_reset"] as const)(
+  "an unread usage-limit rejection returns to the strip and still supports %s",
+  async (action) => {
+    const { h, id, frames } = await limitedThread({
+      preferences: { limitPolicy: action === "resume_now" ? "manual" : action },
+    });
+    const replacement = replaceProvider(
+      h,
+      frames,
+      Array.from({ length: 4 }, () => ({
+        on: "send" as const,
+        frames: [frames.frame(start, end)],
+      })),
+    );
+    const adapter = h.registry.get("codex").adapter;
+    let refuse = true;
+    h.registry.register(
+      {
+        ...adapter,
+        async openSession(ctx) {
+          const session = await adapter.openSession(ctx);
+          const rejectedSession = refuse;
+          return {
+            ...session,
+            close: rejectedSession ? async () => {} : session.close,
+            async send(input, delivery, commandId) {
+              if (refuse) {
+                refuse = false;
+                ctx.onFrame(frames.frame(limited));
+                throw new InputRejected("Usage limit reached before input admission");
+              }
+              await session.send(input, delivery, commandId);
+            },
+          };
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    h.contexts[0]?.onExit({ deliberate: false, message: "quota exit" });
+    await h.engine.flush();
+    h.command({ type: "thread.send", threadId: id, input: text("try again") });
+    await h.engine.flush();
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit" });
+    if (action !== "resume_now") expect(h.engine.queue(id).resumeAt).toBe(4000);
+    expect(
+      h.engine
+        .queue(id)
+        .messages.map((message) => ({ input: message.input, state: message.state })),
+    ).toEqual([
+      { input: text("queued first"), state: "queued" },
+      { input: text("queued second"), state: "queued" },
+      { input: text("try again"), state: "queued" },
+    ]);
+    expect(
+      h.command({
+        type: "thread.limit",
+        threadId: id,
+        expectedRevision: h.engine.queue(id).revision,
+        action,
+      }).ok,
+    ).toBe(true);
+    if (action !== "resume_now") {
+      h.clock.advance(4000);
+      await h.engine.flush();
+      if (action === "snooze_until_reset") {
+        expect(sends(replacement)).toHaveLength(0);
+        expect(resume(h, h.engine, id).ok).toBe(true);
+      }
+    }
+    await h.engine.flush();
+    expect(
+      sends(replacement)
+        .slice(-3)
+        .map((command) => command.input),
+    ).toEqual([text("queued first"), text("queued second"), text("try again")]);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  },
+);

@@ -18,6 +18,8 @@ export interface InstallRuntime {
   schedule(callback: () => void, ms: number): () => void;
   changed(plan: ProviderInstallPlan, version?: string): Promise<void>;
   log(command: string): void;
+  /** Why a job failed, with its sanitized output, for the daemon log. */
+  failed?(plan: ProviderInstallPlan, message: string, output: readonly string[]): void;
   spawn?: typeof spawnSupervised;
 }
 interface Job {
@@ -28,7 +30,13 @@ interface Job {
   process?: SupervisedProcess;
   done?: Promise<void>;
   flush?: () => void;
+  /** When it reached a terminal state. */
+  finishedAt?: number;
+  /** Its owner has seen how it ended: live, by poll, or once through `active`. */
+  reported?: boolean;
 }
+/** How long a finished job's result waits for an owner that lost its session (an app relaunch). */
+export const unseenResultMs = 10 * 60_000;
 const terminal = (state: ProviderInstallProgress["state"]) =>
   ["succeeded", "failed", "cancelled", "needs_admin"].includes(state);
 /** Ephemeral sessions survive socket reconnects, retain bounded history, and own every process. */
@@ -116,6 +124,38 @@ export class ProviderInstalls {
       job.done = this.run(job);
       return reply({ ok: true, progress: job.progress });
     }
+    if (request.type === "provider.install.active") {
+      const running = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            !terminal(entry.progress.state) &&
+            entry.progress.provider === request.provider &&
+            entry.progress.agent === request.agent &&
+            entry.progress.acpAgentId === request.acpAgentId,
+        );
+      if (running) return reply({ ok: true, progress: running.progress });
+      // Else how its latest job ended, once, if the owner never saw it and it ended recently.
+      const ended = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            entry.progress.provider === request.provider &&
+            entry.progress.agent === request.agent &&
+            entry.progress.acpAgentId === request.acpAgentId,
+        );
+      if (
+        !ended ||
+        ended.reported ||
+        ended.finishedAt === undefined ||
+        this.runtime.now() - ended.finishedAt > unseenResultMs
+      )
+        return reply({ ok: false, error: "not_found" });
+      ended.reported = true;
+      return reply({ ok: true, progress: ended.progress });
+    }
     const job = this.jobs.get(request.session);
     if (!job) return reply({ ok: false, error: "not_found" });
     if (job.owner !== owner) return reply({ ok: false, error: "forbidden" });
@@ -124,6 +164,8 @@ export class ProviderInstalls {
       await job.process?.stop({ graceMs: 0 });
       await job.done;
     }
+    // Its owner reads how it ended in this reply.
+    if (terminal(job.progress.state)) job.reported = true;
     return reply({ ok: true, progress: job.progress });
   }
   private publish(job: Job, update: Partial<ProviderInstallProgress> = {}): void {
@@ -135,20 +177,30 @@ export class ProviderInstalls {
       sequence: job.progress.sequence + 1,
       lines: [...job.progress.lines],
     };
+    if (terminal(job.progress.state)) job.finishedAt ??= this.runtime.now();
     for (const listener of this.listeners) listener(job.owner, job.progress);
   }
-  private line(job: Job, text: string): void {
-    // Strip terminal control bytes before publishing installer output.
+  /** The owner's connected client was sent this progress; a terminal one counts as seen. */
+  delivered(progress: ProviderInstallProgress): void {
+    const job = this.jobs.get(progress.session);
+    if (job && terminal(progress.state)) job.reported = true;
+  }
+  /** Installer output as clients and logs may see it: redacted, without control bytes. */
+  private sanitize(text: string): string {
     // eslint-disable-next-line no-control-regex
     const safe = this.redact(stripVTControlCharacters(text)).replace(/[\x00-\x1f\x7f]/g, "");
-    const line = safe.length > 2048 ? `${safe.slice(0, 2036)} [truncated]` : safe;
+    return safe.length > 2048 ? `${safe.slice(0, 2036)} [truncated]` : safe;
+  }
+  private line(job: Job, text: string): void {
+    const line = this.sanitize(text);
     job.progress = { ...job.progress, lines: [...job.progress.lines.slice(-99), line] };
     if (!job.flush) job.flush = this.runtime.schedule(() => this.publish(job), 50);
   }
   private async run(job: Job): Promise<void> {
     const cancelDeadline = this.runtime.schedule(() => {
       job.abort.abort();
-      void job.process?.stop({ graceMs: 0 });
+      // Only a head start: the job's finally stops the same process again and reports there.
+      void job.process?.stop({ graceMs: 0 }).catch(() => {});
     }, 900_000);
     try {
       const plan = await this.planner.plan(
@@ -185,10 +237,12 @@ export class ProviderInstalls {
           maxOutputBytes: 16 * 1024 * 1024,
         });
         job.process = proc;
-        // The first lines say why a command failed; keep a few for the failure message.
+        // The first lines say why a command failed, the last ones how it ended; keep both.
         const output: string[] = [];
+        const tail: string[] = [];
         const take = (line: string) => {
           if (output.length < 20) output.push(line);
+          else if (tail.push(line) > 20) tail.shift();
           this.line(job, line);
         };
         proc.stdout.on("line", take);
@@ -198,11 +252,13 @@ export class ProviderInstalls {
         delete job.process;
         if (job.abort.signal.aborted) return;
         if (exit.code !== 0 || exit.reason !== "exit") {
-          this.publish(job, {
-            state: "failed",
-            exit: exit.code,
-            message: installFailureMessage(plan, output),
-          });
+          const message = installFailureMessage(plan, output);
+          this.runtime.failed?.(
+            plan,
+            `${message} (${command.display} exited ${exit.code ?? exit.reason})`,
+            [...output, ...tail].map((line) => this.sanitize(line)),
+          );
+          this.publish(job, { state: "failed", exit: exit.code, message });
           return;
         }
       }
@@ -216,13 +272,12 @@ export class ProviderInstalls {
       const version = registryVersion ?? (await this.planner.verify(plan, job.abort.signal));
       if (job.abort.signal.aborted) return;
       if (!version) {
-        this.publish(job, {
-          state: "failed",
-          message:
-            plan.action === "uninstall"
-              ? "The binary is still installed. Check for another installation."
-              : "The installed binary did not pass --version verification.",
-        });
+        const message =
+          plan.action === "uninstall"
+            ? "The binary is still installed. Check for another installation."
+            : "The installed binary did not pass --version verification.";
+        this.runtime.failed?.(plan, message, []);
+        this.publish(job, { state: "failed", message });
         return;
       }
       this.versions.invalidate(plan);
@@ -232,13 +287,16 @@ export class ProviderInstalls {
       if (job.abort.signal.aborted) return;
       if (refusal) this.publish(job, { state: "failed", message: refusal });
       else this.publish(job, { state: "succeeded", ...(version === "removed" ? {} : { version }) });
-    } catch {
-      if (!job.abort.signal.aborted)
-        this.publish(job, {
-          state: "failed",
-          message:
-            "Installer or discovery refresh failed. Check provider readiness before retrying.",
-        });
+    } catch (error) {
+      if (!job.abort.signal.aborted) {
+        const message =
+          "Installer or discovery refresh failed. Check provider readiness before retrying.";
+        if (job.progress.plan)
+          this.runtime.failed?.(job.progress.plan, message, [
+            this.sanitize(error instanceof Error ? error.message : String(error)),
+          ]);
+        this.publish(job, { state: "failed", message });
+      }
     } finally {
       cancelDeadline();
       await job.process?.stop({ graceMs: 0 });
@@ -258,7 +316,8 @@ export class ProviderInstalls {
     for (const job of this.jobs.values())
       if (!terminal(job.progress.state)) {
         job.abort.abort();
-        void job.process?.stop({ graceMs: 0 });
+        // Only a head start: the job's own finally stops the same process and reports there.
+        void job.process?.stop({ graceMs: 0 }).catch(() => {});
       }
     await Promise.allSettled(this.plans);
     await Promise.all([...this.jobs.values()].map((job) => job.done));

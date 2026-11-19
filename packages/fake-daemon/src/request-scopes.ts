@@ -13,6 +13,24 @@ const accountChanges = new Set([
   "accounts.logout",
 ]);
 
+/** Settings only an administrator device may write, as the daemon's settings service rules. */
+function adminSetting(key: string): boolean {
+  return (
+    key === "sourceControl.preferences" ||
+    key === "projects.roots" ||
+    key === "providers.configuration" ||
+    key === "computer.blockedApps" ||
+    key === "computer.lockedUse" ||
+    key === "providers.codex.toolSource" ||
+    key === "providers.claude.chrome" ||
+    key.startsWith("storage.") ||
+    key.startsWith("browser.download") ||
+    key.startsWith("host.") ||
+    key.startsWith("remote.") ||
+    key.startsWith("media.")
+  );
+}
+
 /**
  * The refusal `deviceId` gets for `message` when its scopes don't cover it: a reply to send,
  * `"silent"` when refused with nothing to answer, or undefined when the request may go on.
@@ -33,6 +51,28 @@ export function scopeRefusal(
       code: "forbidden",
       message: "accounts scope required",
       ...(requestId ? { requestId } : {}),
+    };
+  }
+  if (
+    (message.type === "settings.set" && adminSetting(message.key)) ||
+    (message.type === "settings.setMany" &&
+      message.entries.some((entry) => adminSetting(entry.key)))
+  ) {
+    if (scopes?.includes("admin")) return undefined;
+    return {
+      type: "error",
+      code: "forbidden",
+      message: "admin scope required",
+      ...(requestId ? { requestId } : {}),
+    };
+  }
+  if (message.type === "admission.request" && message.operation !== "status") {
+    if (scopes?.includes("operate")) return undefined;
+    return {
+      type: "admission.result",
+      requestId: message.requestId,
+      ok: false,
+      error: "forbidden",
     };
   }
   if (message.type.startsWith("provider.install.")) {
@@ -60,5 +100,79 @@ export function scopeRefusal(
       return { type: "onboarding.result", requestId, result };
     return { type: "provider.login.result", requestId, result };
   }
+  // As the daemon: anyone may read a machine's update; only an administrator changes it.
+  if (
+    message.type === "machineUpdate.request" &&
+    message.operation !== "status" &&
+    !scopes?.includes("admin")
+  )
+    return {
+      type: "machineUpdate.result",
+      requestId: message.requestId,
+      ok: false,
+      error: "forbidden",
+    };
+  if (message.type === "outside.request" && !scopes?.includes("admin"))
+    return {
+      type: "error",
+      code: "forbidden",
+      message: "Only an administrator can manage outside clients' access.",
+      requestId: message.requestId,
+    };
+  if (message.type === "fleet.request" && !scopes?.includes("admin"))
+    return {
+      type: "error",
+      code: "forbidden",
+      message: "Only an administrator can manage this machine's links and devices.",
+      requestId: message.requestId,
+    };
+  // As the daemon: a device grants only Projects or Accounts it holds, by a pairing link or by
+  // allowing a scope on another device.
+  if (message.type === "fleet.request" && scopes) {
+    const operation = message.operation;
+    const granted =
+      operation.op === "pairing"
+        ? operation.scopes
+        : operation.op === "scope" && operation.allowed
+          ? [operation.scope]
+          : [];
+    const missing = granted.find(
+      (scope) =>
+        (scope === "projects" || scope === "accounts") &&
+        !scopes.includes(scope) &&
+        !scopes.includes("desktop"),
+    );
+    if (missing)
+      return {
+        type: "error",
+        code: "forbidden",
+        message: `You can't grant ${missing === "projects" ? "Projects" : "Accounts"}: this device doesn't have it.`,
+        requestId: message.requestId,
+      };
+  }
+  // As the daemon: Use my Chrome (status included) and changing locked use are the owner's.
+  if (message.type === "user_browser.settings" && !scopes?.includes("admin"))
+    return {
+      type: "user_browser.settings.result",
+      requestId: message.requestId,
+      result: {
+        kind: "error",
+        code: "forbidden",
+        message: "Host administrator access is required.",
+      },
+    };
+  if (
+    (message.type === "lockedUse.install" ||
+      message.type === "lockedUse.remove" ||
+      message.type === "lockedUse.repair") &&
+    !scopes?.includes("admin")
+  )
+    return {
+      type: "lockedUse.result",
+      requestId: message.requestId,
+      ok: false,
+      code: "forbidden",
+      reason: "Only this Mac's owner can change this.",
+    };
   return undefined;
 }

@@ -1,71 +1,120 @@
+import { PushPinIcon } from "@ace/icons";
 import {
-  formatAgo,
-  resetCountdown,
-  staleReadingMs,
+  limitDetails,
+  railBars,
+  joinNames,
+  limitLine,
   type AccountLimits,
   type AccountWindow,
-  type LimitPace,
-  type ProviderLimits,
   type UsageLimits,
 } from "@ace/ui-core";
+import { Fragment } from "react";
+import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
+import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import type { Machine } from "@/lib/machines.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
 import { cn } from "@/lib/cn.ts";
-import { formatResets } from "@/features/accounts/index.ts";
+import { part } from "@/lib/suit-part.ts";
+import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
+import { LimitBar } from "./limit-bar.tsx";
 
 /**
- * Limits, account first: each provider's accounts listed once, each with its windows beneath it.
- * Every figure says what is left; resets, banked resets and pace are plain words.
+ * Limits, one account at a time with each of its windows (a session, a week, a model's own week,
+ * whatever its provider reports) as a grey bar of what is left: solid for what the pace leaves at
+ * the reset, faint for what it will use. Every row ends in when it comes back; a window that is
+ * out, or runs out before its reset at this pace, says both times in full ink, never in red.
+ * Providers that report nothing, and accounts ace can't tell apart, close it as one footnote.
  */
 export function LimitsView(props: {
   limits: UsageLimits;
   now: number;
+  /** The machine an account was read on, for its mark beside its name. */
+  machineOf?(entry: AccountLimits): Machine | undefined;
+  /** Pinning to this device's rail: the pinned account ids, and pin or unpin one. */
+  pins?: RailPinning | undefined;
+  /** Show the account's spend: its name is a button for it. */
+  onAccount?(entry: AccountLimits): void;
   redeem?: RedeemReset | undefined;
 }) {
-  const { providers, quiet } = props.limits;
+  const { providers, quiet, unsure } = props.limits;
+  const footnote = [quiet.length ? `No limits reported for ${joinNames(quiet)}.` : "", ...unsure]
+    .filter(Boolean)
+    .join(" ");
+  const machine =
+    new Set(providers.flatMap((group) => group.accounts.map((each) => each.environment))).size > 1;
+  const rows = providers.flatMap((group) => group.accounts.map((entry) => ({ group, entry })));
   return (
-    <div className="flex flex-col gap-10">
-      {providers.map((group) => (
-        <ProviderSection key={group.key} group={group} now={props.now} redeem={props.redeem} />
+    <div {...part("list", undefined, "limits")} className="@container/limits">
+      {rows.map(({ group, entry }, index) => (
+        <AccountBlock
+          key={entry.key}
+          first={index === 0}
+          entry={entry}
+          provider={group.providerLabel}
+          machine={machine}
+          machineOf={props.machineOf}
+          pins={props.pins}
+          now={props.now}
+          onShow={props.onAccount && (() => props.onAccount?.(entry))}
+          redeem={props.redeem}
+        />
       ))}
-      {quiet.length > 0 && (
-        <p className="text-xs text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
+      {footnote && (
+        <p data-testid="limits-footnote" className="mt-3 text-xs text-subtle-foreground">
+          {footnote}
+        </p>
       )}
     </div>
   );
 }
 
-function ProviderSection(props: {
-  group: ProviderLimits;
-  now: number;
-  redeem?: RedeemReset | undefined;
-}) {
-  const { group } = props;
+function EntryMachineMark(props: { machine: Machine | undefined }) {
+  if (!props.machine) return null;
   return (
-    <section aria-labelledby={`limits-${group.key}`}>
-      <h2
-        id={`limits-${group.key}`}
-        className="flex items-center gap-2 border-b border-border pb-3.5 font-prose text-base font-semibold"
+    <MachineMark icon={props.machine.icon} primary={props.machine.primary} size={12} decorative />
+  );
+}
+
+/** The accounts pinned to this device's rail, and the way to change them. */
+export interface RailPinning {
+  ids: readonly string[];
+  toggle(id: string): void;
+}
+
+/**
+ * Pin an account to the rail, so its bar and card show it instead of the accounts used most. A
+ * pinned account keeps its pin in view; others show theirs under the pointer or focus. Four at
+ * most, as the rail draws four.
+ */
+function PinButton(props: { id: string; name: string; pins: RailPinning }) {
+  const pinned = props.pins.ids.includes(props.id);
+  const full = !pinned && props.pins.ids.length >= railBars;
+  const label = pinned
+    ? `Unpin ${props.name} from the rail`
+    : full
+      ? `The rail shows ${railBars} accounts; unpin one to pin ${props.name}`
+      : `Pin ${props.name} to the rail`;
+  return (
+    <Tip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pinned}
+        aria-disabled={full || undefined}
+        onClick={() => {
+          if (!full) props.pins.toggle(props.id);
+        }}
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring",
+          !pinned && "opacity-0 group-hover/account:opacity-100 focus-visible:opacity-100",
+          full && "cursor-not-allowed hover:text-subtle-foreground",
+        )}
       >
-        <ProviderIcon
-          provider={group.provider}
-          acpAgentId={group.acpAgentId}
-          size={14}
-          decorative
-        />
-        {group.providerLabel}
-      </h2>
-      {group.accounts.map((entry) => (
-        <Account
-          key={entry.key}
-          entry={entry}
-          provider={group.providerLabel}
-          now={props.now}
-          redeem={props.redeem}
-        />
-      ))}
-    </section>
+        <PushPinIcon size={14} weight={pinned ? "fill" : "regular"} aria-hidden />
+      </button>
+    </Tip>
   );
 }
 
@@ -74,186 +123,189 @@ const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1)
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const expiry = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
-function Account(props: {
+function AccountBlock(props: {
   entry: AccountLimits;
   provider: string;
+  machine: boolean;
+  machineOf?: ((entry: AccountLimits) => Machine | undefined) | undefined;
+  pins?: RailPinning | undefined;
   now: number;
+  first: boolean;
+  onShow?: (() => void) | undefined;
   redeem?: RedeemReset | undefined;
 }) {
   const { entry } = props;
   const banked = entry.bankedResets;
+  const canUse = props.redeem !== undefined || entry.account.provider === "claude";
+  const name = `${props.provider} · ${entry.account.label}`;
+  const plan = entry.plan && planLabel(entry.plan);
   return (
     <article
-      aria-label={`${props.provider} · ${entry.account.label} · ${entry.environment}`}
-      className="grid gap-x-8 gap-y-3 border-b border-border-soft py-4 last:border-b-0 sm:grid-cols-[15rem_minmax(0,1fr)]"
+      {...part("list-group")}
+      aria-label={`${name} · ${entry.environment}`}
+      className={cn("py-4", !props.first && "border-t border-border")}
     >
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold break-words">{entry.account.label}</h3>
-        <p className="text-ui text-subtle-foreground">
-          {entry.plan ? `${planLabel(entry.plan)} · ${entry.environment}` : entry.environment}
-        </p>
-        {banked !== undefined && banked > 0 && (
-          <Tip
-            label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it.${
-              entry.bankedExpiresAt !== null
-                ? ` The next expires ${expiry.format(entry.bankedExpiresAt)}.`
-                : ""
-            }`}
-          >
-            <span
-              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-              tabIndex={0}
-              className="mt-2.5 inline-block rounded-xs text-xs text-muted-foreground underline decoration-faint-foreground decoration-dotted underline-offset-3 focus-ring"
+      <div className="group/account flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <h4 className="flex min-w-0 items-center gap-2 text-md font-medium">
+          <ProviderIcon
+            provider={entry.account.provider}
+            acpAgentId={entry.account.acpAgentId}
+            size={16}
+            decorative
+          />
+          {props.onShow ? (
+            <button
+              type="button"
+              onClick={props.onShow}
+              aria-label={`${name}: show its spend`}
+              className="truncate rounded-xs hover:underline focus-ring"
             >
-              {plural(banked, "banked reset")}
-            </span>
-          </Tip>
+              {name}
+            </button>
+          ) : (
+            <span className="truncate">{name}</span>
+          )}
+        </h4>
+        {(plan || props.machine) && (
+          <span className="flex min-w-0 items-center gap-x-1.5 text-xs text-subtle-foreground">
+            {plan}
+            {plan && props.machine && <span aria-hidden>·</span>}
+            {props.machine && (
+              <span className="flex min-w-0 items-center gap-1">
+                <EntryMachineMark machine={props.machineOf?.(entry)} />
+                <span className="truncate">{entry.environment}</span>
+              </span>
+            )}
+          </span>
         )}
+        {/* The rail reads this machine's accounts, so only they pin to it. Last in the line, so a
+            hidden pin leaves no gap. */}
+        {props.pins && props.machineOf?.(entry)?.primary && (
+          <PinButton id={entry.account.id} name={name} pins={props.pins} />
+        )}
+        {entry.account.isDefault && <span className="sr-only">Used for new threads</span>}
         {banked !== undefined && banked > 0 && (
-          <div>
-            <BankedResetAction entry={entry} redeem={props.redeem} />
-          </div>
+          <span className="ml-auto flex items-baseline gap-x-1 text-xs text-subtle-foreground">
+            <Tip
+              label={`Each banked reset resets this account's limits once, when you redeem it.${
+                entry.bankedExpiresAt !== null
+                  ? ` The next expires ${expiry.format(entry.bankedExpiresAt)}.`
+                  : ""
+              }`}
+            >
+              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
+              <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
+                {plural(banked, "banked reset")}
+              </span>
+            </Tip>
+            {canUse && (
+              <>
+                <span aria-hidden>·</span>
+                <BankedResetAction entry={entry} redeem={props.redeem} />
+              </>
+            )}
+          </span>
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-3">
-        <ul aria-label={`${entry.account.label} limits`} className="flex flex-col gap-3">
-          {entry.windows.map((window) => (
-            <WindowLine key={window.id} window={window} now={props.now} />
-          ))}
-        </ul>
-        {entry.signIn && <p className="text-ui text-muted-foreground">{entry.signIn}</p>}
-        {entry.noSessionWindow && (
-          <p className="text-xs text-subtle-foreground">
-            No session (5h) limit reported for this account
-          </p>
-        )}
-      </div>
+      {entry.signIn ? (
+        <p className="mt-2 text-ui text-muted-foreground">{entry.signIn}</p>
+      ) : (
+        entry.windows.length > 0 && (
+          <ul aria-label={`${entry.account.label} limits`} className="mt-1.5 flex flex-col gap-0.5">
+            {entry.windows.map((window) => (
+              <WindowRow key={window.id} window={window} now={props.now} />
+            ))}
+          </ul>
+        )
+      )}
+      {entry.noSessionWindow && (
+        <p className="mt-2 text-xs text-subtle-foreground">
+          No session (5h) limit reported for this account
+        </p>
+      )}
     </article>
   );
 }
 
-const paceText: Record<Exclude<LimitPace, "on_pace">, { label: string; tip: string }> = {
-  ahead: {
-    label: "Ahead of pace",
-    tip: "Ahead of pace: at this rate the window runs out before it resets.",
-  },
-  behind: {
-    label: "Under pace",
-    tip: "Under pace: this window will last until it resets with room to spare.",
-  },
-};
-
-function Pace(props: { pace: LimitPace | undefined }) {
-  if (!props.pace || props.pace === "on_pace") return null;
-  const text = paceText[props.pace];
-  return (
-    <Tip label={text.tip}>
-      <span
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-        tabIndex={0}
-        className={cn(
-          "block w-fit rounded-xs text-2xs underline decoration-dotted underline-offset-3 focus-ring",
-          props.pace === "ahead" ? "text-status-needs-you" : "text-subtle-foreground",
-        )}
-      >
-        {text.label}
-      </span>
-    </Tip>
-  );
-}
-
-/** A reading older than this says how old it is, and no longer counts as a limit. */
-const freshMs = staleReadingMs;
-
-function WindowLine(props: { window: AccountWindow; now: number }) {
-  const { window, now } = props;
-  if (window.stale) return <StaleLine window={window} now={now} />;
-  const countdown = resetCountdown(window.resetsAt, now);
-  const out = window.leftPercent === 0;
-  const old = now - window.observedAt > freshMs;
-  return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[13.75rem_5.25rem_minmax(0,1fr)_7.5rem]">
-      <div className="min-w-0">
-        <span className="block text-ui break-words text-muted-foreground">{window.label}</span>
-        <Pace pace={window.pace} />
-      </div>
-      <p className="text-right whitespace-nowrap">
-        <span
-          className={cn(
-            "font-prose text-lg leading-none font-semibold tabular-nums",
-            out && "text-status-failed",
-          )}
-        >
-          {window.leftPercent}%
-        </span>{" "}
-        <span className="text-xs text-subtle-foreground">left</span>
-      </p>
-      <div
-        role="meter"
-        aria-label={window.label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={window.leftPercent}
-        aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}${old ? `, as of ${formatAgo(window.observedAt, now)}` : ""}`}
-        className={cn(
-          "relative col-span-2 h-0.5 sm:col-span-1",
-          out ? "bg-status-failed/50" : "bg-border",
-        )}
-      >
-        <span
-          aria-hidden
-          style={{ width: `${window.leftPercent}%` }}
-          className="absolute inset-y-0 left-0 bg-foreground"
-        />
-      </div>
-      <div className="col-span-2 sm:col-span-1 sm:text-right">
-        <p
-          className={cn(
-            "text-xs whitespace-nowrap sm:text-ui",
-            out ? "text-status-failed" : "text-subtle-foreground",
-          )}
-        >
-          {countdown === null || window.resetsAt === null ? (
-            "Reset not reported"
-          ) : (
-            <Tip label={formatResets(window.resetsAt, now)}>
-              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-              <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
-                {out ? "Back in" : "Resets in"} {countdown}
-              </span>
-            </Tip>
-          )}
-        </p>
-        {old && (
-          <p className="text-2xs text-faint-foreground">
-            As of {formatAgo(window.observedAt, now)}
-          </p>
-        )}
-      </div>
-    </li>
-  );
-}
-
 /**
- * A window whose reset passed after its last reading: what is left now is unknown until the
- * provider reports again, so it shows no figure, only how old the reading is.
+ * Label · bar · share left · when. Wide, one line; narrow, the label and share left share the
+ * first line and the bar and when sit under them.
  */
-function StaleLine(props: { window: AccountWindow; now: number }) {
+const rowGrid = cn(
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5",
+  "@min-[40rem]/limits:grid-cols-[minmax(6rem,9rem)_minmax(0,1fr)_4.25rem_minmax(10rem,14rem)]",
+);
+
+function WindowRow(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
+  const when = limitLine(window, now);
+  const cells = (
+    <>
+      <span title={window.label} className="truncate text-ui text-muted-foreground">
+        {window.label}
+      </span>
+      <span
+        className={cn(
+          "text-right text-md font-semibold tabular-nums @min-[40rem]/limits:order-3",
+          window.stale && "font-normal text-subtle-foreground",
+        )}
+      >
+        {window.stale ? "–" : `${window.leftPercent}%`}
+        {!window.stale && <span className="text-xs font-normal text-subtle-foreground"> left</span>}
+      </span>
+      <div className="col-span-2 @min-[40rem]/limits:order-2 @min-[40rem]/limits:col-span-1">
+        <LimitBar window={window} />
+      </div>
+      <span className="col-span-2 truncate text-xs text-subtle-foreground tabular-nums @min-[40rem]/limits:order-4 @min-[40rem]/limits:col-span-1 @min-[40rem]/limits:text-right">
+        <span className={cn(when.strong && "font-medium text-foreground")}>{when.lead}</span>
+        {when.rest && <span className="ml-1.5">{when.rest}</span>}
+      </span>
+    </>
+  );
   return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[13.75rem_5.25rem_minmax(0,1fr)_7.5rem]">
-      <span className="text-ui break-words text-muted-foreground">{window.label}</span>
-      <p className="text-right font-prose text-lg leading-none text-faint-foreground">—</p>
-      <div
-        aria-hidden
-        className="col-span-2 h-0.5 border-t border-dashed border-border sm:col-span-1"
-      />
-      <p className="col-span-2 text-xs text-subtle-foreground sm:col-span-1 sm:text-right">
-        {window.resetsAt !== null && `Reset ${formatAgo(window.resetsAt, now)}`}
-        <span className="block text-2xs text-faint-foreground">
-          Read {formatAgo(window.observedAt, now)}
-        </span>
-      </p>
+    <li {...part("list-row")}>
+      <HoverCard>
+        <HoverCardTrigger
+          // Opens once the pointer settles; leaving the row closes it at once.
+          delay={300}
+          closeDelay={0}
+          // A focusable group, so the keyboard opens its card too; its meter stays inside it.
+          render={<div role="group" />}
+          tabIndex={0}
+          aria-label={`${window.label}: ${window.stale ? "not used since its reset" : `${window.leftPercent}% left`}, ${when.spoken}`}
+          className={cn(
+            rowGrid,
+            "-mx-2 rounded-md px-2 py-1.5 transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
+          )}
+        >
+          {cells}
+        </HoverCardTrigger>
+        <HoverCardContent
+          side="top"
+          align="center"
+          sideOffset={6}
+          aria-label={`${window.label} details`}
+          className="w-72 px-3 py-2.5"
+        >
+          <p className="mb-1.5 text-ui font-medium text-foreground">{window.label}</p>
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs tabular-nums">
+            {limitDetails(window, now).map((line) => (
+              <Fragment key={line.label}>
+                <dt className="text-subtle-foreground">{line.label}</dt>
+                <dd
+                  className={cn(
+                    "text-right",
+                    "text-foreground",
+                    line.tone === "out" && "font-medium",
+                  )}
+                >
+                  {line.value}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </HoverCardContent>
+      </HoverCard>
     </li>
   );
 }

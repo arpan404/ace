@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVisibilitySet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "visibility": {
+      "$ref": "https://ace.local/protocol/v1/MarketVisibility.json"
+    }
+  },
+  "required": [
+    "visibility"
+  ],
+  "type": "object"
+}

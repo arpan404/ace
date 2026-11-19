@@ -4,6 +4,7 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { archiveAnyway } from "@/test/archive-question.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -15,16 +16,14 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
-/** The question archiving a thread that still works asks first. */
-const keep = () => screen.queryByRole("button", { name: "Archive, keep running" });
 
 async function openHome() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openHome>>;
@@ -47,9 +46,9 @@ async function archive(app: App, title: RegExp, id: string) {
   await userEvent.pointer({ keys: "[MouseRight]", target });
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  // A thread still working asks first; these tests keep it running.
-  await waitFor(() => expect(listed(app, id)?.archivedAt ?? keep()).toBeTruthy());
-  const ask = keep();
+  // A thread still working, or one that left a command running, asks first; these tests archive.
+  await waitFor(() => expect(listed(app, id)?.archivedAt ?? archiveAnyway()).toBeTruthy());
+  const ask = archiveAnyway();
   if (ask) await userEvent.click(ask);
   await waitFor(() => expect(listed(app, id)?.archivedAt).toBeDefined());
 }

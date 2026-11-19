@@ -9,6 +9,10 @@
       "default": false,
       "type": "boolean"
     },
+    "blocksPrompts": {
+      "const": true,
+      "type": "boolean"
+    },
     "childAgentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
@@ -30,6 +34,15 @@
         "other"
       ],
       "type": "string"
+    },
+    "listening": {
+      "items": {
+        "maximum": 65535,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "type": "array"
     },
     "outputPath": {
       "type": "string"
@@ -66,6 +79,10 @@
     },
     "toolCallId": {
       "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "wakesAgent": {
+      "const": false,
+      "type": "boolean"
     }
   },
   "required": [

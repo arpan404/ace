@@ -2,7 +2,13 @@ import { Worker } from "node:worker_threads";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceId, Event, type NotificationDevice, type Notification } from "@ace/protocol";
+import {
+  DeviceId,
+  Event,
+  ThreadId,
+  type NotificationDevice,
+  type Notification,
+} from "@ace/protocol";
 import { expect, it } from "vitest";
 import { NotificationWorker, attachNotifications } from "./index.ts";
 
@@ -287,5 +293,126 @@ it("keeps working when Node tooling posts its own records on the worker channel"
     await expect(worker.cursor()).resolves.toBe(0);
   } finally {
     await worker.close();
+  }
+});
+
+it("a notification worker from another build refuses to start, so no frame in another shape is taken", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    // What a daemon of another build sends: its own channel shape.
+    spawn: (entry, options) =>
+      new Worker(entry, { ...options, workerData: { ...options.workerData, shape: "other" } }),
+    schedule: () => () => {},
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    await expect(worker.cursor()).rejects.toThrow();
+  } finally {
+    await worker.close().catch(() => {});
+  }
+});
+
+it("arguments the daemon was handed are bounded before they reach the worker", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const long = DeviceId.parse("d".repeat(201));
+    await expect(worker.connectDevice(long)).rejects.toThrow();
+    await expect(worker.disconnect("s".repeat(201))).rejects.toThrow();
+    await expect(
+      worker.markRemote(Array.from({ length: 257 }, (_, i) => ThreadId.parse(`t${i}`))),
+    ).rejects.toThrow();
+    await expect(worker.snooze(ThreadId.parse("thread"), -1)).rejects.toThrow();
+    // The worker is still answering: only the out-of-bounds calls were refused.
+    await expect(worker.cursor()).resolves.toBe(0);
+    await expect(worker.connectDevice(DeviceId.parse("device"))).resolves.toBeUndefined();
+  } finally {
+    await worker.close();
+  }
+});
+
+it("a stretch of streamed deltas reaches the worker as one cursor advance, and the done status after it still alerts", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-notify-hold-"));
+  const delivered: Notification[] = [];
+  const ingests: unknown[] = [];
+  const holds: (() => void)[] = [];
+  const worker = new NotificationWorker({
+    path: join(home, "notify.sqlite"),
+    windowMs: 0,
+    spawn(entry, options) {
+      const spawned = new Worker(entry, options);
+      // What crosses to the worker is the cost under test: each ingest is a round trip.
+      const post = spawned.postMessage.bind(spawned);
+      spawned.postMessage = (message: unknown, transfer?: never) => {
+        const call = Reflect.get(Object(message), "call");
+        if (Reflect.get(Object(call), "method") === "ingest") ingests.push(call);
+        post(message, transfer);
+      };
+      return spawned;
+    },
+    holdTimer(_delay, release) {
+      const fire = () => {
+        holds.splice(holds.indexOf(fire), 1);
+        release();
+      };
+      holds.push(fire);
+      return () => holds.splice(holds.indexOf(fire), 1);
+    },
+    transport: {
+      async send(_device, notification) {
+        delivered.push(notification);
+        return "accepted";
+      },
+    },
+  });
+  const now = Date.now();
+  const event = (seq: number, payload: unknown) =>
+    Event.parse({ seq, id: `e${seq}`, threadId: "t", at: now, payload });
+  const delta = (seq: number) =>
+    event(seq, { type: "item.delta", itemId: "i", agentId: "a", field: "text", append: "x" });
+  try {
+    await worker.connectDevice(DeviceId.parse("device"));
+    const thread = {
+      id: "t",
+      workspaceId: "w",
+      provider: "codex",
+      title: "Streaming",
+      status: { state: "working", agents: 1 },
+      createdAt: now,
+      updatedAt: now,
+    };
+    await worker.ingest([event(1, { type: "thread.created", thread })]);
+    ingests.length = 0;
+    // Live batches, one delta each, as the store publishes them.
+    for (let seq = 2; seq <= 101; seq++) await worker.ingest([delta(seq)]);
+    expect(ingests).toEqual([]);
+    // The hold ends on its timer: the whole stretch is one advance.
+    holds[0]?.();
+    expect(await worker.cursor()).toBe(101);
+    expect(ingests).toEqual([{ method: "ingest", afterSeq: 1, throughSeq: 101, events: [] }]);
+    // A notice joins the stretch held before it, and alerts as soon as it arrives.
+    ingests.length = 0;
+    for (let seq = 102; seq <= 120; seq++) await worker.ingest([delta(seq)]);
+    await worker.ingest([event(121, { type: "thread.updated", status: { state: "done" } })]);
+    expect(ingests).toMatchObject([{ afterSeq: 101, throughSeq: 121 }]);
+    expect(holds).toEqual([]);
+    await worker.drain();
+    expect(delivered).toMatchObject([{ threadId: "t", status: "done" }]);
+    // A held stretch is never lost: reading the cursor sends it first.
+    for (let seq = 122; seq <= 130; seq++) await worker.ingest([delta(seq)]);
+    expect(await worker.cursor()).toBe(130);
+  } finally {
+    await worker.close();
+    rmSync(home, { recursive: true, force: true });
   }
 });

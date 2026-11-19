@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketPublisherBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "entries": {
+      "items": {},
+      "maxItems": 500,
+      "type": "array"
+    },
+    "pinned": {
+      "items": {},
+      "maxItems": 6,
+      "type": "array"
+    },
+    "profile": {
+      "$ref": "https://ace.local/protocol/v1/MarketProfile.json"
+    }
+  },
+  "required": [
+    "profile",
+    "pinned",
+    "entries",
+    "downloads"
+  ],
+  "type": "object"
+}

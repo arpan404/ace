@@ -255,44 +255,6 @@ test("a Claude-spelled thread_control call reads as the action it took", () => {
   );
 });
 
-const offshiftWords = (args: Record<string, unknown>) =>
-  aceStep(mcp("mcp__ace__offshift", args, { server: "claude" }))?.words;
-
-test("an offshift call reads as the record it changed", () => {
-  const words = offshiftWords;
-  expect(words({ action: "advance", runId: "r", phase: "review" })?.past).toBe(
-    "Moved an Offshift run to review",
-  );
-  expect(
-    words({ action: "evidence", evidence: { criterionId: "restore", result: "fail" } }),
-  ).toMatchObject({ past: "Recorded a failing check", target: "restore" });
-  expect(
-    words({ action: "evidence", evidence: [{ criterionId: "restore", result: "pass" }] }),
-  ).toMatchObject({ past: "Recorded a passing check", target: "restore" });
-  expect(
-    words({
-      action: "evidence",
-      evidence: [
-        { criterionId: "restore", result: "pass" },
-        { criterionId: "undo", result: "fail" },
-        { criterionId: "redo", result: "pass" },
-      ],
-    })?.past,
-  ).toBe("Recorded 3 checks, 1 failing");
-  expect(words({ action: "revise", criterion: { id: "restore" } })).toMatchObject({
-    past: "Revised a criterion",
-    target: "restore",
-  });
-  expect(words({ action: "list" })?.past).toBe("Listed Offshift runs");
-  expect(words({ action: "step", stepId: "reproduce", state: "skipped" })).toMatchObject({
-    past: "Skipped a step",
-    target: "reproduce",
-  });
-  expect(words({ action: "step", stepId: "reproduce", state: "done" })?.past).toBe(
-    "Finished a step",
-  );
-});
-
 test("delegating several tasks counts them; one task quotes its words", () => {
   const tasks = [
     { requestId: "a", task: "Write the parser", role: "parser" },
@@ -344,6 +306,8 @@ test("a background look or a single action reads as what it did in the app it na
   expect(words("screen_apps", { query: "calc" })?.past).toBe("Searched apps for “calc”");
   expect(words("screen_state", { app: "Calculator" })?.past).toBe("Looked at Calculator");
   expect(words("screen_state", { app: "com.apple.TextEdit" })?.running).toBe("Looking at TextEdit");
+  expect(words("screen_display", {})?.past).toBe("Looked at the displays");
+  expect(words("screen_display", { display: 2 })?.running).toBe("Looking at display 2");
   const act = (action: Record<string, unknown>, app = "com.apple.TextEdit") =>
     words("screen_act", { app, actions: [action] })?.past;
   expect(act({ type: "menu", path: ["File", "New"] })).toBe("Chose File › New in TextEdit");

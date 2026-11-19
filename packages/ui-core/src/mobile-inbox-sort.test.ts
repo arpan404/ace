@@ -120,3 +120,38 @@ test("two machines sorted by hand merge into the one order their places say", ()
     rows.toSorted((x, y) => (x.rank < y.rank ? -1 : x.rank > y.rank ? 1 : 0)).map((r) => r.key),
   ).toEqual(["mac/a", "pc/b", "mac/c", "pc/d"]);
 });
+
+const pinnedAt = (machine: string, id: string, pinOrder: number | undefined, extra = {}) =>
+  on(
+    machine,
+    entry(id, { state: "done" }, now, {
+      pinned: true,
+      ...(pinOrder === undefined ? {} : { pinOrder }),
+      ...extra,
+    }),
+  );
+
+test("pinned threads lead the inbox in their own order, whatever the sort or their state", () => {
+  const asking = on(
+    "mac",
+    entry("asking", { state: "needs_you", interactions: 1 }, now, { pinned: true, pinOrder: 1 }),
+  );
+  const threads = [busy, asking, pinnedAt("mac", "top", 5), pinnedAt("mac", "old", undefined)];
+  for (const sortBy of ["activity", "created", "manual"] as const) {
+    const result = inboxSections(threads, [], now, { sortBy });
+    expect(result[0]?.label).toBe("Pinned");
+    expect(result[0]?.keys).toEqual(["mac/top", "mac/asking", "mac/old"]);
+  }
+  expect(sections(threads, "activity").Working).toEqual(["mac/busy"]);
+});
+
+test("two machines' pins merge into the one order their places say", () => {
+  const mac = inboxSections([pinnedAt("mac", "a", 9), pinnedAt("mac", "c", 4.5)], [], now);
+  const pc = inboxSections([pinnedAt("pc", "b", 7), pinnedAt("pc", "d", -1)], [], now);
+  const rows = [...mac, ...pc].flatMap((section) =>
+    section.keys.map((key, index) => ({ key, rank: section.ranks[index] ?? "" })),
+  );
+  expect(
+    rows.toSorted((x, y) => (x.rank < y.rank ? -1 : x.rank > y.rank ? 1 : 0)).map((r) => r.key),
+  ).toEqual(["mac/a", "pc/b", "mac/c", "pc/d"]);
+});

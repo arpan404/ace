@@ -8,9 +8,9 @@ The approved design prototype is the reference for values. The code that owns ea
 
 | Part                      | Owner                                                                             |
 | ------------------------- | --------------------------------------------------------------------------------- |
-| Palettes and neutral ramp | `apps/web/src/theme/palettes.ts`                                                  |
+| Palettes and neutral ramp | `packages/themes/src/palettes.ts`                                                 |
 | Palette → CSS variables   | `apps/web/src/theme/tokens.ts`, `apps/web/src/theme/css.ts`                       |
-| WCAG checks               | `apps/web/src/theme/contrast.ts`, `apps/web/src/theme/surfaces.ts`                |
+| WCAG checks               | `apps/web/src/theme/contrast.ts`, `packages/themes/src/surfaces.ts`               |
 | Settings and resolution   | `apps/web/src/theme/appearance.ts`, `theme-provider.tsx`                          |
 | Pre-paint replay          | `apps/web/index.html` (inline boot script)                                        |
 | Static tokens             | `apps/web/src/styles/tokens.css`                                                  |
@@ -273,22 +273,39 @@ Keep glass cheap:
 
 Animate only `transform` and `opacity`. JS timers read `motionMs` from `@ace/ui-core`.
 
-Only live-activity indicators run forever: the spinner, the working glyph's walk, the sidebar's
-dashed working mark, the startup mark's breath, the indeterminate progress sweep and Tailwind's
-`animate-pulse`. Each shows work happening right now and goes away when it ends. They move only
-transform or opacity and pause and dim only while the daemon is unreachable (reconnecting,
-offline or failed), never while it connects or starts. They keep running under reduced motion, as
-macOS keeps its own activity indicators: a still spinner reads as a hung app. The progress sweep,
-the one that travels, breathes in place instead.
-`bun run check:ui` refuses any other `infinite` animation, and `apps/web/motion-css.test.ts`
-builds the stylesheet to check every animation it names has keyframes.
+Nothing loops forever. Live state is shown by a still mark: the status glyphs (working is a ring
+split in two, background an open ring around a dot, subagents three arcs; each drawn unlike every
+settled state), the Spinner's ring, the streaming caret, a working subagent's activity and the
+title of a tab an agent drives in foreground ink. An infinite animation keeps the compositor
+drawing frames for as long as anything works, in every thread the sidebar shows: measured with an
+agent working and nothing streaming, looping indicators took idle CPU from 6% to 39%, and even
+stepped motion left 20%. Live marks dim while the daemon is unreachable (reconnecting, offline or
+failed), never while it connects or starts; a glyph whose facts are stale dims the same way.
+
+Three animations may repeat, each tied to something the person is waiting on:
+
+- `.fx-breathe`, the startup mark's breath, only while ace starts.
+- `.fx-indeterminate`, a progress bar that can't tell how far along it is, only during that
+  transfer: a frozen indeterminate bar would read as stuck. Under reduced motion it breathes in
+  place instead of sweeping.
+- `.fx-alive`, a live agent's provider mark in the Summary's agent tree, only while that agent or
+  anything under it works or waits and only while the Summary is open (ADR 0108). It is the tree's
+  one status mark, standing in for the status glyphs there; it holds still under reduced motion
+  and while facts are stale. The owner chose it over a still mark on 2026-11-01, after comparing
+  the two side by side.
+
+Finite motion stays: entrances and exits, and a live step's words sweep three times when the step
+starts (`.step-shimmer`) and then hold still. `bun run check:ui` refuses any other `infinite`
+animation; `apps/web/motion-css.test.ts` builds the stylesheet to check every animation it names
+has keyframes and none but those three loops; `tools/web-perf/src/live-motion.process.test.ts`
+checks the production build with an agent working runs no endless animation.
 
 **Reduce motion** is System, On or Off. `<html>` gets `data-reduce-motion` when the setting is
 On, or when it's System and the OS prefers reduced motion. Under it:
 
 - Fades stay. Distances (`--rise`, `--slide`) become 0, `--ease-spring` falls back to `--ease-out`,
   and Base UI popups don't scale.
-- Live activity indicators keep running (see above).
+- Live marks are still anyway; the indeterminate progress bar breathes instead of sweeping.
 - Anything marked `.fx-flourish` stops. Use it for sheens, glows and trails such as the Ultra
   effort sheen.
 - Fixed slides opt out with `motion-reduce:` utilities. For example, sheets don't slide in from
@@ -379,7 +396,7 @@ paints ace in the OS scheme. Reloading in any theme or mode never flashes the wr
 - "Working for…" sits at the top of the turn.
 - Consecutive tool calls group into one summary row. The newest call stays visible and the rest
   sit behind a toggle. Exploration calls collapse into "Explored …".
-- Every row has a real icon (Phosphor). Browser and computer-use rows show the site favicon or the
+- Every row has a real icon (ace's set). Browser and computer-use rows show the site favicon or the
   app icon.
 - A finished turn folds into "Worked for X ›" and loads its steps lazily on expand. These stay
   visible: the final message, failures and still-running subagents.
@@ -433,11 +450,11 @@ One component per job. Before drawing something new, use these.
 - **Add rows:** `SettingAddRow`, a plus icon then the noun ("Add account", "Pair a device",
   "Add machine").
 - **Disclosure:** `Disclosure` (`components/ui/disclosure.tsx`) or `SettingDisclosure` inside a
-  card. Both turn the same Phosphor caret; the browser's triangle never shows.
+  card. Both turn the same caret; the browser's triangle never shows.
 - **Select:** `Select` (`components/ui/select.tsx`). Two to three exclusive states, such as
   Open / Closed, use `SegmentedControl`. No native `<select>`.
 - **Empty states:** `EmptyState`, `page` for a main pane and `inline` for a list.
-- **Icons:** Phosphor only. Account badges and machine marks pick from curated Phosphor sets
+- **Icons:** ace's own set only. Account badges and machine marks pick from curated sets of it
   (`account-badge-icons.ts`, `machine-label.tsx`). `bun run check:ui` rejects emoji code points
   in `apps/web/src`.
 - **Radii and type:** use the scale tokens (`rounded-sm`, `rounded-md`, `rounded-lg`;

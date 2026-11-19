@@ -1,7 +1,8 @@
-import { OffshiftRequest } from "./offshift.ts";
+import { DelegationFailure } from "./delegation-failure.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
+import { ParcelId, ParcelName, maxParcelNoteChars } from "./parcels.ts";
 import { WorktreeBase } from "./worktree-base.ts";
 import { AgentId, ItemId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -10,6 +11,7 @@ import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
 import { Automation, AutomationRequest, AutomationSchedule } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
+import { AgentModelsInput } from "./agent-models.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 import { MachineName } from "./machine-calls.ts";
 import { MessageText } from "./message-limits.ts";
@@ -153,7 +155,8 @@ export const DelegationPolicy = z.strictObject({
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });
 export type DelegationPolicy = z.infer<typeof DelegationPolicy>;
-export const DelegationOutcome = z.strictObject({
+export const DelegationOutcome = z.object({
+  failure: DelegationFailure.optional(),
   threadId: ThreadId,
   outcome: z.enum(["completed", "failed", "cancelled"]),
   result: z.string().max(4096),
@@ -180,6 +183,13 @@ export const DelegationRecord = z.object({
   /** What the parent was last told about a message to this child that didn't go in as sent. */
   messageNotice: z
     .object({ text: z.string().max(400), at: Timestamp, commandId: z.string().max(128).optional() })
+    .optional(),
+  /**
+   * Usage-limit holds the parent was told about: how many so far, and whether the latest still
+   * holds. It is told once per hold, and again only after the child ran and was held anew.
+   */
+  limitNotice: z
+    .object({ count: z.number().int().positive(), held: z.boolean(), at: Timestamp })
     .optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
@@ -236,7 +246,9 @@ export type AgentAutomationSchedule = z.infer<typeof AgentAutomationSchedule>;
  * An agent's automation definition. Each run is a message into the agent's own thread, so the
  * thread decides the provider, model, effort, account and access: the definition carries none of
  * them, and the daemon records the thread's provider. The daemon also supplies the caller's
- * project; agent jobs never use worktrees or jitter, and run by hand or on a schedule only.
+ * project; agent jobs never use worktrees or jitter, and run by hand, on a schedule or on their
+ * webhook. Only the person can create a webhook's secret (ADR 0173), so an agent's webhook
+ * automation waits for them.
  */
 export const AgentAutomation = Automation.omit({
   provider: true,
@@ -250,6 +262,7 @@ export const AgentAutomation = Automation.omit({
   trigger: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("manual") }),
     z.object({ kind: z.literal("schedule"), schedule: AgentAutomationSchedule }),
+    z.object({ kind: z.literal("webhook") }),
   ]),
   worktree: Automation.shape.worktree.optional(),
   jitterMs: Automation.shape.jitterMs.optional(),
@@ -289,6 +302,8 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     options: AgentLaunchOptions.optional(),
   }),
   z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
+  /** The compact roster the `models` tool shows: current models, every account once. */
+  z.strictObject({ op: z.literal("agents.models"), ...AgentModelsInput.shape }),
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("machines") }),
@@ -300,6 +315,25 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     thread: z.literal("self").optional(),
     includeChanges: z.boolean().optional(),
     includeIgnored: z.boolean().optional(),
+  }),
+  /** Data for another agent in this tree, here or on a paired machine (ADR 0182). */
+  z.strictObject({
+    op: z.literal("data.send"),
+    to: z.union([ThreadId, z.literal("parent")]),
+    path: z.string().min(1).max(4096).optional(),
+    text: z
+      .string()
+      .min(1)
+      .max(256 * 1024)
+      .optional(),
+    name: ParcelName.optional(),
+    note: z.string().max(maxParcelNoteChars).optional(),
+  }),
+  /** Parcels this thread sent or received; with saveAs, a received one copied into its project. */
+  z.strictObject({
+    op: z.literal("data.receive"),
+    parcelId: ParcelId.optional(),
+    saveAs: z.string().min(1).max(1024).optional(),
   }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
@@ -328,7 +362,10 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    /** Omitted: steer for the caller's own descendants, queue for any other thread. */
+    /**
+     * Omitted: steer. queue and restart reach only the caller's own descendants and the threads
+     * it started; any other thread it can read takes a steer, labelled as the caller's.
+     */
     delivery: z.enum(["queue", "steer", "restart"]).optional(),
   }),
   z.strictObject({ op: z.literal("wait"), ...WaitInput }),
@@ -452,15 +489,6 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     until: Timestamp.nullable(),
   }),
   z.strictObject({ op: z.literal("automation.manage"), request: AgentAutomationRequest }),
-  z.strictObject({
-    op: z.literal("offshift"),
-    request: OffshiftRequest,
-    /**
-     * An ancestor's thread, whose run a delegated descendant reads or records evidence on.
-     * Omitted: the caller's own runs. The daemon checks the ancestry.
-     */
-    runOwner: ThreadId.optional(),
-  }),
   /** Omitted workspaceId: the caller's own project. */
   z.strictObject({ op: z.literal("project.read"), workspaceId: WorkspaceId.optional() }),
   z.strictObject({

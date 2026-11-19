@@ -136,7 +136,7 @@ import Testing
             let catalog = try await model.service(["type": "catalog.list", "workspace": ["workspaceId": project.id, "provider": "codex"], "limit": 512], as: CatalogReply.self)
             #expect(!catalog.entries.isEmpty, "The installed CLI's available skills and commands must be discoverable")
         }
-        let sourceControl = try await model.service(["type": "source-control.request", "operation": ["op": "readiness"]], as: NativeSourceControlReply.self)
+        let sourceControl = try await model.service(["type": "source-control.request", "operation": ["op": "readiness"]], as: SourceControlReadinessReply.self)
         #expect(sourceControl.result.kind == "readiness")
         #expect(sourceControl.result.readiness != nil)
         let plugins = try await model.plugin(["type": "plugins.list"], expecting: "plugins.list")
@@ -181,4 +181,12 @@ import Testing
         }
         #expect(result == .failure(.pin))
     }
+}
+
+/// Source control's readiness answer, as far as this test reads it: its kind, and that a
+/// readiness came with it.
+private struct SourceControlReadinessReply: Decodable {
+    struct Present: Decodable {}
+    struct Result: Decodable { let kind: String; let readiness: Present? }
+    let result: Result
 }

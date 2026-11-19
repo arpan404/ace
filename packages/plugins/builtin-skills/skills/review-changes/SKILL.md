@@ -1,6 +1,6 @@
 ---
 name: review-changes
-description: Review the changes in this worktree before they are committed or merged. Use when the person asks to review their changes, check a diff, or look over work before a PR.
+description: Review this worktree's changes before a commit, merge or PR.
 ---
 
 # Review my changes

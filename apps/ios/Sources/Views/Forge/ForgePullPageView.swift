@@ -11,6 +11,8 @@ struct ForgePullPageView: View {
     /// Pushes the Timeline or a changed file on this stack.
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
+    /// New thread, offered when no thread works on this pull request.
+    var startThread: (() -> Void)?
     @AppStorage("ace.git.mergeMethod") private var savedMethod = ""
     @State private var page: ForgePullPage?
     @State private var failure: String?
@@ -19,6 +21,8 @@ struct ForgePullPageView: View {
     @State private var confirming: ForgeWriteTarget?
     /// A merge or squash shows its commit to edit before it goes.
     @State private var editingCommit: ForgeWriteTarget?
+    /// Commits edited when the head moved under them, for Merge to reopen on.
+    @State private var mergeDrafts = ForgeMergeDrafts()
     /// Review writes from this page (reviewers), made once the page knows its repository.
     @State private var desk: ForgeReviewDesk?
     @State private var composing: ForgeCompose?
@@ -28,11 +32,13 @@ struct ForgePullPageView: View {
     private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method) }
 
     /// Opens on the page this phone last saw for this pull request, read again behind it.
-    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void) {
+    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void,
+         startThread: (() -> Void)? = nil) {
         self.client = client
         self.route = route
         self.open = open
         self.openThread = openThread
+        self.startThread = startThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
         let kept = client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self)
@@ -42,28 +48,30 @@ struct ForgePullPageView: View {
 
     var body: some View {
         ScrollView {
-            if let page { content(page) }
+            if let page {
+                content(page)
+            }
             else if let failure {
                 EmptyState(icon: nil, title: "Couldn't load this pull request", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page { bar(page) } }
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page, page.can("reviews.merge") || page.can("reviews.autoMerge") { bar(page) } }
         .navigationTitle(Text(verbatim: "#\(route.number)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let page, let link = URL(string: page.url) {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Open on GitHub", ace: .arrowSquareOut) { openURL(link) }
-                        ShareLink(item: link) { Label("Share", ace: .export) }
-                        Button("Copy link", ace: .copy) { UIPasteboard.general.url = link }
+                        Button("Open on \(page.hosted?.provider ?? "GitHub")") { openURL(link) }
+                        ShareLink("Share", item: link)
+                        Button("Copy link") { UIPasteboard.general.url = link }
                     } label: { Image(ace: .dotsThree) }
                         .accessibilityLabel("More").accessibilityIdentifier("forge.pull.more")
                 }
@@ -72,7 +80,11 @@ struct ForgePullPageView: View {
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
         .sheet(isPresented: Binding(get: { editingCommit != nil }, set: { if !$0 { editingCommit = nil } })) {
             if let target = editingCommit, let page {
-                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)") { edited in
+                ForgeMergeCommitSheet(target: target, prefill: page.commit, title: "#\(page.number) \(page.title)",
+                                      current: target.matches(page, method: method)) { kept in
+                    guard let prefill = page.commit else { return }
+                    mergeDrafts.keep(kept, number: target.number, repository: target.repository, method: target.method, prefill: prefill)
+                } confirm: { edited in
                     editingCommit = nil
                     Task { await write(edited) }
                 }
@@ -90,7 +102,6 @@ struct ForgePullPageView: View {
         // A refresh that moves the head or the method ends the question asked against the old one.
         .onChange(of: "\(page?.headSha ?? "")|\(method)") {
             if let target = confirming, !target.matches(page, method: method) { confirming = nil }
-            if let target = editingCommit, !target.matches(page, method: method) { editingCommit = nil }
         }
     }
 
@@ -105,41 +116,52 @@ struct ForgePullPageView: View {
                 .padding(.horizontal, AceTheme.Spacing.lg)
             }
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: openThread)
-            if !page.bodyBlocks.isEmpty, let desk {
-                ForgeRichView(blocks: page.bodyBlocks, scope: desk.scope, tick: descriptionTicker(page, desk))
+            if !page.body.isEmpty, let desk {
+                ForgeText(text: page.body, scope: desk.scope, tick: descriptionTicker(page, desk), hosted: page.repository.forge == "github" ? nil : page.hosted?.links, issueReferences: page.can("issues.read"), reviewReferences: page.can("reviews.read"), media: page.can("media"))
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 if let message = desk.message {
                     Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                         .padding(.horizontal, AceTheme.Spacing.lg)
                 }
             }
-            ForgeSection(title: nil) {
-                ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
+            if page.can("reviews.comments.read") || page.can("reviews.comments.write") || page.can("reviews.approvals.write") {
+                ForgeSection(title: nil) {
+                    ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
                     open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
-                }
-            }
-            if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
-            if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
-            if !page.checks.isEmpty {
-                ForgeSection(title: "Checks") {
-                    ForEach(page.checks, id: \.self) { check in
-                        ForgeLine(leading: check.name, trailing: check.word, tone: check.tone)
                     }
                 }
             }
+            if page.can("reviews.approvals.read") || page.can("reviews.approvals.write"), let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
+            if page.can("reviews.edit"), let desk { ForgeManageSection(desk: desk, route: route, open: open) }
+            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread, title: page.title, stacks: page.can("reviews.stacks"))
+            if page.can("reviews.checks") { ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open) }
             ForgeSection(title: nil) {
-                ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
+                if let unavailable = page.hosted?.filesUnavailable { Text(unavailable).meta().padding(.horizontal, AceTheme.Spacing.lg) }
+                else if page.can("reviews.files") { ForgeLinkRow(title: "Files changed", detail: page.changedFiles.map { $0 == 1 ? "1 file" : "\($0) files" } ?? "", identifier: "forge.pull.files") {
                     open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                }
+                }
+                if page.can("reviews.commits") { ForgeLinkRow(title: "Commits", detail: commitWords(page) ?? "", identifier: "forge.pull.commits") {
+                    open(ForgeRoute(kind: .commits, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                }
                 }
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)
     }
 
+    private func commitWords(_ page: ForgePullPage) -> String? {
+        page.commits.map { $0 == 1 ? "1 commit" : "\($0) commits" }
+    }
+
+    private func target(_ page: ForgePullPage) -> ForgePullTarget {
+        ForgePullTarget(project: route.project, number: page.number, repository: page.repository)
+    }
+
     private func header(_ page: ForgePullPage) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                ForgePullGlyph(state: page.state, merged: page.merged, size: 16)
+                ForgePullGlyph(state: page.state, merged: page.merged, size: AceDesign.Size.icon)
                 Text(page.state.word).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTone(page.state.tone).text)
                 Text("\(page.repository.owner)/\(page.repository.name)").meta()
@@ -153,13 +175,14 @@ struct ForgePullPageView: View {
             Text(page.title).aceFont(AceTheme.Typography.title, relativeTo: .title3)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .textSelection(.enabled)
-            Text("\(page.author) · \(page.commits == 1 ? "1 commit" : "\(page.commits) commits")").meta()
+            Text([page.author, commitWords(page)].compactMap { $0 }.joined(separator: " · ")).meta()
             Text("\(page.headBranch) → \(page.baseBranch)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
             if let additions = page.additions, let deletions = page.deletions {
                 ForgeDiffStat(additions: additions, deletions: deletions)
             }
             ForgeLabels(labels: page.labels, limit: 8)
+            if !page.can("reviews.comments.write"), let line = page.hosted?.line { Text(line).meta() }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .accessibilityIdentifier("forge.pull.header")
@@ -182,14 +205,11 @@ struct ForgePullPageView: View {
                     Button { ask(action, page) } label: {
                         HStack {
                             if writing { ProgressView().controlSize(.small) }
-                            Text(action.label).fontWeight(.semibold)
+                            Text(action.label)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(AceTheme.Colours.foreground)
-                    .foregroundStyle(AceTheme.Colours.background)
+                    .buttonStyle(.textAction(.prominent))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .disabled(writing || action.disabled != nil || !client.canOperate)
                     .accessibilityIdentifier("forge.pull.primary")
                     if page.methods.count > 1 {
@@ -198,7 +218,7 @@ struct ForgePullPageView: View {
                                 ForEach(page.methods, id: \.self) { Text($0.label).tag($0.method) }
                             }
                         } label: {
-                            Image(ace: .caretDown).frame(width: 44, height: 44)
+                            Image(ace: .caretDown).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                                 .aceGlass(in: AceShape.capsule, interactive: true)
                                 .contentShape(AceShape.capsule)
                         }
@@ -209,14 +229,12 @@ struct ForgePullPageView: View {
             } else if !page.primary.isEmpty {
                 Text(page.primary).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     .accessibilityIdentifier("forge.pull.primary")
             }
             if let secondary = page.secondary {
                 Button(secondary.label) { Task { await write(ForgeWriteTarget(action: secondary, project: route.project, page: page, method: method)) } }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction())
                     .disabled(writing || secondary.disabled != nil || !client.canOperate)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("forge.pull.secondary")
@@ -231,7 +249,7 @@ struct ForgePullPageView: View {
     private func ask(_ action: ForgePullPage.Action, _ page: ForgePullPage) {
         var target = ForgeWriteTarget(action: action, project: route.project, page: page, method: method)
         if action.kind != "disable-auto-merge", let commit = page.commit {
-            target.commit = commit
+            target.commit = mergeDrafts.opening(number: page.number, repository: page.repository, method: method, prefill: commit)
             editingCommit = target
         } else {
             confirming = target

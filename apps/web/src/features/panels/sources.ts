@@ -1,4 +1,9 @@
-import type { BrowserPageState, BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
+import type {
+  AgentPointer,
+  BrowserPageState,
+  BrowserScreenshotSet,
+  BrowserScreenshotSize,
+} from "@ace/protocol";
 import type { BrowserLogEntry } from "@ace/ui-core";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
@@ -77,6 +82,8 @@ export interface BrowserView {
   features?: readonly string[] | undefined;
   /** A recording of the shown tab runs, started by the person or an agent. */
   recording?: { by: BrowserActorView } | undefined;
+  /** What its live video runs on while ace-media carries it (ADR 0148). */
+  acceleration?: import("@ace/protocol").MediaAcceleration | undefined;
 }
 export interface BrowserDialogView {
   dialogId: string;
@@ -103,6 +110,13 @@ export interface BrowserTabView {
   inUse?: BrowserActorView | undefined;
   /** Where that agent last pointed, in the tab's CSS pixels (`sequence` rises each time). */
   pointer?: { x: number; y: number; sequence: number } | undefined;
+  /**
+   * The agent's latest action in the tab (CSS viewport pixels, when, what), drawn as its fading
+   * cursor while the person and the agent share the tab (ADR 0143).
+   */
+  agentPointer?: AgentPointer | undefined;
+  /** The person used the tab just now: the agent's page input waits for them. */
+  personActive?: boolean | undefined;
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
@@ -339,6 +353,17 @@ export interface PreviewSource {
   emulate(threadId: string, emulation: Emulation, tabId?: string): Promise<void>;
   /** Close the thread's browser and all its tabs (agents can open it again). */
   close(threadId: string): Promise<void>;
+  /**
+   * Move the thread's browser to another engine, reopening its tabs at their addresses on
+   * the new one. The engine is kept for the thread (a thread-layer `browser.backend`), so
+   * later opens stay on it. Only plain HTTP(S) addresses reload; blank tabs stay blank.
+   * Resolves with the reloaded tab the person was viewing, for the panel to show again.
+   */
+  switchEngine?(
+    threadId: string,
+    engine: "embedded" | "headless",
+    workspaceId: string,
+  ): Promise<{ activeTabId: string | undefined }>;
   /** A new tab, shown at once; at `url` when given. Resolves with its id. */
   openTab(threadId: string, url?: string): Promise<string>;
   /** Show this tab to the person (on every device); agents keep working where they are. */
@@ -398,6 +423,19 @@ export interface PreviewSource {
    * the pane's screen (`devicePixelRatio`) where the browser can.
    */
   resize(
+    threadId: string,
+    width: number,
+    height: number,
+    touch?: boolean,
+    devicePixelRatio?: number,
+  ): void;
+  /**
+   * Size the page to the pane, as `resize`, unless the shown tab emulates a device (an agent's,
+   * or the person's on another screen, ADR 0104): that is kept until this screen's own device
+   * toolbar closes. Held until this view has the tab's current state (after a subscribe or a
+   * reconnect), so a device set meanwhile is not cleared by an older picture of the tab.
+   */
+  fitPane?(
     threadId: string,
     width: number,
     height: number,

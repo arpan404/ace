@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { DeviceId, InteractionId, ThreadId, Timestamp } from "./ids.ts";
-import { OffshiftPhase } from "./offshift.ts";
 
 const boundedId = z.string().min(1).max(200);
 export const NotificationStatus = z.enum([
@@ -28,10 +27,11 @@ export const Notification = z.object({
   message: z.string().max(300).optional(),
   /** A `catch_up` alert's threads, longest-waiting first. */
   threadIds: z.array(ThreadId.and(boundedId)).min(1).max(100).optional(),
-  /** A finished notice for a tree that settled with an Offshift run open, blocked or delivered. */
-  run: z
-    .object({ outcome: z.enum(["stopped", "blocked", "delivered"]), phase: OffshiftPhase })
-    .optional(),
+  /**
+   * On a live alert to a phone: its position in that phone's catch-up feed
+   * (`NotificationFeedEntry.cursor`), so the phone can tell it from older feed entries.
+   */
+  cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 export const WebPushSubscription = z.object({
@@ -40,6 +40,20 @@ export const WebPushSubscription = z.object({
   auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
 });
 export type WebPushSubscription = z.infer<typeof WebPushSubscription>;
+/**
+ * The phone's APNs token, for alerts through ace's push gateway (ADR 0106). The daemon
+ * encrypts each alert to `p256dh`/`auth` (RFC 8291); only the phone can read it.
+ */
+export const PushNotificationAddress = z.object({
+  channel: z.literal("push"),
+  platform: z.literal("phone"),
+  /** Hex, variable length: Apple says not to hard-code its size. */
+  token: z.string().regex(/^[a-fA-F0-9]{16,400}$/),
+  environment: z.enum(["sandbox", "production"]),
+  p256dh: WebPushSubscription.shape.p256dh,
+  auth: WebPushSubscription.shape.auth,
+});
+export type PushNotificationAddress = z.infer<typeof PushNotificationAddress>;
 export const NotificationAddress = z.discriminatedUnion("channel", [
   z.object({ channel: z.literal("websocket"), platform: z.enum(["desktop", "web", "phone"]) }),
   z.object({
@@ -52,6 +66,7 @@ export const NotificationAddress = z.discriminatedUnion("channel", [
     platform: z.literal("phone"),
     token: z.string().regex(/^[a-fA-F0-9]{64}$/),
   }),
+  PushNotificationAddress,
   z.object({
     channel: z.literal("fcm"),
     platform: z.literal("phone"),
@@ -138,6 +153,45 @@ export const NotificationMessage = z.object({
   type: z.literal("notification"),
   notification: Notification,
 });
+/**
+ * A phone took a live `notification` frame. Without it, within a few seconds, the daemon
+ * treats the phone as suspended and pushes instead (ADR 0106).
+ */
+export const NotificationAck = z.object({
+  type: z.literal("notification.ack"),
+  id: boundedId,
+});
+/** What the push gateway carries, encrypted end to end: the alert and the machine it is from. */
+export const PushAlertPayload = z.object({
+  v: z.literal(1),
+  hostId: z.string().min(1).max(200),
+  notification: Notification,
+});
+export type PushAlertPayload = z.infer<typeof PushAlertPayload>;
+/**
+ * An outside client waiting for the person to approve its sign-in (ADR 0122), as a push
+ * carries it: who asks and the match code to compare, nothing that signs anyone in. The
+ * scopes, tokens, authorization codes and redirect URLs stay on the machine.
+ */
+export const PushAccessAlert = z.object({
+  requestId: z.string().min(1).max(128),
+  clientName: z.string().min(1).max(256),
+  /** Null: the client's domain is unverified. */
+  domain: z.string().min(1).max(253).nullable(),
+  matchCode: z.string().min(4).max(16),
+  expiresAt: z.number().int().nonnegative(),
+});
+export type PushAccessAlert = z.infer<typeof PushAccessAlert>;
+/**
+ * A push that isn't about a thread. It has no `notification` key, so a phone that only knows
+ * `PushAlertPayload` fails to decode it and keeps the gateway's generic text.
+ */
+export const PushAccessPayload = z.object({
+  v: z.literal(1),
+  hostId: z.string().min(1).max(200),
+  access: PushAccessAlert,
+});
+export type PushAccessPayload = z.infer<typeof PushAccessPayload>;
 export const NotificationDevice = z.object({
   id: DeviceId.and(boundedId),
   address: NotificationAddress,

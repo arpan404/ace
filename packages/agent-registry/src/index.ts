@@ -27,6 +27,14 @@ export {
   type CompatibilityProfile,
 } from "./profiles.ts";
 export { sessionSelectors, selectorRequest, type SelectorState } from "./selectors.ts";
-export { fileInventoryStorage } from "./storage.ts";
+export { fileDigestMemory, fileInventoryStorage } from "./storage.ts";
+export {
+  geminiTrustEnv,
+  geminiWorkspaceTrust,
+  readGeminiTrustFacts,
+  type GeminiTrustFacts,
+  type GeminiTrustRule,
+  type GeminiWorkspaceTrust,
+} from "./gemini-trust.ts";
 
 export { CommittedWriteError, type AtomicFileRuntime } from "./files.ts";

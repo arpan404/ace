@@ -1,0 +1,483 @@
+/*
+ * Ion: clean cyberpunk. Blue-black panels over a neon city, one ionised cyan accent, square
+ * corners with chamfered cuts on the primary controls, and small labels in a technical mono.
+ * Colours are suit.json's; this file sets type, edges, states and the panes over the scene.
+ */
+
+@font-face {
+  font-family: "Ion Sans";
+  src: url("assets/fonts/HankenGrotesk.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Ion Sans";
+  src: url("assets/fonts/HankenGrotesk-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: fallback;
+}
+
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-wash-1: color-mix(in oklab, var(--color-foreground) 5%, transparent);
+  --suit-wash-2: color-mix(in oklab, var(--color-foreground) 9%, transparent);
+  --suit-ion-wash: color-mix(in oklab, var(--color-tint) 12%, transparent);
+  --suit-ion-wash-2: color-mix(in oklab, var(--color-tint) 20%, transparent);
+  --suit-ion-line: color-mix(in oklab, var(--color-tint) 55%, transparent);
+  --suit-glow:
+    0 0 0 1px var(--suit-ion-line),
+    0 0 18px -4px color-mix(in oklab, var(--color-tint) 45%, transparent);
+  --suit-chamfer: polygon(
+    8px 0,
+    100% 0,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    0 100%,
+    0 8px
+  );
+  --suit-chamfer-sm: polygon(
+    5px 0,
+    100% 0,
+    100% calc(100% - 5px),
+    calc(100% - 5px) 100%,
+    0 100%,
+    0 5px
+  );
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-lift: 0 18px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --suit-header-background: linear-gradient(180deg, rgb(8 10 14 / 0.75), rgb(8 10 14 / 0.35));
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"] {
+  --suit-lift: 0 18px 40px -16px rgb(11 16 22 / 0.25), 0 0 0 1px rgb(11 16 22 / 0.06);
+  --suit-header-background: linear-gradient(180deg, rgb(242 245 248 / 0.8), rgb(242 245 248 / 0.4));
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────────────────── */
+
+/* One quiet hairline round the sidebar: ace's frame, thinned and toned down. */
+[data-part="app"] {
+  --suit-sidebar-border: 1px solid var(--color-border);
+  --suit-sidebar-shadow: none;
+  /* A thin tint, no blur: the backdrop runs on behind the sidebar as one picture,
+     dimmed about as much as it is behind the transcript. */
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 76%, transparent);
+  --suit-sidebar-backdrop-filter: none;
+}
+[data-part="sidebar"] {
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+[data-part="sidebar-header"]::after {
+  content: "";
+  display: block;
+  height: 1px;
+  margin-top: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--color-tint),
+    color-mix(in oklab, var(--color-tint) 20%, transparent) 45%,
+    transparent 80%
+  );
+}
+[data-part="rail-item"] {
+  color: var(--color-muted-foreground);
+}
+[data-part="thread-row"],
+[data-part="chat-row"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"],
+[data-part="rail-item"] {
+  border-radius: 2px;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+[data-part="thread-row"]:hover,
+[data-part="chat-row"]:hover,
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"]:hover,
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
+[data-part="chat-row"][data-state="active"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"][data-state="active"] {
+  background: linear-gradient(90deg, var(--suit-ion-wash-2), var(--suit-ion-wash) 40%, transparent);
+}
+[data-part="rail-item"][data-state="active"] {
+  background: var(--suit-ion-wash);
+  color: var(--color-link);
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 600;
+}
+[data-part="thread-meta"] {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  letter-spacing: 0.02em;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────────────────── */
+
+[data-part="header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="header-title"] {
+  letter-spacing: 0.01em;
+}
+
+/* ── Transcript ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="message-user"] {
+  background: color-mix(in oklab, var(--color-surface-1) 92%, transparent);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  box-shadow: inset 2px 0 0 var(--suit-ion-line);
+}
+[data-part="link"]:not([data-variant]) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 40%, transparent);
+  transition: text-decoration-color 140ms ease;
+}
+[data-part="link"]:not([data-variant]):hover {
+  text-decoration-color: var(--color-link);
+}
+[data-part="inline-code"] {
+  background: var(--color-code);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding: 0 0.3em;
+}
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  background: var(--color-code);
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+}
+[data-part="code-block"] {
+  box-shadow: inset 0 1px 0 var(--suit-ion-line);
+}
+[data-part="tool-row"],
+[data-part="tool-group-header"] {
+  border-radius: 2px;
+  transition: background-color 140ms ease;
+}
+[data-part="tool-row"]:hover,
+[data-part="tool-group-header"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="tool-group-header"] {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+}
+[data-part="tool-icon"] {
+  color: var(--color-faint-foreground);
+}
+[data-part="tool-row"]:hover [data-part="tool-icon"] {
+  color: var(--color-tint);
+}
+[data-part="turn-divider"] {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75em;
+}
+
+/* ── Composer ──────────────────────────────────────────────────────────────────────────── */
+
+[data-part="composer"] {
+  background: color-mix(in oklab, var(--color-surface-1) 96%, transparent);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  box-shadow: var(--suit-lift);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+[data-part="composer"]:focus-within {
+  border-color: var(--suit-ion-line);
+  box-shadow:
+    var(--suit-lift),
+    0 0 24px -8px color-mix(in oklab, var(--color-tint) 50%, transparent);
+}
+[data-part="composer-send"] {
+  border-radius: 0;
+  clip-path: var(--suit-chamfer-sm);
+}
+[data-part="composer-strip"] {
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in oklab, var(--color-surface-1) 96%, transparent);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--color-active);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────────────────────── */
+
+[data-part="button"] {
+  border-radius: 2px;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+[data-part="button"][data-variant="primary"] {
+  border-radius: 0;
+  clip-path: var(--suit-chamfer);
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+[data-part="button"][data-variant="secondary"] {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="button"][data-variant="secondary"]:hover {
+  box-shadow: inset 0 0 0 1px var(--suit-ion-line);
+}
+[data-part="button"]:focus-visible,
+[data-part="icon-button"]:focus-visible,
+[data-part="input"]:focus-visible,
+[data-part="select"]:focus-visible,
+[data-part="tab"]:focus-visible,
+[data-part="segment"]:focus-visible {
+  box-shadow: var(--suit-glow);
+  outline: none;
+}
+[data-part="icon-button"] {
+  border-radius: 2px;
+}
+[data-part="icon-button"]:disabled,
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+}
+[data-part="icon-button"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="icon-button"][data-state="active"] {
+  background: var(--suit-ion-wash);
+  color: var(--color-link);
+}
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 2px;
+}
+[data-part="input"]:focus,
+[data-part="search-field"]:focus-within {
+  border-color: var(--suit-ion-line);
+}
+[data-part="switch"] {
+  border-radius: 2px;
+}
+[data-part="switch-thumb"] {
+  border-radius: 1px;
+}
+[data-part="switch"][data-state="checked"] {
+  box-shadow: 0 0 12px -3px color-mix(in oklab, var(--color-tint) 60%, transparent);
+}
+[data-part="checkbox"] {
+  border-radius: 1px;
+}
+[data-part="slider-thumb"] {
+  border-radius: 1px;
+}
+[data-part="segmented"] {
+  border-radius: 2px;
+}
+[data-part="segment"],
+[data-part="segmented-thumb"] {
+  border-radius: 1px;
+}
+[data-part="segment"][data-state="selected"] {
+  font-weight: 600;
+}
+[data-part="badge"],
+[data-part="label-chip"],
+[data-part="branch-chip"] {
+  border-radius: 1px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+}
+[data-part="kbd"] {
+  font-family: var(--font-mono);
+  border-radius: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+}
+[data-part="scrollbar"] {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* ── Side panel ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="right-panel"] {
+  box-shadow: inset 1px 0 0 var(--color-border);
+}
+[data-part="panel-tab"] {
+  border-radius: 2px;
+}
+
+/* ── Full pages ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="page-title"] {
+  letter-spacing: -0.01em;
+}
+[data-part="page-header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="card"] {
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+}
+[data-part="card"][data-variant="settings-group"] {
+  background: color-mix(in oklab, var(--color-surface-1) 94%, transparent);
+  box-shadow: inset 0 1px 0 var(--suit-ion-line);
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px solid var(--color-border);
+}
+[data-part="list-row"],
+[data-part="table-row"],
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  border-radius: 2px;
+  transition: background-color 140ms ease;
+}
+[data-part="list-row"]:hover,
+[data-part="table-row"]:hover,
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="stat"] {
+  border-left: 2px solid var(--color-tint);
+  border-radius: 0;
+}
+[data-part="stat"],
+[data-part="progress"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-part="merge-box"],
+[data-part="review-thread"],
+[data-part="check-row"] {
+  border-radius: 2px;
+}
+
+/* ── Menus, dialogs, overlays ──────────────────────────────────────────────────────────── */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="command-palette"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  box-shadow:
+    var(--suit-lift),
+    inset 0 1px 0 var(--suit-ion-line);
+}
+[data-part="menu-item"] {
+  border-radius: 1px;
+}
+[data-part="menu-item"]:hover {
+  background: var(--suit-ion-wash);
+}
+[data-part="dialog"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    var(--suit-lift),
+    inset 0 1px 0 var(--suit-ion-line);
+}
+[data-part="tooltip"] {
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+[data-part="toast"] {
+  border-radius: 3px;
+  box-shadow: var(--suit-lift);
+}
+
+/* Text selection in the accent. */
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: var(--suit-ion-wash-2);
+}
+
+/* Light mode: a denser sidebar tint, so the softened backdrop reads as an even wash, not patches. */
+[data-scheme="light"] [data-part="app"] {
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
+}
+
+/* ── Section heads, Spade and the Marketplace ──────────────────────────────────────────── */
+
+/* Every section's head as a readout: mono, spaced, in capitals. */
+[data-part="section-title"] {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Spade: squared bubbles, the bot's with the accent's edge, and a glowing card that waits. */
+[data-part="spade-message"],
+[data-part="header-title"][data-variant="spade-pill"] {
+  border-radius: 2px;
+}
+[data-part="spade-message"]:not([data-variant="user"]) {
+  box-shadow: inset 2px 0 0 var(--suit-ion-line);
+}
+[data-part="card"]:is([data-variant="spade-question"], [data-variant="spade-request"]) {
+  border-radius: 2px;
+  box-shadow: var(--suit-glow);
+}
+
+/*
+ * The Marketplace: an entry is a picture or a small mark with its words, so the cut corners go on
+ * the picture, not round the words. The pick beside the hero is lit like the open row.
+ */
+[data-part="card"]:is(
+  [data-variant="market-entry"],
+  [data-variant="market-lockup"],
+  [data-variant="market-collection"],
+  [data-variant="market-publisher"]
+) {
+  border: 0;
+  border-radius: 0;
+}
+[data-part="market-stage"] {
+  border-radius: 0;
+  clip-path: var(--suit-chamfer);
+}
+[data-part="list-row"][data-variant="market-pick"][data-state="selected"] {
+  background: var(--suit-ion-wash);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="market-try"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    var(--suit-lift),
+    inset 0 1px 0 var(--suit-ion-line);
+}

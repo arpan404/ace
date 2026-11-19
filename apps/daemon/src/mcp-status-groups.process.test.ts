@@ -103,11 +103,19 @@ it("a new thread's context status names only the groups that are off, each with 
   for (const missing of ["terminal", "forge", "preview", "files"])
     expect(names).not.toContain(missing);
   // Served groups are on, so they cost no words.
-  for (const name of ["thread", "browser", "notify", "agents", "thread_control", "automations"])
+  for (const name of [
+    "thread",
+    "browser",
+    "notify",
+    "agents",
+    "thread_control",
+    "automations",
+    "devices",
+  ])
     expect(names).not.toContain(name);
   for (const group of reported.groups) {
     expect(group.enabled).toBe(false);
-    expect(["screen", "devices"]).toContain(group.name);
+    expect(group.name).toBe("screen");
     expect(group.reason).not.toMatch(/backend|configure/i);
   }
   const thread = daemon.store.listThreads()[0];

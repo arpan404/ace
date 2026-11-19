@@ -1,18 +1,24 @@
+import {
+  decodeStoredPayload,
+  storedEntity,
+  untrustedEntities,
+  type EntityTrust,
+  type StoredEntity,
+} from "./stored-decode.ts";
+import { canonicalEntities } from "./entity-shape.ts";
 import { EntityWindow } from "./entity-window.ts";
 import { EntityRetention, retainedEntity } from "./entity-retention.ts";
 import { trimAgentMetadata } from "./metadata-retention.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { OffshiftRunCard } from "@ace/protocol/offshift";
 import {
-  QueueState,
-  Interaction,
   Event,
-  ThreadView,
+  type Interaction,
+  type ThreadView,
   type EventPayload,
   type Thread,
   type ThreadId,
   type EntityCollection,
-  Agent,
+  type Agent,
 } from "@ace/protocol";
 import {
   applyEvent,
@@ -68,18 +74,38 @@ export class StatusStore {
   private statement: (sql: string) => StatementSync;
   private retention = new WeakMap<ThreadView, EntityRetention>();
   private invalidated = new WeakSet<ThreadView>();
+  private readonly trust: EntityTrust;
+  private writtenInteractions = 0;
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync = (sql) => db.prepare(sql),
+    trust: EntityTrust = untrustedEntities(),
   ) {
     this.statement = statement;
     this.db = db;
+    this.trust = trust;
+  }
+  /**
+   * Read entity rows as stored from now on, once every row is in this build's `shape`
+   * (`entity-shape.ts`). Run after the migrations that write entity rows, outside a transaction.
+   */
+  trustEntities(shape: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    let trusted: boolean;
+    try {
+      trusted = canonicalEntities(this.db, shape);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.trust.trusted = trusted;
   }
   initialize(getThread: (id: ThreadId) => Thread | undefined): void {
     this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");
     if (this.statement("SELECT id FROM status_migration WHERE id = 1").get()) {
       this.migrateUsage(getThread);
-      this.window = new EntityWindow(this.db, this.statement);
+      this.window = new EntityWindow(this.db, this.statement, this.trust);
       return;
     }
     this.db.exec("BEGIN IMMEDIATE");
@@ -92,7 +118,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         };
         const parsed = Event.safeParse(input);
         if (!parsed.success && row.type === "usage.updated") continue;
@@ -107,7 +133,7 @@ export class StatusStore {
       throw error;
     }
     this.migrateUsage(getThread);
-    this.window = new EntityWindow(this.db, this.statement);
+    this.window = new EntityWindow(this.db, this.statement, this.trust);
   }
   private migrateUsage(getThread: (id: ThreadId) => Thread | undefined): void {
     if (this.statement("SELECT id FROM status_migration WHERE id=2").get()) return;
@@ -124,7 +150,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         });
         if (!parsed.success) continue;
         const thread = getThread(parsed.data.threadId);
@@ -144,13 +170,6 @@ export class StatusStore {
       ).run(thread.id, JSON.stringify(queue));
       return;
     }
-    if (event.payload.type === "offshift.updated") {
-      // One row per thread: the latest-updated run's card, as the snapshot carries it.
-      this.statement(
-        "INSERT INTO view_entities VALUES (?, 'offshift', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
-      ).run(thread.id, JSON.stringify(event.payload.card));
-      return;
-    }
     const address = target(event.payload);
     if (!address) return;
     const { collection, id } = address;
@@ -160,9 +179,9 @@ export class StatusStore {
     ).get(thread.id, collection, id);
     if (previous)
       Object.assign(view, {
-        [collection]: ThreadView.shape[collection].parse({
-          [id]: JSON.parse(String(previous.value)),
-        }),
+        [collection]: Object.fromEntries([
+          [id, storedEntity(collection, String(previous.value), this.trust)],
+        ]),
       });
     applyEvent(view, event);
     const value = Object.hasOwn(view[collection] ?? {}, id) ? view[collection]?.[id] : undefined;
@@ -171,23 +190,38 @@ export class StatusStore {
         "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
       ).run(thread.id, collection, id, JSON.stringify(value));
       this.window?.capture(thread.id, collection, id, event.seq);
+      if (collection === "interactions") this.writtenInteractions++;
     }
+  }
+  /** How many interaction writes there have been, so a held copy of one can tell it may be stale. */
+  interactionWrites(): number {
+    return this.writtenInteractions;
+  }
+  /** An interaction's request as stored JSON, and whether the stored copy is itself a summary. */
+  interactionRequest(threadId: string, id: string) {
+    const row = this.statement(
+      "SELECT json_extract(value,'$.request') AS request, json_type(value,'$.truncated') IS NOT NULL AS summary FROM view_entities WHERE thread_id=? AND collection='interactions' AND id=?",
+    ).get(threadId, id);
+    return typeof row?.request === "string"
+      ? { text: row.request, summary: row.summary === 1 }
+      : undefined;
   }
   interaction(id: string): Interaction | undefined {
     this.interactionRead ??= this.statement(
       "SELECT value FROM view_entities WHERE collection = 'interactions' AND id = ? LIMIT 1",
     );
     const row = this.interactionRead.get(id);
-    return row ? Interaction.parse(JSON.parse(String(row.value))) : undefined;
+    return row ? storedEntity("interactions", String(row.value), this.trust) : undefined;
   }
   page(
-    thread: Thread,
+    thread: Pick<Thread, "id">,
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,
+    maxBytes: number,
   ) {
     if (!this.window) throw new Error("Entity windows not initialized");
-    return this.window.page(thread, collection, before, limit);
+    return this.window.page(thread, collection, before, limit, maxBytes);
   }
   retainItemAgents(view: ThreadView): void {
     this.window?.retainAgents(view);
@@ -239,38 +273,35 @@ export class StatusStore {
         const { type: _type, ...queue } = event.payload;
         view.queue = queue;
       }
-      if (event.payload.type === "offshift.updated") view.offshift = event.payload.card;
     }
+    /** An agent coming back into the view brings its parent link and retained metadata. */
+    const restoreAgent = (id: string, agent: Agent): Agent => {
+      const previous = Object.hasOwn(view.agents, id) ? view.agents[id] : undefined;
+      reparentAgent(view, id, previous?.parentId, agent.parentId);
+      if (previous) return agent;
+      for (const metadata of ["usage", "contextMeters"] as const) {
+        const metadataRow = this.statement(
+          "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
+        ).get(view.thread.id, metadata, id);
+        if (metadataRow)
+          setValue(
+            (view[metadata] ??= {}),
+            id,
+            storedEntity(metadata, String(metadataRow.value), this.trust),
+          );
+      }
+      return agent;
+    };
     const restore = (collection: EntityCollection, id: string): void => {
       const row = this.window?.record(view.thread.id, collection, id);
       if (!row) return;
-      const values = ThreadView.shape[collection].parse({ [id]: JSON.parse(String(row.value)) });
-      const value = values[id];
-      if (!value) return;
-      if (collection === "agents") {
-        const agent = Agent.parse(value);
-        const previous = Object.hasOwn(view.agents, id) ? view.agents[id] : undefined;
-        reparentAgent(view, id, previous?.parentId, agent.parentId);
-        if (!previous) {
-          for (const metadata of ["usage", "contextMeters"] as const) {
-            const metadataRow = this.statement(
-              "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
-            ).get(view.thread.id, metadata, id);
-            if (!metadataRow) continue;
-            const metadataValues = ThreadView.shape[metadata].parse({
-              [id]: JSON.parse(String(metadataRow.value)),
-            });
-            const metadataValue = metadataValues?.[id];
-            if (metadataValue !== undefined) setValue((view[metadata] ??= {}), id, metadataValue);
-          }
-        }
-      }
+      const json = String(row.value);
+      const value =
+        collection === "agents"
+          ? restoreAgent(id, storedEntity("agents", json, this.trust))
+          : storedEntity(collection, json, this.trust);
       setValue(view[collection], id, value);
-      const entry = retainedEntity(
-        collection,
-        value,
-        Event.shape.seq.parse(Number(row.created_seq)),
-      );
+      const entry = retainedEntity(collection, value, Number(row.created_seq));
       policy.observe(entry);
       for (const agentId of entry.references)
         if (!policy.hasAgent(agentId)) restore("agents", agentId);
@@ -287,13 +318,12 @@ export class StatusStore {
         const row = this.statement(
           "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
         ).get(view.thread.id, collection, id);
-        if (row) {
-          const values = ThreadView.shape[collection].parse({
-            [id]: JSON.parse(String(row.value)),
-          });
-          const value = values?.[id];
-          if (value !== undefined) setValue((view[collection] ??= {}), id, value);
-        }
+        if (row)
+          setValue(
+            (view[collection] ??= {}),
+            id,
+            storedEntity(collection, String(row.value), this.trust),
+          );
         if (collection === "usageSnapshots") {
           const ids = Object.keys(view.usageSnapshots);
           for (const older of ids.slice(0, Math.max(0, ids.length - 200)))
@@ -314,57 +344,45 @@ export class StatusStore {
     return this.invalidated.has(view);
   }
   replaceCache(view: ThreadView, source: ThreadView): void {
-    this.invalidated.delete(view);
     Object.assign(view, source);
     const policy = this.retention.get(source);
     if (policy) this.retention.set(view, policy);
     else this.seedRetention(view);
+    // Only once the view holds the new contents: a failure above leaves it marked stale.
+    this.invalidated.delete(view);
   }
   snapshot(thread: Thread | undefined, seq: number): ThreadView {
     if (!thread) throw new Error("Unknown thread");
-    const input: Record<Collection, Record<string, unknown>> = {
-      agents: {},
-      runs: {},
-      interactions: {},
-      backgroundTasks: {},
-      usage: {},
-      contextMeters: {},
-      usageSnapshots: {},
-    };
-    const view = ThreadView.parse({ ...createThreadView(thread, seq), ...input });
+    const view = createThreadView(thread, seq);
     this.window?.fill(view);
     const agentIds = Object.keys(view.agents);
     for (const collection of ["usage", "contextMeters"] as const) {
+      const values: Record<string, StoredEntity<typeof collection>> = {};
       // Facts may precede agent.created. Retention must not depend on metadata arrival order.
       const recent = Array.from(this.window?.metadata(thread.id, collection) ?? []);
       for (const row of recent.toReversed())
-        setValue(input[collection], String(row.id), JSON.parse(String(row.value)));
+        setValue(values, String(row.id), storedEntity(collection, String(row.value), this.trust));
       for (const id of agentIds) {
         const row = this.statement(
           "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
         ).get(thread.id, collection, id);
-        if (row)
-          Object.assign(
-            input[collection],
-            Object.fromEntries([[id, JSON.parse(String(row.value))]]),
-          );
+        if (row) setValue(values, id, storedEntity(collection, String(row.value), this.trust));
       }
-      Object.assign(view, { [collection]: ThreadView.shape[collection].parse(input[collection]) });
+      Object.assign(view, { [collection]: values });
       trimAgentMetadata(view, collection);
     }
     for (const row of this.statement(
       "SELECT id,value FROM view_entities WHERE thread_id=? AND collection='usageSnapshots' ORDER BY rowid DESC LIMIT 200",
     ).iterate(thread.id))
-      input.usageSnapshots[String(row.id)] = JSON.parse(String(row.value));
-    view.usageSnapshots = ThreadView.shape.usageSnapshots.parse(input.usageSnapshots);
+      setValue(
+        view.usageSnapshots,
+        String(row.id),
+        storedEntity("usageSnapshots", String(row.value), this.trust),
+      );
     const queue = this.statement(
       "SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'",
     ).get(thread.id);
-    if (queue) view.queue = QueueState.parse(JSON.parse(String(queue.value)));
-    const offshift = this.statement(
-      "SELECT value FROM view_entities WHERE thread_id=? AND collection='offshift'",
-    ).get(thread.id);
-    if (offshift) view.offshift = OffshiftRunCard.parse(JSON.parse(String(offshift.value)));
+    if (queue) view.queue = storedEntity("queue", String(queue.value), this.trust);
     rebuildAgentChildren(view);
     this.seedRetention(view);
     return view;

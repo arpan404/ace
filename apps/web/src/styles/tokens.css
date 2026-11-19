@@ -18,6 +18,8 @@
   /* Layout. */
   /* A view's own list beside its column (Automations, Skills). */
   --header-h: 44px;
+  /* The sidebar's rail of places, left of its panel. */
+  --rail-width: 52px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */
   --composer-control: 32px;
@@ -35,12 +37,48 @@
   --setting-row-padding: 14px;
   /* Settings pages: a column that grows with the window, rows of one height on grouped cards. */
   --settings-column: clamp(640px, 64vw, 900px);
+  /* Fleet's map: room for the drawing with its panel beside; the title row keeps the column. */
+  --settings-wide-column: 1040px;
   --setting-row-height: 52px;
+  --setting-row-height-single: 44px;
+  /* One width for every select and picker in a settings row, so the controls line up. */
+  --setting-select-width: 200px;
   --setting-row-y: 10px;
   /* Between one settings group (title over rows) and the next. */
   --settings-group-gap: 40px;
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
+
+  /*
+   * Spade (docs/design/spade.md). Bubbles take the 18 corner with 18 sides and 10 ends, so the
+   * corner never exceeds the padding; a code well sits 6 in at 12, concentric. Inside Spade's
+   * list and profile, icon buttons are 32 circles and buttons are 36 pills; the frame, the rail
+   * and Settings keep the square ones.
+   */
+  --chat-bubble-radius: var(--radius-xl);
+  --chat-bubble-x: 18px;
+  --chat-bubble-y: 10px;
+  --chat-code-inset: 6px;
+  --chat-code-radius: var(--radius-lg);
+  /* Between bubbles of one run, and between turns. */
+  --chat-run-gap: 4px;
+  --chat-turn-gap: 16px;
+  --spade-round-button: 32px;
+  --spade-pill-button: 36px;
+  --spade-composer-button: 40px;
+  --spade-list-row: 64px;
+  --spade-list-face: 40px;
+  --spade-head-face: 44px;
+  --spade-pill-face: 28px;
+  --spade-working-face: 32px;
+  --spade-profile-face: 96px;
+  --spade-profile-width: 360px;
+  --spade-phone-face: 52px;
+  /* A face's status dot and the ring of the surface behind it, at list size and at 96. */
+  --face-dot: 12px;
+  --face-dot-ring: 2.5px;
+  --face-dot-lg: 14px;
+  --face-dot-ring-lg: 3px;
 
   /* How much the page behind a modal is blurred under Translucent (`.ace-backdrop`). */
   --backdrop-blur: 7px;
@@ -49,19 +87,20 @@
    * Corners, sized to the padding around them so nested corners stay concentric (inner = outer
    * minus inset): 4 tags and marks; 6 inputs, small controls and tooltips; 8 buttons, rows and
    * menu items; 12 cards, popups, dialogs and bubbles (a menu's 4px inset leaves its items 8);
-   * 18 the composer.
+   * 18 the composer. A Suit scales them all by `--radius-scale` (theme/suits/suit-css.ts).
    */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 18px;
+  --radius-xs: calc(4px * var(--radius-scale, 1));
+  --radius-sm: calc(6px * var(--radius-scale, 1));
+  --radius: calc(8px * var(--radius-scale, 1));
+  --radius-lg: calc(12px * var(--radius-scale, 1));
+  --radius-xl: calc(18px * var(--radius-scale, 1));
 }
 
 :root[data-density="compact"] {
   --row-height: 32px;
   --setting-row-padding: 8px;
   --setting-row-height: 40px;
+  --setting-row-height-single: 36px;
   --setting-row-y: 4px;
   --picker-row-padding: 10px;
 }

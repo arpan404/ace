@@ -1,17 +1,17 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { DeviceId } from "@ace/protocol";
 import { z } from "zod";
 import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
-import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { retainNotifications } from "./notification-test-support.ts";
+import { encodeLoginPathLine } from "@ace/service/login-path";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -32,6 +32,7 @@ async function launch(
   source: string,
   observeStartup?: (origin: string, token: string) => Promise<void>,
   prepare?: (home: string) => Promise<void>,
+  env: NodeJS.ProcessEnv = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
@@ -57,8 +58,9 @@ async function launch(
       ACE_SCREEN_HELPER: undefined,
       // No installed provider CLI is needed and no prompt may be sent.
       PATH: "",
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
   const exited = once(child, "close");
   const { stdout, stderr } = child;
@@ -204,7 +206,10 @@ it("a notification worker that never replies is named as degraded while the daem
       expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
         "starting",
       );
-      expect(status.services.find((service) => service.name === "engine")?.state).toBe("ready");
+      // The engine is up; it says "starting" until its providers are read (ADR 0175).
+      expect(["starting", "ready"]).toContain(
+        status.services.find((service) => service.name === "engine")?.state,
+      );
     },
     // A saved push device needs the worker from startup; a fresh home starts it on first use.
     retainNotifications,
@@ -231,75 +236,195 @@ it("a notification worker that never replies is named as degraded while the daem
   expect((await daemon.exited)[0]).toBe(0);
 });
 
-it("a daemon whose engine cannot start fails with a logged error and never listens or reports ready", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-startup-engine-"));
-  cleanups.push(() => rm(home, { recursive: true, force: true }));
-  const entry = join(home, "daemon-entry.mjs");
+it("a provider discovery that never settles leaves the engine starting while the daemon listens and serves", async () => {
+  // ADR 0175: providers are read after the engine is published, so a CLI that never answers
+  // degrades only the engine's readiness, never the daemon's start.
   const index = new URL("./index.ts", import.meta.url).href;
-  await writeFile(
-    entry,
-    `
+  const daemon = await launch(`
     import { startDaemon } from ${JSON.stringify(index)};
     const daemon = await startDaemon({
       engine: { adapterDiscovery: () => new Promise(() => {}) },
-      startup: {
-        schedule(name, expire, milliseconds) {
-          const timer = setTimeout(expire, name === "engine" ? 25 : milliseconds);
-          return () => clearTimeout(timer);
+    });
+    process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+  `);
+  // The daemon's start is done; the engine alone says its providers aren't read yet.
+  expect(daemon.status.ready).toBe(true);
+  expect(daemon.status.services.find((service) => service.name === "engine")?.state).toBe(
+    "starting",
+  );
+  await daemon.client.close();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
+});
+
+/**
+ * A daemon entry that reports, when asked, the PATH engine discovery read CLIs on, the PATH of
+ * the first provider status probe, and whether model admission registered a codex instance.
+ */
+function discoveryReporter() {
+  const index = new URL("./index.ts", import.meta.url).href;
+  return `
+    import { startDaemon } from ${JSON.stringify(index)};
+    let seen;
+    const discovered = new Promise((settle) => (seen = settle));
+    let probedOn;
+    const daemon = await startDaemon({
+      engine: {
+        adapterDiscovery: async () => {
+          seen(process.env.PATH);
+          // Settled, so the daemon stops at once.
+          throw new Error("No provider CLIs here");
+        },
+      },
+      providerStatus: {
+        probe: async () => {
+          probedOn ??= process.env.PATH;
+          return { code: 1, stdout: "", stderr: "" };
         },
       },
     });
+    const until = async (check) => {
+      for (let tries = 0; tries < 100 && !check(); tries++)
+        await new Promise((settle) => setTimeout(settle, 50));
+      return check();
+    };
+    process.once("message", async () => {
+      const discoveredOn = await discovered;
+      await until(() => probedOn !== undefined);
+      const codexModels = await until(() => daemon.models.hasInstance("codex-cli-default"));
+      process.send({ discoveredOn, probedOn, codexModels }, () => process.disconnect());
+    });
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+  `;
+}
+
+/** Processes still running whose command line names `folder`: what a test's daemon left. */
+async function leftIn(folder: string): Promise<string[]> {
+  const { execFileSync } = await import("node:child_process");
+  return execFileSync("/bin/ps", ["-A", "-o", "pid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .filter((line) => line.includes(folder));
+}
+
+const startedOnSavedPath = {
+  PATH: "/bundled:/saved/bin",
+  ACE_LOGIN_PATH_PENDING: JSON.stringify({ prefix: "/bundled", inherited: "/usr/bin:/bin" }),
+};
+
+it("a daemon the app started on a saved PATH reads providers only on the login shell's PATH", async () => {
+  // codex is only in a folder the login shell's PATH has.
+  const login = await mkdtemp(join(tmpdir(), "ace-startup-login-"));
+  cleanups.push(() => rm(login, { recursive: true, force: true }));
+  await writeFile(join(login, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const daemon = await launch(discoveryReporter(), undefined, undefined, startedOnSavedPath);
+  // Listening and serving already, on the saved PATH; providers wait for the login shell's.
+  expect(daemon.status.ready).toBe(true);
+  const answer = once(daemon.child, "message");
+  daemon.child.send("discovered?");
+  const path = ["/bundled", login, "/saved/bin"].join(":");
+  daemon.child.stdin?.end(encodeLoginPathLine(path));
+  // Engine discovery, provider status and model admission all read CLIs on it.
+  expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
+  await daemon.client.close();
+  // The process ends on its own once the daemon has stopped: nothing it started holds it.
+  const stopping = performance.now();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
+  expect(performance.now() - stopping).toBeLessThan(3_000);
+  expect(await leftIn(login)).toEqual([]);
+});
+
+it.skipIf(process.platform === "win32")(
+  "a daemon whose app never sends the login PATH asks the login shell itself, never reading providers on the saved one",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-startup-shell-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const shell = join(root, "shell");
+    const shellBin = join(root, "bin");
+    await mkdir(shellBin);
+    await writeFile(join(shellBin, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    await writeFile(shell, `#!/bin/sh\nprintf '__ACE_PATH__${shellBin}__ACE_PATH__'\n`, {
+      mode: 0o755,
+    });
+    const daemon = await launch(discoveryReporter(), undefined, undefined, {
+      ...startedOnSavedPath,
+      SHELL: shell,
+    });
+    const answer = once(daemon.child, "message");
+    daemon.child.send("discovered?");
+    // The app quit before its shell answered.
+    daemon.child.stdin?.end();
+    const path = ["/bundled", shellBin, "/usr/bin", "/bin"].join(":");
+    expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
+    await daemon.client.close();
+    const stopping = performance.now();
+    daemon.child.kill("SIGTERM");
+    expect((await daemon.exited)[0]).toBe(0);
+    expect(performance.now() - stopping).toBeLessThan(3_000);
+    // The login shell the daemon ran, and anything it started, are gone too.
+    expect(await leftIn(root)).toEqual([]);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "a daemon stopped while its own login shell lookup is still waiting exits within its budget and leaves no shell behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-startup-slow-shell-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const shell = join(root, "shell");
+    const started = join(root, "started");
+    // A profile that starts something of its own and takes far longer than any shutdown.
+    await writeFile(
+      shell,
+      `#!/bin/sh\n/bin/sleep 60 &\necho $! > ${JSON.stringify(started)}\n/bin/sleep 60\n`,
+      { mode: 0o755 },
+    );
+    const index = new URL("./index.ts", import.meta.url).href;
+    const daemon = await launch(
+      `
+      import { startDaemon } from ${JSON.stringify(index)};
+      const daemon = await startDaemon();
+      process.stdout.write("ace daemon: " + daemon.url + "\\n");
+      process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+    `,
+      undefined,
+      undefined,
+      { ...startedOnSavedPath, SHELL: shell },
+    );
+    // The app quit before its shell answered: the daemon asks the slow shell itself.
+    daemon.child.stdin?.end();
+    await vi.waitFor(() => readFile(started, "utf8"), { timeout: 5_000 });
+    await daemon.client.close();
+    const stopping = performance.now();
+    daemon.child.kill("SIGTERM");
+    expect((await daemon.exited)[0]).toBe(0);
+    // Inside the daemon's 7 s stop deadline, with no lookup left to wait out.
+    expect(performance.now() - stopping).toBeLessThan(3_000);
+    await vi.waitFor(async () => expect(await leftIn(root)).toEqual([]), { timeout: 3_000 });
+  },
+);
+
+it("a daemon stopped while the app keeps its stdin open without a line exits on its own within its budget", async () => {
+  const index = new URL("./index.ts", import.meta.url).href;
+  const daemon = await launch(
+    `
+    import { startDaemon } from ${JSON.stringify(index)};
+    const daemon = await startDaemon();
+    process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
   `,
+    undefined,
+    undefined,
+    startedOnSavedPath,
   );
-  const child = spawn(process.execPath, [entry], {
-    env: {
-      ...process.env,
-      ACE_HOME: home,
-      ACE_PORT: "0",
-      ACE_LISTEN: "local",
-      ACE_MAINTENANCE: "0",
-      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
-      ACE_DEV: "0",
-      ACE_HISTORY_INSTANCES: "[]",
-      ACE_MODEL_INSTANCES: "[]",
-      ACE_APNS_KEY_FILE: "",
-      ACE_VAPID_KEY_FILE: "",
-      ACE_WORKSPACE_ROOT: "",
-      ACE_RELAY_URL: undefined,
-      ACE_SCREEN_HELPER: undefined,
-      PATH: "",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
-  let output = "",
-    errors = "";
-  child.stdout?.on("data", (chunk: Buffer) => {
-    output += chunk.toString();
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    errors += chunk.toString();
-  });
-  const [code] = (await exited) as [number | null];
-  expect(code).not.toBe(0);
-  expect(output).not.toContain("ace daemon:");
-  expect(errors).toContain("Daemon cannot start: Service engine: Service engine startup exceeded");
-  // No endpoint was ever published, so no client can find a daemon without an engine.
-  await expect(readFile(join(home, "daemon-endpoint"))).rejects.toMatchObject({ code: "ENOENT" });
-  const records = await daemonLogRecords(home);
-  const messages = records.map((record) => record.message);
-  expect(messages).not.toContain("Daemon listening");
-  expect(records.find((record) => record.message === "Daemon startup failed")?.data).toMatchObject({
-    error: { message: expect.stringContaining("Daemon cannot start: Service engine") },
-  });
-  expect(records.find((record) => record.message === "Daemon stopping")?.data).toMatchObject({
-    source: "startup-failure",
-  });
+  // The app is still waiting on its shell: stdin stays open and no line comes.
+  await daemon.client.close();
+  const stopping = performance.now();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
+  expect(performance.now() - stopping).toBeLessThan(3_000);
 });
 
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
@@ -355,6 +480,7 @@ it("SIGTERM after endpoint discovery cleans up while optional initialization is 
   expect(
     Status.parse(await accessRequest(origin, "/v1/status", { token })).services,
   ).toContainEqual({ name: "notifications", state: "starting" });
+  // Booting the source daemon takes as long as the machine is busy; the bound is on stopping.
   const stopped = once(child, "close", { signal: AbortSignal.timeout(2000) });
   child.kill("SIGTERM");
   expect(await stopped).toEqual([0, null]);
@@ -371,4 +497,4 @@ it("SIGTERM after endpoint discovery cleans up while optional initialization is 
     modelInstances: [],
   });
   await daemon.close();
-}, 10_000);
+});

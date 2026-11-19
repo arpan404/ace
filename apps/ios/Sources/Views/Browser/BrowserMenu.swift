@@ -1,18 +1,27 @@
 import SwiftUI
 import UIKit
 
-/// The browser's ⋯ menu, grouped as Safari's: the page (find, zoom, screenshot, share), the
-/// thread's browser (history, downloads, console), the tab (keep agents out, close) and the
-/// browser's settings. Everything acts on the tab shown.
+/// The browser's ⋯ menu, grouped as Safari's: the page (find, zoom, screenshots, print, the
+/// device, share), the thread's browser (history, downloads, console, page source, extensions,
+/// connection stats), the tab (keep agents out, watch the agent, sound, recording, new and close)
+/// and the browser itself (its engine, settings, clearing its data). Everything acts on the tab shown; the person's own Chrome is theirs, so
+/// ace never prints, clears or reads it.
 struct BrowserMenu: View {
     @Bindable var model: ClientModel
     @Binding var sheet: BrowserSheet?
     @Binding var finding: Bool
+    @Binding var clearing: Bool
+    var split: Binding<String?>? = nil
     let screenshot: (Bool) -> Void
+    /// "Show connection stats", web's Settings › Browser › In this window: off unless turned on.
+    @AppStorage("ace.browser.connectionStats") private var connectionStats = false
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
     private var page: Bool { state.map { !$0.closed && $0.blank != true && $0.activeTabId != nil } ?? false }
     private var operate: Bool { model.canOperate && page }
+    /// Print, page source and clearing data: never the person's own Chrome.
+    private var pageTool: Bool { operate && state?.ownChrome != true }
+    private var kept: Bool { state?.shown?.private == true }
     private var url: URL? { state?.addressUrl.flatMap { $0.isEmpty ? nil : URL(string: $0) } }
 
     var body: some View {
@@ -32,10 +41,22 @@ struct BrowserMenu: View {
                 Menu {
                     Button("Visible area") { screenshot(false) }
                     Button("Full page") { screenshot(true) }
+                    Button("At several sizes…") { sheet = .sizes }
+                        .accessibilityIdentifier("browser.menu.sizes")
                 } label: {
                     Label("Take screenshot", ace: .camera)
                 }
-                .disabled(!operate || state?.shown?.private == true)
+                .disabled(!operate || kept)
+                Button("Print to PDF", ace: .printer) { model.browserPrint() }
+                    .disabled(!pageTool)
+                    .accessibilityIdentifier("browser.menu.print")
+                if let device = model.browser.view?.device {
+                    Button(device.toolbar ? "Hide device toolbar" : "Device · \(device.label)", ace: .deviceMobile) {
+                        model.browserDeviceToolbar(!device.toolbar)
+                    }
+                    .disabled(!page)
+                    .accessibilityIdentifier("browser.menu.device")
+                }
                 if let url {
                     ShareLink(item: url) { Label("Share address", ace: .export) }
                     Button("Copy address", ace: .copy) { UIPasteboard.general.url = url }
@@ -45,31 +66,105 @@ struct BrowserMenu: View {
                 Button("History", ace: .clockCounterClockwise) { sheet = .history }
                 Button(downloadsTitle, ace: .arrowCircleDown) { sheet = .downloads }
                     .disabled(state == nil)
-                Button("Console", ace: .terminal) { sheet = .console }
+                Button("Console and network", ace: .terminal) { sheet = .console }
                     .disabled(!page)
+                Button("Page source", ace: .fileCode) { sheet = .source }
+                    .disabled(!pageTool)
+                    .accessibilityIdentifier("browser.menu.source")
+                Button("Extensions", ace: .puzzlePiece) { sheet = .extensions }
+                    .disabled(state == nil || state?.closed == true)
+                    .accessibilityIdentifier("browser.menu.extensions")
+                Toggle(isOn: $connectionStats) { Label("Connection stats", ace: .gauge) }
+                    .accessibilityIdentifier("browser.menu.connectionStats")
+                // The round trip of the person's input to the page, once they have used it here.
+                if connectionStats, let latency = model.browser.latency {
+                    Text("Input round trip \(latency) ms")
+                        .monospacedDigit()
+                        .accessibilityIdentifier("browser.menu.latency")
+                }
             }
             if model.canOperate, let tabId = state?.activeTabId, state?.closed == false {
                 Section {
-                    if state?.shown?.private == true {
+                    if kept {
                         Button("Hand back to agents", ace: .users) { model.browserTakeOver(tabId, false) }
                     } else {
                         Button("Take over", ace: .hand) { model.browserTakeOver(tabId, true) }
+                    }
+                    if let shown = state?.shown, shown.audible == true || shown.muted == true {
+                        Button(shown.muted == true ? "Unmute tab" : "Mute tab", ace: shown.muted == true ? .speakerHigh : .speakerSlash) {
+                            model.browserMute(tabId, shown.muted != true)
+                        }
+                        .accessibilityIdentifier("browser.menu.mute")
+                    }
+                    if let watch = model.browser.view?.watch {
+                        Button(watch.on ? "Stop watching the agent" : "Watch the agent", ace: watch.on ? .eyeSlash : .eye) {
+                            model.browserWatch(!watch.on)
+                        }
+                        .accessibilityIdentifier("browser.menu.watch")
+                    }
+                    if let recording = state?.recording {
+                        if recording.byPerson {
+                            Button("Stop recording", ace: .stopCircle) { model.browserRecord(false) }
+                        }
+                    } else {
+                        Button("Record the page", ace: .record) { model.browserRecord(true) }
+                            .disabled(kept)
+                            .accessibilityIdentifier("browser.menu.record")
+                    }
+                    if let split {
+                        if split.wrappedValue != nil {
+                            Button("Close split view", ace: .squareSplitHorizontal) { split.wrappedValue = nil }
+                        } else {
+                            let others = (state?.tabs ?? []).filter { $0.id != tabId }
+                            Menu {
+                                ForEach(others) { other in Button(other.title) { split.wrappedValue = other.id } }
+                            } label: { Label("Open in split view", ace: .squareSplitHorizontal) }
+                            .disabled(others.isEmpty)
+                            .accessibilityIdentifier("browser.menu.split")
+                        }
                     }
                     Button("New tab", ace: .plusSquare) { model.browserNewTab() }
                     Button("Close tab", ace: .xSquare, role: .destructive) { model.browserCloseTab(tabId) }
                 }
             }
             Section {
+                if let engine = model.browser.view?.engine { engineMenu(engine) }
                 Button("Browser settings", ace: .gear) { sheet = .settings }
+                if model.canOperate {
+                    Button("Clear browsing data…", ace: .broom, role: .destructive) { clearing = true }
+                        .disabled(!pageTool)
+                        .accessibilityIdentifier("browser.menu.clear")
+                }
             }
         } label: {
-            AceIcon(.dotsThree, size: 17, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            AceIcon(.dotsThree, size: AceDesign.Size.barIcon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Browser options")
         .accessibilityIdentifier("browser.menu")
+    }
+
+    /// Moves this thread's browser between the desktop app and ace's Chrome, as web's ⋯ menu does,
+    /// and names the default other threads keep.
+    private func engineMenu(_ engine: BrowserViewInfo.Engine) -> some View {
+        Menu {
+            Section(engine.note) {
+                ForEach(engine.choices) { choice in
+                    Button {
+                        if choice.value != engine.current { model.browserEngine(choice.value) }
+                    } label: {
+                        if choice.value == engine.current { Label(choice.label, ace: .check) } else { Text(choice.label) }
+                    }
+                    .accessibilityIdentifier("browser.menu.engine.\(choice.value)")
+                }
+            }
+        } label: {
+            Label(engine.moving ? "Engine for this thread · Moving" : "Engine for this thread", ace: .globe)
+        }
+        .disabled(!model.canOperate || engine.moving)
+        .accessibilityIdentifier("browser.menu.engine")
     }
 
     private var downloadsTitle: String {

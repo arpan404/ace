@@ -163,18 +163,21 @@ names; see ADR 0010, "bare tool names".)
   `thread_start` creates an ordinary conversation with a required workspace
   strategy, selection, permission mode and initial text. It has durable caller
   ownership and request deduplication, but no child attachment or result wakeup.
-  `agent_message` steers by default for the caller's own descendants: where the
-  provider steers, the message joins the running turn at the next tool boundary.
-  Cursor's steer interrupts the running turn and restarts it with the message
-  (`steeringMode: interrupt-restart`); that is intended and reported as
-  `restarting`. Where the provider can't steer, it runs when the turn ends. Any
-  other thread defaults to queue. The result's `arrival` is read from the
+  `agent_message` steers by default, for every target (its own descendants,
+  threads it started, the person's threads): where the provider steers, the
+  message joins the running turn at the next tool boundary, and a target that
+  isn't running takes it as its next message. Cursor's steer interrupts the
+  running turn and restarts it with the message
+  (`steeringMode: interrupt-restart`); an agent's message there now waits for
+  the turn to end (amendment 2026-11-15). Where the provider can't steer, it runs when the turn ends.
+  `queue` and `restart` stay available when asked for. The result's `arrival` is read from the
   engine's own send rule, and a retry of a message that failed, was removed or
   was replaced is refused. An agent's message that fails after the tool
   returned is reported to the thread that sent it as a notice, once per message
   and outcome, whether the target is its child or a thread it started; a child's
   also shows in `agents_status`. One the
-  provider refused unread is kept for the next turn;
+  provider refused unread goes back to the queue as the next message, and the
+  queue says it fell back;
   `thread_control` actions `interrupt` and `configure` operate on owned threads.
 
 Schemas remain in `@ace/protocol`. Pages are bounded by encoded bytes as well
@@ -203,3 +206,35 @@ budget admission, depth/child limits and cancellation fences in the same owner.
 Development verification for this amendment uses formatting, lint and sequential
 package typechecks. Behaviour tests are written but run only by the merge gate,
 under the owner's machine-load restriction.
+
+## Amendment: messages between agents' threads, 2026-11-15
+
+Parallel workstreams need to talk to each other without the person copying text between
+threads (issue #2019), and an agent's message must never cut into the work it reaches.
+
+- **Only the person's steer may cut in.** An agent's message, and a child's result, join the
+  running turn at its next tool boundary and stop nothing. The engine tells the adapter whose
+  input it sends (`InputSource`: the person's, `ace`'s own or another `agent`'s). Claude takes
+  the person's steer with priority `now`, which aborts the reply being written and moves running
+  calls to the background, and everything else with `next`, which joins at the next tool
+  boundary. Where a steer restarts the turn (Cursor), anything but the person's waits for the
+  turn to end and reads `queued`; this replaces the earlier `restarting` for agents' messages.
+  `restart` stays available to a thread's owner when it asks for it.
+- **Owners and peers.** A thread's owners (the agents that delegated it, at any depth, and the
+  agent that started it) send as before, with any delivery. Any other agent that can read a
+  thread is a peer: its message is always a steer, opens with ace's `[ace-origin:…]` line naming
+  the sending thread, saying it is not from the person (or the receiver's parent) and how to
+  answer, and the transcript shows it as sent by that thread. A full-access thread messaging
+  another top-level thread is a peer too, so the receiving agent no longer reads it as the person.
+  A peer's message never queues or restarts. Queue edits and cancellation keep their own rules:
+  only owners change another agent's child; full access acting for the person still edits the
+  queue of a top-level thread.
+- **A finished child isn't woken by a peer.** A message to another agent's child that is no
+  longer running goes to its top-level thread instead, and the result's `threadId` names the
+  thread that received it.
+- **Answers and access.** A thread may message one with access no broader than its own (full
+  access reaches any). It may always answer a thread that wrote to it, and a child may always
+  write to the threads above it, so the narrower side of a conversation can reply.
+- **Owners are visible.** `thread_read` returns `lineage` (parent and top-level thread, or the
+  thread that started it), `threads_find` hits carry `parentThreadId` and `rootThreadId`, and a
+  refused change to another agent's child names its top-level thread.

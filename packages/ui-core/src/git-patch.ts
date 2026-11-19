@@ -165,6 +165,18 @@ export function gitPatchFiles(patch: string): FileDiff[] {
       deletions,
     };
     if (section.from !== undefined) file.movedFrom = section.from;
+    if (section.binary) file.binary = true;
     return file;
   });
+}
+
+/**
+ * What a patch cut at the daemon's budget is missing. Binary files come first and are never
+ * cut, so the file that may be cut short is the last one, and only when it has text.
+ */
+export function truncatedPatchNotice(files: readonly FileDiff[]): string {
+  const last = files.at(-1);
+  if (!last) return "This diff is truncated at 256 KiB.";
+  if (last.binary) return "This diff is truncated at 256 KiB. Some files may be missing.";
+  return `This diff is truncated at 256 KiB. ${last.path} may be cut short.`;
 }

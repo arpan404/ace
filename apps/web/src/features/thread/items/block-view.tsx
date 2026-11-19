@@ -7,6 +7,7 @@ import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
+import { DelegationReceipts } from "./delegation-card.tsx";
 import { ForkedDivider } from "./forked-divider.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
@@ -14,6 +15,7 @@ import { StartedThreadCard } from "./started-thread-card.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { Subagents } from "./subagents.tsx";
 import { LiveHead } from "./live-head.tsx";
+import { MomentRow } from "./moment-row.tsx";
 import { WorkLog } from "./work-log.tsx";
 
 const EventView = DeferredEvent.Component;
@@ -41,7 +43,9 @@ const BlockContent = memo(function BlockContent(props: {
     case "live":
       return <LiveHead threadId={threadId} />;
     case "subagents":
-      return <Subagents threadId={threadId} itemIds={block.itemIds} />;
+      return (
+        <Subagents threadId={threadId} itemIds={block.itemIds} receiptIds={block.receiptIds} />
+      );
     case "files":
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
     case "question":
@@ -51,8 +55,22 @@ const BlockContent = memo(function BlockContent(props: {
     case "forked":
       return <ForkedDivider sourceThreadId={block.threadId} />;
     case "item":
+      return block.also?.length ? (
+        <DelegationReceipts threadId={threadId} itemIds={[block.itemId, ...block.also]} />
+      ) : (
+        <Event threadId={threadId} itemId={block.itemId} />
+      );
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;
+    case "moment":
+      return (
+        <MomentRow
+          threadId={threadId}
+          moment={block.moment}
+          itemIds={block.itemIds}
+          since={block.since}
+        />
+      );
     case "end":
       return <TurnEnd threadId={threadId} block={block} />;
   }

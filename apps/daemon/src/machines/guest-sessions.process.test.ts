@@ -1,0 +1,245 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { Device, HostId, ThreadId, WorkspaceId } from "@ace/protocol";
+import { harness, scriptFrames } from "../engine/test-support.ts";
+import { ProjectStorage } from "../project-storage.ts";
+import { GuestSessions, type GuestWork } from "./guest-sessions.ts";
+import { TargetThreads } from "./target-threads.ts";
+import { switchRevocation } from "./grant-rules.ts";
+
+/*
+ * Guest sessions over a real engine and store: the person's Stop, a lowered grant and a deleted
+ * session against calls that are starting, running or already gone.
+ */
+
+const device = Device.parse({
+  id: "linux-box-device",
+  name: "Linux box",
+  scopes: ["read", "operate"],
+  createdAt: 1,
+  lastSeenAt: 1,
+  revokedAt: null,
+});
+const origin = {
+  hostId: HostId.parse("linux-box"),
+  hostName: "Linux box",
+  threadId: ThreadId.parse("fix-login"),
+  threadTitle: "Fix the login flow",
+};
+const closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of closers.splice(0)) await close();
+});
+
+async function setup(perDevice?: number) {
+  const h = await harness([], scriptFrames());
+  const threads = new TargetThreads({
+    store: h.store,
+    engine: () => h.engine,
+    journal: () => undefined,
+    now: () => h.clock.now(),
+    limit: () => undefined,
+    schedule: () => () => undefined,
+    report: () => undefined,
+  });
+  let chats = 0;
+  let ids = 0;
+  const guests = new GuestSessions({
+    store: h.store,
+    engine: () => h.engine,
+    threads,
+    chat: async () => {
+      const path = join(h.home, "chats", `chat-${++chats}`);
+      mkdirSync(path, { recursive: true });
+      const chat = new ProjectStorage(h.store, () => 1).registerChat(path, "Chat");
+      return { id: WorkspaceId.parse(chat.id), path };
+    },
+    newId: () => `call-${++ids}`,
+    // As the person's Delete marks a thread deleted.
+    async remove(threadId) {
+      await h.engine.stopForDeletion(threadId);
+      h.store.appendEvents(
+        threadId,
+        [{ type: "thread.client.updated", changes: { deletedAt: 5, autoSettleAt: null } }],
+        5,
+      );
+    },
+    ...(perDevice === undefined ? {} : { perDevice }),
+  });
+  h.engine.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
+  closers.push(async () => {
+    threads.close();
+    await h.close();
+  });
+  const session = await guests.open(device, origin);
+  const rows = () => Object.values(h.store.snapshotThread(session.threadId).backgroundTasks);
+  return { h, guests, session, rows };
+}
+/** A call that runs until it is stopped. */
+const hang = (stop: AbortSignal) =>
+  new Promise<string>((_resolve, reject) => stop.addEventListener("abort", reject));
+const browsing = (ticket: number, risk: GuestWork["risk"] = "operate"): GuestWork => ({
+  capability: "browser",
+  risk,
+  label: "browser_open from Linux box",
+  ticket,
+});
+
+it("the person's Stop on the session wins over a call that was only starting", async () => {
+  const { guests, session, rows } = await setup();
+  const ticket = guests.ticket();
+  // The call was admitted; before it registers, the person stops the session thread.
+  guests.stopThread(session.threadId);
+  const task = vi.fn(async () => "opened");
+  await expect(
+    guests.run(session, browsing(ticket), new AbortController().signal, task),
+  ).rejects.toMatchObject({
+    code: "unavailable",
+    message: "The person stopped it on that machine.",
+  });
+  expect(task).not.toHaveBeenCalled();
+  expect(rows().map((row) => row.status)).toEqual(["stopped"]);
+
+  // The next call, admitted after the Stop, runs.
+  await expect(
+    guests.run(session, browsing(guests.ticket()), new AbortController().signal, task),
+  ).resolves.toBe("opened");
+});
+
+it("a grant lowered while a call is starting refuses it, sparing reads when it went to read", async () => {
+  const { guests, session } = await setup();
+  const ticket = guests.ticket();
+  guests.revoke({ deviceId: device.id, capability: "browser", level: "read" });
+  const task = vi.fn(async () => "done");
+  const signal = new AbortController().signal;
+  await expect(guests.run(session, browsing(ticket), signal, task)).rejects.toMatchObject({
+    code: "machine_forbidden",
+    message: "The person turned this off for agents from that machine.",
+  });
+  expect(task).not.toHaveBeenCalled();
+  // Reading was still allowed, so a reading call admitted at the same time goes on.
+  await expect(guests.run(session, browsing(ticket, "read"), signal, task)).resolves.toBe("done");
+  // Another machine's calls and other capabilities are untouched.
+  await expect(
+    guests.run(session, { ...browsing(ticket), capability: "devices" }, signal, task),
+  ).resolves.toBe("done");
+});
+
+it("stopping a row no call is behind ends it instead of leaving it running", async () => {
+  const { h, guests, session, rows } = await setup();
+  // A row a call opened and never closed (its process went on without it).
+  h.engine.guests.hold(session.threadId, "ace-guest:orphan", { title: "browser_open" });
+  const [row] = rows();
+  if (!row) throw new Error("No row");
+  expect(row.status).toBe("running");
+  expect(h.command({ type: "background_task.stop", taskId: row.id })).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(rows()[0]?.status).toBe("stopped"));
+  expect(guests.ticket()).toBe(0);
+});
+
+it("a call that finishes after its session was deleted still returns its own result", async () => {
+  const { h, guests, session } = await setup();
+  const signal = new AbortController().signal;
+  const call = Promise.withResolvers<string>();
+  const finished = guests.run(session, browsing(guests.ticket()), signal, () => call.promise);
+  // The person deletes the session while the call runs; it finishes after the thread is gone.
+  await h.engine.stopForDeletion(session.threadId);
+  h.store.appendEvents(
+    session.threadId,
+    [{ type: "thread.client.updated", changes: { deletedAt: 5, autoSettleAt: null } }],
+    5,
+  );
+  // Storage cleanup purges a deleted thread's records.
+  h.store.atomic(() => h.store.purgeThreadData(session.threadId));
+  h.engine.forgetPurged(session.threadId);
+  call.resolve("page opened");
+  await expect(finished).resolves.toBe("page opened");
+});
+
+it("this machine's switch going to read stops acting calls of every capability and spares reads", async () => {
+  const { guests, session } = await setup();
+  const signal = new AbortController().signal;
+  const ticket = guests.ticket();
+  const acting = guests.run(session, { ...browsing(ticket), capability: "devices" }, signal, hang);
+  let read: string | undefined;
+  const reading = guests
+    .run(session, browsing(ticket, "read"), signal, (stop) => hang(stop).catch(() => "aborted"))
+    .then((value) => (read = value));
+  const scope = switchRevocation("read");
+  if (scope) guests.revoke(scope);
+  await expect(acting).rejects.toMatchObject({ code: "machine_forbidden" });
+  await Promise.resolve();
+  expect(read).toBeUndefined();
+  expect(switchRevocation("operate")).toBeUndefined();
+  // Off stops the reading call too.
+  const off = switchRevocation("off");
+  if (off) guests.revoke(off);
+  await expect(reading).rejects.toMatchObject({ code: "machine_forbidden" });
+}, 10_000);
+
+it("a command a previous process left running reads cancelled after recovery, and the session settles", async () => {
+  const { h, guests, session } = await setup();
+  // The process that ran it died mid-command: its shell call still reads running.
+  h.engine.guests.command(session.threadId, "ace-command:left-over", {
+    command: "make build",
+    cwd: "/work",
+    status: "running",
+    startedAt: h.clock.now(),
+  });
+  await h.engine.flush();
+  const call = () =>
+    h.store
+      .readItems(session.threadId, Number.MAX_SAFE_INTEGER, 20)
+      .items.flatMap((item) => (item.type === "tool_call" ? [item.call] : []))[0];
+  expect(call()?.status).toBe("running");
+  guests.recover();
+  await h.engine.flush();
+  expect(call()).toMatchObject({ status: "cancelled", endedAt: expect.any(Number) });
+  await vi.waitFor(() =>
+    expect(h.store.getThread(session.threadId)?.status.state).not.toBe("working"),
+  );
+});
+
+/** Another calling thread on the same machine. */
+const from = (threadId: string, threadTitle: string) => ({
+  ...origin,
+  threadId: ThreadId.parse(threadId),
+  threadTitle,
+});
+
+it("a calling device holds a bounded number of sessions: idle ones make room, busy ones refuse", async () => {
+  const { h, guests, session } = await setup(2);
+  const live = () =>
+    h.store
+      .listThreads()
+      .filter((thread) => thread.details?.guest && thread.deletedAt === undefined)
+      .map((thread) => thread.title);
+  const second = await guests.open(device, from("second", "Second"));
+  expect(live().toSorted()).toEqual(["Linux box · Fix the login flow", "Linux box · Second"]);
+
+  // At the bound, a new calling thread's session takes the place of the oldest idle one.
+  h.clock.advance(h.clock.now() + 1000);
+  await guests.run(
+    second,
+    browsing(guests.ticket()),
+    new AbortController().signal,
+    async () => "ok",
+  );
+  await guests.open(device, from("third", "Third"));
+  expect(live().toSorted()).toEqual(["Linux box · Second", "Linux box · Third"]);
+  expect(h.store.getThread(session.threadId)?.deletedAt).toBeDefined();
+
+  // While every session is working, a new one is refused with words that say why.
+  const signal = new AbortController().signal;
+  const third = await guests.open(device, from("third", "Third"));
+  void guests.run(second, browsing(guests.ticket()), signal, hang).catch(() => undefined);
+  void guests.run(third, browsing(guests.ticket()), signal, hang).catch(() => undefined);
+  await expect(guests.open(device, from("fourth", "Fourth"))).rejects.toMatchObject({
+    code: "unavailable",
+    message: expect.stringContaining("already has 2 sessions working on this machine"),
+  });
+  expect(live()).toHaveLength(2);
+  guests.stopThread(second.threadId);
+  guests.stopThread(third.threadId);
+});

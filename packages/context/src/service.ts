@@ -14,7 +14,7 @@ import {
 import { ContextError, requireContext } from "./errors.ts";
 import { resolveMentions, resolveWorkspaceMentions } from "./mentions.ts";
 import { prepareWorkspaceBinary } from "./workspace-binary.ts";
-import { WorkspaceCache } from "./workspace-cache.ts";
+import { GitWorkspace, type WorkspaceFileEntry, type WorkspaceFiles } from "./git-workspace.ts";
 import { UploadStore, type UploadOptions } from "./upload-store.ts";
 import {
   projectAttachments,
@@ -37,11 +37,22 @@ export interface ContextServiceOptions extends UploadOptions {
   /** Lookup captured native-image metadata only; a client reference never authorizes file IO. */
   imageReference?(thread: string, reference: string, itemId?: string): Attachment | undefined;
   workspace(thread: string): string | undefined | Promise<string | undefined>;
+  /**
+   * Quick open over a checkout, answered by ace-files (`indexQuery`). `ready` is false while the
+   * index is still building. Without this hook the reply is `unsupported`.
+   */
+  complete?(
+    root: string,
+    query: string,
+    limit: number,
+  ): Promise<{ paths: readonly string[]; ready: boolean }>;
+  /** A folder mention's files, answered by ace-files' paged listing. */
+  listFolder?(root: string, folder: string): AsyncIterable<WorkspaceFileEntry>;
 }
 export class ContextService {
   readonly uploads: UploadStore;
   private attachmentBytes: AttachmentBytes;
-  private workspaces = new WorkspaceCache();
+  private readers = new Map<string, WorkspaceFiles>();
   private options: ContextServiceOptions;
   private constructor(options: ContextServiceOptions, uploads: UploadStore) {
     this.options = options;
@@ -67,6 +78,45 @@ export class ContextService {
     const root = await this.options.workspace(thread);
     requireContext(root, "not_found", "Thread workspace unavailable");
     return root;
+  }
+  /** One checkout's mention reader, made once per root; it holds no index and no watcher. */
+  private reader(root: string): WorkspaceFiles {
+    const known = this.readers.get(root);
+    if (known) return known;
+    const listFolder = this.options.listFolder;
+    const reader = new GitWorkspace(
+      root,
+      {},
+      listFolder === undefined ? {} : { list: (folder) => listFolder(root, folder) },
+    );
+    this.readers.set(root, reader);
+    return reader;
+  }
+  /**
+   * Quick open through ace-files. Access is asked again after the index answers, because a
+   * socket can close, a device lose its grant or a thread stop being readable while it builds.
+   */
+  private async completion(
+    root: string,
+    query: string,
+    limit: number,
+    access: () => boolean,
+  ): Promise<Extract<ContextResult["result"], { kind: "completion" }>> {
+    const complete = this.options.complete;
+    requireContext(complete, "unsupported", "File search unavailable");
+    let answer: { paths: readonly string[]; ready: boolean };
+    try {
+      answer = await complete(root, query, limit);
+    } catch (error) {
+      if (error instanceof ContextError) throw error;
+      throw new ContextError("busy", error instanceof Error ? error.message : "File search failed");
+    }
+    requireContext(access(), "forbidden", "Device access revoked");
+    return {
+      kind: "completion",
+      paths: answer.paths.slice(0, 50),
+      ready: answer.ready,
+    };
   }
   draftWorkspace(device: string, draftId: string): Promise<string> {
     return this.uploads.draftWorkspace(device, draftId);
@@ -124,29 +174,27 @@ export class ContextService {
           eof: op.offset + read.data.length === read.bytes,
         };
       } else if (op.op === "draft.mention.complete")
-        result = {
-          kind: "completion",
-          paths: await this.workspaces.use(
-            await this.uploads.resumableDraftWorkspace(device, op.draftId),
-            (workspace) => workspace.index.complete(op.query, op.limit),
-          ),
-        };
+        result = await this.completion(
+          await this.uploads.resumableDraftWorkspace(device, op.draftId),
+          op.query,
+          op.limit,
+          access,
+        );
       else if (op.op === "mention.resolve")
         result = {
           kind: "mentions",
-          ...(await this.workspaces.use(
-            await this.workspaceRoot(device, op.threadId),
-            (workspace) => resolveMentions(workspace, op.mentions),
+          ...(await resolveMentions(
+            this.reader(await this.workspaceRoot(device, op.threadId)),
+            op.mentions,
           )),
         };
       else if (op.op === "mention.complete")
-        result = {
-          kind: "completion",
-          paths: await this.workspaces.use(
-            await this.workspaceRoot(device, op.threadId),
-            (workspace) => workspace.index.complete(op.query, op.limit),
-          ),
-        };
+        result = await this.completion(
+          await this.workspaceRoot(device, op.threadId),
+          op.query,
+          op.limit,
+          () => access(op.threadId),
+        );
       else result = await this.uploads.handle(device, op, access);
       return { type: "context.result", requestId: request.requestId, result };
     } catch (error) {
@@ -210,6 +258,8 @@ export class ContextService {
     projection: Projection;
     attachments: import("@ace/protocol").Attachment[];
     attachmentPaths: { sha256: string; path: string }[];
+    /** Per message attachment, in order: its part in `projection.input` and its name. */
+    files: { part: number; name: string }[];
     diagnostics: ContextDiagnostic[];
     release(): void;
   }> {
@@ -228,12 +278,15 @@ export class ContextService {
     );
     try {
       let root = "";
-      const mentions = context.mentions.length
-        ? await this.workspaces.use(await this.workspaceRoot(device, thread), (workspace) => {
-            root = workspace.root;
-            return resolveWorkspaceMentions(workspace, context.mentions);
-          })
-        : { entries: [], diagnostics: [] };
+      let mentions: Awaited<ReturnType<typeof resolveWorkspaceMentions>> = {
+        entries: [],
+        diagnostics: [],
+      };
+      if (context.mentions.length) {
+        const workspace = this.reader(await this.workspaceRoot(device, thread));
+        root = workspace.root;
+        mentions = await resolveWorkspaceMentions(workspace, context.mentions);
+      }
       const references = await this.resolveThreadReferences(device, thread, context);
       const prepared: PreparedAttachment[] = mentions.entries.map((entry) => ({
         path: join(root, entry.path),
@@ -262,14 +315,12 @@ export class ContextService {
         if (diagnostic.code !== "binary" || !path || !root) continue;
         binaries.set(prepared.length, diagnostic);
         prepared.push(
-          // Each read holds the workspace, so an idle retirement can't drop it mid-read.
-          await this.workspaces
-            .use(root, (workspace) => prepareWorkspaceBinary(workspace, path, capabilities, budget))
-            .catch(() => ({
-              path: join(root, path),
-              name: path,
-              mimeType: "application/octet-stream",
-            })),
+          // One reader holds the root, so a binary mention reads the file the mention named.
+          await prepareWorkspaceBinary(this.reader(root), path, capabilities, budget).catch(() => ({
+            path: join(root, path),
+            name: path,
+            mimeType: "application/octet-stream",
+          })),
         );
       }
       const projection = projectAttachments(prepared, capabilities);
@@ -284,6 +335,10 @@ export class ContextService {
         attachmentPaths: lease.blobs.map((blob, index) => ({
           sha256: blob.attachment.sha256,
           path: prepared[mentions.entries.length + references.length + index]?.path ?? blob.path,
+        })),
+        files: lease.blobs.map((blob, index) => ({
+          part: mentions.entries.length + references.length + index,
+          name: blob.attachment.name,
         })),
         attachments: lease.blobs.map((blob, index) => ({
           ...blob.attachment,
@@ -332,7 +387,7 @@ export class ContextService {
     return attachmentDownload(await this.uploads.acquire(device, thread, [hash]), maxBytes, access);
   }
   async close(): Promise<void> {
-    await this.workspaces.close();
+    this.readers.clear();
     await this.uploads.close();
   }
 }

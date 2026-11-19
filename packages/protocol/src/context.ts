@@ -76,7 +76,18 @@ export const MessageContext = z.object({
   items: z.array(MessageContextItem).max(32).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
-    .array(z.object({ sha256: BlobHash }))
+    .array(
+      z.object({
+        sha256: BlobHash,
+        /**
+         * Where the person put the file in their message: a UTF-16 offset into the message's
+         * text (its `text` input parts joined in order). The file reaches the agent at that
+         * point in the text; without it, after the text. A catalog mention adds no text, so a
+         * file at its edge goes before it.
+         */
+        at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      }),
+    )
     .max(64)
     .default([]),
 });
@@ -103,6 +114,10 @@ export const Attachment = z.object({
   thumbnailAvailable: z.boolean().optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
+/** Most files one `attachments` page carries; a thread may hold any number. */
+export const attachmentPageMax = 256;
+/** Opaque position in a thread's attachment list, from a previous page's `nextCursor`. */
+export const AttachmentListCursor = z.string().min(1).max(64);
 export const ContextErrorCode = z.enum([
   "invalid_request",
   "forbidden",
@@ -176,7 +191,16 @@ export const ContextOperation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("upload.commit"), uploadId: key }),
   z.object({ op: z.literal("upload.cancel"), uploadId: key }),
-  z.object({ op: z.literal("attachment.list"), threadId: ThreadId }),
+  /**
+   * One page of the thread's stored files, newest first. Without `cursor` this is the first page;
+   * pass the previous page's `nextCursor` for the next one.
+   */
+  z.object({
+    op: z.literal("attachment.list"),
+    threadId: ThreadId,
+    cursor: AttachmentListCursor.optional(),
+    limit: z.number().int().min(1).max(attachmentPageMax).optional(),
+  }),
   z.object({
     op: z.literal("attachment.read"),
     threadId: ThreadId,
@@ -223,13 +247,26 @@ export const ContextResult = z.object({
       data: z.string().max(87384),
       eof: z.boolean(),
     }),
-    z.object({ kind: z.literal("attachments"), attachments: z.array(Attachment).max(256) }),
+    z.object({
+      kind: z.literal("attachments"),
+      attachments: z.array(Attachment).max(attachmentPageMax),
+      /** Present while more (older) files remain; send it back as `cursor`. */
+      nextCursor: AttachmentListCursor.optional(),
+    }),
     z.object({
       kind: z.literal("mentions"),
       entries: z.array(ResolvedMention),
       diagnostics: z.array(ContextDiagnostic),
     }),
-    z.object({ kind: z.literal("completion"), paths: z.array(z.string()).max(50) }),
+    z.object({
+      kind: z.literal("completion"),
+      paths: z.array(z.string()).max(50),
+      /**
+       * False while ace-files is still building the checkout's path index: the client keeps its
+       * loading state and asks again. Absent from older daemons, which always answered.
+       */
+      ready: z.boolean().default(true),
+    }),
     z.object({ kind: z.literal("ok") }),
   ]),
 });

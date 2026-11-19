@@ -15,6 +15,11 @@ beforeEach(async () => {
   const script = fileURLToPath(new URL("./testing/cli.ts", import.meta.url));
   await writeFile(executable, `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`);
   await chmod(executable, 0o755);
+  // Windows installs are `.cmd` shims: launch the same fake through cmd.exe.
+  if (process.platform === "win32") {
+    const { writeCmdShim } = await import("@ace/provider-kit/testing/cmd-shim");
+    executable = await writeCmdShim(directory, "claude", script);
+  }
 });
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
@@ -25,7 +30,13 @@ export async function harness(
   options: ClaudeOptions = {},
   execution: Pick<
     SessionContext,
-    "fork" | "options" | "aceMcp" | "permissionMode" | "onInputMessage" | "onSessionConfirmed"
+    | "fork"
+    | "options"
+    | "aceMcp"
+    | "permissionMode"
+    | "onInputMessage"
+    | "onSessionConfirmed"
+    | "chrome"
   > = {},
 ) {
   const frames: Frame[] = [];

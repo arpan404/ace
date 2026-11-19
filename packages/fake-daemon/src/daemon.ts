@@ -1,8 +1,15 @@
+import type { PlaceInput } from "@ace/ui-core/thread-place";
+import { FakeComputerAccess } from "./computer-access.ts";
+import { FakeSpade } from "./spade.ts";
+import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
-import { MachineIcon } from "@ace/protocol";
-import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
+import type { FakeNotificationControls } from "./notification-feed.ts";
+import type { FakeMachineUpdate } from "./machine-update-wire.ts";
+import { EntitiesPage, ItemId, MachineIcon, type EntityCollection } from "@ace/protocol";
+import { regeneratedTitle } from "./title-regenerate.ts";
+import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -12,9 +19,7 @@ import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { stricterOffer } from "@ace/provider-kit/access-modes";
-import { ItemId } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
-import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import {
   fakePermissionCapabilities,
   fakeProviderPermissions,
@@ -25,6 +30,7 @@ import {
   organizationCommands,
   organizationDecision,
   settleDecision,
+  snoozeWokeByQueue,
   settlePolicy,
   liveMetadata,
   applyThreadListEvent,
@@ -37,6 +43,7 @@ import {
   DeviceId,
   EventId,
   HostId,
+  InteractionId,
   ThreadId,
   WorkspaceId,
   type ClientMessage,
@@ -44,6 +51,7 @@ import {
   type CommandResult,
   type DeliveryEvent,
   type EventPayload,
+  type Interaction,
   type InteractionResolution,
   type ItemsPage,
   type ProviderKind,
@@ -62,9 +70,16 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fences.ts";
+import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
+import { readTextSource } from "./text-source.ts";
+import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
+import { entityPage } from "./entity-pages.ts";
+import { answerRefusal } from "@ace/projection/interaction-summary";
+import { requestPage } from "./summarized-requests.ts";
 import { piControlResult } from "./pi-control.ts";
 import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
@@ -76,7 +91,6 @@ import type { FakeComputerUsing } from "./computer-using.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceControls } from "./workspace-wire.ts";
-import { completedThread, startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
   interruptFacts,
@@ -84,15 +98,12 @@ import {
   stopTaskFacts,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
-import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import {
-  forkPointError,
-  forkOpening,
-  mergeFacts,
-  mergeForkError,
-  switchEvents,
-} from "./transitions.ts";
-import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
+import { holdOnLimit, isQueueCommand, queuePage } from "./queue-commands.ts";
+import { runQueueCommand, type LimitCommandHost } from "./limit-commands.ts";
+import { createThread, prepareThread, type CreateCommandHost } from "./create-commands.ts";
+import type { FakeSkillLibrary } from "./skill-library.ts";
+import { switchEvents } from "./transitions.ts";
+import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
@@ -103,6 +114,7 @@ type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionRes
  */
 export class FakeDaemon implements Host {
   readonly hostId: HostId;
+  readonly databaseId: string;
   get displayName(): string {
     const name = this.services.settings.get("host.displayName");
     return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
@@ -113,8 +125,32 @@ export class FakeDaemon implements Host {
     return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
+  /** The release line its welcome names (ADR 0177). */
+  get releaseLine(): string | undefined {
+    return this.options.releaseLine;
+  }
+  /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
+  platform: string | undefined;
+  /** The paths `host.identity` reports (ADR 0114); tests set them. */
+  paths: readonly import("@ace/protocol").MachinePath[] | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
+  /**
+   * Places listed threads as the daemon does: its sort, this clock, and its seen baseline. The
+   * real daemon's is its first start, long before what it lists finished; a fake is seeded just
+   * before it is read, so what it was seeded with counts as seen unless its read time says
+   * otherwise (`seenBefore` sets another moment).
+   */
+  placeInput(): PlaceInput | undefined {
+    if (this.options.placement === false) return undefined;
+    const sorts = ["activity", "created", "manual"] as const;
+    const value = this.services.settings.get("threads.sortBy");
+    return {
+      baseline: this.options.seenBefore ?? Number.MAX_SAFE_INTEGER,
+      now: this.options.clock(),
+      sortBy: sorts.find((sort) => sort === value) ?? "activity",
+    };
+  }
   private options: FakeDaemonOptions;
   private worktreeCreations: FakeWorktreeCreations;
   private servicesWire: FakeServicesWire;
@@ -144,6 +180,10 @@ export class FakeDaemon implements Host {
   readonly commandFlights = new CommandFlights();
   /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
   readonly transfers: FakeTransfers;
+  /** Locked computer use and Use my Chrome (`computer-access.ts`). */
+  readonly computerAccess = new FakeComputerAccess();
+  /** Spade's status, with its host thread (`spade.ts`). */
+  readonly spade = new FakeSpade();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -173,10 +213,12 @@ export class FakeDaemon implements Host {
             options.clock(),
           );
       },
-      (command) => this.servicesWire.workspace.git.creationFailure(command.payload),
+      (command) => this.servicesWire.workspace.git.creationRules(command.payload),
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
+    this.databaseId = options.databaseId ?? globalThis.crypto.randomUUID();
     this.version = options.version ?? "fake";
+    this.platform = options.platform;
     this.longThreads = new FakeLongThreadWire({
       head: () => this.seq,
       thread: (id) => this.threads.get(id),
@@ -186,18 +228,12 @@ export class FakeDaemon implements Host {
         return output ? new TextDecoder().decode(output.bytes) : "";
       },
     });
-    this.access = new FakeAccess(options.clock, () => {
-      const enabled = this.services.settings.get("remote.enabled") === true;
-      const transport = SettingsValues.shape["remote.transport"].parse(
-        this.services.settings.get("remote.transport"),
-      );
-      return {
-        enabled,
-        transport: enabled ? transport : "local",
-        listenOverride: null,
-        relayOverride: false,
-      };
-    });
+    this.access = new FakeAccess(options.clock, () =>
+      fakeRemoteStatus(
+        (key) => this.services.settings.get(key),
+        this.access.machineAccount?.status().signedIn === true,
+      ),
+    );
     this.appDevices = new FakeAppDevices(options.clock);
     let screenSequence = 0;
     this.screen = new FakeScreen({
@@ -298,6 +334,10 @@ export class FakeDaemon implements Host {
       this.services.settings,
       () => this.services.providerStatuses,
     );
+    // Each fake machine mints its own logical project ids, as each daemon does (ADR 0180).
+    this.servicesWire.workspace.projects.identities.reseed(this.hostId);
+    if (options.projectIdentity === false)
+      this.servicesWire.workspace.projects.identities.enabled = false;
     this.review = new FakeReviewDesk(
       options.clock,
       (threadId, text, requestId) =>
@@ -310,14 +350,56 @@ export class FakeDaemon implements Host {
       this.servicesWire.files,
     );
     this.services.verify.onMerged = (_, number) => this.workspace.mergePullRequest(number);
+    // As the daemon's placement does: a sort change re-places every open thread list.
+    this.services.settings.onChange((keys) => {
+      if (keys.includes("threads.sortBy"))
+        for (const connection of this.connections) connection.replace();
+      // Settings › Devices turns devices on or off for the whole machine, as the daemon does.
+      if (keys.includes("devices.enabled"))
+        this.appDevices.setEnabled(this.services.settings.get("devices.enabled") !== false);
+      // Settings › Beta shows or hides Spade, as the daemon does.
+      if (keys.includes("beta.spade")) {
+        const on = this.services.settings.get("beta.spade") === true;
+        if (on && this.spade.status.hidden) this.spade.setStatus({ state: "off" });
+        if (!on)
+          this.spade.setStatus({
+            state: "off",
+            hidden: true,
+            reason: "Spade is turned off in Settings › Beta.",
+          });
+      }
+    });
+    this.appDevices.onEnabled = (enabled) => {
+      if ((this.services.settings.get("devices.enabled") !== false) !== enabled)
+        this.services.settings.write("devices.enabled", enabled);
+    };
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
   }
-  /** Past-session requests clients made: lists read provider history, releases end it. */
-  get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
+  /**
+   * Past-session requests clients made: lists read provider history, releases end it, and each
+   * continue carried out.
+   */
+  get pastSessions(): Pick<FakeHistory, "lists" | "releases" | "continued"> {
     return this.servicesWire.history;
+  }
+  /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
+  get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
+    return this.servicesWire.admission;
+  }
+  /** Outside MCP clients behind `outside.request`: seed grants, ask for access, read decisions. */
+  get outside(): import("./outside-wire.ts").FakeOutside {
+    return this.servicesWire.outside;
+  }
+  /** ace's marketplace behind `marketplace.request`: what was accepted, and the recipe's bot. */
+  get marketplace(): import("./marketplace-wire.ts").FakeMarketplaceWire {
+    return this.servicesWire.marketplace;
+  }
+  /** This machine's own update, behind `machineUpdate.request`. */
+  get machineUpdate(): FakeMachineUpdate {
+    return this.servicesWire.machineUpdate;
   }
   /** The host folders and project catalog behind `projects.request` and project commands. */
   get projects(): FakeProjects {
@@ -326,12 +408,12 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
   get checkouts(): Pick<
     import("./files-wire.ts").FakeFilesWire,
-    "seed" | "seedProject" | "seedLinked"
+    "seed" | "seedBytes" | "seedProject" | "seedLinked" | "overwrite"
   > {
     return this.servicesWire.files;
   }
-  /** The skill library behind `skills.request`, for seeding skills. */
-  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+  /** The skill library behind `skills.request`, for seeding skills and slowing updates. */
+  get skills(): Pick<FakeSkillLibrary, "seed" | "holdUpdatePreparations"> {
     return this.servicesWire.skills;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
@@ -350,16 +432,19 @@ export class FakeDaemon implements Host {
   get computerUsing(): FakeComputerUsing {
     return this.servicesWire.computerUsing;
   }
-  /**
-   * Seed what a long-running daemon's services hold: decks, automations and their runs,
-   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
-   */
+  /** Run checks and safe repairs (`diagnostics.request`), for holding a run in progress. */
+  get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
+    return this.servicesWire.checks;
+  }
   /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
     this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  get notifications(): FakeNotificationControls {
+    return this.servicesWire.notificationFeed;
   }
   /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
   retractNotification(id: string): void {
@@ -369,6 +454,12 @@ export class FakeDaemon implements Host {
   uncertainQueuedMessage(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
     markUncertainInput(host, messageId);
+    this.afterChange(host, this.options.clock());
+  }
+  /** A steer the daemon holds until the provider can take it, or one that fell back. */
+  waitingSteer(threadId: string, messageId: string, text: string, kind: "steer" | "fell_back") {
+    const host = this.thread(threadId);
+    waitingSteer(host, messageId, text, kind);
     this.afterChange(host, this.options.clock());
   }
   /** A legacy daemon lost admission proof after filling the follow-up queue. */
@@ -417,6 +508,10 @@ export class FakeDaemon implements Host {
     this.afterChange(host, this.options.clock());
   }
 
+  /**
+   * Seed what a long-running daemon's services hold: decks, automations and their runs,
+   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
+   */
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -458,9 +553,12 @@ export class FakeDaemon implements Host {
       },
     };
   }
-  /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
+  /** A page of a shell's output or a clipped text (`output.read`); undefined for an unknown stream. */
   output(streamId: string, offset: number, limit: number) {
-    return this.outputs.read(streamId, offset, limit);
+    const views = Array.from(this.threads.values(), (host) => host.view);
+    return (
+      this.outputs.read(streamId, offset, limit) ?? readTextSource(views, streamId, offset, limit)
+    );
   }
   get head(): number {
     return this.seq;
@@ -505,7 +603,11 @@ export class FakeDaemon implements Host {
       ...(init.lineage ? { lineage: init.lineage } : {}),
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
+      ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
+      ...(init.startedByClient ? { startedByClient: init.startedByClient } : {}),
+      ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
+      ...(init.host ? { host: init.host } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: init.access ?? null,
@@ -622,7 +724,10 @@ export class FakeDaemon implements Host {
       host.queue.revision++;
       host.queue.pendingCount = host.queued.length;
       if (queueWakesSnooze(host.view.thread, host.queue, now))
-        follow.push({ type: "thread.client.updated", changes: { snoozedUntil: null } });
+        follow.push({
+          type: "thread.client.updated",
+          changes: { snoozedUntil: null, snoozeWoke: snoozeWokeByQueue(now) },
+        });
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);
@@ -642,8 +747,12 @@ export class FakeDaemon implements Host {
     const followups: EventPayload[] = [];
     let inputIndex = 0;
     while (followups.length || inputIndex < payloads.length) {
-      const payload = followups.shift() ?? payloads[inputIndex++];
-      if (!payload) continue;
+      const raw = followups.shift() ?? payloads[inputIndex++];
+      if (!raw) continue;
+      host.turns.track(raw, host.view.thread.rootAgentId);
+      // A root run is numbered before anything reads it, as the daemon does: the live hints time
+      // Working from its turn.
+      const payload = numberedRun(host, raw);
       const step =
         payload.type === "agent.status" &&
         payload.status.state === "working" &&
@@ -696,22 +805,6 @@ export class FakeDaemon implements Host {
         threadId: ThreadId.parse(host.id),
         payload,
       };
-      host.turns.track(event.payload, host.view.thread.rootAgentId);
-      if (
-        event.payload.type === "run.started" &&
-        event.payload.run.agentId === host.view.thread.rootAgentId
-      ) {
-        const run = event.payload.run;
-        event.payload = {
-          ...event.payload,
-          run: {
-            ...run,
-            turn: host.turns.start(run),
-            ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
-            checkpoints: { state: "unavailable", error: "scripted_provider" },
-          },
-        };
-      }
       this.log.push(event);
       host.record(event);
       this.longThreads.index.record(event, host.view);
@@ -868,6 +961,8 @@ export class FakeDaemon implements Host {
       return true;
     }
     if (this.transfers.handle(message, connection.push)) return true;
+    if (this.computerAccess.handle(message, connection.push)) return true;
+    if (this.spade.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }
   /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */
@@ -886,10 +981,6 @@ export class FakeDaemon implements Host {
   ): void {
     const now = this.at(agoMs);
     this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
-  }
-  /** A scripted Offshift run change, on the same stream as the daemon's run writes. */
-  updateOffshift(id: string, card: OffshiftRunCard, agoMs = 0): void {
-    this.append(this.thread(id), [{ type: "offshift.updated", card }], this.at(agoMs));
   }
   /** Push to every signed-in connection. */
   private broadcast(message: ServerMessage): void {
@@ -932,6 +1023,41 @@ export class FakeDaemon implements Host {
   page(threadId: string, before: number, limit: number): ItemsPage | undefined {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
+  }
+  interactionOf(threadId: string, interactionId: string): Interaction | undefined {
+    const host = this.threads.get(threadId);
+    const id = InteractionId.safeParse(interactionId);
+    const key = id.success ? host?.interactionKey(id.data) : undefined;
+    return key === undefined ? undefined : host?.interaction(key);
+  }
+  /** A page of `collection`'s entities created before `before`, as the daemon pages them. */
+  entities(
+    threadId: string,
+    collection: EntityCollection,
+    before: number,
+    limit: number,
+    maxBytes = 128 * 1024,
+  ): EntitiesPage | undefined {
+    const host = this.threads.get(threadId);
+    if (!host) return undefined;
+    return EntitiesPage.parse({
+      collection,
+      seq: this.seq,
+      threadId,
+      ...entityPage(
+        Object.values(host.view[collection] as Record<string, unknown>),
+        collection,
+        before,
+        limit,
+        maxBytes,
+        this.options.entityPages ?? "active-first",
+        this.options.largestEntity,
+      ),
+    });
+  }
+  private canOperate(device: string): boolean {
+    const scopes = this.options.deviceScopes?.[device];
+    return !scopes || scopes.includes("operate") || scopes.includes("admin");
   }
   private canManageProjects(device: string): boolean {
     const scopes = this.options.deviceScopes?.[device];
@@ -1034,7 +1160,9 @@ export class FakeDaemon implements Host {
       return { commandId, ok: false, error: "thread_not_found" };
     const outcome = decide(host);
     if (!outcome.ok) return { commandId, ok: false, error: outcome.error };
-    this.apply(threadId, outcome.facts);
+    const later = outcome.after ?? [];
+    this.apply(threadId, outcome.facts, later.length);
+    later.forEach((facts, step) => this.apply(threadId, facts, later.length - 1 - step));
     return { commandId, ok: true };
   }
   /**
@@ -1061,12 +1189,61 @@ export class FakeDaemon implements Host {
       Date.now(),
     )?.id;
   }
+  /** What `thread.fork` and `thread.merge` reach of this daemon. */
+  private get forkHost(): ForkCommandHost {
+    return {
+      threads: this.threads,
+      context: this.servicesWire.context,
+      createThread: (init) => this.createThread(init),
+      apply: (threadId, facts) => this.apply(threadId, facts),
+    };
+  }
+
+  /** What `thread.prepare` and `thread.create` reach of this daemon. */
+  private get createHost(): CreateCommandHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const daemon = this;
+    return {
+      threads: this.threads,
+      context: this.servicesWire.context,
+      get remoteReachable() {
+        return daemon.remoteReachable;
+      },
+      hostId: this.hostId,
+      get displayName() {
+        return daemon.displayName;
+      },
+      isChat: (workspaceId) => this.projects.get(workspaceId)?.kind === "chat",
+      ...(this.options.threadCompletionSchedule
+        ? { scheduleCompletion: this.options.threadCompletionSchedule }
+        : {}),
+      createThread: (init) => this.createThread(init),
+      apply: (threadId, facts) => this.apply(threadId, facts),
+    };
+  }
+
+  /** What the queue commands reach of this daemon. */
+  private get limitHost(): LimitCommandHost {
+    return {
+      clock: this.options.clock,
+      thread: (id) => this.threads.get(id),
+      accounts: () => this.services.accounts,
+      migrationTarget: (host) => this.migrationTarget(host),
+      run: (commandId, threadId, decide) => this.run(commandId, threadId, decide),
+      append: (host, payloads, now) => this.append(host, payloads, now),
+    };
+  }
+
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     if (
       ProjectCommand.options.some((option) => option.shape.type.value === payload.type) &&
+      payload.type !== "workspace.chat.create" &&
       !this.canManageProjects(command.deviceId)
     )
+      return { commandId: command.id, ok: false, error: "forbidden" };
+    // A chat's hidden project is where a new thread starts: `operate` is enough, as on a daemon.
+    if (payload.type === "workspace.chat.create" && !this.canOperate(command.deviceId))
       return { commandId: command.id, ok: false, error: "forbidden" };
     if (
       (payload.type === "thread.create" || payload.type === "thread.prepare") &&
@@ -1108,6 +1285,9 @@ export class FakeDaemon implements Host {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
+      // As the daemon does: an archive or delete decided before newer work started is refused.
+      if (listActionChanged(host, payload))
+        return { commandId, ok: false, error: "thread_changed" };
       if (payload.type === "thread.delete") {
         const alive = prepareFakeDelete(
           host,
@@ -1118,134 +1298,31 @@ export class FakeDaemon implements Host {
         );
         if (alive) return { commandId, ok: false, error: "thread_busy", alive };
       }
+      if (payload.type === "thread.title.regenerate") {
+        const renamed = regeneratedTitle(host.view);
+        if (!renamed) return { commandId, ok: false, error: "thread_title_unavailable" };
+        this.append(host, [renamed], this.options.clock());
+        return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
+      }
       const decision = organizationDecision(host.view.thread, command, this.options.clock());
       if (typeof decision === "string") return { commandId, ok: false, error: decision };
       this.append(host, [decision], this.options.clock());
       return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
     }
-    if (isQueueCommand(payload)) {
-      const result = this.run(commandId, payload.threadId, (host) =>
-        queueCommand(
-          host,
-          payload,
-          this.options.clock(),
-          commandId,
-          payload.type === "thread.limit"
-            ? this.services.accounts.find(
-                (account) =>
-                  account.id ===
-                  (payload.action === "migrate_now"
-                    ? (payload.instanceId ?? this.migrationTarget(host))
-                    : (host.view.thread.live?.account ?? host.view.thread.execution?.instanceId)),
-              )
-            : undefined,
-        ),
-      );
-      // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
-      // does when none is named, the same provider's account with headroom.
-      const host = this.threads.get(payload.threadId);
-      if (
-        result.ok &&
-        host &&
-        payload.type === "thread.limit" &&
-        payload.action === "migrate_now"
-      ) {
-        const account = payload.instanceId ?? this.migrationTarget(host);
-        if (account)
-          this.append(
-            host,
-            [
-              {
-                type: "thread.client.updated",
-                changes: { live: { ...host.view.thread.live, account } },
-              },
-            ],
-            this.options.clock(),
-          );
-      }
-      return result;
-    }
+    if (isQueueCommand(payload)) return runQueueCommand(this.limitHost, payload, commandId);
     switch (payload.type) {
       case "thread.markRead":
         return this.longThreads.markRead(commandId, payload, command.deviceId);
-      case "thread.fork": {
-        const source = this.threads.get(payload.threadId);
-        if (!source || source.view.thread.deletedAt !== undefined)
-          return { commandId, ok: false, error: "thread_not_found" };
-        const refused = forkPointError(source, payload.point);
-        if (refused) return { commandId, ok: false, error: refused };
-        // The first message carries files the source holds, as the daemon gives the fork its own.
-        const attachments = this.servicesWire.context.messageAttachments(
-          payload.threadId,
-          payload.context?.attachments.map((a) => a.sha256) ?? [],
-        );
-        const id = `${payload.threadId}-fork-${commandId}`;
-        if (this.threads.has(id)) return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
-        const from = source.view.thread;
-        const provider = payload.selection?.provider ?? from.provider;
-        const started = startedThread(id, {
-          type: "thread.create",
-          workspaceId: from.workspaceId,
-          provider,
-          ...(payload.selection?.model ? { model: payload.selection.model } : {}),
-          title: payload.title ?? `${from.title} (fork)`,
-          input: [{ type: "text", text: payload.input }],
-        });
-        const opening = forkOpening(source, payload.point, provider);
-        this.createThread({
-          ...started.thread,
-          ...(from.details ? { details: from.details } : {}),
-          execution: payload.selection ?? { provider, options: {} },
-          lineage: opening.lineage,
-        });
-        if (attachments.length)
-          this.servicesWire.context.inherit(
-            payload.threadId,
-            id,
-            attachments.map((attachment) => attachment.sha256),
-          );
-        for (const fact of started.facts)
-          if (
-            fact.type === "item.upsert" &&
-            fact.draft.type === "message" &&
-            fact.draft.role === "user" &&
-            attachments.length
-          )
-            fact.draft.attachments = attachments;
-        const [root, ...rest] = started.facts;
-        this.apply(id, [...(root ? [root] : []), ...opening.facts, ...rest]);
-        return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
-      }
-      case "thread.merge": {
-        const fork = this.threads.get(payload.threadId);
-        if (!fork) return { commandId, ok: false, error: "thread_not_found" };
-        const parent = this.threads.get(fork.view.thread.lineage?.parentThreadId ?? "");
-        const error = mergeForkError(fork, parent, payload);
-        if (error || !parent)
-          return { commandId, ok: false, error: error ?? "source_thread_not_found" };
-        this.apply(parent.id, mergeFacts(payload, commandId));
-        return { commandId, ok: true };
-      }
+      case "thread.fork":
+        return forkThread(this.forkHost, payload, commandId);
+      case "thread.merge":
+        return mergeFork(this.forkHost, payload, commandId);
       case "thread.switch": {
         const host = this.threads.get(payload.threadId);
         if (!host || host.view.thread.deletedAt !== undefined)
           return { commandId, ok: false, error: "thread_not_found" };
         const at = this.options.clock();
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              switch: {
-                selection: { ...payload.selection, options: payload.selection.options ?? {} },
-                state: "queued",
-                lossy: payload.selection.provider !== host.view.thread.provider,
-                at,
-              },
-            },
-          ],
-          at,
-        );
+        this.append(host, [switchUpdate(host, payload, at)], at);
         this.afterChange(host, at);
         return { commandId, ok: true };
       }
@@ -1259,6 +1336,11 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
+          const shown =
+            payload.readWhole !== undefined &&
+            payload.readWhole === requestPage(pending, 0).version;
+          const refused = answerRefusal(pending, payload.resolution, shown);
+          if (refused) return { commandId, ok: false, error: refused };
           this.apply(host.id, [
             {
               type: "interaction.closed",
@@ -1276,110 +1358,15 @@ export class FakeDaemon implements Host {
       case "thread.permission.set": {
         const host = this.threads.get(payload.threadId);
         if (!host) return { commandId, ok: false, error: "thread_not_found" };
-        const offers =
-          host.view.thread.capabilities?.accessModes ?? fakeAccessModes(host.view.thread.provider);
-        if (payload.access && !offers.some((offer) => offer.mode === payload.access))
-          return { commandId, ok: false, error: "permission_mode_unsupported" };
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              permission: {
-                override: payload.access,
-                effective: host.view.thread.permission?.effective ?? null,
-                pending: true,
-              },
-            },
-          ],
-          this.options.clock(),
-        );
+        const update = permissionUpdate(host, payload);
+        if ("error" in update) return { commandId, ok: false, error: update.error };
+        this.append(host, [update.event], this.options.clock());
         return { commandId, ok: true };
       }
-      case "thread.prepare": {
-        if (this.threads.has(payload.threadId))
-          return { commandId, ok: false, error: "thread_exists" };
-        const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
-        if (!base.ok) return { commandId, ok: false, error: base.error };
-        this.createThread({
-          id: payload.threadId,
-          workspaceId: payload.workspaceId,
-          title: payload.title,
-          provider: payload.provider,
-          ...(payload.access && payload.access !== "inherit" ? { access: payload.access } : {}),
-          details: {
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, payload.threadId, payload.workspaceId),
-            ...base.fields,
-          },
-        });
-        return { commandId, ok: true, threadId: payload.threadId };
-      }
-      case "thread.create": {
-        // No provider is contacted; the host may schedule a fixture completion.
-        const id = payload.threadId ?? `thread-${commandId}`;
-        if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
-        const started = startedThread(id, payload, commandId);
-        const base = fakeWorktreeBase(payload, started.thread.title, this.remoteReachable);
-        if (!base.ok) return { commandId, ok: false, error: base.error };
-        if (payload.context?.draftId)
-          this.servicesWire.context.validateDraft(
-            command.deviceId,
-            payload.context.draftId,
-            payload.workspaceId,
-            id,
-          );
-        this.createThread({
-          ...started.thread,
-          ...(payload.access ? { access: payload.access } : {}),
-          details: {
-            workspace: {
-              id: payload.workspaceId,
-              name: payload.workspaceId,
-              path: `/fake/${payload.workspaceId}`,
-              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
-                ? { kind: "chat" as const, name: "Chat" }
-                : {}),
-            },
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
-            ...base.fields,
-            machine: { host: this.hostId, name: this.displayName },
-            diff: { files: 0, additions: 0, deletions: 0 },
-          },
-          live: {
-            ...(payload.model ? { model: payload.model } : {}),
-            ...((payload.accountId ?? payload.account)
-              ? { account: payload.accountId ?? payload.account }
-              : {}),
-            ...(payload.options ? { options: payload.options } : {}),
-            subagentCount: 0,
-            backgroundTaskCount: 0,
-          },
-        });
-        if (payload.context?.draftId)
-          this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
-        const attachments = this.servicesWire.context.messageAttachments(
-          id,
-          payload.context?.attachments.map((a) => a.sha256) ?? [],
-        );
-        for (const fact of started.facts)
-          if (
-            fact.type === "item.upsert" &&
-            fact.draft.type === "message" &&
-            fact.draft.role === "user" &&
-            attachments.length
-          )
-            fact.draft.attachments = attachments;
-        this.apply(id, started.facts);
-        const runId = this.threads.get(id)?.state.agents.root?.activeRun;
-        this.options.threadCompletionSchedule?.(() => {
-          const host = this.threads.get(id);
-          if (runId && host?.state.agents.root?.activeRun === runId)
-            this.apply(id, completedThread(commandId));
-        });
-        return { commandId, ok: true, threadId: ThreadId.parse(id) };
-      }
+      case "thread.prepare":
+        return prepareThread(this.createHost, payload, commandId);
+      case "thread.create":
+        return createThread(this.createHost, payload, command);
       case "thread.send": {
         const sent = this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
@@ -1388,20 +1375,28 @@ export class FakeDaemon implements Host {
               payload.threadId,
               payload.context?.attachments.map((a) => a.sha256) ?? [],
             ),
-            // An omitted delivery resolves the person's follow-up setting, as the daemon does.
-            delivery:
+            // An omitted delivery resolves the person's follow-up setting, as the daemon does,
+            // and a steer goes in only while the run its sender saw (or none) still holds.
+            delivery: fencedDelivery(
+              host,
               payload.delivery ??
-              (this.services.settings.resolve("threads.followUpBehavior", {
-                threadId: payload.threadId,
-              }) === "steer"
-                ? "steer"
-                : "queue"),
+                (this.services.settings.resolve("threads.followUpBehavior", {
+                  threadId: payload.threadId,
+                }) === "steer"
+                  ? "steer"
+                  : "queue"),
+              payload.runId,
+            ),
           }),
         );
         if (sent.ok) this.markSent(payload.threadId);
         return sent;
       }
       case "thread.interrupt":
+        // As the daemon does: a Stop naming a run that is no longer its agent's active one is
+        // refused, so it never stops a run started after it was pressed.
+        if (staleInterrupt(this.threads.get(payload.threadId), payload))
+          return { commandId, ok: false, error: "stale_interrupt" };
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),
         );

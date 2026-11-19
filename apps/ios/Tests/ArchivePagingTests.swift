@@ -71,7 +71,7 @@ import Testing
     }
     private func connected() async throws -> (ClientModel, ArchiveSession) {
         let holder = SessionHolder()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, receive, _ in holder.make(receive) })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, receive, _ in holder.make(receive) })
         let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "device",
                                       pin: nil, credential: { "{}" })
         await model.connect(target: target, directory: FileManager.default.temporaryDirectory)

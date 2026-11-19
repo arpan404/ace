@@ -4,8 +4,9 @@ import {
   ForgeReviewAction,
   WorkspaceId,
 } from "@ace/protocol";
-import { actionErrorText, lockedKinds, lockedText, reviewLostText } from "@ace/ui-core";
+import { can, actionErrorText, lockedKinds, lockedText, reviewLostText } from "@ace/ui-core";
 import { z } from "zod";
+import { capabilitySource } from "./forge-features.ts";
 import { shownKey, type ShownBodies } from "./forge-conversation.ts";
 import { lockedOut, prLifecycle } from "./forge-pr-reads.ts";
 import type { ForgeOwner, ForgeReads } from "./forge-reads.ts";
@@ -82,6 +83,11 @@ export async function writeReview(
 ): Promise<ReviewWriteReply> {
   const action = completed(request.action, shown, newId);
   if (typeof action === "string") return refuse(action);
+  if (
+    action.kind === "suggestions.apply" &&
+    !can(await capabilitySource(reads, request.project, request.repository), "reviews.suggestions")
+  )
+    return refuse("Suggested changes aren't supported for this repository.");
   // A locked conversation refuses comments from someone who can't push: say so, send nothing.
   if (lockedKinds.has(action.kind) && lockedOut(await prLifecycle(reads, request)))
     return refuse(lockedText);

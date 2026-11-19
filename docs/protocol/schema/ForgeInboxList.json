@@ -24,6 +24,13 @@
       "minimum": 1,
       "type": "integer"
     },
+    "projectRepositories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
     "projectRepository": {
       "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
     },

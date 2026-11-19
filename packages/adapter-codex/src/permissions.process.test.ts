@@ -2,16 +2,17 @@ import { expect, test } from "vitest";
 import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { sessionHarness } from "./session.test-helper.ts";
 import { obj } from "./native.ts";
+// Each mode's policy is a unit case in permission-policy.test.ts; these rows prove a plain
+// profile and a reviewer selector reach both thread/start and turn/start.
 test.each([
-  ":read-only",
-  ":workspace",
-  ":danger-full-access",
-  codexReviewerMode("auto_review"),
-  codexReviewerMode("guardian_subagent"),
-])("Codex receives native %s on launch and turn", async (mode) => {
+  [":workspace", { permissions: ":workspace" }],
+  [
+    codexReviewerMode("auto_review"),
+    { permissions: ":workspace", approvalsReviewer: "auto_review" },
+  ],
+] as const)("Codex receives native %s on launch and turn", async (mode, expected) => {
   const h = await sessionHarness(false, "", undefined, undefined, undefined, mode);
   try {
-    const expected = mode.startsWith("{") ? obj(JSON.parse(mode)) : { permissions: mode };
     const open = h.frames.find(
       (frame) => frame.dir === "send" && obj(frame.data).method === "thread/start",
     );
@@ -93,6 +94,15 @@ test("resetting a persisted native thread restores configured defaults before re
     resetPermissions: true,
   });
   try {
+    // The configured defaults are read while the profile catalog is, not after it.
+    const sent = (method: string) =>
+      h.frames.findIndex((f) => f.dir === "send" && obj(f.data).method === method);
+    const catalog = h.frames[sent("permissionProfile/list")];
+    const catalogReply = h.frames.findIndex(
+      (f) => f.dir === "recv" && obj(f.data).id === obj(catalog?.data).id,
+    );
+    expect(sent("config/read")).toBeGreaterThan(-1);
+    expect(sent("config/read")).toBeLessThan(catalogReply);
     const resume = h.frames.find((f) => f.dir === "send" && obj(f.data).method === "thread/resume");
     expect(obj(obj(resume?.data).params)).toMatchObject({
       permissions: ":workspace",

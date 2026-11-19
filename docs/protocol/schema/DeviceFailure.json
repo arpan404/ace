@@ -17,7 +17,8 @@
         "invalid_data",
         "lease_required",
         "stale_ref",
-        "limit"
+        "limit",
+        "person_busy"
       ],
       "type": "string"
     },

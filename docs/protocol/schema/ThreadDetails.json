@@ -30,6 +30,49 @@
         }
       ]
     },
+    "checkoutMissing": {
+      "properties": {
+        "branch": {
+          "properties": {
+            "holder": {
+              "enum": [
+                "local",
+                "worktree"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "free",
+                "gone",
+                "elsewhere"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "state"
+          ],
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "worktree",
+            "project"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
     "continuedFrom": {
       "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
     },
@@ -58,6 +101,24 @@
         "files",
         "additions",
         "deletions"
+      ],
+      "type": "object"
+    },
+    "guest": {
+      "properties": {
+        "host": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "name"
       ],
       "type": "object"
     },
@@ -157,6 +218,17 @@
     },
     "repository": {
       "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "upstream": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "workspace": {
       "properties": {

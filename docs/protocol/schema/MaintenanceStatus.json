@@ -9,6 +9,25 @@
     },
     "draining": {
       "type": "boolean"
+    },
+    "holds": {
+      "items": {
+        "enum": [
+          "user",
+          "update",
+          "kill",
+          "stop",
+          "storage"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "waiting": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [

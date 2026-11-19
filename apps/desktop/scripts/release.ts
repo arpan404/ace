@@ -1,12 +1,9 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ReleaseVersion } from "@ace/protocol";
 import {
-  changedFiles,
   checksumList,
   combineStaged,
   daemonAssets,
@@ -16,11 +13,15 @@ import {
   missingUpdatePackages,
   releaseRepository,
   releaseTag,
-  StagedRelease,
+  type StagedRelease,
 } from "../src/packaging/release-plan.ts";
+import { windowsSigning, windowsSigningConfigured } from "../src/packaging/release-signing.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
+import { releaseDataAt } from "./release-data.ts";
+import { renderReleaseData } from "../src/packaging/release-data.ts";
+import { readStaged, run, say, shippedSpade, stageRelease, verifyMac } from "./release-stage.ts";
 import {
   capture,
   githubReady,
@@ -28,7 +29,7 @@ import {
   pushed,
   releaseChecks,
   releaseExists,
-  sha256,
+  releasePublished,
   signingIdentity,
   worktreeClean,
 } from "./release-tools.ts";
@@ -40,23 +41,27 @@ import {
  *   bun run release:doctor
  *   bun run release:build 0.0.3 [--unsigned] [--with-daemon] [--allow-dirty]
  *   bun run release:publish 0.0.3 [--draft] [--notes-file notes.md] [--include <staged dir>]
+ *   bun run release:data [<checkout>]
  *
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
  * stages the files with their SHA-256 under `dist/releases/v<version>`. `--with-daemon` adds
  * the signed standalone daemon archive for Apple silicon, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
- * draft release tagged at the built commit, then publishes it.
+ * draft release tagged at the built commit, then publishes it. Every release carries
+ * `ace-data.json`, the data formats its build reads (ADR 0177); `data` prints them for this
+ * tree or another checkout (an older tag's, with its dependencies installed) and uploads nothing.
  *
- * On Linux (inside the Debian 11 build container, ADR 0093) `build` packages the AppImage,
+ * On Linux (inside the Debian 12 build container, ADR 0093) `build` packages the AppImage,
  * deb and tar.gz with `latest-linux*.yml` for this host's architecture, unsigned; the
  * AppImage updates itself, the deb and tar.gz are offered the release page. `--with-daemon`
- * there builds node-pty and the archive for this host's Linux target only.
+ * there builds the archive for this host's Linux target only.
  */
 const usage = `Usage:
   bun run release:doctor
   bun run release:build <version> [--unsigned] [--with-daemon] [--allow-dirty]
-  bun run release:publish <version> [--draft] [--notes-file <path>] [--include <staged dir>]...`;
+  bun run release:publish <version> [--draft] [--notes-file <path>] [--include <staged dir>]...
+  bun run release:data [<checkout>]`;
 
 const [command, versionArgument, ...rest] = process.argv.slice(2);
 const flag = (name: string) => rest.includes(name);
@@ -70,14 +75,13 @@ const options = (name: string) =>
     const next = rest[index + 1];
     return value === name && next !== undefined ? [next] : [];
   });
-const say = (line: string) => console.log(`[release] ${line}`);
-const run = (file: string, args: string[], env: NodeJS.ProcessEnv = process.env) =>
-  execFileSync(file, args, { cwd: repo, stdio: "inherit", env });
 const staging = (version: string) => join(repo, "dist/releases", releaseTag(version));
 const daemonOutput = join(repo, "tools/release/dist");
 
 try {
   if (command === "doctor") doctor();
+  else if (command === "data")
+    process.stdout.write(renderReleaseData(await releaseDataAt(resolve(versionArgument ?? repo))));
   else if (command === "build" && versionArgument) await build(releaseVersion(versionArgument));
   else if (command === "publish" && versionArgument) await publish(releaseVersion(versionArgument));
   else {
@@ -122,7 +126,7 @@ async function build(version: string): Promise<void> {
   const dirty = !worktreeClean();
   if (dirty && !flag("--allow-dirty"))
     throw new Error("Commit your changes first: a release is built from a commit.");
-  if (githubReady() && releaseExists(version))
+  if (githubReady() && releasePublished(releaseTag(version)))
     throw new Error(`${releaseTag(version)} is already released; pick a newer version.`);
   const signed = process.platform === "darwin" && !unsigned;
   if (signed) {
@@ -149,8 +153,10 @@ async function build(version: string): Promise<void> {
     { ...process.env, ACE_VERSION: version },
   );
   const output = join(dist, "release");
+  let packagedMac: string | undefined;
   if (process.platform === "darwin") {
     const app = verifyMac(output, signed);
+    packagedMac = app;
     say("launching the packaged app with an empty data home");
     await checkPackagedLaunch(app);
     say("packaged app started its daemon and checked for updates");
@@ -158,24 +164,41 @@ async function build(version: string): Promise<void> {
 
   if (withDaemon && publicKey && privateKey)
     for (const target of daemonTargets) {
-      // Linux has no node-pty prebuilds: build it on this host and pass the pinned input.
-      const native =
-        target === "linux-arm64" || target === "linux-x64"
-          ? join(daemonOutput, "native", `${target}.json`)
-          : undefined;
-      if (native) run(process.execPath, [join(repo, "tools/release/src/native.ts"), target]);
+      run(
+        process.execPath,
+        [join(repo, "tools/release/src/build.ts"), version, target, publicKey],
+        packagedMac
+          ? {
+              ...process.env,
+              ACE_MEDIA_BIN: join(packagedMac, "Contents/Resources/media/ace-media"),
+              ACE_FILES_BIN: join(packagedMac, "Contents/Resources/files/ace-files"),
+            }
+          : process.env,
+      );
       run(process.execPath, [
-        join(repo, "tools/release/src/build.ts"),
-        version,
-        target,
-        publicKey,
-        ...(native ? [native] : []),
+        join(repo, "tools/release/src/smoke.ts"),
+        join(daemonOutput, target),
+        "--unsigned-archive",
       ]);
       run(process.execPath, [
         join(repo, "tools/release/src/sign.ts"),
         join(daemonOutput, `${target}.json`),
         privateKey,
         join(daemonOutput, `${target}.sig`),
+      ]);
+      run(process.execPath, [
+        join(repo, "tools/release/src/smoke.ts"),
+        join(daemonOutput, target),
+        "--signed-archive",
+        "--manifest",
+        join(daemonOutput, `${target}.json`),
+        "--public-key",
+        publicKey,
+        ...(process.platform === "win32" &&
+        !unsigned &&
+        windowsSigningConfigured(windowsSigning(process.env))
+          ? ["--verify-authenticode"]
+          : []),
       ]);
     }
 
@@ -186,31 +209,15 @@ async function build(version: string): Promise<void> {
     ? daemonAssets(await readdir(daemonOutput), version, daemonTargets)
     : [];
   const target = staging(version);
-  await rm(target, { recursive: true, force: true });
-  await mkdir(target, { recursive: true });
-  const files: StagedRelease["files"] = [];
-  for (const [from, names] of [
-    [output, desktopFiles],
-    [daemonOutput, daemonFiles],
-  ] as const)
-    for (const name of names) {
-      await copyFile(join(from, name), join(target, name));
-      const path = join(target, name);
-      files.push({ name, bytes: (await stat(path)).size, sha256: await sha256(path) });
-    }
-  const release: StagedRelease = {
-    version,
-    tag: releaseTag(version),
-    commit,
-    dirty,
-    signed,
-    notarized: signed,
-    files,
-  };
-  await writeFile(join(target, "release.json"), JSON.stringify(release, null, 2) + "\n");
-  await writeFile(join(target, "SHA256SUMS"), checksumList(release));
-  for (const file of files) say(`${file.name}  ${(file.bytes / 1e6).toFixed(1)} MB`);
-  say(`staged in ${target}`);
+  await stageRelease({
+    target,
+    sources: [
+      [output, desktopFiles],
+      [daemonOutput, daemonFiles],
+    ],
+    spadeBinary: shippedSpade(),
+    release: { version, tag: releaseTag(version), commit, dirty, signed, notarized: signed },
+  });
   if (!signed && process.platform === "darwin")
     say("unsigned: installed Macs see this update and download it from the release page");
   if (process.platform === "linux")
@@ -218,47 +225,23 @@ async function build(version: string): Promise<void> {
   say(`next: bun run release:publish ${version}`);
 }
 
-/** The packaged app's signature, Gatekeeper's verdict and the stapled ticket; returns the app. */
-function verifyMac(output: string, signed: boolean): string {
-  const folder = ["mac-arm64", "mac", "mac-universal"].find((name) =>
-    existsSync(join(output, name, "ace.app")),
-  );
-  if (!folder) throw new Error(`No ace.app in ${output}`);
-  const app = join(output, folder, "ace.app");
-  run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
-  if (!signed) return app;
-  run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
-  run("xcrun", ["stapler", "validate", app]);
-  say("signature, Gatekeeper and notarization ticket verified");
-  return app;
-}
-
 async function publish(version: string): Promise<void> {
   // This host's staged build plus any other host's (`--include`, e.g. the Linux packages
-  // built in the Debian 11 container), published together as one release.
+  // built in the Debian 12 container), published together as one release.
   const folders = [staging(version), ...options("--include").map((path) => resolve(path))];
   const parts: StagedRelease[] = [];
   const paths = new Map<string, string>();
   for (const folder of folders) {
-    const manifest = join(folder, "release.json");
-    if (!existsSync(manifest))
-      throw new Error(
-        folder === folders[0]
-          ? `Nothing staged for ${version}: run bun run release:build ${version} first.`
-          : `No staged release in ${folder}`,
-      );
-    const part = StagedRelease.parse(JSON.parse(await readFile(manifest, "utf8")));
-    if (part.version !== version) throw new Error(`${manifest} is for ${part.version}`);
-    const actual = new Map<string, string | undefined>();
-    for (const file of part.files) {
-      const path = join(folder, file.name);
-      actual.set(file.name, existsSync(path) ? await sha256(path) : undefined);
-      paths.set(file.name, path);
-    }
-    const changed = changedFiles(part, actual);
-    if (changed.length)
-      throw new Error(`Staged files in ${folder} changed since the build: ${changed.join(", ")}`);
-    parts.push(part);
+    const staged = await readStaged(
+      folder,
+      folder === folders[0]
+        ? `Nothing staged for ${version}: run bun run release:build ${version} first.`
+        : `No staged release in ${folder}`,
+    );
+    if (staged.release.version !== version)
+      throw new Error(`${folder} is staged for ${staged.release.version}`);
+    for (const [name, path] of staged.paths) paths.set(name, path);
+    parts.push(staged.release);
   }
   const release = combineStaged(parts);
   if (release.dirty)

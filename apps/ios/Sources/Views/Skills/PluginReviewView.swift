@@ -1,35 +1,7 @@
 import SwiftUI
 
-struct PluginInstallView: View {
-    let model: ClientModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var repository = ""
-    @State private var ref = "HEAD"
-    @State private var name = ""
-    @State private var review: PluginReviewRequest?
-    var body: some View {
-        NavigationStack {
-            Form {
-                Group {
-                    TextField("Git repository", text: $repository).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Branch or commit", text: $ref).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Plugin name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button("Review installation") {
-                        review = PluginReviewRequest(operation: ["type": "plugins.prepare", "repository": repository, "ref": ref, "name": name])
-                    }.disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
-                    Text("Review what the plugin runs before installing it on your machine.")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                .insetRowBackground()
-            }
-            .insetGroupedList()
-            .navigationTitle("Install plugin").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { dismiss() }) }
-        }
-    }
-}
-
+/// What a plugin would run, before it is installed: the commit and hash it comes from, every
+/// entry it declares, then Accept and install. Cardless, as the design language's inner pages.
 struct PluginReviewView: View {
     let model: ClientModel
     let request: PluginReviewRequest
@@ -43,33 +15,45 @@ struct PluginReviewView: View {
     @State private var problem: String?
     var body: some View {
         NavigationStack {
-            List {
-                Group {
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let review {
-                        Section {
-                            LabeledContent("Name", value: review.name)
-                            LabeledContent("Version", value: review.version)
-                            LabeledContent("Commit", value: review.commit).textSelection(.enabled)
-                            LabeledContent("Content hash", value: review.hash).textSelection(.enabled)
-                        } header: { InsetHeader("Plugin") }
-                        Section {
-                            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                                Text(pluginReviewText(entry)).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
-                            }
-                            if complete && entries.isEmpty { Text("No hooks or MCP servers declared.") }
-                        } header: { InsetHeader("What it runs") }
-                        Section {
-                            Button("Accept and install") { accept() }.disabled(!complete || busy || !model.canOperate)
-                                .accessibilityIdentifier("plugins.accept")
-                        } footer: { Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.") }
+                        QuietSection("Plugin") {
+                            detail("Name", review.name)
+                            detail("Version", review.version)
+                            detail("Commit", review.commit, mono: true)
+                            detail("Content hash", review.hash, mono: true)
+                        }
+                        entriesList
                     }
-                    if busy || (review == nil && problem == nil) { ProgressView("Reading review…") }
-                    ServiceProblem(message: problem)
-                    if problem != nil { Text("Close and retry from Skills. Pending reviews remain available there.") }
+                    if busy || (review == nil && problem == nil) {
+                        SkeletonRows(count: 3, label: "Reading review")
+                    }
+                    if let problem {
+                        ProblemRow(problem, id: "plugins.review.problem")
+                        Text("Close and retry from Skills. Pending reviews remain available there.")
+                            .aceFont(AceDesign.TextRole.meta)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, AceDesign.Space.margin)
+                    }
+                    if review != nil {
+                        Button("Accept and install") { accept() }
+                            .buttonStyle(.primaryAction).controlSize(.large)
+                            .disabled(!complete || busy || !model.canOperate)
+                            .padding(.horizontal, AceDesign.Space.margin)
+                            .accessibilityIdentifier("plugins.accept")
+                        Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.")
+                            .aceFont(AceDesign.TextRole.meta)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, AceDesign.Space.margin)
+                    }
                 }
-                .insetRowBackground()
+                .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
+                .animation(.default, value: busy)
             }
-            .insetGroupedList()
+            .background(AceDesign.Surface.background)
             .navigationTitle("Review plugin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
         }
@@ -79,6 +63,46 @@ struct PluginReviewView: View {
             if let review, !accepted { Task { _ = try? await model.plugin(["type": "plugins.cancel", "id": review.id], expecting: "plugins.cancelled") } }
         }
     }
+
+    /// One of the review's own facts: its name, then the value, in mono for a commit or a hash.
+    private func detail(_ label: String, _ value: String, mono: Bool = false) -> some View {
+        QuietSectionRow {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                Text(label).aceFont(AceDesign.TextRole.rowTitle)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Text(verbatim: value)
+                    .aceMonospace(AceDesign.TextRole.code)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .textSelection(.enabled)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Every entry the plugin declares, read lazily: a review can hold a thousand of them.
+    private var entriesList: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            QuietHeading("What it runs")
+                .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
+            if complete, entries.isEmpty {
+                QuietSectionRow { QuietRowText(title: "No hooks or MCP servers declared.", tone: AceDesign.Ink.muted) }
+            } else {
+                LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                        if index > 0 { Hairline().padding(.leading, AceDesign.Space.margin) }
+                        QuietSectionRow {
+                            Text(pluginReviewText(entry))
+                                .aceMonospace(AceDesign.TextRole.code)
+                                .foregroundStyle(AceDesign.Ink.muted)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func prepare() async {
         busy = true
         defer { busy = false }

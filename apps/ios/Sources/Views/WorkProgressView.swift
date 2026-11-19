@@ -10,20 +10,25 @@ import SwiftUI
     var background: [String: BlockRow.Background] = [:]
     var retried: Set<String> = []
     var thoughts: [String: BlockRow.Thought] = [:]
+    /// The head's moments by id, for the log's `moment` rows.
+    var moments: [String: EventRow] = [:]
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
 
     init(thread: ThreadModel, block: BlockRow, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
-        self.init(thread: thread, ace: block.aceSteps, background: block.background, retried: block.retried, thoughts: block.thoughts, openMedia: openMedia, openMessage: openMessage)
+        self.init(thread: thread, ace: block.aceSteps, background: block.background, retried: block.retried, thoughts: block.thoughts,
+                  moments: block.moments, openMedia: openMedia, openMessage: openMessage)
     }
     init(thread: ThreadModel, fetched: [String: TranscriptRow] = [:], ace: [BlockRow.AceStep]?, background: [BlockRow.Background]?,
-         retried: [String]?, thoughts: [BlockRow.Thought]?, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
+         retried: [String]?, thoughts: [BlockRow.Thought]?, moments: [BlockRow.Moment]? = nil,
+         openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
         self.thread = thread
         self.fetched = fetched
         self.ace = Dictionary((ace ?? []).map { ($0.id, $0.step) }, uniquingKeysWith: { $1 })
         self.background = Dictionary((background ?? []).map { ($0.itemId, $0) }, uniquingKeysWith: { $1 })
         self.retried = Set(retried ?? [])
         self.thoughts = Dictionary((thoughts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        self.moments = Dictionary((moments ?? []).compactMap { moment in moment.event.map { (moment.id, $0) } }, uniquingKeysWith: { $1 })
         self.openMedia = openMedia
         self.openMessage = openMessage
     }
@@ -56,6 +61,8 @@ private struct LogRowView: View {
         case "group": LogGroupView(row: row, source: source, live: live)
         case "thought": LogStep(id: row.id, source: source)
         case "background": BackgroundStep(row: row, source: source)
+        // In the weight of a step row, on the rail's line with no mark of its own, as the web's.
+        case "moment": if let event = source.moments[row.id] { SystemRow(event: event) }
         default: LogStep(id: row.id, source: source)
         }
     }
@@ -86,7 +93,8 @@ private struct LogStepContent: View {
     var body: some View {
         switch row.type {
         case "message":
-            MarkdownView(text: row.text).stepNarration(true)
+            // Narration still arriving is paced and its last block stays open.
+            AceMarkdown(text: row.text, streaming: !row.complete).stepNarration(true)
         case "reasoning":
             ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
         case "html", "image":
@@ -103,11 +111,11 @@ private struct LogStepContent: View {
 }
 
 /// Consecutive steps as one row: its icon and sentence ("Ran 3 commands · 1 failed"), or while
-/// the turn works the step in flight ("Running `bun run slow` · 2 steps"). It opens in place to
+/// the agent thinks after it, "Thinking… · 2 steps". A step in flight is never in a group: it is a
+/// row of its own after it (`groupSteps`). It opens in place to
 /// its steps on a rail, and stays open while it holds a step the reader opened. A long group lays
 /// out its first rows in the frame it opens and the rest just after, so the tap answers at once.
 private struct LogGroupView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     let live: Bool
@@ -124,15 +132,19 @@ private struct LogGroupView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("group", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { disclosures.set(key, open: !open) }
+                withAnimation { disclosures.set(key, open: !open) }
             } label: {
                 if live && running, let active = row.active, let item = source.thread.items[active] {
                     LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)
                 } else {
                     LogRowBox(open: open) {
-                        AceIcon(Self.icon(row.icon ?? ""), size: 16, relativeTo: .subheadline)
+                        if row.icon == "browser" {
+                            BrowserUseMark(size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        } else {
+                            AceIcon(Self.icon(row.icon ?? ""), size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        }
                     } title: {
-                        (Text(row.sentence ?? "") + failedText).shimmer(running && live)
+                        (Text(row.sentence ?? "") + failedText)
                     }
                 }
             }
@@ -164,8 +176,8 @@ private struct LogGroupView: View {
         case "mixed": .hammer
         case "edit": .notePencil
         case "command", "background": .terminal
-        case "computer": .monitor
-        case "browser": .compass
+        case "computer": .aceComputerUse
+        case "browser": .globe
         case "fetch", "websearch": .globe
         case "read": .fileText
         case "list": .folderSimple
@@ -196,7 +208,7 @@ private struct LiveGroupTitle: View {
                 } else {
                     HStack(spacing: AceTheme.Spacing.none) {
                         Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " "))
-                            .truncationMode(.middle).shimmer(!step.settled)
+                            .truncationMode(.middle)
                         if !count.isEmpty {
                             Text(" · \(count)").foregroundStyle(AceTheme.Colours.subtleForeground).layoutPriority(1)
                         }
@@ -204,9 +216,9 @@ private struct LiveGroupTitle: View {
                 }
             }
         } else if item.row.type == "reasoning" {
-            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.brain, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Thinking…") }
         } else {
-            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.hammer, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Working") }
         }
     }
 }

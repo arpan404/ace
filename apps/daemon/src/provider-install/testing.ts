@@ -2,12 +2,18 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import type { InstallEnvironment } from "./planner.ts";
 import { ProviderInstalls } from "./sessions.ts";
 import { ProviderStatuses } from "../provider-status.ts";
 import type { ProviderInstallProgress, ProviderInstallRequest } from "@ace/protocol";
 
 export async function installFixture(
-  options: { writable?: boolean; managers?: readonly string[]; nodeVersion?: string | null } = {},
+  options: {
+    writable?: boolean;
+    managers?: readonly string[];
+    nodeVersion?: string | null;
+    probe?: InstallEnvironment["probe"];
+  } = {},
 ) {
   const node = process.execPath;
   const home = await mkdtemp(join(tmpdir(), "ace-install-"));
@@ -19,6 +25,7 @@ export async function installFixture(
   const env = {
     ...process.env,
     HOME: home,
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
     PATH: bin,
     ACE_INSTALL_ROOT: root,
     ACE_BREW_ROOT: brewRoot,
@@ -47,9 +54,15 @@ else if (manager === 'brew' && args.join(' ') === 'install node') {
   writeFileSync(join(destination, 'npm'), readFileSync(process.argv[1]), {mode:0o755});
 }
 else if (args[0] === 'view' || args[0] === 'info') {
-  const version = readFileSync(home + '/latest', 'utf8').trim();
+  const spec = args[1] ?? '';
+  const stable = spec.endsWith('@stable') && existsSync(home + '/latest-stable');
+  const version = readFileSync(home + (stable ? '/latest-stable' : '/latest'), 'utf8').trim();
   if (version === 'offline') process.exit(1);
-  console.log(args[0] === 'view' || manager === 'bun' ? version : JSON.stringify({formulae:[{versions:{stable:version}}],casks:[{version}]}));
+  const unpublished = existsSync(home + '/unpublished') ? readFileSync(home + '/unpublished', 'utf8').split('\\n') : [];
+  if (unpublished.includes(spec)) { console.error('404 No match found for version'); process.exit(1); }
+  if (manager !== 'brew' && args.includes('--json') && existsSync(home + '/optional'))
+    console.log(JSON.stringify({ version, optionalDependencies: JSON.parse(readFileSync(home + '/optional', 'utf8')) }));
+  else console.log(args[0] === 'view' || manager === 'bun' ? version : JSON.stringify({formulae:[{versions:{stable:version}}],casks:[{version}]}));
 } else {
   const mode = existsSync(home + '/mode') ? readFileSync(home + '/mode', 'utf8') : '';
   if (mode === 'invalid') { writeFileSync(join(process.env.ACE_INSTALL_BIN,'codex'), ${JSON.stringify(invalidSource)}, {mode:0o755}); }
@@ -86,6 +99,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
     );
   let now = 1000;
   const logs: string[] = [];
+  const failures: { message: string; output: readonly string[] }[] = [];
   const events: ProviderInstallProgress[] = [];
   const waiters = new Set<{
     match: (event: ProviderInstallProgress) => boolean;
@@ -106,6 +120,9 @@ else if (args[0] === 'view' || args[0] === 'info') {
         );
         return installs.versions.check(plan, signal);
       },
+      async forgetVersions() {
+        installs?.versions.clear();
+      },
     },
     { now: () => now, schedule: () => () => {} },
   );
@@ -113,6 +130,9 @@ else if (args[0] === 'view' || args[0] === 'info') {
     {
       env,
       home,
+      host: { platform: "darwin", arch: "arm64" },
+      ...(options.probe ? { probe: options.probe } : {}),
+      claudeManagedSettings: join(home, "managed-settings.json"),
       ...(options.writable === undefined
         ? {}
         : { writable: async () => options.writable === true }),
@@ -125,6 +145,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
         return () => clearTimeout(timer);
       },
       log: (line) => logs.push(line),
+      failed: (_plan, message, output) => failures.push({ message, output }),
       async changed() {
         await statuses.refreshAfterMutation();
         statuses.publish();
@@ -152,6 +173,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
     statuses,
     events,
     logs,
+    failures,
     tick(ms: number) {
       now += ms;
     },

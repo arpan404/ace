@@ -10,19 +10,23 @@
     "./cli-requirements": "./src/cli-requirements.ts",
     "./access-modes": "./src/access-modes.ts",
     "./payload": "./src/payload.ts",
+    "./record": "./src/record.ts",
     "./process": "./src/process.ts",
+    "./process-env": "./src/process-env.ts",
     "./user-tool-paths": "./src/user-tool-paths.ts",
     "./sdk": "./src/sdk.ts",
     "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./acp-sign-in": "./src/acp-sign-in.ts",
-    "./sse": "./src/sse.ts",
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
+    "./data-url": "./src/data-url.ts",
+    "./image": "./src/image.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
+    "./testing/cmd-shim": "./src/testing/cmd-shim.ts",
     "./test-isolation": "./src/test-isolation.ts",
     "./jsonl": "./src/jsonl.ts",
     "./streams": "./src/streams.ts",
@@ -38,7 +42,17 @@
     "./cleanup": "./src/cleanup.ts",
     "./cursor-selection": "./src/cursor-selection.ts",
     "./process-identity": "./src/process-identity.ts",
-    "./process-inventory": "./src/process-inventory.ts"
+    "./process-inventory": "./src/process-inventory.ts",
+    "./process-containment": "./src/process-containment.ts",
+    "./process-owner": "./src/process-owner.ts",
+    "./resident-memory": "./src/resident-memory.ts",
+    "./memory-watchdog": "./src/memory-watchdog.ts",
+    "./tree-stop": "./src/tree-stop.ts",
+    "./bun-ffi": "./src/bun-ffi.ts",
+    "./koffi": "./src/koffi.ts",
+    "./worker": "./src/worker.ts",
+    "./unscoped": "./src/unscoped.ts",
+    "./wire-shape": "./src/wire-shape.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -51,6 +65,6 @@
     "zod": "^4.6.5"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

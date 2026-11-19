@@ -10,6 +10,7 @@ import {
   type ForkPoint,
   type MessageContext,
 } from "@ace/protocol";
+import { forkBudgetBytes } from "@ace/ui-core";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import type { ThreadRef } from "./workspace-source.ts";
 
@@ -53,7 +54,7 @@ export function daemonThreadActions(client: ClientApi): ThreadActionsSource {
         threadId: id(thread),
         point: fork.point,
         input: fork.input,
-        budgetBytes: 16384,
+        budgetBytes: forkBudgetBytes,
         ...(fork.title ? { title: fork.title } : {}),
         ...(fork.context ? { context: fork.context } : {}),
         ...(fork.selection

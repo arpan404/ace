@@ -1,18 +1,12 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import type {
-  CommandResult,
-  Project,
-  ProjectBadgeStyle,
-  ProjectDefaults,
-  ProjectNoteEdit,
-  ProjectsResult,
-} from "@ace/protocol";
-import { projectProblem, type ProjectProblem } from "@ace/ui-core";
+import type { CommandResult, Project, ProjectMarker, ProjectsResult } from "@ace/protocol";
+import { projectProblem, type ProjectEdit, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useScopedMachine, type Machine } from "@/lib/machines.ts";
 import { forgetProject, rememberProject } from "@/lib/project-cache.ts";
+import { machineCache } from "@/lib/machine-scope.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
 
 /** The daemon refused a project command or folder read; `code` is its error code. */
@@ -62,6 +56,8 @@ export interface Added {
   /** Set when the folder is inside a repository whose root is elsewhere. */
   suggestedRoot: string | undefined;
   gitUnavailable?: "git_quarantined" | undefined;
+  /** The folder's project marker (ADR 0181): a hint the person confirms. */
+  marker?: ProjectMarker | undefined;
 }
 
 function added(result: CommandResult): Added {
@@ -71,18 +67,12 @@ function added(result: CommandResult): Added {
     project: receipt.workspace,
     suggestedRoot: receipt.inspection?.suggestedRepoRoot,
     gitUnavailable: receipt.inspection?.gitUnavailable,
+    ...(receipt.inspection?.marker ? { marker: receipt.inspection.marker } : {}),
   };
 }
 
 /** A project edit: its name, and the icon and defaults fields to change (omitted keeps them). */
-export interface ProjectEdit {
-  name: string;
-  icon?: string | null;
-  badge?: ProjectBadgeStyle | null;
-  defaults?: ProjectDefaults | null;
-  /** Replaces the project's notes in order; a note without an id is new. */
-  notes?: ProjectNoteEdit[];
-}
+export type { ProjectEdit } from "@ace/ui-core";
 
 export interface CreateInput {
   parent: string;
@@ -126,6 +116,9 @@ export function useProjectCommandsOn() {
       const reach = () => client ?? unreachable();
       const keep = (result: Added) => {
         if (shared) rememberProject(queryClient, result.project);
+        // Another machine's list lives in its own cache: New thread there opens it at once.
+        else if (machine?.client && !machine.primary)
+          rememberProject(machineCache(machine.client, queryClient), result.project);
         return result;
       };
       return {
@@ -146,8 +139,9 @@ export function useProjectCommandsOn() {
           const receipt = accepted(await reach().projects.update({ workspaceId, ...edit }));
           if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
         },
-        remove: async (workspaceId: string, archiveThreads: boolean) => {
-          accepted(await reach().projects.remove({ workspaceId, archiveThreads }));
+        /** Delete the project's threads and stop listing it; `stopRunning` stops running ones. */
+        remove: async (workspaceId: string, stopRunning: boolean) => {
+          accepted(await reach().projects.remove({ workspaceId, stopRunning }));
           if (!shared) return;
           forgetProject(queryClient, workspaceId);
           // Home stops filtering on a project that is gone.

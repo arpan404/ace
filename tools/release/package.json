@@ -5,9 +5,17 @@
   "type": "module",
   "exports": {
     ".": "./src/bundle.ts",
-    "./node-runtime": "./src/node-runtime.ts",
+    "./daemon-runtime": "./src/daemon-runtime.ts",
     "./native-arch": "./src/native-arch.ts",
-    "./glibc": "./src/glibc.ts"
+    "./glibc": "./src/glibc.ts",
+    "./runtime-package": "./src/copy-runtime-package.ts",
+    "./spade": "./src/spade.ts",
+    "./ace-media": "./src/ace-media.ts",
+    "./ace-files": "./src/ace-files.ts",
+    "./media-smoke": "./src/media-smoke.ts",
+    "./files-smoke": "./src/files-smoke.ts",
+    "./native-smoke": "./src/native-smoke.ts",
+    "./screen-identity": "./src/screen-identity.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -15,22 +23,22 @@
     "sign": "node src/sign.ts",
     "bench": "node bench/hash.ts",
     "publication": "node src/publication.ts",
-    "native": "node src/native.ts",
     "smoke": "node src/smoke.ts"
   },
   "dependencies": {
     "@ace/daemon": "workspace:*",
+    "@ace/markit-web": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/plugins": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/service": "workspace:*",
     "esbuild": "0.25.12",
-    "node-pty": "1.1.0",
     "tar": "7.5.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/browser": "workspace:*",
-    "node-gyp": "11.5.0"
+    "@ace/browser": "workspace:*"
   }
 }

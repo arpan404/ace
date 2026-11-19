@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
   worktreeMetadata,
@@ -94,6 +95,9 @@ export { landingBranchName, machineSlug } from "./transfer-branch-name.ts";
 export type { LandingBranch } from "./transfer-branch-name.ts";
 export type { BundleCloneOptions } from "./transfer-clone.ts";
 export type { BundleRefs } from "./transfer-refs.ts";
+export { gitAbove } from "./transfer-source.ts";
+export type { SourceCheckout } from "./transfer-source.ts";
+export type { CheckoutFacts } from "./checkout-facts.ts";
 export type { CheckoutState } from "./transfer-checkout.ts";
 
 export class GitService {
@@ -175,6 +179,14 @@ export class GitService {
    */
   heal(worktree: string) {
     return this.repository.cli.heal(worktree);
+  }
+  /**
+   * `heal` for every checkout of a periodic sweep: one process listing for the whole sweep,
+   * taken only when some lock is old enough to remove, and each repository's locks cleared once
+   * however many of its worktrees are listed. A checkout that can't be healed goes to `failed`.
+   */
+  healAll(worktrees: readonly string[], failed: (worktree: string, error: unknown) => void) {
+    return this.repository.cli.healAll(worktrees, failed);
   }
 
   async clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
@@ -431,6 +443,9 @@ export class GitService {
   inspectWorktreeCleanup(repo: string, path: string) {
     return inspectWorktreeCleanup(this.repository, repo, path);
   }
+  backupWorktree(repo: string, path: string, check: () => void = () => {}) {
+    return backupWorktree(this.repository, repo, path, check);
+  }
   cleanupWorktree(input: WorktreeCleanupInput, beforeRemove?: () => void) {
     return cleanupWorktree(this.repository, input, beforeRemove);
   }
@@ -476,7 +491,14 @@ export class GitService {
     );
   }
 
-  async diff(options: { worktree: string; from: DiffSide; to: DiffSide; maxPatchBytes?: number }) {
+  /** `paths` limits the diff to those repository-relative paths (both sides of a rename). */
+  async diff(options: {
+    worktree: string;
+    from: DiffSide;
+    to: DiffSide;
+    maxPatchBytes?: number;
+    paths?: readonly string[];
+  }) {
     const root = await this.repository.root(options.worktree);
     return this.repository.serial(root, () =>
       diff(
@@ -485,6 +507,7 @@ export class GitService {
         options.from,
         options.to,
         options.maxPatchBytes ?? this.maxPatchBytes,
+        options.paths,
       ),
     );
   }

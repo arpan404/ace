@@ -1,4 +1,6 @@
 import { contextNotice } from "@ace/context";
+import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
+import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import { Command, ContextDiagnostic } from "@ace/protocol";
@@ -6,6 +8,9 @@ import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
+import { SteerTargetLost, type SteerFence } from "@ace/engine-api";
+import { steerLostRun } from "./steer-selection.ts";
+import { inputSource } from "./steer-yield.ts";
 
 export class InteractionUnavailable extends Error {
   readonly code: "interaction_expired" | "interaction_unavailable";
@@ -48,6 +53,8 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
+      // Fenced by a move (ADR 0191): the send waits in the queue, held.
+      if (error instanceof SessionFenced) throw new DeliveryDeferred(error.message);
       // A provider returning to the thread resumes the session it left; if that is gone, it
       // opens once more as a fresh session with the full handoff.
       let failure = error;
@@ -70,7 +77,9 @@ export async function executeIntent(
       registry.get(repo.requireState(actor.id).config.provider, repo.backend(actor.id))
         .capabilities;
     const session = actor.session;
-    if (!session) throw new Error("Provider session exited before send");
+    // Closed after it opened (a Stop's close, an idle close) and before anything was sent: the
+    // input is untouched, so it waits for the next session instead of failing as unsent.
+    if (!session) throw new DeliveryDeferred("Provider session exited before send");
     const state = repo.requireState(actor.id);
     const generation = actor.generation;
     // A fork's first message carries its context the way a send does, with files its source holds.
@@ -98,7 +107,12 @@ export async function executeIntent(
             p.type === "thread.fork" ? { inheritFrom: p.threadId } : undefined,
           )
         : undefined;
-    await repo.store.writable();
+    try {
+      await repo.store.writable();
+    } catch (error) {
+      prepared?.release();
+      throw error;
+    }
     if (
       repo.cancelled(intent.id) ||
       actor.lifetime?.signal.aborted ||
@@ -109,35 +123,39 @@ export async function executeIntent(
       prepared?.release();
       throw new DeliveryDeferred("Delivery was superseded before provider consumption");
     }
-    // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
-    // The admitted input is the person's bubble (ADR 0065); its metadata must not depend on echo matching.
-    const attachments = prepared?.attachments;
-    if (attachments)
-      repo.store.atomic(() => {
-        repo.attachments.remember(actor.id, intent.id, attachments);
-        repo.attachments.rememberPaths(actor.id, prepared?.attachmentPaths ?? []);
-        const current = repo.requireState(actor.id);
-        const key = `input:${intent.command.id}`;
-        const admitted = current.items[key];
-        if (attachments.length && admitted?.type === "message" && admitted.role === "user")
-          actor.apply([
-            {
-              type: "item.upsert",
-              agent: current.rootKey ?? "root",
-              item: key,
-              draft: { type: "message", role: "user", attachments },
-            },
-          ]);
-      });
-    if (prepared)
+    // The actor owns the lease from here: every later failure releases it through `releaseInput`.
+    // A steer the provider takes into its running turn is read by that run; anything else is
+    // read by the next root run. The live state names the run: `state` predates the awaits above.
+    const steering = p.type === "thread.send" && p.delivery === "steer" && capabilities.steer;
+    if (prepared) {
+      const live = repo.requireState(actor.id);
       actor.retainInput(
         intent.id,
         prepared.release,
-        p.type === "thread.send" && p.delivery === "steer"
-          ? state.agents[state.rootKey ?? ""]?.activeRun
-          : undefined,
+        steering ? live.agents[live.rootKey ?? ""]?.activeRun : undefined,
       );
+    }
     try {
+      // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
+      // The admitted input is the person's bubble (ADR 0065); its metadata must not depend on echo matching.
+      const attachments = prepared?.attachments;
+      if (attachments)
+        repo.store.atomic(() => {
+          repo.attachments.remember(actor.id, intent.id, attachments);
+          repo.attachments.rememberPaths(actor.id, prepared?.attachmentPaths ?? []);
+          const current = repo.requireState(actor.id);
+          const key = `input:${intent.command.id}`;
+          const admitted = current.items[key];
+          if (attachments.length && admitted?.type === "message" && admitted.role === "user")
+            actor.apply([
+              {
+                type: "item.upsert",
+                agent: current.rootKey ?? "root",
+                item: key,
+                draft: { type: "message", role: "user", attachments },
+              },
+            ]);
+        });
       if (!state.agents[state.rootKey ?? ""]?.activeRun) {
         try {
           await beforeSend?.(actor.id, intent.command.id);
@@ -174,9 +192,24 @@ export async function executeIntent(
       }
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
-      await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd);
+      await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd, actor.id);
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
+      // The last moment before the provider reads it: a steer aimed at a run that has since
+      // ended, while another runs, never joins that other run. Refused unread, it goes back in
+      // the queue as the next message, as a steer that lost its turn does.
+      // The adapter checks the same fence again after its own last await, right before writing.
+      let fence: SteerFence | undefined;
+      // A fence is never dropped: the run it names having ended is itself a lost turn, whether
+      // or not another runs now, and the message goes back to the queue as the next one.
+      if (steering && p.type === "thread.send" && p.runId !== undefined) {
+        const runId = p.runId;
+        if (steerLostRun(repo, actor.id, runId)) throw new SteerTargetLost();
+        fence = {
+          turn: runId === null ? undefined : repo.requireState(actor.id).runs[runId]?.nativeId,
+          current: () => !steerLostRun(repo, actor.id, runId),
+        };
+      }
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
         ...(prepared?.input ??
@@ -190,15 +223,17 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
+      // Whose input this is decides whether its steer may cut in: only the person's does.
       await session.send(
         input,
-        p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
-          ? "steer"
-          : "queue",
+        steering ? "steer" : "queue",
         intent.command.id,
-        repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
-          ? "ace"
-          : undefined,
+        inputSource(
+          intent,
+          repo.steerNotes.personChose(intent.id),
+          repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind,
+        ),
+        fence,
       );
       await repo.store.writable();
       transitions.delivered(actor.id);
@@ -269,6 +304,8 @@ export async function executeIntent(
       registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
     const session = actor.session;
     const failures: unknown[] = [];
+    // A provider that never answers its interrupt never holds the Stop (ADR 0052).
+    const interruptWithin = <T>(work: Promise<T>) => sessions.interruptWithin(work);
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>
@@ -278,27 +315,40 @@ export async function executeIntent(
       // One child the provider has lost track of never keeps the target itself running.
       for (const key of target ? descendants(target) : [])
         try {
-          await session.interrupt({ agent: key, cascade: false });
+          await interruptWithin(session.interrupt({ agent: key, cascade: false }));
         } catch (error) {
           failures.push(error);
         }
     }
     try {
-      await session.interrupt({
-        ...(agent === undefined ? {} : { agent }),
-        cascade: p.cascade,
-      });
+      await interruptWithin(
+        session.interrupt({
+          ...(agent === undefined ? {} : { agent }),
+          cascade: p.cascade,
+        }),
+      );
     } catch (error) {
       failures.push(error);
     }
+    // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
+    // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
+    // Each is bounded like the interrupt; one that won't stop closes the session below.
+    const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
+    if (whole)
+      for (const key of stoppableTasks(repo.requireState(actor.id)))
+        try {
+          await interruptWithin(session.stopTask(key));
+        } catch (error) {
+          failures.push(error);
+        }
     if (failures.length) {
       const error =
         failures.length === 1 ? failures[0] : new AggregateError(failures, "Stop failed");
-      if (!stopsWholeThread(p)) throw error;
+      if (!whole) throw error;
       // A Stop always settles. When the provider can't stop the tree itself (its location was
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
-      await sessions.close(actor, "user");
+      await sessions.closeForStop(actor);
     }
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
@@ -349,13 +399,4 @@ export async function executeIntent(
     if (!entry || entry[1].status !== "running") throw new Error("Task is no longer running");
     await actor.session.stopTask(entry[0]);
   }
-}
-
-/** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
-/**
- * A cascading Stop of the root stops the whole thread. Its run id only fences out a stale Stop,
- * which is dropped before the provider is asked, so naming the run doesn't narrow it.
- */
-function stopsWholeThread(p: { cascade: boolean; agentId?: string | undefined }): boolean {
-  return p.cascade && p.agentId === undefined;
 }

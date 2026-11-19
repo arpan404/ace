@@ -41,7 +41,7 @@ export type ForgeTaskRequest = z.infer<typeof ForgeTaskRequest>;
 
 /** Where a pull request's or issue's own body is remembered as shown. */
 export const bodyKey = (kind: "pull" | "issue", repository: ForgeRepository, number: number) =>
-  `${kind}:${repository.host}/${repository.owner}/${repository.name}#${number}`;
+  `${kind}:${repository.forge}@${repository.host}/${repository.owner}/${repository.name}#${number}`;
 
 const changed = "This text changed on GitHub. Refresh to see it first.";
 const lost = "Couldn't confirm the change. Refresh to see whether it was saved.";

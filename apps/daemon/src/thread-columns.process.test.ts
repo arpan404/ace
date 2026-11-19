@@ -17,6 +17,9 @@ import {
 } from "@ace/protocol";
 import { updateThread } from "@ace/projection";
 import { Store } from "./store.ts";
+import { schemaVersionBefore } from "./migrations.ts";
+import { undoMachineCode } from "./upgrade-test-support.ts";
+import { threadColdTable } from "./thread-cold.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -80,6 +83,16 @@ function snapshot(store: Store, windows: readonly Window[]) {
   return {
     threads: store.listThreads().toSorted((a, b) => a.id.localeCompare(b.id)),
     sidebar: windows.map((window) => store.sidebarPage(window)),
+  };
+}
+
+function withoutRevision({ threads, sidebar }: ReturnType<typeof snapshot>) {
+  return {
+    threads,
+    sidebar: sidebar.map(({ window: { revision: _revision, ...window }, ...page }) => ({
+      ...page,
+      window,
+    })),
   };
 }
 
@@ -388,6 +401,7 @@ function runSeed(seed: number) {
   // provider_metadata. Upgrading it moves them out and reads every thread the same.
   const old = new DatabaseSync(path);
   old.exec(`
+    ${undoMachineCode}
     UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.details', json(cold.details))
       FROM thread_cold AS cold WHERE cold.thread_id = threads.id AND cold.details IS NOT NULL;
     UPDATE threads SET provider_metadata = json_set(COALESCE(provider_metadata, '{}'), '$.capabilities', json(cold.capabilities))
@@ -395,11 +409,23 @@ function runSeed(seed: number) {
     DROP TRIGGER thread_cold_owner_delete;
     DROP TRIGGER thread_cold_owner_rekey;
     DROP TABLE thread_cold;
-    UPDATE schema_version SET version = 16 WHERE id = 1;
+    DROP TABLE thread_cold_moved;
+    -- The schema before thread_cold had no machine_children columns from later steps; those
+    -- steps add them again.
+    DROP TABLE IF EXISTS machine_children;
+    UPDATE schema_version SET version = ${schemaVersionBefore(threadColdTable)} WHERE id = 1;
   `);
   old.close();
   ({ db, store } = open(path));
-  expect(snapshot(store, windows), `seed ${seed}, upgrade`).toStrictEqual(before);
+  // Moving the values rewrites each thread's row, so each takes a new row revision and a list
+  // resuming from before the upgrade rereads them. Everything else reads the same.
+  const upgraded = snapshot(store, windows);
+  expect(withoutRevision(upgraded), `seed ${seed}, upgrade`).toStrictEqual(withoutRevision(before));
+  upgraded.sidebar.forEach((page, index) =>
+    expect(page.window.revision, `seed ${seed}, upgrade revision`).toBeGreaterThan(
+      before.sidebar[index]?.window.revision ?? Infinity,
+    ),
+  );
   for (const thread of before.threads) expect(store.getThread(thread.id)).toStrictEqual(thread);
   const stored = db
     .prepare(

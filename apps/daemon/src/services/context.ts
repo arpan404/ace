@@ -4,9 +4,10 @@ import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
+import { aceFilesIo } from "../files-tool/io.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ContextService, summarizeThreadReference } from "@ace/context";
+import { ContextError, ContextService, summarizeThreadReference } from "@ace/context";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
@@ -82,6 +83,32 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       const binding = store.executionWorkspace(threadId);
       return binding.ready ? realpath(binding.path) : undefined;
     },
+    complete: async (root, query, limit) => {
+      const native = services.filesNative;
+      if (!native)
+        throw new ContextError(
+          "unsupported",
+          "Quick open needs ace-files, which this machine does not have yet",
+        );
+      try {
+        return await native.tool.quickOpen(root, query, limit);
+      } catch (error) {
+        const code = error instanceof Error && "code" in error ? String(error.code) : "";
+        throw new ContextError(
+          code === "FILES_RESTARTING" || code === "BUSY" ? "busy" : "unsupported",
+          describeFailure(error),
+        );
+      }
+    },
+    listFolder: (root, folder) => {
+      const native = services.filesNative;
+      if (!native)
+        throw new ContextError(
+          "unsupported",
+          "Folder mentions need ace-files, which this machine does not have yet",
+        );
+      return contextFiles(native.tool, root, folder);
+    },
   });
   resources.own(() => context.close());
   services.context = context;
@@ -104,11 +131,13 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
             log.log("error", "Deleted thread attachment cleanup failed", logError(error)),
           );
         deletions.add(cleanup);
-        void cleanup.finally(() => deletions.delete(cleanup));
+        // The cleanup reports its own failure above; this only forgets it.
+        void cleanup.finally(() => deletions.delete(cleanup)).catch(() => {});
       }
     }),
   );
-  void warmup(runtime, "context", () => context.uploads.ready);
+  // The warmup logs its own failure and reports the status.
+  void warmup(runtime, "context", () => context.uploads.ready).catch(() => {});
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {
@@ -132,7 +161,27 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
 }
 
+import type { FilesTool } from "../files-tool/tool.ts";
+import type { WorkspaceFileEntry } from "@ace/context";
 import type { SocketContext, SocketService } from "./socket.ts";
+
+/** A folder mention's files: ace-files' paged listing, with ignored entries left out. */
+export async function* contextFiles(
+  tool: FilesTool,
+  root: string,
+  folder: string,
+): AsyncGenerator<WorkspaceFileEntry> {
+  // `.` names the checkout to a person, but ace-files' paths are root-relative and never `.`: a
+  // root mention lists from the empty path.
+  const path = folder === "." ? "" : folder;
+  for await (const entry of aceFilesIo(tool).walk(root, path))
+    if (entry.type === "file" && !entry.ignored) yield { path: entry.path, size: entry.size };
+}
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createContextSession(context: SocketContext): SocketService {
   const { options, authorize, canReadThread, send, tasks, connected } = context;
   // At most eight bounded protocol requests wait on this socket. Chunk bodies are <=64 KiB.
@@ -143,21 +192,32 @@ export function createContextSession(context: SocketContext): SocketService {
       switch (message.type) {
         case "context.request": {
           const scope = contextScope(message.operation);
-          if (
-            !authorize(scope) ||
-            ("threadId" in message.operation && !canReadThread(message.operation.threadId))
-          ) {
+          const requestId = message.requestId;
+          const thread = "threadId" in message.operation ? message.operation.threadId : undefined;
+          /**
+           * The live check the TypeScript service gets for every request. A queue, a quick-open
+           * walk and the reply itself all cross awaits, so a socket that closed, a device whose
+           * grant was revoked or a thread that stopped being readable must be asked again each
+           * time, not only when the message arrived.
+           */
+          const allowed = () =>
+            connected() &&
+            authorize(scope) &&
+            (thread === undefined || canReadThread(ThreadId.parse(thread)));
+          const refuse = () =>
             send({
               type: "context.result",
-              requestId: message.requestId,
+              requestId,
               result: { kind: "error", code: "forbidden", message: `${scope} scope required` },
             });
+          if (!allowed()) {
+            refuse();
             return true;
           }
           if (!options.context || pending >= 8) {
             send({
               type: "context.result",
-              requestId: message.requestId,
+              requestId,
               result: {
                 kind: "error",
                 code: options.context ? "busy" : "unsupported",
@@ -171,18 +231,22 @@ export function createContextSession(context: SocketContext): SocketService {
           const service = options.context;
           pending++;
           const task = tail
-            .then(() =>
-              service.handle(
-                device,
-                message,
-                (thread) =>
-                  connected() &&
-                  authorize(scope) &&
-                  (thread === undefined || canReadThread(ThreadId.parse(thread))) &&
-                  (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
-              ),
-            )
-            .then(send)
+            .then(async () => {
+              // The queue can hold a request while its socket closes or its device loses the
+              // grant: nothing starts for a request that may no longer have its answer.
+              if (!allowed()) {
+                refuse();
+                return;
+              }
+              send(
+                await service.handle(
+                  device,
+                  message,
+                  (wanted) =>
+                    allowed() && (wanted === undefined || canReadThread(ThreadId.parse(wanted))),
+                ),
+              );
+            })
             .catch((error: unknown) => {
               options.log?.(error);
               send({
@@ -200,7 +264,8 @@ export function createContextSession(context: SocketContext): SocketService {
             });
           tail = task;
           tasks.add(task);
-          void task.finally(() => tasks.delete(task));
+          // The task answers its own failure above; this only forgets it.
+          void task.finally(() => tasks.delete(task)).catch(() => {});
           return true;
         }
       }

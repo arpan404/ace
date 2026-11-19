@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ChannelClose.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "maximum": 4999,
+      "minimum": 1000,
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 123,
+      "type": "string"
+    },
+    "type": {
+      "const": "channel.close",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "code",
+    "reason"
+  ],
+  "type": "object"
+}

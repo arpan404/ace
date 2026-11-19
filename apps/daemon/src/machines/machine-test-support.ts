@@ -12,6 +12,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
+import { setup } from "../agent-control/test-support.ts";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
@@ -23,6 +24,11 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 }, 60_000);
 
+interface ComputerUse {
+  screen: import("@ace/screen").ScreenManager;
+  computer: import("@ace/screen").ComputerClient;
+}
+
 const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
 
 /**
@@ -31,31 +37,69 @@ const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexist
  */
 export async function pairedMachines(
   options: {
+    sourceSteer?: boolean;
     scopes?: DeviceScope[];
     access?: MachineAgentAccess;
     /** The target's engine limits, e.g. one active thread so its engine is full. */
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
+    /** The source's stop of a remote child: how often its cancel goes out again. */
+    sourceStopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
+    /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
+    targetDevices?: import("@ace/devices").DevicesService;
+    /** Each machine's computer use: its switch and the engine its agents drive. */
+    targetScreen?: ComputerUse;
+    sourceScreen?: ComputerUse;
+    /** Both daemons' poll interval; short by default so tests run quickly. */
+    pollMs?: number;
+    /** More of the target's environment, e.g. `ACE_RELAY_URL` to put it on a relay. */
+    targetEnv?: NodeJS.ProcessEnv;
+    /** The source's parcel shell (ADR 0182), e.g. a direct path that's down. */
+    sourceParcels?: import("../services/options.ts").DaemonOptions["parcels"];
   } = {},
 ) {
   const target = await daemonFixture(
     undefined,
     {
       browser: browser(),
-      machines: { pollMs: 50 },
+      machines: { pollMs: options.pollMs ?? 50 },
       ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
+      ...(options.targetDevices ? { devices: options.targetDevices } : {}),
+      ...options.targetScreen,
     },
-    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
+    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...options.targetEnv },
   );
   cleanup.push(() => target.daemon.close());
-  const source = await daemonFixture(undefined, {
-    browser: browser(),
-    machines: {
-      pollMs: 50,
-      ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+  const source = await daemonFixture(
+    undefined,
+    {
+      browser: browser(),
+      ...options.sourceScreen,
+      ...(options.sourceParcels ? { parcels: options.sourceParcels } : {}),
+      machines: {
+        pollMs: options.pollMs ?? 50,
+        ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+        ...(options.sourceStopPlan ? { stopPlan: options.sourceStopPlan } : {}),
+      },
     },
-  });
+    {},
+    options.sourceSteer
+      ? setup(
+          {},
+          undefined,
+          false,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        )
+      : undefined,
+  );
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");
@@ -100,9 +144,13 @@ export async function pairedMachines(
 
   /** Plays provider output into a thread the target runs. */
   async function emit(threadId: ThreadId, ...facts: Fact[]) {
-    await vi.waitFor(() => {
-      if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
-    });
+    // A provider session opens in a child process, which can take seconds on a loaded machine.
+    await vi.waitFor(
+      () => {
+        if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
+      },
+      { timeout: 10_000 },
+    );
     target.h.contexts.get(threadId)?.onFrame(target.h.frames.frame(...facts));
     await target.daemon.engine?.flush();
   }
@@ -179,7 +227,17 @@ export async function pairedMachines(
   async function restartSource() {
     source.daemon = await source.restart();
   }
+  /** Points the source's saved machine at another address, such as a proxy in front of it. */
+  function route(origin: string) {
+    const saved = new Profiles(join(source.h.home, "daemon"));
+    try {
+      saved.replace("studio", { ...profile(remoteUrl ?? "", fingerprint ?? ""), origin });
+    } finally {
+      saved.close();
+    }
+  }
   return {
+    route,
     restartSource,
     source,
     target,

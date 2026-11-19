@@ -12,6 +12,11 @@ const Request = z.object({
   method: z.string().max(128),
   params: z.unknown().optional(),
 });
+const Reply = z.object({
+  id: z.string(),
+  result: z.unknown().optional(),
+  error: z.unknown().optional(),
+});
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
   dispatch: (method: string, params: unknown) => Promise<unknown>,
@@ -113,9 +118,7 @@ export function hostWire(
   const lines = createInterface({ input, crlfDelay: Infinity });
   lines.on("line", (line) => {
     const decoded: unknown = JSON.parse(line);
-    const reply = z
-      .object({ id: z.string(), result: z.unknown().optional(), error: z.unknown().optional() })
-      .safeParse(decoded);
+    const reply = Reply.safeParse(decoded);
     if (reply.success && reply.data.id.startsWith("host:")) {
       const acknowledgement = acknowledgements.get(reply.data.id);
       if (!acknowledgement) {

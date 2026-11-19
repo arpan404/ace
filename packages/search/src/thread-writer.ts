@@ -82,7 +82,7 @@ export class ThreadSearchWriter {
             : Buffer.byteLength(payload.append),
           id,
         );
-      } else this.append(id, payload.append);
+      } else this.append(id, payload.append, segment);
       return;
     }
     if (
@@ -196,8 +196,8 @@ export class ThreadSearchWriter {
   private get(id: number): z.infer<typeof Segment> {
     return Segment.parse(this.sql.get("SELECT * FROM search_full_segments WHERE id=?").get(id));
   }
-  private append(id: number, text: string): void {
-    let row = this.get(id);
+  /** `row` is the segment as stored now, when the caller has just read it. */
+  private append(id: number, text: string, row = this.get(id)): void {
     // Persist only a bounded tail. Each sealed chunk is indexed once.
     for (let offset = 0; offset < text.length;) {
       const take = Math.min(FIELD_CAP - row.tail.length, text.length - offset);
@@ -218,7 +218,8 @@ export class ThreadSearchWriter {
           id,
         );
       }
-      row = this.get(id);
+      // Read again only to take another piece: the last write is what the next delta reads.
+      if (offset < text.length) row = this.get(id);
     }
   }
   private publish(id: number): void {

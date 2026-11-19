@@ -6,7 +6,6 @@ export type ThreadKey =
   | "error"
   | "thread"
   | "queue"
-  | "offshift"
   | "order"
   | "cursor"
   | "history"
@@ -15,6 +14,7 @@ export type ThreadKey =
   | "tasks"
   | "sync"
   | "unconfirmed"
+  | "filling"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
@@ -38,13 +38,17 @@ export interface ThreadReader {
   readonly unconfirmed?: boolean;
   readonly thread: ThreadView["thread"] | undefined;
   readonly queue: ThreadView["queue"] | undefined;
-  /** The latest-updated Offshift run's card; select with `offshift`. */
-  readonly offshift?: ThreadView["offshift"];
   /** The root agent's context meter; select with `context:<rootAgentId>`. */
   readonly context: ContextMeter | undefined;
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
+  /**
+   * The thread was opened from a small tail and the daemon's full snapshot, which replaces it, is
+   * still on its way: older items, the agents they need, and the whole text of items shown cut
+   * (`truncated`). A view shows that more is loading. Select with `filling`.
+   */
+  readonly filling?: boolean;
   /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
    * an array equality, because each call returns a new array. */
   agentIds(): readonly string[];
@@ -70,10 +74,11 @@ export interface ThreadReader {
   /** An explicit canonical deletion, distinct from bounded tail eviction. */
   deleted?(id: string): boolean;
   /**
-   * Whether the client made message `next` from `previous` by appending text alone, so the
-   * text it gained is known without comparing the two (false when it can't tell).
+   * How the client made message `next` from `previous` by deltas alone: its last text part lost
+   * `dropped` units from the front (a long text slides) and gained the rest at the end, so the
+   * change is known without comparing the two. Undefined when it can't tell.
    */
-  appended?(previous: Item, next: Item): boolean;
+  edited?(previous: Item, next: Item): { dropped: number } | undefined;
 }
 /** Change keys of the thread list. */
 /**

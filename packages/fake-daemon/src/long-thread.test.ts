@@ -44,12 +44,13 @@ test("fake catch-up keeps current agent counts after a subagent resumes and fini
   new ScenarioPlayer(daemon, dedupeReconnect()).runThrough("follow-up");
   const client = await connect(daemon);
   try {
+    // The root waits on its children; only the two children are working.
     expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
-      { state: "working", agents: 3 },
+      { state: "working", agents: 2 },
     );
     daemon.apply("thread-dedupe", [{ type: "turn.ended", agent: "audit", outcome: "completed" }]);
     expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
-      { state: "working", agents: 2 },
+      { state: "working", agents: 1 },
     );
   } finally {
     await client.close();
@@ -662,7 +663,7 @@ test("the streaming fixture produces deterministic multi-day work with approvals
 // Mutation cases: count pre-cursor approval requests twice; use a device name as proof
 // of auto-review; declare a thread done while a background shell runs.
 // Not executed (tests run at merge).
-test("fake catch-up counts an approval answer after the cursor and preserves background waiting", async () => {
+test("fake catch-up counts an approval answer after the cursor and keeps the background command running", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: "background",
@@ -732,7 +733,7 @@ test("fake catch-up counts an approval answer after the cursor and preserves bac
   try {
     const summary = await client.threadCatchUp({ threadId: "background", sinceSeq });
     expect(summary).toMatchObject({
-      status: { state: "waiting", on: "background_task" },
+      status: { state: "done" },
       turnsCompleted: 1,
       digest: {
         approvalsAsked: 0,

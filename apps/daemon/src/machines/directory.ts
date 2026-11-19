@@ -1,6 +1,8 @@
 import { PublicToolError, type PublicToolCode } from "@ace/mcp-server";
 import {
   MachineDescription,
+  MachineToolGroup,
+  type HostId,
   type MachineCall,
   type MachineCallOrigin,
   type MachineSummary,
@@ -9,18 +11,52 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import {
   MachineFailure,
+  MachineTimeout,
   type MachineTransport,
   type MachineTransportOptions,
 } from "./transport.ts";
+import { LinkTiming } from "./link-timing.ts";
+import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
+import type { MachineConnections } from "./connections.ts";
 
 export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
   profiles(): RemoteProfile[];
   transport: MachineTransport;
+  /** Open connections calls reuse, dropped for machines no longer paired as they were. */
+  connections?: MachineConnections;
   /** Whether the machine takes transfers from this device; asked when agents can't use it. */
   transfers?(profile: RemoteProfile): Promise<{ name: string; accepts: boolean }>;
   log(message: string, fields: Record<string, unknown>): void;
+  /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
+  served?(): void;
+  /**
+   * A call to the machine, sent at `sentAt` by `now` when there is one, got through, of any
+   * kind: it is up, and loops waiting on it go now.
+   */
+  reachable?(machine: string, sentAt?: number): void;
+  /** Times short reads, so a slow link gets longer timeouts; without it they stay fixed. */
+  now?(): number;
+  /** A machine described itself, e.g. with the paths it serves (ADR 0182). */
+  described?(profile: RemoteProfile, description: MachineDescription): void;
 }
+/**
+ * Short reads that measure how long the machine takes to answer. Their own timeouts never
+ * stretch: status and job reads are made by polling, whose pace and lost-contact timing stay
+ * exactly as they are.
+ */
+const measuredOps: ReadonlySet<string> = new Set(["describe", "status", "command.jobs"]);
+/**
+ * Calls a person or an agent waits on, given longer on a slow link: up to this many times their
+ * own timeout, and never past `STRETCH_CAP_MS` (a describe's 4 s up to 20 s, a message's 15 s up
+ * to 60 s, a delegate's 30 s up to 60 s).
+ */
+const stretchedOps: ReadonlySet<string> = new Set(["describe", "message", "delegate"]);
+const TIMEOUT_STRETCH = 5;
+const STRETCH_CAP_MS = 60_000;
+/** A machine that answered within this long is slow, not offline, when a read times out. */
+const RECENT_ANSWER_MS = 2 * 60 * 1000;
+const MachineToolGroupNames = MachineToolGroup.options;
 /** A failure as the calling agent reads it: an authored code and a short reason. */
 export interface MachineProblem {
   code: PublicToolCode;
@@ -35,6 +71,11 @@ export interface MachineProblem {
 export class MachineDirectory {
   private deps: DirectoryDeps;
   private seen = new Map<string, MachineSummary>();
+  private hosts = new Map<string, HostId>();
+  /** Calls to each machine failing in a row, so a repeating call logs once per run. */
+  private failing = new FailureEpisodes();
+  /** How long each machine takes to answer short reads. */
+  private timing = new LinkTiming();
   constructor(deps: DirectoryDeps) {
     this.deps = deps;
   }
@@ -42,18 +83,56 @@ export class MachineDirectory {
   device(machine: string): string | undefined {
     return this.deps.profiles().find((entry) => entry.name === machine)?.deviceId;
   }
+  /** The machine's host id: as it last described itself, else as its pairing recorded it. */
+  host(machine: string): HostId | undefined {
+    return (
+      this.hosts.get(machine) ??
+      this.deps.profiles().find((entry) => entry.name === machine)?.hostId
+    );
+  }
+  /** Each paired machine by its profile name, with its host id when one is known. */
+  linked(): { machine: string; hostId: HostId | undefined }[] {
+    return this.deps
+      .profiles()
+      .map((profile) => ({ machine: profile.name, hostId: this.host(profile.name) }));
+  }
+  /** The paired machine with this host id, by its profile name. */
+  named(hostId: string): string | undefined {
+    return this.linked().find((entry) => entry.hostId === hostId)?.machine;
+  }
+  /** Whether a machine this daemon last saw online lets its agents use a tool group there. */
+  serves(group: MachineToolGroup): boolean {
+    for (const summary of this.seen.values())
+      if (summary.status === "online" && summary.tools?.includes(group)) return true;
+    return false;
+  }
+  private groups(): string {
+    return MachineToolGroupNames.filter((group) => this.serves(group)).join(",");
+  }
   /** The person-facing name of a machine, as it last described itself. */
   label(machine: string): string {
     return this.seen.get(machine)?.name ?? machine;
   }
   async list(origin: MachineCallOrigin): Promise<MachineSummary[]> {
+    const before = this.groups();
+    try {
+      return await this.listed(origin);
+    } finally {
+      if (this.groups() !== before) this.deps.served?.();
+    }
+  }
+  private async listed(origin: MachineCallOrigin): Promise<MachineSummary[]> {
     const profiles = this.deps.profiles().slice(0, 16);
     const listed = await Promise.all(
       profiles.map(async (profile): Promise<MachineSummary | undefined> => {
         try {
-          const description = MachineDescription.parse(
-            await this.call(profile.name, origin, { op: "describe" }, { timeoutMs: 4000 }),
+          const sent = await this.callAs(
+            profile.name,
+            origin,
+            { op: "describe" },
+            { timeoutMs: 4000 },
           );
+          const description = MachineDescription.parse(sent.answer);
           const summary: MachineSummary = {
             machine: profile.name,
             name: description.name,
@@ -63,12 +142,24 @@ export class MachineDirectory {
             tools: description.tools,
             providers: description.providers,
           };
+          if (description.grants) summary.grants = description.grants;
+          // Transfers go by every route (ADR 0192): a relay-only link takes them too.
           if (description.transfers !== undefined) summary.transfers = description.transfers;
+          if (description.accounts) summary.accounts = description.accounts;
           this.seen.set(profile.name, summary);
+          this.hosts.set(profile.name, description.hostId);
+          // The pairing the describe went as, not whichever is saved under the name by now.
+          this.deps.described?.(sent.profile, description);
           return summary;
         } catch (error) {
           const offline = error instanceof MachineFailure && error.kind !== "refused";
           const known = this.seen.get(profile.name);
+          // It answered other calls moments ago: it is there, only slow over this link.
+          if (error instanceof MachineTimeout && known && this.answeredRecently(profile.name))
+            return Object.assign({}, known, {
+              status: "online" as const,
+              next: "Answering slowly over this link; what is shown may be a little old.",
+            });
           if (!offline) this.seen.delete(profile.name);
           // Transfers don't need agent access there (ADR 0101): list a machine that takes them.
           if (!offline && this.deps.transfers) {
@@ -87,7 +178,10 @@ export class MachineDirectory {
                 machine: profile.name,
                 name: known.name,
                 status: "offline",
-                next: "Ask the person to wake it and start ace there.",
+                next:
+                  error instanceof MachineTimeout
+                    ? "It isn't answering in time; the link may be slow. Try again shortly."
+                    : "Ask the person to wake it and start ace there.",
               }
             : undefined;
         }
@@ -102,38 +196,111 @@ export class MachineDirectory {
     call: MachineCall,
     options: MachineTransportOptions,
   ): Promise<unknown> {
-    const profile = this.deps.profiles().find((entry) => entry.name === machine);
-    const op = call.op === "browser" ? call.tool : call.op;
+    return (await this.callAs(machine, origin, call, options)).answer;
+  }
+  /**
+   * A call, with the pairing it was sent as: the one saved under that name when it went, which
+   * may no longer be the one saved now. What the answer says belongs to that pairing only.
+   */
+  async callAs(
+    machine: string,
+    origin: MachineCallOrigin,
+    call: MachineCall,
+    options: MachineTransportOptions,
+  ): Promise<{ answer: unknown; profile: RemoteProfile }> {
+    const profiles = this.deps.profiles();
+    this.deps.connections?.retain(profiles);
+    const profile = profiles.find((entry) => entry.name === machine);
+    const op = "tool" in call ? call.tool : call.op;
     if (!profile) {
+      // A pairing that is gone keeps no failure runs.
+      this.failing.forgetPrefix(`${machine}:`);
       this.deps.log("Machine call refused here", { machine, op, outcome: "unknown_machine" });
       throw new MachineFailure("refused", "unauthorized", `No paired machine named ${machine}.`);
     }
+    // Runs are kept per machine and routine op: other calls are logged every time, and one op
+    // failing while another works never flips a run back and forth.
+    const routine = routineCall(op);
+    const key = `${machine}:${op}`;
+    const clock = this.deps.now;
+    const timed = clock !== undefined && measuredOps.has(op);
+    const timeoutMs =
+      clock !== undefined && stretchedOps.has(op)
+        ? this.timing.timeout(
+            machine,
+            options.timeoutMs,
+            Math.max(
+              options.timeoutMs,
+              Math.min(STRETCH_CAP_MS, options.timeoutMs * TIMEOUT_STRETCH),
+            ),
+          )
+        : options.timeoutMs;
+    const started = clock?.();
     try {
-      const result = await this.deps.transport(profile, { origin, call }, options);
-      this.deps.log("Machine call to another device", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: "ok",
-      });
-      return result;
+      const { connections } = this.deps;
+      const result = await this.deps.transport(
+        profile,
+        { origin, call },
+        { ...options, timeoutMs, ...(connections ? { connections } : {}) },
+      );
+      if (timed && clock && started !== undefined) {
+        const at = clock();
+        this.timing.answered(machine, at - started, at);
+      }
+      // Any call getting through says the machine is up: loops waiting on it go now.
+      this.deps.reachable?.(machine, started);
+      const failures = routine ? this.failing.succeeded(key) : 0;
+      if (failures > 0)
+        this.deps.log("Machine calls to another device work again", {
+          machine,
+          op,
+          attempts: failures + 1,
+        });
+      // Routine reads (status polls, descriptions) succeed quietly; work and changes are logged.
+      else if (!routine)
+        this.deps.log("Machine call to another device", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome: "ok",
+        });
+      return { answer: result, profile };
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
-      if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status")
+      if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status") {
+        const before = this.groups();
         this.seen.delete(machine);
-      this.deps.log("Machine call to another device failed", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: failure.refusal ?? failure.kind,
-      });
+        if (this.groups() !== before) this.deps.served?.();
+      }
+      const outcome = failure.refusal ?? failure.kind;
+      const episode = routine ? this.failing.failed(key, outcome) : undefined;
+      // A routine read failing again the same way is the same failure, already logged.
+      if (!episode || episode.log)
+        this.deps.log("Machine call to another device failed", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome,
+          ...(episode ? { attempts: episode.attempts } : {}),
+        });
       throw failure;
     }
+  }
+  /** Whether `machine` answered a timed read within the last two minutes. */
+  private answeredRecently(machine: string): boolean {
+    const at = this.timing.answeredAt(machine);
+    const now = this.deps.now?.();
+    return at !== undefined && now !== undefined && now - at < RECENT_ANSWER_MS;
   }
   problem(machine: string, error: unknown): MachineProblem {
     const name = this.label(machine);
     if (!(error instanceof MachineFailure))
       return { code: "execution_failed", detail: `The call to ${name} failed.` };
+    if (error instanceof MachineTimeout)
+      return {
+        code: error.kind === "offline" ? "machine_offline" : "machine_disconnected",
+        detail: `${name} didn't answer in time; it may be slow to reach. Try again.`,
+      };
     if (error.kind === "offline")
       return { code: "machine_offline", detail: `${name} is offline or unreachable.` };
     if (error.kind === "disconnected")

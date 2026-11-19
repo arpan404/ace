@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { ForgeError } from "./errors.ts";
-import { mediaKey, renderedMedia } from "./github-media.ts";
+import { mediaKey } from "./github-media.ts";
+import { renderedMedia } from "./github-media-parse.ts";
 import { fakeGh } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;

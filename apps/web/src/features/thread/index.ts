@@ -23,6 +23,8 @@ export { preloadPendingThread } from "./pending-thread-deferred.ts";
 export { readingColumn } from "./lib/column.ts";
 /** A provider's own subagent as the whole chat, at `/t/<thread>/agents/<agent>`. */
 export { SubagentView } from "./subagent/subagent-view.tsx";
+/** A thread ace delegated to another machine, as its parent's subagent, at the same route. */
+export { DelegatedElsewhereView } from "./subagent/delegated-elsewhere-lazy.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
@@ -57,3 +59,9 @@ export {
   readDraft,
   writeDraft,
 } from "./composer/draft-store.ts";
+
+/** The composer's dock under a transcript, its one strip, and the person's bubble (Spade reuses them). */
+export { ComposerDock } from "./composer/composer-dock.tsx";
+export { StripSurface } from "./composer/strip-surface.tsx";
+export { BubbleText } from "./items/bubble-text.tsx";
+export { userBubble } from "./items/user-bubble.ts";

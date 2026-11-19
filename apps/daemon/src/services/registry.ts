@@ -1,17 +1,24 @@
+import { randomUUID } from "node:crypto";
 import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createSkillLibrarySession } from "./skill-library.ts";
+import { createSpadeSession } from "./spade-session.ts";
+import { createSpadeRemoteSession } from "./spade-remote.ts";
+import { createSpadeComputerSession } from "./spade-computer.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
+import { createMachineCodeSession } from "./machine-code.ts";
 import { createFleetSession } from "./fleet.ts";
+import { createOutsideClientsSession } from "./outside-clients.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createTransfersSession } from "./transfers.ts";
 import { createLongThreadSession } from "./long-thread.ts";
+import { createItemRawSession } from "./item-raw.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
@@ -24,21 +31,18 @@ import { createPiSocketSession } from "./pi.ts";
 
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
-import { Simulators } from "@ace/screen";
+import { createLockedUseSession } from "./locked-use.ts";
+import { Simulators, placeholderLockedUseInstaller, type LockedUseInstaller } from "@ace/screen";
+import { LockedUseState } from "../locked-use-state.ts";
 import { createSearchSession } from "./search.ts";
 import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import {
-  ClientMessage,
-  BrowserClientMessage,
-  BrowserBackendClientMessage,
-  UserBrowserExtensionMessage,
-} from "@ace/protocol";
-import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
+import { createSuitsSession } from "./suits.ts";
+import { createMarketplaceSession } from "./marketplace.ts";
 import { createBrowserSession } from "./browser.ts";
 import { createBrowsingSession } from "./browsing.ts";
 import { createComputerUsingSession } from "./computer-using.ts";
@@ -53,23 +57,33 @@ import { createModelsSession } from "./models.ts";
 import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
+import { DoctorRuns } from "./doctor-runs.ts";
+import { createAdmissionSession } from "./admission.ts";
+import { createAppUpdateSession } from "./app-update.ts";
+import { createMachineUpdateSession } from "./machine-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
-import type { SocketContext, SocketMessage } from "./socket.ts";
+import { createMediaConnectSession } from "./media-connect.ts";
+import type { SocketContext } from "./socket.ts";
+import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
   createCliControlSession,
   createStorageSession,
   createSourceControlSession,
   createRepositoriesSession,
   createHostIdentitySession,
+  createMachineCodeSession,
   createFleetSession,
+  createOutsideClientsSession,
   createLongThreadSession,
+  createItemRawSession,
   createPreviewClientSession,
   createAutomationsSession,
   createActivityReadsSession,
   createVerifySession,
   createIconsSession,
+  createMediaConnectSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,
@@ -85,12 +99,17 @@ export const socketServiceFactories = [
   createCommandsSession,
   createPromptFilesSession,
   createSkillLibrarySession,
+  createSpadeSession,
+  createSpadeRemoteSession,
+  createSpadeComputerSession,
   // Before files: the files channel claims every binary message on a socket, and the desktop's
   // backend socket sends its video encoder's (ADR 0088).
   createBrowserSession,
   createFilesSession,
   createNotificationsSession,
   createPluginsSession,
+  createSuitsSession,
+  createMarketplaceSession,
   createBrowsingSession,
   createComputerUsingSession,
   createUserBrowserSession,
@@ -108,25 +127,33 @@ export const socketServiceFactories = [
   createReviewSession,
   createThreadTransitionsSession,
   createEngineSession,
-  createDiagnosticsSession,
+  createAdmissionSession,
+  createAppUpdateSession,
+  createMachineUpdateSession,
 ];
 export function createSocketRegistry() {
   const simulators = new Simulators(process.platform);
+  // Until the native installer lands, a placeholder that reports state and refuses changes.
+  const placeholder = placeholderLockedUseInstaller(process.platform);
+  // One state per installer for the whole daemon, so every socket sees the same ordered state.
+  const lockedUse = new WeakMap<LockedUseInstaller, LockedUseState>();
+  const lockedUseState = (installer: LockedUseInstaller) => {
+    let state = lockedUse.get(installer);
+    if (!state) lockedUse.set(installer, (state = new LockedUseState(installer)));
+    return state;
+  };
+  // One checks run per daemon, so every socket can join it, read it or come back to it.
+  const doctorRuns = new WeakMap<ServerOptions, DoctorRuns>();
+  const doctorRunsFor = (options: ServerOptions) => {
+    let runs = doctorRuns.get(options);
+    if (!runs)
+      doctorRuns.set(options, (runs = new DoctorRuns(options.now ?? Date.now, () => randomUUID())));
+    return runs;
+  };
   return (context: SocketContext) => [
     ...socketServiceFactories.map((factory) => factory(context)),
+    createDiagnosticsSession(context, doctorRunsFor(context.options)),
     createScreenSession(context, simulators),
+    createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];
-}
-export function parseSocketMessage(input: unknown): SocketMessage {
-  for (const schema of [
-    ClientMessage,
-    PluginClientMessage,
-    BrowserClientMessage,
-    BrowserBackendClientMessage,
-    UserBrowserExtensionMessage,
-  ]) {
-    const result = schema.safeParse(input);
-    if (result.success) return result.data;
-  }
-  throw new Error("Message does not match the protocol");
 }

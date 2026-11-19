@@ -66,10 +66,15 @@ export class ThreadVideos {
     if (!decoder || !this.#options.watching(threadId)) return;
     let stream = this.#streams.get(threadId);
     if (!stream) {
-      stream = new VideoStream(decoder, {
-        present: (picture) => this.#present(threadId, picture),
-        ack: (sequence, keyframe) => this.#ack(threadId, sequence, keyframe === true),
-      });
+      stream = new VideoStream(
+        decoder,
+        {
+          present: (picture) => this.#present(threadId, picture),
+          ack: (sequence, keyframe) => this.#ack(threadId, sequence, keyframe === true),
+        },
+        // A decoder that stops answering is dropped and the page's encoder asked for a keyframe.
+        { after: (ms, run) => this.#options.schedule(run, ms) },
+      );
       this.#streams.set(threadId, stream);
     }
     if (!painted) {

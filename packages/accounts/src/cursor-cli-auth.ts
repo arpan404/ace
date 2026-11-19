@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { resolveDaemonHome } from "@ace/service/home";
+import { profileHome } from "./paths.ts";
 import { z } from "zod";
 
 export interface CursorCliAuth {
@@ -79,6 +80,8 @@ const Endpoint = z
       !url.hash,
   );
 export async function daemonCursorAuth(env: NodeJS.ProcessEnv): Promise<CursorCliAuth> {
+  // On Windows the daemon's home follows USERPROFILE (os.homedir()), never Git Bash's HOME.
+  if (process.platform === "win32") env = { ...env, HOME: profileHome(env, homedir) };
   const root = resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME);
   const endpoint = Endpoint.parse(await readFile(join(root, "daemon-endpoint"), "utf8"));
   endpoint.protocol = "ws:";

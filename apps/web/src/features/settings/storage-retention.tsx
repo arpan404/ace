@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { StorageKind, StorageRetention } from "@ace/protocol";
 import {
@@ -13,7 +13,8 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { storageLabels } from "./storage-copy.ts";
+import { storageLabels } from "@ace/ui-core/host-care";
+import { settingRow } from "./settings-index.ts";
 
 export function StorageRetentionControls(props: { onSaved(): void }) {
   const client = useClient();
@@ -22,13 +23,12 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
   const [scheduledDraft, setScheduledDraft] = useState<boolean>();
-  const query = useQuery({
-    queryKey: [client, "storage", "retention"],
-    enabled: ready,
-    queryFn: async () => {
+  const query = useDaemonQuery({
+    queryKey: ["storage", "retention"],
+    read: async (daemon) => {
       const [retention, scheduled] = await Promise.all([
-        client.request({ type: "settings.get", key: "storage.retention", scope: {} }),
-        client.request({ type: "settings.get", key: "storage.scheduledCleanup", scope: {} }),
+        daemon.request({ type: "settings.get", key: "storage.retention", scope: {} }),
+        daemon.request({ type: "settings.get", key: "storage.scheduledCleanup", scope: {} }),
       ]);
       if (!retention.ok || !scheduled.ok) throw new Error("Storage preferences are unavailable.");
       return {
@@ -76,18 +76,24 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
   return (
     <SettingSection
       label="Retention"
+      anchor="storage.retention"
       scope="daemon"
-      note="Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay."
+      note="Days to keep archived threads and unused data. Empty keeps it; pinned and live work stays."
     >
       {values ? (
         StorageKind.options.map((kind) => (
-          <SettingRow key={kind} title={storageLabels[kind]} inline>
+          <SettingRow
+            key={kind}
+            title={storageLabels[kind]}
+            description={kind === "worktrees" ? "Archived threads only." : undefined}
+            inline
+          >
             <input
               aria-label={`${storageLabels[kind]} retention days`}
               type="number"
               min={1}
               max={36500}
-              className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+              className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
               placeholder="Keep"
               value={values[kind] ?? ""}
               disabled={!ready || running}
@@ -106,8 +112,8 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
         <ListSkeleton label="retention" shape="row" rows={3} />
       )}
       <SettingRow
-        title="Daily cleanup"
-        description="Applies the saved retention every day. Forced worktree removal stays manual."
+        {...settingRow("storage.dailyCleanup")}
+        description="Worktrees have their own setting."
         inline
       >
         <Switch

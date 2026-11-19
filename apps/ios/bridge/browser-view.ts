@@ -4,10 +4,13 @@ import {
   describeBrowserFailure,
   displayAddress,
   downloadStateLabels,
+  pageConnection,
+  pageConnectionLabels,
   sitePermissionLabel,
   zoomLabel,
   type BrowserFailure,
 } from "@ace/ui-core";
+import { degradedSentence } from "./video-degraded.ts";
 import type { Preview } from "./agents.ts";
 
 /*
@@ -16,6 +19,8 @@ import type { Preview } from "./agents.ts";
  * certificate, a failed load). Pure: the live view (`browser-live.ts`) sends it on each change.
  */
 
+/** The largest download the phone copies over (it is held in memory until written). */
+export const phoneDownloadMax = 128 * 1024 * 1024;
 /** Tabs listed in the tabs sheet; the rest are counted. */
 export const tabLimit = 20;
 const downloadLimit = 50;
@@ -26,10 +31,15 @@ export type Navigation =
   | { tabId: string; url: string; from: string | undefined; failure: BrowserFailure };
 
 export interface ViewContext {
+  tabsLimit?: number;
   preview: Preview;
   /** The agent's name ("Claude", "Reviewer") for an agent id; `undefined` reads "An agent". */
   agentName(agentId: string | undefined): string;
   navigation: Navigation | undefined;
+  /** This phone started the recording that runs now. */
+  recordingHere?: boolean;
+  /** This phone's annotate mode is on, starting, or off. */
+  annotating?: "off" | "starting" | "on";
 }
 
 const blank = (url: string | undefined) => !url || url === "about:blank";
@@ -92,13 +102,15 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     closed: state.closed,
     status: state.status ?? "ready",
     reason: state.reason ? preview(state.reason, 512) : null,
+    /** One sentence while the tab's video runs degraded on the processor; empty otherwise. */
+    degraded: degradedSentence(state.acceleration),
     loading:
       state.loading === true ||
       shown?.loading === true ||
       (navigation !== undefined && !navigation.failure && navigation.tabId === shown?.tabId),
     loadError: state.loadError ? preview(state.loadError, 512) : null,
     activeTabId: state.activeTabId ?? null,
-    tabs: tabs.slice(0, tabLimit).map((tab) => {
+    tabs: tabs.slice(0, context.tabsLimit ?? tabLimit).map((tab) => {
       const who = control(tab, context);
       return {
         id: tab.tabId,
@@ -110,19 +122,36 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
         private: who.private,
       };
     }),
-    moreTabs: Math.max(0, tabs.length - tabLimit),
+    moreTabs: Math.max(0, tabs.length - (context.tabsLimit ?? tabLimit)),
     /** The address the bar shows: what loads or failed here, else the shown tab's own. */
     address: preview(displayAddress(url), 2048),
     addressUrl: preview(blank(url) ? "" : url, 8192),
     /** The bar at rest shows the site alone, as Safari's does. */
     addressHost: preview(addressHost(url) ?? "", 256),
     blank: !state.closed && blank(url),
+    /** The page's security mark at the address's start: secure, insecure or local, in words too. */
+    connection: (() => {
+      const kind = pageConnection(blank(url) ? undefined : url);
+      return { kind, label: pageConnectionLabels[kind] };
+    })(),
     shown: shown
       ? {
           canGoBack: shown.canGoBack === true,
           canGoForward: shown.canGoForward === true,
           zoom: shown.zoom && Math.abs(shown.zoom - 1) > 0.005 ? zoomLabel(shown.zoom) : null,
           ...control(shown, context),
+          muted: shown.muted === true,
+          audible: shown.audible === true,
+          /** "Ask agent about this page": the tab as the composer's `@` mention leaves it. */
+          mention:
+            !blank(shown.url) && shown.private !== true
+              ? {
+                  label: preview(shown.title || displayAddress(shown.url), 512),
+                  tabId: shown.tabId,
+                  url: shown.url,
+                  title: preview(shown.title || displayAddress(shown.url), 1024),
+                }
+              : null,
           // The daemon draws agents' cursors in the page itself when it says so.
           pointer:
             shown.inUse?.kind === "agent" &&
@@ -195,7 +224,40 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
         failed: download.state === "failed" || download.state === "denied",
         bytes: download.bytes,
         risky: download.flags.includes("executable"),
+        /** Finished and small enough to copy onto the phone (`browser-page-tools.ts`). */
+        saveable: download.state === "complete" && download.bytes <= phoneDownloadMax,
       })),
     downloading: downloads.filter((download) => download.state === "pending").length,
+    /** The person's own Chrome (Use my Chrome): ace never prints, zooms or clears it. */
+    ownChrome: state.backend === "user",
+    recording: state.recording
+      ? { byPerson: state.recording.by.kind === "human", here: context.recordingHere === true }
+      : null,
+    annotate: annotateView(state, shown, url, context.annotating ?? "off"),
   };
+}
+
+/**
+ * Annotate mode (ADR 0082) as the browser bar offers it: whether the page can be annotated now,
+ * why not in words when it can't, and whether this phone's mode is on.
+ */
+function annotateView(
+  state: BrowserState,
+  shown: BrowserTab | undefined,
+  url: string | undefined,
+  mode: "off" | "starting" | "on",
+) {
+  const supported = state.features?.includes("annotate") === true;
+  if (!supported) return null;
+  const unavailable =
+    !shown || state.closed
+      ? "Open a page to annotate it"
+      : state.status === "paused"
+        ? "The browser is paused"
+        : state.status === "recovering"
+          ? "The browser is reopening the page"
+          : !/^https?:\/\//i.test(url ?? "")
+            ? "Only web pages can be annotated"
+            : null;
+  return { mode, unavailable, elsewhere: !!state.annotation && mode === "off" };
 }

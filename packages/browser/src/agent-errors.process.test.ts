@@ -7,7 +7,7 @@ import { z } from "zod";
 import { agentMcp, refNamed } from "./agent-mcp-test-support.ts";
 import { chromeProcesses } from "./chrome-test-process.ts";
 import { BrowserService } from "./index.ts";
-import { executablePath, fixture, toolPort } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, toolPort } from "./test-support.ts";
 
 /** A loopback port nothing listens on: a dev server that is not running. */
 async function closedPort(): Promise<number> {
@@ -21,7 +21,7 @@ async function closedPort(): Promise<number> {
 
 describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   it("names the network error and asks whether the dev server runs when a page is unreachable", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const agent = agentMcp(toolPort(f.service));
     const failure = await agent.failure("browser_open", {
       url: `http://127.0.0.1:${await closedPort()}/`,
@@ -45,16 +45,20 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
       timeout: 30_000,
       interval: 200,
     });
+    // A new browser took the dead one's place, and the thread is ready in it.
+    expect((await chromeProcesses(f.home)).browser).not.toBe(browser);
+    expect(f.service.state("thread")).toMatchObject({ status: "ready", closed: false });
     const failure = await agent.failure("browser_act", { action: "type", ref: name, text: "lost" });
     expect(failure.code).toBe("browser_restarted");
     expect(failure.hint).toMatch(/fresh snapshot/);
     // A fresh snapshot is the way back.
     const fresh = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Name");
     await agent.ok("browser_act", { action: "type", ref: fresh, text: "after restart" });
+    expect(await f.evaluate("document.querySelector('input').value")).toBe("after restart");
   }, 60_000);
 
   it("explains a recording that was never started or is already running", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     const stop = { action: "record_stop" };
@@ -67,7 +71,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 
   it("points at answering the dialog while a dialog holds the tab", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     await f.evaluate("setTimeout(() => alert('Unsaved changes'), 0); 0");
@@ -87,7 +91,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 
   it("explains a read-only script that tried to change the page", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     const failure = await agent.failure("browser_evaluate", {
@@ -99,7 +103,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 
   it("a read-only script reads the site's storage, and is still refused when it writes it", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "localStorage.setItem('draft', 'kept'); sessionStorage.setItem('tab', 'one'); 0",
@@ -126,7 +130,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 
   it("downscales a screenshot too dense for the model's budget instead of failing", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_settings", { action: "resize", width: 1536, height: 1536 });
@@ -140,7 +144,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 
   it("asks for less when an upload is over the size limit, without device wording", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate("document.body.innerHTML = '<input type=file aria-label=Attachment>'; 0");
     const dir = await mkdtemp(join(tmpdir(), "ace-upload-"));

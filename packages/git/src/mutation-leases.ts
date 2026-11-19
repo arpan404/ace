@@ -24,6 +24,7 @@ import { GitError } from "./types.ts";
 
 export {
   clearStaleLeases,
+  healRepositories,
   healRepository,
   mutationState,
   settleOwnLeases,

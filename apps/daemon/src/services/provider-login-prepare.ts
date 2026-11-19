@@ -30,6 +30,7 @@ import type { ServiceContext } from "./types.ts";
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
 import { piKeyHandOff } from "../pi-login-driver.ts";
 import { openOpenCodeSignIn } from "@ace/adapter-opencode/sign-in";
+import { readOpenCodeEarlierLogins } from "../opencode-earlier-logins.ts";
 import { openCodexAccount } from "@ace/adapter-codex/account-login";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
 
@@ -51,6 +52,9 @@ export async function prepareProviderLogin(
   owner: string,
 ): Promise<ProviderLoginDriver> {
   const { services, options, now, id, config } = context;
+  // Sign-in runs a provider's CLI: only once PATH is final (`login-path-handoff.ts`).
+  await options.loginPath?.final;
+  context.signal.throwIfAborted();
   const registry = services.accountRegistry;
   if (!registry || !services.accounts) throw new Error("Accounts unavailable");
   const configuration = services.providerConfigurations?.for(target.provider, target.instance);
@@ -121,10 +125,13 @@ export async function prepareProviderLogin(
                   untrack();
                   throw error;
                 }
-                void worker.exited.finally(() => {
-                  untrack();
-                  releaseWorker();
-                });
+                void worker.exited
+                  .finally(() => {
+                    untrack();
+                    releaseWorker();
+                  })
+                  // Exit already happened, so the cleanup below can't hide a failure.
+                  .catch(() => {});
                 return worker;
               } catch (error) {
                 releaseWorker();
@@ -325,6 +332,7 @@ export async function prepareProviderLogin(
             env,
             ...(target.provider === "opencode"
               ? {
+                  openCodeEarlierLogins: () => readOpenCodeEarlierLogins(instance.homeDir),
                   openCodeSignIn: (signIn: AbortSignal) =>
                     openOpenCodeSignIn({
                       command: executable,

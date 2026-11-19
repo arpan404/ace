@@ -1,19 +1,23 @@
-import { PlusIcon, TagIcon } from "@phosphor-icons/react";
-import { LabelPill } from "@/components/forge-marks.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { cn } from "@/lib/cn.ts";
+import { can } from "@ace/ui-core";
+import { Button } from "@/components/ui/button.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
 import { reviewerRows, type ReviewerRow } from "@ace/ui-core";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
+import { DetailRow } from "./pr-detail-row.tsx";
+import { PrAgentBlock } from "./pr-sidebar-blocks.tsx";
+import { PrAvatar } from "./pr-presentation.tsx";
+import { LabelPill } from "@/components/forge-marks.tsx";
 
 /**
- * Reviewers and labels on one line: an avatar stack ringed by each reviewer's latest verdict,
- * then the labels as chips at the right end.
+ * The people on the pull request, as the About section's first rows: each reviewer with their
+ * latest verdict in words, who is assigned, the labels, and the agent working on it live.
  */
 export function PrPeople(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
+  /** Who is assigned, once the lifecycle read says; undefined hides the row. */
+  assignees?: readonly string[] | undefined;
   onRequestReview: (() => void) | undefined;
   onEdit: (() => void) | undefined;
 }) {
@@ -35,64 +39,103 @@ export function PrPeople(props: {
         canDismiss: false,
       }));
   const reviewerPicker =
-    props.extensions?.reviewers?.(props.context) ??
-    (props.onRequestReview && (
-      <IconButton
-        icon={PlusIcon}
-        label="Request review"
-        size="sm"
-        disabled={disabled}
-        onClick={props.onRequestReview}
-      />
-    ));
-  const labelPicker =
-    props.extensions?.labels?.(props.context) ??
-    (props.onEdit && (
-      <IconButton
-        icon={TagIcon}
-        label="Edit labels"
-        size="sm"
-        disabled={disabled}
-        onClick={props.onEdit}
-      />
-    ));
-  // Nobody asked and no labels: nothing to show. Request review and Edit live in the ⋯ menu.
-  if (!rows.length && !detail.labels.length) return null;
-  return (
-    <div
-      id="pr-reviewers"
-      className="flex min-h-8 scroll-mt-2 flex-wrap items-center gap-x-3 gap-y-1"
-    >
-      <div role="group" aria-label="Reviewers" className="flex items-center gap-1.5">
-        {rows.length ? (
-          <PrReviewers
-            rows={rows}
-            value={reviewers.data}
-            disabled={disabled}
-            onDismissed={() => void reviewers.refetch()}
-            onRequestReview={props.onRequestReview}
-          />
-        ) : (
-          <span className="text-xs text-muted-foreground">No reviewers yet</span>
-        )}
-        {reviewerPicker}
-      </div>
-      {(detail.labels.length > 0 || labelPicker) && (
-        <div
-          role="group"
-          aria-label="Labels"
-          // The picker's glyph, not its box, ends on the column's edge.
-          className={cn(
-            "ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1",
-            labelPicker && "-mr-1",
-          )}
+    can(detail, "reviews.reviewers.request") &&
+    (props.extensions?.reviewers?.(props.context) ??
+      (props.onRequestReview && (
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label="Request review"
+          disabled={disabled}
+          onClick={props.onRequestReview}
         >
-          {detail.labels.map((label) => (
-            <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />
-          ))}
-          {labelPicker}
-        </div>
+          Request
+        </Button>
+      )));
+  const labelPicker =
+    can(detail, "reviews.edit") &&
+    (props.extensions?.labels?.(props.context) ??
+      (props.onEdit && (
+        <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onEdit}>
+          Edit
+        </Button>
+      )));
+  const assignees = props.assignees;
+  return (
+    <>
+      <PrAgentBlock detail={detail} />
+      {(can(detail, "reviews.approvals.read") || can(detail, "reviews.approvals.write")) && (
+        <DetailRow label="Reviewers" action={reviewerPicker}>
+          <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
+            {rows.length ? (
+              <PrReviewers
+                rows={rows.map((row) =>
+                  Object.assign({}, row, {
+                    // Asking and un-asking reviewers is its own capability; dismissing a
+                    // review is an approval write.
+                    canRerequest: row.canRerequest && can(detail, "reviews.reviewers.request"),
+                    canRemove: row.canRemove && can(detail, "reviews.reviewers.request"),
+                    canDismiss: row.canDismiss && can(detail, "reviews.approvals.write"),
+                  }),
+                )}
+                value={reviewers.data}
+                disabled={
+                  disabled ||
+                  !(
+                    can(detail, "reviews.approvals.write") ||
+                    can(detail, "reviews.reviewers.request")
+                  )
+                }
+                onDismissed={() => void reviewers.refetch()}
+                onRequestReview={props.onRequestReview}
+              />
+            ) : (
+              <span className="text-subtle-foreground">No reviews</span>
+            )}
+          </div>
+        </DetailRow>
       )}
-    </div>
+      {assignees && (
+        <DetailRow label={assignees.length === 1 ? "Assignee" : "Assignees"}>
+          <span className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
+            {assignees.length ? (
+              assignees.map((login) => (
+                <span key={login} className="inline-flex items-center gap-1.5 text-foreground">
+                  <PrAvatar name={login} url={undefined} />
+                  {login}
+                </span>
+              ))
+            ) : (
+              <span className="text-subtle-foreground">No one assigned</span>
+            )}
+          </span>
+        </DetailRow>
+      )}
+      {(detail.labels.length > 0 || labelPicker) && (
+        <DetailRow label="Labels" action={labelPicker}>
+          <p aria-label="Labels" className="flex min-h-7 items-center">
+            {detail.labels.length ? (
+              <LabelNames names={detail.labels} colors={detail.labelColors} />
+            ) : (
+              <span className="text-subtle-foreground">None</span>
+            )}
+          </p>
+        </DetailRow>
+      )}
+    </>
+  );
+}
+
+/** Labels as GitHub's coloured pills, wrapping in the sidebar's width. */
+function LabelNames(props: {
+  names: readonly string[];
+  colors?: Readonly<Record<string, string>> | undefined;
+}) {
+  return (
+    <span className="flex min-w-0 flex-wrap gap-1 py-1">
+      {props.names.map((name) => (
+        <LabelPill key={name} name={name} color={props.colors?.[name]} />
+      ))}
+    </span>
   );
 }

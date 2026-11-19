@@ -1,7 +1,7 @@
 import { realpath, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { MutationLease } from "@ace/provider-kit/cleanup";
-import { clearLeftoverLocks, lockGraceMs } from "./git-locks.ts";
+import { clearLeftoverLocks, gitCommonDirectory, lockGraceMs } from "./git-locks.ts";
 import { touches, type GitProcess, type GitProcessScan } from "./git-processes.ts";
 import {
   ownedByThisProcess,
@@ -45,6 +45,19 @@ export interface LeaseProbe {
         processes: GitProcessScan;
         groupAlive: (pid: number) => boolean;
         now: () => Date | Promise<Date>;
+        /**
+         * Windows only: whether `process` was already running when this service first found
+         * the stopped daemon that owns `lease` gone, given each listing taken since. That
+         * daemon's Git ran in kill-on-close jobs that ended with it, so Git started later is
+         * someone else's. Identity, not clocks: process start times and the daemon's clock can
+         * drift apart.
+         */
+        runningWhenGone?:
+          | ((
+              lease: MutationLease,
+              listing: readonly GitProcess[],
+            ) => (process: GitProcess) => boolean)
+          | undefined;
       }
     | undefined;
   /** How long admission waits for leases that clear on their own before refusing. */
@@ -89,6 +102,13 @@ async function busy(
   const listing = await scan();
   if (!listing) return;
   const roots = await Promise.all(record.roots.map(canonical));
+  const earlier = owner === "gone" ? evidence.runningWhenGone?.(record, listing) : undefined;
+  if (earlier)
+    return listing
+      .filter((entry) => touches(entry, roots) && earlier(entry))
+      .map(
+        (entry) => `a running Git process (pid ${entry.pid}${entry.cwd ? ` in ${entry.cwd}` : ""})`,
+      );
   // Every Git call ace starts leads its own process group, so Git in a group a live non-Git
   // program leads (an agent's shell) is never this lease's work.
   return listing
@@ -302,4 +322,37 @@ export async function healRepository(
   if (!evidence) return [];
   const before = new Date((await evidence.now()).getTime() - graceMs);
   return clearLeftoverLocks(path, memo(probe), before);
+}
+
+/**
+ * The periodic sweep over many checkouts: `healRepository` for each, with one process listing
+ * shared by the whole sweep (taken only if some lock is old enough to remove) and each
+ * repository's locks cleared once, however many of its worktrees are listed. The grace cutoff is
+ * read before the listing, so every Git that could have written an older lock is in it.
+ * Returns the removed lock files; a checkout that can't be healed is reported to `failed`.
+ */
+export async function healRepositories(
+  paths: readonly string[],
+  failed: (path: string, error: unknown) => void,
+  probe: LeaseProbe = defaultProbe,
+  graceMs = 60_000,
+): Promise<string[]> {
+  const evidence = probe.evidence;
+  const before = evidence ? new Date((await evidence.now()).getTime() - graceMs) : undefined;
+  const scan = memo(probe);
+  const cleared = new Set<string>();
+  const removed: string[] = [];
+  for (const path of paths) {
+    try {
+      await mutationState(path, probe);
+      if (!before) continue;
+      const common = await gitCommonDirectory(path);
+      if (!common || cleared.has(common)) continue;
+      cleared.add(common);
+      removed.push(...(await clearLeftoverLocks(path, scan, before)));
+    } catch (error) {
+      failed(path, error);
+    }
+  }
+  return removed;
 }

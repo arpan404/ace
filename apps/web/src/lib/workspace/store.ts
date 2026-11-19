@@ -3,13 +3,17 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceDefinition } from "./definition.ts";
 import type { CloseWarning } from "./registry.ts";
 import type { PanelPlace } from "./places.ts";
+import { transientTabKinds } from "./text-edit-tab.ts";
 import {
+  closeTab,
   emptyWorkspace,
+  rememberClosed,
   seedWorkspace,
   sanitize,
   ScopeWorkspaceSchema,
+  takeClosed,
+  type ClosedTab,
   type ScopeWorkspace,
-  type WorkspaceTab,
 } from "./model.ts";
 
 /*
@@ -26,13 +30,7 @@ export const defaultSize = 520;
 /** The bottom panel's height until the person drags it. */
 export const defaultBottomSize = 300;
 
-/** A closed tab, kept so Reopen closed tab can put it back where it was. */
-export interface ClosedTab {
-  tab: WorkspaceTab;
-  index: number;
-}
-/** Closed tabs kept per scope. */
-const closedCapacity = 10;
+export type { ClosedTab };
 
 const storageKey = "ace.workspace";
 const Persisted = z.object({
@@ -77,7 +75,7 @@ export class WorkspaceStore {
     this.bottomSize = stored?.preferred.bottom ?? defaultBottomSize;
     this.place = stored?.preferred.place ?? "bottom";
     for (const [scope, workspace] of stored?.scopes.slice(-this.capacity) ?? [])
-      this.scopes.set(scope, sanitize(workspace));
+      this.scopes.set(scope, lasting(sanitize(workspace)));
   }
 
   /** The scope's workspace; a scope never seen starts from `initial` (not persisted yet). */
@@ -222,16 +220,13 @@ export class WorkspaceStore {
   /** Keep a closed tab for Reopen closed tab (the last `closedCapacity` per scope). */
   rememberClosed(scope: string, closed: ClosedTab): void {
     const list = this.closed.get(scope) ?? [];
-    list.push(closed);
-    if (list.length > closedCapacity) list.shift();
+    rememberClosed(list, closed);
     this.closed.set(scope, list);
   }
 
   /** The most recently closed tab of a scope that `accept` lets come back, forgetting it. */
   takeClosed(scope: string, accept: (closed: ClosedTab) => boolean): ClosedTab | undefined {
-    const list = this.closed.get(scope) ?? [];
-    for (let closed = list.pop(); closed; closed = list.pop()) if (accept(closed)) return closed;
-    return undefined;
+    return takeClosed(this.closed.get(scope) ?? [], accept);
   }
 
   /** Whether the scope has a closed tab to reopen. */
@@ -276,8 +271,18 @@ export class WorkspaceStore {
 
   private save() {
     this.dirty = false;
-    const scopes = [...this.scopes].filter(([scope]) => !this.seeded.has(scope));
+    const scopes = [...this.scopes]
+      .filter(([scope]) => !this.seeded.has(scope))
+      .map(([scope, workspace]) => [scope, lasting(workspace)] as const);
     const preferred = { right: this.preferredSize, bottom: this.bottomSize, place: this.place };
     writeJson(this.storage, storageKey, { preferred, scopes });
   }
+}
+
+/** The workspace without the tabs that live only as long as the page (an edit in progress). */
+function lasting(workspace: ScopeWorkspace): ScopeWorkspace {
+  return workspace.tabs.reduce(
+    (next, tab) => (transientTabKinds.has(tab.kind) ? closeTab(next, tab.key) : next),
+    workspace,
+  );
 }

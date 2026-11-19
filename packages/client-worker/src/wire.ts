@@ -22,6 +22,7 @@ export const CallMethod = z.enum([
   "threadsWindow",
   "threadsMore",
   "enqueue",
+  "editFailedSend",
   "command",
   "submitNew",
   "registry",
@@ -34,8 +35,10 @@ export const CallMethod = z.enum([
   "markThreadRead",
   "loadOlder",
   "outputRead",
+  "readInteraction",
   "networkOnline",
   "reconnectNow",
+  "wake",
   "request",
 ]);
 export type CallMethod = z.infer<typeof CallMethod>;
@@ -47,7 +50,11 @@ export const CommandAdmissionId = z.string().check(z.minLength(1), z.maxLength(1
 export const TabMessage = z.discriminatedUnion("t", [
   /** Attach to the client for this daemon target, creating it if no other tab has. */
   z.object({ t: z.literal("connect"), config: z.unknown() }),
-  z.object({ t: z.literal("lease"), lease: id, scope: Scope }),
+  /**
+   * Hold a scope. `optional` takes only spare room; the same lease sent again without it moves
+   * it to the foreground (a view the person opened now shares it).
+   */
+  z.object({ t: z.literal("lease"), lease: id, scope: Scope, optional: z.optional(z.boolean()) }),
   z.object({ t: z.literal("release"), lease: id }),
   z.object({ t: z.literal("call"), call: id, method: CallMethod, args: z.array(z.unknown()) }),
   /** Legacy admission probes are retained for decoding, but never establish freshness. */
@@ -91,6 +98,8 @@ const Patch = z.object({
   k: z.string(),
   v: z.optional(z.unknown()),
   append: z.optional(z.string()),
+  drop: z.optional(z.number().check(z.int(), z.nonnegative())),
+  source: z.optional(z.unknown()),
   cut: z.optional(z.boolean()),
   deleted: z.optional(z.boolean()),
   s: z.optional(z.number()),
@@ -117,7 +126,27 @@ export const WorkerMessage = z.discriminatedUnion("t", [
     error: z.optional(ErrorShape),
     idPrefix: z.optional(z.string()),
   }),
-  z.object({ t: z.literal("connection"), state: z.string(), error: z.optional(ErrorShape) }),
+  z.object({
+    t: z.literal("connection"),
+    state: z.string(),
+    error: z.optional(ErrorShape),
+    /** The path to the machine the worker's connection uses (ADR 0114). */
+    path: z.optional(z.string()),
+    /** The daemon socket the worker's connection speaks over (`connectionGeneration`). */
+    generation: z.optional(z.number()),
+    /**
+     * What a proof of the person's standing on that socket names (ADR 0190): the tab holding the
+     * person's key proves it, since the worker holds no key or session.
+     */
+    standing: z.optional(
+      z.object({
+        host: z.string(),
+        nonce: z.string(),
+        binding: z.optional(z.string()),
+        device: z.string(),
+      }),
+    ),
+  }),
   z.object({
     t: z.literal("pendingSends"),
     reset: z.optional(z.boolean()),
@@ -130,6 +159,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
   /** A binary stream message (a browser frame's bytes) the worker's client already decoded. */
   z.object({ t: z.literal("stream"), message: z.unknown() }),
   z.object({ t: z.literal("changes"), leases: z.array(LeaseChanges) }),
+  /** Thread subscriptions an optional lease may still take (`threadRoom`). */
+  z.object({ t: z.literal("room"), room: z.number().check(z.int(), z.nonnegative()) }),
   /** A fact for the page's diagnostics log (the worker's connection dropping, recovering). */
   z.object({
     t: z.literal("diagnostic"),

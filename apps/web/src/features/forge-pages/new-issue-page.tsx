@@ -1,3 +1,5 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
+import { can } from "@ace/ui-core";
 import { issueQuery } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
@@ -6,14 +8,15 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { WorkHeading } from "@/components/work-heading.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ForgeCompletions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
-import { useIssuePages } from "./lists.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { primarySources, useIssuePages } from "./lists.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /** A new issue has no conversation yet: everyone comes from the repository. */
 const noParticipants = (): never[] => [];
@@ -30,11 +33,13 @@ export function NewIssuePage(props: {
   back: string | undefined;
 }) {
   const { project } = props;
-  const choice = useProjectChoice(project);
-  const back = useBackToList("/issues", project, props.back);
+  const choice = { name: useProjectName() };
+  const back = useBackToList("/issues", props.back);
   // The list's first page names the repository and whether this account may open issues.
-  const list = useIssuePages(project, issueQuery({}, 1), 1);
+  // New issues open on the primary: its first page says whether one can be opened.
+  const list = useIssuePages(primarySources([project]), issueQuery({}, 1), 1);
   const writes = useIssueWrites(project, list.first?.repository);
+  const source = useRepositoryCapabilities(project, list.first?.repository);
   const title = useMarkdownDraft(draftKeys.newIssueTitle(project));
   const body = useMarkdownDraft(draftKeys.newIssue(project));
   const navigate = useNavigate();
@@ -56,11 +61,12 @@ export function NewIssuePage(props: {
       replace: true,
     });
   };
-  const closed = list.first && !list.first.canCreate;
+  const closed = list.first && (!list.first.canCreate || !can(source, "issues.write"));
   return (
-    <Screen title="New issue" crumb={choice.name(project)}>
+    <Screen title="New issue" crumb={choice.name(project)} page="issue" pageVariant="new">
       <article aria-label="New issue" className="h-full overflow-y-auto">
         <form
+          {...part("page-body")}
           className={`${readable} pt-6 pb-16`}
           onSubmit={(event) => {
             event.preventDefault();

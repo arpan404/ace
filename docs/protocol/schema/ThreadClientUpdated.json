@@ -42,12 +42,34 @@
         "hasSentMessage": {
           "type": "boolean"
         },
+        "host": {
+          "enum": [
+            "spade",
+            "spade-bot"
+          ],
+          "type": "string"
+        },
+        "hostKey": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "listOrder": {
           "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
           "type": "number"
         },
         "live": {
           "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
+        },
+        "movedFrom": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "pinOrder": {
           "anyOf": [
@@ -69,6 +91,17 @@
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,
               "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "prSettledKey": {
+          "anyOf": [
+            {
+              "maxLength": 131072,
+              "type": "string"
             },
             {
               "type": "null"
@@ -109,6 +142,26 @@
                 "pr_closed"
               ],
               "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snoozeWake": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/SnoozeWake.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snoozeWoke": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/SnoozeWoke.json"
             },
             {
               "type": "null"

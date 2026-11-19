@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -28,6 +28,8 @@ export function ChoicePicker(props: {
   /** Mono text for branch names. */
   mono?: boolean;
   onChange(picked: string[]): void;
+  /** The popover closed: a multiple pick is final. */
+  onClose?(): void;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -53,7 +55,9 @@ export function ChoicePicker(props: {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setFilter("");
+        if (next) return;
+        setFilter("");
+        props.onClose?.();
       }}
     >
       <PopoverTrigger

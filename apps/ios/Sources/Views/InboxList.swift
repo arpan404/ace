@@ -3,37 +3,86 @@ import SwiftUI
 /// What a row's swipes, menu and tap do. The inbox owns them; the list only offers them.
 struct InboxRowActions {
     let open: (InboxKey) -> Void
+    /// Whether a row tap now opens anything: just after a row action it doesn't (`RowTapGuard`).
+    let accepts: () -> Bool
     let settle: (ThreadRow, InboxKey) -> Void
     let unsettle: (ThreadRow, InboxKey) -> Void
     let snooze: (InboxKey) -> Void
     let snoozeUntil: (ThreadRow, InboxKey, String) -> Void
     let wake: (ThreadRow, InboxKey) -> Void
     let archive: (ThreadRow, InboxKey) -> Void
+    /// Pin (leading Pinned) or unpin.
+    let pin: (ThreadRow, InboxKey, Bool) -> Void
+    /// Ask for the row's new name.
+    let rename: (InboxKey) -> Void
+    /// Put the row at an index among the other rows of its section, as shown.
+    let move: (InboxKey, MergedInbox.Section, Int) -> Void
+    /// The rest of a thread's actions, by its shared menu ids (`ThreadActionItems`).
+    let organizer: ThreadOrganizer
+    /// Starts picking threads for a bulk action, with this one picked.
+    let select: (InboxKey) -> Void
 }
 
-/// Which folded groups at the end of the list are open.
-struct InboxShelves: Equatable { var snoozed = false; var settled = false }
+/// What the list holds, in order: which rows are in which group of the open tab. Equal, for the
+/// animation, when nothing moved, when the person switched tabs, or when the whole list was
+/// replaced (the first rows, or the live list taking over from the saved one): those arrive at
+/// once, never as a crossfade of every row over itself.
+private struct Membership: Equatable {
+    let keys: [String]
+    let rows: [[InboxKey]]
+    let tab: String
+    init(sections: [MergedInbox.Section], tab: String) {
+        keys = sections.map(\.key)
+        rows = sections.map(\.rows)
+        self.tab = tab
+    }
+    /// More rows than this joining or leaving at once is a replacement, not a move.
+    static let animatedChange = 8
+    static func == (lhs: Membership, rhs: Membership) -> Bool {
+        if lhs.tab != rhs.tab { return true }
+        if lhs.keys == rhs.keys && lhs.rows == rhs.rows { return true }
+        let old = Set(lhs.rows.joined()), new = Set(rhs.rows.joined())
+        if old.isEmpty || new.isEmpty { return true }
+        return old.symmetricDifference(new).count > animatedChange
+    }
+}
 
-/// The flat task list (DESIGN.md §3, §8): the shared sections merged by rank with no headings,
-/// rows separated by space rather than rules, a soft rounded fill on the pressed row, then the
-/// Snoozed and Settled shelves. `includes` applies the scope; grouping and wording come from
-/// each machine's runtime.
+/// The flat task list (DESIGN.md §3, §8): the open Threads tab's shared sections merged by rank
+/// with no headings, rows separated by space rather than rules, a soft rounded fill on the
+/// pressed row. `includes` applies the scope; grouping, the tab each section is in and the
+/// wording come from each machine's runtime.
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
     /// Whether the scope takes every thread of a machine, so its unloaded threads still count.
     let whole: (String) -> Bool
-    @Binding var shelves: InboxShelves
-    /// A row to bring into view as soon as it is among the list's own rows (an Undo's), then
-    /// cleared. One still on a shelf waits: the shelf is not where it is coming back to.
+    /// The open Threads tab: "inbox", "snoozed" or "settled".
+    let tab: String
+    /// A row to bring into view as soon as it is among the open tab's rows (an Undo's), then
+    /// cleared. One in another tab waits: that tab is not where it is coming back to.
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
     let compose: (() -> Void)?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Opens pairing while no computer is paired; nil while that isn't known yet.
+    var pair: (() -> Void)?
+    /// The threads picked while the list is in its Select mode (nil outside it).
+    var selection: Binding<Set<InboxKey>>? = nil
+    /// The list's first row, under the large title (Inbox, Snoozed and Settled): it scrolls with
+    /// the rows, so the system collapses the title with nothing pinned beneath it.
+    var header: AnyView? = nil
     @Environment(\.onSidebarGlass) private var onGlass
+    /// The needs-you run is open.
+    @State private var running = false
+    /// The run's pages, here so they outlive any redraw of the run's screen.
+    @State private var run = NeedsRunQueue()
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
-    private static let shelved = ["snoozed", "settled"]
+    /// Where the list is scrolled: a tab switch takes it back to its very top, the large title
+    /// open again over the tabs.
+    @State private var position = ScrollPosition()
+    @Environment(\.homeRetap) private var retap
+    /// The list's first row, the tabs header: where a second tap on Projects scrolls to.
+    static let top = "inbox.top"
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
@@ -41,65 +90,116 @@ struct InboxList: View {
 
     var body: some View {
         let sections = sections
+        let shown = sections.filter { $0.tab == tab }
         ScrollViewReader { proxy in
-            List {
+            List(selection: selection) {
+                if let header {
+                    header
+                        .id(Self.top)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(surface)
+                        .listRowSeparator(.hidden)
+                        .selectionDisabled()
+                }
                 if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
                     ViewOnlyNote(message: "View only")
                         .accessibilityHint("Pair with View and act to send, archive or snooze.")
                         .inboxRowChrome()
+                        .selectionDisabled()
                 }
-                let live = sections.filter { !Self.shelved.contains($0.key) }
-                ForEach(live) { section in
-                    // One section sorted by hand or by creation needs no heading: the title says it.
-                    if live.count > 1 || section.key != "threads" {
-                        InboxSectionHeading(label: section.label).inboxRowChrome()
-                    }
-                    rows(section)
-                }
-                ForEach(Self.shelved, id: \.self) { key in
-                    if let section = sections.first(where: { $0.key == key }) {
-                        let open = key == "snoozed" ? shelves.snoozed : shelves.settled
-                        InboxShelf(label: section.label, count: section.count, expanded: open) {
-                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
-                                if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
-                            }
+                if tab == "inbox", selection == nil {
+                    ForEach(inbox.sessions, id: \.hostId) { session in
+                        ForEach(session.client.outside.screen) { use in
+                            OutsideScreenLine(client: session.client, use: use,
+                                              machine: inbox.names[session.hostId] ?? "This machine",
+                                              named: inbox.showsMachineNames)
+                                .inboxRowChrome()
+                                .selectionDisabled()
                         }
-                        .accessibilityIdentifier("inbox.\(key)")
-                        .inboxRowChrome()
-                        .padding(.top, AceTheme.Spacing.sm)
-                        if open { rows(section) }
                     }
                 }
-                if !inbox.merged.more.isEmpty {
+                if tab == "inbox", selection == nil, let words = NeedWords.count(needs(shown).count) {
+                    NeedsYouLine(words: words) {
+                        run = NeedsRunQueue(needs(shown))
+                        running = true
+                    }
+                        .inboxRowChrome()
+                        .selectionDisabled()
+                }
+                // One flat list in the shared order, as the desktop's tabs: no headings. Pinned
+                // and the rest stay separate sections only so pins can be dragged among themselves.
+                ForEach(shown) { section in rows(section) }
+                // Older settled threads the daemons hold back page in where they belong.
+                if tab == "settled" && !inbox.merged.more.isEmpty {
                     Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
                         Text("Show older threads").meta()
-                            .padding(.horizontal, AceTheme.Spacing.md)
-                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                            .padding(.horizontal, AceDesign.Space.row)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     }
                     .buttonStyle(.row)
                     .accessibilityIdentifier("inbox.more")
                     .inboxRowChrome()
+                    .selectionDisabled()
                 }
-                if sections.isEmpty { emptyState.inboxRowChrome() }
+                if sections.isEmpty {
+                    emptyState.inboxRowChrome().selectionDisabled()
+                } else if shown.isEmpty, let empty = inbox.merged.tabs.first(where: { $0.id == tab }) {
+                    TabEmpty(tab: empty).inboxRowChrome().selectionDisabled()
+                }
             }
             .listStyle(.plain)
+            .scrollPosition($position)
+            // Projects tapped again while it shows: back to the top. A List is a UIKit collection
+            // that a `ScrollPosition` edge doesn't move, so the reader scrolls to the first row,
+            // the tabs over the rows where there are any.
+            .onChange(of: retap?.count(.threads)) {
+                let first: AnyHashable? = header != nil ? AnyHashable(Self.top)
+                    : shown.lazy.compactMap { $0.rows.first }.first.map(AnyHashable.init)
+                guard let first else { return }
+                withAnimation { proxy.scrollTo(first, anchor: .top) }
+            }
             .scrollContentBackground(.hidden)
             .background(surface)
             .environment(\.defaultMinListRowHeight, 0)
-            .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+            // Select mode is the system's own: a check circle on each row, two-finger drag and
+            // (on iPad) Shift or Command with the pointer or arrows to pick several.
+            .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
+            .contentMargins(.vertical, AceDesign.Space.tight, for: .scrollContent)
+            // Rows joining, leaving or moving between groups take the list's own insert, remove
+            // and move animations on the system's spring, keyed on membership alone, so a row's
+            // own text changing never animates the list.
+            .animation(.default, value: Membership(sections: shown, tab: tab))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
-            .onChange(of: revealable(sections), initial: true) { _, key in
+            // Each tab opens at its top, the tabs in view. The new tab's rows are read when the
+            // change lands, never the rows of the tab just left.
+            .onChange(of: tab) { _, now in
+                if header != nil {
+                    // After the new tab's rows are in: scrolled now, the list's own repositioning
+                    // for the swapped rows wins and it lands at the far end.
+                    DispatchQueue.main.async { position.scrollTo(edge: .top) }
+                } else if let first = sections.filter({ $0.tab == now }).first(where: { $0.key != "unsent" })?.rows.first {
+                    proxy.scrollTo(first, anchor: .top)
+                }
+            }
+            .onChange(of: revealable(shown), initial: true) { _, key in
                 guard let key else { return }
                 reveal = nil
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key, anchor: .center) }
+                withAnimation { proxy.scrollTo(key, anchor: .center) }
+            }
+            .fullScreenCover(isPresented: $running) {
+                NeedsRun(inbox: inbox, live: { needs(sections.filter { $0.tab == "inbox" }) }, queue: $run) { key in
+                    running = false
+                    actions.open(key)
+                }
             }
         }
     }
-    /// The row to reveal, once it is listed outside the shelves.
-    private func revealable(_ sections: [MergedInbox.Section]) -> InboxKey? {
+    private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] { inbox.needs(in: shown) }
+    /// The row to reveal, once the open tab lists it.
+    private func revealable(_ shown: [MergedInbox.Section]) -> InboxKey? {
         guard let reveal else { return nil }
-        let listed = sections.contains { !Self.shelved.contains($0.key) && $0.rows.contains(reveal) }
+        let listed = shown.contains { $0.rows.contains(reveal) }
         return listed ? reveal : nil
     }
     /// Marks the first time this process draws inbox rows, for launch timing.
@@ -115,64 +215,76 @@ struct InboxList: View {
             ForEach(section.rows, id: \.self) { key in
                 if let entry = inbox.pending(key) {
                     let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
-                    Button { actions.open(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
+                    // A worktree start's row opens its card again: its steps, Retry, Continue.
+                    let start = inbox.client(key.machineId)?.compose.worktrees[key.id]?.card != nil
+                    Button { if start { inbox.startCard = key } else { actions.open(thread) } } label: {
+                        InboxUnsentRow(entry: entry, thread: inbox.row(thread))
+                    }
                         .buttonStyle(.row).accessibilityIdentifier("unsent.\(key.id)")
-                        .inboxRowRule()
                         .inboxRowChrome()
+                        .selectionDisabled()
                 }
             }
         } else {
+            let movable = inbox.movable(section)
             ForEach(section.rows, id: \.self) { key in
-                InboxThreadCell(inbox: inbox, key: key, section: section.key, actions: actions).id(key)
+                InboxThreadCell(inbox: inbox, key: key, section: section, movable: movable, actions: actions,
+                                selecting: selection != nil).id(key).tag(key)
             }
+            // The system's own drag to reorder: press and hold a row, then move it. Pinned rows
+            // always; the Threads list only when it is sorted by hand.
+            .onMove(perform: movable && selection == nil ? { from, to in
+                guard let source = from.first, source < section.rows.count else { return }
+                let key = section.rows[source]
+                // `to` counts the moving row; the shared rules count only the others.
+                actions.move(key, section, to > source ? to - 1 : to)
+            } : nil)
         }
     }
 
     @ViewBuilder private var emptyState: some View {
-        if !inbox.anyLoaded || !inbox.allReady {
-            if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
+        if inbox.sessions.isEmpty, let pair {
+            NoComputerPaired(pair: pair).padding(.top, AceDesign.Space.section * 2)
+        } else if !inbox.anyLoaded || !inbox.allReady {
+            if let asking = inbox.sessions.first(where: { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }) {
+                // Reachable and waiting for its code: say so, and open the code prompt again.
+                EmptyState(icon: .lock, title: "Enter the machine code",
+                           line: asking.client.machineCodeAsk?.message(lockedUntil: asking.client.machineCodeLockedUntil) ?? "") {
+                    if asking.client.machineCodeAsk?.canEnter == true {
+                        Button("Enter code") { asking.client.machineCodeDeferred = false }
+                    }
+                }
+                .padding(.top, AceDesign.Space.section * 2)
+            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.section * 2)
             } else {
-                InboxSkeleton()
+                SkeletonRows(label: "Loading threads")
             }
         } else {
             EmptyState(icon: .tray, title: "No threads yet") {
                 if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }
             }
-            .padding(.top, 120)
+            .padding(.top, AceDesign.Space.section * 2)
         }
     }
 }
 
-/// The list while the first rows load (DESIGN.md §3 "Loading"): skeleton pills in the shape of
-/// rows, never a page spinner.
-private struct InboxSkeleton: View {
+/// An empty tab while other threads exist: the shared empty state with its runtime's words
+/// ("Inbox zero", "Nothing snoozed"), as the desktop's panel says them.
+private struct TabEmpty: View {
+    let tab: MergedInbox.Tab
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
-            ForEach(0..<5, id: \.self) { index in
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    pill(width: 96, height: 11)
-                    pill(width: index.isMultiple(of: 2) ? 220 : 180, height: 15)
-                    pill(width: 120, height: 11)
-                }
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading threads")
-    }
-    private func pill(width: CGFloat, height: CGFloat) -> some View {
-        AceShape.capsule
-            .fill(AceTheme.Colours.fill)
-            .frame(width: width, height: height)
+        EmptyState(systemImage: tab.id == "snoozed" ? "moon.zzz" : tab.id == "settled" ? "checkmark.circle" : "tray",
+                   title: tab.empty, line: tab.emptyLine)
+            .padding(.top, AceDesign.Space.section * 2)
+            .accessibilityIdentifier("threads.empty.\(tab.id)")
     }
 }
+
 
 extension View {
     /// The task list's row chrome: inset 8pt from the screen edge, 4pt between rows, the list's
@@ -180,39 +292,13 @@ extension View {
     func inboxRowChrome() -> some View { modifier(InboxRowChrome()) }
 }
 
-extension View {
-    /// A hairline under a thread row, from the title's leading edge to the row's end, as the
-    /// system's lists draw them.
-    func inboxRowRule() -> some View {
-        self.listRowSeparator(.visible, edges: .bottom)
-            .listRowSeparatorTint(AceTheme.Colours.separator)
-            .alignmentGuide(.listRowSeparatorLeading) { _ in AceTheme.Spacing.md * 2 + 10 }
-            .alignmentGuide(.listRowSeparatorTrailing) { $0.width - AceTheme.Spacing.md }
-    }
-}
-
-/// A section's name over its rows: Needs you, Working, Done.
-struct InboxSectionHeading: View {
-    let label: String
-    var body: some View {
-        Text(label)
-            .aceFont(AceTheme.TypeStyle(size: 13, lineHeight: 17, weight: 600, tracking: 0), relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.top, AceTheme.Spacing.lg)
-            .padding(.bottom, AceTheme.Spacing.xxs)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 private struct InboxRowChrome: ViewModifier {
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     func body(content: Content) -> some View {
         content
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.sm,
-                                      bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.sm))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Size.listInset,
+                                      bottom: AceTheme.Spacing.none, trailing: AceDesign.Size.listInset))
             .listRowBackground(surface)
             .listRowSeparator(.hidden)
     }
@@ -229,61 +315,160 @@ extension EnvironmentValues {
 private struct InboxThreadCell: View {
     let inbox: MachineInbox
     let key: InboxKey
-    let section: String
+    let section: MergedInbox.Section
+    /// Whether rows here move by hand (Pinned, or Threads sorted by hand).
+    let movable: Bool
     let actions: InboxRowActions
+    /// In Select mode a tap picks the row instead of opening it, and it has no swipes.
+    var selecting = false
     /// The thread open beside the list.
     @Environment(\.openThreadRow) private var open
+    /// Row swipes taken, for their haptic.
+    @State private var swipes = 0
+    private func swiped() { swipes += 1 }
+    /// Answers sent from the row, for the approve haptic.
+    @State private var decided = 0
 
     var body: some View {
         if let row = inbox.row(key) { threadRow(row) }
     }
 
     private func threadRow(_ row: ThreadRow) -> some View {
-        let snoozed = section == "snoozed"
-        let settled = section == "settled"
+        // A pinned row shows under Pinned but keeps its own state's actions and words.
+        let group = row.group ?? section.key
+        let snoozed = group == "snoozed"
+        let settled = group == "settled"
+        let pinned = row.pinned == true
+        let position = section.rows.firstIndex(of: key)
+        let canMoveUp = movable && (position ?? 0) > 0
+        let canMoveDown = movable && position.map { $0 < section.rows.count - 1 } == true
         // A view-only grant is per machine: only that machine's rows lose their actions.
         let canOperate = inbox.client(key.machineId)?.canOperate ?? false
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
-        return Button { actions.open(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
-                           project: inbox.projectLook(key, workspace: row.workspaceId))
+        let model = inbox.client(key.machineId)
+        let asks = selecting ? [] : model?.needsYou(row.id) ?? []
+        let need = model.flatMap { model in
+            asks.isEmpty ? nil : InboxNeedLine(requests: asks, tally: model.needsTally(row.id), model: model)
         }
-        .buttonStyle(RowPressStyle(selected: open == key))
+        // An approval answers from the row by swipe, long press or VoiceOver; nothing in the row
+        // itself takes the tap, which opens the thread.
+        let answers = model.flatMap { model in
+            asks.first.map { NeedActions(request: $0, model: model, threadId: row.id, decided: { decided += 1 }).answers }
+        } ?? []
+        let allow = answers.first { $0.id == "allow_once" }
+        let deny = answers.first { $0.id == "deny" }
+        // Snoozed and Settled draw each thread as one line, as the web's do; Inbox in three.
+        let label = Group {
+            if section.tab == "inbox" {
+                InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
+                               project: inbox.projectLook(key, workspace: row.workspaceId), need: need)
+            } else {
+                let look = InboxThreadRow.look(of: row)
+                InboxLineRow(row: row, end: .work,
+                             wake: snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(InboxThreadRow.spoken(row, look, snoozed: snoozed, need: need))
+            }
+        }
+        // One view in both modes, so entering Select mode only slides the check circles in: in
+        // it the list picks the row, and the button underneath takes no taps.
+        return Button { actions.open(key) } label: { label }
+            .buttonStyle(RowPressStyle(selected: open == key))
+            .allowsHitTesting(!selecting)
         .accessibilityAddTraits(open == key ? .isSelected : [])
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
-        .inboxRowRule()
         .inboxRowChrome()
         // Neutral swipe fills: status hues belong to status only.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if canOperate {
+            // Allow once leads, so a full swipe allows; the person's accent marks it.
+            if let allow { Button(allow.label, ace: .checkCircle, action: allow.run).tint(AceTheme.Colours.accent) }
+            if canOperate && !selecting {
                 if settled {
-                    Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
+                    Button("Unsettle", ace: .arrowUUpLeft) { swiped(); actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
                 } else if canSettle {
-                    Button("Settle", ace: .check) { actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
+                    Button("Settle", ace: .check) { swiped(); actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
                 }
                 if snoozed {
-                    Button("Wake", ace: .sun) { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Wake", ace: .sun) { swiped(); actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
                 } else if !settled {
-                    Button("Snooze", ace: .clock) { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Snooze", ace: .clock) { swiped(); actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
                 }
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate { Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
+            // Deny where a request waits, then Pin, as Mail's leading swipe; Rename and Archive are
+            // in the long-press menu. No full swipe: Deny takes a second, deliberate tap.
+            if let deny { Button(deny.label, ace: .x, action: deny.run).tint(Color(uiColor: .systemGray2)) }
+            if canOperate && !selecting { pinButton(row, pinned).tint(Color(uiColor: .systemGray)) }
         }
-        .contextMenu {
+        .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
+        .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
+        .accessibilityActions {
+            ForEach(answers) { answer in Button(answer.label, action: answer.run) }
             if canOperate {
-                if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
-                else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
-                if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
-                else if !settled {
-                    Menu {
-                        ForEach(inbox.merged.snooze) { option in Button(option.label) { actions.snoozeUntil(row, key, option.id) } }
-                    } label: { Label("Snooze", ace: .clock) }
-                }
-                Button("Archive", ace: .archive) { actions.archive(row, key) }
+                if canMoveUp { Button("Move up") { step(-1) } }
+                if canMoveDown { Button("Move down") { step(1) } }
             }
         }
+        // A long press previews the thread above its actions, as the web's hover card and menu
+        // do. Every action here is also in the open thread's ⋯ and in Select mode's bar.
+        .contextMenu {
+            if !answers.isEmpty {
+                Section {
+                    if let allow { Button(allow.label, ace: .checkCircle, action: allow.run) }
+                    if let deny { Button(deny.label, ace: .x, action: deny.run) }
+                }
+            }
+            if !selecting {
+                InboxRowMenu(inbox: inbox, key: key, canOperate: canOperate, actions: actions,
+                             canMoveUp: canMoveUp, canMoveDown: canMoveDown, step: step)
+            }
+        } preview: {
+            // The card names the machine always, as the desktop's names "This machine".
+            ThreadPreview(row: row, machine: inbox.mark(key.machineId)
+                              ?? MachineMark(name: inbox.name(key.machineId), glyph: inbox.client(key.machineId)?.machineGlyph ?? .laptop),
+                          project: inbox.projectLook(key, workspace: row.workspaceId))
+        }
+    }
+
+    private func pinButton(_ row: ThreadRow, _ pinned: Bool) -> some View {
+        Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { swiped(); actions.pin(row, key, !pinned) }
+    }
+    /// One place up or down among the section's rows as shown.
+    private func step(_ by: Int) {
+        guard let position = section.rows.firstIndex(of: key) else { return }
+        actions.move(key, section, position + by)
+    }
+}
+
+/// A row's long-press menu. Its own view, so reading the machines' shared menu words redraws
+/// only the open menu, never every row when the layout changes.
+private struct InboxRowMenu: View {
+    let inbox: MachineInbox
+    let key: InboxKey
+    let canOperate: Bool
+    let actions: InboxRowActions
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let step: (Int) -> Void
+
+    var body: some View {
+        if let row = inbox.row(key) {
+            if canOperate {
+                let merged = inbox.merged
+                ThreadActionItems(key: key, row: row, labels: merged.menuLabels, sections: merged.menuSections,
+                                  snoozeOptions: merged.snooze, organizer: actions.organizer,
+                                  extra: canMoveUp || canMoveDown ? AnyView(moves) : nil,
+                                  rename: { actions.rename(key) })
+                Section { Button("Select", ace: .checkCircle) { actions.select(key) }.accessibilityIdentifier("thread.action.select") }
+            } else {
+                Button("Copy link", ace: .link) { actions.organizer.perform(key, "copy-link") }
+            }
+        }
+    }
+    @ViewBuilder private var moves: some View {
+        if canMoveUp { Button("Move up", ace: .arrowUp) { step(-1) } }
+        if canMoveDown { Button("Move down", ace: .arrowDown) { step(1) } }
     }
 }

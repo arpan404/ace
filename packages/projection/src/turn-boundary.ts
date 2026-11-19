@@ -5,14 +5,15 @@ import type { Item, MessageOrigin, RunTrigger } from "@ace/protocol";
  * coming back, its background work finishing, the person answering the agent's question, ace
  * continuing interrupted work, and a provider handoff's context. They join the current turn.
  */
-const carriesOn = new Set<MessageOrigin["kind"]>([
+export const turnCarryingOrigins: readonly MessageOrigin["kind"][] = [
   "subagent_result",
   "background_completion",
   "interaction_answer",
   "restart",
   "limit_resume",
   "handoff",
-]);
+];
+const carriesOn = new Set(turnCarryingOrigins);
 
 /**
  * Whether a root user-role message opens a new turn (ADR 0062): the person's own words (typed,

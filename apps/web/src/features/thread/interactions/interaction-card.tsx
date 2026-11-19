@@ -1,7 +1,14 @@
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { useAgent, useInteraction, useItem, useThreadMeta } from "@ace/client-react";
+import {
+  useAgent,
+  useInteraction,
+  useItem,
+  useThreadMeta,
+  useWholeRequest,
+  type WholeRequest,
+} from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import {
   agentName,
@@ -9,11 +16,13 @@ import {
   approvalCopy,
   browserHelpTitle,
   displayCommand,
+  lostChildAsk,
+  lostChildCopy,
   questionTitle,
   requestIdentity,
   closedMeta,
 } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -28,6 +37,8 @@ import { PlanReview } from "./plan-review.tsx";
 import { BrowserHelp } from "./browser-help.tsx";
 import type { Answer } from "./answer.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
+import { shownWhole, WholeRequestNote } from "./whole-request-note.tsx";
 
 /** Typing a digit in these goes into the field, not to an option. */
 const typing = (target: EventTarget) =>
@@ -50,7 +61,11 @@ export type InteractionFrame = keyof typeof frames;
  * review a plan. A question answered here reads as the question and the answer it got; a
  * request offered again after it was answered reads as answered (A3). `frame` "attached" drops
  * the card's own border for a surface that has one (the composer's attached card), and `aside`
- * goes at the end of its top line (that card's "1 of 3").
+ * goes at the end of its top line (that card's "1 of 3"). While the thread's copy isn't confirmed
+ * (reconnecting, offline, read back from disk) the request stays in view but can't be answered:
+ * it may have been answered, withdrawn or replaced meanwhile. A request its thread sent
+ * summarized (`truncated`) shows its summary until it is read whole, and until then takes only
+ * a decline.
  */
 export function InteractionCard(props: {
   threadId: string;
@@ -65,19 +80,39 @@ export function InteractionCard(props: {
   targeted?: boolean | undefined;
 }) {
   const frame = frames[props.frame ?? "card"];
-  const interaction = useInteraction(props.threadId, props.interactionId);
+  const live = useThreadLiveState(props.threadId);
+  const summary = useInteraction(props.threadId, props.interactionId);
+  const whole = useWholeRequest(props.threadId, summary);
+  // The whole request in place of the summary, once it has loaded.
+  const interaction =
+    summary && whole && "request" in whole ? { ...summary, request: whole.request } : summary;
   const agent = useAgent(props.threadId, interaction?.agentId ?? "");
-  const identity = interaction ? requestIdentity(interaction) : undefined;
+  const identity = summary ? requestIdentity(summary) : undefined;
   const local = useLocalAnswer(props.interactionId, identity);
   const earlier = useEarlierAnswer(props.threadId, interaction);
   const [reopened, setReopened] = useState(false);
   const sender = useAnswerSender({
+    threadId: props.threadId,
     interactionId: props.interactionId,
     identity,
     questions: interaction?.request.kind === "question" ? interaction.request.questions : [],
+    unread: summary?.truncated && !shownWhole(whole) ? summary.request : undefined,
+    readWhole: whole?.status === "loaded" ? whole.version : undefined,
   });
   const { failed } = sender;
+  // Refused as not read: the request changed since it was read here, so read it again, once for
+  // each refusal (the refused answer stays on the sender while the new read goes).
+  const reread = whole?.status === "loaded" ? whole.retry : undefined;
+  const unreadRefusal =
+    sender.refused?.code === "request_not_read" ? sender.refused.commandId : undefined;
+  const [rereadFor, setRereadFor] = useState<string>();
+  if (unreadRefusal !== undefined && unreadRefusal !== rereadFor && reread) {
+    setRereadFor(unreadRefusal);
+    reread();
+  }
   const answer: Answer = (resolution) => {
+    // Disabled while not fresh; an answer given just as the copy went stale doesn't go either.
+    if (!live.isFresh()) return;
     props.onControlsChange?.();
     setReopened(false);
     sender.answer(resolution);
@@ -145,8 +180,10 @@ export function InteractionCard(props: {
       asker={asker}
       answer={answer}
       failed={failed}
+      whole={whole}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
       targeted={props.targeted}
+      held={live.staleLabel}
       onAnswerAgain={() => {
         props.onControlsChange?.();
         answerStore.forget(interaction.id);
@@ -175,20 +212,29 @@ function OpenRequest(props: {
   asker: string;
   answer: Answer;
   failed: string | undefined;
+  /** How much of the request is here: a summarized one takes only declines until read whole. */
+  whole: WholeRequest | undefined;
   local: LocalAnswer | undefined;
   targeted?: boolean | undefined;
+  /** Why it can't be answered yet ("Reconnecting…"), while the thread's copy isn't confirmed. */
+  held: string | undefined;
   onAnswerAgain(): void;
 }) {
-  const { interaction, local, answer, failed } = props;
+  const { interaction, local, answer, failed, held } = props;
   const call = useItem(props.threadId, interaction.toolCallId ?? "");
   const mode = useThreadMeta(props.threadId)?.permission?.effective;
   const request = interaction.request;
   const sending = local?.state === "sending";
+  const disabled = sending || held !== undefined;
+  const declinesOnly = !shownWhole(props.whole);
   const command =
     call?.type === "tool_call" && call.call.detail.kind === "shell"
       ? displayCommand(call.call.detail).command
       : undefined;
-  const copy = request.kind === "approval" ? approvalCopy(request, { mode, command }) : undefined;
+  const plain = request.kind === "approval" ? approvalCopy(request, { mode, command }) : undefined;
+  // The daemon's request about a lost child: its one option reads Stop tracking, as on the iPhone.
+  const lost = lostChildAsk(interaction);
+  const copy = plain && lost ? lostChildCopy(plain, lost) : plain;
   const title =
     request.kind === "approval"
       ? (copy?.title ?? request.title)
@@ -216,7 +262,7 @@ function OpenRequest(props: {
       : undefined;
   const [nudged, setNudged] = useState<string>();
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!decisions || sending || chosen || typing(event.target)) return;
+    if (!decisions || disabled || chosen || typing(event.target)) return;
     const digit = Number.parseInt(event.key, 10);
     const decision = Number.isNaN(digit) ? undefined : decisions[digit - 1];
     if (!decision || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -227,7 +273,15 @@ function OpenRequest(props: {
     answer({ kind: "approval", optionId: decision.option.id });
   };
   return (
-    <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
+    <article
+      tabIndex={-1}
+      aria-label={title}
+      data-part={request.kind === "question" ? "question-card" : "approval-strip"}
+      data-variant={request.kind}
+      data-state="waiting"
+      onKeyDown={onKeyDown}
+      className={props.className}
+    >
       {request.kind !== "approval" && request.kind !== "question" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
           <Dot tone="needs-you" />
@@ -259,12 +313,14 @@ function OpenRequest(props: {
           )}
         </div>
       ) : null}
+      <WholeRequestNote whole={props.whole} />
       {request.kind === "approval" && copy && (
         <>
           <ApprovalRequest
             copy={copy}
             presentation="compact"
-            disabled={sending}
+            disabled={disabled}
+            declinesOnly={declinesOnly}
             numbered
             keyed={(option) => approvalByKey(request, option, copy.risk)}
             onAnswer={(picked) => answer({ kind: "approval", optionId: picked.option.id })}
@@ -298,26 +354,37 @@ function OpenRequest(props: {
           asker={props.asker}
           aside={props.aside && <span className="flex items-center gap-3">{props.aside}</span>}
           questions={request.questions}
-          disabled={sending}
+          disabled={disabled}
+          declinesOnly={declinesOnly}
           onAnswer={answer}
         />
       )}
       {request.kind === "plan_review" && (
-        <PlanReview disabled={sending} onAnswer={answer}>
+        <PlanReview disabled={disabled} declinesOnly={declinesOnly} onAnswer={answer}>
           <Prose text={request.markdown} className="text-ui leading-[1.55]" />
         </PlanReview>
       )}
       {request.kind === "elicitation" && (
-        <Elicitation request={request} disabled={sending} onAnswer={answer} />
+        <Elicitation
+          request={request}
+          disabled={disabled}
+          declinesOnly={declinesOnly}
+          onAnswer={answer}
+        />
       )}
       {request.kind === "browser_help" && (
         <BrowserHelp
           threadId={props.threadId}
           request={request}
-          disabled={sending}
+          disabled={disabled}
           targeted={props.targeted}
           onAnswer={answer}
         />
+      )}
+      {held && !sending && !chosen && (
+        <p role="status" className="mt-2 text-xs text-subtle-foreground">
+          {held} Answer once this request is confirmed.
+        </p>
       )}
       {sending && !chosen && !failed && (
         <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">

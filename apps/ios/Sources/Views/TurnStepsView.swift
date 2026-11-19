@@ -17,6 +17,8 @@ struct DaemonSteps: View {
     let blockId: String
     let links: StepsLinks
     let thread: ThreadModel
+    /// The head's moments, which the log's `moment` rows place among the steps.
+    var moments: [BlockRow.Moment]? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         let steps = links.screen.steps[ordinal]
@@ -24,22 +26,22 @@ struct DaemonSteps: View {
         let header = steps?.header
         Group {
             if header?.state == "failed" && rows.isEmpty {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     Text("Couldn't load these steps.")
                     Button("Retry") { links.model.moreSteps(ordinal: ordinal) }.accessibilityIdentifier("steps.retry")
                 }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
             } else if rows.isEmpty && header?.state != "ready" {
                 StepsSkeleton().onAppear { DisclosureTrace.shared.waiting(blockId) }
             } else if rows.isEmpty {
-                Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
             } else {
                 let source = LogSource(thread: thread, fetched: Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 }),
                                        ace: header?.aceSteps, background: header?.background, retried: header?.retried,
-                                       thoughts: header?.thoughts, openMessage: openMessage)
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                                       thoughts: header?.thoughts, moments: moments, openMessage: openMessage)
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                     StepRail { WorkLogRows(rows: header?.log ?? rows.map { BlockRow.LogRow(kind: "step", id: $0.id) }, source: source) }
                         .onAppear { DisclosureTrace.shared.shown(blockId) }
                     if header?.more == true {
@@ -56,66 +58,52 @@ struct DaemonSteps: View {
 
 /// Rows standing in for a log's steps while they load.
 private struct StepsSkeleton: View {
+    /// Each placeholder line's share of the row, uneven so they read as words.
+    private static let widths: [CGFloat] = [0.62, 0.48, 0.70]
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            ForEach([0.62, 0.48, 0.70], id: \.self) { width in
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    AceShape.capsule.frame(width: 14, height: 14)
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+            ForEach(Self.widths, id: \.self) { width in
+                HStack(spacing: AceDesign.Space.related) {
+                    AceShape.capsule.frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
                     GeometryReader { geometry in
-                        AceShape.capsule.frame(width: geometry.size.width * width, height: 12)
+                        AceShape.capsule.frame(width: geometry.size.width * width, height: AceDesign.Size.glyphSmall)
                     }
-                    .frame(height: 12)
+                    .frame(height: AceDesign.Size.glyphSmall)
                 }
-                .frame(height: 16)
+                .frame(height: AceDesign.Size.icon)
             }
         }
         .foregroundStyle(AceTheme.Colours.fill)
-        .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.leading, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+        .padding(.vertical, AceDesign.Space.tight).padding(.leading, AceDesign.Space.tight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading steps")
         .accessibilityIdentifier("steps.loading")
     }
 }
 
-/// A native subagent's own lane, its blocks grouped like the main transcript ("Worked for" heads,
-/// its own subagents, its answer), from the bridge's per-agent grouping.
+/// A native subagent opened from the transcript, in its own sheet: its whole view
+/// (`SubagentView`), with its own subagents pushing on top.
 struct AgentLaneSheet: View {
     let entry: BlockRow.Agents.Entry
     let model: ClientModel
     let thread: ThreadModel
     let openThread: (String) -> Void
+    /// Shows the thread's browser under this sheet, which closes first.
+    var openBrowser: (() -> Void)? = nil
+    @State private var path: [SubagentRoute] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack {
-            List {
-                let lane = thread.screen.lane
-                if let lane, lane.agentId == entry.agentId, !lane.order.isEmpty {
-                    let links = TranscriptLinks(openThread: { child in dismiss(); openThread(child) }, openAgent: { _ in })
-                    ForEach(lane.order, id: \.self) { id in
-                        if let block = lane.blocks[id] { BlockView(block: block, thread: thread, links: links).listRowSeparator(.hidden) }
-                    }
-                } else {
-                    EmptyState(icon: .graph, title: "Nothing from this agent yet")
-                        .listRowSeparator(.hidden)
-                }
-            }
-            .listStyle(.plain)
-            .accessibilityIdentifier("lane.transcript")
-            .navigationTitle(entry.title).navigationBarTitleDisplayMode(.inline)
-            .escapeCloses { dismiss() }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(entry.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
-                        Text(entry.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(StateStyle.text(entry.token))
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+        NavigationStack(path: $path) {
+            page(SubagentRoute(agentId: entry.agentId, title: entry.title))
+                .navigationDestination(for: SubagentRoute.self) { page($0) }
         }
-        .onAppear { model.openLane(entry.agentId) }
-        .onDisappear { model.closeLane(epoch: thread.epoch) }
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+    private func page(_ route: SubagentRoute) -> some View {
+        SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
+                     openThread: { child in dismiss(); openThread(child) },
+                     openBrowser: openBrowser.map { open in { dismiss(); open() } })
+            .escapeCloses { dismiss() }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
     }
 }

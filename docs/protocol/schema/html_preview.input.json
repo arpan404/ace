@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/html_preview.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "html": {
+      "description": "A self-contained HTML document: inline CSS, JS, SVG and data: images; no network.",
+      "maxLength": 16777216,
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/HtmlMode.json",
+      "description": "interactive runs scripts in a sandbox; static strips them. Default: inferred."
+    },
+    "scheme": {
+      "$ref": "https://ace.local/protocol/v1/HtmlColorScheme.json",
+      "description": "The app theme to draw it in. Default: dark."
+    },
+    "widths": {
+      "description": "Phone 360, chat column 760, full-screen side panel 1200. Default: 360 and 760.",
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HtmlPreviewWidth.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "html"
+  ],
+  "type": "object"
+}

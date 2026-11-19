@@ -11,11 +11,13 @@ import {
   type EventPayload,
 } from "@ace/protocol";
 import { z } from "zod";
+import { cursorClientHeader } from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -91,7 +93,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
     ACE_ADVERTISE_HOST: "127.0.0.1",
     ACE_LOG_LEVEL: "silent",
   });
-  const daemon = await startDaemon({ config: config });
+  const daemon = await startDaemon({ config: config, engine: noProviderDiscovery });
   cleanups.push(() => daemon.close());
   const { scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -108,6 +110,8 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   const paired = DeviceCredential.parse(await redeemPairing(pairing.url, "Integration device"));
   if (!daemon.remoteUrl || !daemon.fingerprint) throw new Error("Missing remote listener");
   const remote = daemon.remoteUrl.replace("wss:", "https:");
+  // Read while it serves: a stopped daemon names no remote address or key.
+  const fingerprint = daemon.fingerprint;
   expect(
     await accessRequest(remote, "/v1/status", {
       token: paired.token,
@@ -129,13 +133,14 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(existsSync(endpointPath)).toBe(false);
-  const reopened = await startDaemon({ config: config });
+  const reopened = await startDaemon({ config: config, engine: noProviderDiscovery });
   cleanups.push(() => reopened.close());
+  await reopened.remoteStarted.direct;
   expect(reopened.store.devices.get(paired.device.id)).toMatchObject({
     name: "Integration device",
   });
   expect(reopened.store.getMcpAgent(scope.threadId, scope.agentId)).toMatchObject({ id: "root" });
-  expect(reopened.fingerprint).toBe(daemon.fingerprint);
+  expect(reopened.fingerprint).toBe(fingerprint);
   expect((await call(reopened.mcp.url, lease.bearer, "context")).status).toBe(401);
 });
 
@@ -229,6 +234,7 @@ it("rolls back both intent and notice when event persistence fails", () => {
 
 it("thread_read reports the waiting state a child agent's approval gives its thread", async () => {
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
   });
   cleanups.push(() => daemon.close());
@@ -339,6 +345,7 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     publishArtifact: async () => {},
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
   });
@@ -348,10 +355,12 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     { ...scope, capabilities: ["agents", "notify", "browser", "screen", "devices"] },
     new AbortController().signal,
   );
-  async function catalog() {
+  /** The list as a client sees it: by default one that lists every tool and reloads. */
+  async function catalog(headers: Record<string, string> = {}) {
     const response = await fetch(daemon.mcp.url, {
       method: "POST",
       headers: {
+        ...headers,
         Authorization: `Bearer ${lease.bearer}`,
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
@@ -377,16 +386,24 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
       .parse(await response.json());
     return result.result.tools.map((tool) => tool.name);
   }
-  const disabled = await catalog();
-  expect(disabled.filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
+  const devices = daemon.devices;
+  if (!devices) throw new Error("Missing catalog devices service");
+  // Cursor never reloads its list, so it sees every registered tool upfront.
+  const everything = { [cursorClientHeader.name]: cursorClientHeader.value };
+  // Devices are on by default (ADR 0064); screen control waits until the person enables it.
+  // A client that reloads gets the simulator tools once it first uses devices.
+  const initial = await catalog(everything);
+  expect(initial.filter((name) => name.startsWith("screen_"))).toEqual([]);
+  expect(initial).toEqual(expect.arrayContaining(["sim_list", "sim_ui"]));
+  expect((await catalog()).filter((name) => name.startsWith("sim_"))).toEqual([]);
+  await devices.request({ op: "enable", enabled: false }, { kind: "human", owner: "catalog" });
+  expect((await catalog(everything)).filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
   await screen.enable(true);
   expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
     expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
   );
-  const devices = daemon.devices;
-  if (!devices) throw new Error("Missing catalog devices service");
   await devices.request({ op: "enable", enabled: true }, { kind: "human", owner: "catalog" });
-  const names = await catalog();
+  const names = await catalog(everything);
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([

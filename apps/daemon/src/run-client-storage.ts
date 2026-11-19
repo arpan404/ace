@@ -72,9 +72,13 @@ export function listClientRuns(db: DatabaseSync, thread: ThreadId, before: numbe
       "SELECT e.value,r.ordinal FROM client_run_index r JOIN view_entities e ON e.thread_id=r.thread_id AND e.id=r.run_id AND e.collection='runs' WHERE r.thread_id=? AND r.ordinal<? ORDER BY r.ordinal DESC LIMIT ?",
     )
     .all(thread, before, limit + 1);
-  const runs = rows
-    .slice(0, limit)
-    .map((row) => Run.parse({ ...Run.parse(JSON.parse(String(row.value))), ordinal: row.ordinal }));
+  // One parse: the stored run with its index ordinal, which replaces any it was stored with.
+  const runs = rows.slice(0, limit).map((row) => {
+    const stored: unknown = JSON.parse(String(row.value));
+    return Run.parse(
+      typeof stored === "object" && stored !== null ? { ...stored, ordinal: row.ordinal } : stored,
+    );
+  });
   const last = runs.at(-1)?.ordinal;
   return { runs, total, ...(rows.length > limit && last ? { nextBefore: last } : {}) };
 }

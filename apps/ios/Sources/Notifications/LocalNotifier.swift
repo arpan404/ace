@@ -5,36 +5,20 @@ import UserNotifications
 protocol NotificationCenterPort: AnyObject, Sendable {
     func post(_ content: AlertContent) async
     func withdraw(_ identifiers: [String])
-}
-
-enum NotificationKeys {
-    static let threadId = "threadId"
-    static let interactionId = "interactionId"
-    static let approve = "approveOption"
-    static let deny = "denyOption"
-    /// The machine that raised the alert, so a tap or an answer goes back to it.
-    static let hostId = "hostId"
+    /// Withdraws the service extension's copies of `thread`'s alerts (ADR 0106). They carry APNs'
+    /// identifier, so posting under the thread's own doesn't replace them.
+    func withdrawPushed(standingFor thread: String)
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
     func post(_ alert: AlertContent) async {
         let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        content.threadIdentifier = alert.threadIdentifier
-        content.targetContentIdentifier = alert.threadId
-        content.categoryIdentifier = alert.category
-        switch alert.level {
-        case .passive: content.interruptionLevel = .passive
-        case .active: content.interruptionLevel = .active; content.sound = .default
-        case .timeSensitive: content.interruptionLevel = .timeSensitive; content.sound = .default
+        alert.fill(content)
+        if !alert.choices.isEmpty {
+            // The buttons' titles are the options' labels: their category goes in first.
+            let shape = NotificationCategories.Shape(labels: alert.choices.map(\.label), reply: alert.takesWords)
+            UNUserNotificationCenter.current().setNotificationCategories(NotificationCategories.remember(shape, defaults: .standard))
         }
-        var info: [String: String] = [NotificationKeys.threadId: alert.threadId]
-        info[NotificationKeys.interactionId] = alert.interactionId
-        info[NotificationKeys.approve] = alert.approveOption
-        info[NotificationKeys.deny] = alert.denyOption
-        info[NotificationKeys.hostId] = alert.hostId
-        content.userInfo = info
         // The stable daemon id, within its machine, is the request identifier, so a repeat
         // replaces rather than stacks, and another machine's equal id doesn't replace it.
         let request = UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil)
@@ -45,7 +29,156 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        // A push the service extension rewrote has APNs' identifier, not the app's: it names
+        // the alert and the thread it stands for instead (ADR 0106).
+        let wanted = Set(identifiers)
+        center.getDeliveredNotifications { delivered in
+            let pushed = delivered.filter { note in
+                let info = note.request.content.userInfo
+                return [NotificationKeys.pushedAlert, NotificationKeys.standsFor].contains { (info[$0] as? String).map(wanted.contains) ?? false }
+            }
+            if !pushed.isEmpty { center.removeDeliveredNotifications(withIdentifiers: pushed.map(\.request.identifier)) }
+        }
     }
+    func withdrawPushed(standingFor thread: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let older = delivered.filter { note in
+                let info = note.request.content.userInfo
+                // Only the extension's copies have `pushedAlert`; the app's own post is never matched.
+                guard let pushed = info[NotificationKeys.pushedAlert] as? String else { return false }
+                return !pushed.isEmpty && info[NotificationKeys.standsFor] as? String == thread
+            }
+            if !older.isEmpty { center.removeDeliveredNotifications(withIdentifiers: older.map(\.request.identifier)) }
+        }
+    }
+}
+
+/// Lands every machine's alerts on this phone through one `AlertStack`: one notification per
+/// thread, finishes in a burst folded into one, withdrawals by alert or by thread. Shared by
+/// every machine's `LocalNotifier`, so a burst across machines folds too.
+@MainActor final class AlertDesk {
+    private let center: any NotificationCenterPort
+    private let defaults: UserDefaults?
+    private let now: () -> Double
+    /// Alerts the service extension already showed from a push (ADR 0106).
+    let pushed: PushedAlerts
+    private(set) var stack: AlertStack
+    /// The last post asked for: every post waits for the one before, so they land in order.
+    private var effects: Task<Void, Never>?
+    /// Notifications with a post queued or out, by identifier: the latest post's generation, or
+    /// a withdrawal's when one came after it.
+    private var pending: [String: Pending] = [:]
+    private var generation = 0
+    private struct Pending { let generation: Int; let withdrawn: Bool }
+    /// Landings whose post is queued or out, by serial, with the notifier that asked for each.
+    private var landing: [Int: (owner: ObjectIdentifier, threadId: String, hostId: String?)] = [:]
+    private var landings = 0
+    init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         pushed: PushedAlerts = PushedAlerts(defaults: nil)) {
+        self.center = center; self.defaults = defaults; self.now = now; self.pushed = pushed
+        stack = defaults.map(AlertStack.load) ?? AlertStack()
+    }
+    /// Lands an alert; `owner`'s landings still queued or out can be cancelled (`cancel`).
+    func land(_ alert: AlertNotification, hostId: String?, owner: ObjectIdentifier? = nil) async {
+        let landed = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
+        save()
+        withdraw(landed.withdraw)
+        guard var content = landed.post else { return }
+        let thread = AlertStack.thread(alert.threadId, hostId: hostId)
+        if content.identifier == thread {
+            // This alert is the thread's one notification now, so every pushed copy for the thread
+            // goes, its own included, and it is posted under the thread's identifier. Catch-up
+            // lands a thread's alerts oldest first, so the newest is what stays, without working
+            // out which push came when.
+            center.withdrawPushed(standingFor: thread)
+            // Already seen from a push: in its place again, but without a second sound or banner.
+            if pushed.contains(AlertContent.requestId(alert.id, hostId: hostId)) { content = content.quieted }
+        }
+        landings += 1
+        let serial = landings
+        if let owner { landing[serial] = (owner, alert.threadId, hostId) }
+        await post(content).value
+        landing[serial] = nil
+    }
+    /// `owner` went (its machine let go): what it landed that hasn't reached the notification
+    /// center yet never does, and what is out right now is withdrawn once it has landed.
+    func cancel(owner: ObjectIdentifier) {
+        let mine = landing.filter { $0.value.owner == owner }
+        guard !mine.isEmpty else { return }
+        for serial in mine.keys { landing[serial] = nil }
+        for entry in mine.values { clear(threadId: entry.threadId, hostId: entry.hostId) }
+    }
+    /// Retracted by the daemon: withdrawn if it is still its thread's, plus the ids earlier
+    /// builds posted under (`AlertContent.requestIds`).
+    func retract(_ alertIds: [String], hostId: String?) {
+        guard !alertIds.isEmpty else { return }
+        let before = stack
+        var landings: [AlertStack.Landing] = []
+        for id in alertIds {
+            var landing = stack.retract(id, hostId: hostId)
+            landing.withdraw += AlertContent.requestIds(retracting: id, hostId: hostId)
+            landings.append(landing)
+        }
+        apply(landings, since: before)
+    }
+    /// Every notification from one machine, such as one turned off on this phone.
+    func clear(hostId: String) {
+        let before = stack
+        apply([stack.clear(hostId: hostId)], since: before)
+    }
+    /// The thread was opened, or its request is answered or gone.
+    func clear(threadId: String, hostId: String?) {
+        let before = stack
+        apply([stack.clear(threadId: threadId, hostId: hostId)], since: before)
+    }
+    /// Every change to the stack is kept, folded finishes included, and the summary follows
+    /// what is left of it: posted again over the rest, or withdrawn.
+    private func apply(_ landings: [AlertStack.Landing], since before: AlertStack) {
+        if stack != before { save() }
+        var ids = landings.flatMap(\.withdraw)
+        let summaryMoved = landings.contains { $0.post != nil || $0.withdraw.contains(AlertStack.summaryId) }
+        let summary = summaryMoved ? stack.summary : nil
+        if summary != nil { ids.removeAll { $0 == AlertStack.summaryId } }
+        withdraw(ids)
+        if let summary { post(summary) }
+    }
+    /// Withdrawn now; a post of it still queued won't land, and one already out is withdrawn
+    /// again once it has.
+    func withdraw(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        for id in ids where pending[id] != nil {
+            generation += 1
+            pending[id] = Pending(generation: generation, withdrawn: true)
+        }
+        center.withdraw(ids)
+    }
+    /// Posted after every earlier post, unless a later post or withdrawal of the same
+    /// notification overtakes it first. Done when it has landed or been skipped.
+    @discardableResult func post(_ content: AlertContent) -> Task<Void, Never> {
+        let id = content.identifier
+        generation += 1
+        let mine = generation
+        pending[id] = Pending(generation: mine, withdrawn: false)
+        let previous = effects
+        let center = center
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard self.pending[id]?.generation == mine else {
+                // Overtaken by a withdrawal that nothing posted after: nothing is left to undo.
+                if self.pending[id]?.withdrawn == true { self.pending[id] = nil }
+                return
+            }
+            await center.post(content)
+            guard let now = self.pending[id] else { return }
+            if now.generation == mine || now.withdrawn { self.pending[id] = nil }
+            if now.withdrawn { center.withdraw([id]) }
+        }
+        effects = task
+        return task
+    }
+    private func save() { if let defaults { stack.save(defaults) } }
 }
 
 /// Posts the daemon's alerts once each, withdraws the ones canonical state no longer supports,
@@ -53,26 +186,150 @@ final class SystemNotificationCenter: NotificationCenterPort {
 @MainActor final class LocalNotifier {
     private let center: any NotificationCenterPort
     private let hostId: String?
+    private let desk: AlertDesk
     private var store: LedgerStore?
     private(set) var ledger = NotificationLedger()
-    init(center: any NotificationCenterPort, hostId: String? = nil) { self.center = center; self.hostId = hostId }
+    /// False once its machine is turned off or detached: alerts still advance the ledger, so
+    /// none is posted later, but nothing lands any more, even from a task already under way.
+    private(set) var valid = true
+    /// Alerts admitted to the ledger whose landing hasn't finished, with whoever waits on each: a
+    /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
+    private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Each thread's latest live alert that no catch-up feed has held yet. Catch-up reads the
+    /// alerts after its cursor, and a live one can land while that read is out. At most one
+    /// entry per thread of this machine; a feed that holds one, or retracts it, removes it.
+    /// Nothing is evicted early: dropping one would let an older alert cover a newer request.
+    private var live: [String: Live] = [:]
+    struct Live: Equatable { let id: String; let cursor: Int? }
+    /// Alerts a feed has held on this connection: a feed queued behind that one may keep one in
+    /// its snapshot, but anything after it in a later feed is newer, so it blocks nothing.
+    private var coveredLive: Set<String> = []
+    /// The catch-up running now: each waits for the one before, so a later feed's landings and
+    /// retractions always apply after an earlier feed's.
+    private var catchingUp: Task<Void, Never>?
+    init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
+        self.center = center; self.hostId = hostId; self.desk = desk ?? AlertDesk(center: center)
+    }
 
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
+    /// Its machine was turned off or let go: nothing it still has under way lands, and what it
+    /// handed the desk that hasn't landed yet is called back.
+    /// A new connection: its feed holds everything after the stored cursor, so nothing from the
+    /// last one needs holding back, and a rebuilt database starts its cursors over.
+    func connected() {
+        live = [:]
+        coveredLive = []
+    }
+    func invalidate() {
+        valid = false
+        live = [:]
+        desk.cancel(owner: ObjectIdentifier(self))
+    }
+    /// Returns once the alert has landed, or was deliberately not posted: the coordinator then
+    /// tells the bridge it was delivered.
     func receive(_ alert: AlertNotification) async {
-        guard ledger.admit(alert.id) else { return }
+        // An earlier copy still landing is waited for, even if the ledger has since let its id go.
+        guard inFlight[alert.id] == nil, ledger.admit(alert.id) else { return await landed(alert.id) }
         store?.save(ledger)
-        await center.post(AlertContent(alert, hostId: hostId))
+        inFlight[alert.id] = []
+        defer { finish(alert.id) }
+        // Newer than anything catch-up still has to land for this thread. One this phone doesn't
+        // post leaves the thread's notification as it was, so it holds nothing back.
+        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = Live(id: alert.id, cursor: alert.cursor) }
+        guard alert.delivery?.post != false, valid else { return }
+        await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
-        center.withdraw(retracted.flatMap { AlertContent.requestIds(retracting: $0, hostId: hostId) })
-        let fresh = entries.filter { ledger.admit($0.id) }
+        let previous = catchingUp
+        // What is held back as this feed arrives: a reconnect while it waits behind an earlier
+        // catch-up must not free its older alerts.
+        let arrived = live
+        let mine = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.apply(cursor: cursor, entries: entries, retracted: retracted, arrived: arrived)
+        }
+        catchingUp = mine
+        await mine.value
+    }
+    private func apply(cursor: Int, entries: [AlertNotification], retracted: [String], arrived: [String: Live]) async {
+        desk.retract(retracted, hostId: hostId)
+        let gone = Set(retracted)
+        live = live.filter { !gone.contains($0.value.id) }
+        // Held back as the feed arrived and as it starts applying, retractions gone: a reconnect
+        // (`connected`) clears `live` for the next feed, but must not free this one's older
+        // alerts while it waits or mid-way.
+        let held = [arrived.filter { !gone.contains($0.value.id) }, live]
+        let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
-        for alert in fresh { await center.post(AlertContent(alert, hostId: hostId)) }
+        for alert in fresh { inFlight[alert.id] = [] }
+        // Each finishes as it lands; whatever a turn-off or a newer alert skips finishes here.
+        defer { for alert in fresh { finish(alert.id) } }
+        let freshIds = Set(fresh.map(\.id))
+        // The whole feed decides, alerts already seen included: when a thread's newest is one of
+        // those, the phone already showed something at least as new. Only alerts this phone
+        // posts compete, so one it doesn't (a background finish with that category off) never
+        // hides the request before it.
+        let newest = CatchUpOrder.newestPerThread(entries.filter { $0.delivery?.post != false })
+        // From here the feed's order covers a live alert it holds; one it doesn't hold yet
+        // arrived after it was read and keeps holding older alerts back until a feed does.
+        let covered = Set(entries.map(\.id))
+        defer {
+            // Every alert it held, live now or not: a snapshot taken before a newer live alert
+            // replaced one still holds the older.
+            coveredLive.formUnion(covered)
+            live = live.filter { !covered.contains($0.value.id) }
+        }
+        // Checked before each one: an earlier post can be awaited past a turn-off, and a live
+        // alert can land meanwhile.
+        for alert in newest where freshIds.contains(alert.id) {
+            guard valid else { return }
+            let holders = (held.map { $0[alert.threadId] } + [live[alert.threadId]]).filter { holder in
+                holder.map { !coveredLive.contains($0.id) || covered.contains($0.id) } ?? false
+            }
+            guard holders.allSatisfy({ CatchUpOrder.isNewer(alert, than: $0, in: entries) }) else { continue }
+            await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
+            finish(alert.id)
+        }
     }
-    func withdraw(_ id: String) { center.withdraw([id]) }
+    /// Waits while an earlier copy of this alert is still landing; at once otherwise.
+    private func landed(_ id: String) async {
+        guard inFlight[id] != nil else { return }
+        await withCheckedContinuation { inFlight[id, default: []].append($0) }
+    }
+    private func finish(_ id: String) {
+        for waiter in inFlight.removeValue(forKey: id) ?? [] { waiter.resume() }
+    }
+    func withdraw(_ id: String) { desk.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.
     func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) async {
-        await center.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId))
+        await desk.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId)).value
+    }
+}
+
+/// Which missed alerts catch-up still shows. A thread shows one notification, so only its newest
+/// missed alert matters; landing an older one after it would put "Done" over a request that
+/// still waits (AGENTS.md priority 1).
+enum CatchUpOrder {
+    /// The newest of these alerts for each thread, in feed order. A `catch_up` summary stands for
+    /// several threads and always stays.
+    static func newestPerThread(_ fresh: [AlertNotification]) -> [AlertNotification] {
+        var last: [String: String] = [:]
+        for alert in fresh where !isSummary(alert) { last[alert.threadId] = alert.id }
+        return fresh.filter { isSummary($0) || last[$0.threadId] == $0.id }
+    }
+    /// A `catch_up` alert lists several threads; `threadId` is only the longest-waiting one.
+    static func isSummary(_ alert: AlertNotification) -> Bool { alert.status == "catch_up" }
+    /// Whether `alert` from the feed is newer than the thread's live alert. Both carry the
+    /// daemon's feed cursor, which only grows. Without one (an older daemon) the feed's order
+    /// decides: it holds every alert after the cursor, so a live alert outside it arrived after
+    /// it was read.
+    static func isNewer(_ alert: AlertNotification, than live: LocalNotifier.Live?, in feed: [AlertNotification]) -> Bool {
+        guard !isSummary(alert), let live else { return true }
+        if let cursor = alert.cursor, let liveCursor = live.cursor { return cursor > liveCursor }
+        let liveId = live.id
+        guard let livePosition = feed.firstIndex(where: { $0.id == liveId }),
+              let position = feed.firstIndex(where: { $0.id == alert.id }) else { return false }
+        return position > livePosition
     }
 }

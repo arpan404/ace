@@ -1,5 +1,5 @@
 import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import {
   displayAddress,
@@ -15,7 +15,12 @@ import {
   type KeyboardEvent,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
+import {
+  tabKey,
+  useScopeWorkspace,
+  useWorkspaceActions,
+  type TabViewProps,
+} from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
@@ -49,6 +54,7 @@ import { RecordingIndicator } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
 import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { usePageTools } from "./use-page-tools.ts";
@@ -59,9 +65,10 @@ import { ZoomBadge } from "./zoom-controls.tsx";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 import { rememberPageSize } from "./page-size.ts";
-import { WatchButton, useWatchToggle } from "./watch-button.tsx";
+import { useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
+import { AddressOpenOutside, outsideAddress } from "./open-outside.tsx";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
@@ -89,14 +96,18 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const pageCursor = usePageCursor(source, threadId, shown?.tabId);
 
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
-  // showing it asks: when the daemon later shows another tab, the panel follows it instead.
+  // the shown one asks: a tab that merely mounts (switch churn, list reconciliation) must not
+  // reselect the daemon behind the shown tab's back. When the daemon later shows another tab,
+  // the panel follows it instead.
   const reachable = !!live && live.status !== "paused";
+  const scope = useScopeWorkspace(threadId);
+  const panelShown = pane ? (pane.focused ?? true) : scope.active === tabKey("browser", ownId);
   useEffect(() => {
     // In split view only the half the person works in is the shown tab.
-    if (ownId && reachable && (pane?.focused ?? true)) tabs.select(ownId);
+    if (ownId && reachable && panelShown) tabs.select(ownId);
     // `tabs.select` reads the daemon's shown tab of this render.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownId, reachable, pane?.focused]);
+  }, [ownId, reachable, panelShown, pane?.focused]);
   // A tab kept from before a daemon restart: its browser opens again, with the same tabs.
   const unopened = ownId !== undefined && !live && online && tabs.reachable;
   useEffect(() => {
@@ -114,7 +125,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
-  const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
+  const external = outsideAddress(shownUrl);
   // In the desktop app the page itself is a native view drawn over this tab's page area (or
   // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
@@ -132,7 +143,15 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     live,
     tab: shown,
     online,
-    area: () => pageArea.current?.getBoundingClientRect(),
+    area: () => {
+      const element = pageArea.current;
+      if (!element) return undefined;
+      const box = element.getBoundingClientRect();
+      // Its layout size where nothing is drawn yet (a box not painted, a test's layout).
+      return box.width > 0 && box.height > 0
+        ? box
+        : { width: element.offsetWidth, height: element.offsetHeight };
+    },
   });
   const native = useNativeView(
     threadId,
@@ -305,6 +324,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     <div
       ref={root}
       data-browser-tab=""
+      data-part="browser-panel"
       className="relative flex h-full min-h-0 flex-col"
       onKeyDownCapture={onKeyDown}
       {...drop.handlers}
@@ -368,6 +388,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                   video={page.frame !== undefined}
                   muteTab={(tabId, muted) => void browser.muteTab(tabId, muted)}
                 />
+                {external && <AddressOpenOutside url={external} />}
               </>
             }
           />
@@ -375,7 +396,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         actions={
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
-            {watch.watching !== undefined && <WatchButton {...watch} />}
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu
@@ -408,6 +428,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
               onSettings={chrome.openSettings}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
+              engine={live?.backend}
+              onEngine={(engine) => tabs.switchEngine(engine)}
               drawer={drawer !== undefined}
               onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
               onScreenshotSizes={() => setSizing(true)}
@@ -428,6 +450,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {tools.toolbar && <DeviceToolbar tools={tools} />}
+      {live && !live.closed && (
+        <DegradedLine acceleration={live.acceleration} className="truncate px-3 py-1" />
+      )}
       {live && !live.closed && <PageDialog view={live} browser={browser} />}
       {live && !live.closed && <PageSignIn view={live} browser={browser} />}
       {live && !live.closed && <PageFileChooser view={live} browser={browser} />}

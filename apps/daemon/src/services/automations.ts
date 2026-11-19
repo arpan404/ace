@@ -2,16 +2,26 @@ import { logError } from "@ace/diagnostics";
 import { join } from "node:path";
 import { randomInt } from "node:crypto";
 import { AutomationService, AutomationStore, nodeTimer, createGhClient } from "@ace/automations";
-import { AutomationResponse, type AutomationRequest } from "@ace/protocol";
+import {
+  AutomationResponse,
+  AutomationWebhookRequest,
+  AutomationWebhookResponse,
+  type AutomationRequest,
+} from "@ace/protocol";
+import type { AutomationWebhookService } from "../automation-webhooks.ts";
 import type { ThreadAutomationRequest } from "../agent-control/thread-automations.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
+import { startAutomationWebhooks } from "../automation-webhooks.ts";
+import { webhookSecrets } from "../automation-webhook-key.ts";
 import { automationWorkspace } from "../automation-workspace.ts";
-import { automationExecutor } from "../automation-executor.ts";
+import { automationAdmission, automationExecutor } from "../automation-executor.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAutomations(context: ServiceContext): Promise<void> {
   const { config, resources, services, now, id, log } = context;
-  const store = new AutomationStore(join(config.dataDir, "automations.sqlite"));
+  const store = new AutomationStore(join(config.dataDir, "automations.sqlite"), {
+    webhookSecrets: webhookSecrets(config.dataDir),
+  });
   resources.own(() => store.close());
   const service = new AutomationService(
     store,
@@ -22,11 +32,13 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       timer: nodeTimer,
       executor: automationExecutor(context),
       workspace: automationWorkspace(context),
+      ...automationAdmission(context),
       onError: (error) => log.log("error", "Automation failure", logError(error)),
     },
     createGhClient({ binary: "gh" }),
   );
   services.automations = service;
+  services.automationWebhooks = await startAutomationWebhooks(context, store, service);
   resources.own(() => service.stop());
   await followAutomationSetting(context, service);
 }
@@ -38,6 +50,7 @@ export function createAutomationsSession({
   return {
     handle(message) {
       if (!message.type.startsWith("automation.")) return false;
+      if (message.type === "automation.webhook") return webhookRequest(message);
       const request = importRequest.safeParse(message);
       if (!request.success) return false;
       const scope = ["automation.list", "automation.inbox"].includes(request.data.type)
@@ -74,9 +87,59 @@ export function createAutomationsSession({
         result.ok && request.data.type === "automation.list" && request.data.includeThreads
           ? { ...result, threadAutomations: options.threadAutomations?.list() ?? [] }
           : result;
-      send(AutomationResponse.parse(withThreads));
+      send(AutomationResponse.parse(withWebhooks(withThreads, options.automationWebhooks)));
       return true;
     },
+  };
+  /** Secrets are the person's: admin scope, and no agent tool sends this message. */
+  function webhookRequest(message: unknown): boolean {
+    const request = AutomationWebhookRequest.safeParse(message);
+    if (!request.success) return false;
+    const fail = (error: string) =>
+      send({
+        type: "automation.webhookResult",
+        requestId: request.data.requestId,
+        ok: false,
+        error,
+      });
+    if (!authorize("admin")) fail("forbidden");
+    else if (!options.automationWebhooks) fail("automation_unavailable");
+    else send(AutomationWebhookResponse.parse(options.automationWebhooks.handle(request.data)));
+    return true;
+  }
+}
+/** Each webhook automation in a list, with its URL as the person's machine serves it now. */
+function withWebhooks(
+  response: AutomationResponse,
+  webhooks: AutomationWebhookService | undefined,
+): AutomationResponse {
+  if (!webhooks || (!response.automations && !response.threadAutomations)) return response;
+  // Each store has its own ids, so the person's are looked up apart from agents'.
+  const personWebhooks = new Set(
+    (response.automations ?? [])
+      .filter((automation) => automation.trigger.kind === "webhook")
+      .map((automation) => automation.id),
+  );
+  return {
+    ...response,
+    ...(response.schedules
+      ? {
+          schedules: response.schedules.map((entry) =>
+            personWebhooks.has(entry.id)
+              ? { ...entry, webhook: webhooks.state(entry.id, "person") }
+              : entry,
+          ),
+        }
+      : {}),
+    ...(response.threadAutomations
+      ? {
+          threadAutomations: response.threadAutomations.map((entry) =>
+            entry.automation.trigger.kind === "webhook"
+              ? { ...entry, webhook: webhooks.state(entry.automation.id, "thread") }
+              : entry,
+          ),
+        }
+      : {}),
   };
 }
 /** A request addressed to agents' thread automations rather than the person's own. */

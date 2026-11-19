@@ -1,0 +1,202 @@
+import SwiftUI
+
+/// The `@` or `/` list over the composer: plain rows under hairlines, a quiet group name where the
+/// group changes, at most about five rows tall and scrolling past that. Nothing here is boxed;
+/// it sits on the grouped surface the composer's attached cards use.
+struct ComposerSuggestionList: View {
+    let list: SuggestionList?
+    let pick: (SuggestionRow) -> Void
+    let retry: () -> Void
+    /// The most the list may take; nil allows about five rows.
+    var maxHeight: CGFloat? = nil
+    /// A suggestion's two lines (name and detail), for sizing the list before it measures.
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 48
+    /// Rows shown before it scrolls: the half row says there are more.
+    private static let shownRows: CGFloat = 5.5
+    @State private var contentHeight: CGFloat = 0
+    var body: some View {
+        let shape = AceShape.group
+        Group {
+            switch list?.state {
+            case "ready":
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                        ForEach(Array((list?.rows ?? []).enumerated()), id: \.element.id) { index, row in
+                            if index == 0 || list?.rows[index - 1].group != row.group { header(row.group, first: index == 0) }
+                            else { Hairline().padding(.leading, AceDesign.Space.margin + AceDesign.Size.glyphBox) }
+                            SuggestionRowView(row: row) { pick(row) }
+                        }
+                    }
+                    .padding(.vertical, AceDesign.Space.tight)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                // As tall as its rows, never past the room the screen leaves it.
+                .frame(height: min(contentHeight, min(rowHeight * Self.shownRows, maxHeight ?? .infinity)))
+            case "failed":
+                HStack(spacing: AceDesign.Space.related) {
+                    Text("Couldn't read suggestions.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Spacer(minLength: AceDesign.Space.related)
+                    Button("Try again", action: retry).accessibilityIdentifier("composer.suggestions.retry")
+                }
+                .line()
+            case "empty":
+                Text(list?.list == "mention" ? "No files or threads match." : "No commands match.")
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).line()
+            default:
+                Text("Searching…").foregroundStyle(AceTheme.Colours.mutedForeground).line()
+            }
+        }
+        .aceFont(AceDesign.TextRole.rowTitle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .concentricContainer()
+        .background(GroupedSurface.colour, in: shape)
+        .padding(.bottom, AceDesign.Space.related)
+        .accessibilityIdentifier("composer.suggestions")
+    }
+    private func header(_ title: String, first: Bool) -> some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            if !first { Hairline() }
+            Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
+private extension View {
+    /// One status line in the list's place.
+    func line() -> some View {
+        padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
+    }
+}
+
+/// One suggestion: its symbol, what it reads and, beneath, its path or description.
+private struct SuggestionRowView: View {
+    let row: SuggestionRow
+    let pick: () -> Void
+    var body: some View {
+        Button(action: pick) {
+            HStack(spacing: AceDesign.Space.row) {
+                AceIcon(SuggestionSymbol.icon(row), size: AceDesign.Size.icon, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.decoration)
+                    .frame(width: AceDesign.Size.glyphBox)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                    title.lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
+                    if let detail = row.detail, !detail.isEmpty {
+                        Group {
+                            if row.icon == "file" {
+                                Text(detail).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).truncationMode(.head)
+                            } else { Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption) }
+                        }
+                        .lineLimit(1).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                }
+                Spacer(minLength: AceTheme.Spacing.none)
+            }
+            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+            .frame(minHeight: AceDesign.Size.tap)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(RowPressStyle())
+        .accessibilityHint(row.detail ?? "")
+        .accessibilityIdentifier("composer.suggestion.\(row.id)")
+    }
+    @ViewBuilder private var title: some View {
+        if row.icon == "file" { Text(row.label).aceMonospace(AceTheme.Typography.body, relativeTo: .body) }
+        else { Text(row.label) }
+    }
+}
+
+/// Each row's symbol: what it points at, or what kind of catalog entry it is.
+enum SuggestionSymbol {
+    /// Catalogs from older daemons can name builtins by their raw command id.
+    static func menuTitle(_ row: SuggestionRow) -> String {
+        guard row.label == row.action else { return row.label }
+        switch row.action {
+        case "review": return "Review changes"
+        case "model": return "Change model"
+        case "plan": return "Plan mode"
+        case "goal": return "Set goal"
+        case "files": return "Files and folders"
+        default: return row.label
+        }
+    }
+
+    static func icon(_ row: SuggestionRow) -> AceIcon.Name {
+        if let action = row.action { return icon(action: action) }
+        switch row.icon {
+        case "file": return .fileText
+        case "thread": return .chatText
+        case "tab": return .globe
+        case "skill": return .sparkle
+        case "plugin": return .plug
+        case "agent": return .robot
+        case "workflow": return .treeStructure
+        case "mcp-tool": return .wrench
+        case "builtin": return .paperclip
+        default: return .command
+        }
+    }
+    static func icon(action: String) -> AceIcon.Name {
+        switch action {
+        case "attach": return .paperclip
+        case "files": return .at
+        case "plan": return .listChecks
+        case "goal": return .target
+        case "model": return .cpu
+        case "review": return .plusMinus
+        case "project": return .folder
+        default: return action.hasPrefix("automation.run:") ? .lightning : .command
+        }
+    }
+}
+
+/// A prompt's arguments, asked before its reference goes into the message. The bridge checks them
+/// with the web's rule and answers with the reference or what to fix.
+struct CommandArgumentsSheet: View {
+    let row: SuggestionRow
+    /// The bridge's answer for this row, once it came.
+    let answer: SuggestionArguments?
+    let submit: ([String: String]) -> Void
+    let cancel: () -> Void
+    @State private var values: [String: String] = [:]
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(row.parameters, id: \.name) { parameter in
+                        let label = parameter.required ? "\(parameter.name) (required)" : parameter.name
+                        if parameter.type == "boolean" {
+                            Picker(label, selection: binding(parameter)) {
+                                Text("Use default").tag("")
+                                Text("Yes").tag("true")
+                                Text("No").tag("false")
+                            }
+                        } else {
+                            TextField(label, text: binding(parameter))
+                                .keyboardType(parameter.type == "number" ? .decimalPad : .default)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        }
+                    }
+                } footer: {
+                    if let error = answer?.error { Text(error).foregroundStyle(AceTheme.StatusText.failed) }
+                    else if let detail = row.detail { Text(detail) }
+                }
+            }
+            .navigationTitle(row.label).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: cancel) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add command") { submit(values) }.accessibilityIdentifier("composer.arguments.add")
+                }
+            }
+            .onAppear { values = Dictionary(uniqueKeysWithValues: row.parameters.map { ($0.name, $0.value) }) }
+        }
+        .presentationDetents([.medium, .large])
+    }
+    private func binding(_ parameter: SuggestionParameter) -> Binding<String> {
+        Binding(get: { values[parameter.name] ?? "" }, set: { values[parameter.name] = $0 })
+    }
+}

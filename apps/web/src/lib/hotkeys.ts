@@ -20,7 +20,24 @@ export function matchesChord(
     ? event.metaKey === chord.mod && event.ctrlKey === chord.ctrl
     : (event.ctrlKey || event.metaKey) === (chord.mod || chord.ctrl);
   if (!modifiers || event.shiftKey !== chord.shift || event.altKey !== chord.alt) return false;
+  if (!isApple && typesWithAltGr(event)) return false;
   return keyNameOf(event) === chord.key || event.key.toLowerCase() === chord.key;
+}
+
+/**
+ * Off Apple platforms AltGr arrives as Ctrl+Alt, and on many layouts it types: ą and ś
+ * (Polish), @ and € (German), { and [ (French). Such a press is typing, never a Ctrl+Alt
+ * shortcut. The browser flags AltGr itself; failing that, Ctrl+Alt that typed a symbol other
+ * than its key's own did it.
+ */
+function typesWithAltGr(event: KeyboardEvent): boolean {
+  if (!event.ctrlKey || !event.altKey) return false;
+  if (event.getModifierState?.("AltGraph")) return true;
+  return (
+    !event.shiftKey &&
+    /^[\x21-\x7e]$/.test(event.key) &&
+    event.key.toLowerCase() !== keyNameOf(event)
+  );
 }
 
 /** A text field, editable region or select: where plain keys type rather than act. */

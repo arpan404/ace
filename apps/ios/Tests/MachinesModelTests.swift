@@ -25,8 +25,8 @@ import Testing
         // The same thread id on both machines: one waits on the person, one is done.
         studio.emit(patches(connection: "ready", row: ("t1", "needs-you", "Needs you", "needsYou"), rank: "1"))
         laptop.emit(patches(connection: "ready", row: ("t1", "done", "Done", "done"), rank: "2"))
-        await drain()
         let inbox = fixture.model.inbox
+        await settle { inbox.merged.sections.count == 2 }
         #expect(inbox.merged.sections.map(\.key) == ["needs-you", "done"])
         #expect(inbox.row(InboxKey(machineId: "studio", id: "t1"))?.status.label == "Needs you")
         #expect(inbox.row(InboxKey(machineId: "laptop", id: "t1"))?.status.label == "Done")
@@ -34,13 +34,57 @@ import Testing
         // The laptop drops; its runtime reports its copy as unconfirmed. The studio is unaffected.
         laptop.emit(patches(connection: "reconnecting", row: ("t1", "syncing", "Syncing", "neutral"), rank: "2",
                             problem: #"{"code":"unreachable","message":"Can't reach"}"#))
-        await drain()
+        await settle { inbox.client("laptop")?.problem != nil }
         #expect(inbox.merged.sections.map { $0.rows } == [[InboxKey(machineId: "studio", id: "t1")], [InboxKey(machineId: "laptop", id: "t1")]])
         #expect(inbox.merged.sections.map(\.key) == ["needs-you", "syncing"])
         #expect(inbox.client("studio")?.connection == "ready")
         #expect(inbox.client("studio")?.problem == nil)
         #expect(inbox.client("laptop")?.problem?.code == "unreachable")
         #expect(!inbox.allReady)
+    }
+
+    @Test func readingAheadIsToldToEveryMachinesRuntimeIncludingOnesStartedAfterItWasAllowed() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        // Wi-Fi, outside Low Power Mode, before any machine connected.
+        fixture.model.readAhead(true)
+        await fixture.model.load()
+        /// What each runtime was told about reading ahead, in order.
+        func told(_ session: FakeMachineSession) -> [Bool] {
+            session.invoked.compactMap { json in
+                guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                      object["type"] as? String == "readAhead" else { return nil }
+                return object["allowed"] as? Bool
+            }
+        }
+        #expect(fixture.sessions.started.count == 2)
+        #expect(fixture.sessions.started.allSatisfy { told($0) == [true] })
+        // Off Wi-Fi: every runtime stops reading ahead.
+        fixture.model.readAhead(false)
+        #expect(fixture.sessions.started.allSatisfy { told($0) == [true, false] })
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
+        for session in fixture.sessions.started { session.finishShutdown() }
+    }
+
+    @Test func aMachineRowCountsOnlyTheWorkItsMachineHasConfirmed() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let studio = try #require(fixture.sessions.started.first)
+        func thread(_ id: String, working: Bool, confirmed: Bool) -> String {
+            #"{"type":"inbox.row","id":"\#(id)","row":{"id":"\#(id)","title":"Thread","state":"working","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"Working","token":"working"},"confirmed":\#(confirmed),"generation":1\#(working ? #","workingSince":1"# : "")}}"#
+        }
+        // One thread working as the machine says now, one working only in a copy from disk, one done.
+        studio.emit("[" + [#"{"type":"connection","state":"ready"}"#, #"{"type":"inbox.reset"}"#,
+                           thread("live", working: true, confirmed: true),
+                           thread("kept", working: true, confirmed: false),
+                           thread("done", working: false, confirmed: true)].joined(separator: ",") + "]")
+        let inbox = fixture.model.inbox
+        await settle { inbox.client("studio")?.inbox.count == 3 }
+        let facts = MachineFacts(inbox: inbox, machines: fixture.model, hostId: "studio")
+        #expect(facts.working == 1)
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
+        for session in fixture.sessions.started { session.finishShutdown() }
     }
 
     @Test func aRowsCommandsGoOnlyToTheRuntimeOfItsMachine() async throws {
@@ -68,6 +112,35 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
         fixture.model.wake()
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
+    @Test func aNewNetworkInterfaceAsksEveryMachineToCheckItsSocketNow() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        // The same network coming back says only that it is online.
+        fixture.model.network(online: true, interfaceChanged: false)
+        #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
+        // Wi-Fi to cellular: a socket still marked ready on Wi-Fi must prove itself now.
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
+    @Test func everyInterfaceChangeWakesEveryMachineAtOnceHoweverOftenTheyCome() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let wakes = { fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count } }
+        // Wi-Fi and cellular trading places every second: the shared client joins wakes close
+        // together into one ping and never moves an earlier deadline, so each change goes
+        // straight through and none waits for another.
+        for step in 1...4 {
+            fixture.model.network(online: true, interfaceChanged: true)
+            #expect(wakes() == [step, step])
+            fixture.scheduler.advance(1_000)
+        }
+        fixture.model.wake()
+        #expect(wakes() == [5, 5])
     }
 
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
@@ -201,10 +274,10 @@ import Testing
         await fixture.model.load()
         let studio = fixture.sessions.started[0]
         studio.emit(#"[{"type":"connection","state":"ready"}]"#)
-        await drain()
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
         #expect(fixture.model.inbox.lastSeen("studio") == 5_000)
         studio.emit(#"[{"type":"connection","state":"reconnecting"},{"type":"machine.status","status":{"label":"Can't reach","token":"neutral"},"seenAt":4000}]"#)
-        await drain()
+        await settle { fixture.model.inbox.client("studio")?.machineStatus != nil }
         #expect(fixture.model.inbox.lastSeen("studio") == 4_000)
         fixture.model.inbox.recordSeen()
         let relaunched = MachineInbox(defaults: fixture.defaults, now: { 9_000 })
@@ -286,6 +359,34 @@ import Testing
         #expect(relaunch.model.machines.map(\.hostId) == ["studio", "desk"])
     }
 
+    @Test func accountMachinesConnectThroughTheRelayAndAMachineAlsoPairedStaysDirect() async throws {
+        let studio = String(repeating: "S", count: 52), build = String(repeating: "B", count: 52)
+        let account = FakeAccount([AceMachine(hostId: studio, name: "studio", platform: "darwin", lastSeenAt: 1),
+                                   AceMachine(hostId: build, name: "build box", platform: "linux", lastSeenAt: 1)])
+        let fixture = try Fixture(machines: [machine(studio, device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let started = fixture.sessions.started
+        #expect(started.map(\.target.hostId) == [studio, build])
+        #expect(started[0].target.relay == nil && started[0].target.pin == DaemonCertificate.pin)
+        #expect(started[1].target.relay?.clientURL?.absoluteString == "wss://ace.example.com/client?hostId=\(build)")
+        #expect(started[1].target.deviceId == "ios-account-device")
+        #expect(started[1].target.secretKey == nil)
+
+        // Forgetting it from the account stops its runtime; signing out drops the rest.
+        let forgetting = Task { await fixture.model.forgetAccountMachine(build) }
+        await drain()
+        started[1].finishShutdown()
+        #expect(await forgetting.value == nil)
+        #expect(account.forgotten == [build])
+        #expect(fixture.model.machines.map(\.hostId) == [studio])
+        #expect(fixture.model.inbox.client(build) == nil)
+        account.signOut()
+        await fixture.model.refreshAccount()
+        #expect(fixture.model.accountMachines.isEmpty)
+        #expect(fixture.model.machines.map(\.hostId) == [studio])
+    }
+
     private func machine(_ host: String, device: String) -> MachineEntry {
         MachineEntry(hostId: host, displayName: host.capitalized, icon: nil,
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)
@@ -301,115 +402,29 @@ import Testing
         let thread = #"{"id":"\#(row.id)","title":"Thread","state":"done","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"\#(row.label)","token":"\#(row.token)"}}"#
         return #"[{"type":"connection","state":"\#(connection)"},{"type":"connection.problem","problem":\#(problem)},{"type":"inbox.reset"},{"type":"inbox.row","id":"\#(row.id)","row":\#(thread)},{"type":"inbox.sections","sections":[{"key":"\#(row.section)","label":"\#(row.label)","ids":["\#(row.id)"],"ranks":["\#(rank)"],"order":0}],"more":false,"snooze":[]}]"#
     }
-}
 
-@MainActor private struct Fixture {
-    let sessions = FakeSessions()
-    let access: FakeAccess
-    let storage: URL
-    let defaults: UserDefaults
-    let suite: String
-    let model: MachinesModel
-    /// `defaults` from an earlier fixture plays the same phone relaunched.
-    init(machines: [MachineEntry], defaults shared: UserDefaults? = nil) throws {
-        access = FakeAccess(machines)
-        storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        suite = "ace.tests.\(UUID().uuidString)"
-        defaults = try shared ?? #require(UserDefaults(suiteName: suite))
-        let sessions = self.sessions
-        model = MachinesModel(access: access, storage: storage, defaults: defaults, now: { 5_000 },
-                              makeClient: { ClientModel(now: { 0 }, makeRuntime: sessions.make) })
-    }
-    func cleanUp() {
-        defaults.removePersistentDomain(forName: suite)
-        try? FileManager.default.removeItem(at: storage)
-    }
-}
-
-private final class FakeAccess: MachineAccess, @unchecked Sendable {
-    enum Pairing { case success(MachineEntry, scopes: [String]), failure(ProblemNotice) }
-    private let lock = NSLock()
-    private var machines: [MachineEntry]
-    var pairing: Pairing = .failure(.unknown)
-    var removal: Result<Void, ProblemNotice> = .success(())
-    private(set) var removed: [String] = []
-    private(set) var renamed: [String] = []
-    private let listGate = Gate()
-    init(_ machines: [MachineEntry]) { self.machines = machines }
-    /// The directory's runtime answers only once released.
-    func holdList() { listGate.close() }
-    func releaseList() { listGate.open() }
-    func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
-        if case .list = request { await listGate.wait() }
-        return lock.withLock {
-            switch request {
-            case .list: return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .remove(let host):
-                if case .failure(let notice) = removal { return .failure(notice) }
-                removed.append(host)
-                machines.removeAll { $0.hostId == host }
-                return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .rename(let host, let name):
-                renamed.append(name)
-                machines = machines.map { $0.hostId == host ? MachineEntry(hostId: $0.hostId, displayName: name, icon: $0.icon, target: $0.target, deviceId: $0.deviceId) : $0 }
-                return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .pair:
-                switch pairing {
-                case .failure(let notice): return .failure(notice)
-                case .success(let entry, let scopes):
-                    machines.append(entry)
-                    return .success(AccessOutcome(ok: true, machines: machines, paired: .init(hostId: entry.hostId, scopes: scopes), problem: nil))
-                }
-            }
+    @Test func aSenderOnAnotherMachineOpensOnlyWhileThatMachineIsConnected() throws {
+        let inbox = MachineInbox(defaults: try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")), now: { 0 })
+        let studio = ClientModel(now: { 0 })
+        inbox.attach("studio", name: "Studio", client: studio)
+        var opened: [String] = []
+        let remote = RemoteThreads.on(inbox) { client, host, id in
+            #expect(client === studio)
+            opened.append("\(host)/\(id)")
         }
+        // Kept but not connected yet: the line opens nothing.
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        remote.on("studio")?("far-parent")
+        #expect(opened == ["studio/far-parent"])
+        studio.connection = "offline"
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        #expect(remote.on("studio") != nil)
+        // A machine this phone doesn't keep never opens.
+        #expect(remote.on("elsewhere") == nil)
     }
 }
 
-private final class Gate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var closed = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func close() { lock.withLock { closed = true } }
-    func open() {
-        let resumed = lock.withLock { closed = false; let all = waiters; waiters = []; return all }
-        for waiter in resumed { waiter.resume() }
-    }
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            let ready = lock.withLock { if closed { waiters.append(continuation); return false }; return true }
-            if ready { continuation.resume() }
-        }
-    }
-}
-
-@MainActor private final class FakeSessions {
-    var started: [FakeSession] = []
-    func make(_ target: ConnectionTarget, _ storage: URL, _ receive: @escaping @Sendable (Data) -> Void,
-              _ fail: @escaping @Sendable (String) -> Void) -> any ClientSession {
-        let session = FakeSession(target: target, storage: storage, receive: receive)
-        started.append(session)
-        return session
-    }
-}
-private final class FakeSession: ClientSession, @unchecked Sendable {
-    let target: ConnectionTarget
-    let storage: URL
-    private let receive: @Sendable (Data) -> Void
-    private let lock = NSLock()
-    private var completion: (@Sendable () -> Void)?
-    private var stopRequested = false
-    private var calls: [String] = []
-    init(target: ConnectionTarget, storage: URL, receive: @escaping @Sendable (Data) -> Void) {
-        self.target = target; self.storage = storage; self.receive = receive
-    }
-    var stopped: Bool { lock.withLock { stopRequested } }
-    var invoked: [String] { lock.withLock { calls } }
-    func start(itemLimit: Int) {}
-    /// Commands and inbox organization the model handed to the VM.
-    var submitted: [String] { lock.withLock { calls.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") || $0.contains("\"type\":\"thread\"") } } }
-    func invoke(_ name: String, json: String) { lock.withLock { calls.append(json) } }
-    func acknowledge(accepted: Bool) {}
-    func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopRequested = true; self.completion = completion } }
-    func finishShutdown() { let done = lock.withLock { let value = completion; completion = nil; return value }; done?() }
-    func emit(_ json: String) { receive(Data(json.utf8)) }
-}
+private typealias Fixture = MachinesFixture
+private typealias FakeAccount = FakeAccountDirectory

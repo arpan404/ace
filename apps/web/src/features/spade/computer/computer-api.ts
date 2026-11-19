@@ -1,0 +1,98 @@
+import { parseSpadeComputerBody, spadeBase64, type SpadeComputer } from "@ace/ui-core/spade-chat";
+import { SpadeRequestError, segment, spadeHttp, type SpadeTarget } from "../spade-requests.ts";
+
+/*
+ * A bot's computer (who has it, take over, hand back), its terminal's input and size, and the
+ * file manager's writes. Reads of files stay on the workspace routes (`spade-workspace-api.ts`).
+ */
+
+const base = (bot: string) => `/v1/agents/${segment(bot)}`;
+
+export async function readComputer(
+  target: SpadeTarget,
+  bot: string,
+  signal?: AbortSignal,
+): Promise<SpadeComputer> {
+  const body = await spadeHttp(target, "GET", `${base(bot)}/computer`, { signal });
+  const computer = parseSpadeComputerBody(body);
+  if (!computer) throw new Error("Spade's computer didn't make sense.");
+  return computer;
+}
+
+/** The person drives: the bot pauses until the computer is handed back. */
+export async function takeOver(target: SpadeTarget, bot: string): Promise<void> {
+  await spadeHttp(target, "POST", `${base(bot)}/computer/take-over`);
+}
+
+export async function handBack(target: SpadeTarget, bot: string): Promise<void> {
+  await spadeHttp(target, "POST", `${base(bot)}/computer/hand-back`);
+}
+
+/** Keys for the bot's terminal; Spade takes them only while the person drives. */
+export async function typeInTerminal(target: SpadeTarget, bot: string, data: string) {
+  const bytes = new TextEncoder().encode(data);
+  await spadeHttp(target, "POST", `${base(bot)}/terminal/input`, {
+    body: { data_b64: spadeBase64(bytes) },
+  });
+}
+
+export async function resizeTerminal(target: SpadeTarget, bot: string, cols: number, rows: number) {
+  await spadeHttp(target, "POST", `${base(bot)}/terminal/resize`, { body: { cols, rows } });
+}
+
+/**
+ * A text file saved as the person edited it. `opened` is the revision they opened: Spade refuses
+ * the save (`409 changed`, `changedSinceOpened`) when the file moved on since, writing nothing.
+ */
+export async function saveFile(
+  target: SpadeTarget,
+  bot: string,
+  path: string,
+  text: string,
+  opened: string | undefined,
+) {
+  await spadeHttp(target, "PUT", `${base(bot)}/files?path=${encodeURIComponent(path)}`, {
+    body: opened === undefined ? { text } : { text, base: opened },
+  });
+}
+
+/** Spade refused a write because the file changed since the person opened it. */
+export const changedSinceOpened = (error: unknown) =>
+  error instanceof SpadeRequestError && error.status === 409 && error.message === "changed";
+
+/**
+ * A file from the person's computer, put at `path`. Replacing a file, `opened` is the revision
+ * of it the person saw: refused (`409 changed`) if it moved on since.
+ */
+export async function uploadFile(
+  target: SpadeTarget,
+  bot: string,
+  path: string,
+  bytes: Uint8Array,
+  opened?: string,
+) {
+  const data_b64 = spadeBase64(bytes);
+  await spadeHttp(target, "POST", `${base(bot)}/files/upload`, {
+    body: opened === undefined ? { path, data_b64 } : { path, data_b64, base: opened },
+  });
+}
+
+export async function makeFolder(target: SpadeTarget, bot: string, path: string) {
+  await spadeHttp(target, "POST", `${base(bot)}/files/mkdir`, { body: { path } });
+}
+
+/**
+ * Renames or moves a file or folder; refused (409) when `to` exists, and for a file with
+ * `opened` (the revision of `from` the person saw), when it moved on since.
+ */
+export async function movePath(
+  target: SpadeTarget,
+  bot: string,
+  from: string,
+  to: string,
+  opened?: string,
+) {
+  await spadeHttp(target, "POST", `${base(bot)}/files/move`, {
+    body: opened === undefined ? { from, to } : { from, to, base: opened },
+  });
+}

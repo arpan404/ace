@@ -114,6 +114,13 @@ export const CommandPayload = z.discriminatedUnion("type", [
      * for background commands or subagents. Unsupported steer falls back to queue.
      */
     delivery: FollowUpBehavior.optional(),
+    /**
+     * What the sender saw: the root run it believed active, or `null` when it believed none was.
+     * A steer (asked for, or the daemon's default) goes in only when that is still so; otherwise
+     * the message queues as the next one, never joining a run its sender didn't see. Omitted (an
+     * older sender): as before.
+     */
+    runId: RunId.nullable().optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),
@@ -126,7 +133,17 @@ export const CommandPayload = z.discriminatedUnion("type", [
     /** Also stop every descendant, even when the provider doesn't cascade. */
     cascade: z.boolean().default(true),
   }),
-  z.object({ type: z.literal("thread.archive"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.archive"),
+    threadId: ThreadId,
+    /**
+     * The thread event the person archived it at (its cursor, or its list entry's activitySeq).
+     * Archiving stops commands it left running, so the daemon refuses (`thread_changed`) once a
+     * run started or a person's message arrived after it: a replayed archive never stops newer
+     * work. Omitted: as before.
+     */
+    beforeSeq: z.number().int().nonnegative().optional(),
+  }),
   z.object({
     type: z.literal("thread.model.set"),
     threadId: ThreadId,
@@ -144,6 +161,13 @@ export const CommandPayload = z.discriminatedUnion("type", [
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,
     resolution: InteractionResolution,
+    /**
+     * The `version` of the `interaction.read` pages the person was shown whole (ADR 0157). A
+     * client's affirmative answer to a request too large to send whole is refused
+     * (`request_not_read`) without it, or when the request is no longer that version; a decline
+     * or cancel never needs it.
+     */
+    readWhole: z.string().min(1).max(64).optional(),
   }),
   z.object({ type: z.literal("background_task.stop"), taskId: BackgroundTaskId }),
 ]);

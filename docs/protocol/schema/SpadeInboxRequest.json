@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeInboxRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "propertyNames": {
+    "type": "string"
+  },
+  "type": "object",
+  "x-ace-constraint": "A JSON object of at most 512 KiB serialized."
+}

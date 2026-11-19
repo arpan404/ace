@@ -8,6 +8,8 @@ export {
 } from "./instances.ts";
 export { addAccount } from "./login.ts";
 export { AccountRegistry, openRegistry, openRegistryIndex } from "./registry.ts";
+export type { HomeCheck, HomeCheckOptions } from "./home-checks.ts";
+export { AccountHomeUnanswered } from "./home-wait.ts";
 export { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 export {
   availability,
@@ -20,10 +22,14 @@ export { parseLimitReset } from "./reset-time.ts";
 export {
   pickInstance,
   explicitInstance,
+  definiteRefusal,
+  automaticRefusal,
   speedHint,
+  type AccountRefusal,
   type Candidate,
   type RolePolicy,
 } from "./scheduler.ts";
+export { refusalWords, resetClock } from "./refusal-words.ts";
 export {
   migrateSession,
   noMigrationLease,
@@ -88,4 +94,5 @@ export {
   openCodeLoginChoices,
   openCodeIntegrationConnected,
   openCodeAuthChangeVerified,
+  openCodeEarlierLogins,
 } from "./opencode-auth.ts";

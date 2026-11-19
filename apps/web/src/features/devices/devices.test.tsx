@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-browser.ts";
+import { setStreamStatsShown } from "./device-prefs.ts";
 
 function noop() {}
 // jsdom has no WebCodecs: a stand-in decoder shows every H.264 picture, as a browser would.
@@ -22,12 +23,12 @@ async function shows(screenImage: HTMLElement) {
 /** The line under a device's name: its OS, where it is and, while live, its stream. */
 const subtitle = (section: HTMLElement, pattern: RegExp) => within(section).getByText(pattern);
 
-test("devices stay off until enabled, then show the running simulator and every device by kind", async () => {
+test("devices are available immediately and show the running simulator and every device by kind", async () => {
   const { panel } = await openDevices();
 
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
 
-  // The booted iPhone is running, so it leads as a tile; the Pixel is off.
+  // The booted iPhone is running, so it leads as a tile; the Pixel is shut down.
   const running = await within(panel).findByRole("list", { name: "Running devices" });
   expect(
     within(running)
@@ -35,23 +36,89 @@ test("devices stay off until enabled, then show the running simulator and every 
       .map((tile) => tile.getAttribute("aria-label")),
   ).toEqual(["iPhone 16 Pro, iOS 18.4, Running"]);
 
-  // Every device sits under its kind, folded with a count until opened.
+  // Every device sits under its kind, folded with a count (and how many run) until opened.
   const all = within(panel).getByRole("region", { name: "All devices" });
   expect(within(all).queryByRole("list", { name: "iPhone" })).toBeNull();
+  expect(within(all).getByText("1 · 1 running")).toBeTruthy();
   await userEvent.click(within(all).getByText("iPhone"));
   await userEvent.click(within(all).getByText("Android phone"));
   expect(
     within(within(all).getByRole("list", { name: "iPhone" })).getByRole("button").textContent,
   ).toMatch(/^iPhone 16 Pro.*iOS 18\.4 · Running$/);
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  expect(within(androids).getByRole("button", { name: /^Pixel 9/ }).textContent).toMatch(
+    /^Pixel 9.*Android 15 · Shut down$/,
+  );
+  // A shut-down device boots from its row; a running one has nothing to boot.
+  expect(within(androids).getByRole("button", { name: "Boot" })).toBeTruthy();
   expect(
-    within(within(all).getByRole("list", { name: "Android phone" })).getByRole("button")
-      .textContent,
-  ).toMatch(/^Pixel 9.*Android 15 · Off$/);
+    within(within(all).getByRole("list", { name: "iPhone" })).queryByRole("button", {
+      name: "Boot",
+    }),
+  ).toBeNull();
+});
+
+test("Boot on a shut-down device's row in All devices boots it and shows its screen", async () => {
+  const { app, panel } = await openDevices();
+  const all = await within(panel).findByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByText("Android phone"));
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  await userEvent.click(within(androids).getByRole("button", { name: "Boot" }));
+
+  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  await shows(await within(pixel).findByRole("img", { name: "Pixel 9 screen" }));
+  expect(app.daemon.appDevices.boundThread("android:Pixel_9_API_35")).toBe("thread-checkout");
+});
+
+test("Boot on a device started outside ace since the list was read shows it running, not a failure", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  const pixel = await openDevice(panel, "Pixel 9");
+  expect(within(pixel).getByText("Pixel 9 is shut down.")).toBeTruthy();
+  app.daemon.appDevices.bootElsewhere("android:Pixel_9_API_35");
+
+  await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+  await shows(await within(pixel).findByRole("img", { name: "Pixel 9 screen" }));
+  expect(within(pixel).queryByText(/Unable to boot/)).toBeNull();
+});
+
+test("a phone that hasn't allowed this computer offers no Boot, and its tab says how to allow it", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  act(() =>
+    app.daemon.appDevices.addDevice({
+      id: "android:R5CT1234",
+      platform: "android",
+      name: "Galaxy S24",
+      state: "unauthorized",
+      runtime: "Android 14",
+    }),
+  );
+  const all = within(panel).getByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByText("Android phone"));
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  const galaxy = (await within(androids).findByText("Galaxy S24")).closest("li");
+  if (!galaxy) throw new Error("Missing Galaxy S24 row");
+  expect(galaxy.textContent).toContain("Not authorized");
+  expect(within(galaxy).queryByRole("button", { name: "Boot" })).toBeNull();
+  // The shut-down Pixel beside it still boots from its row.
+  const pixel = within(androids).getByText("Pixel 9").closest("li");
+  if (!pixel) throw new Error("Missing Pixel 9 row");
+  expect(within(pixel).getByRole("button", { name: "Boot" })).toBeTruthy();
+
+  const tab = await openDevice(panel, "Galaxy S24");
+  expect(
+    within(tab).getByText(
+      "Galaxy S24 hasn't allowed this computer. Accept the USB debugging prompt on it, then refresh.",
+    ),
+  ).toBeTruthy();
+  expect(within(tab).queryByRole("button", { name: "Boot" })).toBeNull();
+  expect(within(tab).getByRole("button", { name: "Refresh" })).toBeTruthy();
 });
 
 test("the search and the platform filter narrow the list, and / goes to the search", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const all = await within(panel).findByRole("region", { name: "All devices" });
 
   await userEvent.click(within(panel).getByRole("button", { name: "Android" }));
@@ -71,7 +138,7 @@ test("the search and the platform filter narrow the list, and / goes to the sear
 
 test("a device opened from the list comes back under Recent, with Boot to start it again", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await openDevice(panel, "Pixel 9");
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
@@ -87,7 +154,7 @@ test("a device opened from the list comes back under Recent, with Boot to start 
 
 test("booting an emulator shows its live screen, which takes keys and text at once", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
 
   // Booting is how a person asks to see the device: no second step to start the view.
@@ -117,7 +184,7 @@ test("booting an emulator shows its live screen, which takes keys and text at on
 
 test("a running simulator's live screen takes input at once, with no control step first", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
@@ -134,7 +201,7 @@ test("a running simulator's live screen takes input at once, with no control ste
 
 test("the device's ⋯ menu stops the live view and shuts the device down", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -146,31 +213,30 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Shut down" }));
-  expect(await within(iphone).findByText("iPhone 16 Pro is off.")).toBeTruthy();
+  expect(await within(iphone).findByText("iPhone 16 Pro is shut down.")).toBeTruthy();
 });
 
-test("disabling devices is machine-wide, so it asks first", async () => {
-  const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+test("devices turned off for the machine send the thread to Settings, with no switch in the panel", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Disable devices on this machine?" });
-  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("menuitem", { name: /Disable devices/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+
+  act(() => void app.daemon.appDevices.setEnabled(false));
+  expect(
+    await within(panel).findByRole("heading", { name: "Simulators and emulators are off" }),
+  ).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: "Enable devices" })).toBeNull();
-
-  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
-  await userEvent.click(
-    within(await screen.findByRole("dialog")).getByRole("button", { name: "Disable devices" }),
+  expect(within(panel).getByRole("link", { name: "Open Settings" }).getAttribute("href")).toBe(
+    "/settings/simulators",
   );
-  expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
 
 test("the device's logs appear while the drawer shows them, and the filter narrows them", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await openDevice(panel, "iPhone 16 Pro");
   expect(within(panel).queryByRole("log", { name: "Device logs" })).toBeNull();
 
@@ -188,7 +254,7 @@ test("the device's logs appear while the drawer shows them, and the filter narro
 
 test("a devices channel the daemon drops comes back by itself", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await within(panel).findByRole("list", { name: "Running devices" });
 
   act(() => app.daemon.appDevices.dropAll());
@@ -200,7 +266,7 @@ test("a devices channel the daemon drops comes back by itself", async () => {
 
 test("a devices channel dropped while the page is hidden reconnects once the page shows", async () => {
   const { app, panel } = await openDevices();
-  await within(panel).findByRole("button", { name: "Enable devices" });
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
 
   try {
     visibility("hidden");
@@ -210,7 +276,7 @@ test("a devices channel dropped while the page is hidden reconnects once the pag
 
     act(() => visibility("visible"));
     await waitFor(() => expect(app.daemon.appDevices.openChannels).toBe(1));
-    expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
+    expect(await within(panel).findByRole("searchbox", { name: "Search devices" })).toBeTruthy();
   } finally {
     visibility("visible");
   }
@@ -218,7 +284,7 @@ test("a devices channel dropped while the page is hidden reconnects once the pag
 
 test("a devices channel that can't come back says so, and Reconnect opens a fresh one", async () => {
   const { app, panel } = await openDevices();
-  await within(panel).findByRole("button", { name: "Enable devices" });
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
 
   app.daemon.appDevices.refusing = true;
   act(() => app.daemon.appDevices.dropAll());
@@ -229,7 +295,7 @@ test("a devices channel that can't come back says so, and Reconnect opens a fres
   ).toBeTruthy();
   app.daemon.appDevices.refusing = false;
   await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
-  expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
+  expect(await within(panel).findByRole("searchbox", { name: "Search devices" })).toBeTruthy();
 });
 
 /** Hide or show the page, as switching tabs or minimising the window does. */
@@ -240,7 +306,7 @@ function visibility(state: DocumentVisibilityState) {
 
 test("while the window is hidden the device screen decodes nothing, and shows the newest frame once shown", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
@@ -268,7 +334,7 @@ test("while the window is hidden the device screen decodes nothing, and shows th
 
 test("each device opens as its own tab beside the others, and the catalog marks the open ones", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await openDevice(panel, "iPhone 16 Pro");
   expect(within(panel).getByRole("tab", { name: "iPhone 16 Pro", selected: true })).toBeTruthy();
 
@@ -276,7 +342,7 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   const pixel = await openDevice(panel, "Pixel 9");
   expect(within(panel).getByRole("tab", { name: "Pixel 9", selected: true })).toBeTruthy();
   expect(within(panel).getByRole("tab", { name: "iPhone 16 Pro" })).toBeTruthy();
-  expect(within(pixel).getByText("Pixel 9 is off.")).toBeTruthy();
+  expect(within(pixel).getByText("Pixel 9 is shut down.")).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
   await userEvent.clear(within(panel).getByRole("searchbox", { name: "Search devices" }));
@@ -285,14 +351,14 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   await userEvent.click(within(all).getByText("Android phone"));
   for (const kind of ["iPhone", "Android phone"])
     expect(
-      within(within(all).getByRole("list", { name: kind })).getByRole("button").textContent,
+      within(within(all).getByRole("list", { name: kind })).getAllByRole("button")[0]?.textContent,
     ).toContain("Open");
 });
 
 test("when macOS hasn't allowed screen recording, the simulator tab says how to allow it and shows the screen once allowed", async () => {
   const { app, panel } = await openDevices();
   app.daemon.appDevices.permissions.screenRecording = false;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   const guide = await within(iphone).findByRole("alert", {
@@ -318,7 +384,7 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
 test("a simulator key refused for want of Accessibility says how to allow it, above the live screen", async () => {
   const { app, panel } = await openDevices();
   app.daemon.appDevices.permissions.accessibility = false;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -336,7 +402,7 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
 
 test("Simulator can restart its live view", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
   await userEvent.click(
@@ -383,7 +449,7 @@ function interceptDeviceRequests(
 }
 test("a device tab says loading during a slow inventory read and then returns to its screen", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await openDevice(panel, "iPhone 16 Pro");
   let resume: (() => void) | undefined;
   const spy = interceptDeviceRequests(app, (message, send) => {
@@ -401,7 +467,7 @@ test("a device tab says loading during a slow inventory read and then returns to
 });
 test("booting has a visible status until the emulator finishes", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   let pixel = await openDevice(panel, "Pixel 9");
   let resume: (() => void) | undefined;
   const spy = interceptDeviceRequests(app, (message, send, push) => {
@@ -439,7 +505,7 @@ test.each(["booted", "shutdown", "offline"] as const)(
   "a failed stop offers cleanup retry while the device is %s",
   async (deviceState) => {
     const { app, panel } = await openDevices();
-    await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+    await within(panel).findByRole("searchbox", { name: "Search devices" });
     let iphone = await openDevice(panel, "iPhone 16 Pro");
     await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
     let fail = true;
@@ -516,17 +582,14 @@ test("administrator refusals explain inventory and enable access immediately", a
   expect(
     within(panel).getByText("Connect with an administrator device credential to use Devices."),
   ).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("button", { name: "Enable devices" }));
-  expect(
-    await within(panel).findByText("Administrator scope is required for device access"),
-  ).toBeTruthy();
+
   expect(within(panel).queryByText(/timed out/i)).toBeNull();
 });
 
 test("boot takes this panel's own lease from another connection that holds the device", async () => {
   const { DeviceClient } = await import("@ace/client/devices");
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
   let serial = 0;
   const other = new DeviceClient({ id: () => `other-${++serial}`, schedule: () => () => {} });
@@ -540,7 +603,7 @@ test("boot takes this panel's own lease from another connection that holds the d
         controller: "human",
       });
     });
-    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Off$/)).toBeTruthy());
+    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Shut down$/)).toBeTruthy());
     await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
     await waitFor(() => expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy());
     expect(
@@ -552,23 +615,29 @@ test("boot takes this panel's own lease from another connection that holds the d
   }
 });
 
-test("Stream stats from the device's ⋯ menu show what arrived and what was drawn over the live screen", async () => {
+test("with Show stream stats on in Settings, a live screen shows what arrived and what was drawn", async () => {
+  setStreamStatsShown(true);
+  onTestFinished(() => setStreamStatsShown(false));
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
-  expect(within(iphone).queryByRole("list", { name: "Stream stats" })).toBeNull();
-
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Stream stats" }));
+  expect(screen.queryByRole("menuitemcheckbox", { name: "Stream stats" })).toBeNull();
+  await userEvent.keyboard("{Escape}");
   const stats = await within(iphone).findByRole("list", { name: "Stream stats" });
   await waitFor(() => expect(stats.textContent).toMatch(/Received \d+\/s · drawn/));
 });
 
-test("enabling devices downloads the device tools, and missing tools offer the download again", async () => {
+test("missing device tools offer an optional download", async () => {
   const { app, panel } = await openDevices();
-  app.daemon.appDevices.toolsReady = false;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  act(() => {
+    app.daemon.appDevices.toolsReady = false;
+    app.daemon.appDevices.dropAll();
+  });
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Download device tools" }),
+  );
   await within(panel).findByRole("list", { name: "Running devices" });
   await waitFor(() => expect(app.daemon.appDevices.toolDownloads).toBe(1));
   await waitFor(() =>

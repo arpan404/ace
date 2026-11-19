@@ -12,6 +12,10 @@ const copy: Record<string, string> = {
   workspace_root_changed: "The thread's worktree moved: try again.",
   workspace_not_found: "The thread's project is gone: open the project again.",
   workspace_unavailable: "The thread has no checkout yet: send it a message first.",
+  worktree_missing:
+    "The thread's folder is gone: move it to the local checkout or make its worktree again.",
+  workspace_removed:
+    "The thread's folder was removed: move it to the local checkout or make its worktree again.",
   workspace_change_in_progress: "The checkout is still moving: wait for it to finish, then retry.",
   workspace_change_interrupted:
     "The checkout move stopped when the daemon restarted: the thread stayed where it was. Retry to move it.",
@@ -26,6 +30,11 @@ const copy: Record<string, string> = {
   engine_unavailable: "This daemon can't move a thread's checkout: update the daemon.",
   repository_mismatch:
     "The project's remote doesn't match this repository: pick the matching project, or refresh.",
+  // A project's repository choices (ADR 0120).
+  repository_hidden:
+    "This project hides that repository: show it again in the project's settings, then retry.",
+  repository_unavailable:
+    "ace can't use that repository now: check its host in Source control settings, or pick another repository in the project's settings.",
   action_failed: "The daemon couldn't do that: check its logs, then retry.",
   action_busy: "Too many actions are running: wait for one to finish, then retry.",
   workspace_reads_busy: "Too many reads are waiting on the daemon: wait a moment, then retry.",
@@ -103,7 +112,8 @@ const copy: Record<string, string> = {
   // host refuses gets its own code so the fix names what changed.
   forge_cli:
     "Sign in to GitHub: run `gh auth login` (install `gh` first if it's missing), then retry.",
-  forge_no_remote: "This checkout has no GitHub remote: add an origin on GitHub, then retry.",
+  forge_no_remote:
+    "This checkout has no remote on a Git host ace knows: add the remote, or add its host in Source control settings, then retry.",
   forge_not_found:
     "GitHub couldn't find that repository, issue or pull request: check its number and your access to the repository.",
   forge_outcome_uncertain:
@@ -133,6 +143,8 @@ const copy: Record<string, string> = {
   forge_write_refused: "GitHub refused the change: refresh the pull request, then retry.",
   forge_validation_failed:
     "GitHub rejected the request as invalid: check what you entered, then retry.",
+  forge_run_attempt_moved:
+    "This run was re-run since you looked, so nothing was cancelled: refresh to see the new attempt.",
   forge_head_moved:
     "The pull request's branch moved since you looked: refresh and review its new commits, then retry.",
   forge_version_mismatch:
@@ -194,6 +206,8 @@ const copy: Record<string, string> = {
     "This suggestion can't be applied: it is resolved, outdated or on removed lines.",
   review_workspace_not_found: "The thread's project is gone: open the project again.",
   review_limit: "This review is full: resolve or discard some comments first.",
+  // Allowed project folders.
+  last_root: "It's the only allowed folder: allow another before removing it.",
   unsupported_by_fake_daemon: "This daemon can't do that yet: update the daemon.",
 };
 

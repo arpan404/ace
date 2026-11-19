@@ -27,6 +27,9 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCapabilities.json"
+    },
     "changedFiles": {
       "maximum": 9007199254740991,
       "minimum": 0,
@@ -78,6 +81,9 @@
       "maxItems": 100,
       "type": "array"
     },
+    "readOnly": {
+      "type": "boolean"
+    },
     "relatedThreads": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/ForgeRelatedThread.json"
@@ -119,6 +125,21 @@
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+    },
+    "unavailableResources": {
+      "items": {
+        "enum": [
+          "comments",
+          "checks",
+          "reviews",
+          "commits",
+          "files",
+          "fileCount"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "type": "array"
     },
     "updatedAt": {
       "maxLength": 65536,

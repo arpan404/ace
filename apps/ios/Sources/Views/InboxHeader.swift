@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The machines the inbox can't reach right now, as the header names them. Built from each
 /// session's own connection state; the rows keep their own confirmation and never read fresh.
-struct InboxConnectionProblem: Equatable {
+struct InboxConnectionProblem: Hashable {
     /// The machine's name when one is out, else how many.
     let text: String
     /// Still trying (spinner) rather than out of reach (wifi.slash).
@@ -17,101 +17,16 @@ struct InboxConnectionProblem: Equatable {
         let named = inbox.showsMachineNames ? inbox.name(first.hostId) : "your machine"
         let subject = out.count > 1 ? "\(out.count) machines" : named
         let fatal = out.contains { $0.client.connection == "fatal" }
-        let text = fatal ? "Can't reach \(subject)"
+        // Stopped only to be asked for its machine code: reachable, waiting for the person.
+        let asking = out.allSatisfy { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }
+        let text = asking ? (out.count > 1 ? "\(subject) need their machine codes"
+                             : inbox.showsMachineNames ? "\(named) needs its machine code" : "Your machine needs its machine code")
+            : fatal ? "Can't reach \(subject)"
             : out.allSatisfy({ ["connecting", "starting"].contains($0.client.connection) }) ? "Connecting to \(subject)"
             : trying ? "Reconnecting to \(subject)"
             : out.count > 1 ? "\(subject) offline" : inbox.showsMachineNames ? "\(named) is offline" : "Your machine is offline"
         let identifier = inbox.showsMachineNames && out.count == 1 ? "inbox.connection.\(inbox.name(first.hostId))" : "inbox.connection"
         return InboxConnectionProblem(text: text, trying: trying && !fatal, identifier: identifier)
-    }
-}
-
-/// The list's title in the bar's leading slot: "Threads ⌄" or "Pull requests ⌄" opening the
-/// list's scope menu, and under it the scope, or what is wrong with the connection while it lasts.
-/// With no `choices` the title has no menu.
-struct InboxHeading<Choices: View>: View {
-    let title: String
-    let scope: String?
-    let problem: InboxConnectionProblem?
-    let openMachines: () -> Void
-    var identifier = "inbox.projects"
-    let choices: Choices?
-
-    init(title: String, scope: String?, problem: InboxConnectionProblem?, openMachines: @escaping () -> Void,
-         identifier: String = "inbox.projects", @ViewBuilder choices: () -> Choices?) {
-        self.title = title
-        self.scope = scope
-        self.problem = problem
-        self.openMachines = openMachines
-        self.identifier = identifier
-        self.choices = choices()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let choices {
-                Menu { choices } label: { label(chevron: true) }
-                    .accessibilityIdentifier(identifier)
-                    .accessibilityHint("Chooses what the list shows")
-            } else {
-                label(chevron: false)
-            }
-            InboxTitle(problem: problem, openMachines: openMachines)
-        }
-        .fixedSize()
-    }
-
-    private func label(chevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                if chevron {
-                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-            }
-            .accessibilityAddTraits(.isHeader)
-            if problem == nil, let scope {
-                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-            }
-        }
-    }
-}
-
-/// What is wrong with the connection, once a problem has lasted 800ms, under the title; the
-/// nothing while every machine is reachable. Tapping it opens Machines.
-struct InboxTitle: View {
-    let problem: InboxConnectionProblem?
-    let openMachines: () -> Void
-    @State private var shown: InboxConnectionProblem?
-
-    var body: some View {
-        Group {
-            if let shown {
-                Button(action: openMachines) {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
-                        Text(shown.text).lineLimit(1)
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .fixedSize()
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .combine)
-                .accessibilityHint("Opens Machines")
-                .accessibilityIdentifier(shown.identifier)
-            }
-        }
-        .task(id: problem) {
-            guard let problem else { shown = nil; return }
-            // An already-visible problem updates at once; a new one waits out a brief blip.
-            if shown == nil { try? await Task.sleep(for: .milliseconds(800)) }
-            if !Task.isCancelled { shown = problem }
-        }
     }
 }
 
@@ -174,28 +89,102 @@ struct InboxFilters: View {
 /// tab uses the same chips.
 struct InboxChip: View {
     let title: String
+    /// The segmented control's height beside it, grown with the words' text style.
+    @ScaledMetric(relativeTo: .subheadline) private var height = AceDesign.Size.segment
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text(title).lineLimit(1)
-            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+            Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        .aceFont(AceDesign.TextRole.segment)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 36)
+        .padding(.horizontal, AceDesign.Space.row)
+        // The segmented control's height beside it, taking taps over 44.
+        .frame(height: height)
         .aceGlass(in: AceShape.capsule, interactive: true)
-        .contentShape(AceShape.capsule)
+        .tapBand(drawn: height)
     }
 }
 
 extension View {
-    /// Pins `bar` under the navigation bar. On iOS 26 it joins the bar's scroll-edge effect, so
-    /// rows pass under it; iOS 18 gives it the page colour.
-    @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    /// Pins `bar` under the navigation title, as Mail and Files pin a control there: on iOS 26 a
+    /// system bar with the hard scroll-edge effect Apple uses under a pinned control, so rows blur
+    /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
+    /// page colour.
+    func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar(), list: nil))
+    }
+
+    /// `pinnedTopBar` over content that swaps one list for another: each new `list` starts at the
+    /// top, so the edge hides again.
+    func pinnedTopBar<Bar: View>(resetOn list: some Hashable, @ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar(), list: AnyHashable(list)))
+    }
+}
+
+/// `pinnedTopBar`. The edge shows once rows pass under the bar: at rest it would blur the large
+/// title above it. It turns on only after the large title has handed over to the small one and
+/// off only back near the top, so the wobble of the scroll position during that hand-over can't
+/// flip it every frame, and only while the person scrolls (`ScrollEdgeHold`).
+private struct PinnedTopBar<Bar: View>: ViewModifier {
+    let bar: Bar
+    /// The list showing, where the content swaps lists; nil where it never does.
+    let list: AnyHashable?
+    @State private var hold = ScrollEdgeHold()
+    func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
+            content
+                .onScrollGeometryChange(for: CGFloat.self) { Self.offset($0) } action: { _, offset in
+                    change { $0.moved(to: offset) }
+                }
+                .onScrollPhaseChange { _, phase, context in
+                    change { $0.phase(scrolling: phase != .idle, offset: Self.offset(context.geometry)) }
+                }
+                .onChange(of: list) { change { $0.reset() } }
+                .scrollEdgeEffectStyle(.hard, for: .top)
+                .scrollEdgeEffectHidden(!hold.shown, for: .top)
+                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
         } else {
-            safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
+            content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar.background(AceTheme.Colours.background) }
         }
+    }
+
+    private static func offset(_ geometry: ScrollGeometry) -> CGFloat { geometry.contentOffset.y + geometry.contentInsets.top }
+
+    /// Writes the hold only when it changes: every write lays the page out again.
+    private func change(_ step: (inout ScrollEdgeHold) -> Void) {
+        var next = hold
+        step(&next)
+        if next != hold { hold = next }
+    }
+}
+
+/// Whether a pinned bar's scroll edge shows, from how far the list has scrolled: on past `on`
+/// (about a large title's height, so the title has collapsed), off again only under `off`. The
+/// offset moves it only while the person scrolls, and where a scroll comes to rest: layout moves
+/// the list too (a large title settling over a short list nudges it back and forth), and
+/// following those would lay the page out again on every pass, without end. Pure.
+struct ScrollEdgeHold: Equatable {
+    static let on: CGFloat = 52
+    static let off: CGFloat = 8
+    private(set) var shown = false
+    private(set) var scrolling = false
+
+    /// The list moved, by the person or by layout.
+    mutating func moved(to offset: CGFloat) {
+        if scrolling { follow(offset) }
+    }
+
+    /// The person started or stopped scrolling, with the list at `offset`.
+    mutating func phase(scrolling: Bool, offset: CGFloat) {
+        self.scrolling = scrolling
+        follow(offset)
+    }
+
+    /// Another list took the page, at its top.
+    mutating func reset() { shown = false }
+
+    private mutating func follow(_ offset: CGFloat) {
+        if shown { if offset < Self.off { shown = false } } else if offset > Self.on { shown = true }
     }
 }

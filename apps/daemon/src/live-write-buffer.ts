@@ -1,5 +1,6 @@
 import type { Event, ThreadId } from "@ace/protocol";
 import { liveWriteRetryDelay } from "./live-write-retry.ts";
+import { EventEncodings } from "./event-encodings.ts";
 
 export interface BufferedSnapshot {
   persist(): void;
@@ -16,7 +17,7 @@ export const bufferScheduler: BufferScheduler = {
   },
 };
 
-const weightOf = (event: Event) => Buffer.byteLength(JSON.stringify(event)) * 8 + 512;
+const weightOfBytes = (bytes: number) => bytes * 8 + 512;
 /** Rows a subscriber may already hold are written within this bound. */
 const eventDelayMs = 75;
 /** A batch without events (an agent's transport signals) carries only liveness times. Nobody has
@@ -34,9 +35,16 @@ export class LiveWriteBuffer {
   /** Consecutive failed attempts at the pinned batch; zero while healthy. */
   private failures = 0;
   readonly metrics = { flushes: 0, rows: 0, failures: 0, liveBytes: 0, peakBytes: 0 };
-  constructor(privateOptions: { scheduler: BufferScheduler; attempt(): void }) {
+  /** `encodings` is shared with the wire encoder, which sends these same events. */
+  constructor(privateOptions: {
+    scheduler: BufferScheduler;
+    attempt(): void;
+    encodings?: EventEncodings;
+  }) {
     this.options = privateOptions;
+    this.encodings = privateOptions.encodings ?? new EventEncodings();
   }
+  private readonly encodings: EventEncodings;
   private readonly options;
   get failed(): boolean {
     return this.failures > 0;
@@ -82,8 +90,10 @@ export class LiveWriteBuffer {
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
-      this.weight += weightOf(event);
-      this.metrics.liveBytes += Buffer.byteLength(JSON.stringify(event));
+      // One encoding sizes both the weight and the metric.
+      const bytes = this.encodings.bytes(event);
+      this.weight += weightOfBytes(bytes);
+      this.metrics.liveBytes += bytes;
       this.events.push(event);
     }
     this.metrics.peakBytes = Math.max(this.metrics.peakBytes, this.weight);
@@ -154,7 +164,10 @@ export class LiveWriteBuffer {
       const gone = new Set(threads);
       for (const thread of gone) this.snapshots.delete(thread);
       this.events = this.events.filter((event) => !gone.has(event.threadId));
-      this.weight = this.events.reduce((total, event) => total + weightOf(event), 0);
+      this.weight = this.events.reduce(
+        (total, event) => total + weightOfBytes(this.encodings.bytes(event)),
+        0,
+      );
     }
     if (this.size) return;
     this.failures = 0;

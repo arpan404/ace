@@ -11,6 +11,7 @@ import {
   type ExecutionResult,
   type TimerDriver,
   type WorkspaceChanges,
+  webhookSecretBox,
 } from "./index.ts";
 import type { Automation, AutomationEvent } from "@ace/protocol";
 export const start = Date.parse("2024-01-01T09:00:00Z");
@@ -77,10 +78,14 @@ afterEach(() => {
 });
 export function harness(gh?: import("./index.ts").GhClient) {
   const dir = mkdtempSync(join(tmpdir(), "ace-automations-"));
-  let store = new AutomationStore(join(dir, "auto.sqlite"));
+  // One key for the test's life, as a machine keeps one across restarts.
+  const box = webhookSecretBox(() => new Uint8Array(32).fill(1));
+  let store = new AutomationStore(join(dir, "auto.sqlite"), { webhookSecrets: box });
   let now = start - 60_000;
   let ids = 0;
   let random = 0;
+  let paused = false;
+  const reopened = new Set<() => void>();
   const timer = new Timer(),
     inputs: ExecutionInput[] = [],
     completions: ReturnType<typeof deferred<ExecutionResult>>[] = [],
@@ -105,6 +110,13 @@ export function harness(gh?: import("./index.ts").GhClient) {
     id: () => `run-${++ids}`,
     timer,
     workspace,
+    admission: {
+      open: () => !paused,
+      onReopen(listener) {
+        reopened.add(listener);
+        return () => reopened.delete(listener);
+      },
+    },
     onRun: (run: import("@ace/protocol").AutomationRun) => {
       changes.push(run);
     },
@@ -166,10 +178,18 @@ export function harness(gh?: import("./index.ts").GhClient) {
     set random(value: number) {
       random = value;
     },
+    /** The person pauses new work, as from the tray or a Fleet page. */
+    pause() {
+      paused = true;
+    },
+    resume() {
+      paused = false;
+      for (const listener of reopened) listener();
+    },
     restart() {
       service.stop();
       store.close();
-      store = new AutomationStore(join(dir, "auto.sqlite"));
+      store = new AutomationStore(join(dir, "auto.sqlite"), { webhookSecrets: box });
       service = new AutomationService(store, deps, gh);
       service.start();
     },

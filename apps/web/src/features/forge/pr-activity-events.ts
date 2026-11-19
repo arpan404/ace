@@ -1,6 +1,7 @@
+import { can } from "@ace/ui-core";
 import type { ForgePrDetail } from "@ace/protocol";
 import { readForge } from "@/lib/forge-read.ts";
-import { readActivityHistory, type ActivityHistory } from "./pr-history-pages.ts";
+import { readActivityHistory, type ActivityHistory } from "@ace/ui-core";
 import { useHistoryQuery } from "./pr-history-query.ts";
 
 /**
@@ -22,7 +23,7 @@ export function usePrActivityEvents(props: {
       props.detail.updatedAt,
       props.detail.status.headSha,
     ],
-    enabled: props.enabled ?? true,
+    enabled: (props.enabled ?? true) && can(props.detail, "reviews.comments.read"),
     read: (client, signal, progress) =>
       readActivityHistory(async (page) => {
         const result = await readForge(

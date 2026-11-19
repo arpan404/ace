@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideAccessDecision.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "decision": {
+          "const": "approve",
+          "type": "string"
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projects": {
+          "$ref": "https://ace.local/protocol/v1/OutsideProjects.json"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "decision",
+        "scopes",
+        "projects",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "decision": {
+          "const": "deny",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "type": "object"
+    }
+  ]
+}

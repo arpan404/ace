@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -7,6 +8,23 @@ import { list, obj, str } from "../native.ts";
 import { aceMcpApprovals } from "./mcp-approvals.ts";
 import { historyStore, longHistory } from "./history-store.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
+// Windows delivers no SIGTERM; there, ignoring termination means outliving stdin closing.
+if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "win32") {
+  setInterval(() => {}, 60_000);
+  // The test checks that this survivor is really gone, not just detached from.
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex.pid"), String(process.pid));
+}
+// Windows: a descendant outside any job that would outlive this fake's own exit on EOF.
+if (process.env["ACE_FAKE_RESUME"] === "orphan-child" && process.platform === "win32") {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+    stdio: "ignore",
+    windowsHide: true,
+    // Outside the job libuv gives non-detached children, so only ace can end it.
+    detached: true,
+  });
+  child.unref();
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex-child.pid"), String(child.pid));
+}
 const args: string[] = [];
 const overrides = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index++) {
@@ -193,6 +211,11 @@ for await (const line of createInterface({ input: process.stdin })) {
         }),
       },
     });
+  } else if (
+    (method === "config/read" || method === "model/list") &&
+    process.env["ACE_FAKE_RESUME"] === "stalled-facts"
+  ) {
+    // A stalled app-server: these reads are never answered.
   } else if (method === "config/read") {
     respond({
       config: {
@@ -200,7 +223,20 @@ for await (const line of createInterface({ input: process.stdin })) {
           process.env["ACE_FAKE_RESUME"] === "unknown-default" ? null : ":workspace",
         approval_policy: "on-request",
         approvals_reviewer: "user",
+        // A local model Codex's catalog lacks, as `--oss` configures one.
+        ...(process.env["ACE_FAKE_RESUME"] === "oss-model"
+          ? { model: "gpt-oss:20b", model_provider: "ollama" }
+          : process.env["ACE_FAKE_RESUME"] === "late-catalog-model"
+            ? { model: "gpt-5.5-2026-09-01" }
+            : {}),
       },
+    });
+  } else if (method === "model/list") {
+    // Two pages, as Codex pages its catalog.
+    const page = p["cursor"] === "next" ? ["gpt-5.5"] : ["gpt-6.1-sol", "gpt-5.6-sol"];
+    respond({
+      data: page.map((model) => ({ id: model, model, hidden: false })),
+      nextCursor: p["cursor"] === "next" ? null : "next",
     });
   } else if (method === "thread/start" || method === "thread/resume") {
     aceTools?.configure(p["config"]);

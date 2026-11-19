@@ -1,0 +1,14 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "viewer.configure",
+    "viewer": "source-1",
+    "viewport": {
+      "width": 1,
+      "height": 1,
+      "dpr": 1.5,
+      "scale": 1.5
+    },
+    "audio": true
+  }
+}

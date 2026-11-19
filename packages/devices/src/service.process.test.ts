@@ -4,6 +4,7 @@ import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { AgentId, ThreadId } from "@ace/protocol";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { devicesToolkit, agentOwner, connectDevices } from "./index.ts";
+import { deviceImageStream } from "./stream-control.ts";
 import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import {
   agent,
@@ -312,6 +313,29 @@ describe("in-app device ownership", () => {
     await expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({ code: "busy" });
     h.clearStopFailure();
   });
+  it("taking control from another thread, or handing it to an agent there, keeps the live view running", async () => {
+    const h = await harness();
+    await h.request({ op: "enable", enabled: true });
+    await h.request({ op: "start", deviceId });
+    const live = h.service.states()[0];
+    expect(live?.lifecycle).toBe("live");
+    const exited = vi.fn();
+    void h.nativeExit().then(exited);
+    // The person opened the device from the Devices tab, then touches it inside a thread.
+    await h.request({ op: "controller", deviceId, controller: "human", threadId: "thread-1" });
+    // An agent in another thread takes it, then the person takes it back.
+    await delegateTo(h, "thread-2");
+    await h.request({ op: "controller", deviceId, controller: "human", threadId: "thread-1" });
+    const after = h.service.states()[0];
+    expect(after).toMatchObject({
+      lifecycle: "live",
+      streamId: live?.streamId,
+      threadId: "thread-1",
+      controller: "human",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(exited).not.toHaveBeenCalled();
+  });
   it("moving a device to another thread clears old log tails, log subscriptions and recordings", async () => {
     const h = await harness();
     await bind(h);
@@ -353,16 +377,14 @@ describe("in-app device ownership", () => {
     const stopping = h.request({ op: "record.stop", deviceId });
     const rejected = expect(stopping).rejects.toMatchObject({ code: "busy" });
     await h.publishing.promise;
-    const entered = deferred<void>();
-    h.service.watch((state) => {
-      if (state.lifecycle === "stopping") entered.resolve();
-    });
     let moved = false;
     const moving = delegateTo(h, "thread-2").then(() => {
       moved = true;
     });
-    await entered.promise;
+    // The move waits for the recording to close; the live view itself keeps running.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(moved).toBe(false);
+    expect(h.service.states()[0]?.lifecycle).toBe("live");
     gate.resolve();
     await rejected;
     await moving;
@@ -957,4 +979,55 @@ it("reaching a recording limit reports why capture stopped and publishes its vid
   expect(await h.request({ op: "record.stop", deviceId })).toMatchObject({
     bytes: expect.any(Number),
   });
+});
+
+it("a viewer whose sink throws gives up its stream request, so the capture goes unwatched once the owner's next view closes", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  const owner = { kind: "human", owner: "flaky-viewer" } as const;
+  let gone = false;
+  await h.service.subscribeEvery(deviceId, owner, () => {
+    if (gone) throw new Error("sink gone");
+  });
+  expect(h.profiles.at(-1)).toMatchObject({ codec: "h264" });
+  // The sink's socket goes: the frame hub drops it at its next frame.
+  gone = true;
+  h.publish(1);
+  const release = await h.service.subscribeEvery(deviceId, owner, () => {});
+  release();
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
+});
+
+it("a resubscribe refused at the hub's subscriber limit leaves no stream request behind", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  const owner = { kind: "human", owner: "viewer" } as const;
+  const views = [await h.service.subscribeEvery(deviceId, owner, () => {})];
+  for (let n = 1; n < 64; n++)
+    views.push(
+      await h.service.subscribeEvery(deviceId, { kind: "human", owner: `viewer-${n}` }, () => {}),
+    );
+  // The hub is full: the owner's resubscribe is refused.
+  await expect(h.service.subscribeEvery(deviceId, owner, () => {})).rejects.toThrow(
+    "Subscriber limit",
+  );
+  for (const release of views) release();
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
+});
+
+it("a view whose sink fails on its first frame, as it attaches, gives up its stream request", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  h.publish(1);
+  // The latest frame reaches each new sink at once: one throws during attach, one rejects.
+  await h.service.subscribeEvery(deviceId, { kind: "human", owner: "a" }, () => {
+    throw new Error("sink gone");
+  });
+  await h.service.subscribe(deviceId, { kind: "human", owner: "b" }, () =>
+    Promise.reject(new Error("sink gone")),
+  );
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
 });

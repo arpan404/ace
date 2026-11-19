@@ -54,10 +54,23 @@ enum BrowserPatch: Decodable, Sendable, Equatable {
     case problem(BrowserProblem)
     /// Files for a page's picker uploading, 0 to 1.
     case upload(chooserId: String, progress: Double)
+    /// The devices the device toolbar offers, sent once per view; ones that don't read are left out.
+    case presets([BrowserViewInfo.Device.Preset])
+    case done(BrowserDone)
+    case source(BrowserSource?)
+    case sizes(BrowserSizes?)
+    case extensions(BrowserExtensions?)
+    case saving(BrowserSaving)
+    /// The page's own Send in annotate mode: go to the message.
+    case annotateSend(at: Double)
+    /// The person's input round trip to the thread's page, in whole milliseconds.
+    case latency(threadId: String, ms: Int)
 
     static let types: Set<String> = ["browser.view", "browser.page", "browser.available", "browser.find", "browser.shot",
-                                     "browser.logs", "browser.visits", "browser.problem", "browser.upload"]
-    private enum Keys: String, CodingKey { case type, threadId, tabId, page, epoch, live, visits, total, chooserId, progress }
+                                     "browser.logs", "browser.visits", "browser.problem", "browser.upload",
+                                     "browser.presets", "browser.done", "browser.source", "browser.sizes",
+                                     "browser.extensions", "browser.saving", "browser.annotateSend", "browser.latency"]
+    private enum Keys: String, CodingKey { case type, threadId, tabId, page, epoch, live, visits, total, chooserId, progress, presets, at, ms }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let threadId = { try box.decode(String.self, forKey: .threadId) }
@@ -76,6 +89,15 @@ enum BrowserPatch: Decodable, Sendable, Equatable {
         case "browser.problem": self = .problem(try BrowserProblem(from: decoder))
         case "browser.upload":
             self = .upload(chooserId: try box.decode(String.self, forKey: .chooserId), progress: try box.decode(Double.self, forKey: .progress))
+        case "browser.presets":
+            self = .presets((try? box.decode(Lenient<BrowserViewInfo.Device.Preset>.self, forKey: .presets).items) ?? [])
+        case "browser.done": self = .done(try BrowserDone(from: decoder))
+        case "browser.source": self = .source(try? BrowserSource(from: decoder))
+        case "browser.sizes": self = .sizes(try? BrowserSizes(from: decoder))
+        case "browser.extensions": self = .extensions(try? BrowserExtensions(from: decoder))
+        case "browser.saving": self = .saving(try BrowserSaving(from: decoder))
+        case "browser.annotateSend": self = .annotateSend(at: try box.decode(Double.self, forKey: .at))
+        case "browser.latency": self = .latency(threadId: try threadId(), ms: try box.decode(Int.self, forKey: .ms))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown browser patch")
         }
     }

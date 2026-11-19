@@ -1,4 +1,5 @@
 import { settingsScope } from "../settings.ts";
+import { mediaOwner } from "./media-connect.ts";
 import { z } from "zod";
 import { join } from "node:path";
 import {
@@ -11,7 +12,7 @@ import {
 import {
   ItemId,
   ThreadId,
-  BrowserBackendClientMessage,
+  WorkspaceId,
   BrowserBackendPreference,
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
@@ -23,7 +24,25 @@ import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
+import type { Store } from "../store.ts";
+import { grantOfCaller } from "../external-mcp/principals.ts";
+import { browserBackendMessage } from "./socket-message.ts";
+import { startMedia } from "./media.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
+
+/**
+ * The settings scope a browser open reads. An outside MCP client's session (ADR 0122) has no
+ * thread of its own, so it reads its project's settings.
+ */
+function openScope(store: Store, open: { threadId: string; workspaceId: string }) {
+  const threadId = ThreadId.parse(open.threadId);
+  const workspaceId = WorkspaceId.parse(open.workspaceId);
+  return settingsScope(
+    store,
+    store.getThread(threadId) ? { threadId, workspaceId } : { workspaceId },
+  );
+}
+
 export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
@@ -63,8 +82,11 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   };
   // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
+  // Live video through ace-media while `media.encode` says so (E4); the browser's own otherwise.
+  const media = options.browser?.media ?? startMedia(context);
   const browser = new BrowserService({
     ...options.browser,
+    ...(media ? { media } : {}),
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }
       : {}),
@@ -78,6 +100,10 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.onError?.(error);
     },
     tabBudget,
+    // An outside MCP client's session stays off this machine and its network (ADR 0122).
+    privateNetworkBlocked:
+      options.browser?.privateNetworkBlocked ??
+      ((threadId) => grantOfCaller(threadId) !== undefined),
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
     // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
@@ -101,12 +127,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.backendPreference ??
       (async (open) => {
         const preference = BrowserBackendPreference.parse(
-          (
-            await services.settings?.get(
-              "browser.backend",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "auto",
+          (await services.settings?.get("browser.backend", openScope(store, open)))?.value ??
+            "auto",
         );
         return preference;
       }),
@@ -114,22 +136,15 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.profilePreference ??
       (async (open) =>
         BrowserProfilePreference.parse(
-          (
-            await services.settings?.get(
-              "browser.profile",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "persistent",
+          (await services.settings?.get("browser.profile", openScope(store, open)))?.value ??
+            "persistent",
         )),
     // A project's choice in Edit project comes before the setting; a thread's own setting first.
     profileScope:
       options.browser?.profileScope ??
       (async (open) =>
         chooseProfileScope(
-          await services.settings?.get(
-            "browser.profileScope",
-            settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-          ),
+          await services.settings?.get("browser.profileScope", openScope(store, open)),
           projectProfileScope(store, open.workspaceId),
         )),
     // ace's Chrome saves downloads in the folder chosen for this daemon, else this machine's
@@ -143,19 +158,15 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       }),
     onEmbeddedRegistered: () => {
       void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
-      void projectForget?.flush();
+      void projectForget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
       options.browser?.onEmbeddedRegistered?.();
     },
     backendLoss:
       options.browser?.backendLoss ??
       (async (open) =>
         BrowserBackendLossPolicy.parse(
-          (
-            await services.settings?.get(
-              "browser.backendLoss",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "pause",
+          (await services.settings?.get("browser.backendLoss", openScope(store, open)))?.value ??
+            "pause",
         )),
     onArtifact,
     agentCursor: options.browser?.agentCursor ?? {
@@ -191,6 +202,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       dataDir: join(config.dataDir, "user-browser", "threads"),
       headlessBackend: new UserChromeTabsBackend(user.backend),
       backendPreference: () => "headless",
+      ...(media ? { media } : {}),
       tabLifecycle: false,
       tabBudget,
       // Agent tabs there come back after a restart too, from their own table.
@@ -260,6 +272,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     sendStream: (pieces) => sendBrowserStream(socket, pieces),
     // A viewer on this machine gets its video at the top rate from the first picture.
     local: context.local === true,
+    // Subscribes naming a media connection go to ace-media (D1) while it serves.
+    media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();
@@ -284,12 +298,12 @@ export function createBrowserSession(context: SocketContext): SocketService {
       browser.close();
     },
     handle(message, device) {
-      const backendMessage = BrowserBackendClientMessage.safeParse(message);
-      if (backendMessage.success) {
+      const backendMessage = browserBackendMessage(message);
+      if (backendMessage) {
         try {
-          if (backendMessage.data.type === "browser.backend.register") {
+          if (backendMessage.type === "browser.backend.register") {
             const credential = options.store.devices.authenticate(
-              backendMessage.data.credential,
+              backendMessage.credential,
               options.now?.() ?? Date.now(),
             );
             if (
@@ -307,7 +321,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 return true;
               },
               close: (reason) => socket.close(4009, reason.slice(0, 120)),
-              video: backendMessage.data.capabilities.video === true,
+              video: backendMessage.capabilities.video === true,
             });
             stopRevocation = options.store.devices.onRevoke((id) => {
               if (id === device) backend?.disconnect("Desktop credential revoked");
@@ -315,22 +329,22 @@ export function createBrowserSession(context: SocketContext): SocketService {
             socket.send(
               JSON.stringify({
                 type: "browser.backend.registered",
-                requestId: backendMessage.data.requestId,
+                requestId: backendMessage.requestId,
                 backendId: backend?.id,
                 connectionId: sessionId,
               }),
             );
-          } else if (backendMessage.data.type === "browser.backend.resumed") {
+          } else if (backendMessage.type === "browser.backend.resumed") {
             // The desktop's computer woke: check every engine, ace's Chrome included (#947).
             if (!backend) throw new Error("Desktop backend not registered");
             options.browser?.wake();
-          } else if (backendMessage.data.type === "browser.backend.drawable") {
+          } else if (backendMessage.type === "browser.backend.drawable") {
             // The desktop's screen locked or unlocked: while it can't draw, its pages move.
             if (!backend) throw new Error("Desktop backend not registered");
-            options.browser?.desktopDrawable(backendMessage.data.drawable);
+            options.browser?.desktopDrawable(backendMessage.drawable);
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
-            backend.handle(backendMessage.data);
+            backend.handle(backendMessage);
           }
         } catch (error) {
           context.fail(

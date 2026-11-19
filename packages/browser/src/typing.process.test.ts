@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { Actor } from "./session-options.ts";
 import { executablePath, fixture, ref } from "./test-support.ts";
 
@@ -76,12 +77,15 @@ describe.skipIf(!executablePath)("an agent typing beside the person", () => {
       quietMs,
       `<input aria-label="First" id="first"><input aria-label="Second" id="second">`,
       // The first field's own handler keeps the page busy long enough for the person to return.
+      // Times are the page's own monotonic clock: Chrome's wall clock can drift from Node's
+      // (on Windows by hundreds of milliseconds). An event's timeStamp is when the browser got
+      // the person's input, even if the busy page handles it later.
       `window.filledAt = {};
        document.getElementById('first').addEventListener('input', () => {
-         const until = Date.now() + 1000; while (Date.now() < until) {}
-         filledAt.first = Date.now();
+         const until = performance.now() + 1000; while (performance.now() < until) {}
        });
-       document.getElementById('second').addEventListener('input', () => { filledAt.second = Date.now(); });`,
+       document.getElementById('second').addEventListener('input', () => { filledAt.second = performance.now(); });
+       document.addEventListener('mousemove', (event) => { filledAt.person ??= event.timeStamp; });`,
     );
     const fill = f.service.execute(
       "thread",
@@ -95,11 +99,12 @@ describe.skipIf(!executablePath)("an agent typing beside the person", () => {
       agent,
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const personAt = Date.now();
     await f.service.input("thread", nudge, "person");
     await fill;
     expect(await read("document.getElementById('second').value")).toBe("two");
-    const second = Number(await read("filledAt.second"));
-    expect(second - personAt).toBeGreaterThanOrEqual(quietMs - 150);
+    const filled = z
+      .object({ person: z.number(), second: z.number() })
+      .parse(await read("filledAt"));
+    expect(filled.second - filled.person).toBeGreaterThanOrEqual(quietMs - 150);
   }, 60_000);
 });

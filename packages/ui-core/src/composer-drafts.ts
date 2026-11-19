@@ -1,5 +1,6 @@
 import { browserAnnotationLimit, type BrowserAnnotation } from "@ace/protocol";
 import type { ComposerToken } from "./composer-tokens.ts";
+import { messageQuoteLimit, type MessageQuote } from "./message-quotes.ts";
 
 /**
  * Browser annotations waiting in a draft (ADR 0082): each record with its element crop, and one
@@ -35,6 +36,8 @@ export interface ComposerDraft {
   /** Uploaded attachments; only ones the daemon already holds survive a reload. */
   attachments: readonly DraftFile[];
   annotations?: DraftAnnotations | undefined;
+  /** Passages of the agent's messages the person marked, each with a comment. */
+  quotes?: readonly MessageQuote[] | undefined;
 }
 
 /** Drafts by key, least recently written first. */
@@ -51,7 +54,9 @@ export function messageHasContent(text: string, files: number): boolean {
 export function isEmptyDraft(draft: ComposerDraft | undefined): boolean {
   return (
     !draft ||
-    (!messageHasContent(draft.text, draft.attachments.length) && !draft.annotations?.items.length)
+    (!messageHasContent(draft.text, draft.attachments.length) &&
+      !draft.annotations?.items.length &&
+      !draft.quotes?.length)
   );
 }
 
@@ -90,6 +95,7 @@ export function putDraft(
   };
   const annotations = boundedAnnotations(draft.annotations);
   if (annotations) kept.annotations = annotations;
+  if (draft.quotes?.length) kept.quotes = draft.quotes.slice(0, messageQuoteLimit);
   return [...rest, [key, kept] as const].slice(-limit);
 }
 

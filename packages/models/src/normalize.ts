@@ -90,17 +90,18 @@ export function normalizeClaude(payload: unknown, instance: ModelInstance): Cata
       }),
     );
 }
+const GroupedSelectOptions = z.array(
+  z.object({ value: z.string(), name: z.string() }).passthrough(),
+);
+const PerModelConfigOptions = z.object({ configOptions: z.array(ConfigOption).max(64).optional() });
 function options(config: z.infer<typeof SelectConfigOption>) {
   return (config.options ?? []).flatMap((option) =>
     "options" in option
-      ? z
-          .array(z.object({ value: z.string(), name: z.string() }).passthrough())
-          .parse(option.options)
-          .map((value) =>
-            /legacy|deprecated|retired/i.test(`${option.group} ${option.name ?? ""}`)
-              ? Object.assign(value, { legacy: true })
-              : value,
-          )
+      ? GroupedSelectOptions.parse(option.options).map((value) =>
+          /legacy|deprecated|retired/i.test(`${option.group} ${option.name ?? ""}`)
+            ? Object.assign(value, { legacy: true })
+            : value,
+        )
       : [option],
   );
 }
@@ -171,9 +172,7 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     }
     if (!modelConfig && selectors?.model) model.selectorMethod = selectors.model.method;
     model.isDefault = row.modelId === current;
-    const perModel = z
-      .object({ configOptions: z.array(ConfigOption).max(64).optional() })
-      .parse(row.native).configOptions;
+    const perModel = PerModelConfigOptions.parse(row.native).configOptions;
     const configs = perModel ?? (model.isDefault ? sessionConfigs : []);
     // Metadata association does not imply model support. Preserve session extensions once,
     // even when per-model configs override semantics or no listed model is current.

@@ -1,11 +1,20 @@
 import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-control.ts";
-import { openProfileView } from "@/test/navigation.ts";
+import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
-import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import {
+  configure,
+  act,
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { composerWords } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import {
   chooseModel,
@@ -43,12 +52,14 @@ async function started(made: ReturnType<typeof harness>) {
 test("⌘N, a project, a model and a message start a thread that then opens", async () => {
   const made = app();
   await made.open("/");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
+  // With several projects, New thread asks which one first.
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   await screen.findByRole("heading", { level: 1, name: "New thread" });
+  expect(await screen.findByRole("button", { name: /^Project: relay/ })).toBeTruthy();
 
-  await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
-  await userEvent.click(await screen.findByRole("option", { name: "relay" }));
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   await closeModelControl();
   expect(
@@ -66,7 +77,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   });
   const created = await started(made);
   expect(created).toMatchObject({ workspaceId: "relay", provider: "codex" });
-  const nav = screen.getByRole("navigation", { name: "Threads" });
+  const nav = screen.getByRole("navigation", { name: "Projects" });
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
 });
 
@@ -223,7 +234,7 @@ test("Shift+Enter writes a new line instead of sending", async () => {
   await made.open("/new");
   const field = await prompt();
   await userEvent.type(field, "First line{Shift>}{Enter}{/Shift}second line");
-  expect((field as HTMLDivElement).textContent).toBe("First line\nsecond line");
+  expect(composerWords(field)).toBe("First line\nsecond line");
   expect(listed(made)).toHaveLength(workbench().length);
 });
 
@@ -276,7 +287,7 @@ test("⇧⌘N starts in the project Home is narrowed to, before the last one use
 
   await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   await screen.findByRole("button", { name: "Project: relay" });
 });
 
@@ -520,6 +531,10 @@ test("a draft typed offline survives a reload and starts its thread once reconne
   );
 });
 
+/** The first bubble as drawn: it renders the message's markdown, "reconnect" in bold. */
+const reconnectBubble = (_: string, node: Element | null) =>
+  node?.tagName === "P" && node.textContent === "Trace the reconnect storm @src/relay.ts";
+
 test("Enter opens the new thread at once with the message as its first bubble, even offline", async () => {
   const made = app();
   await made.open("/new?project=relay");
@@ -528,11 +543,19 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   act(() => made.daemon.refuseConnections(true));
   await waitFor(() => expect(made.client.state).not.toBe("ready"));
 
-  await userEvent.type(field, "Trace the **reconnect** storm @src/relay.ts{Enter}");
+  // Pasted, so the Markdown goes as written: typed, the composer carries the bold past "**".
+  fireEvent.paste(field, {
+    clipboardData: {
+      files: [],
+      items: [],
+      getData: () => "Trace the **reconnect** storm @src/relay.ts",
+    },
+  });
+  await userEvent.type(field, "{Enter}", { skipClick: true });
   // The header reads the provisional title; the message is the first bubble, on its way.
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(feed).getByText("Trace the **reconnect** storm @src/relay.ts")).toBeTruthy();
+  expect(await within(feed).findByText(reconnectBubble)).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
   expect(screen.getByRole("status", { name: /^(Preparing worktree|Starting .+)…$/ })).toBeTruthy();
   expect(listed(made)).toHaveLength(workbench().length);
@@ -552,9 +575,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   });
   expect(created).toMatchObject({ workspaceId: "relay" });
   const opened = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(opened).getAllByText("Trace the **reconnect** storm @src/relay.ts")).toHaveLength(
-    1,
-  );
+  expect(await within(opened).findAllByText(reconnectBubble)).toHaveLength(1);
 });
 
 afterEach(() => vi.restoreAllMocks());

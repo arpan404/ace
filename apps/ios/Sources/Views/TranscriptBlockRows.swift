@@ -16,7 +16,7 @@ extension View {
     func transcriptControlRow() -> some View {
         listRowSeparator(.hidden)
             .listRowBackground(AceTheme.Colours.background)
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.none, trailing: AceTheme.Spacing.xl))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
     }
 }
 
@@ -24,25 +24,25 @@ private extension View {
     func transcriptRow() -> some View {
         listRowSeparator(.hidden)
             .listRowBackground(AceTheme.Colours.background)
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xs, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.xs, trailing: AceTheme.Spacing.xl))
+            .listRowInsets(EdgeInsets(top: AceDesign.Space.tight, leading: AceDesign.Space.margin, bottom: AceDesign.Space.tight, trailing: AceDesign.Space.margin))
     }
 }
 
 /// Stable message shapes while the first bounded snapshot crosses the bridge.
 struct ConversationSkeleton: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxl) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.group) {
             HStack {
-                Spacer(minLength: AceTheme.Spacing.xxxl)
+                Spacer(minLength: AceDesign.Space.section)
                 AceShape.bubble
                     .fill(AceTheme.Colours.fill)
-                    .frame(height: AceTheme.Dimensions.touchTarget)
+                    .frame(height: AceDesign.Size.tap)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
             }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
-                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
-                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
+            VStack(alignment: .leading, spacing: AceDesign.Space.row) {
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceDesign.Space.related)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceDesign.Space.related)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceDesign.Space.related)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
         }

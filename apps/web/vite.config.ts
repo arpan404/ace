@@ -1,15 +1,17 @@
 import { fileURLToPath } from "node:url";
+import { ReleaseVersion } from "@ace/protocol";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 import { contentPolicy } from "./content-policy.ts";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
-import { phosphorWeights } from "./icon-weights.ts";
-import { initialChunk, initialPreloads } from "./initial-preloads.ts";
+import { initialChunk, initialPreloads, windowsEntryGuard } from "./initial-preloads.ts";
 import { mermaidChunk } from "./mermaid-chunk.ts";
 import { lazyIconChunk } from "./icon-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
+import { routePreloads } from "./route-preloads.ts";
+import { precompress } from "./precompress.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
   zodWithoutJsonSchema,
@@ -22,24 +24,34 @@ import {
   zodWithoutUnusedMethods,
 } from "./zod-methods.ts";
 import { workerBundle } from "./worker-bundle.ts";
+import { protocolPieces } from "./protocol-pieces.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
 import { workerJsonZod } from "./worker-json-zod.ts";
 import { pageZod, workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
+const routeComponent = (file: string) =>
+  `${fileURLToPath(new URL(`./src/routes/${file}`, import.meta.url))}?tsr-split=component`;
+/** The first screens a page load opens at, and the route components each loads first. */
+const firstScreens = [
+  {
+    path: "^/t/[^/]+/?$",
+    modules: [routeComponent("_home.tsx"), routeComponent("_home.t.$threadId.tsx")],
+  },
+  { path: "^/?$", modules: [routeComponent("_home.tsx"), routeComponent("_home.index.tsx")] },
+];
 /** Names this build, so data kept by another build (persisted lookups) is never read as ours. */
 const build = Date.now().toString(36);
 
 // The router plugin must precede the React plugin so route files are generated and split first.
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode, command }) => ({
   plugins: [
     tanstackRouter({ target: "react", autoCodeSplitting: true, quoteStyle: "double" }),
     ...reactPlugins(),
     tailwindcss(),
     cssWithoutLegacyPolyfills(),
     katexWoff2(),
-    phosphorWeights(),
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),
     zodWithoutUnusedMethods(),
@@ -48,10 +60,37 @@ export default defineConfig(({ mode }) => ({
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
+    // Before the content policy, which hashes the inline script this adds.
+    routePreloads(firstScreens),
     contentPolicy(),
+    precompress(),
+    // Windows: fail the build if the page entry ever joins a shared chunk (`initial-preloads.ts`).
+    ...(process.platform === "win32"
+      ? [windowsEntryGuard(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))]
+      : []),
   ],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    // One React for the app and the markit submodule's binding, which has no node_modules.
+    dedupe: ["react", "react-dom"],
+  },
+  define: {
+    "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build),
+    // The app's `ace-client` version (ADR 0189): the release's, or development under the dev
+    // server. A build without a semver ACE_VERSION names none (it may be "development" from a
+    // running daemon's environment, which isn't this build's).
+    "import.meta.env.VITE_ACE_VERSION": JSON.stringify(
+      ReleaseVersion.safeParse(process.env.ACE_VERSION).success
+        ? process.env.ACE_VERSION
+        : command === "serve"
+          ? "development"
+          : "",
+    ),
+    // The fake app pushes to its moving sample PR this often (ms); off when unset.
+    "import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS": JSON.stringify(
+      process.env.ACE_FAKE_PR_PUSH_EVERY_MS ?? "",
+    ),
+  },
   build: {
     target: "es2023",
     // Standard compression keeps the full validated worker within its existing byte budget.
@@ -66,7 +105,7 @@ export default defineConfig(({ mode }) => ({
           groups: [
             initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
             mermaidChunk(),
-            lazyIconChunk(),
+            lazyIconChunk(routeComponent("_home.t.$threadId.tsx")),
           ],
         },
       },
@@ -76,6 +115,7 @@ export default defineConfig(({ mode }) => ({
   worker: {
     format: "es",
     plugins: () => [
+      protocolPieces(),
       workerZodWithoutJsonSchema(),
       workerJsonZod(),
       zodWithoutMetadata(),

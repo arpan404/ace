@@ -1,0 +1,19 @@
+{
+  "name": "@ace/push-gateway",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "start": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@ace/notify": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/relay": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

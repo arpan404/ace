@@ -1,6 +1,7 @@
 import { isAbsolute, join } from "node:path";
+import sharp from "sharp";
 import type { DeviceChrome } from "@ace/protocol/devices";
-import { androidSkinChrome } from "./android-skin.ts";
+import { androidSkinChrome, type SkinImage } from "./android-skin.ts";
 
 /*
  * Finding an emulator's skin: the AVD's config names it (`skin.path`, `skin.name`, or the
@@ -27,8 +28,34 @@ export function iniValues(text: string): Map<string, string> {
   return values;
 }
 
-/** Image bytes larger than this aren't sent (the chrome travels in one message). */
+/** Image bytes larger than this aren't read (the chrome travels in one message). */
 const imageLimit = 700 * 1024;
+
+/** A skin image as a data URL, with its alpha decoded so its shapes can be measured. */
+async function skinImage(bytes: Uint8Array, file: string): Promise<SkinImage> {
+  const type = file.toLowerCase().endsWith(".png") ? "png" : "webp";
+  const url = `data:image/${type};base64,${Buffer.from(bytes).toString("base64")}`;
+  const decoded = await sharp(bytes)
+    .ensureAlpha()
+    .extractChannel(3)
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+    .catch(() => undefined);
+  if (!decoded) return { url, alpha: () => undefined };
+  const { data, info } = decoded;
+  return {
+    url,
+    alpha: (x, y) =>
+      Number.isInteger(x) &&
+      Number.isInteger(y) &&
+      x >= 0 &&
+      y >= 0 &&
+      x < info.width &&
+      y < info.height
+        ? data[y * info.width + x]
+        : undefined,
+  };
+}
 const plainName = (name: string) => /^[A-Za-z0-9_.-]+$/.test(name) && name !== "." && name !== "..";
 
 async function readText(source: AndroidSkinSource, path: string) {
@@ -85,8 +112,7 @@ export async function readAndroidSkin(
     return androidSkinChrome(layout, async (file) => {
       const bytes = await source.readFile(join(directory, file));
       if (!bytes || bytes.byteLength > imageLimit) return undefined;
-      const type = file.toLowerCase().endsWith(".png") ? "png" : "webp";
-      return `data:image/${type};base64,${Buffer.from(bytes).toString("base64")}`;
+      return skinImage(bytes, file);
     });
   }
   return undefined;

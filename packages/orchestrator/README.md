@@ -2,7 +2,7 @@
 
 Pure orchestration decisions and engine-facing execution ports. No provider
 sessions, credentials, timers or daemon database are created here. Requires
-Node 24+; provider execution is the engine's responsibility.
+Node 26+; provider execution is the engine's responsibility.
 
 ```ts
 import { create, apply, execute, recover, spawnAgent } from "@ace/orchestrator";

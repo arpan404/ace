@@ -397,6 +397,10 @@ export function settingsValues(): Partial<SettingsValues> & Record<string, unkno
   return {
     "providers.default": "claude",
     "remote.enabled": true,
-    "remote.transport": "tailscale",
+    "remote.lan": false,
+    "remote.tailscale": true,
+    // A machine that turned Spade and the marketplace on in Settings › Beta.
+    "beta.spade": true,
+    "beta.marketplace": true,
   };
 }

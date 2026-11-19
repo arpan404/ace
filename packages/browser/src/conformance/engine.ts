@@ -11,7 +11,10 @@ export type ConformanceServiceOptions = Pick<
 
 export interface ConformanceEngineContext {
   options: ConformanceServiceOptions;
-  /** Runs after the scenario, newest first, whether it passed or not. */
+  /**
+   * Runs when the engine is done, newest first, whether its scenarios passed or not. An engine
+   * serves many scenarios, each in its own thread browser.
+   */
   cleanup(close: () => Promise<void> | void): void;
 }
 

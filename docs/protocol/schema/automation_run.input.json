@@ -13,13 +13,13 @@
       "type": "string"
     },
     "id": {
-      "description": "The automation's id, as you named it in automation_put.",
+      "description": "The id you gave it in automation_put.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
     "requestId": {
-      "description": "run: any stable id; repeats run once.",
+      "description": "run: any stable id; a repeat runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
@@ -28,7 +28,7 @@
     "variables": {
       "$ref": "https://ace.local/protocol/v1/TriggerVariables.json",
       "default": {},
-      "description": "run: values for {{name}} placeholders in its prompt."
+      "description": "run: values for {{name}} in its prompt."
     }
   },
   "required": [

@@ -48,14 +48,16 @@ async function connect(headers: Readonly<Record<string, string>>) {
   });
   return { full: agent, other };
 }
-/** How Cursor's SDK connects: its injection's own headers, credential aside. */
-const cursorHeaders = () => {
-  const { Authorization: _credential, ...headers } = cursorSdkInjection({
-    url: "http://127.0.0.1:1/mcp",
-    bearer: "0".repeat(64),
-  }).mcpServers.ace.headers;
-  return headers;
-};
+/** How an ACP agent on the fixed list connects: its injection's own headers, credential aside. */
+const staticHeaders = () =>
+  Object.fromEntries(
+    (
+      acpInjection({ url: "http://127.0.0.1:1/mcp", bearer: "0".repeat(64) }).mcpServers[0]
+        ?.headers ?? []
+    )
+      .filter((header) => header.name !== "Authorization")
+      .map((header) => [header.name, header.value]),
+  );
 
 it("tools_find offers the computer-use tools for clicking in an app only while computer use is on", async () => {
   world = await evalWorld({ browser: false });
@@ -76,17 +78,6 @@ it.skipIf(!chromium)("tools_find ranks the browser's tab tool first for tab work
     expect(found(await agent.call("tools_find", { query }))[0], query).toBe("browser_tabs");
 });
 
-it("tools_find narrows to any family a guide opens, offshift included", async () => {
-  world = await evalWorld({ browser: false });
-  const { agent } = await world.agent({});
-  const result = await agent.call("tools_find", {
-    query: "own a coding outcome end to end",
-    family: "offshift",
-  });
-  expect(result.failed, result.text).toBe(false);
-  expect(found(result)).toEqual(["offshift"]);
-});
-
 it("tools_find answers a query nothing matches with where to look next", async () => {
   world = await evalWorld({ browser: false });
   const { agent } = await world.agent({});
@@ -95,9 +86,14 @@ it("tools_find answers a query nothing matches with where to look next", async (
   expect(result.hint).toContain("guide");
 });
 
-it("Cursor and ACP agents start with the core tools plus tools_find and tools_call", async () => {
+it("ACP agents start with the core tools plus tools_find and tools_call", async () => {
   world = await evalWorld({ browser: true });
-  const { full, other: cursor } = await connect(cursorHeaders());
+  // Cursor's model calls only tools its connection listed, so Cursor is given every tool.
+  expect(
+    cursorSdkInjection({ url: "http://127.0.0.1:1/mcp", bearer: "0".repeat(64) }).mcpServers.ace
+      .headers,
+  ).not.toHaveProperty(staticToolsHeader.name);
+  const { full, other: cursor } = await connect(staticHeaders());
   // The core tools this thread is offered (a root thread whose provider asks for itself has no
   // `ask`), and the two ways to the rest.
   const offeredCore = full.tools
@@ -108,7 +104,7 @@ it("Cursor and ACP agents start with the core tools plus tools_find and tools_ca
   expect(cursor.tools.map((tool) => tool.name).toSorted()).toEqual(expected);
   expect(cursor.tools.length).toBeLessThanOrEqual(12);
   expect(full.tools.length).toBeGreaterThan(expected.length * 3);
-  // ACP's HTTP injection asks for the same listing.
+  // ACP's HTTP injection asks for the fixed listing.
   const acp = acpInjection({ url: "http://127.0.0.1:1/mcp", bearer: "0".repeat(64) });
   expect(acp.mcpServers[0]?.headers).toContainEqual(staticToolsHeader);
   // tools_call says it can reach destructive tools, so a client that gates those asks first.
@@ -121,7 +117,7 @@ it("Cursor and ACP agents start with the core tools plus tools_find and tools_ca
 
 it("tools_call runs a read-only tool and returns exactly what calling it directly returns", async () => {
   world = await evalWorld({ browser: false });
-  const { full, other: cursor } = await connect(cursorHeaders());
+  const { full, other: cursor } = await connect(staticHeaders());
   const direct = await full.call("automations_list", {});
   const dispatched = await cursor.call("tools_call", { name: "automations_list", arguments: {} });
   expect(dispatched.failed, dispatched.text).toBe(false);
@@ -132,7 +128,7 @@ it("tools_call runs a read-only tool and returns exactly what calling it directl
 
 it("tools_call refuses arguments the target's schema refuses, with the same error as a direct call", async () => {
   world = await evalWorld({ browser: false });
-  const { full, other: cursor } = await connect(cursorHeaders());
+  const { full, other: cursor } = await connect(staticHeaders());
   const bad = { id: "nightly", title: "Nightly", prompt: "Lint", bogus: true };
   const direct = await full.call("automation_put", bad);
   const dispatched = await cursor.call("tools_call", { name: "automation_put", arguments: bad });
@@ -145,7 +141,7 @@ it("tools_call refuses arguments the target's schema refuses, with the same erro
 
 it("tools_call refuses to run tools_call or tools_find, and points an unknown name at tools_find", async () => {
   world = await evalWorld({ browser: false });
-  const { other: cursor } = await connect(cursorHeaders());
+  const { other: cursor } = await connect(staticHeaders());
   for (const name of ["tools_call", "tools_find", "mcp__ace__tools_call"]) {
     const nested = await cursor.call("tools_call", { name, arguments: { query: "x" } });
     expect(nested.failed, name).toBe(true);
@@ -172,11 +168,11 @@ it("tools_call is offered to every client whose list lacks tools, never to one l
   const early = await core.call("tools_call", { name: "automations_list", arguments: {} });
   expect(early.failed, early.text).toBe(false);
   expect(early.data).toEqual((await full.call("automations_list", {})).data);
-  // Claude Code defers ace's tools but keeps tools_find loaded; Antigravity reads its own key.
-  expect(full.tools.find((tool) => tool.name === "tools_find")?.["_meta"]).toMatchObject({
-    "anthropic/alwaysLoad": true,
-    "antigravity/alwaysLoad": true,
-  });
+  // Claude Code searches deferred tools itself, so tools_find stays deferred there; Antigravity,
+  // which has no search, loads it by its own key.
+  const meta = full.tools.find((tool) => tool.name === "tools_find")?.["_meta"];
+  expect(meta?.["anthropic/alwaysLoad"]).toBeUndefined();
+  expect(meta?.["antigravity/alwaysLoad"]).toBe(true);
   await core.close();
 });
 

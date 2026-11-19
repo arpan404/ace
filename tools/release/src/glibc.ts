@@ -2,11 +2,12 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * The oldest C and C++ runtimes a Linux release supports: Debian 11's glibc 2.31 and the
- * libstdc++ of GCC 10 (Ubuntu 20.04, Debian 11). Release natives are built in a Debian 11
- * container (tools/release/linux), so nothing they link needs a newer symbol version.
+ * The oldest C and C++ runtimes a Linux release supports: Debian 12's glibc 2.36 and the
+ * libstdc++ of GCC 12. Ubuntu 24.04+, Debian 13, Fedora and Arch are newer. Release natives are
+ * built in a Debian 12 container (tools/release/linux), so nothing they link needs a newer
+ * symbol version.
  */
-export const linuxRuntimeFloor = { glibc: "2.31", glibcxx: "3.4.28" } as const;
+export const linuxRuntimeFloor = { glibc: "2.36", glibcxx: "3.4.30" } as const;
 
 /** The newest glibc and libstdc++ symbol versions an ELF file requires, when it requires any. */
 export interface VersionNeeds {
@@ -161,7 +162,7 @@ export async function assertLinuxRuntimeFloor(
   });
   if (problems.length)
     throw new Error(
-      `Linux natives need a newer runtime than glibc ${linuxRuntimeFloor.glibc} / GLIBCXX ${linuxRuntimeFloor.glibcxx}; build them in the Debian 11 container (tools/release/linux):\n  ` +
+      `Linux natives need a newer runtime than glibc ${linuxRuntimeFloor.glibc} / GLIBCXX ${linuxRuntimeFloor.glibcxx}; build them in the Debian 12 container (tools/release/linux):\n  ` +
         problems.map(({ path, needs }) => `${path}: ${describe(needs)}`).join("\n  "),
     );
   return known;

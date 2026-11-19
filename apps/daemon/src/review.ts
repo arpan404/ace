@@ -106,10 +106,14 @@ export async function dispatchReviewCommand(
     return { commandId: command.id, ok: false, error: "review_pending" };
   });
   if (!reserved && previous.error !== "review_pending") return previous;
+  // A retry may come through the same device's other id (ADR 0115); the worker knows the
+  // command by the id that reserved it.
+  const owner = reserved ? command.deviceId : store.commandOwner(command.id, command.deviceId);
+  if (!owner) return previous;
   const result = reserved
     ? await port.handle(command)
     : port.recover
-      ? await port.recover(command)
+      ? await port.recover({ ...command, deviceId: owner })
       : previous;
   if (result.error === "review_busy" || result.error === "review_closed") {
     // No worker effect was admitted on a new request. A retry must keep an

@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
 import { FakeDaemon } from "@ace/fake-daemon";
 import { ServerMessage } from "@ace/protocol";
@@ -30,9 +31,9 @@ test("GitHub search filters results, and Enter on one opens the clone step with 
   expect(url).toHaveProperty("value", "https://github.com/ace-org/docs.git");
   expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "docs");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  await screen.findByRole("progressbar", { name: "Clone progress" });
+  await screen.findByText(/^Cloning ace-org\/docs…/);
   await userEvent.click(screen.getByRole("button", { name: "Cancel clone" }));
-  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Cloning ace-org\/docs/)).toBeNull());
   expect(app.daemon.projects.list().workspaces).toEqual([]);
 });
 test("an explicitly changed account cannot reuse another account's selectable repository results", async () => {
@@ -204,4 +205,51 @@ test("a stale running snapshot waiting for readiness cannot overwrite the comple
     "disabled",
     false,
   );
+});
+
+/** A window whose client notes each repository list it asks the daemon for (each runs `gh`). */
+function countingLists() {
+  const lists: unknown[] = [];
+  const app = harness({
+    client: (daemon) => {
+      const client = fakeClient(daemon);
+      const request = client.request.bind(client);
+      client.request = ((message, options) => {
+        if (message.type === "repositories.request" && message.operation.op === "list")
+          lists.push(message.operation.input);
+        return request(message, options);
+      }) as typeof client.request;
+      return client;
+    },
+  });
+  app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/code" }]);
+  return { app, lists };
+}
+
+test("typing a repository owner asks GitHub once, keeping the last list dimmed meanwhile", async () => {
+  const { app, lists } = countingLists();
+  await browse(app);
+  await screen.findByRole("option", { name: /ada\/engine/ });
+  const before = lists.length;
+  await userEvent.click(screen.getByRole("button", { name: "Repository filters" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Repository owner" }), "ace-org");
+  // While typing, the last list stays up but can't be picked.
+  const kept = screen.getByRole("option", { name: /ada\/engine/, hidden: true });
+  expect(kept.getAttribute("aria-disabled")).toBe("true");
+  await waitFor(() => expect(lists.length).toBe(before + 1));
+  expect(lists.at(-1)).toMatchObject({ owner: "ace-org" });
+});
+
+test("Back to GitHub from Clone shows its list at once", async () => {
+  const { app, lists } = countingLists();
+  await browse(app);
+  await userEvent.click(await screen.findByRole("option", { name: /ada\/engine/ }));
+  await screen.findByRole("textbox", { name: "Repository address" });
+  const before = lists.length;
+
+  await userEvent.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("combobox", { name: "Search GitHub repositories" });
+  expect(screen.getByRole("option", { name: /ada\/engine/ })).toBeTruthy();
+  // It asks again in the background, once.
+  await waitFor(() => expect(lists.length).toBe(before + 1));
 });

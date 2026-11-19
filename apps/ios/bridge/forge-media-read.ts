@@ -5,6 +5,8 @@ import {
   forgeMediaMaxBytes,
   type ForgeMediaUnavailable,
 } from "@ace/protocol";
+import { can } from "@ace/ui-core";
+import { capabilitySource } from "./forge-features.ts";
 import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
 import type { ForgeReads } from "./forge-reads.ts";
@@ -64,6 +66,8 @@ export async function readMedia(
   request: ForgeMediaRequest,
   signal: AbortSignal,
 ): Promise<MediaReply> {
+  if (!can(await capabilitySource(reads, request.project, request.repository), "media"))
+    return unavailable("unsupported");
   const resolved = await reads
     .read(
       {

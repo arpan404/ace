@@ -10,7 +10,9 @@ import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import { piNative } from "@ace/provider-kit/access-modes";
 import {
+  assertSteerTarget,
   InputRejected,
+  type InputSource,
   type ProviderSession,
   type SessionContext,
   type Frame,
@@ -55,6 +57,14 @@ export async function openPiSession(
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };
+  // Windows has no SIGTERM for a console child: closing stdin is the polite stop there, and
+  // the recorded tree is gone before a stop resolves.
+  const windows = (io.platform ?? process.platform) === "win32";
+  let treeStop: Promise<unknown> | undefined;
+  const stopTree = () =>
+    (treeStop ??= import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
+      stopTreeAfterEof(proc, 1000),
+    ));
   const cli =
     (ctx.executable ? undefined : options.cli) ??
     (await io.discover({
@@ -108,6 +118,8 @@ export async function openPiSession(
   }
   const env = {
     ...ctx.env,
+    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0178 §10).
+    ...ctx.agentEnv,
     ACE_PI_SESSION_FILE: configuration.path,
     ACE_PI_CONTROL_SECRET: undefined,
     ACE_PI_MCP_URL: undefined,
@@ -188,8 +200,11 @@ export async function openPiSession(
     dialogs.clear();
     ctx.signal.removeEventListener("abort", abort);
   };
+  /** A close nobody awaits: its failure is noted here; an awaited close still rejects with it. */
+  const stopFailed = (error: unknown) =>
+    note({ event: "stop-failed", message: error instanceof Error ? error.message : String(error) });
   const fatal = () => {
-    void close("shutdown", false);
+    void close("shutdown", false).catch(stopFailed);
   };
   const rpc = new PiRpc(
     proc,
@@ -250,10 +265,13 @@ export async function openPiSession(
     (exit) =>
       new Promise<typeof exit>((resolve) => {
         const cancel = io.schedule(() => resolve(exit), 1000);
-        void stderrEnded.then(() => {
-          cancel();
-          resolve(exit);
-        });
+        // stderrEnded never rejects; this only ends the drain wait.
+        void stderrEnded
+          .then(() => {
+            cancel();
+            resolve(exit);
+          })
+          .catch(() => {});
       }),
   );
   function close(_reason: "idle" | "user" | "shutdown", expected = true): Promise<void> {
@@ -263,22 +281,31 @@ export async function openPiSession(
     release();
     rpc.close();
     detachStderr();
+    if (windows) {
+      closePromise = stopTree().then(() => {});
+      return closePromise;
+    }
     closePromise = proc.stop({ graceMs: 1000 }).then(() => {});
     return closePromise;
   }
   function abort() {
-    void close("shutdown");
+    void close("shutdown").catch(stopFailed);
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
-  void proc.exited.then(() => {
-    closed = true;
-    release();
-    rpc.close();
-  });
-  void drained.then((exit) => {
-    detachStderr();
-    ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
-  });
+  // A session that exits is stopping too, so a failure here is noted like a close's.
+  void proc.exited
+    .then(() => {
+      closed = true;
+      release();
+      rpc.close();
+    })
+    .catch(stopFailed);
+  void drained
+    .then((exit) => {
+      detachStderr();
+      ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
+    })
+    .catch(stopFailed);
   const checkOpen = () => {
     if (closed) throw new Error("Pi session closed");
     ctx.signal.throwIfAborted();
@@ -326,6 +353,7 @@ export async function openPiSession(
     // detaching, so the open failure's Details carry it.
     if (!closePromise) {
       deliberate = false;
+      if (windows) await stopTree();
       await proc.stop({ graceMs: 1000 });
       await drained;
     }
@@ -344,7 +372,8 @@ export async function openPiSession(
       input: ContentPart[],
       delivery: "steer" | "queue",
       _commandId?: string,
-      origin?: "ace",
+      origin?: InputSource,
+      fence?: import("@ace/engine-api").SteerFence,
     ) {
       // Pi took none of this send until a prompt is written and not refused. Once one prompt
       // is accepted, a later failure leaves the send partly taken, so it may have run.
@@ -363,6 +392,8 @@ export async function openPiSession(
         // Validate every admission before the first one can reach the harness.
         const inputs = nativeCommandInputs(input).map(piInput);
         for (const content of inputs) {
+          // Before the first prompt only: once one is taken, the rest belong with it.
+          if (accepted === 0) assertSteerTarget(delivery, fence);
           requested = true;
           await rpc.request("prompt", {
             ...content,
@@ -371,6 +402,7 @@ export async function openPiSession(
           accepted++;
         }
       } catch (error) {
+        if (error instanceof InputRejected && accepted === 0) throw error;
         if (accepted === 0 && (!requested || error instanceof PiCommandRefused))
           throw new InputRejected(error instanceof Error ? error.message : String(error), {
             cause: error,

@@ -2,7 +2,8 @@ import { SettingsKey } from "@ace/protocol";
 import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { RoleSettingsState } from "../role-settings.ts";
 import { ChildLimitSetting } from "../child-limit-setting.ts";
-import { SettingsService } from "@ace/settings";
+import { SettingsError, SettingsService } from "@ace/settings";
+import { isAgentDevice, settingWriteRefusal } from "../answer-gate.ts";
 import type { ServiceContext } from "./types.ts";
 import { downloadsHost, systemDownloadsFolder, usableFolder } from "../download-folder.ts";
 export async function startSettings(context: ServiceContext): Promise<void> {
@@ -52,44 +53,60 @@ export function createSettingsSession(context: SocketContext): SocketService {
           key !== "sourceControl.preferences" &&
           key !== "projects.roots" &&
           key !== "clients.theme" &&
+          // Older clients still read their shortcuts here; newer ones keep them per device.
+          key !== "clients.keybindings" &&
           (!(key.startsWith("host.") || key.startsWith("remote.")) ||
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
+          (!key.startsWith("media.") || authorize("admin")) &&
+          (!key.startsWith("beta.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
-          (key !== "computer.blockedApps" || authorize("admin")),
+          ((key !== "computer.blockedApps" &&
+            key !== "providers.codex.toolSource" &&
+            key !== "providers.claude.chrome" &&
+            key !== "computer.lockedUse" &&
+            key !== "spade.enabled") ||
+            authorize("admin")),
       ),
-    set: async (key, value, commit) => {
-      if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
-      else await commit();
+    // Every write, single, batched or a reset, asks this for each key it names (ADR 0190): an
+    // agent's device writes nothing, and a guarded setting needs the person's standing.
+    refuse: async (key) => {
+      const refused = await settingWriteRefusal(key, {
+        device: context.device(),
+        unproven: context.personProven?.() !== true,
+      });
+      return refused ? new SettingsError(refused.code, refused.message) : undefined;
     },
-    authorize: (request) =>
-      request.type === "settings.set" &&
-      (request.key === "sourceControl.preferences" ||
-        request.key === "projects.roots" ||
-        request.key === "providers.configuration" ||
-        request.key.startsWith("storage.") ||
-        // Where the daemon writes downloaded files on its machine.
-        request.key.startsWith("browser.download") ||
-        // Which apps agents can't use: only the person may loosen it.
-        request.key === "computer.blockedApps" ||
-        request.key.startsWith("host.") ||
-        request.key.startsWith("remote."))
-        ? request.layer.kind === "global" &&
-          authorize("admin") &&
-          (request.key !== "projects.roots" || authorize("projects"))
-        : authorize(
-            request.type === "settings.set" || request.type === "settings.reset"
-              ? "operate"
-              : "read",
-          ),
+    set: async (key, value, commit) => {
+      const write = async () => {
+        if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
+        else await commit();
+      };
+      // The whole list replaces the roots: it waits for any root edit under way, and they for it.
+      if (key === "projects.roots" && options.projects)
+        await options.projects.roots.exclusive(write);
+      else await write();
+    },
+    authorize: (request) => {
+      if (request.type === "settings.setMany")
+        return request.entries.every((entry) =>
+          allowedWrite(entry.key, request.layer.kind, authorize),
+        );
+      return request.type === "settings.set"
+        ? allowedWrite(request.key, request.layer.kind, authorize)
+        : request.type === "settings.reset"
+          ? authorize("operate") && !isAgentDevice(context.device())
+          : authorize("read");
+    },
   });
   return {
     close() {
       settings.close();
       const pending = settings.drained();
       tasks.add(pending);
-      void pending.finally(() => tasks.delete(pending));
+      // drained() never rejects: its own chain answers every request and logs its failure.
+      void pending.finally(() => tasks.delete(pending)).catch(() => {});
     },
     async handle(message) {
       switch (message.type) {
@@ -104,6 +121,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
           return true;
         case "settings.reset":
         case "settings.set":
+        case "settings.setMany":
           if (!authorize("operate")) {
             fail("forbidden", "Operate scope required", false, { requestId: message.requestId });
             return true;
@@ -114,4 +132,32 @@ export function createSettingsSession(context: SocketContext): SocketService {
       return false;
     },
   };
+}
+
+/** Whether this device may write `key` on `layer`: admin-only keys need admin, on the global layer. */
+function allowedWrite(key: string, layer: string, authorize: SocketContext["authorize"]): boolean {
+  const adminOnly =
+    key === "sourceControl.preferences" ||
+    key === "projects.roots" ||
+    key === "providers.configuration" ||
+    key.startsWith("storage.") ||
+    // Where the daemon writes downloaded files on its machine.
+    key.startsWith("browser.download") ||
+    // Which apps agents can't use: only the person may loosen it.
+    key === "computer.blockedApps" ||
+    // Whether agents may operate this Mac while it is locked.
+    key === "computer.lockedUse" ||
+    // Which plugins, MCP servers and Chrome access providers start with (ADR 0138).
+    key === "providers.codex.toolSource" ||
+    key === "providers.claude.chrome" ||
+    key.startsWith("host.") ||
+    key.startsWith("remote.") ||
+    // How this machine encodes and delivers screens and video (the Beta media pipeline).
+    key.startsWith("media.") ||
+    // Which beta features this machine shows (Spade, the marketplace).
+    key.startsWith("beta.");
+  if (!adminOnly) return authorize("operate");
+  return (
+    layer === "global" && authorize("admin") && (key !== "projects.roots" || authorize("projects"))
+  );
 }

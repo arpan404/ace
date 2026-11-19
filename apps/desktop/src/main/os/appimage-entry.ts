@@ -106,7 +106,7 @@ function desktopEntry(executable: string, icon: boolean): string {
     ...(icon ? ["Icon=ace-desktop"] : []),
     "Terminal=false",
     "Categories=Development;",
-    "MimeType=x-scheme-handler/ace;inode/directory;",
+    "MimeType=x-scheme-handler/ace;",
     "StartupWMClass=dev.ace.app",
     "",
   ].join("\n");

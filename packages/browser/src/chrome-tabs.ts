@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WindowRest } from "./window-rest.ts";
 import { BrowserDialog, type BrowserTab } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import type { Schedule } from "./cdp-connection.ts";
@@ -20,11 +21,15 @@ import { certificateErrors } from "./certificate-errors.ts";
 import { FileChooserPrompt } from "./file-chooser.ts";
 import { needsOpener, opensWindow, PopupPairing, type PopupKind } from "./popup-kind.ts";
 
+const EvaluateOutcome = z.object({ exceptionDetails: z.unknown().optional() });
+
 const Navigated = z.object({
   frame: z.object({
     url: z.string(),
     urlFragment: z.string().optional(),
     parentId: z.string().optional(),
+    /** On Chrome's error page (`chrome-error://`): the address that failed to load. */
+    unreachableUrl: z.string().optional(),
   }),
 });
 const SameDocument = z.object({ frameId: z.string(), url: z.string() });
@@ -32,6 +37,7 @@ const Dialog = z.object({
   type: BrowserDialog.shape.type,
   message: z.string(),
   defaultPrompt: z.string().optional(),
+  url: z.string().optional(),
 });
 const WindowOpen = z.object({
   url: z.string().max(8192),
@@ -81,6 +87,8 @@ interface Tab {
   /** Idle long enough that its page was dropped; it reopens at its address on next use. */
   discarded?: boolean | undefined;
   reviving?: Promise<void> | undefined;
+  /** Hides and shows its page while idle; a new one with each target. */
+  windowRest?: WindowRest | undefined;
   release(): void;
   stops: (() => void)[];
 }
@@ -90,6 +98,19 @@ interface Tab {
  * its own top-level target with its own window and flattened CDP session, so tabs render and
  * take input independently. `active` is only the tab the person is shown.
  */
+/** Presses the warning page's own "proceed" once Chrome has given the page its controller. */
+const proceedOnWarningPage = `new Promise((resolve, reject) => {
+  const until = performance.now() + 5000;
+  const press = () => {
+    if (typeof certificateErrorPageController === "object") {
+      certificateErrorPageController.proceed();
+      resolve(true);
+    } else if (performance.now() > until) reject(new Error("No certificate warning controller"));
+    else setTimeout(press, 25);
+  };
+  press();
+})`;
+
 export class ChromeTabs {
   private tabs = new Map<string, Tab>();
   private starting = 0;
@@ -160,14 +181,20 @@ export class ChromeTabs {
       try {
         await this.bind(tab, target);
       } catch (error) {
-        void host.instance.targets.close(target.targetId);
+        // close() already swallows its CDP failure; the bind error is the one worth reporting.
+        void host.instance.targets.close(target.targetId).catch(() => {});
         throw error;
       }
     }
     await Promise.all(tabs.map((tab) => this.reopen(tab)));
     this.request.changed?.();
   }
-  /** Loads a recreated tab's last address; a slow page fails on its own without the others. */
+  /**
+   * Loads a recreated tab's last address. The tab is back whether or not its page loads: a page
+   * whose server is gone (a stopped dev server) or that is slow shows what a browser would, and
+   * neither fails the other tabs nor the restart, which would otherwise be tried again and again.
+   * Only the browser closing under it fails.
+   */
   private async reopen(tab: Tab): Promise<void> {
     if (tab.url === "about:blank") return;
     const deadline = new AbortController();
@@ -177,6 +204,8 @@ export class ChromeTabs {
     );
     try {
       await navigateCdp(tab.cdp, tab.url, AbortSignal.any([this.request.signal, deadline.signal]));
+    } catch (error) {
+      if (this.request.signal.aborted || this.stopped) throw error;
     } finally {
       cancel();
     }
@@ -283,15 +312,18 @@ export class ChromeTabs {
   }
   /**
    * The person proceeds past the certificate error shown for `url`. Chrome's own interstitial
-   * records the exception for that host and certificate until the browser restarts.
+   * records the exception for that host and certificate until the browser restarts. The
+   * warning page commits after the load fails, and Chrome gives it its controller only after
+   * that, so both are waited for.
    */
   async proceedCertificate(id: string, url: string): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
-    tab.certificates.expect(url);
-    const result = z.object({ exceptionDetails: z.unknown().optional() }).parse(
+    await tab.certificates.shown(url);
+    const result = EvaluateOutcome.parse(
       await tab.cdp.send("Runtime.evaluate", {
-        expression: "certificateErrorPageController.proceed()",
+        expression: proceedOnWarningPage,
+        awaitPromise: true,
       }),
     );
     if (result.exceptionDetails) throw new Error("This certificate error cannot be bypassed");
@@ -362,7 +394,7 @@ export class ChromeTabs {
         });
         await this.bind(tab, target);
       } catch (error) {
-        if (target) void host.instance.targets.close(target.targetId);
+        if (target) void host.instance.targets.close(target.targetId).catch(() => {});
         tab.release();
         tab.release = () => {};
         throw error;
@@ -378,6 +410,20 @@ export class ChromeTabs {
   /** Whether the tab's page was dropped while idle and has not reopened yet. */
   discarded(id: string): boolean {
     return this.tabs.get(id)?.discarded === true;
+  }
+  /**
+   * Hides an idle tab's page (its window minimized, focus emulation off), or shows it again
+   * (`window-rest.ts`). A hidden page draws no frames, which a frozen page still does for its CSS
+   * animations; its scripts keep running. Each call waits for the changes asked before it.
+   */
+  rest(id: string, resting: boolean): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab?.target || tab.discarded || !tab.windowRest) return Promise.resolve();
+    return tab.windowRest.set(resting);
+  }
+  /** Whether the tab's page is hidden by `rest`, about to be, or partly so after a failed show. */
+  resting(id: string): boolean {
+    return this.tabs.get(id)?.windowRest?.resting === true;
   }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {
@@ -437,7 +483,7 @@ export class ChromeTabs {
     } catch (error) {
       if (tab) this.remove(tab, false);
       else release();
-      if (target) void host.instance.targets.close(target.targetId);
+      if (target) void host.instance.targets.close(target.targetId).catch(() => {});
       throw error;
     } finally {
       this.starting--;
@@ -538,6 +584,7 @@ export class ChromeTabs {
         type: parsed.data.type,
         message: parsed.data.message.slice(0, 4096),
         defaultPrompt: parsed.data.defaultPrompt?.slice(0, 4096),
+        url: parsed.data.url?.slice(0, 8192),
       });
       this.request.changed?.();
     });
@@ -550,7 +597,10 @@ export class ChromeTabs {
     on("Page.frameNavigated", (raw) => {
       const parsed = Navigated.safeParse(raw);
       if (!parsed.success || parsed.data.frame.parentId) return;
-      tab.url = (parsed.data.frame.url + (parsed.data.frame.urlFragment ?? "")).slice(0, 8192);
+      // A page that failed to load keeps its address, as a browser's address bar does, so a
+      // reload or a restart tries it again rather than Chrome's error page.
+      const { frame } = parsed.data;
+      tab.url = (frame.unreachableUrl ?? frame.url + (frame.urlFragment ?? "")).slice(0, 8192);
       this.navigated(tab);
     });
     on("Page.navigatedWithinDocument", (raw) => {
@@ -630,6 +680,9 @@ export class ChromeTabs {
     if (!host || this.stopped) throw new Error("Browser closed");
     tab.target = target;
     tab.binding++;
+    // A new target opens in a new, shown window; changes queued for the old one are dropped.
+    tab.windowRest?.retire();
+    tab.windowRest = new WindowRest((method, params) => tab.cdp.send(method, params));
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       tab.popups.arrived(popup),

@@ -6,6 +6,11 @@
       "default": [],
       "items": {
         "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
           "sha256": {
             "$ref": "https://ace.local/protocol/v1/BlobHash.json"
           }

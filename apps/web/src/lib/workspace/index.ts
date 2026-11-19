@@ -31,12 +31,14 @@ export {
 } from "./registry.ts";
 export {
   PanelPlaceContext,
+  PanelRoomContext,
   useBottomFits,
   useBottomHeight,
   useFocusedScope,
   usePreferredPlace,
   usePreferredSize,
   useScopeWorkspace,
+  useOptionalWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
@@ -45,6 +47,20 @@ export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } fro
 
 export { fileTab, fileTabId } from "./file-tab.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
+export {
+  filePreviewTab,
+  filePreviewTabData,
+  filePreviewTabKind,
+  type FilePreviewSource,
+  type FilePreviewTabData,
+} from "./file-preview-tab.ts";
+export {
+  TextEdits,
+  TextEditsContext,
+  textEditTab,
+  textEditTabKind,
+  type TextEditSession,
+} from "./text-edit-tab.ts";
 export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

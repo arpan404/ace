@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
 import { notificationsRetained } from "@ace/notify";
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
 import type { ServiceContext } from "./types.ts";
@@ -10,7 +10,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
 
   const configured = options.notificationChannels
     ? { channels: options.notificationChannels, close: () => {} }
-    : await loadNotificationChannels();
+    : await loadNotificationChannels({ dataDir: config.dataDir, settings: services.settings });
   resources.own(configured.close);
   // Nothing saved needs delivery while no client is connected: the worker starts when one does.
   const retained = notificationsRetained(join(config.dataDir, "notifications.sqlite"));
@@ -33,16 +33,26 @@ export async function startNotifications(context: ServiceContext): Promise<void>
   services.notifications = notifications.service;
   if ("publicKey" in configured && typeof configured.publicKey === "string")
     services.notificationPublicKey = configured.publicKey;
+  // Sign-in requests reach admin phones through the same gateway and the same device table.
+  const access = "access" in configured ? configured.access : undefined;
+  if (access)
+    services.accessPush = {
+      addresses: (devices) => notifications.service.pushAddresses(devices),
+      send: (device, alert, signal) => access.sendAccess(device, alert, signal),
+    };
   onListen.push(async (server) => {
     notifications.setSender(server.notify);
     notifications.setConnected(server.notificationDevices);
     // Clients can connect through the endpoint before feature startup completes.
     for (const device of server.notificationDevices())
       await notifications.service.connectDevice(device);
-    void warmup(context, "notifications", async () => {
+    // Repeatable: `ready()` wakes the worker again after a failure, and `activate()` does
+    // nothing the second time, so a run after a failure resumes rather than starts twice.
+    // The warmup logs its own failure and reports the status.
+    void repeatableWarmup(context, "notifications", async () => {
       if (retained) await notifications.ready();
       notifications.activate();
-    });
+    }).catch(() => {});
   });
 }
 
@@ -96,6 +106,17 @@ export function createNotificationsSession({
         } catch {
           fail("notification_rejected", "Could not read missed notifications", false, correlation);
         }
+        return true;
+      }
+      if (message.type === "notification.ack") {
+        // A phone took the live alert frame: the router may skip its push. The ack names the
+        // alert only; the device comes from this authenticated socket, so one phone's ack
+        // never stands in for another's.
+        if (!authorize("read")) {
+          fail("forbidden", "Read scope required", false, {});
+          return true;
+        }
+        options.notifications?.acknowledge?.(device, message.id);
         return true;
       }
       if (message.type === "notification.unregister") {

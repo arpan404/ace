@@ -18,9 +18,12 @@ type Block = {
 };
 const blocks = () => rows("thread.block") as Block[];
 const log = () => blocks().find((row) => row.kind === "work")?.log;
+const stepOf = (id: string | undefined) =>
+  rows("thread.item").find((item) => item.id === id)?.step as { startedAt?: number } | undefined;
 
-test("a running group is titled by its step in flight with its count, and its thought keeps its row", async () => {
-  const fake = fixture();
+test("a step in flight is a row of its own after the one that ran, and folds into it once done", async () => {
+  const startedAt = Date.UTC(2026, 10, 16, 9, 30);
+  const fake = fixture(() => startedAt);
   fake.createThread({ id: "parallel", workspaceId: "ace", title: "Parallel", provider: "claude" });
   fake.apply("parallel", [
     facts.rootAgent("claude"),
@@ -45,13 +48,16 @@ test("a running group is titled by its step in flight with its count, and its th
     facts.toolDone("root", "quick"),
   ]);
   open(connect(fake), "parallel");
-  const rowsNow = await until(() => (log()?.length === 2 ? log() : undefined), "the live log");
-  const [thought, group] = rowsNow;
+  const rowsNow = await until(() => (log()?.length === 3 ? log() : undefined), "the live log");
+  const [thought, ran, running] = rowsNow;
   expect(thought).toMatchObject({ kind: "thought", done: true });
   expect(String(thought?.label)).toMatch(/^Thought/);
-  // The unfinished parallel step titles the group, not the later one that finished.
-  const slow = group?.items?.[0];
-  expect(group).toMatchObject({ kind: "group", running: true, active: slow, count: "2 steps" });
+  // The command that finished keeps its row; the one in flight follows it as a row of its own.
+  expect(ran?.kind).toBe("step");
+  expect(running?.kind).toBe("step");
+  // Its line carries when it started, which the phone counts up from; the finished one's doesn't.
+  expect(stepOf(running?.id)?.startedAt).toBe(startedAt);
+  expect(stepOf(ran?.id)?.startedAt).toBeNull();
 
   fake.apply("parallel", [facts.toolDone("root", "slow")]);
   const settled = await until(
@@ -59,6 +65,10 @@ test("a running group is titled by its step in flight with its count, and its th
     "the group to settle",
   );
   expect(settled.sentence).toBe("Ran 2 commands");
+  // Folded together, the steps read in the order they started.
+  expect(settled.items).toEqual([running?.id, ran?.id]);
+  expect(log()).toHaveLength(2);
+  expect(stepOf(running?.id)?.startedAt).toBeNull();
 });
 
 test("background commands started back to back are one group, ended ones only inside it", async () => {
@@ -161,7 +171,7 @@ const reasoning = (item: string, complete: boolean) => ({
 const shell = (item: string, command: string) =>
   facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
 
-test("a thought with no words between calls never regroups the log: it titles the running group", async () => {
+test("a thought in flight stands apart from the commands that already ran", async () => {
   const fake = fixture();
   fake.createThread({ id: "think", workspaceId: "ace", title: "Think", provider: "codex" });
   fake.apply("think", [
@@ -173,9 +183,9 @@ test("a thought with no words between calls never regroups the log: it titles th
     reasoning("first", false),
   ]);
   open(connect(fake), "think");
-  // One call and a thought in flight: still the call's own row, not a group of two.
-  const lone = await until(() => (log()?.length === 1 ? log() : undefined), "the lone step");
-  expect(lone[0]?.kind).toBe("step");
+  // One call and a thought in flight: the call's own row, then the thought, not a group of two.
+  const lone = await until(() => (log()?.length === 2 ? log() : undefined), "the lone step");
+  expect(lone.map((row) => row.kind)).toEqual(["step", "thought"]);
   const first = lone[0]?.id;
 
   fake.apply("think", [
@@ -184,20 +194,29 @@ test("a thought with no words between calls never regroups the log: it titles th
     facts.toolDone("root", "build"),
     reasoning("second", false),
   ]);
-  const titled = await until(
-    () => log()?.find((row) => row.kind === "group" && row.running === true),
-    "the group titled by the thought",
+  const apart1 = await until(
+    () => (log()?.length === 2 && log()?.[0]?.kind === "group" ? log() : undefined),
+    "the group with the thought after it",
   );
-  // The step's row became a group once, under the same id; the thought titles it, uncounted.
-  expect(titled).toMatchObject({ id: first, count: "2 steps" });
-  expect(titled.items).toHaveLength(2);
-  expect(titled.items).not.toContain(titled.active);
+  // The step's row became a group once, under the same id, finished; the thought stands after it.
+  expect(apart1[0]).toMatchObject({ id: first, count: "2 steps", running: false });
+  expect(apart1[0]?.items).toHaveLength(2);
+  expect(apart1[1]).toMatchObject({ kind: "thought", done: false });
 
   fake.apply("think", [reasoning("second", true), shell("test", "bun run test")]);
+  // The next call, in flight, stands after the group as a row of its own.
+  const apart = await until(
+    () => (log()?.length === 2 && log()?.[1]?.kind === "step" ? log() : undefined),
+    "the next call's own row",
+  );
+  expect(apart[0]).toMatchObject({ kind: "group", id: first, running: false });
+  expect(apart[0]?.items).toHaveLength(2);
+
+  fake.apply("think", [facts.toolDone("root", "test")]);
   const grown = await until(
     () => log()?.find((row) => row.kind === "group" && row.items?.length === 3),
-    "the next call to join",
+    "the finished call to join",
   );
-  expect(grown).toMatchObject({ id: first, active: grown.items?.[2] });
+  expect(grown).toMatchObject({ id: first, running: false, sentence: "Ran 3 commands" });
   expect(log()).toHaveLength(1);
 });

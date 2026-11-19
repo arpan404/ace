@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
+import { sceneBar } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A collapsible Summary section: a 12px muted heading with a subtle count and a caret after it, one quiet action at
@@ -53,12 +55,15 @@ export function PrSection(props: {
   return (
     <section
       ref={setSection}
+      {...part("page-section", !props.fixed && (open ? "open" : "closed"), props.id)}
       id={props.id}
       aria-label={props.title}
       className="scroll-mt-2 space-y-1.5"
     >
-      <div className="sticky top-0 z-1 -mx-[var(--forge-gutter,1rem)] flex h-8 items-center gap-1 bg-panel px-[var(--forge-gutter,1rem)]">
-        <h3 className="min-w-0">
+      <div
+        className={`sticky top-0 z-1 -mx-[var(--forge-gutter,1rem)] flex h-8 items-center gap-1 bg-panel px-[var(--forge-gutter,1rem)] ${sceneBar}`}
+      >
+        <h3 {...part("section-title")} className="min-w-0">
           {props.fixed ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               {heading}

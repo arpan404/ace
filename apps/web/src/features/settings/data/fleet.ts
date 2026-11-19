@@ -16,15 +16,23 @@ type Operation = Extract<
   { type: "fleet.request" }
 >["operation"];
 
-async function fleet(client: ClientApi, operation: Operation) {
+export async function fleet(client: ClientApi, operation: Operation) {
   const reply = await client.request({ type: "fleet.request", operation });
   return reply.result;
 }
 
-/** A failure a machine reports, in words a person acts on. */
+/**
+ * A refusal's code: a daemon's own (`unavailable`, `forbidden`…), which the client carries as
+ * the message of its `daemon` error, else the client's (`offline`, `timeout`…).
+ */
+export function refusalCode(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("code" in error)) return "";
+  const code = String(error.code);
+  return code === "daemon" && error instanceof Error ? error.message : code;
+}
+
 export function fleetProblem(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  const code = refusalCode(error);
   if (code === "forbidden")
     return "This window doesn't have administrator access to this machine. Pair it again as Administrator to manage it.";
   return error instanceof Error && error.message ? error.message : "That machine didn't answer.";
@@ -39,34 +47,26 @@ export async function machineDevices(client: ClientApi): Promise<PairedDevice[]>
   const result = await fleet(client, { op: "devices" });
   if (result.kind !== "devices") return [];
   // Local credentials (the desktop app, "Use my Chrome") are not paired devices.
-  return result.devices
-    .filter(
-      (device) =>
-        device.revokedAt === null &&
-        !device.scopes.includes("desktop") &&
-        !device.scopes.includes("user-browser"),
-    )
-    .map((device) =>
-      device.id === result.selfId ? Object.assign(device, { self: true }) : device,
-    );
+  return pairedDevices(result.devices).map((device) =>
+    device.id === result.selfId ? Object.assign(device, { self: true }) : device,
+  );
 }
 
-export const linkLifetimes = [
-  { value: 5 * 60_000, label: "5 minutes" },
-  { value: 60 * 60_000, label: "1 hour" },
-  { value: 24 * 60 * 60_000, label: "1 day" },
-  { value: 7 * 24 * 60 * 60_000, label: "7 days" },
-] as const;
-export type LinkLifetime = (typeof linkLifetimes)[number]["value"];
-
-export const deviceLifetimes = [
-  { value: 0, label: "Until revoked" },
-  { value: 24 * 60 * 60_000, label: "1 day" },
-  { value: 7 * 24 * 60 * 60_000, label: "7 days" },
-  { value: 30 * 24 * 60 * 60_000, label: "30 days" },
-] as const;
-/** 0: the device keeps access until it is revoked. */
-export type DeviceLifetime = (typeof deviceLifetimes)[number]["value"];
+export {
+  deviceLifetimes,
+  linkLifetimes,
+  type DeviceLifetime,
+  type LinkLifetime,
+} from "@ace/ui-core";
+import {
+  linkPairingProblem,
+  linkRedeemProblem,
+  linkScopes,
+  pairedDevices,
+  type DeviceLifetime,
+  type LinkAccess,
+  type LinkLifetime,
+} from "@ace/ui-core";
 
 export interface PairingOptions {
   scopes: PairingScope[];
@@ -103,27 +103,62 @@ export async function revokeDevice(client: ClientApi, deviceId: string): Promise
   await fleet(client, { op: "revoke", deviceId });
 }
 
-/** What agents on a linked machine may do on the machine it reaches. */
-export type LinkAccess = "read" | "operate";
+/**
+ * Allow or stop allowing `scope` for a device paired with that machine; its credential stays
+ * (ADR 0101). The command id makes a retry answer the first outcome.
+ */
+export async function setDeviceScope(
+  client: ClientApi,
+  change: { deviceId: string; scope: "projects"; allowed: boolean; commandId: string },
+): Promise<Device> {
+  const result = await fleet(client, { op: "scope", ...change });
+  if (result.kind !== "scoped") throw new Error("That machine didn't change the device.");
+  return result.device;
+}
+
+export type { LinkAccess } from "@ace/ui-core";
+
+const pairingProblem = (error: unknown, machine: Machine) =>
+  linkPairingProblem(refusalCode(error), machine.name);
+const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
+  linkRedeemProblem(refusalCode(error), source.name, target.name);
 
 /**
- * Link `from` to `to`: `to` issues a one-time pairing for an agent device (never administrator)
- * and `from` redeems it and keeps it as a link. Agents on `from` then reach `to`, up to the lower
- * of this grant and `to`'s own "Agents from other machines" setting.
+ * Link `from` to `to`: `to` issues a pairing link and `from` redeems it. The link asks for
+ * Projects with operate, but a device grants only what it holds there; when this window's device
+ * on `to` doesn't hold Projects, the link is made without them (`projects: false`) and they can
+ * be allowed later on `to`'s page in Settings › Fleet.
  */
-export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
+export async function linkMachine(
+  from: Machine,
+  to: Machine,
+  access: LinkAccess,
+): Promise<{ link: FleetLink; projects: boolean }> {
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
-  const pairing = await createPairing(to.client, {
-    scopes: access === "operate" ? ["read", "operate"] : ["read"],
+  const toClient = to.client;
+  const fromClient = from.client;
+  const wanted = linkScopes(access);
+  const issue = (scopes: PairingScope[]) =>
+    createPairing(toClient, { scopes }).catch((error: unknown) => {
+      throw Object.assign(new Error(pairingProblem(error, to)), { code: refusalCode(error) });
+    });
+  let projects = wanted.includes("projects");
+  const pairing = await issue(wanted).catch(async (error: unknown) => {
+    // Refused for Projects this window can't hand out: link without them.
+    if (!projects || refusalCode(error) !== "forbidden") throw error;
+    projects = false;
+    return issue(wanted.filter((scope) => scope !== "projects"));
   });
-  const result = await fleet(from.client, {
+  const result = await fleet(fromClient, {
     op: "link",
     pairingUrl: pairing.url,
     hostId: to.id,
     name: to.name,
+  }).catch((error: unknown) => {
+    throw new Error(redeemProblem(error, from, to));
   });
   if (result.kind !== "linked") throw new Error(`${from.name} didn't keep the link.`);
-  return result.link;
+  return { link: result.link, projects };
 }
 
 /**
@@ -176,6 +211,9 @@ export function useFleetDevices(machines: readonly Machine[]) {
       queryKey: fleetKeys.devices(machine.id),
       queryFn: () => (machine.client ? machineDevices(machine.client) : Promise.resolve([])),
       enabled: machine.client !== undefined,
+      // A device that isn't an administrator there stays refused: asking again changes nothing.
+      retry: (failures: number, error: unknown) =>
+        refusalCode(error) !== "forbidden" && failures < 3,
     })),
   });
   return new Map(machines.map((machine, index) => [machine.id, results[index]]));

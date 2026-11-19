@@ -3,22 +3,28 @@
 import type { BrandArt } from "../brand-art-types.ts";
 
 /** Every brand ace has a mark for. */
-export type Brand = "amp" | "antigravity" | "claude" | "cline" | "codebuddy" | "cursor" | "deepseek" | "devin" | "gemini" | "geminicli" | "gemma" | "githubcopilot" | "goose" | "grok" | "junie" | "kilocode" | "kimi" | "langchain" | "meta" | "minimax" | "mistral" | "ollama" | "openai" | "opencode" | "openrouter" | "pi" | "qoder" | "qwen" | "snowflake" | "zai";
+export type Brand = "amp" | "antigravity" | "bitbucket" | "claude" | "cline" | "codebuddy" | "cursor" | "deepseek" | "devin" | "forgejo" | "gemini" | "geminicli" | "gemma" | "gitbucket" | "gitea" | "github" | "githubcopilot" | "gitlab" | "goose" | "grok" | "junie" | "kilocode" | "kimi" | "langchain" | "meta" | "minimax" | "mistral" | "ollama" | "openai" | "opencode" | "openrouter" | "pi" | "qoder" | "qwen" | "snowflake" | "zai";
 
 /** Loads one brand's mark; each is its own chunk. */
 export const brandArt: Record<Brand, () => Promise<BrandArt>> = {
   amp: () => import("./amp.gen.ts").then((m) => m.art),
   antigravity: () => import("./antigravity.gen.ts").then((m) => m.art),
+  bitbucket: () => import("./bitbucket.gen.ts").then((m) => m.art),
   claude: () => import("./claude.gen.ts").then((m) => m.art),
   cline: () => import("./cline.gen.ts").then((m) => m.art),
   codebuddy: () => import("./codebuddy.gen.ts").then((m) => m.art),
   cursor: () => import("./cursor.gen.ts").then((m) => m.art),
   deepseek: () => import("./deepseek.gen.ts").then((m) => m.art),
   devin: () => import("./devin.gen.ts").then((m) => m.art),
+  forgejo: () => import("./forgejo.gen.ts").then((m) => m.art),
   gemini: () => import("./gemini.gen.ts").then((m) => m.art),
   geminicli: () => import("./geminicli.gen.ts").then((m) => m.art),
   gemma: () => import("./gemma.gen.ts").then((m) => m.art),
+  gitbucket: () => import("./gitbucket.gen.ts").then((m) => m.art),
+  gitea: () => import("./gitea.gen.ts").then((m) => m.art),
+  github: () => import("./github.gen.ts").then((m) => m.art),
   githubcopilot: () => import("./githubcopilot.gen.ts").then((m) => m.art),
+  gitlab: () => import("./gitlab.gen.ts").then((m) => m.art),
   goose: () => import("./goose.gen.ts").then((m) => m.art),
   grok: () => import("./grok.gen.ts").then((m) => m.art),
   junie: () => import("./junie.gen.ts").then((m) => m.art),

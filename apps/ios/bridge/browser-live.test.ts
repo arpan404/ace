@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { host } from "./test-host.ts";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { closeBrowserFixtures, liveBrowser as live, viewport } from "./browser-fixture.ts";
 import { type RecordingSink, until } from "./sheet-fixture.ts";
 
-afterEach(closeBrowserFixtures);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(host, "video");
+  await closeBrowserFixtures();
+});
 
 const state = (sink: RecordingSink) =>
   sink.read("browser:view")?.state as
@@ -11,6 +16,40 @@ const state = (sink: RecordingSink) =>
     | undefined;
 
 describe("Live browser view", () => {
+  test("hardware HEVC is preferred and a failed viewer alone falls back to H.264", async () => {
+    Object.assign(host, { video: { decoders: () => ["hvc1.1.6.L153.B0", "avc1.42E033"] } });
+    const { sink, view, requested } = await live();
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(sink) != null, "browser state");
+    expect(requested).toContainEqual(
+      expect.objectContaining({
+        type: "browser.subscribe",
+        video: { codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // No delivery was sent to Swift here, so its acks carry no generation.
+    view.action({ kind: "ack", sequence: 1, keyframe: true, fallback: true });
+    await until(
+      () =>
+        requested.filter((value) => (value as { type: string }).type === "browser.subscribe")
+          .length === 2,
+      "fallback subscription",
+    );
+    expect(requested.at(-1)).toMatchObject({
+      type: "browser.subscribe",
+      video: { codecs: ["avc1.42E033"] },
+    });
+    const other = await live();
+    other.view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(other.sink) != null, "other viewer");
+    expect(other.requested).toContainEqual(
+      expect.objectContaining({
+        type: "browser.subscribe",
+        video: { codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] },
+      }),
+    );
+  });
   test("a thread with an open tab offers its browser; one without doesn't", async () => {
     const withBrowser = await live();
     withBrowser.view.probe("web", 3);
@@ -23,12 +62,10 @@ describe("Live browser view", () => {
     expect(without.sink.read("browser:available")).toMatchObject({ live: false });
   });
 
-  test("opening sizes the page to the phone and shows the browser's address", async () => {
-    const { daemon, sink, view } = await live();
+  test("opening shows the browser's address and tabs", async () => {
+    const { sink, view } = await live();
     expect(view.action({ kind: "open", threadId: "web", viewport })).toBe(true);
     await until(() => state(sink)?.url === "https://shop.test/cart", "browser state");
-    await until(() => daemon.browser.frame("web")?.width === 390, "resized page");
-    expect(daemon.browser.frame("web")?.height).toBe(700);
     expect(state(sink)?.tabs).toHaveLength(1);
   });
 
@@ -52,7 +89,7 @@ describe("Live browser view", () => {
     expect(view.action({ kind: "input", input: { kind: "touch", event: "wave" } })).toBe(false);
   });
 
-  test("the view always subscribes for H.264 video", async () => {
+  test("a host without HEVC subscribes for H.264 video", async () => {
     const { sink, view, requested } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
@@ -70,6 +107,7 @@ describe("Live browser view", () => {
     const { sink, view, sent } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
+    // No delivery was sent to Swift here (no media route), so its acks carry no generation.
     view.action({ kind: "ack", sequence: 4 });
     view.action({ kind: "ack", sequence: 9, keyframe: true });
     expect(sent).toEqual([
@@ -133,25 +171,24 @@ describe("Live browser view", () => {
     expect(sink.read("browser:page")).toMatchObject({ tabId: opened });
   });
 
-  test("a tab the phone switches to is laid out at the phone's size, as a touch screen", async () => {
-    const { daemon, sink, view, requested } = await live();
+  test("the person's input round trip is measured, and kept when the browser opens again", async () => {
+    const { sink, view } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink)?.activeTabId != null, "browser state");
-    const opened = daemon.browser.personOpen("web", "https://shop.test/pay");
-    const resizes = () =>
-      requested.filter(
-        (message) =>
-          (message as { type: string }).type === "browser.execute" &&
-          (message as { command: { action: string } }).command.action === "resize",
-      );
-    const before = resizes().length;
-    view.action({ kind: "tab", tabId: opened });
-    await until(() => state(sink)?.activeTabId === opened, "tab switch");
-    await until(() => resizes().length > before, "new tab sized");
-    expect(resizes().at(-1)).toMatchObject({
+    expect(sink.read("browser:latency")).toBeUndefined();
+    const touch = { kind: "touch", event: "touchStart", points: [{ x: 1, y: 1, id: 0 }] };
+    view.action({ kind: "input", input: touch });
+    await until(() => sink.read("browser:latency") !== undefined, "latency");
+    // The fixture's clock moves one millisecond for each reading.
+    expect(sink.read("browser:latency")).toEqual({
+      type: "browser.latency",
       threadId: "web",
-      command: { action: "resize", width: 390, height: 700, touch: true, devicePixelRatio: 3 },
+      ms: 1,
     });
+    view.close();
+    expect(sink.read("browser:latency")).toBeUndefined();
+    view.action({ kind: "open", threadId: "web", viewport });
+    expect(sink.read("browser:latency")).toMatchObject({ threadId: "web", ms: 1 });
   });
 
   test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {

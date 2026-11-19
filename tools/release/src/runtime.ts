@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, readdir, cp, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Store, readConfig } from "@ace/daemon";
@@ -29,10 +30,18 @@ import {
   renderLauncher,
   prepareDaemonHome,
   planUpdateLaunch,
+  canonicalPath,
+  updateFailure,
+  updateOutcomeFile,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
+import { rename } from "node:fs/promises";
+import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
+import { recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
+import { updateArguments } from "./update-arguments.ts";
+import { applyWithSpade, recoverSpade, spadeReleaseCommand } from "./spade-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
@@ -93,7 +102,8 @@ function updatePorts(): UpdatePorts {
   return {
     now: Date.now,
     wait: sleep,
-    maintenance: (method) => request(method, "/v1/maintenance"),
+    // The update's own hold, so it never opens or closes the person's pause.
+    maintenance: (method) => request(method, "/v1/maintenance/update"),
     stop: async () => {
       await manager.perform("stop");
     },
@@ -116,13 +126,13 @@ function updatePorts(): UpdatePorts {
         "migrate-check",
         copy,
       ]);
+      // The check ran the candidate's node.exe; Windows can hold its files a moment after exit.
+      if (process.platform === "win32") await renamable(candidate);
     },
   };
 }
 export async function updateCli(args: string[]) {
-  const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
-  if (args.length > 2 || (args[1] !== undefined && (args[1] !== "--drain" || command !== "apply")))
-    throw new Error("Usage: ace update check|apply [--drain]|recover");
+  const { command, drain, interrupt, outcome } = updateArguments(args);
   // Inside the desktop app the app owns the update, daemon included (ADR 0091).
   const desktop = await bundledDesktopApp(daemonDirectory(import.meta.url));
   if (desktop) {
@@ -136,6 +146,7 @@ export async function updateCli(args: string[]) {
       await recoverUpdate(root, root, ports);
       // A crash after committing can leave only the in-memory admission barrier.
       await ports.maintenance("DELETE");
+      await recoverSpade(root);
     });
     if (command === "recover") return;
   }
@@ -146,29 +157,51 @@ export async function updateCli(args: string[]) {
     installed.channel === "stable"
       ? "https://api.github.com/repos/arpan404/ace/releases/latest"
       : "https://api.github.com/repos/arpan404/ace/releases/tags/preview";
-  const release = await checkRelease(
-    releaseFetch,
-    feed,
-    installed.target,
-    installed.channel,
-    RELEASE_PUBLIC_KEY,
-  );
-  if (command === "check") {
-    process.stdout.write(JSON.stringify(release.manifest) + "\n");
-    return;
+  const install = async () => {
+    const release = await checkRelease(
+      releaseFetch,
+      feed,
+      installed.target,
+      installed.channel,
+      RELEASE_PUBLIC_KEY,
+    );
+    if (command === "check") {
+      process.stdout.write(JSON.stringify(release.manifest) + "\n");
+      return;
+    }
+    await applyWithSpade({
+      root,
+      installed: installed.version,
+      offered: release.manifest.version,
+      interrupt,
+      daemon: () =>
+        applyUpdate({
+          root,
+          dataDir: root,
+          bytes: release.bytes,
+          signature: release.signature,
+          publicKey: RELEASE_PUBLIC_KEY,
+          archiveUrl: release.url,
+          fetcher: releaseFetch,
+          drain,
+          interrupt,
+          ports,
+        }),
+    });
+  };
+  if (!outcome) return install();
+  // The daemon that runs next reads how it ended (ADR 0113); a failure leaves the old version.
+  try {
+    await install();
+    await durableJson(join(root, updateOutcomeFile), { ok: true, error: null });
+  } catch (error) {
+    await durableJson(join(root, updateOutcomeFile), updateFailure(error, installed.version)).catch(
+      () => {},
+    );
+    throw error;
   }
-  await applyUpdate({
-    root,
-    dataDir: root,
-    bytes: release.bytes,
-    signature: release.signature,
-    publicKey: RELEASE_PUBLIC_KEY,
-    archiveUrl: release.url,
-    fetcher: releaseFetch,
-    drain: args[1] === "--drain",
-    ports,
-  });
 }
+
 export async function installArtifact(
   artifact: string,
   installService: (root: string) => Promise<unknown> = (root) =>
@@ -192,6 +225,9 @@ export async function installArtifact(
     await mkdir(join(root, "bin"), { recursive: true });
     const { writeFile } = await import("node:fs/promises");
     await writeFile(join(root, "bin/ace"), renderLauncher(root), { mode: 0o755 });
+    // Windows runs the launcher by its extension: bin\ace.cmd.
+    if (process.platform === "win32")
+      await rename(join(root, "bin/ace"), join(root, "bin", CMD_LAUNCHER));
     await syncTree(join(root, target));
     await syncDirectory(join(root, "releases"));
     await atomicPointer(join(root, "current"), target);
@@ -255,6 +291,8 @@ export async function supervise() {
           node: process.execPath,
           args: [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command],
           root,
+          userHome: homedir(),
+          canonical: canonicalPath,
         });
         return spawn(launch.command, launch.args, {
           stdio: "ignore",
@@ -278,11 +316,76 @@ export async function supervise() {
 }
 export async function releaseCommand(args: string[]): Promise<boolean> {
   if (args[0] === "update") await updateCli(args.slice(1));
+  else if (args[0] === "supervise" && process.platform === "win32") await superviseTask();
   else if (args[0] === "supervise") await supervise();
   else if (args[0] === "migrate-check" && args.length === 2 && args[1])
     await migrateCheck(resolve(args[1]));
+  else if (args[0] === "spade-follow") await spadeReleaseCommand(dataDir(), args.slice(1));
   else if (args[0] === "install-artifact" && args.length === 2 && args[1])
     await installArtifact(resolve(args[1]));
   else return false;
   return true;
+}
+
+/** Waits until nothing holds `directory` open, so the updater's rename of it succeeds. */
+async function renamable(directory: string): Promise<void> {
+  await retrySharing(() => rename(directory, `${directory}.probe`));
+  await retrySharing(() => rename(`${directory}.probe`, directory));
+}
+
+const TaskEnvironment = ServiceEnvironment.extend({
+  ACE_HOME: z.string().min(1),
+  PATH: z.string(),
+  ACE_AUTO_UPDATE: z.enum(["0", "1"]),
+}).strict();
+
+/**
+ * `supervise` under Windows' Task Scheduler task. A task has no environment of its own, so the
+ * service environment `ace service install` captured is applied first. Task Scheduler restarts
+ * only a task that fails to start, so a daemon that exits with an error is restarted here, as
+ * launchd's KeepAlive and systemd's Restart=always do; a clean exit (`POST /v1/stop`) ends it.
+ */
+async function superviseTask(): Promise<void> {
+  const root = dataDir();
+  const saved = await readFile(join(root, "service", "environment.json"), "utf8").catch(
+    () => undefined,
+  );
+  if (saved !== undefined) {
+    const environment = TaskEnvironment.parse(JSON.parse(saved));
+    if (resolve(environment.ACE_HOME).toLowerCase() !== resolve(root).toLowerCase())
+      throw new Error("The service environment names another ACE_HOME");
+    Object.assign(process.env, environment);
+  }
+  await untilCleanExit({
+    // supervise() records its own failures in logs/daemon.err.log.
+    async once() {
+      process.exitCode = undefined;
+      await supervise();
+      return typeof process.exitCode === "number" ? process.exitCode : undefined;
+    },
+    wait: (ms) => new Promise((wake) => setTimeout(wake, ms)),
+  });
+}
+
+/**
+ * Runs the supervisor until it ends with exit code 0. A daemon that exited with an error is
+ * restarted after 15 seconds; a supervisor that failed (a missing release, an unreadable home)
+ * is retried with the update recovery's backoff, as an ended task would never be restarted.
+ */
+export async function untilCleanExit(ports: {
+  once(): Promise<number | undefined>;
+  wait(ms: number): Promise<void>;
+}): Promise<void> {
+  for (let failures = 0; ;) {
+    let delay: number;
+    try {
+      if ((await ports.once()) === 0) return;
+      failures = 0;
+      delay = 15_000;
+    } catch {
+      delay = recoveryDelay(failures);
+      failures = Math.min(failures + 1, 6);
+    }
+    await ports.wait(delay);
+  }
 }

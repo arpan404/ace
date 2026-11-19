@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { BrowserActionError } from "./action-error.ts";
 
+const JpegShot = z.object({ data: z.string().max(64 * 1024 * 1024) });
+
 const Metrics = z.object({
   cssVisualViewport: z.object({
     pageX: z.number(),
@@ -120,7 +122,7 @@ export async function modelScreenshot(
   ).result.value;
   const geometry = modelImageGeometry(clip.width, clip.height);
   for (const attempt of attempts) {
-    const { data } = z.object({ data: z.string().max(64 * 1024 * 1024) }).parse(
+    const { data } = JpegShot.parse(
       await cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: attempt.quality,

@@ -38,10 +38,25 @@ test("expired and exhausted installations stay out of the ready checklist", () =
     expect(providerReadiness(observation).readiness).toBe("needs_attention");
     expect(onboardingChecklist([observation]).ready).toEqual([]);
   }
-  expect(providerReadiness({ ...row, enabled: false }).readiness).toBe("not_configured");
   expect(onboardingChecklist([{ ...row, error: "Authentication expired" }])).toMatchObject({
     next: { action: "sign_in", provider: "codex" },
   });
+});
+
+test("a provider turned off in Settings says how to turn it on, not how to install it", () => {
+  const off = providerReadiness({
+    ...row,
+    enabled: false,
+    installed: null,
+    auth: "unknown",
+    actionId: "provider.sign_in",
+  });
+  expect(off).toMatchObject({ readiness: "not_configured", enabled: false });
+  expect(off.loginHint).toMatch(/Turn it on in Settings/);
+  expect(off.installHint).toBeUndefined();
+  expect(off.installCommand).toBeUndefined();
+  expect(off.actionId).toBeUndefined();
+  expect(onboardingChecklist([off]).ready).toEqual([]);
 });
 
 test("a CLI that doesn't report its sign-in is usable, not a problem", () => {

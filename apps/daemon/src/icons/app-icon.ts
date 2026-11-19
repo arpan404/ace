@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
+import { linuxAppIcon } from "./linux-app-icon.ts";
 
 /*
  * A native app's icon on the daemon's host, where computer use runs: never on whichever client
  * happens to look. macOS finds the app by bundle id with Spotlight and draws its Finder icon
- * through NSWorkspace, which handles asset-catalog icons too. Other platforms have no reader
- * yet, and their rows keep the generic app glyph. The process runner is injected.
+ * through NSWorkspace, which handles asset-catalog icons too. Linux reads the app's desktop
+ * entry and icon theme (`linux-app-icon.ts`). Windows has no reader yet, and its rows keep the
+ * generic app glyph. The process runner is injected.
  */
 
 export type Run = (
@@ -43,8 +45,9 @@ const bundleId = /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/;
  */
 export async function appIcon(
   identity: string,
-  options: { platform: NodeJS.Platform; run: Run },
+  options: { platform: NodeJS.Platform; run: Run; env?: NodeJS.ProcessEnv },
 ): Promise<Buffer | null | undefined> {
+  if (options.platform === "linux") return linuxAppIcon(identity, options.env ?? process.env);
   if (options.platform !== "darwin" || !bundleId.test(identity)) return null;
   let path: string | undefined;
   try {

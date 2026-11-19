@@ -156,7 +156,7 @@ it("standalone daemon archives of this version ride along with their signed mani
     "ace-1.2.0-darwin-arm64.tar.gz",
     "ace-1.1.0-darwin-x64.tar.gz",
     "darwin-arm64",
-    "node-v24.13.0-darwin-arm64.tar.gz",
+    "node-v26.12.1-darwin-arm64.tar.gz",
   ];
   expect(daemonAssets(output, "1.2.0", ["darwin-arm64"])).toEqual([
     "ace-1.2.0-darwin-arm64.tar.gz",
@@ -222,4 +222,22 @@ it("publishing refuses staged files whose bytes changed since the build", () => 
   expect(changedFiles(release, new Map([["latest-mac.yml", "1".repeat(64)]]))).toEqual([
     "ace-1.2.0-arm64-mac.zip",
   ]);
+});
+
+const data = (sha: string) => ({ name: "ace-data.json", bytes: 50, sha256: sha.repeat(64) });
+
+it("each host's ace-data.json publishes once when they agree, and stops the release when not", () => {
+  const mac = staged({
+    files: [{ name: "latest-mac.yml", bytes: 1, sha256: "1".repeat(64) }, data("a")],
+  });
+  const linux = staged({
+    files: [{ name: "latest-linux.yml", bytes: 1, sha256: "2".repeat(64) }, data("a")],
+  });
+  expect(combineStaged([mac, linux]).files.map((file) => file.name)).toEqual([
+    "ace-data.json",
+    "latest-linux.yml",
+    "latest-mac.yml",
+  ]);
+  const other = staged({ files: [data("b")] });
+  expect(() => combineStaged([mac, other])).toThrow("disagree on ace-data.json");
 });

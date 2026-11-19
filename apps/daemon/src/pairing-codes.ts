@@ -10,6 +10,8 @@ export interface PendingCode {
   scopes: Scope[];
   label?: string | undefined;
   deviceTtlMs?: number | undefined;
+  /** Made by someone with the person's standing (ADR 0190); its device inherits that. */
+  person: boolean;
 }
 
 /**
@@ -53,12 +55,15 @@ export class MemoryPairingCodes implements PairingCodeStore {
   }
 }
 
+const DeviceScopes = z.array(DeviceScope);
 const Row = z.object({
   id: z.string(),
   expires_at: z.number(),
-  scopes: z.string().transform((text) => z.array(DeviceScope).parse(JSON.parse(text))),
+  scopes: z.string().transform((text) => DeviceScopes.parse(JSON.parse(text))),
   label: z.string().nullable(),
   device_ttl_ms: z.number().nullable(),
+  // Links made before links said who made them are a few minutes old at most: not the person's.
+  person: z.number().nullable().optional(),
 });
 function decode(row: Record<string, SQLOutputValue>): PendingCode {
   const parsed = Row.parse(row);
@@ -68,6 +73,7 @@ function decode(row: Record<string, SQLOutputValue>): PendingCode {
     scopes: parsed.scopes,
     ...(parsed.label === null ? {} : { label: parsed.label }),
     ...(parsed.device_ttl_ms === null ? {} : { deviceTtlMs: parsed.device_ttl_ms }),
+    person: parsed.person === 1,
   };
 }
 
@@ -86,9 +92,15 @@ export class SqlitePairingCodes implements PairingCodeStore {
   constructor(db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS pairing_codes (
       code_hash TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL,
-      scopes TEXT NOT NULL, label TEXT, device_ttl_ms INTEGER
+      scopes TEXT NOT NULL, label TEXT, device_ttl_ms INTEGER, person INTEGER
     )`);
-    this.insert = db.prepare("INSERT INTO pairing_codes VALUES (?, ?, ?, ?, ?, ?)");
+    // A table from before links said who made them: a column added, no row rewritten.
+    const columns = db.prepare("SELECT name FROM pragma_table_info('pairing_codes')").all();
+    if (!columns.some((column) => column.name === "person"))
+      db.exec("ALTER TABLE pairing_codes ADD COLUMN person INTEGER");
+    this.insert = db.prepare(
+      "INSERT INTO pairing_codes (code_hash, id, expires_at, scopes, label, device_ttl_ms, person) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
     this.taking = db.prepare("DELETE FROM pairing_codes WHERE code_hash = ? RETURNING *");
     this.expired = db.prepare("DELETE FROM pairing_codes WHERE expires_at <= ?");
     this.listing = db.prepare("SELECT * FROM pairing_codes ORDER BY expires_at, id");
@@ -103,6 +115,7 @@ export class SqlitePairingCodes implements PairingCodeStore {
       JSON.stringify(pending.scopes),
       pending.label ?? null,
       pending.deviceTtlMs ?? null,
+      pending.person ? 1 : 0,
     );
   }
   take(codeHash: string): PendingCode | undefined {

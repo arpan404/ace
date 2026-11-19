@@ -125,7 +125,7 @@ Left:
 
 Windows 11 ARM64 (26300) in VMware Fusion on the Mac: VM `Windows 11 ARM ace`, user `ace`,
 OpenSSH with key `~/.ssh/ace_winvm`. Windows is installed unattended; first-boot setup
-(VMware Tools, OpenSSH) and the toolchain (Node 24.13, Bun, Git, Rust, VS Build Tools ARM64 +
+(VMware Tools, OpenSSH) and the toolchain (Node 26.12, Bun, Git, Rust, VS Build Tools ARM64 +
 x64) still need to run once. ARM64 Windows also runs x64 builds under emulation, so
 both architectures can be exercised. Real-desktop checks (UIA, input, capture, ConPTY,
 Use my Chrome) run there before release.

@@ -3,11 +3,14 @@ import { Command, ThreadId, ThreadView, WorkspaceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
 import { LocalStore } from "../store.ts";
-import { refreshDrafts, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
+import { refreshDrafts, saveDraft, sendDrafts, type ReviewDraft } from "@ace/ui-core/review";
 import {
   daemonWorkspaceSource,
   WorkspaceError,
 } from "@/features/thread/sources/workspace-source.ts";
+
+let commandIds = 0;
+const ids = () => `review-command-${++commandIds}`;
 
 async function fixture() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
@@ -195,11 +198,11 @@ test("retrying an admitted review comment reuses its session without duplicating
     });
     const keys = store.get().map((draft) => draft.key);
     f.daemon.refuseCommands("review_queue_rejected", "review.sendToAgent");
-    await sendDrafts(f.client, store, thread, keys);
+    await sendDrafts(f.client, store, thread, keys, ids);
     expect(store.get()[0]?.state).toBe("failed");
     const recorded = f.daemon.review.comments()[0];
     f.daemon.restoreRequests();
-    await sendDrafts(f.client, store, thread, keys);
+    await sendDrafts(f.client, store, thread, keys, ids);
     expect(store.get()[0]?.state).toBe("sent");
     expect(f.daemon.review.comments()).toEqual([
       expect.objectContaining({ id: recorded?.id, sent: true }),
@@ -232,6 +235,7 @@ test.each([1, 20, 21])("sending %i comments delivers each recorded comment once"
       store,
       thread,
       store.get().map((draft) => draft.key),
+      ids,
     );
     expect(store.get().every((draft) => draft.state === "sent")).toBe(true);
     expect(f.daemon.review.comments()).toHaveLength(count);
@@ -264,7 +268,7 @@ test("a failed delivery batch retries only pending comments without recording du
         f.daemon.refuseCommands("review_queue_rejected", "review.sendToAgent");
     });
     const keys = store.get().map((draft) => draft.key);
-    await sendDrafts(f.client, store, thread, keys);
+    await sendDrafts(f.client, store, thread, keys, ids);
     stop();
     expect(store.get().filter((draft) => draft.state === "sent")).toHaveLength(20);
     expect(store.get().filter((draft) => draft.state === "failed")).toHaveLength(1);
@@ -275,7 +279,7 @@ test("a failed delivery batch retries only pending comments without recording du
     expect(await reviewTurns(f)).toEqual([firstBatch]);
     const comments = f.daemon.review.comments();
     f.daemon.restoreRequests();
-    await sendDrafts(f.client, store, thread, keys);
+    await sendDrafts(f.client, store, thread, keys, ids);
     expect(store.get().every((draft) => draft.state === "sent")).toBe(true);
     expect(f.daemon.review.comments().map((comment) => comment.id)).toEqual(
       comments.map((comment) => comment.id),

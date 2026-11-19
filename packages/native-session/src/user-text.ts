@@ -58,8 +58,23 @@ const wrapperPatterns = [
   { pattern: /^Title request:\s*/i, replacement: "" },
 ];
 
+const leadingCommand = /^\/(?:[\w-]+)(?:\s|$)/;
+
 /** Remove the context envelopes saved by CLIs and IDEs, before truncating display text. */
 export function sanitizeUserText(value: string): string {
+  return cleanUserText(value, (text) => text.replace(leadingCommand, ""));
+}
+
+/**
+ * The same clean-up, keeping a leading slash command: the words as the person typed them, for
+ * a message still on its way ("/goal ship it" stays whole).
+ */
+export function sanitizeTypedText(value: string): string {
+  return cleanUserText(value, (text) => text);
+}
+
+/** Every clean-up step; `command` decides what happens to a leading slash command. */
+function cleanUserText(value: string, command: (text: string) => string): string {
   let text = stripAceOriginMarker(value.trim());
   // These records are standalone instructions, not a person's prompt.
   if (/^#\s+(?:AGENTS|CLAUDE)\.md\b/i.test(text)) {
@@ -89,8 +104,7 @@ export function sanitizeUserText(value: string): string {
     text = (tag === "command-args" ? block + "\n" : "") + text.slice(end);
     text = text.trimStart();
   }
-  text = withoutContextBlocks(text)
-    .replace(/^\/(?:[\w-]+)(?:\s|$)/, "")
+  text = command(withoutContextBlocks(text))
     .replace(/\[(?:Image|Attachment)(?:\s*\d+|\s*:)[^\]]*\]/gi, "")
     .replace(/\[Attached (?:image|file|screenshot)\b[^\]]*(?:saved at|saved to):?[^\]]*\]/gi, "")
     .replace(/^\s*(?:name|fileName):[^\n]*\n(?=\s*(?:mimeType|sizeBytes|attachmentId):)/gim, "")

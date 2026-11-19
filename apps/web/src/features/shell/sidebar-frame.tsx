@@ -3,11 +3,13 @@ import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useSta
 import type { ReactNode, CSSProperties } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { sidebarWidths, useLayout } from "@/lib/layout.tsx";
+import { railWidth, sidebarWidths, useLayout } from "@/lib/layout.tsx";
 import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
-import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
-import { useMediaQuery } from "@/lib/media.ts";
+import { useSidebarInline, useWindowWidth } from "@/lib/breakpoints.ts";
+import { allocateRoom } from "@/lib/shell-room.ts";
 import { Sidebar, SidebarProvider } from "@/components/ui/sidebar.tsx";
+import { railColumn, suitSidebarWidth } from "@/theme/suits/suit-layout.ts";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 import { RegionKeys } from "./region-keys.tsx";
 
 interface FrameValue {
@@ -26,6 +28,9 @@ interface FrameValue {
   bodyClaimed: boolean;
   /** A view's list takes the sidebar's body until the returned release is called. */
   claimBody(): () => void;
+  /** Where the header's title shows when a Suit hides the header bar (the sidebar's top row). */
+  titleSlot: HTMLElement | null;
+  setTitleSlot(element: HTMLElement | null): void;
 }
 const noop = () => {};
 const FrameContext = createContext<FrameValue>({
@@ -38,6 +43,8 @@ const FrameContext = createContext<FrameValue>({
   setBody: noop,
   bodyClaimed: false,
   claimBody: () => noop,
+  titleSlot: null,
+  setTitleSlot: noop,
 });
 export const useViewFrame = () => useContext(FrameContext);
 
@@ -47,22 +54,29 @@ const SidebarSheet = lazy(() =>
 );
 
 /**
- * The one sidebar (336px by default, dragged between 220 and 480; double-click its edge resets it) and
- * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
- * the screen's right panel is open, so the panel can dock beside the column, and comes back when
- * it closes; where panels float anyway (896px and below) it stays put. It stays mounted for the
- * app's life; Home and Settings draw their list into its body.
+ * The one sidebar, the rail and its panel (the panel 288px by default, dragged between 220 and 480;
+ * double-click its edge resets it), and
+ * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet
+ * opened from the header. While the screen's side panel is open beside the column (or in full
+ * view) it steps aside on a crowded window (`allocateRoom`), so the panel docks beside the
+ * column, and comes back when the panel closes. It stays mounted for the app's life; Home and
+ * Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
   const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
+  // A Suit may move the sidebar, set its starting width and fold the rail away (ADR 0150).
+  const suitLayout = useSuitLayout();
+  const right = suitLayout?.sidebar === "right";
+  const rail = railColumn(suitLayout, railWidth);
+  const storedWidth = suitSidebarWidth(suitLayout, layout.sidebarWidth, sidebarWidths.preferred);
   // The width while a drag is under way; it is remembered once the drag ends.
   const [dragWidth, setDragWidth] = useState<number>();
-  const width = clampSize(dragWidth ?? layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max);
+  const width = clampSize(dragWidth ?? storedWidth, sidebarWidths.min, sidebarWidths.max);
   const wide = useSidebarInline();
-  const crowded = useMediaQuery(crowdedQuery, false);
-  const overlay = useMediaQuery(overlayPanelsQuery, false);
+  const windowWidth = useWindowWidth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [claims, setClaims] = useState(0);
   // Counted, so one view's list leaving after the next one's arrives doesn't free the body.
   const claimBody = useCallback(() => {
@@ -77,8 +91,15 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
     setSheetOpen(false);
   }
   // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
-  const yielded = crowded && !overlay && rightPanelShown;
   const setup = pathname === "/setup";
+  // From the settled width, so dragging the sidebar's edge never flips it aside mid-drag.
+  const settled = clampSize(storedWidth, sidebarWidths.min, sidebarWidths.max);
+  const yielded =
+    allocateRoom({
+      window: windowWidth,
+      sidebar: { open: layout.sidebarOpen, inline: wide && !setup, width: settled + rail },
+      panel: { open: rightPanelShown, dock: "side", expanded: false, size: 0 },
+    }).sidebar === "yielded";
   const inline = !setup && layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
   const value = useMemo<FrameValue>(
@@ -97,8 +118,24 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
       setBody,
       bodyClaimed: claims > 0,
       claimBody,
+      titleSlot,
+      setTitleSlot,
     }),
-    [shown, wide, yielded, body, claims, claimBody, setSidebarOpen, hideRightPanel, setup],
+    [
+      shown,
+      wide,
+      yielded,
+      body,
+      claims,
+      claimBody,
+      titleSlot,
+      setTitleSlot,
+      setBody,
+      setSheetOpen,
+      setSidebarOpen,
+      hideRightPanel,
+      setup,
+    ],
   );
   // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
   // window's remembered choice alone), the sidebar beside the content elsewhere.
@@ -117,17 +154,18 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         isMobile={!wide}
         openMobile={sheetOpen}
         onOpenMobileChange={setSheetOpen}
-        style={{ "--sidebar-width": `${width}px` } as CSSProperties}
+        style={{ "--sidebar-width": `${width + rail}px` } as CSSProperties}
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
-        className="relative z-[1]"
+        className={right ? "relative z-[1] flex-row-reverse" : "relative z-[1]"}
       >
         <RegionKeys showSidebar={value.hasSidebar && !shown ? value.showSidebar : undefined} />
         {setup ? null : wide ? (
           <Sidebar
+            side={right ? "right" : "left"}
             edge={
               <ResizeHandle
                 label="Resize sidebar"
-                edge="right"
+                edge={right ? "left" : "right"}
                 size={width}
                 min={sidebarWidths.min}
                 max={sidebarWidths.max}

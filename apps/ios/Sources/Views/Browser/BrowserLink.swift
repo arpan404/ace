@@ -16,9 +16,9 @@ struct BrowserStepLink<Content: View>: View {
             Button(action: openBrowser) {
                 HStack(spacing: AceTheme.Spacing.none) {
                     content()
-                    AceIcon(.caretRight, size: 14, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                        .padding(.leading, AceTheme.Spacing.xs)
+                    AceIcon(.caretRight, size: AceDesign.Size.icon, relativeTo: .caption)
+                        .foregroundStyle(AceDesign.Ink.subtle)
+                        .padding(.leading, AceDesign.Space.tight)
                         .accessibilityHidden(true)
                 }
                 .contentShape(Rectangle())

@@ -9,6 +9,10 @@ struct ForgeWriteSheet: View {
     let desk: ForgeReviewDesk
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
+    @State private var discarding = false
+    /// The text the sheet opened with (an edit's body, a quote): only a change from it is a draft.
+    @State private var opened: String?
+    private var edited: Bool { opened.map { compose.text != $0 } ?? false }
 
     var body: some View {
         NavigationStack {
@@ -17,13 +21,14 @@ struct ForgeWriteSheet: View {
                     .focused($focused)
                     .disabled(compose.off != nil)
                 if let suggestion = compose.suggestion, compose.off == nil {
-                    Button("Suggest changes", ace: .plusMinus) {
+                    Button("Suggest changes") {
                         let block = "```suggestion\n\(suggestion)\n```\n"
                         compose.text = compose.text.isEmpty ? block : compose.text + "\n" + block
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .accessibilityIdentifier("forge.write.suggest")
                 }
+                if let reason = compose.suggestionOff { Text(reason).meta() }
                 if let off = compose.off { Text(off).meta() }
                 if let message = desk.message { Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text) }
                 Spacer(minLength: AceTheme.Spacing.none)
@@ -34,10 +39,15 @@ struct ForgeWriteSheet: View {
             .navigationTitle(compose.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited { discarding = true } else { dismiss() } }.disabled(desk.writing) }
             }
         }
-        .onAppear { desk.clearMessage(); focused = true }
+        .onAppear { desk.clearMessage(); focused = true; if opened == nil { opened = compose.text } }
+        .interactiveDismissDisabled(edited || desk.writing)
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        }
         .presentationDetents([.medium, .large])
     }
 
@@ -46,8 +56,8 @@ struct ForgeWriteSheet: View {
     @ViewBuilder private var buttons: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if let secondary = compose.secondary {
-                Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: 44) }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
+                    .buttonStyle(.textAction())
                     .disabled(empty || compose.off != nil || !desk.ready)
                     .accessibilityIdentifier("forge.write.secondary")
             }
@@ -56,10 +66,9 @@ struct ForgeWriteSheet: View {
                     if desk.writing { ProgressView().controlSize(.small) }
                     Text(compose.primary.label).fontWeight(.semibold)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
-            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-            .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+            .buttonStyle(.textAction(.prominent))
             .disabled(empty || compose.off != nil || !desk.ready)
             .accessibilityIdentifier("forge.write.primary")
         }

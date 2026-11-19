@@ -180,3 +180,91 @@ test("a run ace continued after a restart folds into the ask's one log when it s
   });
   expect(blocks.filter((block) => block.kind === "work")).toHaveLength(1);
 });
+
+function launch(id: string, at: number, run: string) {
+  return Item.parse({
+    id,
+    agentId: "root",
+    runId: run,
+    createdAt: at,
+    complete: true,
+    type: "delegation.started",
+    origin: "ace",
+    childThreadId: `thread-${id}`,
+    provider: "codex",
+    title: id,
+    role: "review",
+    phase: "settled",
+    status: { state: "done" },
+    updatedAt: at,
+    generation: 0,
+  });
+}
+/** A receipt for a child launched before this turn: no launch row of its own in the turn. */
+function receipt(id: string, at: number, run: string, child: string) {
+  return Item.parse({
+    id,
+    agentId: "root",
+    runId: run,
+    createdAt: at,
+    complete: true,
+    type: "delegation.settled",
+    origin: "ace",
+    delivery: "tool",
+    results: [
+      {
+        threadId: `thread-${child}`,
+        outcome: "completed",
+        result: `${child} finished`,
+        truncated: false,
+        before: null,
+      },
+    ],
+  });
+}
+
+/** A turn that hands an earlier child more work and reviews in rounds, with a steer midway. */
+const rounds = [
+  message("ask", "user", 1),
+  shell("plan", 2, "turn"),
+  receipt("builder-back", 3, "turn", "builder"),
+  launch("review-1", 4, "turn"),
+  shell("read-review", 5, "turn"),
+  message("steer", "user", 6, "turn"),
+  receipt("builder-again", 7, "turn", "builder"),
+  launch("review-2", 8, "turn"),
+  shell("merge", 9, "turn"),
+  message("answer", "assistant", 10, "turn"),
+];
+const shownRows = (blocks: ReturnType<typeof buildBlocks>) =>
+  blocks.map((block) => ("itemId" in block ? block.itemId : block.kind));
+
+// Mutations: leaving a completed turn's subagent rows apart, dropping a receipt from the merged
+// row, or merging across the person's steer into a row below it.
+test("a completed turn's subagent rows read as one row under its head, steers and all", () => {
+  const blocks = buildBlocks(
+    source(rounds, { state: "completed", trigger: "user", startedAt: 1, endedAt: 11 }),
+  );
+  expect(shownRows(blocks)).toEqual(["ask", "work", "subagents", "steer", "answer"]);
+  const crew = blocks[2];
+  expect(crew?.kind === "subagents" && crew.itemIds).toEqual(["review-1", "review-2"]);
+  expect(crew?.kind === "subagents" && crew.receiptIds).toEqual(["builder-back", "builder-again"]);
+  // A jump to any of them lands on the one row.
+  expect(crew && blockItems(crew)).toEqual(
+    expect.arrayContaining(["review-1", "review-2", "builder-back", "builder-again"]),
+  );
+});
+
+// Mutation: merging rows while the turn still works, or in a turn that failed.
+test("subagent rows stay where they happened while the turn works, and in a failed turn", () => {
+  for (const run of [
+    { state: "active", trigger: "user", startedAt: 1 },
+    { state: "failed", trigger: "user", startedAt: 1, endedAt: 11 },
+  ] satisfies RunFacts[]) {
+    const blocks = buildBlocks(source(rounds, run));
+    expect(blocks.filter((block) => block.kind === "subagents")).toHaveLength(2);
+    expect(
+      blocks.filter((block) => block.kind === "item" && block.itemId.startsWith("builder")),
+    ).toHaveLength(2);
+  }
+});

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const UnknownArray = z.array(z.unknown());
+
 export const Append = z.object({
   path: z.array(z.union([z.string(), z.number().int().nonnegative()])).min(1),
   text: z.string(),
@@ -16,7 +18,7 @@ export function restoreAppend(input: unknown, patch: Append): unknown {
       return (value ?? "") + patch.text;
     }
     if (typeof key === "number") {
-      const array = z.array(z.unknown()).parse(value ?? []);
+      const array = UnknownArray.parse(value ?? []);
       array[key] = descend(array[key], rest);
       return array;
     }

@@ -17,6 +17,8 @@
     "initial-preloads.ts",
     "css-polyfills.ts",
     "css-polyfills.test.ts",
+    "icon-chunk.ts",
+    "icon-chunk.test.ts",
     "scripts"
   ]
 }

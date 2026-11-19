@@ -1,0 +1,666 @@
+//! A stand-in for the daemon's loopback WebSocket that speaks just enough of the protocol: `hello`
+//! with the local token, `starting` then `welcome`, and `skills.request` `list`, `read`, `create`
+//! and `edit` (writes are recorded; `review-code` exists, and an edit must name hash `aaa…`;
+//! created skills are listed and read from then on; a create named `lost-…` is written but never
+//! answered, as when an answer is lost; one named `lost-changed-…` then lists with another body,
+//! as if changed since). A
+//! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
+//! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
+//! `review-code` has two files (`files`); [`FakeDaemon::edit_review`] gives it a new hash and
+//! one changed file, [`FakeDaemon::remove_review`] takes it away. A subscribed list hears
+//! `skills.changed` from [`FakeDaemon::push_change`].
+//!
+//! `marketplace.request` answers `spadeSkills` and `spadeSkillFiles` (ADR 0168) from the market
+//! skills set with [`FakeDaemon::set_market_skill`]; [`FakeDaemon::push_market_change`] pushes
+//! `marketplace.changed` to every welcomed socket, and [`FakeDaemon::market_unavailable`] makes
+//! every market request fail as a daemon whose marketplace isn't ready does.
+
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{Value, json};
+use sha2::Digest as _;
+use tokio::sync::{broadcast, mpsc};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+
+pub const LOCAL_TOKEN: &str = "local-token-for-tests";
+pub const REVIEW: &str = "skl_1111111111111111111111111111111111111111";
+pub const DEPLOY: &str = "skl_2222222222222222222222222222222222222222";
+pub const SILENT: &str = "skl_9999999999999999999999999999999999999999";
+/// Read answers with a result kind Spade doesn't know.
+pub const FUTURE: &str = "skl_7777777777777777777777777777777777777777";
+/// A list for this workspace is stale and holds an entry Spade can't read.
+pub const STALE_WORKSPACE: &str = "ws_stale";
+
+pub struct FakeDaemon {
+    addr: SocketAddr,
+    hellos: Arc<Mutex<Vec<Value>>>,
+    connections: Arc<AtomicUsize>,
+    drop_all: broadcast::Sender<()>,
+    saw_close: Arc<AtomicBool>,
+    writes: Arc<Mutex<Vec<Value>>>,
+    changes: broadcast::Sender<()>,
+    subscriptions: Arc<AtomicUsize>,
+    review: Arc<Mutex<Review>>,
+    market: Arc<Mutex<Market>>,
+    market_changes: broadcast::Sender<()>,
+}
+
+/// One market file: its path, content and whether it is executable.
+type MarketFile = (String, Vec<u8>, bool);
+
+/// The fake's installed market skills: each one's version and files (`SKILL.md` among them).
+#[derive(Default)]
+struct Market {
+    skills: std::collections::BTreeMap<String, (String, Vec<MarketFile>)>,
+    unavailable: bool,
+    requests: usize,
+}
+
+/// What `review-code` is now.
+#[derive(Clone, Copy, Default)]
+struct Review {
+    edited: bool,
+    removed: bool,
+}
+
+pub const GUIDE_EDITED: &str = "# Guide, second edition\n";
+
+pub const GUIDE: &str = "# Guide\n";
+pub const SCRIPT: &str = "#!/bin/sh\necho hi\n";
+
+impl FakeDaemon {
+    pub async fn start() -> Self {
+        Self::start_as(false).await
+    }
+
+    /// Authenticates, then never reads again; it keeps writing small frames and notes when the
+    /// client's side of the socket is gone.
+    pub async fn start_deaf() -> Self {
+        Self::start_as(true).await
+    }
+
+    async fn start_as(deaf: bool) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap_or_else(|e| panic!("bind: {e}"));
+        let addr = listener
+            .local_addr()
+            .unwrap_or_else(|e| panic!("addr: {e}"));
+        let hellos = Arc::new(Mutex::new(Vec::new()));
+        let connections = Arc::new(AtomicUsize::new(0));
+        let (drop_all, _) = broadcast::channel(4);
+        let saw_close = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let (changes, _) = broadcast::channel(16);
+        let subscriptions = Arc::new(AtomicUsize::new(0));
+        let watching = (changes.clone(), subscriptions.clone());
+        let review = Arc::new(Mutex::new(Review::default()));
+        let reviewing = review.clone();
+        let market = Arc::new(Mutex::new(Market::default()));
+        let (market_changes, _) = broadcast::channel(16);
+        let marketing = (market.clone(), market_changes.clone());
+        let accept = (hellos.clone(), connections.clone(), drop_all.clone());
+        let recorded = writes.clone();
+        let closes = saw_close.clone();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else {
+                    continue;
+                };
+                accept.1.fetch_add(1, Ordering::SeqCst);
+                if deaf {
+                    tokio::spawn(serve_deaf(socket, closes.clone()));
+                } else {
+                    tokio::spawn(serve(
+                        socket,
+                        accept.0.clone(),
+                        (accept.2.subscribe(), watching.0.subscribe()),
+                        recorded.clone(),
+                        (watching.1.clone(), reviewing.clone()),
+                        (marketing.0.clone(), marketing.1.subscribe()),
+                    ));
+                }
+            }
+        });
+        Self {
+            addr,
+            hellos,
+            connections,
+            drop_all,
+            saw_close,
+            writes,
+            changes,
+            subscriptions,
+            review,
+            market,
+            market_changes,
+        }
+    }
+
+    /// Installs (or replaces) the market skill `name` with `files`, `SKILL.md` among them.
+    pub fn set_market_skill(&self, name: &str, version: &str, files: &[(&str, &[u8], bool)]) {
+        let files = files
+            .iter()
+            .map(|(path, bytes, executable)| ((*path).to_owned(), bytes.to_vec(), *executable))
+            .collect();
+        lock(&self.market)
+            .skills
+            .insert(name.to_owned(), (version.to_owned(), files));
+    }
+
+    /// The market skill `name` is no longer installed.
+    pub fn remove_market_skill(&self, name: &str) {
+        lock(&self.market).skills.remove(name);
+    }
+
+    /// Every market request fails (`true`) or is answered again (`false`).
+    pub fn market_unavailable(&self, unavailable: bool) {
+        lock(&self.market).unavailable = unavailable;
+    }
+
+    /// How many `marketplace.request` frames came.
+    pub fn market_requests(&self) -> usize {
+        lock(&self.market).requests
+    }
+
+    /// Pushes `marketplace.changed` on every welcomed socket.
+    pub fn push_market_change(&self) {
+        let _ = self.market_changes.send(());
+    }
+
+    /// `review-code` gets a new hash, a changed guide and no script.
+    pub fn edit_review(&self) {
+        lock(&self.review).edited = true;
+    }
+
+    /// `review-code` is no longer in the library.
+    pub fn remove_review(&self) {
+        lock(&self.review).removed = true;
+    }
+
+    /// Pushes `skills.changed` on every subscribed socket.
+    pub fn push_change(&self) {
+        let _ = self.changes.send(());
+    }
+
+    /// How many lists asked to subscribe.
+    pub fn subscriptions(&self) -> usize {
+        self.subscriptions.load(Ordering::SeqCst)
+    }
+
+    /// Every `create` and `edit` operation received, in order.
+    pub fn writes(&self) -> Vec<Value> {
+        lock(&self.writes).clone()
+    }
+
+    /// A deaf daemon found the client's side of its socket closed.
+    pub fn saw_close(&self) -> bool {
+        self.saw_close.load(Ordering::SeqCst)
+    }
+
+    pub fn url(&self) -> String {
+        format!("ws://{}/", self.addr)
+    }
+
+    pub fn hellos(&self) -> Vec<Value> {
+        lock(&self.hellos).clone()
+    }
+
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+
+    /// Closes every open socket, as a daemon restart does.
+    pub fn drop_connections(&self) {
+        let _ = self.drop_all.send(());
+    }
+}
+
+async fn serve(
+    socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    hellos: Arc<Mutex<Vec<Value>>>,
+    (mut drop_all, mut changes): (broadcast::Receiver<()>, broadcast::Receiver<()>),
+    writes: Arc<Mutex<Vec<Value>>>,
+    (subscriptions, review): (Arc<AtomicUsize>, Arc<Mutex<Review>>),
+    (market, mut market_changes): (Arc<Mutex<Market>>, broadcast::Receiver<()>),
+) {
+    let mut subscribed: Option<Value> = None;
+    let (mut sink, mut stream) = socket.split();
+    let (out, mut outgoing) = mpsc::unbounded_channel::<Message>();
+    let writer = tokio::spawn(async move {
+        while let Some(message) = outgoing.recv().await {
+            let closing = matches!(message, Message::Close(_));
+            if sink.send(message).await.is_err() || closing {
+                break;
+            }
+        }
+    });
+    let mut authenticated = false;
+    loop {
+        let frame = tokio::select! {
+            frame = stream.next() => frame,
+            _ = drop_all.recv() => break,
+            Ok(()) = changes.recv() => {
+                if let Some(id) = &subscribed {
+                    send(&out, json!({ "type": "skills.changed", "requestId": id, "entries": [], "stale": false }));
+                }
+                continue;
+            }
+            Ok(()) = market_changes.recv() => {
+                if authenticated {
+                    send(&out, json!({ "type": "marketplace.changed", "installed": 1, "updates": 0 }));
+                }
+                continue;
+            }
+        };
+        let Some(Ok(Message::Text(text))) = frame else {
+            break;
+        };
+        let Ok(message) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if !authenticated {
+            lock(&hellos).push(message.clone());
+            if message["type"] == "hello" && message["token"] == LOCAL_TOKEN {
+                authenticated = true;
+                send(&out, json!({ "type": "starting" }));
+                send(
+                    &out,
+                    json!({ "type": "welcome", "hostId": "host_test", "protocolVersion": 1, "headSeq": 0 }),
+                );
+            } else {
+                send(
+                    &out,
+                    json!({ "type": "error", "code": "unauthorized", "message": "Valid hello required" }),
+                );
+                let _ = out.send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::from(4001),
+                    reason: "unauthorized".into(),
+                })));
+                break;
+            }
+            continue;
+        }
+        if message["type"] == "pluginRequest" {
+            send(&out, plugin_answer(&message));
+            continue;
+        }
+        if message["type"] == "marketplace.request" {
+            let result = market_answer(&mut lock(&market), &message["operation"]);
+            send(
+                &out,
+                json!({ "type": "marketplace.result", "requestId": message["requestId"], "result": result }),
+            );
+            continue;
+        }
+        if message["type"] != "skills.request" {
+            continue;
+        }
+        let request_id = message["requestId"].clone();
+        let operation = &message["operation"];
+        // Frames Spade doesn't know arrive between answers and must be skipped.
+        send(&out, json!({ "type": "pong" }));
+        match operation["op"].as_str() {
+            Some("list") => {
+                if operation["subscribe"] == true {
+                    subscriptions.fetch_add(1, Ordering::SeqCst);
+                    subscribed = Some(request_id.clone());
+                }
+                let stale = operation["workspaceId"] == STALE_WORKSPACE;
+                let now = *lock(&review);
+                let mut entries = vec![entry(DEPLOY)];
+                if !now.removed {
+                    entries.insert(0, reviewed(now));
+                }
+                entries.extend(created(&lock(&writes)).into_iter().map(|(entry, _)| entry));
+                if stale {
+                    entries.push(json!({ "id": "skl_broken", "scope": "personal" }));
+                }
+                send(
+                    &out,
+                    json!({
+                        "type": "skills.result",
+                        "requestId": request_id,
+                        "result": { "kind": "list", "entries": entries, "stale": stale, "cursor": "next-1" }
+                    }),
+                );
+            }
+            Some("read") => {
+                let id = operation["id"].as_str().unwrap_or_default().to_owned();
+                if id == SILENT {
+                    continue;
+                }
+                let made = created(&lock(&writes))
+                    .into_iter()
+                    .find(|(entry, _)| entry["id"] == json!(id));
+                let now = *lock(&review);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let result = if id == FUTURE {
+                        json!({ "kind": "hologram", "beam": 3 })
+                    } else if let Some((entry, text)) = made {
+                        json!({ "kind": "skill", "entry": entry, "text": text })
+                    } else if id == REVIEW && !now.removed {
+                        json!({ "kind": "skill", "entry": reviewed(now), "text": text_of(&id), "kept": [] })
+                    } else if id == DEPLOY {
+                        json!({ "kind": "skill", "entry": entry(&id), "text": text_of(&id), "kept": [] })
+                    } else {
+                        json!({ "kind": "error", "code": "not_found", "message": "No skill with that id." })
+                    };
+                    send(
+                        &out,
+                        json!({ "type": "skills.result", "requestId": request_id, "result": result }),
+                    );
+                });
+            }
+            Some("files") => {
+                use base64::Engine as _;
+                let sha = |text: &str| {
+                    sha2::Sha256::digest(text.as_bytes())
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                };
+                let all = [
+                    ("references/guide.md", GUIDE, false),
+                    ("scripts/run.sh", SCRIPT, true),
+                ];
+                let edited = [("references/guide.md", GUIDE_EDITED, false)];
+                let files: &[(&str, &str, bool)] =
+                    if lock(&review).edited { &edited } else { &all };
+                let file = |(path, text, executable): (&str, &str, bool)| {
+                    json!({
+                        "path": path, "size": text.len(), "hash": sha(text), "executable": executable
+                    })
+                };
+                let result = if operation["id"] != REVIEW {
+                    json!({ "kind": "files", "id": operation["id"], "files": [], "omitted": [] })
+                } else if let Some(path) = operation["path"].as_str() {
+                    match files.iter().find(|(p, _, _)| *p == path) {
+                        Some(found) => json!({
+                            "kind": "file", "id": REVIEW, "file": file(*found),
+                            "content": base64::engine::general_purpose::STANDARD.encode(found.1),
+                        }),
+                        None => {
+                            json!({ "kind": "error", "code": "not_found", "message": "No such file." })
+                        }
+                    }
+                } else {
+                    json!({
+                        "kind": "files", "id": REVIEW,
+                        "files": files.iter().map(|f| file(*f)).collect::<Vec<_>>(),
+                        "omitted": [{ "path": "big.bin", "reason": "too_large" }],
+                    })
+                };
+                send(
+                    &out,
+                    json!({ "type": "skills.result", "requestId": request_id, "result": result }),
+                );
+            }
+            Some("create") | Some("edit") => {
+                lock(&writes).push(operation.clone());
+                if operation["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("lost-"))
+                {
+                    continue;
+                }
+                let result = write_result(operation);
+                send(
+                    &out,
+                    json!({ "type": "skills.result", "requestId": request_id, "result": result }),
+                );
+            }
+            _ => send(
+                &out,
+                json!({ "type": "error", "code": "invalid_message", "message": "Message does not match the protocol", "requestId": request_id }),
+            ),
+        }
+    }
+    drop(out);
+    let _ = writer.await;
+}
+
+async fn serve_deaf(
+    mut socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    saw_close: Arc<AtomicBool>,
+) {
+    let hello = socket.next().await;
+    let Some(Ok(Message::Text(text))) = hello else {
+        return;
+    };
+    let ok = serde_json::from_str::<Value>(&text)
+        .map(|hello| hello["token"] == LOCAL_TOKEN)
+        .unwrap_or(false);
+    if !ok {
+        return;
+    }
+    let welcome =
+        json!({ "type": "welcome", "hostId": "host_test", "protocolVersion": 1, "headSeq": 0 });
+    if socket
+        .send(Message::text(welcome.to_string()))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    // Never reads again. A write fails once the client has let the socket go.
+    for _ in 0..400 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let sent = tokio::time::timeout(
+            Duration::from_millis(500),
+            socket.send(Message::text(json!({ "type": "pong" }).to_string())),
+        )
+        .await;
+        if !matches!(sent, Ok(Ok(()))) {
+            saw_close.store(true, Ordering::SeqCst);
+            return;
+        }
+    }
+}
+
+/// What the daemon answers a `pluginRequest`: one accepted plugin, `style-kit`, turned off in
+/// ace, and `plugin_failed` for any other.
+fn plugin_answer(message: &Value) -> Value {
+    let request_id = message["requestId"].clone();
+    let request = &message["request"];
+    let install = json!({ "name": "style-kit", "version": "1.0", "commit": "c".repeat(40),
+        "hash": "d".repeat(64), "acceptedAt": 5 });
+    let response = match (request["type"].as_str(), request["name"].as_str()) {
+        (Some("plugins.list"), _) => json!({ "type": "plugins.list", "installs": [install],
+            "reviews": [], "availability": [{ "name": "style-kit", "enabled": false, "providers": [] }] }),
+        (Some("plugins.spade"), Some("style-kit")) => json!({ "type": "plugins.spade", "plugin": {
+            "install": install, "enabled": false, "root": "/plugins/versions/d",
+            "components": [{ "kind": "rule", "name": "style", "path": "rules/style.md",
+                "description": "", "text": "Use tabs." },
+                { "kind": "skill", "name": "tidy", "path": "skills/tidy/SKILL.md",
+                "description": "Tidy code", "text": "---\nname: tidy\n---\nTidy it.\n",
+                "files": [{ "path": "guide.md", "bytes": 5,
+                    "hash": "e".repeat(64), "executable": false }] }],
+            "executions": [{ "kind": "stdio", "name": "lint", "command": "node",
+                "args": ["${PLUGIN_ROOT}/lint.js"], "env": { "MODE": "x" } }],
+            "unsupported": [] } }),
+        (Some("plugins.spadeFile"), Some("style-kit"))
+            if request["path"] == "skills/tidy/guide.md" =>
+        {
+            use base64::Engine as _;
+            json!({ "type": "plugins.spadeFile", "path": "skills/tidy/guide.md",
+                "hash": "e".repeat(64), "executable": false,
+                "content": base64::engine::general_purpose::STANDARD.encode("Guide") })
+        }
+        _ => {
+            return json!({ "type": "error", "code": "plugin_failed",
+                "message": "Plugin not installed", "requestId": request_id });
+        }
+    };
+    json!({ "type": "pluginResult", "requestId": request_id, "response": response })
+}
+
+/// What the daemon answers a `create` or `edit`.
+fn write_result(operation: &Value) -> Value {
+    let creating = operation["op"] == "create";
+    if creating && operation["name"] == "review-code" {
+        return json!({ "kind": "error", "code": "exists", "message": "You already have a skill called review-code." });
+    }
+    if !creating && operation["expectedHash"] != json!("a".repeat(64)) {
+        return json!({ "kind": "error", "code": "conflict", "message": "This skill changed elsewhere. Reload it before saving." });
+    }
+    let made = created_id(operation["name"].as_str().unwrap_or("new"));
+    let id = if creating {
+        made.as_str()
+    } else {
+        operation["id"].as_str().unwrap_or(REVIEW)
+    };
+    let name = if creating {
+        operation["name"].as_str().unwrap_or("new")
+    } else {
+        "review-code"
+    };
+    let mut written = entry(REVIEW);
+    written["id"] = json!(id);
+    written["name"] = json!(name);
+    written["description"] = operation["description"].clone();
+    written["hash"] = json!("b".repeat(64));
+    let text = format!(
+        "---\nname: {name}\ndescription: {}\n---\n{}",
+        operation["description"].as_str().unwrap_or(""),
+        operation["body"].as_str().unwrap_or("")
+    );
+    json!({ "kind": "skill", "entry": written, "text": text })
+}
+
+/// A created skill's id, from its name.
+fn created_id(name: &str) -> String {
+    let hex: String = name.bytes().map(|b| format!("{b:02x}")).collect();
+    format!("skl_{:0<40}", &hex[..hex.len().min(40)])
+}
+
+/// Every skill a create made, as listed and read: its entry and text.
+fn created(writes: &[Value]) -> Vec<(Value, String)> {
+    writes
+        .iter()
+        .filter(|op| op["op"] == "create" && op["name"] != "review-code")
+        .map(|op| {
+            let mut op = op.clone();
+            if op["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("lost-changed-"))
+            {
+                op["body"] = json!("Changed by someone else.\n");
+            }
+            let result = write_result(&op);
+            (
+                result["entry"].clone(),
+                result["text"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A `MarketResult` for one `MarketOperation` Spade sends.
+fn market_answer(market: &mut Market, operation: &Value) -> Value {
+    market.requests += 1;
+    if market.unavailable {
+        return json!({ "op": "error", "code": "unavailable", "message": "The marketplace isn't ready yet" });
+    }
+    let listed = |files: &[MarketFile]| -> Vec<Value> {
+        files
+            .iter()
+            .map(|(path, bytes, executable)| {
+                json!({ "path": path, "bytes": bytes.len(), "hash": sha256_hex(bytes), "executable": executable })
+            })
+            .collect()
+    };
+    match operation["op"].as_str() {
+        Some("spadeSkills") => json!({
+            "op": "spadeSkills",
+            "skills": market.skills.iter().map(|(name, (version, files))| {
+                let all: Vec<u8> = files.iter().flat_map(|(p, b, _)| p.bytes().chain(b.iter().copied())).collect();
+                json!({ "name": name, "version": version, "hash": sha256_hex(&all),
+                        "description": format!("{name} from the market") })
+            }).collect::<Vec<_>>(),
+        }),
+        Some("spadeSkillFiles") => {
+            let name = operation["name"].as_str().unwrap_or_default();
+            let Some((_, files)) = market.skills.get(name) else {
+                return json!({ "op": "error", "code": "not_found", "message": format!("There is no market skill {name}") });
+            };
+            match operation["path"].as_str() {
+                None => json!({ "op": "spadeSkillFiles", "files": listed(files) }),
+                Some(path) => match files.iter().find(|(p, _, _)| p == path) {
+                    Some(file) => {
+                        use base64::Engine as _;
+                        json!({ "op": "spadeSkillFiles", "files": listed(std::slice::from_ref(file)),
+                                "content": base64::engine::general_purpose::STANDARD.encode(&file.1) })
+                    }
+                    None => {
+                        json!({ "op": "error", "code": "not_found", "message": format!("{name} has no file {path}") })
+                    }
+                },
+            }
+        }
+        _ => json!({ "op": "error", "code": "invalid", "message": "unknown operation" }),
+    }
+}
+
+pub fn text_of(id: &str) -> String {
+    format!("---\nname: {id}\n---\nDo the thing carefully.\n")
+}
+
+/// `review-code`'s entry as it is now.
+fn reviewed(now: Review) -> Value {
+    let mut listed = entry(REVIEW);
+    if now.edited {
+        listed["hash"] = json!("c".repeat(64));
+    }
+    listed
+}
+
+fn entry(id: &str) -> Value {
+    let (name, scope, manual) = if id == REVIEW {
+        ("review-code", "personal", false)
+    } else {
+        ("deploy", "project", true)
+    };
+    let mut entry = json!({
+        "id": id,
+        "name": name,
+        "description": format!("{name} skill"),
+        "scope": scope,
+        "path": format!("~/.agents/skills/{name}"),
+        "agents": [{ "provider": "claude", "via": "link", "path": "~/.claude/skills/x", "removable": true, "honoursManual": true }],
+        "manual": manual,
+        "editable": true,
+        "hash": "a".repeat(64),
+        "addedLater": { "anything": true }
+    });
+    if id == REVIEW {
+        entry["title"] = json!("Review code");
+        entry["argumentHint"] = json!("[branch]");
+    }
+    entry
+}
+
+fn send(out: &mpsc::UnboundedSender<Message>, value: Value) {
+    let _ = out.send(Message::text(value.to_string()));
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}

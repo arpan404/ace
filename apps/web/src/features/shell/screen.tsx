@@ -1,10 +1,16 @@
-import { useState } from "react";
-import type { ReactNode, UIEvent } from "react";
+import type { ReactNode } from "react";
+import { useOptionalClient } from "@ace/client-react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
+import { OutsideNotices } from "@/features/connected-apps/index.ts";
+import { SafeModeNotice } from "./safe-mode-notice.tsx";
 import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
+import type { SuitPage } from "@ace/protocol/suit-parts";
+import { pageCanvasClass } from "./canvas.ts";
+import { pageAttributes, useAnnouncePage } from "./page-on-screen.tsx";
+import { PageScene } from "./page-scene.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
 import { ConnectionOwner } from "./connection-owner.tsx";
 import { Workspace } from "./workspace/workspace.tsx";
@@ -17,29 +23,33 @@ export interface ScreenWorkspace {
 }
 
 /**
- * The main column of every route: the shared header, the content and, where a screen has a
- * workspace, the side panel beside it. Slices fill `children` and register tab kinds; the
- * frame, keyboard map, persistence and motion are the shell's.
+ * The main column of every route: its part of the window's top bar, then the canvas with the
+ * content and, where a screen has a workspace, the side panel beside it. Slices fill `children`
+ * and register tab kinds; the frame, keyboard map, persistence and motion are the shell's.
  */
 export function Screen(
   props: HeaderProps & {
     workspace?: ScreenWorkspace | undefined;
+    /**
+     * Which page this is, from `suitPages`: its canvas becomes the `page` part with this
+     * `data-page`, and the window's `app` part says it too (docs/design/suit-parts.md).
+     */
+    page?: SuitPage | undefined;
+    /** The page's `data-variant`: which kind or state of it is on screen. */
+    pageVariant?: string | undefined;
     children: ReactNode;
   },
 ) {
-  const [scrolled, setScrolled] = useState(false);
   const pane = useToastAnchor();
-  // Any scroller inside the content draws the header hairline once it leaves the top.
-  const onScroll = (event: UIEvent) => {
-    const target = event.target;
-    if (target instanceof HTMLElement) setScrolled(target.scrollTop > 0);
-  };
+  useAnnouncePage(props.page);
+  // With no machine there is no connection to report on, and no machine for outside apps to ask about.
+  const machine = useOptionalClient() !== undefined;
   const main = (
     <main
       ref={pane}
       id="main"
+      data-part="main"
       tabIndex={-1}
-      onScrollCapture={onScroll}
       className="relative min-h-0 flex-1 outline-none"
     >
       {props.children}
@@ -48,6 +58,8 @@ export function Screen(
   const header = (headerOwnsConnection: boolean) => (trailing?: ReactNode) => (
     <AppHeader
       title={props.title}
+      namedByPanel={props.namedByPanel}
+      mark={props.mark}
       subtitle={props.subtitle}
       breadcrumb={props.breadcrumb}
       crumb={props.crumb}
@@ -56,8 +68,7 @@ export function Screen(
       actions={props.actions}
       status={props.status}
       progress={props.progress}
-      notice={headerOwnsConnection ? <ConnectionNotice /> : null}
-      scrolled={scrolled}
+      notice={headerOwnsConnection && machine ? <ConnectionNotice /> : null}
       trailing={trailing}
     />
   );
@@ -73,9 +84,13 @@ export function Screen(
             title={props.title}
             header={header(headerOwnsConnection)}
             contextPanel={workspace.contextPanel}
+            page={props.page}
+            pageVariant={props.pageVariant}
             notice={
               <>
                 <PausedNotice />
+                {machine && <OutsideNotices />}
+                <SafeModeNotice />
                 <SandboxNotice />
               </>
             }
@@ -85,9 +100,17 @@ export function Screen(
         ) : (
           <>
             {header(headerOwnsConnection)()}
-            <PausedNotice />
-            <SandboxNotice />
-            <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+            <div
+              {...pageAttributes(props.page, props.pageVariant)}
+              className={`${pageCanvasClass} flex-col`}
+            >
+              {props.page && <PageScene />}
+              <PausedNotice />
+              {machine && <OutsideNotices />}
+              <SafeModeNotice />
+              <SandboxNotice />
+              <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+            </div>
           </>
         )
       }
@@ -98,7 +121,7 @@ export function Screen(
 /** Scrollable page body: centred column, 44px top and 32px side padding. */
 export function Page(props: { children: ReactNode; wide?: boolean }) {
   return (
-    <div className="h-full overflow-auto">
+    <div data-part="scrollbar" className="h-full overflow-auto">
       <div
         className={
           props.wide

@@ -1,7 +1,7 @@
 import { coldStartReplay, seedPanels } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 
@@ -123,6 +123,86 @@ test("an agent's device emulation opens the device toolbar at the agent's device
   );
 });
 
+const phone = {
+  width: 402,
+  height: 874,
+  deviceScaleFactor: 3,
+  mobile: true,
+  touch: true,
+  by: "human" as const,
+};
+
+/** Runs `body` with a clock it can move on at once; time still passes on its own meanwhile. */
+async function withClock(body: () => Promise<void>) {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    await body();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+/** Past the device toolbar's settle time: anything this screen meant to send has gone. */
+const settle = () => act(() => vi.advanceTimersByTime(1_000));
+
+test("a device the person chose on another screen shows here and is not undone", async () => {
+  const { panel, browser } = await openBrowser();
+  await withClock(async () => {
+    act(() => browser.tabView(threadId, undefined, { emulation: phone }));
+    const toolbar = await within(panel).findByRole("toolbar", { name: "Device toolbar" });
+    expect(within(toolbar).getByRole("combobox", { name: "Device" }).textContent).toContain(
+      "iPhone 16 Pro",
+    );
+    // The page keeps the phone's device: this screen didn't send its own size over it.
+    settle();
+    expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 402, height: 874 });
+    // Closing the toolbar here gives the page this pane's size back.
+    await userEvent.click(within(toolbar).getByRole("button", { name: "Close device toolbar" }));
+    await waitFor(() => expect(browser.tab(threadId)?.emulation).toBeUndefined());
+  });
+});
+
+test("a device this screen picked earlier, chosen again elsewhere, is shown and not undone", async () => {
+  const { panel, browser } = await openBrowser();
+  const toolbar = await showDeviceToolbar(panel);
+  await pickDevice(toolbar, "iPhone 16 Pro");
+  await waitFor(() => expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 402 }));
+  await pickDevice(toolbar, "Pixel 9");
+  await waitFor(() => expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 412 }));
+  await withClock(async () => {
+    // The phone picks the iPhone this screen had before: it is the phone's choice now.
+    act(() => browser.tabView(threadId, undefined, { emulation: phone }));
+    await waitFor(() =>
+      expect(within(toolbar).getByRole("combobox", { name: "Device" }).textContent).toContain(
+        "iPhone 16 Pro",
+      ),
+    );
+    settle();
+    expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 402, height: 874 });
+  });
+});
+
+test("a device set while this screen was offline survives its reconnect", async () => {
+  const { app, panel, browser } = await openBrowser();
+  await withClock(async () => {
+    app.daemon.refuseConnections(true);
+    settle();
+    // The phone gives the tab its device while the desktop can't hear about it.
+    browser.tabView(threadId, undefined, { emulation: phone });
+    app.daemon.refuseConnections(false);
+    const toolbar = await within(panel).findByRole(
+      "toolbar",
+      { name: "Device toolbar" },
+      { timeout: 15_000 },
+    );
+    expect(within(toolbar).getByRole("combobox", { name: "Device" }).textContent).toContain(
+      "iPhone 16 Pro",
+    );
+    settle();
+    // The pane's size from before the state arrived never went out over the phone's device.
+    expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 402, height: 874 });
+  });
+}, 30_000);
+
 test("zoom steps from the menu and the keys, shows in the address pill, and resets", async () => {
   const { panel, browser } = await openBrowser();
   await options(panel);
@@ -152,7 +232,7 @@ test("right-clicking the page offers browser commands; View page source shows th
   const menu = await screen.findByRole("menu");
   for (const name of ["Back", "Forward", "Reload", "Copy", "Paste", "Take a screenshot"])
     expect(within(menu).getByRole("menuitem", { name })).toBeTruthy();
-  // Developer tools open for the desktop app's own pages; here the item says why not.
+  // Developer tools open for the desktop app's own pages only; here Inspect is off.
   expect(
     within(menu)
       .getByRole("menuitem", { name: /Inspect/ })
@@ -193,6 +273,9 @@ test("Clear browsing data asks first, then clears and empties the thread's histo
   await options(panel);
   await userEvent.click(await screen.findByRole("menuitem", { name: "Clear browsing data…" }));
   const confirm = await screen.findByRole("dialog", { name: "Clear browsing data?" });
+  // Clearing acts on the thread's browser profile, which other threads may share.
+  expect(confirm.textContent).toContain("browser profile this thread uses");
+  expect(confirm.textContent).toContain("Threads that share this profile are signed out too.");
   await userEvent.click(within(confirm).getByRole("button", { name: "Clear data" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Clear browsing data?" })).toBeNull(),

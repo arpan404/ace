@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { CredentialRegistry, ToolRegistry, startMcpServer } from "./index.ts";
+import { legacySessionsPerLease } from "./legacy-sessions.ts";
 import { scope } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -46,11 +47,11 @@ async function fixture() {
   return { server, headers, initialize };
 }
 
-test("reinitializing a legacy client past 128 times keeps new sessions usable and releases superseded sessions", async () => {
+test("reinitializing a legacy client past its per-lease cap keeps new sessions usable and releases superseded sessions", async () => {
   const f = await fixture();
   const first = await f.initialize();
   let latest = first;
-  for (let index = 0; index < 129; index++) latest = await f.initialize();
+  for (let index = 0; index <= legacySessionsPerLease * 2; index++) latest = await f.initialize();
   const old = await fetch(f.server.url, {
     method: "DELETE",
     headers: { ...f.headers, "Mcp-Session-Id": first },

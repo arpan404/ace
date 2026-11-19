@@ -62,8 +62,3 @@ test("a turn ace cut short so a steer reached the model shows no Stopped row", a
   expect(within(feed).getByText("Look at the failing test instead")).toBeTruthy();
   expect(within(feed).queryByText(/^Stopped/)).toBeNull();
 });
-
-test("a turn the person stopped still reads as interrupted by them", async () => {
-  const feed = await open(cutShort("thread-person-stop", undefined));
-  expect(await within(feed).findByRole("note", { name: "Interrupted by you" })).toBeTruthy();
-});

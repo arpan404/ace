@@ -156,8 +156,11 @@ test("revoking publication authority cancels its CLI and resume reconciles the c
     expect((await f.cli.state()).creates).toBe(1);
     expect(await f.publish()).toMatchObject({ ok: false, error: "project_busy" });
     expect(
-      await f.command({ type: "workspace.remove", workspaceId: f.id, archiveThreads: false }),
-    ).toMatchObject({ ok: false, error: "project_busy" });
+      await f.command({ type: "workspace.remove", workspaceId: f.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: false,
+      error: "project_busy",
+    });
     f.projects.cancelDevice("owner");
     expect(await pending).toMatchObject({
       ok: false,

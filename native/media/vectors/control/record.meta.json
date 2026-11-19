@@ -1,0 +1,11 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "record.meta",
+    "recording": "source-1",
+    "epoch": 1,
+    "data": {
+      "x": 1
+    }
+  }
+}

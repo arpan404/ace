@@ -2,10 +2,16 @@
   "$id": "https://ace.local/protocol/v1/MachineThreadView.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "contact": {
+      "$ref": "https://ace.local/protocol/v1/RemoteContact.json"
+    },
     "elapsedSeconds": {
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "failure": {
+      "$ref": "https://ace.local/protocol/v1/DelegationFailure.json"
     },
     "last": {
       "maxLength": 160,
@@ -91,6 +97,12 @@
     },
     "truncated": {
       "type": "boolean"
+    },
+    "waitingFor": {
+      "enum": [
+        "storage"
+      ],
+      "type": "string"
     }
   },
   "required": [

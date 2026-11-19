@@ -42,9 +42,10 @@ export function webUrl(layout: DevLayout): string {
 function daemon(layout: DevLayout): ProcessSpec {
   return {
     name: "daemon",
-    command: process.execPath,
-    // Node restarts the daemon when any imported source file changes.
-    args: ["--watch", "--watch-preserve-output", "apps/daemon/src/cli.ts", "start"],
+    // The daemon runs on Bun, as releases ship it. Bun restarts it (SIGTERM, so it shuts down
+    // cleanly) when any imported source file changes.
+    command: "bun",
+    args: ["--watch", "--no-clear-screen", "apps/daemon/src/cli.ts", "start"],
     cwd: layout.repo,
     env: {
       ACE_HOME: layout.home,

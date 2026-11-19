@@ -1,3 +1,5 @@
+import { WorkspaceId } from "@ace/protocol";
+import { readinessQueries } from "@ace/ui-core";
 import { sketchPullRequests, workbench, type PrSketch } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,12 +22,12 @@ const waiting = (number: number): PrSketch => ({
 });
 
 /** More open pull requests than one page, the only ready one older than every other. */
-function withBusyRepository() {
+function withBusyRepository(waitingCount = 30) {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.seedPullRequests(
     sketchPullRequests(Date.now(), [
-      ...Array.from({ length: 30 }, (_, index) => waiting(index + 1)),
+      ...Array.from({ length: waitingCount }, (_, index) => waiting(index + 1)),
       {
         ...waiting(90),
         title: "Old but ready",
@@ -37,32 +39,101 @@ function withBusyRepository() {
   return app;
 }
 
-/** A group's heading: its name and GitHub's total for it. */
-const heading = (name: string) =>
-  within(screen.getByRole("region", { name })).getByRole("heading").textContent;
-
-async function groups() {
+/** The titles listed, in order. */
+async function titles() {
   const nav = await screen.findByRole("navigation", { name: "Pull requests" });
-  return Object.fromEntries(
-    within(nav)
-      .getAllByRole("region")
-      .map((section) => [
-        section.getAttribute("aria-label"),
-        within(section).queryAllByRole("link").length,
-      ]),
-  );
+  return within(nav)
+    .queryAllByRole("link")
+    .map((link) => link.textContent ?? "");
 }
 
-test("a ready pull request older than the first page still leads the list", async () => {
+test("a ready pull request older than the first page is still listed, and Load more reads the rest", async () => {
   const app = withBusyRepository();
   await app.open("/pulls?project=ace");
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 25 }));
-  const ready = within(await screen.findByRole("region", { name: "Ready to merge" }));
-  expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
-  // 25 of the 30 waiting are loaded: a group counts its rows once every page is read.
-  expect(heading("Waiting")).toBe("Waiting");
-  await userEvent.click(screen.getByRole("button", { name: "Show more" }));
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 30 }));
-  await waitFor(() => expect(heading("Waiting")).toBe("Waiting30"));
-  expect(heading("Ready to merge")).toBe("Ready to merge1");
+  // The readiest first through the whole repository: the ready one, then a page of the waiting.
+  await waitFor(async () => expect(await titles()).toHaveLength(26));
+  expect(await titles()).toContain("Old but ready");
+  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await waitFor(async () => expect(await titles()).toHaveLength(31));
+  // Waiting rows come before the ready one in the next-move order.
+  expect((await titles()).at(-1)).toBe("Old but ready");
+});
+
+test("57 open pull requests remain visible when a ranking search fails, and retry restores ranking", async () => {
+  const app = withBusyRepository(56);
+  const query = readinessQueries({})[0];
+  if (!query) throw new Error("Missing ranking query");
+  const recover = app.daemon.workspace.failForgeRead(
+    { op: "forge.pr.list", workspaceId: WorkspaceId.parse("ace"), query },
+    "forge_rate_limit",
+  );
+  await app.open("/pulls?project=ace");
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("group", { name: "State" })).getByRole("button", { name: /^Open/ })
+        .textContent,
+    ).toBe("Open57"),
+  );
+  await waitFor(async () => expect(await titles()).toHaveLength(25));
+  expect(screen.queryByText("No results matched your search.")).toBeNull();
+  const notice = await screen.findByRole("status", { name: "Pull request ranking" });
+  expect(notice.textContent).toContain("Couldn't rank pull requests");
+  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await waitFor(async () => expect(await titles()).toHaveLength(50));
+  recover();
+  await userEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+  await waitFor(async () => expect(await titles()).toContain("Old but ready"));
+  await waitFor(() =>
+    expect(screen.queryByRole("status", { name: "Pull request ranking" })).toBeNull(),
+  );
+});
+
+test("the open count does not become an empty search result while ranking is pending", async () => {
+  const app = withBusyRepository(56);
+  const query = readinessQueries({})[0];
+  if (!query) throw new Error("Missing ranking query");
+  const release = app.daemon.workspace.holdForgeRead({
+    op: "forge.pr.list",
+    workspaceId: WorkspaceId.parse("ace"),
+    query,
+  });
+  await app.open("/pulls?project=ace");
+  await screen.findByRole("status", { name: "Loading pull requests" });
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("group", { name: "State" })).getByRole("button", { name: /^Open/ })
+        .textContent,
+    ).toBe("Open57"),
+  );
+  expect(screen.queryByText("No results matched your search.")).toBeNull();
+  release();
+  await waitFor(async () => expect(await titles()).toContain("Old but ready"));
+});
+
+test("ranked pull requests stay listed when a later ranking page fails, and retry reads on", async () => {
+  const app = withBusyRepository(56);
+  // The ready one, then the first page of those waiting on review, fill the first screen; the
+  // second page of that search is what Load more asks for next.
+  const waitingOnReview = readinessQueries({})[2];
+  if (!waitingOnReview) throw new Error("Missing ranking query");
+  const recover = app.daemon.workspace.failForgeRead(
+    {
+      op: "forge.pr.list",
+      workspaceId: WorkspaceId.parse("ace"),
+      query: { ...waitingOnReview, page: 2 },
+    },
+    "forge_rate_limit",
+  );
+  await app.open("/pulls?project=ace");
+  await waitFor(async () => expect(await titles()).toHaveLength(26));
+  expect(await titles()).toContain("Old but ready");
+  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  const notice = await screen.findByRole("status", { name: "Pull request ranking" });
+  expect(await titles()).toContain("Old but ready");
+  expect(await titles()).toHaveLength(26);
+  expect(notice.textContent).toContain("Couldn't rank more pull requests");
+  recover();
+  await userEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+  await waitFor(async () => expect(await titles()).toHaveLength(51));
+  expect(screen.queryByRole("status", { name: "Pull request ranking" })).toBeNull();
 });

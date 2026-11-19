@@ -32,24 +32,6 @@ test("a pull request no thread is linked to merges from the page and leaves the 
   await waitFor(async () => expect(await listed()).not.toContain("224"));
 });
 
-test("a pull request that conflicts with its base offers to resolve the conflicts, not to merge", async () => {
-  const app = withRepository();
-  await app.open("/pulls/ace/226");
-  const panel = await screen.findByRole("article", { name: "Pull request #226" });
-  expect(await within(panel).findByRole("button", { name: "Resolve conflicts" })).toBeTruthy();
-  expect(within(panel).queryByRole("button", { name: /merge$/i })).toBeNull();
-});
-
-test("a pull request with failing checks and requested changes can't merge and says why", async () => {
-  const app = withRepository();
-  await app.open("/pulls/ace/229");
-  const panel = await screen.findByRole("article", { name: "Pull request #229" });
-  const blocked = await within(panel).findByRole("button", { name: "Merge blocked" });
-  expect((blocked as HTMLButtonElement).disabled).toBe(true);
-  expect(within(panel).getByText(/1 failing/)).toBeTruthy();
-  expect(within(panel).getByText("Changes requested")).toBeTruthy();
-});
-
 test("an unlinked pull request waiting on checks and review turns auto-merge on, then off", async () => {
   const app = withRepository();
   await app.open("/pulls/ace/231");

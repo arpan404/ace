@@ -1,12 +1,16 @@
 /*
- * The graphical session a Linux screen helper must reach. The systemd user service can start
- * before the person logs in, so its own environment may lack DISPLAY and WAYLAND_DISPLAY. Each
- * time a helper starts, a daemon without a display asks the user manager for the session's
- * variables, which the desktop session imports there once someone is logged in (ADR 0093).
+ * The graphical session a Linux screen helper must reach: a Wayland desktop (ADR 0093; X11
+ * sessions are not supported). The systemd user service can start before the person logs in,
+ * so its own environment may lack WAYLAND_DISPLAY. Each time a helper starts, a daemon without
+ * one asks the user manager for the session's variables, which the desktop session imports
+ * there once someone is logged in.
  */
 import { execFile } from "node:child_process";
 
-/** The variables a helper needs to reach the person's desktop, accessibility bus and portals. */
+/**
+ * The variables a helper needs to reach the person's desktop, accessibility bus and portals.
+ * DISPLAY and XAUTHORITY reach XWayland, for apps computer use launches that still use X.
+ */
 export const sessionVariables = [
   "DISPLAY",
   "WAYLAND_DISPLAY",
@@ -18,7 +22,12 @@ export const sessionVariables = [
 ] as const;
 
 export function hasGraphicalSession(env: NodeJS.ProcessEnv): boolean {
-  return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
+  return !!env.WAYLAND_DISPLAY;
+}
+
+/** Why there is no usable session, for a message the model and the person can act on. */
+export function noSessionMessage(env: NodeJS.ProcessEnv): string {
+  return env.DISPLAY ? x11SessionMessage : noGraphicalSessionMessage;
 }
 
 /**
@@ -115,4 +124,7 @@ export function graphicalSessionEnvironment(options: {
 }
 
 export const noGraphicalSessionMessage =
-  "No graphical session: this Linux machine has no desktop session ace can reach (DISPLAY and WAYLAND_DISPLAY are unset for the ace service and in the systemd user manager). Someone must be logged in to a desktop for computer use; ask the person to log in, then try again.";
+  "No graphical session: this Linux machine has no desktop session ace can reach (WAYLAND_DISPLAY is unset for the ace service and in the systemd user manager). Someone must be logged in to a Wayland desktop for computer use; ask the person to log in, then try again.";
+
+export const x11SessionMessage =
+  'This Linux desktop runs an X11 session. ace\'s computer use and live view work on Wayland desktops only; ask the person to log out and choose a Wayland session at login (on Ubuntu, "Ubuntu" rather than "Ubuntu on Xorg"), then try again.';

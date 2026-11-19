@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { usePanelServices } from "../services.ts";
 import { finishComposition, updateComposition, type ReviewComposition } from "./compositions.ts";
-import { saveDraft } from "./drafts.ts";
+import { saveDraft } from "@ace/ui-core/review";
 import { CommentComposer, linesLabel } from "./line-comment.tsx";
 
 /** The mounted editor is controlled by the retained composition, including stale evidence. */

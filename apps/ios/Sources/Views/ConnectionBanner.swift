@@ -6,11 +6,14 @@ struct InboxConnectionBanner: View {
     let connection: String
     let retry: () -> Void
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            if waiting { ProgressView().controlSize(.mini) } else { AceIcon(.wifiSlash, size: 14, relativeTo: .caption) }
+        HStack(spacing: AceDesign.Space.related) {
+            if waiting { ProgressView().controlSize(.mini) } else { AceIcon(.wifiSlash, size: AceDesign.Size.glyphMeta, relativeTo: .caption) }
             Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if !waiting { Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless) }
+            Spacer(minLength: AceDesign.Space.related)
+            if !waiting {
+                Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless)
+                    .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
+            }
         }
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .accessibilityElement(children: .combine)

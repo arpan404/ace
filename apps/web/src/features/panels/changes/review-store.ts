@@ -1,64 +1,25 @@
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { ReviewFingerprint, ReviewSource } from "@ace/protocol";
-import * as z from "zod/mini";
-import type { DiffPrefs, PanelServices, ViewedFiles } from "../services.ts";
+import {
+  readViewed,
+  settleDraft,
+  storedViewed,
+  StoredDraft,
+  withViewed,
+} from "@ace/ui-core/review";
+import type { PanelServices, ViewedFiles } from "../services.ts";
 import type { LocalStore } from "../store.ts";
-import type { ReviewDraft } from "./drafts.ts";
 import { persistDrafts } from "./draft-persistence.ts";
 
 /*
  * The Changes tab's local state outlives a reload: unsent and sent comments (a review in
- * progress must never vanish because the window closed), the diff layout, and which files were
- * marked viewed. Everything read back is parsed; anything malformed is dropped, not trusted.
+ * progress must never vanish because the window closed) and which files were marked viewed. The
+ * diff layout is kept by `diff-prefs.ts`. Everything read back is parsed; anything malformed is
+ * dropped, not trusted.
  */
 
 const keys = {
-  prefs: "ace.review.prefs",
   viewed: "ace.review.viewed",
 };
-
-/** Threads whose viewed marks are kept, the most recently changed first, and files per thread. */
-const maxViewedThreads = 64;
-const maxViewedFiles = 500;
-
-const Draft = z.object({
-  key: z.string(),
-  threadId: z.string(),
-  file: z.string(),
-  side: z.enum(["old", "new"]),
-  line: z.number(),
-  end: z.optional(z.number()),
-  text: z.string(),
-  suggestion: z.optional(z.string()),
-  applied: z.optional(z.boolean()),
-  state: z.enum(["draft", "sending", "sent", "failed", "resolving", "resolved"]),
-  error: z.optional(z.string()),
-  commentId: z.optional(z.string()),
-  sessionId: z.optional(z.string()),
-  anchor: z.optional(z.enum(["active", "outdated", "addressed-pending-review"])),
-  fingerprint: z.optional(ReviewFingerprint),
-  source: z.optional(ReviewSource),
-  createdAt: z.number(),
-});
-
-const Prefs = z.object({
-  mode: z.catch(z.enum(["auto", "unified", "split"]), "auto"),
-  wrap: z.catch(z.boolean(), false),
-  tree: z.catch(z.boolean(), true),
-});
-
-const Viewed = z.array(z.tuple([z.string(), z.array(z.tuple([z.string(), z.string()]))]));
-
-/**
- * A send or resolve that was in flight when the page went away never confirmed: a send is
- * offered again (its recorded comment ids make the retry safe), a resolve goes back to sent.
- */
-function settle(draft: ReviewDraft): ReviewDraft {
-  if (draft.state === "sending")
-    return { ...draft, state: "failed", error: "the page closed before ace confirmed" };
-  if (draft.state === "resolving") return { ...draft, state: "sent" };
-  return draft;
-}
 
 /** Storage holds JSON from an older build or another tab: parsed by each `read` below. */
 const json = { safeParse: (data: unknown) => ({ success: true as const, data }) };
@@ -75,7 +36,7 @@ function persist<T>(
   store.subscribe(() => writeJson(storage, key, save(store.get())));
 }
 
-type ReviewStores = Pick<PanelServices, "drafts" | "diffPrefs" | "viewed">;
+type ReviewStores = Pick<PanelServices, "drafts" | "viewed">;
 const attached = new WeakMap<ReviewStores, KeyValueStorage>();
 
 /** Load the review state from `storage` and keep it written there (once per services). */
@@ -95,32 +56,8 @@ export function persistReview(
 ) {
   if (!storage || attached.get(services) === storage) return;
   attached.set(services, storage);
-  persistDrafts(services.drafts, storage, Draft, settle, subscribe);
-  persist<DiffPrefs>(
-    services.diffPrefs,
-    storage,
-    keys.prefs,
-    (stored) => {
-      const prefs = Prefs.safeParse(stored);
-      return prefs.success ? prefs.data : undefined;
-    },
-    (prefs) => prefs,
-  );
-  persist<ViewedFiles>(
-    services.viewed,
-    storage,
-    keys.viewed,
-    (stored) => {
-      const viewed = Viewed.safeParse(stored);
-      return viewed.success
-        ? new Map(viewed.data.map(([thread, files]) => [thread, new Map(files)]))
-        : undefined;
-    },
-    (viewed) =>
-      [...viewed]
-        .slice(-maxViewedThreads)
-        .map(([thread, files]) => [thread, [...files].slice(-maxViewedFiles)]),
-  );
+  persistDrafts(services.drafts, storage, StoredDraft, (draft) => settleDraft(draft), subscribe);
+  persist<ViewedFiles>(services.viewed, storage, keys.viewed, readViewed, storedViewed);
 }
 
 /** Mark a file viewed at this version of its diff, or clear the mark. Newest threads last. */
@@ -130,13 +67,5 @@ export function setViewed(
   path: string,
   version: string | undefined,
 ) {
-  store.set((viewed) => {
-    const next = new Map(viewed);
-    const files = new Map(next.get(threadId));
-    files.delete(path);
-    if (version !== undefined) files.set(path, version);
-    next.delete(threadId);
-    if (files.size) next.set(threadId, files);
-    return next;
-  });
+  store.set((viewed) => withViewed(viewed, threadId, path, version));
 }

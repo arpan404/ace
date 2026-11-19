@@ -1,5 +1,5 @@
 import { SearchQuery, type SearchResults } from "@ace/protocol";
-import { SearchWorkerResult } from "./worker-protocol.ts";
+import type { SearchWorkerRequest } from "./worker-protocol.ts";
 import {
   spawnSearchWorker,
   type SearchWorker,
@@ -25,23 +25,18 @@ class SearchReader {
     this.path = path;
     this.createWorker = createWorker;
   }
-  query(input: unknown): Promise<SearchResults> {
-    const parsed = SearchQuery.safeParse(input);
-    if (!parsed.success) return Promise.reject(new Error("search_invalid_query"));
+  /** A query `SearchQueries.query` validated. */
+  query(query: SearchQuery): Promise<SearchResults> {
     if (this.closed || this.retiring || this.cleanupFailed || this.pending.size >= 16)
       return Promise.reject(new Error("search_failed"));
     if (!this.worker) {
       try {
         const worker = this.createWorker(this.path);
         this.worker = worker;
-        worker.on("message", (response: unknown) => {
+        // The worker is this build (it checks the channel's shape when it starts), so its
+        // reply is typed, not parsed again: `querySearch` validated the results it built.
+        worker.on("message", (result) => {
           if (this.worker !== worker) return;
-          const decoded = SearchWorkerResult.safeParse(response);
-          if (!decoded.success) {
-            this.stopWorker();
-            return;
-          }
-          const result = decoded.data;
           const request = this.pending.get(result.id);
           this.pending.delete(result.id);
           if (result.ok) request?.resolve(result.results);
@@ -66,7 +61,8 @@ class SearchReader {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       try {
-        this.worker?.postMessage({ id, query: parsed.data });
+        const request: SearchWorkerRequest = { id, query };
+        this.worker?.postMessage(request);
       } catch {
         this.pending.delete(id);
         reject(new Error("search_failed"));

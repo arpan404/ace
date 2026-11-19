@@ -3,6 +3,72 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ForgeTests {
+    @Test func clippedPickedLinesCannotBecomeReplacementSuggestions() throws {
+        let json = #"""
+        {"kind":"add","old":null,"new":1,"text":"prefix","clipped":true,
+         "anchor":{"line":1,"side":"RIGHT"},"hunk":0,"threads":[],"drafts":[]}
+        """#
+        let line = try JSONDecoder().decode(ForgeFileDiff.Line.self, from: Data(json.utf8))
+        let pick = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "RIGHT"))
+        #expect(line.clipped)
+        #expect(pick.suggestion(in: [line]) == nil)
+        let whole = ForgeFileDiff.Line(kind: "add", old: nil, new: 1, text: "prefix and suffix",
+                                       clipped: false, anchor: line.anchor, hunk: 0, threads: [], drafts: [])
+        #expect(pick.suggestion(in: [whole]) == "prefix and suffix")
+        let shortened = ForgeFileDiff.Line(kind: "add", old: nil, new: 2, text: "short",
+                                           clipped: true, anchor: .init(line: 2, side: "RIGHT"),
+                                           hunk: 0, threads: [], drafts: [])
+        #expect(pick.suggestion(in: [whole, shortened]) == "prefix and suffix")
+        var range = pick
+        _ = range.extend(to: .init(line: 2, side: "RIGHT"), hunk: 0)
+        #expect(range.suggestion(in: [whole, shortened]) == nil)
+        let left = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "LEFT"))
+        #expect(left.suggestion(in: [whole]) == nil)
+    }
+
+    @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
+        let was = ForgeIssueBaseline(title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"],
+                                     revision: "2026-11-11T00:00:00Z", bodyComplete: true)
+        // Unchanged, in another order or case: nothing to send (GitHub matches names without case).
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash ", body: "Steps", labels: "IOS\nbug", assignees: "Mona").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Steps", labels: "bug\nmobile", assignees: "")
+        let inputs = edit.inputs(number: 7, was: was)
+        #expect(inputs.map(\.step) == ["text", "labels", "assignees"])
+        // The edit names the text it started from, so only a field changed elsewhere conflicts.
+        #expect((inputs[0].input["base"] as? [String: String])?["title"] == "Crash")
+        #expect(inputs[1].input["add"] as? [String] == ["mobile"])
+        #expect(inputs[1].input["remove"] as? [String] == ["ios"])
+        #expect(inputs[2].input["remove"] as? [String] == ["mona"])
+    }
+
+    @Test func aShortenedDescriptionIsNeverSentBackAsTheIssuesText() {
+        let was = ForgeIssueBaseline(title: "Crash", body: "Long…", labels: [], assignees: [], revision: "r", bodyComplete: false)
+        // Typing in a body the phone only has part of changes nothing; a title edit keeps it as read.
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash", body: "Long… edited", labels: "", assignees: "").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Long… edited", labels: "", assignees: "")
+        #expect(edit.body == "Long…")
+    }
+
+    @Test func aPullRequestEditSendsOnlyTheEditableFieldsThatChanged() {
+        let metadata = ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug"], assignees: ["mona"])
+        let editable: Set<String> = ["title", "body", "labels"]
+        // Nothing changed: nothing to send, so Save stays off.
+        #expect(ForgePullEdit.changes(from: metadata, editable: editable, title: "Old", body: "Body", base: "main",
+                                      labels: "bug", assignees: "mona").isEmpty)
+        // Reordering isn't an edit.
+        #expect(ForgePullEdit.changes(from: ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug", "ui"], assignees: []),
+                                      editable: editable, title: "Old", body: "Body", base: "main", labels: "ui\nbug", assignees: "").isEmpty)
+        let changes = ForgePullEdit.changes(from: metadata, editable: editable, title: "  New  ", body: "Body", base: "release",
+                                            labels: "bug\nneeds, triage\nbug\n", assignees: "octo")
+        #expect(changes["title"] as? String == "New")
+        // One per line: a label's own comma stays in its name.
+        #expect(changes["labels"] as? [String] == ["bug", "needs, triage"])
+        #expect(changes["body"] == nil)
+        // The base and assignees aren't this account's to change, whatever was typed.
+        #expect(changes["baseBranch"] == nil)
+        #expect(changes["assignees"] == nil)
+    }
+
     private func store() -> NewThreadDraftStore {
         NewThreadDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("forge-draft-\(UUID().uuidString).json"))
     }
@@ -101,10 +167,87 @@ import Foundation
             "number": 42, "repository": ["forge": "github", "host": "github.com", "owner": "acme", "name": "ace"],
             "title": "Fix", "url": "https://github.com/acme/ace/pull/42", "state": ["word": "Open", "tone": "working"],
             "merged": false, "author": "a", "headBranch": "fix", "baseBranch": "main", "headSha": head,
-            "commits": 1, "changedFiles": 1, "body": "", "labels": [], "gates": [], "primary": "",
+            "commits": 1, "changedFiles": 1, "body": "", "tasks": false, "conversation": "", "labels": [], "gates": [], "primary": "",
             "action": ["kind": "merge", "label": "Squash and merge"], "blockers": [],
             "methods": [], "method": "squash", "reviewers": [], "checks": [], "files": [], "threads": [],
         ]
         return try JSONDecoder().decode(ForgePullPage.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    // MARK: Viewed names the version on screen
+
+    private func revisions(head: String, prHead: String) -> ForgeFileRevisions {
+        let json = #"{"base":"\#(String(repeating: "b", count: 40))","head":"\#(head)","prHead":"\#(prHead)","path":"docs/guide.md","previousPath":null,"status":"modified"}"#
+        return try! JSONDecoder().decode(ForgeFileRevisions.self, from: Data(json.utf8))
+    }
+
+    @Test func aRenderedViewStillShowingTheOldPushMarksNothingUntilItDrawsTheNewOne() {
+        let old = revisions(head: String(repeating: "1", count: 40), prHead: String(repeating: "1", count: 40))
+        let pushed = revisions(head: String(repeating: "2", count: 40), prHead: String(repeating: "2", count: 40))
+        // The page read the push; the rendered view still has the old version on screen.
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: old) == nil)
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: nil) == nil)
+        // Once it has drawn the pushed commits, Viewed names that head.
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: pushed) == pushed.prHead)
+    }
+
+    @Test func thePatchIsAlwaysTheVersionThePageRead() {
+        let current = revisions(head: String(repeating: "3", count: 40), prHead: String(repeating: "3", count: 40))
+        #expect(ForgeViewedVersion.head(patchHead: current.prHead, current: current, drawsSides: false, shown: nil) == current.prHead)
+    }
+
+    @Test func aListNeverReadWaitsOnASkeletonOnlyWhileTheMachineIsStillConnecting() {
+        let state = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: nil, empty: true, connection: connection)
+        }
+        #expect(state("connecting") == .reading)
+        #expect(state("starting") == .reading)
+        #expect(state("ready") == .reading)
+        #expect(state("reconnecting") == .unreachable)
+        #expect(state("offline") == .unreachable)
+        // A refused connection (a revoked pairing) won't come back by retrying: it asks for the person.
+        #expect(state("fatal") == .attention)
+    }
+
+    @Test func aMachineThatIsOutWinsOverAReadThatFailedWhileItWent() {
+        let failed = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: "The request timed out", empty: true, connection: connection)
+        }
+        // The read failed because the machine went: say the machine is out, not that GitHub failed.
+        #expect(failed("offline") == .unreachable)
+        #expect(failed("reconnecting") == .unreachable)
+        #expect(failed("fatal") == .attention)
+        // Still connecting: the list reads again once it's ready, so the skeleton stays.
+        #expect(failed("connecting") == .reading)
+        #expect(failed("starting") == .reading)
+        // Only a ready machine's failure is GitHub's to explain.
+        #expect(failed("ready") == .failed("The request timed out"))
+        // Rows already read stay shown while the machine is out.
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: false, connection: "offline") == .rows)
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: true, connection: "offline") == .empty)
+    }
+
+    @Test func aMergeDraftKeptWhenTheHeadMovedOpensAgainForThatPullRequestAndMethodOnly() {
+        let repo = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "ace")
+        let other = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "web")
+        let prefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first")
+        let newPrefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first\n* second")
+        let edited = ForgePullPage.MergeCommit(title: "Cap replays at 200 events", message: "Keeps cold starts fast.")
+        var drafts = ForgeMergeDrafts()
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: prefill) == prefill)
+
+        drafts.keep(edited, number: 233, repository: repo, method: "squash", prefill: prefill)
+        // Reopened at the new head: the person's words, not GitHub's new prefill.
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == edited)
+        // Another method, pull request or repository starts from GitHub's own.
+        #expect(drafts.opening(number: 233, repository: repo, method: "merge", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 234, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 233, repository: other, method: "squash", prefill: newPrefill) == newPrefill)
+
+        // Discarding (or merging) drops it; so does keeping words that are GitHub's own again.
+        drafts.keep(nil, number: 233, repository: repo, method: "squash", prefill: newPrefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        drafts.keep(prefill, number: 233, repository: repo, method: "squash", prefill: prefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
     }
 }

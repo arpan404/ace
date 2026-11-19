@@ -1,37 +1,29 @@
 import { workbench } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { harness } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
 const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
+const openTab = (name: "Inbox" | "Settled") =>
+  userEvent.click(within(threads()).getByRole("tab", { name: new RegExp(`^${name}`) }));
 
-/** Home with the workbench's merged Codex bump settled and the Settled section open. */
+/** Home on the Settled tab, where the workbench's merged Codex bump rests once settled. */
 async function openSettled() {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
-  );
   const history = createMemoryHistory({ initialEntries: ["/"] });
-  const app = harness({ storage, history });
+  const app = harness({ history });
   await app.client.start();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.client.command({
-    type: "thread.settle",
-    threadId: ThreadId.parse("thread-bump-codex"),
-  });
   await app.open("/");
-  const link = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    { name: named },
-  );
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
+  await openTab("Settled");
+  const link = await within(threads()).findByRole("link", { name: named });
   const row = link.parentElement;
   if (!row) throw new Error("No row container");
   return { app, history, link, row };
@@ -42,28 +34,36 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("a settled thread is one line of project badge, title and age, without branch or provider", async () => {
-  const { link, row } = await openSettled();
-  // The badge's initials and the title lead; its PR or diff and its age follow on the right.
-  expect(link.textContent).toMatch(new RegExp(`^[A-Za-z]{1,2}${title}`));
-  expect(link.textContent).toMatch(/\d+[smhdw]$|\b[A-Z][a-z]{2}$/);
-  expect(row.textContent).not.toContain("chore/codex-048");
-  expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
-  // Assistive tech still hears the context the line leaves out.
-  expect(link.getAttribute("aria-label")).toContain("Codex");
+test("a settled thread is a one-line row in the Settled tab, not in the Inbox", async () => {
+  const { link } = await openSettled();
+  // One line: the title, then its work (the pull request) at the end. The project and branch
+  // are only in its spoken name and hover card.
+  expect(rowText(link)).toBe(`${title}#212`);
+  const said = link.getAttribute("aria-label") ?? "";
+  expect(said).toMatch(new RegExp(`^${title}\\. Done, Codex`));
+  expect(said).not.toContain("Settled");
+  for (const part of ["chore/codex-048", "Pull request #212"]) expect(said).toContain(part);
+  await openTab("Inbox");
+  expect(within(threads()).queryByRole("link", { name: named })).toBeNull();
 });
 
-test("→ moves from a settled row to Unsettle, which brings the thread back to the list", async () => {
+test("→ moves from a settled row to Unsettle, which brings the thread back to the Inbox", async () => {
   const { app, link } = await openSettled();
   link.focus();
-  // The row's actions sit out of the Tab order (the list is one stop); → reaches them.
+  // The row's actions sit out of the Tab order (the list is one stop); → reaches them, Snooze
+  // first, then Unsettle.
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: `Snooze ${title}` }));
   await userEvent.keyboard("{ArrowRight}");
   const unsettle = screen.getByRole("button", { name: `Unsettle ${title}` });
   expect(document.activeElement).toBe(unsettle);
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
+  await waitFor(() => expect(within(threads()).queryByRole("link", { name: named })).toBeNull());
   expect(settledAt(app)).toBeUndefined();
-  expect(within(threads()).getByRole("link", { name: named })).toBeTruthy();
+  // Back in the Inbox, offering Settle.
+  await openTab("Inbox");
+  expect(await within(threads()).findByRole("link", { name: named })).toBeTruthy();
+  expect(screen.getByRole("button", { name: `Settle ${title}` })).toBeTruthy();
 });
 
 test("a settled row's ⋯ opens the row's thread actions", async () => {

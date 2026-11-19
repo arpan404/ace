@@ -1,4 +1,9 @@
 import { FakeStorageWire } from "./storage-wire.ts";
+import { FakeChecks } from "./checks-wire.ts";
+import { FakeAdmission } from "./admission-wire.ts";
+import { FakeOutside } from "./outside-wire.ts";
+import { FakeAppUpdate } from "./app-update-wire.ts";
+import { FakeMachineUpdate } from "./machine-update-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeSkillLibrary, type SkillSeed } from "./skill-library.ts";
@@ -7,6 +12,8 @@ import { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
+  configuredForge,
+  readableForges,
   BrowserClientMessage,
   ServerMessage,
   ThreadId,
@@ -27,6 +34,7 @@ import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
+import { FakeMarketplaceWire, type MarketplaceSeed } from "./marketplace-wire.ts";
 import { fakePreviewSuggestions } from "./preview-suggestions.ts";
 import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
 export type { FakeWireSession } from "./service-context.ts";
@@ -37,6 +45,8 @@ export interface ServicesSeed extends AutomationSeed {
   storageItems?: readonly import("@ace/core").StorageCandidate[];
   /** Database file bytes and the free pages compaction would release. */
   storageDatabase?: { bytes: number; reclaimable: number };
+  /** What the desktop app last reported about its update; Unknown when never seeded. */
+  appUpdate?: import("@ace/protocol").AppUpdateReport | null;
   promptFiles?: readonly PromptSeed[];
   /** Native skill folders for the Skills page (ADR 0103). */
   skills?: readonly SkillSeed[];
@@ -53,6 +63,8 @@ export interface ServicesSeed extends AutomationSeed {
   /** Text attachments with precomputed hashes, such as published HTML visualizations. */
   attachmentTexts?: { threadId: string; sha256: string; text: string; name: string }[];
   plugins?: PluginSeed;
+  /** ace's marketplace (ADR 0168): listings, featured entries, categories and installs. */
+  marketplace?: MarketplaceSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
   /** Global settings the person has changed from the shipped defaults. */
@@ -75,6 +87,13 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  */
 export class FakeServicesWire {
   private storage: FakeStorageWire;
+  /** "Pause new work", shared by every connection. */
+  readonly admission = new FakeAdmission();
+  /** Outside MCP clients' grants and sign-in requests, shared by every connection. */
+  readonly outside: FakeOutside;
+  private readonly appUpdate = new FakeAppUpdate();
+  /** This machine's own update (`machineUpdate.request`). */
+  readonly machineUpdate: FakeMachineUpdate;
   readonly prompts = new FakePromptFiles();
   readonly skills = new FakeSkillLibrary();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
@@ -86,23 +105,26 @@ export class FakeServicesWire {
   readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
   readonly computerUsing = new FakeComputerUsing();
+  readonly checks: FakeChecks;
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
   private automations: FakeAutomationWire;
   private plugins = new FakePluginsWire();
+  readonly marketplace = new FakeMarketplaceWire(() => this.host.now());
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
-  private providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[];
   constructor(
     context: FakeServiceContext,
     settings: FakeSettings,
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
     this.storage = new FakeStorageWire(context, settings);
+    this.outside = new FakeOutside(() => context.now());
+    this.machineUpdate = new FakeMachineUpdate(() => context.now());
     this.host = context;
-    this.providerStatuses = providerStatuses;
+    this.checks = new FakeChecks(() => context.now(), providerStatuses);
     this.history = new FakeHistory(context);
     this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
@@ -116,11 +138,13 @@ export class FakeServicesWire {
       context.now,
       () => settings.get("automations.enabled") === true,
       context,
+      (key) => settings.get(key),
     );
   }
   seed(seed: ServicesSeed): void {
     if (seed.storageItems) this.storage.seed(seed.storageItems);
     if (seed.storageDatabase) this.storage.seedDatabase(seed.storageDatabase);
+    if (seed.appUpdate !== undefined) this.appUpdate.set(seed.appUpdate, this.host.now());
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.skills) this.skills.seed(seed.skills);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
@@ -133,6 +157,7 @@ export class FakeServicesWire {
     if (seed.settings) this.settings.seed(seed.settings);
     this.automations.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
+    if (seed.marketplace) this.marketplace.seed(seed.marketplace);
     // A seed describes the whole world; pull requests for threads this daemon lacks are skipped.
     for (const [threadId, status] of Object.entries(seed.pullRequests ?? {}))
       if (this.host.thread(threadId)) this.workspace.forge.seed(threadId, status);
@@ -162,14 +187,27 @@ export class FakeServicesWire {
     });
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
+    const admission = this.admission.session(emit);
+    const outside = this.outside.session(emit);
+    const appUpdate = this.appUpdate.session(emit);
+    const machineUpdate = this.machineUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
+    const stopMarketplace = this.marketplace.subscribe(emit);
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
       emit,
       `fake-browser-${++this.connectionSequence}`,
       binary,
+      {
+        backendPreference: (threadId) => {
+          const preference = this.settings.resolve("browser.backend", {
+            threadId: ThreadId.parse(threadId),
+          });
+          return preference === "embedded" || preference === "headless" ? preference : "auto";
+        },
+      },
     );
     let stopBrowsing: (() => void) | undefined;
     let browsing = "";
@@ -203,11 +241,16 @@ export class FakeServicesWire {
         stopUsing?.();
         catalog.close();
         skills.close();
+        stopMarketplace();
         picker?.abort();
         stopProjects();
 
         browser.close();
         files.close();
+        admission.close();
+        outside.close();
+        appUpdate.close();
+        machineUpdate.close();
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
@@ -225,6 +268,22 @@ export class FakeServicesWire {
         }
         if (message.type === "storage.request") {
           emit(this.storage.handle(device, message));
+          return;
+        }
+        if (message.type === "admission.request") {
+          admission.handle(message);
+          return;
+        }
+        if (message.type === "outside.request") {
+          outside.handle(message);
+          return;
+        }
+        if (message.type === "appUpdate.request") {
+          appUpdate.handle(message.requestId);
+          return;
+        }
+        if (message.type === "machineUpdate.request") {
+          machineUpdate.handle(message);
           return;
         }
         if (this.history.handle(message, emit)) return;
@@ -410,9 +469,29 @@ export class FakeServicesWire {
             const preferences = SourceControlPreferences.parse(
               this.settings.get("sourceControl.preferences"),
             );
-            const expected = preferences.hosts.find(
-              (entry) => entry.host === preferences.host,
-            )?.account;
+            const selected = preferences.hosts.find((entry) => entry.host === preferences.host);
+            const expected = selected?.account;
+            const forge = selected ? configuredForge(selected) : "github";
+            const supported = readableForges.includes(forge);
+            // Each CLI's own version line and sign-in command, as the daemon reports them.
+            const cli =
+              forge === "gitlab"
+                ? {
+                    version: "1.55.0",
+                    name: "GitLab",
+                    signIn: `Run glab auth login --hostname ${preferences.host} on this computer to sign in as ${expected}, then Rescan.`,
+                  }
+                : forge === "origin"
+                  ? {
+                      version: "0.9.0",
+                      name: "Cursor Origin",
+                      signIn: `Run origin auth login on this computer to sign in as ${expected}, then Rescan.`,
+                    }
+                  : {
+                      version: "2.90.0",
+                      name: "GitHub",
+                      signIn: `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`,
+                    };
             emit({
               type: "source-control.result",
               requestId: message.requestId,
@@ -420,15 +499,20 @@ export class FakeServicesWire {
                 kind: "readiness",
                 readiness: {
                   preferences,
-                  cli: "available",
-                  version: "2.90.0",
-                  accounts: [{ login: "ada", active: true }],
-                  account: "ada",
-                  api: expected && expected !== "ada" ? "account_mismatch" : "ready",
-                  instructions:
-                    expected && expected !== "ada"
-                      ? `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`
-                      : `GitHub API access verified as ada on ${preferences.host}.`,
+                  cli: supported ? "available" : "unavailable",
+                  version: supported ? cli.version : null,
+                  accounts: supported ? [{ login: "ada", active: true }] : [],
+                  account: supported ? "ada" : null,
+                  api: !supported
+                    ? "unavailable"
+                    : expected && expected !== "ada"
+                      ? "account_mismatch"
+                      : "ready",
+                  instructions: !supported
+                    ? "Host saved. Pull requests, issues and API connection checks for this provider are not available yet."
+                    : expected && expected !== "ada"
+                      ? cli.signIn
+                      : `${cli.name} API access verified as ada on ${preferences.host}.`,
                   transport: "unchecked",
                   transportInstructions:
                     "API sign-in does not verify Git clone or push access. Configure your Git credential helper / SSH key on this computer.",
@@ -442,91 +526,10 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "diagnostics.request") {
-            emit({
-              type: "diagnostics.result",
-              requestId: message.requestId,
-              ...(message.operation === "fix"
-                ? {
-                    repairs: [],
-                    report: {
-                      at: this.host.now(),
-                      checks: [
-                        { id: "node", status: "ok", message: "Node v24.1.0", fix: "Update ace." },
-                        {
-                          id: "provider.cursor",
-                          status: "warn",
-                          message: "Cursor CLI not installed",
-                          fix: "Install Cursor CLI.",
-                        },
-                      ],
-                    },
-                  }
-                : message.operation === "doctor"
-                  ? {
-                      report: {
-                        at: this.host.now(),
-                        checks: [
-                          {
-                            id: "node",
-                            status: "ok",
-                            message: "Node v24.0.0",
-                            fix: "Update ace.",
-                          },
-                          {
-                            id: "git",
-                            status: "ok",
-                            message: "git version 2.50.0",
-                            fix: "Install Git.",
-                          },
-                          ...this.providerStatuses().map((row) => ({
-                            id: `provider.${row.provider}`,
-                            status:
-                              row.installed && row.auth === "logged_in"
-                                ? ("ok" as const)
-                                : ("warn" as const),
-                            message: row.installed ? "Check provider readiness." : "Not installed.",
-                            fix: "Open Settings > Providers.",
-                          })),
-                          {
-                            id: "sqlite",
-                            status: "ok",
-                            message: "SQLite integrity: ok",
-                            fix: "Restore a backup.",
-                          },
-                        ],
-                      },
-                    }
-                  : {
-                      toolchains: [
-                        {
-                          id: "git",
-                          available: true,
-                          detail: "git version 2.50.0",
-                          hint: "Install Git.",
-                        },
-                        {
-                          id: "xcode",
-                          available: true,
-                          detail: "Xcode at /Applications/Xcode.app/Contents/Developer",
-                          hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
-                          version: "26.0",
-                        },
-                        {
-                          id: "serve-sim",
-                          available: true,
-                          detail: "serve-sim 0.1.49-beta.139.1",
-                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.49-beta.139.1.",
-                          version: "0.1.49-beta.139.1",
-                        },
-                        {
-                          id: "android",
-                          available: false,
-                          detail: "Android SDK not found",
-                          hint: "Install Android Studio, then set ANDROID_HOME to its SDK directory.",
-                        },
-                      ],
-                    }),
-            });
+            const reply = this.checks.answer(message.operation, message.runId);
+            void Promise.resolve(reply).then((result) =>
+              emit({ type: "diagnostics.result", requestId: message.requestId, ...result }),
+            );
             return;
           }
           if (message.type === "diagnostics.health") {
@@ -536,6 +539,10 @@ export class FakeServicesWire {
               ok: true,
               health: fakeHealth(this.host.now(), this.host.threads().length),
             });
+            return;
+          }
+          if (message.type === "marketplace.request") {
+            emit(this.marketplace.handle(message));
             return;
           }
           if (message.type === "pluginRequest") {

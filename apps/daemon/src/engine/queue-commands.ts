@@ -1,7 +1,10 @@
 import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import { editedContext } from "./edited-context.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
+/** Devices that act for an agent or the daemon, never for the person. */
+const agentDevices = new Set(["ace-agent", "ace-reviewer", "engine"]);
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
@@ -28,6 +31,22 @@ export function handleQueue(
     const entry =
       "messageId" in p ? dependencies.repo.queue.editable(p.threadId, p.messageId) : undefined;
     if ("messageId" in p && !entry) return fail("message_already_claimed");
+    // A failed send keeps its message at the head of a held queue. Once the person removes or
+    // edits that message, the failure is gone: release the hold so the head (the edited message,
+    // or the one behind it) is tried in order. Any other message leaves the hold as it is.
+    const releasesHold =
+      entry !== undefined &&
+      queue.paused &&
+      (queue.reason === "not_sent" || queue.reason === "model_unavailable") &&
+      !queue.continuation &&
+      !queue.limited &&
+      dependencies.repo.queue.head(p.threadId) === entry.id;
+    const release = () =>
+      dependencies.repo.queue.set(
+        p.threadId,
+        { paused: false, reason: null },
+        dependencies.clock.now(),
+      );
     if (p.type === "queue.edit" && entry) {
       if (entry.uncertain) return fail("uncertain_delivery");
       if (Buffer.byteLength(JSON.stringify(p)) > maxMessageBytes) return fail("message_too_large");
@@ -35,10 +54,11 @@ export function handleQueue(
       if (old.type !== "thread.send" && old.type !== "thread.create")
         return fail("invalid_queue_entry");
       const { context: _context, ...rest } = old;
+      const context = editedContext(old, p.input, p.context);
       const payload = {
         ...rest,
         input: p.input,
-        ...(p.context ? { context: p.context } : {}),
+        ...(context ? { context } : {}),
         ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
       // A message changed to steer goes in like a fresh steer, its selection split off the same way.
@@ -49,24 +69,22 @@ export function handleQueue(
       );
       const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);
+      // The person steering a waiting message in (an agent's too) makes it their own steer.
+      if (
+        p.delivery === "steer" &&
+        edited.payload.type === "thread.send" &&
+        edited.payload.delivery === "steer"
+      ) {
+        if (agentDevices.has(command.deviceId)) dependencies.repo.steerNotes.steeredAgain(entry.id);
+        else dependencies.repo.steerNotes.personSteered(entry.id);
+      }
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
+      if (releasesHold) release();
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
-      // Removing (or taking back) the last message a failed send kept leaves nothing to retry:
-      // release that hold, or the next message would wait behind a failure that is gone.
-      if (
-        queue.paused &&
-        (queue.reason === "not_sent" || queue.reason === "model_unavailable") &&
-        !queue.continuation &&
-        dependencies.repo.queue.count(p.threadId) === 0
-      )
-        dependencies.repo.queue.set(
-          p.threadId,
-          { paused: false, reason: null },
-          dependencies.clock.now(),
-        );
+      if (releasesHold) release();
       if (["thread.resume", "queue.resume", "thread.limit"].includes(entry.command.payload.type)) {
         dependencies.repo.pending.finishContinuation(p.threadId);
         dependencies.repo.queue.set(
@@ -169,6 +187,27 @@ export function handleQueue(
         return fail("acp_account_fixed");
       if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.moveTarget)
         return fail("migration_unavailable");
+      if (p.type === "thread.limit" && p.action === "cancel_resume") {
+        // Back to the plain limit as the manual policy leaves it: the hold stays, and at the
+        // reset the limit only clears (nothing is sent). The new hold token fences a deadline
+        // already firing.
+        if (!queue.paused || queue.reason !== "limit" || queue.timerAction !== "resume")
+          return fail("no_scheduled_resume");
+        const lifts = queue.limited && queue.resumeAt !== null;
+        dependencies.repo.queue.set(
+          p.threadId,
+          {
+            holdToken: queue.holdToken + 1,
+            resumeAt: lifts ? queue.resumeAt : null,
+            timerAction: lifts ? "clear" : null,
+          },
+          dependencies.clock.now(),
+        );
+        dependencies.schedule();
+        return { commandId: command.id, ok: true };
+      }
+      if (p.type === "thread.limit" && p.action === "switch" && !p.selection)
+        return fail("switch_selection_required");
       if (
         p.type === "thread.limit" &&
         ["resume_at_reset", "snooze_until_reset"].includes(p.action)

@@ -2,7 +2,7 @@ import { useClient } from "@ace/client-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readRegistry, refreshRegistry } from "./registry-data.ts";
+import { readRegistry, refreshRegistry } from "@ace/ui-core/acp-registry-data";
 
 export const registryKey = ["acp-registry"] as const;
 

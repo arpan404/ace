@@ -1,0 +1,285 @@
+import type { ClientCore } from "@ace/client";
+import { WorkspaceId, type ThreadListEntry } from "@ace/protocol";
+import { compareRanked, rankCommand, type RankItem } from "@ace/ui-core/command-rank";
+import { z } from "zod";
+import { preview } from "./presentation.ts";
+
+/*
+ * The phone's search-everything sheet (the web's command palette, ⌘K): the app's own commands
+ * and settings pages, this machine's projects and threads, ranked by the web's palette rules
+ * (`rankCommand`). Each machine answers for its own projects and threads, including threads its
+ * own search finds beyond the list (archived, older pages), and one machine for the commands;
+ * the phone merges them by score. Swift maps each command id to what it opens.
+ */
+
+export const PaletteRequest = z.object({
+  type: z.literal("palette.query"),
+  query: z.string().max(512),
+  /** Answer with the app's commands too: asked of one machine only. */
+  commands: z.boolean().default(false),
+  /** What the app can do now, which decides the commands offered. */
+  context: z
+    .object({
+      canStart: z.boolean().default(true),
+      threadOpen: z.boolean().default(false),
+    })
+    .default({ canStart: true, threadOpen: false }),
+  /** Only this project's threads (the search's project filter), before ranking and limits. */
+  workspaceId: z.string().min(1).max(256).optional(),
+  /** The paired machines, by id and name: with two or more, each can be switched to. */
+  machines: z
+    .array(z.object({ id: z.string().min(1).max(256), name: z.string().max(256) }))
+    .max(64)
+    .default([]),
+});
+export type PaletteRequest = z.infer<typeof PaletteRequest>;
+
+interface Command extends RankItem {
+  id: string;
+  /** Where it goes, beside the label: "Settings", "This thread". */
+  detail?: string;
+  when?: (context: PaletteRequest["context"]) => boolean;
+}
+
+const settings = (id: string, label: string, keywords: string[] = []): Command => ({
+  id: `settings:${id}`,
+  label,
+  detail: "Settings",
+  fields: ["settings", ...keywords],
+});
+const tool = (
+  id: string,
+  label: string,
+  keywords: string[] = [],
+  detail = "Settings",
+): Command => ({
+  id: `tool:${id}`,
+  label,
+  detail,
+  fields: ["settings", ...keywords],
+});
+/** A page of its own on the web's rail (Automations, Skills, Usage): "Go to" rather than Settings. */
+const place = (id: string, label: string, keywords: string[] = []): Command =>
+  tool(id, label, keywords, "Go to");
+const inThread = (id: string, label: string, keywords: string[] = []): Command => ({
+  id: `thread:${id}`,
+  label,
+  detail: "This thread",
+  fields: keywords,
+  when: (context) => context.threadOpen,
+});
+
+/**
+ * The app's own commands, in the order an empty query lists them. Each `detail` is the web
+ * palette's group (Create, Go to, This thread, Settings), shown at the right of a ranked list.
+ */
+export const paletteCommands: readonly Command[] = [
+  {
+    id: "new-thread",
+    label: "New thread",
+    detail: "Create",
+    fields: ["start", "compose", "create"],
+    when: (context) => context.canStart,
+  },
+  {
+    id: "new-chat",
+    label: "New chat",
+    detail: "Create",
+    fields: ["start", "compose", "create", "ask"],
+    when: (context) => context.canStart,
+  },
+  {
+    id: "select",
+    label: "Select threads",
+    detail: "Threads",
+    fields: ["bulk", "several", "edit", "multiple"],
+  },
+  { id: "pulls", label: "Pull requests", detail: "Go to", fields: ["github", "pr", "review"] },
+  { id: "issues", label: "Issues", detail: "Go to", fields: ["github", "bugs"] },
+  { id: "history", label: "History", detail: "Go to", fields: ["settled", "past", "older"] },
+  { id: "archived", label: "Archived threads", detail: "Go to", fields: ["archive", "restore"] },
+  inThread("changes", "Show changes", ["diff"]),
+  inThread("agents", "Open agent tree", ["subagents", "summary"]),
+  inThread("search", "Search this thread", ["find"]),
+  inThread("files", "Open a file from the checkout", ["files"]),
+  inThread("terminal", "Open terminal", ["shell"]),
+  inThread("browser", "Open the browser", ["preview", "web"]),
+  inThread("devices", "Devices", ["simulator", "emulator"]),
+  { id: "settings", label: "Settings", detail: "Go to", fields: ["preferences", "options"] },
+  settings("account", "Profile", ["account", "sign in", "avatar"]),
+  settings("machines", "Machines and devices", ["computers", "paired", "fleet", "map"]),
+  settings("pair", "Pair a computer", ["add", "qr"]),
+  settings("notifications", "Notifications", ["alerts", "push"]),
+  settings("lock", "App lock", ["face id", "passcode", "security"]),
+  settings("appearance", "Appearance", ["dark", "light", "mode", "theme"]),
+  settings("keyboard", "Keyboard shortcuts", ["keys", "hardware"]),
+  settings("profiles", "Task profiles", ["profiles"]),
+  settings("cache", "Cached chats", ["offline", "storage"]),
+  tool("projects", "Projects", ["folders"]),
+  place("automations", "Automations", ["schedule"]),
+  place("usage", "Usage", ["limits", "quota"]),
+  place("skills", "Skills and plugins", ["mcp"]),
+  tool("providers", "Providers", ["accounts", "models"]),
+  tool("sourceControl", "Source control", ["git", "github"]),
+  tool("prompts", "Prompts", ["instructions"]),
+  tool("computer", "Computer use", ["screen"]),
+  tool("devices", "Simulators and devices", ["ios", "android"]),
+  settings("licences", "Licences", ["about", "open source"]),
+];
+
+export interface PaletteAnswer {
+  commands: { id: string; label: string; detail: string | null; score: number }[];
+  projects: { id: string; name: string; score: number }[];
+  threads: {
+    id: string;
+    title: string;
+    project: string;
+    workspaceId: string;
+    /** On the machine's list now; otherwise found by its search (archived, older). */
+    listed: boolean;
+    at: number;
+    score: number;
+  }[];
+}
+
+const limits = { commands: 8, projects: 5, threads: 20 };
+
+/** With two or more machines paired, one command per machine shows only its threads. */
+function machineCommands(machines: PaletteRequest["machines"]): Command[] {
+  if (machines.length < 2) return [];
+  return [
+    { id: "machine:", label: "Show all machines", detail: "Machine", fields: ["switch", "every"] },
+    ...machines.map((machine) => ({
+      id: `machine:${machine.id}`,
+      label: `Switch to ${machine.name || machine.id}`,
+      detail: "Machine",
+      fields: ["machine", "computer", "device"],
+    })),
+  ];
+}
+
+/** The commands an empty or typed query lists, best first. */
+export function rankCommands(request: PaletteRequest): PaletteAnswer["commands"] {
+  const offered = [...paletteCommands, ...machineCommands(request.machines)].filter(
+    (command) => command.when?.(request.context) ?? true,
+  );
+  const query = request.query.trim();
+  const ranked = offered.flatMap((command) => {
+    const score = rankCommand(query, command);
+    return score === null
+      ? []
+      : [{ id: command.id, label: command.label, detail: command.detail ?? null, score }];
+  });
+  if (!query) return ranked;
+  return ranked.toSorted(compareRanked).slice(0, limits.commands);
+}
+
+/** This machine's projects and listed threads matching `query`, best first. */
+export function rankListed(
+  entries: readonly ThreadListEntry[],
+  query: string,
+  workspaceId?: string,
+): Pick<PaletteAnswer, "projects" | "threads"> {
+  const text = query.trim();
+  const projects = new Map<string, string>();
+  const threads: PaletteAnswer["threads"] = [];
+  for (const entry of entries) {
+    if (entry.archivedAt !== undefined || entry.deletedAt !== undefined) continue;
+    if (workspaceId !== undefined && entry.workspaceId !== workspaceId) continue;
+    const chat = entry.details?.workspace?.kind === "chat";
+    const project = chat ? "Chat" : (entry.details?.workspace?.name ?? entry.workspaceId);
+    if (!chat) projects.set(entry.workspaceId, project);
+    if (!text) continue;
+    const at = entry.activityAt ?? entry.updatedAt;
+    const score = rankCommand(text, {
+      label: entry.title,
+      fields: [project, entry.details?.branch ?? undefined],
+      at,
+    });
+    if (score !== null)
+      threads.push({
+        id: entry.id,
+        title: preview(entry.title, 512),
+        project: preview(project, 512),
+        workspaceId: entry.workspaceId,
+        listed: true,
+        at,
+        score,
+      });
+  }
+  const rankedProjects = text
+    ? [...projects].flatMap(([id, name]) => {
+        const score = rankCommand(text, { label: name });
+        return score === null ? [] : [{ id, name: preview(name, 512), score }];
+      })
+    : [];
+  return {
+    projects: rankedProjects.toSorted(compareRanked).slice(0, limits.projects),
+    threads: threads.toSorted(compareRanked).slice(0, limits.threads),
+  };
+}
+
+/** The machine's own thread search, for threads beyond its list; never fails the answer. */
+async function searchedThreads(
+  owner: ClientCore,
+  query: string,
+  listed: ReadonlySet<string>,
+  requestId: string,
+  workspaceId: string | undefined,
+): Promise<PaletteAnswer["threads"]> {
+  if (query.trim().length < 2) return [];
+  try {
+    const reply = await owner.request(
+      {
+        type: "search.query",
+        requestId,
+        text: query,
+        scope: "threads",
+        limit: limits.threads,
+        // The daemon filters before it ranks and limits, so a project's own threads fill them.
+        ...(workspaceId ? { filters: { workspaceId: WorkspaceId.parse(workspaceId) } } : {}),
+      },
+      { timeoutMs: 8_000 },
+    );
+    if (reply.type !== "search.results") return [];
+    return reply.hits.flatMap((hit) =>
+      listed.has(hit.threadId) || (workspaceId !== undefined && hit.workspaceId !== workspaceId)
+        ? []
+        : [
+            {
+              id: hit.threadId,
+              title: preview(hit.threadTitle, 512),
+              project: "",
+              workspaceId: hit.workspaceId,
+              listed: false,
+              at: hit.createdAt,
+              // Ranked by the same rule as listed threads, so the phone can merge them.
+              score: rankCommand(query, { label: hit.threadTitle }) ?? 0,
+            },
+          ],
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function answerPalette(
+  owner: ClientCore,
+  entries: readonly ThreadListEntry[],
+  request: PaletteRequest,
+  requestId: string,
+): Promise<PaletteAnswer> {
+  const listed = rankListed(entries, request.query, request.workspaceId);
+  const found = await searchedThreads(
+    owner,
+    request.query.trim(),
+    new Set(entries.map((entry) => entry.id)),
+    `${requestId}.threads`,
+    request.workspaceId,
+  );
+  return {
+    commands: request.commands ? rankCommands(request) : [],
+    projects: listed.projects,
+    threads: [...listed.threads, ...found].toSorted(compareRanked).slice(0, limits.threads),
+  };
+}

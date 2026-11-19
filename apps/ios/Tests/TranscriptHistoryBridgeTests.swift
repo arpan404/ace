@@ -11,7 +11,9 @@ import Testing
         let pages = detail.int("pages")
         let counts = detail.numbers("counts")
         #expect(pages >= 2)
-        #expect(counts.allSatisfy { $0 <= 600 })
+        // The window's bound and the live tail it joins.
+        let bound = Double(detail.int("bound"))
+        #expect(bound > 0 && counts.allSatisfy { $0 <= bound })
         // Successive windows overlap (older pages prepend): shared rows must keep their order,
         // and only older rows may appear, before them.
         #expect(detail.bool("firstMoved"))

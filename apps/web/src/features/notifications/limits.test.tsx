@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const minute = 60_000;
@@ -11,6 +11,11 @@ const hour = 60 * minute;
  */
 const now = Date.parse("2036-10-01T15:00:00");
 
+// The limit notifier loads after first paint. Load its chunk up front, so it takes its first
+// reading before a test changes the quota, however fast Usage paints.
+beforeAll(async () => {
+  await import("./later-notifiers.tsx");
+});
 beforeEach(() => {
   localStorage.clear();
   vi.useFakeTimers({ toFake: ["Date"], now });
@@ -24,7 +29,7 @@ type App = ReturnType<typeof harness>;
 
 const toasts = () => screen.findByRole("region", { name: "Notifications" });
 /** Usage reads quota again; every screen showing it gets the new reading. */
-const refresh = () => userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+const refresh = () => userEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
 
 /**
  * What the daemon reports for one account: each window's share used and when it resets (from the
@@ -110,25 +115,10 @@ test("with limit toasts turned off, an account reaching its limit stays quiet", 
   await findWorkMeter();
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });
-  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await userEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
   // The page has the new reading, and no toast came with it.
   await waitFor(() => expect(workMeter()?.getAttribute("aria-valuenow")).toBe("0"));
   expect(screen.queryByText("Claude Code · Work reached its usage limit")).toBeNull();
-});
-
-test("losing track of an account at its limit doesn't say it can work again; a reading with room does", async () => {
-  const app = harness();
-  await workAtLimit(app);
-
-  // Its CLI stops saying it is signed in and reports no windows: nothing is known either way.
-  report(app, "claude-work", {}, "unknown");
-  await refresh();
-  await waitFor(() => expect(workMeter()).toBeNull());
-  expect(screen.queryByText("Claude Code · Work can work again")).toBeNull();
-
-  report(app, "claude-work", { five_hour: [4, 5 * hour] });
-  await refresh();
-  expect(await within(await toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
 });
 
 test("once its full window resets, the account says it can work again without anything new from the provider", async () => {

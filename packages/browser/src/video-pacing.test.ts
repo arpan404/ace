@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   EncodePacer,
   EncoderWatchdog,
+  FirstPicture,
+  firstPictureMs,
   keyframeGapMs,
   keyframePeriodMs,
+  refreshPictureMs,
   settleMs,
   stallMs,
   stillFrameMs,
@@ -126,5 +129,73 @@ describe("telling a stuck encoder from a working one", () => {
 
   it("an idle encoder (a still page) is not stuck", () => {
     expect(new EncoderWatchdog().stalled(60_000)).toBe(false);
+  });
+});
+
+describe("a skipped last frame on a page that goes still", () => {
+  it("is encoded once its slot comes, though no other frame arrives", () => {
+    const pacer = new EncodePacer(30);
+    expect(pacer.frame(0, false)).toBe("key");
+    // A keystroke's frame lands 10 ms later, before the next slot: skipped. The page is still
+    // after it.
+    expect(pacer.frame(10, false)).toBe("skip");
+    expect(pacer.catchUp(12, false)).toBe(false);
+    expect(pacer.catchUp(30, false)).toBe(true);
+    // Once sent, nothing more is owed.
+    expect(pacer.catchUp(90, false)).toBe(false);
+  });
+
+  it("waits while the encoder is busy, then goes", () => {
+    const pacer = new EncodePacer(30);
+    pacer.frame(0, false);
+    expect(pacer.frame(50, true)).toBe("skip");
+    expect(pacer.catchUp(60, true)).toBe(false);
+    expect(pacer.catchUp(70, false)).toBe(true);
+  });
+
+  it("is not owed when the frame that went was the newest", () => {
+    const pacer = new EncodePacer(30);
+    pacer.frame(0, false);
+    expect(pacer.frame(40, false)).toBe("delta");
+    expect(pacer.catchUp(200, false)).toBe(false);
+  });
+});
+
+/** Steps a capture's first-picture watch on the offscreen document's 50 ms clock. */
+function watch(first: FirstPicture, from: number, milliseconds: number) {
+  const steps: { at: number; step: string }[] = [];
+  for (let at = from; at <= from + milliseconds; at += 50) steps.push({ at, step: first.step(at) });
+  return steps.filter((entry) => entry.step !== "wait");
+}
+
+describe("a tab capture whose first picture never comes", () => {
+  it("asks Chrome for a picture, and again every so often while none comes", () => {
+    const asked = watch(new FirstPicture(0), 0, 4 * refreshPictureMs);
+    expect(asked).toEqual(
+      [1, 2, 3, 4].map((times) => ({ at: times * refreshPictureMs, step: "refresh" })),
+    );
+  });
+
+  it("fails once, when no picture came for a while after it opened", () => {
+    const first = new FirstPicture(1_000);
+    const steps = watch(first, 1_000, firstPictureMs + 2_000);
+    expect(steps.filter((entry) => entry.step === "failed")).toEqual([
+      { at: 1_000 + firstPictureMs, step: "failed" },
+    ]);
+    // Nothing more once it failed: the capture ends and another opens.
+    expect(steps.at(-1)?.step).toBe("failed");
+  });
+
+  it("asks for nothing more once a picture came", () => {
+    const first = new FirstPicture(0);
+    expect(watch(first, 0, 600).map((entry) => entry.step)).toEqual(["refresh"]);
+    first.arrived();
+    expect(watch(first, 650, firstPictureMs * 2)).toEqual([]);
+  });
+
+  it("never asks while the first picture comes in time", () => {
+    const first = new FirstPicture(0);
+    first.arrived();
+    expect(watch(first, 0, firstPictureMs * 2)).toEqual([]);
   });
 });

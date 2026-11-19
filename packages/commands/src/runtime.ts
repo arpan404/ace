@@ -29,6 +29,11 @@ const acp = z
     availableCommands: z.array(z.unknown()).max(512),
   })
   .passthrough();
+const InitMcpServers = z.array(z.object({ name: z.string().min(1).max(128) })).max(128);
+const InitPlugins = z
+  .array(z.object({ name: z.string().min(1).max(128), path: z.string().max(4096) }).passthrough())
+  .max(128);
+const InitTools = z.array(z.string().max(256)).max(512);
 /** Adapters feed the Claude init or ACP update body. Unknown fields stay in raw metadata. */
 export function parseRuntime(input: unknown, target: Target): ParsedSource {
   const source = `runtime:${target.session}`;
@@ -90,10 +95,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
     result.commands.push(d);
   }
   if (init?.success) {
-    const servers = z
-      .array(z.object({ name: z.string().min(1).max(128) }))
-      .max(128)
-      .safeParse(init.data.mcp_servers);
+    const servers = InitMcpServers.safeParse(init.data.mcp_servers);
     if (servers.success)
       for (const server of servers.data) {
         if (result.commands.length >= 512) break;
@@ -126,12 +128,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
           },
         });
       }
-    const plugins = z
-      .array(
-        z.object({ name: z.string().min(1).max(128), path: z.string().max(4096) }).passthrough(),
-      )
-      .max(128)
-      .safeParse(init.data.plugins);
+    const plugins = InitPlugins.safeParse(init.data.plugins);
     if (plugins.success)
       for (const plugin of plugins.data) {
         if (result.commands.length >= 512) break;
@@ -165,7 +162,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
           },
         });
       }
-    const tools = z.array(z.string().max(256)).max(512).safeParse(init.data.tools);
+    const tools = InitTools.safeParse(init.data.tools);
     if (tools.success)
       for (const tool of tools.data) {
         const match = /^mcp__(.+?)__(.+)$/.exec(tool);

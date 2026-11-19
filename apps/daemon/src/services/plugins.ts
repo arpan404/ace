@@ -1,4 +1,4 @@
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -17,7 +17,7 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
     now,
     id,
   });
-  const maintenance = warmup(context, "plugins", () => plugins.maintain(context.signal));
+  const maintenance = repeatableWarmup(context, "plugins", () => plugins.maintain(context.signal));
   const service = new PluginService(plugins);
   resources.onShutdown(() => service.stopAdmission());
   resources.own(async () => {
@@ -30,6 +30,8 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
   resources.onShutdown(() => launches.stopAdmission());
   resources.own(() => launches.close());
   services.plugins = service;
+  // Commands started first and follow the catalog of whichever plugin service is current.
+  services.pluginAvailability?.publish(service);
   services.preparePlugins = (provider, root) => preparePluginSession(plugins, provider, root);
   services.launchPlugins = (provider, root, options) => launches.launch(provider, root, options);
 }
@@ -47,7 +49,9 @@ export function createPluginsSession(context: SocketContext): SocketService {
             message.request.type === "plugins.list" ||
             message.request.type === "plugins.readReview" ||
             message.request.type === "plugins.catalog" ||
-            message.request.type === "plugins.source"
+            message.request.type === "plugins.source" ||
+            message.request.type === "plugins.spade" ||
+            message.request.type === "plugins.spadeFile"
               ? "read"
               : "admin";
           if (!authorize(scope)) {
@@ -93,7 +97,8 @@ export function createPluginsSession(context: SocketContext): SocketService {
             }
           })();
           tasks.add(task);
-          void task.finally(() => tasks.delete(task));
+          // The task answers its own failure above; this only forgets it.
+          void task.finally(() => tasks.delete(task)).catch(() => {});
           return true;
         }
       }

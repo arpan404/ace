@@ -13,6 +13,7 @@ import {
   checkIntegrity,
   recentThreadEvents,
 } from "./index.ts";
+import { openResources } from "./open-resources.ts";
 import { temporary, deferred, controlledProbe } from "./test-support.ts";
 import { controlledWorker } from "./test-support.ts";
 it("an injected worker deadline terminates a real stalled log worker", async () => {
@@ -60,7 +61,7 @@ it("health reports native open resources and honors injected memory and workload
         reset() {},
       }),
       memory: () => ({ rss: 123, heapUsed: 45, heapTotal: 67 }),
-      resources: process.getActiveResourcesInfo,
+      resources: openResources,
       sqlite: async () => ({ pageBytes: null, walBytes: 0 }),
       schedule: () => () => {},
       deadlineMs: 123,

@@ -6,3 +6,4 @@ export { BareBootFailure, BootErrorBoundary, BootFailure } from "./boot-failure.
 export { DesktopFailureScreen } from "./desktop-failure-screen.tsx";
 
 export { PairingForm } from "./pairing-form.tsx";
+export { SignInLanding, signInLandingStatus } from "./sign-in-landing.tsx";

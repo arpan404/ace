@@ -119,20 +119,38 @@ test("the thread stays working while the interrupted turn winds down, and the st
   }
 });
 
-test("a delegated result never interrupts a running command; it steers once the command ends", async () => {
+const childResult = (h: Harness, id: ThreadId) =>
+  h.internalCommand({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text: "child result" }],
+    delivery: "steer",
+    trigger: "subagent_result",
+    origin: { kind: "subagent_result", threadIds: [id] },
+  });
+
+test("a delegated result never interrupts a running command; a provider whose steer waits for tools takes it at once", async () => {
   const h = transitionHarness({ steerTiming: "after_tool", interruptEndsTurn: true });
   try {
     const id = await runningCommand(h);
     const before = h.inputs.length;
-    const result = h.internalCommand({
-      type: "thread.send",
-      threadId: id,
-      input: [{ type: "text", text: "child result" }],
-      delivery: "steer",
-      trigger: "subagent_result",
-      origin: { kind: "subagent_result", threadIds: [id] },
-    });
-    expect(result.ok).toBe(true);
+    expect(childResult(h, id).ok).toBe(true);
+    await h.engine.flush();
+    // The provider holds it until the command returns: nothing is interrupted to make room.
+    expect(h.interrupts).toEqual([]);
+    expect(h.inputs.slice(before)).toMatchObject([{ text: "child result", delivery: "steer" }]);
+    expect(h.engine.queue(id).messages).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a delegated result waits for a running command where the provider's steer would cut into it", async () => {
+  const h = transitionHarness({ interruptEndsTurn: true });
+  try {
+    const id = await runningCommand(h);
+    const before = h.inputs.length;
+    expect(childResult(h, id).ok).toBe(true);
     await h.engine.flush();
     expect(h.interrupts).toEqual([]);
     expect(h.inputs.slice(before)).toEqual([]);

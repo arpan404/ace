@@ -28,6 +28,13 @@ import XCTest
         guard primary.isEnabled else { return }
         primary.tap()
         XCTAssertTrue(app.textFields["forge.commit.title"].waitForExistence(timeout: 10))
+        let title = app.textFields["forge.commit.title"]
+        title.tap()
+        title.typeText(" kept draft")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+        app.buttons["Keep editing"].tap()
+        XCTAssertTrue((title.value as? String)?.contains("kept draft") == true)
         screenshot("merge-commit")
     }
 
@@ -71,9 +78,9 @@ import XCTest
     private func launchOnPulls() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.launchWithArguments()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
+        app.openPulls()
         return app
     }
     private func open(_ app: XCUIApplication, _ row: String) {

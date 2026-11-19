@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { markitGrammarWasmFile, markitWasmFile } from "@ace/markit-web/assets";
+import { preloadMarkit } from "@ace/markit-web/react";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -22,6 +25,16 @@ if (typeof HTMLElement !== "undefined") {
   });
   if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
   window.scrollTo = () => {};
+  /*
+   * jsdom has no Worker, so markit renders in-process. Left alone, its Wasm glue fetches the
+   * module from Vite's dev-server URL, which nothing serves in a test: every answer would stay
+   * the plain-text fallback. Hand it the bytes the postinstall build produced instead.
+   */
+  preloadMarkit({
+    worker: "inline",
+    wasm: readFileSync(markitWasmFile()),
+    grammarWasm: readFileSync(markitGrammarWasmFile()),
+  });
 }
 
 afterEach(() => cleanup());

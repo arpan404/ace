@@ -11,9 +11,10 @@ import {
   type NotificationDevice,
   type EventPayload,
 } from "@ace/protocol";
-import { NotificationService, type DeliveryResult } from "./index.ts";
+import { NotificationService, type DeliveryResult, type NotificationTransport } from "./index.ts";
 
-export function setup(result: DeliveryResult = "accepted") {
+/** `send` stands in for the delivery transport, e.g. the router with a held acknowledgement. */
+export function setup(result: DeliveryResult = "accepted", send?: NotificationTransport["send"]) {
   const home = mkdtempSync(join(tmpdir(), "ace-notify-"));
   const path = join(home, "notifications.sqlite");
   let now = 1000;
@@ -24,9 +25,13 @@ export function setup(result: DeliveryResult = "accepted") {
   const state = createThreadState({ threadId, config: { provider: "codex", silenceMs: 90_000 } });
   const deliveries: { device: NotificationDevice; notification: Notification }[] = [];
   const transport = {
-    async send(device: NotificationDevice, notification: Notification): Promise<DeliveryResult> {
+    async send(
+      device: NotificationDevice,
+      notification: Notification,
+      signal: AbortSignal,
+    ): Promise<DeliveryResult> {
       deliveries.push({ device, notification });
-      return deliveryOutcome;
+      return send ? send(device, notification, signal) : deliveryOutcome;
     },
   };
   const options = {
@@ -38,9 +43,9 @@ export function setup(result: DeliveryResult = "accepted") {
   };
   let service = new NotificationService(options);
   const history: Event[] = [];
-  function append(payloads: EventPayload[]) {
+  function append(payloads: EventPayload[], thread: ThreadId = threadId) {
     const events = payloads.map((payload) =>
-      Event.parse({ seq: ++seq, id: `event-${seq}`, threadId, at: now, payload }),
+      Event.parse({ seq: ++seq, id: `event-${seq}`, threadId: thread, at: now, payload }),
     );
     history.push(...events);
     service.ingest(events);

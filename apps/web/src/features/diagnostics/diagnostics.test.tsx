@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
+import { findSettingsGeneral } from "@/test/navigation.ts";
 import { openDevices } from "@/test/device-browser.ts";
 afterEach(() => vi.restoreAllMocks());
 test("Run checks shows results and a next step for an agent needing attention", async () => {
@@ -13,7 +15,7 @@ test("Run checks shows results and a next step for an agent needing attention", 
   const cursor = within(results).getByText("Cursor").closest("li");
   if (!cursor) throw new Error("Missing Cursor result");
   await userEvent.click(within(cursor).getByRole("link", { name: "Open Providers" }));
-  expect(await screen.findByRole("region", { name: "Installed providers" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Installed" })).toBeTruthy();
 });
 test("support export excludes conversations by default and downloads the chosen contents", async () => {
   const app = harness({ throughWorker: true });
@@ -41,24 +43,20 @@ test("support export excludes conversations by default and downloads the chosen 
     );
   }
 });
-test("Settings → Computer use explains how to install the computer's missing tools", async () => {
-  await harness().open("/settings/computer-use");
-  const tools = await screen.findByRole("region", { name: "Tools on this machine" });
-  // The fake computer has Xcode and Git; only the Android SDK is missing.
-  expect(await within(tools).findByText(/Install Android Studio/)).toBeTruthy();
-  expect(within(tools).queryByText(/Install Xcode from the App Store/)).toBeNull();
-  expect(within(tools).getByText("Git")).toBeTruthy();
-});
-test("the Devices list ends with the device tools' versions, and Set up shows how to add the missing one", async () => {
+test("the Devices list ends with the device tools' versions, and Set up leads to how to add the missing one", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const tools = await within(panel).findByLabelText("Device tools");
   await waitFor(() =>
     expect(tools.textContent).toBe("Xcode 26.0·serve-sim 0.1.49-beta.139.1·Android SDKSet up…"),
   );
-  await userEvent.click(within(tools).getByRole("button", { name: "Set up…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Device tools" });
-  expect(within(dialog).getByText(/Install Android Studio/)).toBeTruthy();
+  await userEvent.click(within(tools).getByRole("link", { name: "Set up…" }));
+  const setup = await screen.findByRole("region", { name: "Tools" });
+  expect(within(setup).getByRole("link", { name: "Install Android Studio" })).toHaveProperty(
+    "href",
+    "https://developer.android.com/studio",
+  );
+  expect(within(setup).getByRole("button", { name: "Check again" })).toBeTruthy();
 });
 
 test("a failed check offers a retry and a failed export keeps the dialog open", async () => {
@@ -83,4 +81,71 @@ test("a failed check offers a retry and a failed export keeps the dialog open", 
   expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Export" }).disabled).toBe(
     false,
   );
+});
+test("Run checks keeps going after leaving the page, and coming back shows it running, then its report", async () => {
+  const app = harness();
+  const finish = app.daemon.checks.hold();
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
+  expect(await screen.findByText(/^Checking for \d+s\. You can leave this page/)).toBeTruthy();
+
+  await userEvent.click(await findSettingsGeneral());
+  await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
+  await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
+
+  const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Checking…" });
+  expect(button.disabled).toBe(true);
+  expect(screen.getByText(/^Checking for \d+s\./)).toBeTruthy();
+  finish();
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run checks" })).toBeTruthy();
+  // Coming back joined the run; it never started the checks a second time.
+  expect(app.daemon.checks.starts).toBe(1);
+});
+
+test("on a daemon that can't report its checks run, Run checks still shows what it found", async () => {
+  const app = harness({
+    client(daemon) {
+      const client = fakeClient(daemon);
+      const request = client.request.bind(client);
+      vi.spyOn(client, "request").mockImplementation(async (input, options) => {
+        if (input.type === "diagnostics.request" && input.operation === "status")
+          throw new Error("Unknown operation");
+        return request(input, options);
+      });
+      return client;
+    },
+  });
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run checks" })).toBeTruthy();
+});
+
+test("checks that ended while the page was away show their report on return and don't run again", async () => {
+  const app = harness();
+  const finish = app.daemon.checks.hold();
+  await app.open("/settings/advanced");
+  const run = await screen.findByRole<HTMLButtonElement>("button", { name: "Run checks" });
+  await waitFor(() => expect(run.disabled).toBe(false));
+  // Another app on this computer started the checks; this page reads them as running.
+  void app.client
+    .request({ type: "diagnostics.request", operation: "doctor" }, { timeoutMs: 60_000 })
+    .catch(() => {});
+  await userEvent.click(await findSettingsGeneral());
+  await userEvent.click(await screen.findByRole("link", { name: "Advanced" }));
+  await screen.findByText(/^Checking for/);
+
+  await userEvent.click(await findSettingsGeneral());
+  await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
+  finish();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // The page still remembers them as running: coming back must join them, not start them.
+  await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
+
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(app.daemon.checks.starts).toBe(1);
 });

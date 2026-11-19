@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceMachine.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hostId": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    },
+    "lastSeenAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "platform": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId",
+    "name",
+    "platform",
+    "lastSeenAt"
+  ],
+  "type": "object"
+}

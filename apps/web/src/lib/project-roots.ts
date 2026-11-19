@@ -38,6 +38,15 @@ export function addProjectRoot(client: ClientApi, path: string): Promise<void> {
 export function createProjectRoot(client: ClientApi, path: string): Promise<void> {
   return allowRoot(client, { path, create: true });
 }
+/**
+ * Stop allowing one folder, leaving the other allowed places as they are now: roots allowed
+ * since stay. Projects inside it are hidden until it is allowed again, never removed.
+ */
+export async function removeProjectRoot(client: ClientApi, path: string): Promise<void> {
+  const reply = await client.projects.removeRoot({ path });
+  if (!reply.ok) throw new ProjectRootRefused(reply.error ?? "project_failed");
+}
+
 export async function saveProjectRoots(client: ClientApi, roots: string[]): Promise<void> {
   const value = SettingsValues.shape["projects.roots"].parse(roots);
   const reply = await client.request({

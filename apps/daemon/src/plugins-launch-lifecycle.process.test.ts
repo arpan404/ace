@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 test("daemon shutdown stops its plugin-launched providers and removes their projections", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-owner-")));
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(root, "daemon"),
       host: "127.0.0.1",
@@ -70,6 +72,7 @@ process.stdin.resume();`,
 test("plugin launches reject retained groups before starting a provider or creating resources", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-retained-")));
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(root, "daemon"),
       host: "127.0.0.1",
@@ -101,6 +104,7 @@ test("plugin launches reject retained groups before starting a provider or creat
 test("shutdown drains an accepted launch preparation and rejects subsequent launches", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-race-")));
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(root, "daemon"),
       host: "127.0.0.1",

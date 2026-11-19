@@ -1,6 +1,6 @@
 import { AgentId } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { contextUsage, queueMoveAfter, queueNotice } from "./queue.ts";
+import { contextUsage, queueMoveAfter, queueNotice, stoppedHold, stopTitle } from "./queue.ts";
 
 const now = new Date("2026-10-01T15:00:00").getTime();
 const reset = new Date("2026-10-01T17:30:00").getTime();
@@ -12,7 +12,12 @@ test("a flowing queue says nothing", () => {
 });
 
 test("a usage limit with a known reset offers resume at reset, snooze, another account and now", () => {
-  const notice = queueNotice({ state: "limited", until: reset }, flowing, now, "en-US");
+  const notice = queueNotice(
+    { state: "limited", until: reset },
+    { paused: true, reason: "limit", resumeAt: null },
+    now,
+    "en-US",
+  );
   expect(notice?.title).toBe("Usage limit reached");
   expect(notice?.detail).toContain("5:30 PM");
   expect(ids(notice)).toEqual([
@@ -42,7 +47,7 @@ test("a timer to resume at reset says when, and can be called off", () => {
   );
   expect(notice?.kind).toBe("resuming");
   expect(notice?.detail).toContain("5:30 PM");
-  expect(ids(notice)).toEqual(["resume_now", "hold"]);
+  expect(ids(notice)).toEqual(["resume_now", "cancel_resume"]);
 });
 
 test("a snooze, a restart, an uncertain delivery and a manual pause each explain themselves", () => {
@@ -127,4 +132,29 @@ test("a held message explains a failed resume after reloading the queue", () => 
     detail: title,
     actions: [{ id: "resume", label: "Try again" }],
   });
+});
+
+test("a child's aggregate limit never offers recovery on the parent's flowing queue", () => {
+  expect(queueNotice({ state: "limited", until: reset }, flowing, now)).toBeUndefined();
+  expect(
+    queueNotice(
+      { state: "limited", until: reset },
+      { paused: true, reason: "stopped", resumeAt: null, pendingCount: 1 },
+      now,
+    )?.kind,
+  ).toBe("stopped");
+});
+
+test("the person's Stop offers no Continue: nothing at all, or a way to send the messages it kept", () => {
+  const stopped = { paused: true, reason: "stopped", resumeAt: null } as const;
+  expect(queueNotice({ state: "done" }, { ...stopped, pendingCount: 0 }, now)).toBeUndefined();
+  expect(stopTitle(stopped)).toBeUndefined();
+  const kept = queueNotice({ state: "done" }, { ...stopped, pendingCount: 2 }, now);
+  expect(kept?.actions).toEqual([{ id: "resume", label: "Send now" }]);
+  expect(stoppedHold(kept)).toBe(false);
+  // A restart still offers its Continue.
+  expect(stopTitle({ paused: true, reason: "restart" })).toBe("Stopped by a restart");
+  expect(
+    queueNotice(undefined, { paused: true, reason: "restart", resumeAt: null }, now)?.actions,
+  ).toEqual([{ id: "continue", label: "Continue" }]);
 });

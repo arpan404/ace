@@ -34,8 +34,27 @@ export function settleSessionBoundTasks(repo: EngineRepository, state: ThreadSta
 }
 
 /**
- * Threads of providers with session-bound work that hold a running or lost task. Startup reads
- * the task index, never history.
+ * Background work a provider process from before the restart left marked running. No provider
+ * session outlives the daemon, so ace can no longer reach it or hear it end: it is lost, as a
+ * provider process exit leaves it (`process.exited`). A shell may still outlive its CLI, so it
+ * reads `unknown` (lost track of, not running for Done) rather than stopped, and later terminal
+ * evidence still settles it. The same `background.ended` path a real end takes clears the
+ * thread's count and names of commands left running together. Call only at startup, after
+ * `settleSessionBoundTasks`.
+ */
+export function settleOrphanedTasks(state: ThreadState): Fact[] {
+  return Object.keys(state.indexes.runningTasks).flatMap((key) => {
+    const task = state.tasks[key];
+    return task?.status === "running" && task.owner !== "ace"
+      ? [{ type: "background.ended" as const, task: key, status: "unknown" as const }]
+      : [];
+  });
+}
+
+/**
+ * Threads startup settles tasks for: any with a task still marked running (its provider is gone,
+ * `settleOrphanedTasks`), and those of providers with session-bound work that hold a lost one.
+ * Startup reads the task index, never history.
  */
 export function threadsWithOpenTasks(repo: EngineRepository): ThreadId[] {
   const providers = Object.keys(sessionBound);
@@ -45,7 +64,8 @@ export function threadsWithOpenTasks(repo: EngineRepository): ThreadId[] {
       `SELECT DISTINCT r.thread_id FROM engine_state_records r JOIN threads t ON t.id=r.thread_id
       WHERE r.section IN ('interactions','tasks') AND r.section='tasks'
       AND json_extract(r.value,'$.status') IN ('running','unknown')
-      AND t.provider IN (${providers.map(() => "?").join(",")})`,
+      AND (json_extract(r.value,'$.status')='running'
+        OR t.provider IN (${providers.map(() => "?").join(",")}))`,
     )
     .all(...providers)
     .map((row) => ThreadId.parse(row.thread_id));

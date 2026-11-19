@@ -16,6 +16,8 @@ export interface MetadataQueryInput {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   /** The started CLI's pid, as soon as it exists, so an outer owner can contain its group. */
   onCliProcess?: (pid: number) => void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
 }
 
 /**
@@ -34,7 +36,8 @@ export async function askClaude<T>(
   let process: SupervisedProcess | undefined;
   const stop = () => {
     controller.abort();
-    if (process) void process.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    if (process) void process.stop({ graceMs: 0 }).catch(() => {});
   };
   input.signal.addEventListener("abort", stop, { once: true });
   let q: Query | undefined;

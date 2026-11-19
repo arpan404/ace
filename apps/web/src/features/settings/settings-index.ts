@@ -1,7 +1,23 @@
+import { settingDescriptions } from "./setting-descriptions.ts";
+import { agentSettingTitles, betaSwitches, mediaPipelineSwitch } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
+import { primaryMachineId } from "@/lib/machines.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
+
+/** Words for every Git host provider, so searching any of them finds Source control. */
+const forgeWords = [
+  "github",
+  "gitlab",
+  "cursor",
+  "origin",
+  "bitbucket",
+  "gitbucket",
+  "gitea",
+  "forgejo",
+  "codeberg",
+];
 
 /**
  * Every setting a person might look for, by page: the palette's Settings group and the
@@ -15,7 +31,18 @@ export interface SettingEntry {
   readonly title: string;
   /** Other words people use for it ("dark mode" for Theme). */
   readonly keywords?: readonly string[];
+  /** Where it opens when that's a view inside its page (Fleet's Map, this computer), not the page itself. */
+  readonly route?:
+    | "/settings/remote/map"
+    | "/settings/remote/primary"
+    | "/settings/remote/every-machine";
 }
+
+/** Where a setting opens, as link props: its view inside the page when it has one, else the page. */
+export const entryRoute = (entry: SettingEntry) =>
+  entry.route === "/settings/remote/primary"
+    ? ({ to: "/settings/remote/$machine", params: { machine: primaryMachineId } } as const)
+    : { to: entry.route ?? entry.page };
 
 const entries = [
   {
@@ -23,6 +50,42 @@ const entries = [
     page: "/settings/storage",
     title: "Storage retention and cleanup",
     keywords: ["disk", "space", "clean", "worktrees", "attachments", "recordings", "logs", "cache"],
+  },
+  {
+    id: "storage.retentionDays",
+    page: "/settings/storage",
+    title: "Keep data for",
+    keywords: ["retention", "days", "idle", "threads", "data window", "delete"],
+  },
+  {
+    id: "logs.maxBytes",
+    page: "/settings/storage",
+    title: "Log limit",
+    keywords: ["logs", "size", "megabytes", "disk"],
+  },
+  {
+    id: "storage.retention",
+    page: "/settings/storage",
+    title: "Retention by kind",
+    keywords: ["archived", "attachments", "recordings", "days", "keep", "delete"],
+  },
+  {
+    id: "storage.dailyCleanup",
+    page: "/settings/storage",
+    title: "Daily cleanup",
+    keywords: ["schedule", "clean", "delete", "retention", "automatic"],
+  },
+  {
+    id: "storage.worktreeDeletion",
+    page: "/settings/storage",
+    title: "Automatic deletion",
+    keywords: ["worktree", "worktrees", "delete", "settled", "clean", "merged"],
+  },
+  {
+    id: "storage.worktreeDays",
+    page: "/settings/storage",
+    title: "Delete after settling",
+    keywords: ["worktree", "worktrees", "days", "settled"],
   },
   {
     id: "past-sessions",
@@ -39,10 +102,69 @@ const entries = [
     ],
   },
   {
+    id: "providers.codex.toolSource",
+    page: "/settings/providers",
+    title: "Codex tool folder",
+    keywords: [
+      "codex",
+      "plugins",
+      "marketplaces",
+      "mcp",
+      "computer use",
+      "chrome",
+      "browser",
+      "node_repl",
+      "config.toml",
+      "accounts",
+    ],
+  },
+  {
+    id: "providers.claude.chrome",
+    page: "/settings/providers",
+    title: "Claude in Chrome",
+    keywords: ["claude", "chrome", "browser", "extension", "--chrome"],
+  },
+  {
     id: "source-control",
     page: "/settings/source-control",
     title: "Source control",
     keywords: ["github", "gh", "git", "enterprise", "account", "rescan"],
+  },
+  {
+    id: "sourceControl.hosts",
+    page: "/settings/source-control",
+    title: "Git hosts",
+    keywords: [...forgeWords, "forge", "providers", "add", "remove", "self-hosted"],
+  },
+  {
+    id: "sourceControl.provider",
+    page: "/settings/source-control",
+    title: "Git provider",
+    keywords: [...forgeWords, "forge", "host"],
+  },
+  {
+    id: "sourceControl.host",
+    page: "/settings/source-control",
+    title: "Git host",
+    keywords: [...forgeWords, "enterprise", "hostname", "ghe", "server", "self-hosted"],
+  },
+  {
+    id: "sourceControl.account",
+    page: "/settings/source-control",
+    title: "Expected account",
+    keywords: [...forgeWords, "login", "gh", "glab", "user", "account"],
+  },
+  {
+    id: "sourceControl.projectRepositories",
+    page: "/settings/source-control",
+    title: "Project repositories",
+    keywords: [...forgeWords, "repository", "repositories", "mirror", "remote", "primary", "hide"],
+  },
+  {
+    id: "sourceControl.remote",
+    page: "/settings/source-control",
+    title: "Repository remote",
+    keywords: ["git", "remote", "origin", "upstream", "repository"],
   },
   {
     id: "prompts",
@@ -50,13 +172,26 @@ const entries = [
     title: "Prompt files",
     keywords: ["slash", "commands", "templates", "skills"],
   },
-  // General
+  // Profile
+  {
+    id: "account.signIn",
+    page: "/settings/profile",
+    title: "ace account",
+    keywords: ["login", "sign in", "sign out", "email", "profile"],
+  },
+  {
+    id: "profile.machines",
+    page: "/settings/profile",
+    title: "Machines on your account",
+    keywords: ["account", "remote", "relay", "machine code"],
+  },
   {
     id: "profile.name",
-    page: "/settings/general",
+    page: "/settings/profile",
     title: "Your name",
     keywords: ["initials", "avatar", "account"],
   },
+  // General
   {
     id: "app.openAtLogin",
     page: "/settings/general",
@@ -66,7 +201,7 @@ const entries = [
   {
     id: "providers.default",
     page: "/settings/agents",
-    title: "Default provider for new threads",
+    title: agentSettingTitles["providers.default"],
     keywords: ["agent", "claude", "codex", "model"],
   },
   {
@@ -74,6 +209,12 @@ const entries = [
     page: "/settings/general",
     title: "Terminals open in",
     keywords: ["terminal", "shell", "bottom panel", "side panel", "dock", "location"],
+  },
+  {
+    id: "usage.railMeasure",
+    page: "/settings/general",
+    title: "Usage bars",
+    keywords: ["usage", "rail", "limits", "session", "weekly", "week", "quota"],
   },
   {
     id: "editor.default",
@@ -84,85 +225,97 @@ const entries = [
   {
     id: "threads.limitPolicy",
     page: "/settings/agents",
-    title: "When an account hits its limit",
+    title: agentSettingTitles["threads.limitPolicy"],
     keywords: ["usage", "quota", "rate limit", "resume", "snooze", "migrate", "switch account"],
   },
   {
     id: "agents.maxRunningChildren",
     page: "/settings/agents",
-    title: "Agents a thread runs at once",
+    title: agentSettingTitles["agents.maxRunningChildren"],
     keywords: ["delegate", "children", "subagents", "parallel", "concurrency", "queue", "limit"],
   },
   {
     id: "threads.useWorktree",
     page: "/settings/agents",
-    title: "New threads use a worktree",
-    keywords: ["git", "branch", "checkout"],
+    title: agentSettingTitles["threads.useWorktree"],
+    keywords: ["git", "branch", "checkout", "worktrees"],
+  },
+  {
+    id: "worktree.preparationTimeout",
+    page: "/settings/agents",
+    title: "Worktree preparation timeout",
+    keywords: ["worktree", "worktrees", "timeout", "preparation", "git", "setup"],
+  },
+  {
+    id: "storage.backupWorktrees",
+    page: "/settings/agents",
+    title: "Back up worktrees to origin",
+    keywords: ["worktree", "worktrees", "backup", "push", "origin", "git"],
   },
   {
     id: "threads.sortBy",
     page: "/settings/agents",
-    title: "Sort threads",
+    title: agentSettingTitles["threads.sortBy"],
     keywords: ["order", "sidebar", "manual", "newest", "activity"],
   },
   {
     id: "threads.autoSettleAfter",
     page: "/settings/agents",
-    title: "Settle done threads",
+    title: agentSettingTitles["threads.autoSettleAfter"],
     keywords: ["archive", "auto settle", "cleanup"],
   },
   {
     id: "threads.settleOnMerge",
     page: "/settings/agents",
-    title: "Settle when the PR merges",
+    title: agentSettingTitles["threads.settleOnMerge"],
     keywords: ["pull request", "merge"],
   },
   {
     id: "threads.forkOnSwitch",
     page: "/settings/agents",
-    title: "Fork when switching providers",
+    title: agentSettingTitles["threads.forkOnSwitch"],
     keywords: ["provider", "account", "switch", "fork", "preserve", "history"],
   },
   {
     id: "threads.followUpBehavior",
     page: "/settings/agents",
-    title: "Messages sent while the agent works",
+    title: agentSettingTitles["threads.followUpBehavior"],
     keywords: ["queue", "steer", "follow up"],
   },
   {
     id: "generation.model",
     page: "/settings/agents",
-    title: "Titles and commit messages",
+    title: agentSettingTitles["generation.model"],
     keywords: ["utility model", "thread title", "commit message", "pull request", "haiku", "luna"],
   },
   {
     id: "roles.build",
     page: "/settings/agents",
-    title: "Build",
+    title: agentSettingTitles["roles.build"],
     keywords: ["roles", "runRole", "delegate", "coder", "implement"],
   },
   {
     id: "roles.judgment",
     page: "/settings/agents",
-    title: "Judgment",
+    title: agentSettingTitles["roles.judgment"],
     keywords: ["roles", "runRole", "delegate", "planner", "design"],
   },
   {
     id: "roles.review",
     page: "/settings/agents",
-    title: "Review",
+    title: agentSettingTitles["roles.review"],
     keywords: ["roles", "runRole", "delegate", "reviewer"],
   },
   {
     id: "roles.verify",
     page: "/settings/agents",
-    title: "Verify",
+    title: agentSettingTitles["roles.verify"],
     keywords: ["roles", "runRole", "delegate", "verifier", "check"],
   },
   {
     id: "generation.autoDraftCommits",
-    page: "/settings/agents",
-    title: "Auto-draft commit messages",
+    page: "/settings/source-control",
+    title: agentSettingTitles["generation.autoDraftCommits"],
     keywords: ["commit", "draft", "generate"],
   },
   {
@@ -172,39 +325,70 @@ const entries = [
     keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
   },
   {
+    id: "devices.enabled",
+    page: "/settings/simulators",
+    title: "Use simulators and emulators",
+    keywords: ["devices", "ios", "simulator", "android", "emulator", "disable", "turn off"],
+  },
+  {
     id: "devices.emulatorWindow",
-    page: "/settings/computer-use",
+    page: "/settings/simulators",
     title: "Show emulator window",
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },
   {
+    id: "devices.frame",
+    page: "/settings/simulators",
+    title: "Show device frame",
+    keywords: ["simulator", "emulator", "bezel", "phone", "screen only", "window"],
+  },
+  {
+    id: "devices.streamStats",
+    page: "/settings/simulators",
+    title: "Show stream stats",
+    keywords: ["simulator", "emulator", "fps", "frames", "performance", "window"],
+  },
+  {
+    id: "devices.recent",
+    page: "/settings/simulators",
+    title: "Recent devices",
+    keywords: ["simulator", "emulator", "history", "clear", "window"],
+  },
+  {
+    id: "browser.userChrome.connection",
+    page: "/settings/browser",
+    title: "Browser connection",
+    keywords: ["use my chrome", "extension", "install", "browser", "chrome"],
+  },
+  {
     id: "browser.userChrome.storageReads",
-    page: "/settings/computer-use",
+    page: "/settings/browser",
     title: "Let agents read cookies and site storage",
     keywords: ["use my chrome", "evaluate", "localStorage", "privacy", "browser"],
   },
   {
     id: "automations.enabled",
     page: "/settings/agents",
-    title: "Run automations",
+    title: agentSettingTitles["automations.enabled"],
     keywords: ["schedule", "cron"],
   },
   {
     id: "daemon.connection",
-    page: "/settings/general",
-    title: "Connection",
-    keywords: ["server", "url", "disconnect"],
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Computer connection",
+    keywords: ["connection", "server", "url", "disconnect", "reconnect", "window", "daemon"],
   },
   {
     id: "threads.settleOnClose",
     page: "/settings/agents",
-    title: "Settle when the PR closes",
+    title: agentSettingTitles["threads.settleOnClose"],
     keywords: ["pull request", "closed"],
   },
   {
     id: "access.defaultMode",
     page: "/settings/agents",
-    title: "Access",
+    title: agentSettingTitles["access.defaultMode"],
     keywords: ["permissions", "approval", "read-only", "ask", "auto review", "full access"],
   },
   {
@@ -215,12 +399,17 @@ const entries = [
   },
   { id: "app.background", page: "/settings/general", title: "Keep running in background" },
   { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
-  { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
+  {
+    id: "app.globalShortcut",
+    page: "/settings/keyboard",
+    title: "Quick-thread global shortcut",
+    keywords: ["global", "hotkey", "quick thread", "background"],
+  },
   {
     id: "app.attention",
     page: "/settings/general",
-    title: "Bounce dock icon for attention",
-    keywords: ["flash", "window", "taskbar", "urgent"],
+    title: "Get attention when agents need you",
+    keywords: ["bounce", "dock", "flash", "window", "taskbar", "urgent", "attention"],
   },
   {
     id: "app.terminalCommand",
@@ -234,6 +423,12 @@ const entries = [
     title: "Updates",
     keywords: ["check for updates", "download", "install", "version", "upgrade", "restart"],
   },
+  {
+    id: "app.updateLine",
+    page: "/settings/general",
+    title: "Release line",
+    keywords: ["beta", "stable", "channel", "prerelease", "downgrade"],
+  },
   // Appearance
   {
     id: "appearance.mode",
@@ -242,10 +437,17 @@ const entries = [
     keywords: ["dark", "light", "system", "night"],
   },
   {
-    id: "appearance.theme",
+    id: "appearance.look",
     page: "/settings/appearance",
-    title: "Theme",
+    title: "Look",
     keywords: [
+      "theme",
+      "suit",
+      "custom theme",
+      "style",
+      "skin",
+      "fonts",
+      "scene",
       "colour",
       "color",
       "palette",
@@ -263,6 +465,12 @@ const entries = [
     page: "/settings/appearance",
     title: "Accent",
     keywords: ["colour", "color", "accent", "highlight", "ink", "mono", "custom"],
+  },
+  {
+    id: "appearance.backdropMotion",
+    page: "/settings/appearance",
+    title: "Backdrop motion",
+    keywords: ["scene", "backdrop", "animation", "motion", "still", "battery"],
   },
   {
     id: "appearance.translucency",
@@ -307,6 +515,12 @@ const entries = [
     title: "Quiet hours",
     keywords: ["do not disturb", "mute", "night"],
   },
+  {
+    id: "notifications.remotePush",
+    page: "/settings/notifications",
+    title: "Push when the app is closed",
+    keywords: ["phone", "iphone", "ios", "push", "apns", "background"],
+  },
   // Keyboard
   {
     id: "keyboard.shortcuts",
@@ -318,43 +532,89 @@ const entries = [
   {
     id: "remote.enabled",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Remote access",
-    keywords: ["lan", "tailscale", "relay", "fleet", "network"],
+    keywords: ["lan", "tailscale", "relay", "fleet", "network", "turn off", "disconnect"],
   },
   {
-    id: "remote.transport",
+    id: "account.reach",
     page: "/settings/remote",
-    title: "Reached over",
-    keywords: ["lan", "tailscale", "relay", "transport", "network"],
+    route: "/settings/remote/primary",
+    title: "ace account on this computer",
+    keywords: ["sign in", "sign out", "relay", "anywhere", "reach", "network"],
+  },
+  {
+    id: "remote.lan",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Local network",
+    keywords: ["lan", "wifi", "network", "transport"],
+  },
+  {
+    id: "remote.tailscale",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Tailscale",
+    keywords: ["tailscale", "tailnet", "vpn", "network", "transport"],
+  },
+  {
+    id: "remote.relay",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Your own relay",
+    keywords: ["relay", "self-hosted", "anywhere", "network", "transport"],
   },
   {
     id: "remote.hostedPairingLink",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Pairing links open app.acehq.dev",
     keywords: ["app.acehq.dev", "web", "browser", "pair", "phone", "hosted"],
   },
   {
     id: "remote.agentAccess",
     page: "/settings/remote",
-    title: "Agents from other machines",
-    keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser", "fleet"],
+    route: "/settings/remote/every-machine",
+    title: "Other machines' agents",
+    keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "fleet"],
+  },
+  {
+    id: "fleet.grants",
+    page: "/settings/remote",
+    route: "/settings/remote/every-machine",
+    title: "What other machines' agents may use",
+    keywords: [
+      "permissions",
+      "browser",
+      "simulators",
+      "emulators",
+      "computer use",
+      "commands",
+      "fleet",
+    ],
   },
   {
     id: "remote.agentTransfers",
     page: "/settings/remote",
-    title: "Agents can move projects and threads to other machines",
-    keywords: ["transfer", "continue on", "open on", "machines", "agents", "move", "fleet"],
-  },
-  {
-    id: "remote.transferIgnoredFiles",
-    page: "/settings/remote",
-    title: "Bring ignored files",
-    keywords: ["transfer", "gitignore", "ignored", ".env", "continue on", "open on", "machines"],
+    route: "/settings/remote/every-machine",
+    title: "Move threads between machines",
+    keywords: [
+      "transfer",
+      "continue on",
+      "open on",
+      "machines",
+      "agents",
+      "move",
+      "fleet",
+      "gitignore",
+      "ignored files",
+      ".env",
+    ],
   },
   {
     id: "fleet.link",
     page: "/settings/remote",
-    title: "Link machines",
+    title: "Machines",
     keywords: ["fleet", "machines", "link", "connect", "add machine", "servers"],
   },
   // Browser
@@ -385,32 +645,75 @@ const entries = [
   {
     id: "browser.downloadDir",
     page: "/settings/browser",
-    title: "Downloads folder",
-    keywords: ["download", "save", "folder", "location"],
+    title: "Downloads folder for ace's Chrome",
+    keywords: ["download", "save", "folder", "location", "machine"],
   },
   {
     id: "browser.deviceToolbar",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Device toolbar in new tabs",
-    keywords: ["responsive", "mobile", "emulation", "viewport"],
+    keywords: ["responsive", "mobile", "emulation", "viewport", "window"],
   },
   {
     id: "browser.pip",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Picture in picture",
-    keywords: ["pip", "floating", "mini player", "video", "float"],
+    keywords: ["pip", "floating", "mini player", "video", "float", "window"],
   },
   {
     id: "browser.revealAgentPages",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Open the browser panel when an agent opens a page",
-    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
+    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet", "window"],
+  },
+  {
+    id: "browser.extensionsButton",
+    page: "/settings/browser",
+    title: "Show Extensions button",
+    keywords: ["extensions", "toolbar", "hide", "puzzle", "window"],
+  },
+  {
+    id: "browser.connectionStats",
+    page: "/settings/browser",
+    title: "Show connection stats",
+    keywords: ["latency", "round trip", "lag", "input", "ms", "window"],
+  },
+  {
+    id: "browser.appDownloads",
+    page: "/settings/browser",
+    title: "Downloads folder for the desktop app",
+    keywords: ["download", "save", "folder", "location", "in-app browser", "desktop"],
   },
   {
     id: "host.displayName",
     page: "/settings/remote",
     title: "Machine name and icon",
     keywords: ["host", "rename", "computer", "icon", "machine icon"],
+  },
+  {
+    id: "machine.pause",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Pause new work",
+    keywords: ["resume", "hold", "stop new work", "maintenance", "admission", "paused", "tray"],
+  },
+  {
+    id: "fleet.map",
+    page: "/settings/remote",
+    route: "/settings/remote/map",
+    title: "Fleet map",
+    keywords: [
+      "network",
+      "diagram",
+      "topology",
+      "graph",
+      "connections",
+      "problems",
+      "broken",
+      "relay",
+      "tailnet",
+      "wi-fi",
+    ],
   },
   {
     id: "remote.pair",
@@ -431,15 +734,9 @@ const entries = [
   },
   // Advanced
   {
-    id: "advanced.worktreeTimeout",
-    page: "/settings/advanced",
-    title: "Worktree preparation timeout",
-    keywords: ["worktree", "timeout", "preparation", "git"],
-  },
-  {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "App diagnostics",
+    title: "Machine diagnostics",
     keywords: [
       "memory",
       "debug",
@@ -458,6 +755,31 @@ const entries = [
     title: "Reset all settings",
     keywords: ["defaults", "restore"],
   },
+  // Beta
+  {
+    id: "beta.mediaPipeline",
+    page: "/settings/beta",
+    title: mediaPipelineSwitch.title,
+    keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
+  },
+  {
+    id: "beta.spade",
+    page: "/settings/beta",
+    title: betaSwitches.spade.title,
+    keywords: ["assistant", "bots", "experimental", "preview"],
+  },
+  {
+    id: "beta.marketplace",
+    page: "/settings/beta",
+    title: betaSwitches.marketplace.title,
+    keywords: ["store", "suits", "plugins", "skills", "install", "experimental", "preview"],
+  },
+  {
+    id: "market.askBeforeAgentPublish",
+    page: "/settings/beta",
+    title: "Ask me before agents publish",
+    keywords: ["marketplace", "publish", "agents", "approve", "permission"],
+  },
 ] as const satisfies readonly SettingEntry[];
 
 export type SettingId = (typeof entries)[number]["id"];
@@ -467,9 +789,13 @@ export const settingsIndex: readonly SettingEntry[] = entries;
 const byId = new Map<string, SettingEntry>(entries.map((entry) => [entry.id, entry]));
 
 /** A row's anchor and title, from the index: `<SettingRow {...settingRow("…")} />`. */
-export function settingRow(id: SettingId): { id: string; title: string } {
+export function settingRow(id: SettingId): {
+  id: string;
+  title: string;
+  description: string | undefined;
+} {
   const entry = byId.get(id);
-  return { id, title: entry?.title ?? id };
+  return { id, title: entry?.title ?? id, description: settingDescriptions[id] };
 }
 
 /** The page a setting lives on, by its title in the nav. */
@@ -485,11 +811,14 @@ function matches(entry: SettingEntry, query: string): boolean {
   return words(query).every((word) => haystack.some((candidate) => candidate.startsWith(word)));
 }
 
-/** Settings rows matching `query`, titles that start with it first. Empty for an empty query. */
-export function searchSettings(query: string): SettingEntry[] {
+/**
+ * Settings rows matching `query`, titles that start with it first, on the pages this machine
+ * shows (`spadeShown`: Spade's too). Empty for an empty query.
+ */
+export function searchSettings(query: string, spadeShown: boolean): SettingEntry[] {
   const text = query.trim().toLowerCase();
   if (!text) return [];
-  const visible = visibleSettingsPages();
+  const visible = visibleSettingsPages(spadeShown);
   const found = settingsIndex.filter(
     (entry) =>
       visible.some((page) => page.to === entry.page) &&
@@ -503,7 +832,7 @@ export function searchSettings(query: string): SettingEntry[] {
           "app.globalShortcut",
           "app.attention",
         ].includes(entry.id)) &&
-      (entry.id !== "app.updates" || hasDesktopUpdates()) &&
+      (!["app.updates", "app.updateLine"].includes(entry.id) || hasDesktopUpdates()) &&
       (entry.id !== "app.terminalCommand" || desktopCli() !== undefined) &&
       matches(entry, text),
   );

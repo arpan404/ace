@@ -1,5 +1,6 @@
+import { setTimeout as pause } from "node:timers/promises";
 import { afterEach, expect, test } from "vitest";
-import { DatabaseSync, backup } from "node:sqlite";
+import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import { Store } from "@ace/daemon";
 import type { Event } from "@ace/protocol";
@@ -45,6 +46,19 @@ async function streaming() {
       }),
     );
   return { ...h, id, context, frames, append, scheduler };
+}
+
+/**
+ * Checkpoints run on a worker thread, so a reply lands between clock ticks. Tick the store's
+ * clock a second at a time, letting the worker answer, until the WAL is empty.
+ */
+async function idleUntilCheckpointed(h: Awaited<ReturnType<typeof streaming>>) {
+  for (let tick = 0; tick < 200; tick++) {
+    if (h.store.streamingMetrics().walBytes === 0) return;
+    h.scheduler.advance(h.scheduler.time + 1000);
+    await pause(5);
+  }
+  throw new Error("The idle checkpoint never emptied the WAL");
 }
 
 test("a delta that creates an item commits durably without reserving a live sequence range", async () => {
@@ -192,7 +206,8 @@ test("reconnecting inside a compacted delta batch replaces the tail with a snaps
 test("read snapshots are isolated and invalidated by local and cross-connection writes", async () => {
   const h = await streaming();
   const first = h.store.snapshotThread(h.id);
-  first.thread.title = "caller mutation";
+  // Shared by every reader, so frozen: no caller can change what the next one reads.
+  expect(() => Object.assign(first.thread, { title: "caller mutation" })).toThrow(TypeError);
   expect(h.store.snapshotThread(h.id).thread.title).not.toBe("caller mutation");
   expect(h.store.streamingMetrics().reads.hits).toBeGreaterThan(0);
   await h.append("fresh");
@@ -216,10 +231,9 @@ test("large unicode chunks drain at the size bound and an idle checkpoint stops 
   expect(h.store.readItems(h.id, h.store.headSeq() + 1, 10).items.at(-1)).toMatchObject({
     parts: [{ type: "text", text: chunk + chunk }],
   });
-  h.scheduler.advance(6000);
-  expect(h.store.streamingMetrics().walBytes).toBe(0);
+  await idleUntilCheckpointed(h);
   const idle = h.store.streamingMetrics();
-  h.scheduler.advance(12000);
+  h.scheduler.advance(h.scheduler.time + 12000);
   expect(h.store.streamingMetrics().transactions).toBe(idle.transactions);
   expect(h.store.streamingMetrics().walBytes).toBe(0);
 });

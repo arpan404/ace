@@ -1,4 +1,5 @@
 import { systemNotice } from "./system-notices.ts";
+import { compactBoundary, compactSummary } from "./compaction.ts";
 import { claudeGoal } from "./goal.ts";
 import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
@@ -68,12 +69,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         return true;
       }
       if (subtype === "compact_boundary") {
-        state.emit({
-          type: "item.upsert",
-          agent: state.root,
-          item: state.key("compact", String(frame.seq)),
-          draft: { type: "compaction", complete: true },
-        });
+        compactBoundary(state, data, frame.seq);
         return true;
       }
       if (subtype === "status" || subtype === "thinking_tokens") {
@@ -135,6 +131,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.sent = true;
         state.start(state.root, "user");
       }
+      // Claude's compaction summary is the compaction's, never a message.
+      if (frame.dir !== "send" && compactSummary(state, data, frame.seq)) return true;
       message(state, data, frame.seq, streams, messages);
       return true;
     }

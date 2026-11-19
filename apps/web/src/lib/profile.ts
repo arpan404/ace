@@ -4,8 +4,8 @@ import * as z from "zod/mini";
 import { useLayout } from "./layout.tsx";
 
 /**
- * The person's display name, for the account disc's initials. ace has no user accounts (provider
- * logins belong to the CLIs), so the name is a preference kept on this device only.
+ * The local display name, for the profile disc's initials. This preference is independent
+ * of the optional ace account and provider logins.
  */
 const key = "ace.profile.name";
 const ProfileName = z.string().check(z.maxLength(80));

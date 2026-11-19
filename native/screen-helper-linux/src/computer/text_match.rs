@@ -64,6 +64,17 @@ pub fn choose_menu_item(titles: &[String], wanted: &str) -> MenuChoice {
     }
 }
 
+/// The text's own select-all action, by index. GTK 4 lists a widget's actions on its AT-SPI
+/// Action interface (a `GtkTextView` offers `selection.select-all`), while GTK 4 before 4.22
+/// refuses `Text.SetSelection`/`AddSelection` on a text view, so ctrl+a can select through it.
+pub fn select_all_action(actions: &[String]) -> Option<usize> {
+    actions.iter().position(|action| {
+        let name = action.to_ascii_lowercase();
+        let name = name.strip_prefix("selection.").unwrap_or(&name);
+        matches!(name, "select-all" | "select_all" | "selectall" | "select all")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +106,17 @@ mod tests {
             MenuChoice::Ambiguous(vec!["Close Tab".into(), "Close Window".into()])
         );
         assert_eq!(choose_menu_item(&titles, "Quit"), MenuChoice::Missing);
+    }
+
+    #[test]
+    fn select_all_is_found_among_a_text_views_actions() {
+        let actions: Vec<String> = ["buffer.select-line", "clipboard.copy", "selection.select-all", "menu.popup"]
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+        assert_eq!(select_all_action(&actions), Some(2));
+        assert_eq!(select_all_action(&["Select All".to_owned()]), Some(0));
+        // Selecting a line, or deleting the selection, is not selecting all.
+        assert_eq!(select_all_action(&["buffer.select-line".to_owned(), "selection.delete".to_owned()]), None);
     }
 }

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useInteraction, useInteractions } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
-import { lostChildOf } from "@ace/ui-core";
+import { lostChildAsk, lostChildOf } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { useAnswerSender } from "../interactions/answer-sender.ts";
 
@@ -21,24 +21,26 @@ function useLostAsk(threadId: string, childThreadId: string) {
  */
 export function LostChildAction(props: { threadId: string; childThreadId: string }) {
   const ask = useLostAsk(props.threadId, props.childThreadId);
-  const { answer, failed } = useAnswerSender({
+  const { answer, failed, held } = useAnswerSender({
+    threadId: props.threadId,
     interactionId: ask?.id ?? "",
     identity: undefined,
     questions: [],
   });
-  const request = ask?.state === "pending" && ask.request.kind === "approval" ? ask.request : null;
-  const option = request?.options[0];
-  if (!request || !option) return null;
+  const lost = ask ? lostChildAsk(ask) : undefined;
+  if (!lost) return null;
   return (
     <div className="flex min-w-0 items-baseline gap-2 pl-7 text-xs">
-      <p className="min-w-0 flex-1 text-muted-foreground">{failed ?? request.title}</p>
+      <p className="min-w-0 flex-1 text-muted-foreground">{failed ?? lost.sentence}</p>
       <Button
         variant="ghost"
         size="xs"
-        aria-label={option.label}
-        onClick={() => answer({ kind: "approval", optionId: option.id })}
+        // Its request may be gone once the copy is confirmed: it waits until then.
+        disabled={held}
+        aria-label={lost.label}
+        onClick={() => answer({ kind: "approval", optionId: lost.optionId })}
       >
-        Stop tracking
+        {lost.action}
       </Button>
     </div>
   );

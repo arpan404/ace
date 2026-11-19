@@ -10,6 +10,7 @@ import { forgeIdentityFixture } from "./forge-identity-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { pushWorkspace } from "./workspace-push.ts";
 import { actionErrorCode } from "./action-errors.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 
 const run = promisify(execFile);
 const git = async (cwd: string, ...args: string[]) =>
@@ -109,6 +110,110 @@ test("a push behind its remote returns the remote head, and a force leased to it
     expect(await git(fork, "rev-parse", "refs/heads/main")).toBe(theirs);
     expect(await execute("force", { force: { lease: theirs } })).toMatchObject({ ok: true });
     expect(await git(fork, "rev-parse", "refs/heads/main")).toBe(mine);
+  } finally {
+    await runtime.close();
+    await f.close();
+  }
+});
+
+/**
+ * `origin` is the person's fork (`fork/ace`), `upstream` the repository it forks (`octo/ace`),
+ * both on github.com and both local bare repositories; the global remote name is `origin`.
+ */
+async function forkAndUpstream() {
+  const { f, fork } = await checkout();
+  const upstream = join(f.root, "upstream.git");
+  await run("git", ["init", "--bare", "-q", upstream]);
+  await git(f.root, "remote", "set-url", "upstream", "https://github.com/octo/ace.git");
+  await git(
+    f.root,
+    "config",
+    `url.${pathToFileURL(upstream).href}.insteadOf`,
+    "https://github.com/octo/ace.git",
+  );
+  await f.settings.set(
+    "sourceControl.preferences",
+    { ...f.preferences, host: "github.com", remote: "origin" },
+    { kind: "global" },
+  );
+  await f.update({ forkParent: true, prHost: "github.com" });
+  await f.runtime.close();
+  const runtime = new WorkspaceRuntime(f.store, f.root, () => 1000, {
+    sourceControl: f.sourceControl,
+    git: { transportProtocols: ["file"], credentialHelperLookup: async () => [] },
+  });
+  return { f, fork, upstream, runtime };
+}
+
+const octo = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
+
+test("a plain push goes to the global remote even when another repository is primary", async () => {
+  const { f, fork, upstream, runtime } = await forkAndUpstream();
+  try {
+    new ProjectRepositoryConfigs(f.store).set(f.thread.workspaceId, {
+      added: [],
+      hidden: [],
+      primary: octo,
+    });
+    const head = await commit(f.root, "plain");
+    const result = await runtime.execute(
+      Command.parse({
+        id: "plain-push",
+        deviceId: "device",
+        payload: { type: "git.push", threadId: f.thread.id, remote: "origin" },
+      }),
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(await git(fork, "rev-parse", "refs/heads/main")).toBe(head);
+    expect(await git(upstream, "for-each-ref", "--format=%(refname)")).toBe("");
+  } finally {
+    await runtime.close();
+    await f.close();
+  }
+});
+
+test("a PR on the primary from the person's fork pushes the branch to the fork", async () => {
+  const { f, fork, upstream, runtime } = await forkAndUpstream();
+  try {
+    new ProjectRepositoryConfigs(f.store).set(f.thread.workspaceId, {
+      added: [],
+      hidden: [],
+      primary: octo,
+    });
+    await git(f.root, "switch", "-qc", "topic");
+    const head = await commit(f.root, "topic");
+    await f.update({ prHead: head });
+    const details = await runtime.details(f.thread.id);
+    expect(details.repository).toEqual(octo);
+    const execute = (id: string, payload: object) =>
+      runtime.execute(Command.parse({ id, deviceId: "device", payload }));
+    expect(
+      await execute("pr-push", {
+        type: "git.push",
+        threadId: f.thread.id,
+        remote: "origin",
+        target: { repository: octo, branch: "topic", head },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await git(fork, "rev-parse", "refs/heads/topic")).toBe(head);
+    expect(await git(upstream, "for-each-ref", "--format=%(refname)")).toBe("");
+    expect(
+      await execute("pr-create", {
+        type: "forge.pr.create",
+        threadId: f.thread.id,
+        repository: octo,
+        input: {
+          branch: "topic",
+          base: "main",
+          expectedHead: head,
+          title: "From the fork",
+          summary: "Changes",
+          draft: false,
+          template: { title: "{{title}}", body: "{{summary}}" },
+        },
+      }),
+    ).toMatchObject({ ok: true, pr: { repository: octo, number: 7 } });
+    expect((await f.facts()).writes).toContain("repos/octo/ace/pulls");
   } finally {
     await runtime.close();
     await f.close();

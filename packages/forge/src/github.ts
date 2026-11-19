@@ -1,3 +1,4 @@
+import { prCreateText } from "./pr-create-text.ts";
 import { randomUUID } from "node:crypto";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { BrowserPr } from "./github-browser-schemas.ts";
@@ -52,6 +53,26 @@ const PrRepo = z.looseObject({
   name: z.string().max(100),
   owner: z.looseObject({ login: z.string() }),
 });
+const CurrentUser = z.object({ login: z.string().min(1).max(100) });
+const HeadRef = z.object({ object: z.object({ sha: shaSchema }) });
+const OpenPrs = z
+  .array(
+    GitHubPr.extend({
+      base: z.looseObject({ ref: z.string().max(256), repo: PrRepo.nullish() }),
+      head: GitHubPr.shape.head.extend({ repo: PrRepo.nullish() }),
+    }),
+  )
+  .max(10);
+const IssueMilestone = z.looseObject({ milestone: z.looseObject({ number: positive }).nullable() });
+const CreatedId = z.object({ id: positive });
+const ReviewerNames = z
+  .array(z.string().regex(/^[\w-]+$/))
+  .min(1)
+  .max(100);
+const RequestedReviewers = z.object({
+  requested_reviewers: z.array(z.object({ login: z.string() })).max(100),
+});
+const MergeResult = z.object({ merged: z.boolean() });
 export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
@@ -140,7 +161,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   }
   async currentUser(signal: AbortSignal): Promise<string> {
     const response = await this.#api.request("user", signal);
-    const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
+    const parsed = CurrentUser.safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.login;
   }
@@ -171,7 +192,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
           throw new ForgeError("head_missing");
         throw error;
       }
-      const branch = z.object({ object: z.object({ sha: shaSchema }) }).safeParse(head.body);
+      const branch = HeadRef.safeParse(head.body);
       if (!branch.success) throw new ForgeError("invalid_data");
       if (branch.data.object.sha !== pr.head.sha) throw new ForgeError("head_moved");
     }
@@ -287,6 +308,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       headSha: string;
       baseSha: string;
       commit?: string | undefined;
+      since?: string | undefined;
     },
     signal: AbortSignal,
   ) {
@@ -378,15 +400,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       per_page: "10",
     });
     const response = await this.#api.request(`${this.#root}/pulls?${query}`, signal);
-    const results = z
-      .array(
-        GitHubPr.extend({
-          base: z.looseObject({ ref: z.string().max(256), repo: PrRepo.nullish() }),
-          head: GitHubPr.shape.head.extend({ repo: PrRepo.nullish() }),
-        }),
-      )
-      .max(10)
-      .safeParse(response.body);
+    const results = OpenPrs.safeParse(response.body);
     if (!results.success) throw new ForgeError("invalid_data");
     const matching = results.data.filter((pr) => {
       const from = pr.head.repo;
@@ -420,29 +434,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     head?: PrHead,
   ): Promise<ForgePrRef> {
-    const value = ForgeCreatePrInput.parse(input);
-    if (value.base === undefined) throw new ForgeError("base_missing");
-    const fields: Record<string, string> = {
-      threadId: z.string().min(1).max(256).parse(threadId),
-      branch: value.branch,
-      title: value.title,
-      summary: value.summary,
-    };
-    const render = (template: string) =>
-      template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-        const field = fields[key];
-        if (!Object.hasOwn(fields, key) || field === undefined)
-          throw new ForgeError("invalid_data");
-        return field;
-      });
-    const title = z.string().min(1).max(256).parse(render(value.template.title));
-    const body = z.string().max(65_536).parse(render(value.template.body));
-    return this.openPr(
-      { branch: value.branch, base: value.base, title, body, draft: value.draft },
-      signal,
-      head,
-    );
+    return this.openPr(prCreateText(threadId, input), signal, head);
   }
+
   /**
    * Open a pull request from `branch` into `base` as written: the one create every entry point
    * shares. `head` names the fork holding the branch; none, this repository. Callers look for an
@@ -511,9 +505,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   async prMilestone(number: number, signal: AbortSignal): Promise<number | null> {
     this.#ref(number);
     const response = await this.#api.request(`${this.#root}/issues/${number}`, signal);
-    const parsed = z
-      .looseObject({ milestone: z.looseObject({ number: positive }).nullable() })
-      .safeParse(response.body);
+    const parsed = IssueMilestone.safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.milestone?.number ?? null;
   }
@@ -630,7 +622,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       throw error;
     }
 
-    const parsed = z.object({ id: positive }).safeParse(response.body);
+    const parsed = CreatedId.safeParse(response.body);
     if (!parsed.success) throw new ForgeMutationOutcome({ id: null });
     receipts?.put(intent, parsed.data.id);
     if (response.identityChanged) throw new ForgeMutationOutcome({ id: parsed.data.id });
@@ -643,11 +635,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     dispatch = new MutationDispatch(),
   ): Promise<void> {
     this.#ref(number);
-    const names = z
-      .array(z.string().regex(/^[\w-]+$/))
-      .min(1)
-      .max(100)
-      .parse(reviewers);
+    const names = ReviewerNames.parse(reviewers);
     const response = await this.#api.request(
       `${this.#root}/pulls/${number}/requested_reviewers`,
       signal,
@@ -655,11 +643,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       "POST",
       dispatch,
     );
-    if (
-      !z
-        .object({ requested_reviewers: z.array(z.object({ login: z.string() })).max(100) })
-        .safeParse(response.body).success
-    )
+    if (!RequestedReviewers.safeParse(response.body).success)
       throw new ForgeMutationOutcome({ dispatched: true });
     if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
   }
@@ -689,7 +673,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       "PUT",
       dispatch,
     );
-    const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
+    const parsed = MergeResult.safeParse(response.body);
     if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (!parsed.data.merged) {
       dispatch.reject();

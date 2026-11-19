@@ -1,8 +1,15 @@
 import { z } from "zod";
 import type { SupervisedProcess, spawnSupervised } from "@ace/provider-kit/process";
+import { withoutAceSecrets } from "./agent-env.ts";
 import { loopback } from "./boundaries.ts";
 
-/** OpenCode's own v2 server on a private loopback port, answering only to `password`. */
+const ReadinessLine = z.object({ url: z.string() });
+
+/**
+ * OpenCode's own v2 server on a private loopback port, answering only to `password`. The
+ * environment is the only way `serve --stdio` takes its password; it drops it from its own
+ * environment once read (2.3.0). ace's own credentials never reach it at all.
+ */
 export function spawnOwnedServer(options: {
   spawn: typeof spawnSupervised;
   command: string;
@@ -14,7 +21,7 @@ export function spawnOwnedServer(options: {
     command: options.command,
     args: ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"],
     env: {
-      ...options.env,
+      ...withoutAceSecrets(options.env),
       OPENCODE_PASSWORD: options.password,
       OPENCODE_SERVER_PASSWORD: undefined,
       OPENCODE_SERVER_USERNAME: undefined,
@@ -50,7 +57,7 @@ export function ownedServerReady(proc: SupervisedProcess, signal: AbortSignal): 
       } catch {
         return;
       }
-      const readiness = z.object({ url: z.string() }).safeParse(parsed);
+      const readiness = ReadinessLine.safeParse(parsed);
       if (!readiness.success) return;
       cleanup();
       try {

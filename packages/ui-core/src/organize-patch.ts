@@ -1,3 +1,4 @@
+import { snoozeWakeFor } from "@ace/projection";
 import type { ThreadListEntry, WorkspaceId } from "@ace/protocol";
 import { activityOf } from "./thread-state.ts";
 
@@ -18,10 +19,14 @@ export interface OrganizePatch {
   listOrder?: number;
   unread?: boolean;
   settled?: boolean;
+  /** Taking a settle back (`thread.unsettle` with `undo`): only the settle goes. */
+  undoSettle?: boolean;
   /** Whether the thread may settle by itself (`thread.autoSettle`; unsettling turns it off). */
   autoSettle?: boolean;
   /** A wake time, or null to wake it now. */
   snoozedUntil?: number | null;
+  /** The event that ends the snooze sooner (`thread.snooze` `wake`), or null for a time alone. */
+  snoozeWake?: "needs_you" | "pr" | null;
   archived?: boolean;
   deleted?: boolean;
   /** The project it moves to (`thread.move`). */
@@ -51,11 +56,16 @@ export function patchEntry(
     next.unread = patch.unread;
     next.readAt = latest;
   }
+  if (patch.undoSettle) {
+    delete next.settledAt;
+    delete next.settledReason;
+  }
   if (patch.settled === true) {
     next.settledAt = at;
     next.settledReason = "manual";
     // Settling clears a snooze, as the daemon does.
     delete next.snoozedUntil;
+    delete next.snoozeWake;
   } else if (patch.settled === false) {
     delete next.settledAt;
     delete next.settledReason;
@@ -66,8 +76,16 @@ export function patchEntry(
     next.autoSettle = false;
     delete next.autoSettleAt;
   }
-  if (patch.snoozedUntil === null) delete next.snoozedUntil;
-  else if (patch.snoozedUntil !== undefined) next.snoozedUntil = patch.snoozedUntil;
+  if (patch.snoozedUntil === null) {
+    delete next.snoozedUntil;
+    delete next.snoozeWake;
+  } else if (patch.snoozedUntil !== undefined) next.snoozedUntil = patch.snoozedUntil;
+  if (patch.snoozeWake === null) delete next.snoozeWake;
+  else if (patch.snoozeWake !== undefined) {
+    const wake = snoozeWakeFor(entry, patch.snoozeWake);
+    if (typeof wake === "string") delete next.snoozeWake;
+    else next.snoozeWake = wake;
+  }
   if (patch.archived === true) next.archivedAt = at;
   else if (patch.archived === false) delete next.archivedAt;
   if (patch.deleted) next.deletedAt = at;
@@ -80,12 +98,21 @@ export function patchEntry(
   return next;
 }
 
-/** `entry` with each still-unconfirmed action applied, oldest first. */
+/**
+ * `entry` with each still-unconfirmed action applied, oldest first. The daemon's place predates
+ * them, so it goes: the panel places this one entry by the same rule (`placeThread`) until the
+ * daemon's entry, placed anew, arrives.
+ */
 export function patchedEntry(
   entry: ThreadListEntry,
   pending: readonly { patch: OrganizePatch; at: number }[],
 ): ThreadListEntry {
-  return pending.reduce((current, action) => patchEntry(current, action.patch, action.at), entry);
+  if (!pending.length) return entry;
+  const { place: _predates, ...unplaced } = entry;
+  return pending.reduce<ThreadListEntry>(
+    (current, action) => patchEntry(current, action.patch, action.at),
+    unplaced,
+  );
 }
 
 /**
@@ -109,6 +136,7 @@ export function reflects(
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&
     (patch.autoSettle === undefined || (entry.autoSettle !== false) === patch.autoSettle) &&
     (patch.snoozedUntil === undefined || (entry.snoozedUntil ?? null) === patch.snoozedUntil) &&
+    (patch.snoozeWake === undefined || (entry.snoozeWake?.on ?? null) === patch.snoozeWake) &&
     (patch.archived === undefined || (entry.archivedAt !== undefined) === patch.archived) &&
     (patch.deleted === undefined || entry.deletedAt !== undefined) &&
     (patch.workspaceId === undefined || entry.workspaceId === patch.workspaceId)

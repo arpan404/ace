@@ -1,0 +1,164 @@
+{
+  "format": 1,
+  "id": "drop-zone",
+  "name": "Drop Zone",
+  "description": "Tactical and realistic: olive-charcoal gear, khaki markings, HUD labels, and an island drop zone at dusk with a squad, parachutes and a supply drop.",
+  "version": "1",
+  "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
+  "dark": {
+    "canvas": "#131412",
+    "sidebar": "#0E0F0D",
+    "surface": "#1A1B18",
+    "raised": "#21221F",
+    "hover": "#272825",
+    "active": "#30312D",
+    "code": "#0F100E",
+    "border": "#252622",
+    "borderStrong": "#3C3D37",
+    "text": "#E9E8E1",
+    "muted": "#B6B5AB",
+    "subtle": "#A3A297",
+    "faint": "#7B7A70",
+    "accent": "#A9A27A",
+    "accentHover": "#BBB48C",
+    "accentFg": "#141513",
+    "accentText": "#C6BF98",
+    "diffAdd": "#1B2417",
+    "diffAddFg": "#8DC06E",
+    "diffDel": "#2A1915",
+    "diffDelFg": "#E07B62",
+    "syntax": {
+      "kw": "#D4A86A",
+      "fn": "#E2DDC4",
+      "str": "#A3C27F",
+      "num": "#8EB8C4",
+      "type": "#C9B27F",
+      "com": "#85847A",
+      "punc": "#A3A297"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F1F0EB",
+    "sidebar": "#E6E5DE",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#E4E3DB",
+    "active": "#D8D7CE",
+    "code": "#ECEBE5",
+    "border": "#DAD9D0",
+    "borderStrong": "#BCBBB0",
+    "text": "#1A1B17",
+    "muted": "#46473F",
+    "subtle": "#585950",
+    "faint": "#86867C",
+    "accent": "#4F5234",
+    "accentHover": "#3F4228",
+    "accentFg": "#FFFFFF",
+    "accentText": "#4F5234",
+    "diffAdd": "#E5EFDC",
+    "diffAddFg": "#3C6E22",
+    "diffDel": "#F5E3DC",
+    "diffDelFg": "#A33A22",
+    "syntax": {
+      "kw": "#8A5212",
+      "fn": "#2E2F27",
+      "str": "#4A6A22",
+      "num": "#24606E",
+      "type": "#6B5A22",
+      "com": "#6E6E64",
+      "punc": "#585950"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"SF Pro Text\", Inter, system-ui, sans-serif"
+    },
+    "mono": {
+      "system": "\"SF Mono\", Menlo, ui-monospace, monospace"
+    }
+  },
+  "shape": {
+    "radius": 0.25,
+    "border": 1
+  },
+  "motion": {
+    "speed": 0.9
+  },
+  "layout": {
+    "toolRows": "detailed"
+  },
+  "labels": {
+    "composer-placeholder": "Mark the next objective…"
+  },
+  "reveal": {
+    "app": 0.85,
+    "header": 0.3,
+    "transcript": 0.7,
+    "page": 0.7,
+    "rail": 0,
+    "sidebar": 0.5
+  },
+  "terminal": {
+    "fontFamily": "\"SF Mono\", Menlo, monospace",
+    "fontSize": 12.5,
+    "lineHeight": 1.35,
+    "cursorStyle": "block",
+    "cursorBlink": false,
+    "dark": {
+      "background": "#0F100E",
+      "foreground": "#E0DFD6",
+      "cursor": "#A9A27A",
+      "cursorAccent": "#0F100E",
+      "selection": "#A9A27A33",
+      "ansi": {
+        "black": "#30312D",
+        "red": "#E07B62",
+        "green": "#8DC06E",
+        "yellow": "#D9BE6E",
+        "blue": "#7FA3C9",
+        "magenta": "#B99AC2",
+        "cyan": "#8EB8C4",
+        "white": "#CFCEC4",
+        "brightBlack": "#7B7A70",
+        "brightRed": "#EC9A85",
+        "brightGreen": "#A8D38E",
+        "brightYellow": "#E8D293",
+        "brightBlue": "#A0BCDA",
+        "brightMagenta": "#CDB5D4",
+        "brightCyan": "#AECFD8",
+        "brightWhite": "#F2F1EA"
+      }
+    },
+    "light": {
+      "background": "#F6F5F1",
+      "foreground": "#1A1B17",
+      "cursor": "#4F5234",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#4F523426",
+      "ansi": {
+        "black": "#1A1B17",
+        "red": "#A33A22",
+        "green": "#3C6E22",
+        "yellow": "#7D6200",
+        "blue": "#2F5888",
+        "magenta": "#6E4A7A",
+        "cyan": "#24606E",
+        "white": "#585950",
+        "brightBlack": "#46473F",
+        "brightRed": "#B84A30",
+        "brightGreen": "#4A8030",
+        "brightYellow": "#917300",
+        "brightBlue": "#3D6A9C",
+        "brightMagenta": "#805A8C",
+        "brightCyan": "#2E7282",
+        "brightWhite": "#86867C"
+      }
+    }
+  }
+}

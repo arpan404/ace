@@ -1,0 +1,36 @@
+[package]
+name = "spade-ace"
+version = "0.1.0"
+description = "Spade's bridge to the local ace daemon: ace's tools over MCP and its skill library"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+spade-mcp = { path = "../spade-mcp" }
+base64.workspace = true
+futures-util = { workspace = true, features = ["sink"] }
+reqwest = { workspace = true, features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-tungstenite = "0.30.0"
+tracing.workspace = true
+url = "2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+axum.workspace = true
+tempfile.workspace = true
+sha2.workspace = true
+rmcp = { version = "3.9.0", default-features = false, features = [
+  "server",
+  "transport-streamable-http-server",
+] }
+tokio-util = "0.7"
+tower = "0.5"
+
+[lints]
+workspace = true

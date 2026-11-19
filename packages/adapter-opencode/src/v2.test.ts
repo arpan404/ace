@@ -229,7 +229,9 @@ it("a native background shell survives spawning-tool success and root success", 
     metadata: { shellID: "shell-1", status: "running" },
   });
   h.event("session.execution.succeeded");
-  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  // The reply is in: the shell is left running, not waited on (ADR 0116).
+  expect(h.view.thread.status).toEqual({ state: "done" });
+  expect(Object.values(h.view.backgroundTasks).map((task) => task.status)).toEqual(["running"]);
   h.event("shell.exited", { id: "shell-1", exit: 0, status: "exited" });
   expect(h.view.thread.status.state).not.toBe("done");
   h.event("session.synthetic", {

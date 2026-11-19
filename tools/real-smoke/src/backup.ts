@@ -1,4 +1,4 @@
-import { DatabaseSync, backup } from "node:sqlite";
+import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { lstat, rm } from "node:fs/promises";

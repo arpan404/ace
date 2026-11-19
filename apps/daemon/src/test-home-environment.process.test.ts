@@ -108,7 +108,7 @@ test("provider history overrides are rejected before protected history can be sc
 test("restored notification key paths are rejected before loading protected key files", async ({
   onTestFinished,
 }) => {
-  const { protectedHome } = await testHomes(onTestFinished);
+  const { protectedHome, safeHome } = await testHomes(onTestFinished);
   const key = join(protectedHome, "key.pem");
   await writeFile(key, "protected key bytes");
   vi.stubEnv("ACE_TEST_REAL_HOME", protectedHome);
@@ -116,7 +116,9 @@ test("restored notification key paths are rejected before loading protected key 
     vi.unstubAllEnvs();
   });
   for (const env of [{ ACE_APNS_KEY_FILE: key }, { ACE_VAPID_KEY_FILE: key }])
-    await expect(loadNotificationChannels(env)).rejects.toThrow(/ACE_TEST_REAL_HOME guard/);
+    await expect(loadNotificationChannels({ env, dataDir: safeHome })).rejects.toThrow(
+      /ACE_TEST_REAL_HOME guard/,
+    );
   expect(await readFile(key, "utf8")).toBe("protected key bytes");
 });
 

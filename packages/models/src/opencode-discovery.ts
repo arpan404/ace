@@ -1,5 +1,5 @@
 import { providerSource, modelSource } from "./model-source.ts";
-import { connectedOpenCodeProviders } from "./opencode-connections.ts";
+import { connectedOpenCodeProviders, impliedOpenCodeProviders } from "./opencode-connections.ts";
 import { parseVersion } from "@ace/provider-kit/discovery";
 import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
@@ -78,13 +78,15 @@ export async function discoverOpenCodeCatalog(
     maxOutputBytes: 4 * 1024 * 1024,
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   let failure: unknown;
   // ID-only output may fill absent metadata, never override rejected native records.
   const seen = new Set(report.metadataIds);
   const sources = new Map(report.sources.map((status) => [status.source.id, status]));
+  const implied = impliedOpenCodeProviders(connected);
   proc.stdout.on("line", (line: string) => {
     if (failure || !line.trim()) return;
     try {
@@ -98,7 +100,7 @@ export async function discoverOpenCodeCatalog(
       const provider = id.slice(0, id.indexOf("/"));
       const listed = sources.get(provider);
       if (listed?.error && listed.error.code !== "no_models") return;
-      const known = connected.get(provider);
+      const known = connected.get(provider) ?? implied.get(provider);
       const inferred = providerSource(provider);
       const free =
         ["opencode", "opencode-zen"].includes(provider) &&
@@ -181,7 +183,8 @@ async function installedVersion(
     if (output.length < 65536) output += line + "\n";
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   try {

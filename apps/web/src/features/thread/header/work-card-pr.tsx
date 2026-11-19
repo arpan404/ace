@@ -1,5 +1,13 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
+import { can } from "@ace/ui-core";
 import type { CheckoutPr } from "@ace/ui-core";
-import { mergeGate, mergeMethods, type MergeMethod } from "@ace/ui-core";
+import {
+  mergeBlock,
+  mergeGate,
+  mergeMethods,
+  prSummary as sharedSummary,
+  type MergeMethod,
+} from "@ace/ui-core";
 import { useMergeMethod } from "./merge-method.ts";
 import { useState } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -12,32 +20,17 @@ import { RowAction, RowStatic, RowSub } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
-const checks: Partial<Record<NonNullable<CheckoutPr["ci"]>, string>> = {
-  success: "checks passed",
-  failure: "checks failing",
-  pending: "checks running",
-  unknown: "checks unavailable",
-};
-
-/** Why the PR's state may be stale, in the card's words. */
-const problems: Record<NonNullable<GitFlow["prProblem"]>, string> = {
-  unverified: "couldn't verify with GitHub",
-  deleted: "repository deleted",
-  unreadable: "couldn't read from GitHub",
-};
-
 /** "open · checks passed", in words a screen reader hears too. */
 export function prSummary(pr: CheckoutPr, problem?: GitFlow["prProblem"]): string {
-  if (problem) return `${pr.state} · ${problems[problem]}`;
-  const ci = pr.ci && checks[pr.ci];
-  return ci ? `${pr.state} · ${ci}` : pr.state;
+  return sharedSummary(pr, problem);
 }
 
 /**
- * The thread's pull request on one line: `#214 open · checks passed · Merge`. The number opens
+ * The thread's pull request on one line: `#214 · open · checks passed   Merge`. The number opens
  * the PR in the thread's side panel; Merge reads the PR again, then asks before merging, as
- * every merge does. When the forge's last answer says it can't merge, Merge is off and the
- * reason shows under the line.
+ * every merge does. When the forge's last answer says it can't merge, the reason shows under
+ * the line as one sentence; conflicts turn Merge into Resolve conflicts, which opens the PR,
+ * where its conflicts are resolved. Any other reason leaves Merge off.
  */
 export function PrLine(props: {
   git: GitFlow;
@@ -51,12 +44,22 @@ export function PrLine(props: {
   const prefetch = usePrPrefetch(props.workspaceId);
   const method = useMergeMethod();
   const { merge, checking } = useMergePr(git);
+  const repository = pr?.repo ?? git.checkout?.repository;
+  const capabilities = useRepositoryCapabilities(props.workspaceId, repository);
   if (!pr) return null;
-  const repository = pr.repo ?? git.checkout?.repository;
-  const live = pr.state === "open" || pr.state === "draft";
+  const live =
+    !!repository &&
+    can(capabilities, "reviews.merge") &&
+    (pr.state === "open" || pr.state === "draft");
   const same = git.status?.ref.number === pr.number;
-  const gate = git.status && same ? mergeGate(git.status, git.checkout?.baseBranch) : undefined;
+  const block = git.status && same ? mergeBlock(git.status, git.checkout?.baseBranch) : undefined;
+  const conflicts = block?.kind === "conflicts";
   const summary = prSummary(pr, git.prProblem);
+  const openPr = () => {
+    if (!repository) return;
+    props.onClose();
+    panel.open(pullRequestTab({ workspaceId: props.workspaceId, repository, number: pr.number }));
+  };
   return (
     <>
       <RowStatic label={`Pull request #${pr.number}`} className="hover:bg-accent">
@@ -70,32 +73,40 @@ export function PrLine(props: {
           // Pointing at the number starts reading the PR, so its panel opens on it.
           onPointerEnter={() => repository && prefetch(repository, pr.number)}
           onFocus={() => repository && prefetch(repository, pr.number)}
-          onClick={() => {
-            if (!repository) return;
-            props.onClose();
-            panel.open(
-              pullRequestTab({ workspaceId: props.workspaceId, repository, number: pr.number }),
-            );
-          }}
+          onClick={openPr}
         >
           #{pr.number}
         </button>
-        <RowSub aria-hidden className="flex-1">
-          {checking ? "checking…" : summary}
+        {/* The state alone ("· open"); checks speak through the reason under the row. */}
+        <RowSub aria-hidden title={summary} className="-ml-1 flex-1 text-subtle-foreground">
+          · {checking ? "checking…" : git.prProblem ? summary : pr.state}
         </RowSub>
-        {live && (
+        {live && conflicts && (
           <RowAction
-            disabled={git.pending || checking || !!gate || !repository || pr.deleted === true}
+            disabled={!repository}
+            aria-label={`Resolve conflicts on pull request #${pr.number}`}
+            className="text-status-needs-you hover:text-status-needs-you"
+            onClick={openPr}
+          >
+            Resolve conflicts
+          </RowAction>
+        )}
+        {live && !conflicts && (
+          <RowAction
+            disabled={git.pending || checking || !!block || !repository || pr.deleted === true}
             aria-label={`Merge pull request #${pr.number}`}
             title={mergeMethods.find((each) => each.method === method)?.label}
+            className="text-foreground"
             onClick={() => void merge(method)}
           >
             Merge
           </RowAction>
         )}
       </RowStatic>
-      {live && gate && (
-        <p className="mx-2 mb-1 pl-7 text-xs text-muted-foreground">Can't merge: {gate}</p>
+      {live && block && (
+        <p className="mx-2.5 -mt-0.5 mb-1.5 pl-[26px] text-xs text-status-needs-you">
+          {block.sentence}
+        </p>
       )}
     </>
   );

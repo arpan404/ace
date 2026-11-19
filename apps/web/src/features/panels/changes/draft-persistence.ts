@@ -1,7 +1,7 @@
 import { readJson, writeJson, type KeyValueStorage, type SafeParser } from "@ace/ui-core";
 import * as z from "zod/mini";
 import type { LocalStore } from "../store.ts";
-import type { ReviewDraft } from "./drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
 
 const legacyKey = "ace.review.drafts";
 const prefix = "ace.review.draft:";

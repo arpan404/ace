@@ -1,10 +1,5 @@
-import { useModelInstances } from "@/lib/model-catalog.ts";
-import { StatusLine } from "@/components/provider-tile.tsx";
-import { serviceLabel } from "@ace/ui-core";
 import type { ProviderLoginProgress } from "@ace/protocol";
 import { signInSteps, apiKeyServiceLabel } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
-import { ProviderTile } from "@/components/provider-tile.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { BrowserStep, ChallengeFooter, CodeStep } from "./login-challenge.tsx";
@@ -23,6 +18,7 @@ import { ApiKeyStep } from "./api-key-step.tsx";
 import { PasteCodeStep } from "./paste-code-step.tsx";
 import { ReturnUrlStep } from "./return-url-step.tsx";
 import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
+import { Choices } from "./login-choices.tsx";
 
 /*
  * The sign-in dialog's body for each step of the daemon's login session
@@ -265,69 +261,6 @@ function Notice(props: { text: string }) {
     <p role="alert" className="text-center text-sm text-status-failed">
       {props.text}
     </p>
-  );
-}
-
-/**
- * The CLI's own choices as a list: each with its mark and what connecting it means. For OpenCode
- * and Pi they are the services it can reach models through.
- */
-function Choices(props: {
-  progress: ProviderLoginProgress;
-  provider: ProviderLoginProgress["provider"];
-  upstreams: boolean;
-  disabled: boolean | undefined;
-  onChoose(choice: string): void;
-}) {
-  const primary = useFocusOnShow<HTMLButtonElement>();
-  const choices = props.progress.choices ?? [];
-  const instances = useModelInstances();
-  const connected = new Set(
-    instances
-      .filter((instance) => instance.provider === props.provider)
-      .flatMap((instance) =>
-        (instance.sources ?? [])
-          .filter((entry) => !entry.error || entry.error.code === "no_models")
-          .map((entry) => entry.source.id),
-      ),
-  );
-  const title = props.upstreams
-    ? "Which service do you want to connect?"
-    : (props.progress.prompt ?? "Choose how to sign in");
-  return (
-    <>
-      <StepTitle title={title} line={props.upstreams ? "You can add more later." : undefined} />
-      <ul role="group" aria-label={title} className="flex flex-col">
-        {choices.map((choice, at) => {
-          const label =
-            serviceLabel(choice.id) === choice.id ? choice.label : serviceLabel(choice.id);
-          return (
-            <li key={choice.id}>
-              <button
-                ref={at === 0 ? primary : undefined}
-                type="button"
-                aria-label={label}
-                disabled={props.disabled}
-                onClick={() => props.onChoose(choice.id)}
-                className="flex w-full items-center h-9 gap-2 rounded-md px-2 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-accent disabled:opacity-50"
-              >
-                <ProviderTile
-                  provider={props.provider}
-                  service={choice.id === "other" ? undefined : { id: choice.id, label }}
-                  size="sm"
-                  className="size-6 bg-transparent shadow-none"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="truncate font-medium text-foreground">{label}</span>
-                </span>
-                {connected.has(choice.id) && <StatusLine tone="ready" text="Connected" />}
-                <CaretRightIcon aria-hidden size={14} className="text-subtle-foreground" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </>
   );
 }
 

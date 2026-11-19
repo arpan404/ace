@@ -11,6 +11,7 @@ import { Command, DeviceId } from "@ace/protocol";
 import { writeFile } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 import { prepareDaemonHome } from "@ace/service";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 const exec = promisify(execFile);
 const roots: string[] = [];
 afterEach(async () => {
@@ -80,7 +81,10 @@ it("an unavailable log directory does not prevent daemon operation and health co
   const { dataDir } = await setup();
   prepareDaemonHome(dataDir);
   await writeFile(join(dataDir, "logs"), "blocking file");
-  const daemon = await startDaemon({ config: readConfig({ ACE_HOME: dataDir, ACE_PORT: "0" }) });
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: dataDir, ACE_PORT: "0" }),
+    engine: noProviderDiscovery,
+  });
   const client = new Client(daemon.url);
   try {
     await once(client.socket, "open");

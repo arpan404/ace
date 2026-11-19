@@ -1,82 +1,61 @@
 import type { APIRoute } from "astro";
-import { acpAgents, builtInAgents } from "../content/agents.ts";
+import { product, spade, statuses } from "../content/product.ts";
+import { downloads } from "../content/release.ts";
+import { routes } from "../content/routes.ts";
+import { markdownPath } from "../seo/markdown.ts";
 import {
-  capabilities,
-  faq,
-  features,
-  fleetPoints,
-  product,
-  statuses,
-  toolFamilies,
-} from "../content/product.ts";
-import { download } from "../content/release.ts";
+  aceDefinition,
+  agentsSentence,
+  downloadLines,
+  isAndIsNot,
+  versionFacts,
+} from "../seo/markdown-blocks.ts";
 import { links } from "../site.ts";
 
 /*
- * llms.txt (https://llmstxt.org): the site's facts as plain Markdown, for AI assistants and
- * answer engines that read it instead of the rendered page. Built from the same content the page
- * shows, so the two never disagree.
+ * llms.txt (https://llmstxt.org): the site's index as plain Markdown, for AI assistants and
+ * answer engines: what ace is, quotable key facts, what it is and is not, downloads, every page
+ * with its Markdown version, agents and statuses. Every page's full text is in its .md file and
+ * in llms-full.txt.
  */
-const names = (list: { label: string }[]) => list.map((agent) => agent.label).join(", ");
-
-export const GET: APIRoute = () => {
-  const release = download.version
-    ? `ace ${download.version} for macOS on Apple silicon`
-    : "the latest release for macOS on Apple silicon";
-
+export const GET: APIRoute = ({ site }) => {
+  const href = (path: string) => (site ? new URL(path, site).href : path);
   const text = [
     `# ${product.name}`,
     "",
-    `> ${product.description}`,
+    `> ${aceDefinition}`,
     "",
     product.about,
     "",
+    "## Key facts",
+    "",
+    ...[...product.facts, ...versionFacts(downloads)].map((fact) => `- ${fact}`),
+    `- ${agentsSentence}`,
+    `- ${spade.name} is ace's own assistant, in beta and off until switched on in Settings › Beta: bots with memory, routines and a computer of their own, on your own models.`,
+    "",
+    ...isAndIsNot(),
     "## Links",
     "",
-    `- [Download for Mac](${download.url}): ${release}`,
-    `- [Release notes](${download.notesUrl})`,
+    ...downloadLines(downloads),
+    "- ace for iPhone and iPad (Android coming soon): follows and steers agents on every machine you pair or sign in to your ace account",
+    `- [Release notes](${downloads.notesUrl})`,
     `- [Source code on GitHub](${links.source}): Apache-2.0`,
     `- [All releases](${links.releases})`,
+    `- [Everything on this site in one file](${href("/llms-full.txt")})`,
     "",
-    "## Supported agents",
+    "## Pages",
     "",
-    `- Built in: ${names(builtInAgents)}.`,
-    `- Through the Agent Client Protocol (ACP): ${names(acpAgents)}, and any other ACP agent.`,
-    "- ace uses each agent's own logged-in CLI. It never asks for, stores or proxies provider credentials.",
+    ...routes.map(
+      (entry) =>
+        `- [${entry.name}](${href(markdownPath(entry.path))}): ${entry.summary} Web page: ${href(entry.path)}`,
+    ),
     "",
     "## Thread status",
     "",
-    "A thread's status covers every subagent and background command it started.",
+    "A thread's status in ace covers every subagent and background command it started.",
     "",
     ...statuses.map((status) => `- ${status.word}: ${status.meaning}`),
     "",
-    "## Browser use, computer use and devices",
-    "",
-    ...capabilities.flatMap((capability) =>
-      [`### ${capability.title}`, "", capability.body, ""].concat(
-        capability.details.map((detail) => `- ${detail}`),
-        [`- MCP tools: ${capability.tools.join(", ")}`, ""],
-      ),
-    ),
-    "## Fleet",
-    "",
-    ...fleetPoints.map((point) => `- ${point.title}: ${point.body}`),
-    "",
-    "## MCP tools",
-    "",
-    "ace runs an MCP server for each agent session, so every CLI gets the same tools. The CLI's own permission mode decides what runs.",
-    "",
-    ...toolFamilies.map(
-      (family) => `- ${family.family} (${family.purpose}): ${family.tools.join(", ")}`,
-    ),
-    "",
-    "## More",
-    "",
-    ...features.map((feature) => `- ${feature.title}: ${feature.body}`),
-    "",
-    "## FAQ",
-    "",
-    ...faq.flatMap((entry) => [`### ${entry.question}`, "", entry.answer, ""]),
   ].join("\n");
 
   return new Response(text, { headers: { "content-type": "text/markdown; charset=utf-8" } });

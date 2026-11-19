@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineUpdateOutcome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "from": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "to": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "ok",
+    "error",
+    "at"
+  ],
+  "type": "object"
+}

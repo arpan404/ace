@@ -73,6 +73,8 @@ export function negotiate(
         format: "acp",
         documents: advertised.promptCapabilities?.embeddedContext === true ? ["*"] : [],
         embeddedContext: advertised.promptCapabilities?.embeddedContext === true,
+        // `session/prompt` takes one ordered `ContentBlock[]`.
+        interleaved: true,
         maxInlineBytes: 4 * 1024 * 1024,
       },
       // Mode support is determined from the authorized session's selectors.

@@ -30,14 +30,14 @@ fn buttons_read_as_the_macos_engine_names_them() {
 
 #[test]
 fn gtk4_window_extents_land_inside_the_shadow_margin() {
-    // A 700×520 X window whose 690×510 content reports itself at (-5, -5).
+    // A 700×520 window frame whose 690×510 content reports itself at (-5, -5).
     let content = Rect {
         x: -5.0,
         y: -5.0,
         w: 690.0,
         h: 510.0,
     };
-    let (dx, dy) = content_offset((700.0, 520.0), content);
+    let (dx, dy) = content_offset((700.0, 520.0), content, None);
     // The content's left edge is then drawn 5 px into the window.
     assert_eq!((-5.0 - dx, -5.0 - dy), (5.0, 5.0));
 }
@@ -52,9 +52,16 @@ fn toggles_say_on_or_off_and_insensitive_controls_say_disabled() {
     assert_eq!(flags("toggle button", &enabled()), vec!["off"]);
     let off = States {
         sensitive: false,
+        enabled: false,
         ..enabled()
     };
     assert_eq!(flags("push button", &off), vec!["disabled"]);
+    // LibreOffice sets ENABLED but not SENSITIVE on its cells.
+    let cell = States {
+        sensitive: false,
+        ..enabled()
+    };
+    assert!(flags("table cell", &cell).is_empty());
     // GTK4 sets SENSITIVE but never ENABLED on usable controls.
     let gtk4 = States {
         enabled: false,
@@ -148,4 +155,77 @@ fn conditions_search_role_name_and_value_case_insensitively() {
     let json = node.json();
     assert_eq!(json["value"], "Hello World");
     assert!(json.get("flags").is_none());
+}
+
+#[test]
+fn a_point_names_the_clickable_element_under_or_just_beside_it_and_never_the_window() {
+    let node = |id: u64, role: &str, actionable: bool, frame: (f64, f64, f64, f64)| Node {
+        id,
+        depth: 0,
+        role: role.into(),
+        flags: Vec::new(),
+        name: None,
+        value: None,
+        detail: None,
+        placeholder: None,
+        actions: Vec::new(),
+        frame: Some(Rect {
+            x: frame.0,
+            y: frame.1,
+            w: frame.2,
+            h: frame.3,
+        }),
+        actionable,
+    };
+    let nodes = vec![
+        node(1, "window", false, (0.0, 0.0, 800.0, 600.0)),
+        node(2, "button", true, (100.0, 100.0, 80.0, 30.0)),
+        // The button's own label, smaller but not clickable.
+        node(3, "text", false, (110.0, 105.0, 40.0, 20.0)),
+        node(4, "text area", true, (0.0, 200.0, 800.0, 400.0)),
+    ];
+    assert_eq!(hit(&nodes, 120.0, 110.0), Some(2));
+    assert_eq!(hit(&nodes, 400.0, 300.0), Some(4));
+    // Just beside the button, in the gap around it.
+    assert_eq!(hit(&nodes, 185.0, 115.0), Some(2));
+    // Nothing clickable near: no element, never the window.
+    assert_eq!(hit(&nodes, 10.0, 10.0), None);
+    assert_eq!(hit(&nodes, 900.0, 10.0), None);
+    // A scroll there starts from the innermost element of any kind.
+    assert_eq!(innermost(&nodes, 120.0, 110.0), Some(3));
+    assert_eq!(innermost(&nodes, 10.0, 10.0), Some(1));
+}
+
+#[test]
+fn a_stack_page_child_double_counting_its_offset_is_found() {
+    let rect = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, w, h };
+    // GNOME Calculator (GTK 4.18): the keypad's stack at (0, 356), its page at (12, 368), and the
+    // page's child reported at (24, 380), the same size: drawn at (12, 368).
+    let stack = rect(0.0, 356.0, 360.0, 260.0);
+    let page = rect(12.0, 368.0, 336.0, 236.0);
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 336.0, 236.0), page, stack), Some((12.0, 12.0)));
+    // A child filling its parent at the parent's origin is ordinary.
+    assert_eq!(forwarded_offset(page, page, stack), None);
+    // A smaller child inset by the same margin is ordinary too.
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 312.0, 212.0), page, stack), None);
+    // A parent at its own parent's origin gives nothing to double.
+    assert_eq!(forwarded_offset(stack, stack, stack), None);
+    // Empty frames say nothing.
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 0.0, 0.0), rect(12.0, 368.0, 0.0, 0.0), stack), None);
+}
+
+#[test]
+fn a_shadow_deeper_below_places_content_where_its_opaque_body_is() {
+    let rect = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, w, h };
+    // GNOME Calculator's window stream (GNOME 48): 482x738 with the 360x616 body at (61, 55),
+    // not at the centred (61, 61).
+    let content = rect(0.0, 0.0, 360.0, 616.0);
+    let body = rect(61.0, 55.0, 360.0, 616.0);
+    assert_eq!(content_offset((482.0, 738.0), content, Some(body)), (-61.0, -55.0));
+    // Without alpha, centred.
+    assert_eq!(content_offset((482.0, 738.0), content, None), (-61.0, -61.0));
+    // An opaque area that isn't the content (a translucent window, an opaque shadow) is ignored.
+    assert_eq!(content_offset((482.0, 738.0), content, Some(rect(0.0, 0.0, 482.0, 738.0))), (-61.0, -61.0));
+    // A window with no shadow: the whole frame is opaque and is the content.
+    assert_eq!(content_offset((360.0, 616.0), content, Some(rect(0.0, 0.0, 360.0, 616.0))), (0.0, 0.0));
 }

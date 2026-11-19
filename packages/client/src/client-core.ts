@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { KeptHistory } from "./kept-history.ts";
+import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
 import { AttachmentStreams } from "./attachment-channel.ts";
@@ -11,6 +14,7 @@ import {
 import type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,
@@ -18,6 +22,7 @@ import type {
 } from "./long-thread.ts";
 import { ReadMarkers } from "./read-markers.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
+import { textChunks } from "./utf16.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -33,17 +38,27 @@ import {
   type ServerMessage,
   type CommandPayload,
 } from "@ace/protocol";
+import { RecentIds } from "./recent-ids.ts";
+import {
+  checkedPage,
+  readWholeRequest,
+  type InteractionData,
+  type WholeRequestInput,
+} from "./whole-request.ts";
 import type {
   ClientCoreApi,
   ConnectionControl,
   RegistryQuery,
   SidebarSource,
+  StandingChallenge,
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
+import type { LinkEstimate, Multipath } from "./multipath.ts";
+import type { MachinePathKind } from "@ace/protocol";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
-import { WireCodec, type ServiceWire } from "./wire-codec.ts";
+import { WireCodec, loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -56,7 +71,7 @@ import {
   type CommandAllocation,
 } from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
-import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
+import { Subscriptions, type AcquireOptions, type ThreadSubscription } from "./subscriptions.ts";
 import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
 import {
@@ -71,7 +86,17 @@ import {
 
 export type { RegistryQuery } from "./api.ts";
 
+/** What `onMessage` and `onStream` hand back once closed: nothing was added, so nothing to stop. */
+const noListener = () => {};
 /** Shared connection, stores and validated wire operations used by page and worker clients. */
+/** An app that never said where it is: in the foreground, on no thread. */
+const foregroundPresence = {
+  type: "presence.update",
+  threadId: null,
+  inputAgeMs: 0,
+  appState: "foreground",
+} as const;
+
 export class ClientCore implements ClientCoreApi, ConnectionControl {
   async *attachmentChunks(
     input: import("./attachment-types.ts").AttachmentInput,
@@ -131,11 +156,19 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #codec = new WireCodec();
   protected requests: Requests;
   #subscriptions: Subscriptions;
+  #paths: Multipath | undefined;
+  /** Counts daemon sockets this client has spoken over (`connectionGeneration`). */
+  #socket = 0;
+  /** The app's last presence, said again on a socket it moves to. */
+  #presence: Extract<OneWayMessage, { type: "presence.update" }> | undefined;
+  #alerts = new RecentIds(64);
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
   /** Read snapshots still being written by collections already closed. */
   #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps = new SendOps();
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();
@@ -154,8 +187,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   });
   #hostId: string | undefined;
+  /** The daemon build's release line, from its last welcome (ADR 0177). */
+  #releaseLine: string | undefined;
+  #standing: StandingChallenge | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
+  #history: KeptHistory | undefined;
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
@@ -165,6 +202,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#hostId = options.expectedHostId;
     this.#snapshots =
       options.readSnapshots && new HostSnapshots(options.readSnapshots, options.expectedHostId);
+    if (this.#snapshots && options.readSnapshots?.deletePrefix && options.now)
+      this.#history = new KeptHistory(this.#snapshots, options.now);
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -187,6 +226,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       this.#codec,
       limits,
       (message) => {
+        // Both paths may carry the same alert while the old one drains (ADR 0114): once only.
+        if (message.type === "notification" && this.#alerts.seen(message.notification.id)) return;
         for (const listener of this.#serviceListeners) {
           try {
             listener(message);
@@ -205,8 +246,21 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "welcome":
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
+            this.#releaseLine = message.releaseLine;
+            this.#standing =
+              message.standingNonce === undefined || message.standingHost === undefined
+                ? undefined
+                : {
+                    host: message.standingHost,
+                    nonce: message.standingNonce,
+                    binding: this.connection.channelBinding,
+                    device: this.options.deviceId,
+                  };
+            this.#newSocket();
             this.#hostId = message.hostId;
+            this.#subscriptions.database(message.databaseId);
             this.#snapshots?.identify(message.hostId);
+            this.#welcomed.resolve();
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -227,6 +281,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "cursor.auth.error":
           case "registry.result":
           case "output.data":
+          case "interaction.data":
           case "command.status":
             // Resolved above with every other correlated reply.
             break;
@@ -257,9 +312,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         }
       },
       () => {
-        // Revoked, or a credential the daemon no longer accepts: what was read through it goes.
-        if (this.state === "fatal" && this.connection.error?.code === "auth")
-          void this.#snapshots?.forget();
+        // Only the machine's owner revoking this device deletes what was read through it.
+        // Signing out, another account, an expired or refused grant or a new machine code
+        // keep it all: it comes back when the person signs in again.
+        if (this.state === "fatal" && this.connection.error?.revoked === true)
+          // forget() drops what it can and resolves either way.
+          void this.#snapshots?.forget().catch(() => {});
         this.notifications.emit(["connection"]);
       },
       () => {
@@ -280,24 +338,57 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#attachmentStreams.receive(bytes);
       },
     );
+    this.connection.onPathSwitch((mode) => {
+      // Everything owed on the old path; replies may still come there while it drains.
+      const requests = this.requests.pending();
+      // Newer commands wait until these are answered or sent again first, so none overtakes.
+      const commands = this.#intents.fence();
+      // Every view catches up on the new path from its last applied seq; events it already
+      // holds are dropped by seq. The old path's subscriptions are left to close with it.
+      this.#subscriptions.disconnect();
+      for (const sidebar of this.#collections) sidebar.disconnect();
+      this.#statusChecks.disconnect();
+      this.#subscriptions.reconnect();
+      for (const sidebar of this.#collections) sidebar.reconnect();
+      // What the daemon kept for the old socket (terminal and browser streams, service
+      // subscriptions) ends with it: their holders attach again here.
+      this.#newSocket();
+      // Say where this app is again: a new socket starts in the foreground, and a standby
+      // promoted by a failover was idle as a background one.
+      const presence = this.#presence ?? (mode === "failover" ? foregroundPresence : undefined);
+      if (presence) this.connection.send(presence);
+      return () => {
+        this.requests.abandon(requests);
+        this.#intents.reask(commands);
+      };
+    });
+    // Read subscribes go out with the hello; commands, the outbox and read markers wait for the
+    // welcome and the host binding (`#replay`).
     this.#subscriptions = new Subscriptions(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
+      (milliseconds, run) => options.scheduler.set(milliseconds, run),
       this.#persistence(),
+      options.openTail,
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
+    this.connection.onHello(() => {
+      this.#subscriptions.early();
+      for (const sidebar of this.#collections) sidebar.reconnect();
+    });
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
       storage: options.storage,
       device: options.deviceId,
+      aliases: options.deviceAliases,
       hostId: () => this.#hostId,
       limit: limits.intents,
       bytes: limits.outboxBytes,
@@ -423,6 +514,25 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.state);
   }
+  connectionGeneration(): Selection<number | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#socket : undefined,
+    );
+  }
+  releaseLine(): Selection<string | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#releaseLine : undefined,
+    );
+  }
+  standingChallenge(): Selection<StandingChallenge | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#standing : undefined,
+    );
+  }
+  #newSocket(): void {
+    this.#socket++;
+    this.notifications.emit(["socket"]);
+  }
   connectionInfo(): Selection<ConnectionInfo> {
     return this.notifications.select(
       ["connection"],
@@ -433,13 +543,41 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   reconnectNow(): void {
     this.connection.reconnectNow();
   }
-  /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
+  /** The machine code the daemon asked for was entered: connect again with it now. */
+  codeEntered(): void {
+    this.connection.codeEntered();
+  }
+  /** Let `paths` keep this connection on the machine's fastest working path (ADR 0114). */
+  usePaths(paths: Multipath): void {
+    this.#paths = paths;
+    paths.subscribe(() => this.notifications.emit(["path"]));
+    paths.attach(this.connection, this.connectionState());
+  }
+  activePath(): Selection<MachinePathKind | undefined> {
+    return this.notifications.select(["path"], () => this.#paths?.active?.kind);
+  }
+  /** The active path's measured round trip (`ClientApi.linkEstimate`). */
+  linkEstimate(): LinkEstimate | undefined {
+    return this.#paths?.linkEstimate();
+  }
+  /**
+   * The app is in front again: check the socket now and skip a waiting backoff
+   * (`Connection.wake`), and look for a better path, as the network may have changed meanwhile.
+   */
   wake(): void {
     this.connection.wake();
+    this.#paths?.wake();
   }
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {
     return CommandId.parse(this.options.id());
+  }
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Send it again with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    return this.#intents.rewrite(id, payload);
   }
   pendingSend(id: string): PendingSend | undefined {
     return this.#pendingSendEntries.get(id);
@@ -491,8 +629,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   #persistence() {
     const storage = this.#snapshots;
-    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+    return storage
+      ? { storage, scheduler: this.options.scheduler, welcomed: () => this.#welcomed.promise }
+      : undefined;
   }
+  /** Settles at this client's first welcome: kept records are waited for until then. */
+  #welcomed = Promise.withResolvers<void>();
   /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;
@@ -509,18 +651,49 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
     this.#streamListeners.clear();
+    // Its paths end with it: timers, the standby and any network watch.
+    this.#paths?.close();
     this.connection.stop();
     return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
   }
-  thread(id: string): ThreadSubscription {
+  thread(id: string, options?: AcquireOptions): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
-    return this.#subscriptions.acquire(id);
+    return this.#subscriptions.acquire(id, options);
+  }
+  /** Thread subscriptions an optional lease may still take, beyond the reserve (`threadReserve`). */
+  threadRoom(): Selection<number> {
+    return {
+      getSnapshot: () => this.#subscriptions.room(),
+      subscribe: (listener) => this.#subscriptions.onRoom(listener),
+    };
+  }
+  /**
+   * Forget what this client keeps of a thread (ADR 0105): its store, when no view holds it, and
+   * its read snapshot. The next open reads it from the daemon. Durable sends are untouched.
+   */
+  forgetThread(id: string): Promise<void> {
+    this.#subscriptions.discard(id);
+    return Promise.all([this.#snapshots?.delete(`thread:${id}`), this.#history?.forget(id)]).then(
+      () => {},
+    );
+  }
+  /**
+   * Drop every read snapshot and every thread store no view holds. Threads still open stay live
+   * and are kept again as they change. Durable sends and drafts are untouched.
+   */
+  clearReadSnapshots(): Promise<void> {
+    this.#subscriptions.discardUnheld();
+    this.#history?.clear();
+    return this.#snapshots?.clearAll() ?? Promise.resolve();
   }
   cachedThread(id: string): ThreadSource | undefined {
     return this.closed ? undefined : this.#subscriptions.cached(id);
+  }
+  peekThread(id: string): ThreadSource | undefined {
+    return this.cachedThread(id);
   }
   cachedThreads(): SidebarSource | undefined {
     return this.closed ? undefined : this.#sidebar;
@@ -539,7 +712,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       limits,
       (message) => this.connection.send(message),
       this.options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
     this.#collections.add(sidebar);
@@ -579,7 +752,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#collections.delete(sidebar);
         const written = sidebar.close();
         this.#checkpoints.add(written);
-        void written.finally(() => this.#checkpoints.delete(written));
+        // A checkpoint that fails writes nothing; the next change writes the newest copy.
+        void written.catch(() => {}).finally(() => this.#checkpoints.delete(written));
       },
     };
   }
@@ -775,7 +949,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   /** Binary stream messages (browser frames); the caller releases it. */
   onStream(listener: (message: StreamMessage) => void): () => void {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed) return noListener;
     if (this.#streamListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
       throw new ClientError("limit");
     this.#streamListeners.add(listener);
@@ -785,7 +959,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed) return noListener;
     if (this.#serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
       throw new ClientError("limit");
     this.#serviceListeners.add(listener);
@@ -799,6 +973,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (control === null) throw new ClientError("protocol", "Invalid one-way message");
     if (this.state !== "ready" || this.closed || !control || !this.connection.send(control))
       throw new ClientError("offline");
+    if (control.type === "presence.update") this.#presence = control;
   }
   /**
    * A one-way control checked against the full schema: null when it is not one, undefined
@@ -851,6 +1026,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
+      | { type: "interaction.read"; threadId: string; interactionId: string; offset: number }
       | {
           type: "threads.page";
           subscriptionId: string;
@@ -870,8 +1046,54 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "turns.page", ...input }, options);
   }
-  itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
-    return this.#threadReply({ type: "items.window", ...input }, options);
+  async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const { service, key } = await this.#windowQuery(input);
+    const load = () => this.#threadReply({ type: "items.window", ...input }, options);
+    return (
+      this.#history?.read(
+        input.threadId,
+        key,
+        service.ItemsWindowResponse,
+        (page) =>
+          page.threadId === input.threadId && this.#historyRevision(input.threadId) === page.seq,
+        load,
+        options.signal,
+      ) ?? load()
+    );
+  }
+  /** A previously authorized disk copy only. Callers must label it stale and disable actions. */
+  async cachedItemsWindow(
+    input: ItemsWindowInput,
+    options: RequestOptions = {},
+  ): Promise<CachedItemsWindow | undefined> {
+    if (options.signal?.aborted) throw new ClientError("aborted");
+    const history = this.#history;
+    if (this.closed || !this.#hostId || !history) return undefined;
+    const current = history.fence(input.threadId);
+    const { service, key } = await this.#windowQuery(input);
+    if (!current() || this.closed) return undefined;
+    const page = await history
+      .entry(
+        input.threadId,
+        key,
+        service.ItemsWindowResponse,
+        (value) => value.threadId === input.threadId,
+        options.signal,
+      )
+      .get();
+    return current() && !this.closed && page ? { freshness: "cached", page } : undefined;
+  }
+  async #windowQuery(input: ItemsWindowInput) {
+    // Keep history schemas out of the worker's eager startup bundle.
+    const service = await loadServiceWire();
+    const parsed = service.ItemsWindowRequest.safeParse({
+      type: "items.window",
+      requestId: "cache",
+      ...input,
+    });
+    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
+    return { service, key: JSON.stringify(parsed.data) };
   }
   threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "thread.search", ...input }, options);
@@ -906,19 +1128,50 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid read mark"));
     return this.#readMarkers.mark(parsed.data, options);
   }
-  itemsPage(
+  async itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.#readCore(
-      { type: "items.page", ...payload, before: payload.before ?? Number.MAX_SAFE_INTEGER },
-      (value) => {
-        const page = ItemsPage.parse(value);
-        if (page.threadId !== payload.threadId) throw new ClientError("protocol");
-        return page;
-      },
-      options,
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const request = {
+      type: "items.page" as const,
+      ...payload,
+      before: payload.before ?? Number.MAX_SAFE_INTEGER,
+    };
+    if (!CoreClientMessage.safeParse({ ...request, requestId: "cache" }).success)
+      throw new ClientError("protocol", "Invalid read parameters");
+    const load = () =>
+      this.#readCore(
+        request,
+        (value) => {
+          const page = ItemsPage.parse(value);
+          if (page.threadId !== payload.threadId) throw new ClientError("protocol");
+          return page;
+        },
+        options,
+      );
+    return (
+      this.#history?.read(
+        payload.threadId,
+        JSON.stringify(request),
+        ItemsPage.refine((page) =>
+          page.items.every(
+            (item) => page.itemSeqs !== undefined && Object.hasOwn(page.itemSeqs, item.id),
+          ),
+        ),
+        (page) =>
+          page.threadId === payload.threadId &&
+          this.#historyRevision(payload.threadId) === page.seq,
+        load,
+        options.signal,
+      ) ?? load()
     );
+  }
+  #historyRevision(threadId: string): number | undefined {
+    const thread = this.#subscriptions.held(threadId);
+    return this.state === "ready" && thread && !thread.syncing && !thread.unconfirmed
+      ? thread.cursor
+      : undefined;
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);
@@ -953,28 +1206,73 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options,
     );
   }
+  /** A summarized request whole (ADR 0157), read in pages of its JSON. */
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return readWholeRequest((offset) =>
+      this.#readCore(
+        { type: "interaction.read", ...input, offset },
+        (value) => {
+          const page = CoreServerMessage.parse(value);
+          if (page.type !== "interaction.data") throw new ClientError("protocol");
+          return checkedPage(input, offset, page satisfies InteractionData);
+        },
+        options,
+      ),
+    );
+  }
   /** Read a descriptor's text, optionally resuming at a byte offset, in bounded decoded chunks. */
   async *text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     const parsed = TextSource.safeParse(source);
     if (!parsed.success || parsed.data.bytes % 2) throw new ClientError("protocol");
-    let offset = options.offset ?? 0;
+    const offset = options.offset ?? 0;
     if (!Number.isSafeInteger(offset) || offset < 0 || offset % 2 || offset > parsed.data.bytes)
       throw new ClientError("protocol", "Invalid text offset");
+    if (offset === parsed.data.bytes) return;
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const cache =
+      parsed.data.bytes <= 8 * 1024 * 1024
+        ? this.#history?.entry(
+            `text:${parsed.data.streamId}`,
+            `${parsed.data.bytes}/${offset}`,
+            z.string().refine((value) => value.length === (parsed.data.bytes - offset) / 2),
+            () => !this.closed && this.state === "ready",
+            options.signal,
+          )
+        : undefined;
+    const kept = await cache?.get();
+    if (kept !== undefined) {
+      yield* textChunks(kept);
+      return;
+    }
+    const chunks: string[] = [];
+    for await (const chunk of this.#textChunks(parsed.data, offset, options)) {
+      if (cache) chunks.push(chunk);
+      yield chunk;
+    }
+    await cache?.set(chunks.join(""));
+  }
+
+  async *#textChunks(
+    source: TextSource,
+    start: number,
+    options: TextReadOptions,
+  ): AsyncGenerator<string> {
+    let offset = start;
     let carry = "";
-    while (offset < parsed.data.bytes) {
+    while (offset < source.bytes) {
       const result = await this.outputRead(
         {
-          streamId: parsed.data.streamId,
+          streamId: source.streamId,
           offset,
-          limit: Math.min(256 * 1024, parsed.data.bytes - offset),
+          limit: Math.min(256 * 1024, source.bytes - offset),
         },
         options,
       );
       if (!result.bytes.length || result.bytes.length % 2) throw new ClientError("stale");
       offset = result.nextOffset;
       const decoded = decodeUtf16(result.bytes, carry);
-      carry = offset === parsed.data.bytes ? "" : decoded.carry;
-      const text = offset === parsed.data.bytes ? decoded.text + decoded.carry : decoded.text;
+      carry = offset === source.bytes ? "" : decoded.carry;
+      const text = offset === source.bytes ? decoded.text + decoded.carry : decoded.text;
       if (text.length) yield text;
     }
   }

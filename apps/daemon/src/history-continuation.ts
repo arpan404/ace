@@ -4,6 +4,8 @@ import type { ThreadId, ClientMessage, ServerMessage } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
 
+const ContinuationExit = z.object({ deliberate: z.boolean(), message: z.string().optional() });
+
 const FrameSchema = z.object({
   seq: z.number().int().nonnegative(),
   t: z.number().nonnegative(),
@@ -120,11 +122,7 @@ export class HistoryContinuation {
         onExit: (exit) => {
           exited = true;
           this.sessions.delete(thread.id);
-          port.onExit(
-            thread.id,
-            source.instanceId,
-            z.object({ deliberate: z.boolean(), message: z.string().optional() }).parse(exit),
-          );
+          port.onExit(thread.id, source.instanceId, ContinuationExit.parse(exit));
         },
       });
       try {

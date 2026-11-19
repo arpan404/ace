@@ -19,7 +19,7 @@ export const BrowserHelpInput = z.strictObject({
     .string()
     .min(1)
     .max(1000)
-    .describe("One sentence for the person: what to do in the tab, such as which account."),
+    .describe("One sentence: what to do there, e.g. which account."),
   timeoutSeconds: z.number().int().min(5).max(240).default(240),
 });
 export type BrowserHelpInput = z.output<typeof BrowserHelpInput>;
@@ -39,7 +39,10 @@ const Pending = z.object({
   summary: z.string(),
 });
 type Pending = z.infer<typeof Pending>;
+const OpenCount = z.object({ thread_id: z.string(), open: z.number() });
 type Outcome = "done" | "skipped";
+/** How often open requests are checked for a tab that closed with nothing else happening. */
+const sweepMs = 15_000;
 
 /** What the thread's browser reports about a tab; undefined when it has no such tab. */
 export type BrowserHelpTab = (
@@ -57,6 +60,13 @@ export type BrowserHelpTab = (
  */
 export class BrowserHelp {
   private readonly waiters = new Map<string, (outcome: Outcome | undefined) => void>();
+  /** Cancels the next sweep while one is scheduled. */
+  private watching: (() => void) | undefined;
+  /**
+   * How many requests each thread has open, kept with the table, so an event on any other
+   * thread (the hot path) returns at once without touching the database.
+   */
+  private readonly openCount = new Map<string, number>();
   private readonly deps: {
     store: Store;
     engine(): Engine | undefined;
@@ -66,11 +76,24 @@ export class BrowserHelp {
   };
   constructor(deps: BrowserHelp["deps"]) {
     this.deps = deps;
-    deps.store.atomic((db) =>
+    // The table holds only requests still open, never history, so its index costs nothing at
+    // open (ADR 0170).
+    const counts = deps.store.atomic((db) => {
       db.exec(
         "CREATE TABLE IF NOT EXISTS browser_help_pending (interaction_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, key TEXT NOT NULL, tab_id TEXT NOT NULL, summary TEXT NOT NULL)",
-      ),
-    );
+      );
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS browser_help_pending_thread ON browser_help_pending(thread_id)",
+      );
+      return db
+        .prepare("SELECT thread_id, COUNT(*) AS open FROM browser_help_pending GROUP BY thread_id")
+        .all();
+    });
+    for (const row of counts) {
+      const { thread_id, open } = OpenCount.parse(row);
+      this.openCount.set(thread_id, open);
+    }
+    if (this.openCount.size > 0) this.watch();
   }
 
   async request(
@@ -83,7 +106,8 @@ export class BrowserHelp {
     const threadId = ThreadId.parse(caller.threadId);
     const tab = this.deps.tab(threadId, input.tabId, caller.agentId);
     if (!tab) throw new PublicToolError("tab_not_found");
-    // Asking again about the same tab waits on the request already open.
+    // Asking again about the same tab waits on the request already open, while the person can
+    // still answer it (`current`); otherwise a new one opens.
     const open = this.pending(threadId).find((row) => row.tab_id === input.tabId);
     const interactionId = open?.interaction_id ?? this.open(engine, threadId, input, tab);
     const outcome = await new Promise<Outcome | undefined>((resolve) => {
@@ -121,7 +145,7 @@ export class BrowserHelp {
       resolution,
       resolvedBy: command.deviceId,
     });
-    this.forget(interactionId);
+    this.forget(row);
     const waiter = this.waiters.get(interactionId);
     if (waiter) waiter(resolution.outcome);
     else this.deliverLate(command, threadId, row, resolution.outcome);
@@ -132,14 +156,72 @@ export class BrowserHelp {
    * The agent carried on (a new turn started) while no call waits on its request: the request
    * is withdrawn, so the thread no longer reads as needing the person for it.
    */
-  withdrawIdle(threadId: ThreadId): void {
+  withdrawIdle(threadId: ThreadId, agentId: string): void {
+    if (!this.openCount.has(threadId)) return;
     const engine = this.deps.engine();
     if (!engine) return;
     for (const row of this.pending(threadId)) {
       if (this.waiters.has(row.interaction_id)) continue;
-      engine.resolveHostApproval(threadId, row.key, { state: "cancelled" });
-      this.forget(row.interaction_id);
+      // Only the agent that carries on, or one under it, stops waiting: another agent's
+      // request stays the person's to answer.
+      const owner = this.deps.store.getInteraction(row.interaction_id)?.agentId;
+      if (!owner || !engine.withinAgent(threadId, owner, agentId)) continue;
+      this.withdraw(engine, threadId, row);
     }
+  }
+
+  /**
+   * A request is withdrawn once its thread is archived or its tab is gone: nobody can act on it,
+   * so the thread must not keep waiting on the person. Runs on each of the thread's events, and
+   * on a timer while any request is open (a tab can close with nothing else happening).
+   */
+  sweep(threadId: ThreadId): void {
+    if (!this.openCount.has(threadId)) return;
+    this.check(this.pending(threadId));
+  }
+
+  /** Withdraws each of `rows` whose thread was archived or whose tab is gone. */
+  private check(rows: readonly Pending[]): void {
+    const engine = this.deps.engine();
+    if (!engine) return;
+    const archived = new Map<string, boolean>();
+    for (const row of rows) {
+      const threadId = ThreadId.parse(row.thread_id);
+      let gone = archived.get(row.thread_id);
+      if (gone === undefined) {
+        gone = this.deps.store.getThread(threadId)?.archivedAt !== undefined;
+        archived.set(row.thread_id, gone);
+      }
+      const owner = this.deps.store.getInteraction(row.interaction_id)?.agentId ?? "";
+      if (!gone && this.deps.tab(threadId, row.tab_id, owner)) continue;
+      this.withdraw(engine, threadId, row);
+    }
+  }
+
+  private withdraw(engine: Engine, threadId: ThreadId, row: Pending): void {
+    engine.resolveHostApproval(threadId, row.key, { state: "cancelled" });
+    this.forget(row);
+    this.waiters.get(row.interaction_id)?.(undefined);
+  }
+
+  /** Stops sweeping, as the daemon closes. */
+  close(): void {
+    this.watching?.();
+    this.watching = undefined;
+  }
+
+  /** Sweeps every thread with an open request while there is one; stops when none is left. */
+  private watch(): void {
+    if (this.watching) return;
+    this.watching = this.deps.schedule(() => {
+      this.watching = undefined;
+      // One read of every open request, however many threads have one.
+      const rows = this.deps.store
+        .atomic((db) => db.prepare("SELECT * FROM browser_help_pending").all())
+        .flatMap((row) => this.current(Pending.parse(row)) ?? []);
+      this.check(rows);
+      if (this.openCount.size > 0) this.watch();
+    }, sweepMs);
   }
 
   private open(
@@ -151,21 +233,36 @@ export class BrowserHelp {
     const key = `ace-browser-help:${this.deps.id()}`;
     const request: InteractionRequest = {
       kind: "browser_help",
+      target: { tool: "browser_request_help", access: "execute" },
       tabId: input.tabId,
       reason: input.reason,
       message: input.message,
       ...(tab.url ? { url: tab.url.slice(0, 8192) } : {}),
       ...(tab.title ? { title: tab.title.slice(0, 1024) } : {}),
     };
-    const interactionId = engine.openHostApproval(threadId, key, request, [
-      { type: "ace.browser_help", data: { key, tabId: input.tabId } },
-    ]);
+    // The subagent that asked owns the request, so it shows in that agent's lane; the root
+    // when the call can't be told apart.
+    const caller = engine.aceCaller(
+      threadId,
+      "browser_request_help",
+      (args) =>
+        typeof args === "object" && args !== null && "tabId" in args && args.tabId === input.tabId,
+    );
+    const interactionId = engine.openHostApproval(
+      threadId,
+      key,
+      request,
+      [{ type: "ace.browser_help", data: { key, tabId: input.tabId } }],
+      caller,
+    );
     const summary = `${input.message} (tab ${input.tabId}${tab.url ? `, ${tab.url}` : ""})`;
     this.deps.store.atomic((db) =>
       db
         .prepare("INSERT INTO browser_help_pending VALUES (?,?,?,?,?)")
         .run(interactionId, threadId, key, input.tabId, summary.slice(0, 2000)),
     );
+    this.openCount.set(threadId, (this.openCount.get(threadId) ?? 0) + 1);
+    this.watch();
     return interactionId;
   }
 
@@ -173,21 +270,40 @@ export class BrowserHelp {
     const row = this.deps.store.atomic((db) =>
       db.prepare("SELECT * FROM browser_help_pending WHERE interaction_id=?").get(interactionId),
     );
-    return row ? Pending.parse(row) : undefined;
+    return row ? this.current(Pending.parse(row)) : undefined;
   }
 
   private pending(threadId: ThreadId): Pending[] {
+    if (!this.openCount.has(threadId)) return [];
     return this.deps.store
       .atomic((db) =>
         db.prepare("SELECT * FROM browser_help_pending WHERE thread_id=?").all(threadId),
       )
-      .map((row) => Pending.parse(row));
+      .flatMap((row) => this.current(Pending.parse(row)) ?? []);
   }
 
-  private forget(interactionId: string): void {
-    this.deps.store.atomic((db) =>
-      db.prepare("DELETE FROM browser_help_pending WHERE interaction_id=?").run(interactionId),
+  /**
+   * The record while its request is still open. One whose request closed some other way (an
+   * interrupted turn, a restart that expired it) is forgotten, so a late Done or Skip can't
+   * answer it and a retry opens a new request.
+   */
+  private current(row: Pending): Pending | undefined {
+    if (this.deps.store.getInteraction(row.interaction_id)?.state === "pending") return row;
+    this.forget(row);
+    return undefined;
+  }
+
+  private forget(row: Pending): void {
+    const deleted = this.deps.store.atomic(
+      (db) =>
+        db
+          .prepare("DELETE FROM browser_help_pending WHERE interaction_id=?")
+          .run(row.interaction_id).changes,
     );
+    if (Number(deleted) === 0) return;
+    const left = (this.openCount.get(row.thread_id) ?? 1) - 1;
+    if (left > 0) this.openCount.set(row.thread_id, left);
+    else this.openCount.delete(row.thread_id);
   }
 
   /** The tool already returned pending: the person's outcome becomes their next message. */

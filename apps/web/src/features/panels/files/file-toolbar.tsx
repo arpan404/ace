@@ -9,7 +9,7 @@ import {
   PushPinIcon,
   SidebarSimpleIcon,
   TextAlignLeftIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { isMarkdownPath, pathParts } from "@ace/ui-core";
 import { Fragment, type ReactNode } from "react";
 import { EditorIcon } from "@/components/editor-icon.tsx";
@@ -109,11 +109,14 @@ export function FileToolbar(props: {
   preview: boolean;
   /** The file is markdown shown as its source. */
   source: boolean;
+  /** Long lines wrap at the editor's width. */
   wrap: boolean;
   finding: boolean;
   treeOpen: boolean;
-  /** The file can be read (shown as text); find and wrap need it. */
+  /** The file can be read (shown as text); find needs it. */
   readable: boolean;
+  /** The file is open in the editor, which wraps its own text. */
+  editing: boolean;
   online: boolean;
   actions: ReturnType<typeof useFileActions>;
   /** The line in view (a find hit, a quick-open `:line`), for opening the editor there. */
@@ -132,7 +135,11 @@ export function FileToolbar(props: {
   const offline = props.online ? undefined : "ace is offline";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5">
+    <div
+      data-part="panel-toolbar"
+      data-variant="files"
+      className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5"
+    >
       <Breadcrumb project={props.project} path={path} onFolder={props.onFolder} />
       {path && (
         <div className="flex shrink-0 items-center gap-0.5">
@@ -165,8 +172,9 @@ export function FileToolbar(props: {
           <IconButton
             icon={TextAlignLeftIcon}
             label={props.wrap ? "Don't wrap lines" : "Wrap lines"}
+            keys="alt+z"
             pressed={props.wrap}
-            disabled={!props.readable}
+            disabled={!props.readable && !props.editing}
             className={tool}
             onClick={props.onWrap}
           />

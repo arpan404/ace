@@ -5,11 +5,11 @@ import CoreGraphics
 @Suite struct ComposerFitTests {
     private let fit = ComposerFit(line: 23, inset: 24, minimum: 44)
 
-    @Test func aFocusedEmptyComposerOpensToItsWritingHeight() {
+    @Test func aFocusedEmptyComposerStartsAtTwoLines() {
         let empty = fit.height(content: 47, focused: true)
         #expect(empty > fit.height(content: 47, focused: false))
-        let threeLines: CGFloat = 23 * 3 + 24
-        #expect(empty == threeLines)
+        let twoLines: CGFloat = 23 * 2 + 24
+        #expect(empty == twoLines)
         #expect(ComposerFit.card(focused: true, wraps: false))
     }
 
@@ -33,8 +33,8 @@ import CoreGraphics
         #expect(ComposerFit.card(focused: false, wraps: true))
     }
 
-    @Test func accessibilityTypeOpensToFewerLines() {
-        let large = ComposerFit(line: 60, inset: 24, minimum: 44, largeType: true)
+    @Test func accessibilityTypeAlsoStartsAtTwoLines() {
+        let large = ComposerFit(line: 60, inset: 24, minimum: 44)
         let twoLines: CGFloat = 60 * 2 + 24
         #expect(large.height(content: 84, focused: true) == twoLines)
     }

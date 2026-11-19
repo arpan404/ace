@@ -5,8 +5,9 @@ import {
   useThreadStore,
   type HistoryPager,
 } from "@ace/client-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useThreadNav, useJumpState, useWatched } from "../long/nav.tsx";
+import { AgentFeed } from "./agent-feed.tsx";
 import { Feed } from "./feed.tsx";
 
 const none: readonly string[] = [];
@@ -34,12 +35,18 @@ function useNewSince(order: readonly string[], away: boolean): { count: number; 
  * Older turns fold into digest rows; the reader follows the live end until they scroll away,
  * and Scroll to end says how much arrived meanwhile.
  */
-export function Transcript(props: { threadId: string }) {
+export function Transcript(props: {
+  threadId: string;
+  /** One provider subagent's lane instead of the thread's, led by its prompt and live line. */
+  lane?: { agentId: string; prompt?: ReactNode; live?: ReactNode } | undefined;
+}) {
   const nav = useThreadNav();
   const jump = useJumpState(nav.jump);
   const live = useThreadStore(props.threadId);
   const liveOrder = useItemOrder(props.threadId) ?? none;
   const before = useThread(props.threadId, ["history"], (reader) => reader.itemsBefore);
+  // Opened from a small tail and still owed the rest: shown loading, never as all there is.
+  const filling = useThread(props.threadId, ["history"], (reader) => reader.filling === true);
   const following = useWatched(nav.following);
   const window = jump.window;
   const source = useMemo(
@@ -56,23 +63,37 @@ export function Transcript(props: { threadId: string }) {
   useEffect(() => {
     if (landed !== undefined && jump.turn !== undefined) nav.currentTurn.set(jump.turn);
   }, [nav.currentTurn, jump.turn, landed]);
-  const fresh = useNewSince(liveOrder, !following || !!window);
+  const fresh = useNewSince(liveOrder, !following);
   const pager: HistoryPager = {
-    hasOlder: window ? window.before !== null : typeof before === "number",
-    loading: jump.loading !== undefined,
+    hasOlder: window ? window.before !== null : typeof before === "number" || filling === true,
+    loading: jump.loading !== undefined || filling === true,
     error: undefined,
     loadOlder: () => nav.jump.older(),
   };
   return (
     <ThreadWindowProvider threadId={props.threadId} source={source}>
-      <Feed
-        threadId={props.threadId}
-        nav={nav}
-        jump={jump}
-        pager={pager}
-        seqTurns={jump.turns}
-        fresh={fresh}
-      />
+      {props.lane ? (
+        <AgentFeed
+          threadId={props.threadId}
+          agentId={props.lane.agentId}
+          prompt={props.lane.prompt}
+          live={props.lane.live}
+          nav={nav}
+          jump={jump}
+          pager={pager}
+          seqTurns={undefined}
+          fresh={fresh}
+        />
+      ) : (
+        <Feed
+          threadId={props.threadId}
+          nav={nav}
+          jump={jump}
+          pager={pager}
+          seqTurns={jump.turns}
+          fresh={fresh}
+        />
+      )}
     </ThreadWindowProvider>
   );
 }

@@ -22,6 +22,10 @@ export function sensitivePublicationPath(path: string): boolean {
         /\.(?:pem|der|key|p12|pfx|jks|keystore)$/i.test(part),
     );
 }
+/** Blobs under these names also get structured YAML credential inspection. */
+export function publicationYamlName(name: string): boolean {
+  return /\.ya?ml$/i.test(name);
+}
 export function assertPublicationText(bytes: Buffer): void {
   const text = bytes.toString("utf8");
   if (containsPublicationCredential(text))
@@ -62,7 +66,7 @@ export function assertPublicationTree(bytes: Buffer, hashBytes: number): Publica
     if (mode !== "160000")
       children.push({
         id: bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"),
-        ...(mode !== "40000" && mode !== "040000" && /\.ya?ml$/i.test(name)
+        ...(mode !== "40000" && mode !== "040000" && publicationYamlName(name)
           ? { format: "yaml" as const }
           : {}),
       });

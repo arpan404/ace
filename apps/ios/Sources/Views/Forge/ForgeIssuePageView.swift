@@ -31,22 +31,18 @@ struct ForgeIssuePageView: View {
                 EmptyState(icon: nil, title: "Couldn't load this issue", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
             if let page, client.canOperate {
-                Button { start(page) } label: {
-                    Text("Start thread").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground)
-                .foregroundStyle(AceTheme.Colours.background)
+                Button("Start thread") { start(page) }
+                .buttonStyle(.textAction(.prominent))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, AceTheme.Spacing.lg)
                 .padding(.vertical, AceTheme.Spacing.sm)
                 .background(AceTheme.Colours.background)
@@ -90,8 +86,8 @@ struct ForgeIssuePageView: View {
             .padding(.horizontal, AceTheme.Spacing.lg)
             .accessibilityIdentifier("forge.issue.header")
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: actions.openThread)
-            if !page.bodyBlocks.isEmpty {
-                ForgeRichView(blocks: page.bodyBlocks, scope: scope(page), tick: bodyTicker(page))
+            if !page.body.isEmpty {
+                ForgeText(text: page.body, scope: scope(page), tick: bodyTicker(page))
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 if let tickMessage {
                     Text(tickMessage).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
@@ -108,7 +104,10 @@ struct ForgeIssuePageView: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .padding(.horizontal, AceTheme.Spacing.lg)
             }
-            if client.canOperate { commentBox(page) }
+            if client.canOperate, page.writable == true {
+                ForgeIssueManageSection(client: client, project: route.project, page: page) { await load() }
+                commentBox(page)
+            }
         }
         .padding(.vertical, AceTheme.Spacing.md)
     }
@@ -135,7 +134,7 @@ struct ForgeIssuePageView: View {
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Button("Comment") { post(page) }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction(.prominent))
                     .disabled(posting || page.box.off != nil || !page.unconfirmed.isEmpty || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("forge.issue.comment")
             }
@@ -192,14 +191,14 @@ struct ForgeIssuePageView: View {
     @ViewBuilder private func eventRow(_ event: ForgeIssuePage.Event) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(event.actor).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                Text(event.actor).foregroundStyle(AceTheme.Colours.foreground)
                 if !event.comment { Text(event.event) }
                 Spacer(minLength: AceTheme.Spacing.sm)
                 age(event.at)
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            if event.comment, !event.blocks.isEmpty, let page { ForgeRichView(blocks: event.blocks, scope: scope(page)) }
+            if event.comment, let body = event.body, !body.isEmpty, let page { ForgeText(text: body, scope: scope(page)) }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)

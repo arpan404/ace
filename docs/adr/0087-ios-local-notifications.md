@@ -1,6 +1,6 @@
 # 0087: iOS local notifications; remote push deferred
 
-Status: accepted. Date: 2026-10-18. Refines ADR 0012 for the native iOS app (ADR 0074). The
+Status: accepted; remote push added by [ADR 0106](0106-ios-remote-push-gateway.md). Date: 2026-10-18. Refines ADR 0012 for the native iOS app (ADR 0074). The
 remote push design is kept as a deferred proposal in
 [drafts/ios-push-notifications.md](drafts/ios-push-notifications.md).
 

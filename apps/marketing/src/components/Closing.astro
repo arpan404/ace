@@ -1,53 +1,65 @@
 ---
 import { links } from "../site.ts";
-import AceMark from "./AceMark.astro";
 import DownloadButton from "./DownloadButton.astro";
+import Icon from "./Icon.astro";
 ---
 
-<section class="closing">
-  <div class="page closing-inner reveal">
-    <AceMark size={56} />
-    <h2 class="section-title">Free, open source, and yours to run.</h2>
+<section class="section closing">
+  <div class="page inner reveal">
+    <h2>Free, open source, and yours to run.</h2>
     <p class="lede">
-      ace is Apache-2.0. Install the Mac app, point it at a project, and start a thread with any
-      agent you have logged in.
+      Install ace on your computer, point it at a project, and start a thread with any agent you have logged
+      in.
     </p>
     <div class="actions">
       <DownloadButton withNote />
-      <a class="button button-secondary" href={links.source}>View source</a>
+      <a class="button button-secondary" href={links.source}>
+        <Icon name="github-logo" size={16} />
+        Star on GitHub
+      </a>
     </div>
+    <a class="text-link more" href="/download/">Every download: Mac, Windows, Linux, iPhone and iPad</a>
   </div>
 </section>
 
 <style>
   .closing {
-    background: var(--sidebar);
-    border-top: 1px solid var(--border);
+    position: relative;
+    padding-bottom: clamp(88px, 12vw, 160px);
+    overflow: hidden;
   }
 
-  .closing-inner {
+  .inner {
+    position: relative;
     display: grid;
-    justify-items: center;
-    gap: 20px;
-    padding-block: 128px;
-    text-align: center;
+    justify-items: start;
   }
 
-  .closing-inner :global(.ace-logo) {
-    margin-bottom: 12px;
+  h2 {
+    max-width: 10em;
+    font-size: clamp(40px, 7.2vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lede {
+    margin-top: 24px;
   }
 
   .actions {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
     gap: 12px;
-    margin-top: 8px;
+    margin-top: 32px;
   }
 
-  @media (max-width: 767px) {
-    .closing-inner {
-      padding-block: 80px;
-    }
+  .more {
+    margin-top: 22px;
+    font-size: 14px;
   }
+
+  .actions :global(.button-secondary) {
+    background: var(--background);
+  }
+
 </style>

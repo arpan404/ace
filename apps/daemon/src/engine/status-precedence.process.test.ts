@@ -109,13 +109,13 @@ test("clients see human requests ahead of active background children; a queued m
     }),
   );
   await h.engine.flush();
-  await status({ state: "waiting", on: "background_task" });
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  // Every agent replied: the root's shell is left running, not waited on (ADR 0116).
+  await status({ state: "done" });
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
 
   context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
   await h.engine.flush();
-  await status({ state: "done" });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
   expect(h.errors).toEqual([]);
 });

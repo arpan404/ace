@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
-import { execute, git, put, repository, scalar } from "./test-repo.ts";
+import { execute, idleBarrierScript, git, put, repository, scalar } from "./test-repo.ts";
 
 const service = new GitService();
 
@@ -49,7 +49,7 @@ test("a child checkpoint waits from parent safety capture until the whole restor
     await restore;
     process.stdout.write(JSON.stringify(await child));
   `;
-  const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
+  const output = await execute(process.execPath, idleBarrierScript(script), {
     timeout: PROCESS_TEST_TIMEOUT,
   });
   const checkpoints = await service.listCheckpoints({ repo: child, threadId: "child" });

@@ -30,7 +30,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private enum Keys {
         static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
         static let muted = "ace.notifications.mutedMachines"
+        static let liveActivity = "ace.lockScreen.liveActivity"
+        static let bridgePosted = "ace.notifications.bridgePosted"
     }
+    /// The bridge notifications remembered per machine, newest last; older ones have long gone.
+    static let bridgePostedLimit = 256
 
     private(set) var enabled: Bool
     private(set) var permission: Permission = .unknown
@@ -40,15 +44,19 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private(set) var muted: Set<String>
     /// Per-thread snoozes this phone set (`notification.snooze`), host id → thread id → until (ms).
     private(set) var snoozesByMachine: [String: [String: Double]] = [:]
+    /// This phone's banners, system categories and quiet hours, the same for every machine.
+    private(set) var phone: PhoneNotificationPrefs
     /// Attached runtimes by host, in attach order.
     @ObservationIgnored private(set) var machines: [(hostId: String, model: ClientModel, notifier: LocalNotifier)] = []
     /// The first attached machine: settings and the one-time permission ask read it.
     var model: ClientModel? { machines.first?.model }
     /// Local notices (an action that couldn't finish) and withdrawals; no ledger of its own.
     @ObservationIgnored let notifier: LocalNotifier
+    /// Every machine's alerts land here: one per thread, bursts of finishes folded into one.
+    @ObservationIgnored let desk: AlertDesk
     @ObservationIgnored private let center: any NotificationCenterPort
     @ObservationIgnored private let authorizer: any NotificationAuthorizer
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored private(set) var foreground = true
     @ObservationIgnored private var outcomes: [String: Waiter<NotificationPatch.ActionOutcome>] = [:]
@@ -60,18 +68,48 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var transient: [ClientModel] = []
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
+    /// The one Live Activity and the widgets' snapshot, across every attached machine.
+    @ObservationIgnored let lockScreen: LockScreenHub
+    /// Approvals the daemon alerted about, by host and thread, for the Live Activity's
+    /// Allow/Deny; and which alert raised each, so a retraction drops it.
+    @ObservationIgnored var approvals: [String: LockRequest] = [:]
+    @ObservationIgnored var approvalAlerts: [String: String] = [:]
+    /// Settings › Notifications › Live Activity.
+    private(set) var liveActivity: Bool
+    /// Each machine's sign-ins waiting for approval when it last said, by host.
+    @ObservationIgnored var accessSeen: [String: Set<String>] = [:]
+    /// Usage-limit and automation-run notifications posted for each machine, oldest first,
+    /// withdrawn with the machine's others. Kept across launches: Notification Center keeps them.
+    @ObservationIgnored var bridgePosted: [String: [String]] = [:]
+    /// A tapped sign-in waiting for its machine's runtime (a cold launch).
+    @ObservationIgnored var pendingAccess: (alert: AccessAlert, hostId: String?)?
+    /// The person's name for a machine, for "Claude wants to sign in to studio".
+    @ObservationIgnored var machineName: (String) -> String? = { _ in nil }
+    /// This phone's push address (ADR 0106), once iOS gave a token; every machine's sync carries it.
+    @ObservationIgnored var push: PushRegistration?
+    /// Asks iOS for a push token (`registerForRemoteNotifications`); the app delegate sets it.
+    @ObservationIgnored var requestPushToken: @MainActor () -> Void = {}
 
     init(center: any NotificationCenterPort = SystemNotificationCenter(), authorizer: any NotificationAuthorizer = SystemAuthorizer(),
          defaults: UserDefaults = .standard, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          makeId: @escaping () -> String = { UUID().uuidString.lowercased() },
-         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect) {
-        notifier = LocalNotifier(center: center)
+         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect,
+         lockScreenEdges: LockScreenHub.Edges? = nil, pushed: PushedAlerts = PushedAlerts(defaults: nil)) {
+        desk = AlertDesk(center: center, defaults: defaults, now: now, pushed: pushed)
+        notifier = LocalNotifier(center: center, desk: desk)
         self.center = center
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
         self.makeId = makeId; self.connectInBackground = connectInBackground
         enabled = defaults.bool(forKey: Keys.enabled)
         muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
+        phone = PhoneNotificationPrefs.load(defaults)
+        liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
+        bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
+        self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
+        self.lockScreen.allowed = liveActivity
+        self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
 
     /// Call before `model.connect`: patches from that runtime reach this coordinator, bound to that
@@ -79,13 +117,21 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// never share one machine's storage.
     func attach(_ model: ClientModel, target: ConnectionTarget) async {
         if transient.contains(where: { $0 !== model }) { await releaseTransient() }
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let ledger = LocalNotifier(center: center, hostId: target.hostId)
+        // The machine as the phone keys it, whichever route this connection takes.
+        let machine = target.scope
+        let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let ledger = LocalNotifier(center: center, hostId: machine.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
-        machines.removeAll { $0.hostId == target.hostId || $0.model === model }
-        machines.append((target.hostId, model, ledger))
-        let hostId = target.hostId
+        machines.removeAll { $0.hostId == machine.hostId || $0.model === model }
+        machines.append((machine.hostId, model, ledger))
+        let hostId = machine.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
+        model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
+        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        // Opening a thread here is reading it: its notification goes.
+        model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
+        model.outside.onAccessState = { [weak self] access in self?.accessState(access, hostId: hostId) }
+        lockScreen.changed()
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
         // Read once the runtime is starting, never before it: the permission's sync goes to that
         // runtime, and asking the system must not hold back a launch's first connection.
@@ -95,7 +141,27 @@ struct SystemAuthorizer: NotificationAuthorizer {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
+        machines[index].notifier.invalidate()
+        withdrawBridgeAlerts(machines[index].hostId)
         machines.remove(at: index)
+        model.liveActivity.onChange = nil
+        model.liveActivity.onShow = nil
+        model.onOpenThread = nil
+        model.outside.onAccessState = nil
+        lockScreen.changed()
+    }
+    /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
+    /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
+    func turnedOff(_ hostId: String) {
+        // Alerts it already handed over don't land after the clear, whenever their task runs.
+        for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
+        desk.clear(hostId: hostId)
+        withdrawBridgeAlerts(hostId)
+        approvals = approvals.filter { $0.value.hostId != hostId }
+        approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
+        if pendingLink?.hostId == hostId { pendingLink = nil }
+        lockScreen.forgetHeld()
+        lockScreen.rebuild()
     }
     func client(_ hostId: String?) -> ClientModel? {
         guard let hostId else { return model }
@@ -107,9 +173,25 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let entry = machines.first { $0.hostId == hostId }
         switch patch {
         case .alert(let alert):
-            guard delivering(hostId), let ledger = entry?.notifier else { return }
-            Task { await ledger.receive(alert) }
+            note(alert, from: hostId)
+            guard let entry else { return }
+            // Handled means posted, already shown from a push, or not wanted on this phone. Only
+            // then does the bridge ack it; a phone suspended before this point gets the push.
+            let delivered = { _ = entry.model.notificationAction(["type": "notifications.delivered", "id": alert.id]) }
+            guard delivering(hostId) else { return delivered() }
+            Task {
+                await entry.notifier.receive(alert)
+                delivered()
+            }
+        case .limit(let alert):
+            guard delivering(hostId), alert.delivery?.post != false else { return }
+            post(.limit(alert, hostId: hostId), from: hostId)
+        case .run(let alert):
+            guard delivering(hostId), alert.delivery?.post != false else { return }
+            post(.run(alert, hostId: hostId), from: hostId)
         case .feed(let cursor, let entries, let retracted):
+            for alert in entries { note(alert, from: hostId) }
+            forget(retracted, from: hostId)
             guard let ledger = entry?.notifier else { return }
             let posting = delivering(hostId)
             Task {
@@ -117,11 +199,30 @@ struct SystemAuthorizer: NotificationAuthorizer {
                 await ledger.catchUp(cursor: cursor, entries: posting ? entries : [], retracted: retracted)
                 feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
             }
-        case .connected: if let entry { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+        case .connected:
+            if let entry {
+                entry.notifier.connected()
+                sync(entry.model, ledger: entry.notifier, hostId: entry.hostId)
+                connectedForAccess(entry.model, hostId: entry.hostId)
+            }
         case .config(let preferences): preferencesByMachine[hostId] = preferences
         case .action(let id, let outcome):
             if outcome == .saved { outcomes[id]?.latest = outcome } else { outcomes.removeValue(forKey: id)?.finish(outcome) }
         }
+    }
+    /// A usage-limit or run notification the bridge decided, remembered so it goes with its machine.
+    private func post(_ content: AlertContent, from hostId: String) {
+        var ids = bridgePosted[hostId, default: []].filter { $0 != content.identifier }
+        ids.append(content.identifier)
+        bridgePosted[hostId] = Array(ids.suffix(Self.bridgePostedLimit))
+        defaults.set(bridgePosted, forKey: Keys.bridgePosted)
+        desk.post(content)
+    }
+    /// A machine turned off or gone: its usage-limit and run notifications go too, even one still queued.
+    func withdrawBridgeAlerts(_ hostId: String) {
+        guard let ids = bridgePosted.removeValue(forKey: hostId), !ids.isEmpty else { return }
+        defaults.set(bridgePosted, forKey: Keys.bridgePosted)
+        desk.withdraw(ids.sorted())
     }
     var delivering: Bool { enabled && permission == .allowed }
     /// Alerts from this machine: on for the phone, allowed by iOS, and not muted for it.
@@ -130,12 +231,18 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// Every machine's bridge reports presence and catches up whenever this changes or it connects.
     func sync() { for entry in machines { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) } }
     private func sync(_ model: ClientModel, ledger: LocalNotifier, hostId: String) {
-        model.notificationAction(["type": "notifications.sync", "enabled": delivering(hostId),
-                                  "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor])
+        var action: [String: Any] = ["type": "notifications.sync", "enabled": delivering(hostId),
+                                     "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor]
+        action["phone"] = phone.json
+        // Only to a machine allowed to alert this phone; one turned off here learns no token.
+        if let push, delivering(hostId) { action["push"] = push.json }
+        model.notificationAction(action)
     }
     func scene(active: Bool) {
         guard foreground != active else { return }
         foreground = active
+        lockScreen.foreground = active
+        lockScreen.changed()
         sync()
         if !active, delivering { BackgroundRefresh.schedule() }
     }
@@ -144,6 +251,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     func refreshPermission() async {
         permission = await authorizer.status()
+        askForPushToken()
         sync()
     }
     /// Asked once, after the first thread arrives from a paired machine; never on first launch.
@@ -161,6 +269,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         }
         enabled = on && permission == .allowed
         defaults.set(enabled, forKey: Keys.enabled)
+        askForPushToken()
         sync()
     }
 
@@ -182,6 +291,21 @@ struct SystemAuthorizer: NotificationAuthorizer {
         if on { muted.remove(hostId) } else { muted.insert(hostId) }
         defaults.set(muted.sorted(), forKey: Keys.muted)
         if let entry = machines.first(where: { $0.hostId == hostId }) { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+    }
+    /// Change this phone's own preferences; every machine's runtime applies them at once.
+    func setPhone(_ next: PhoneNotificationPrefs) {
+        guard next != phone else { return }
+        phone = next
+        next.save(defaults)
+        sync()
+    }
+    /// The Live Activity on the Lock Screen and in the Dynamic Island; on unless turned off here.
+    func setLiveActivity(_ on: Bool) {
+        guard on != liveActivity else { return }
+        liveActivity = on
+        defaults.set(on, forKey: Keys.liveActivity)
+        lockScreen.allowed = on
+        lockScreen.rebuild()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {

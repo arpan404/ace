@@ -1,5 +1,6 @@
 import type { ScreenPermissions, ScreenState } from "@ace/protocol";
 import { appName } from "./app-names.ts";
+import { coworkLine } from "./cowork.ts";
 import type { Tone } from "./status.ts";
 
 /*
@@ -36,7 +37,7 @@ export interface ScreenSessionView {
    * or a desktop that shares without input (`watchOnlyReason`).
    */
   viewOnly: boolean;
-  /** Why this desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway). */
+  /** Why this desktop lets the person watch but not control (Linux on KDE and Hyprland). */
   watchOnlyReason: string | undefined;
   /** A screen the person shared in the machine's sharing dialog: theirs to control, never an agent's. */
   personOnly: boolean;
@@ -76,9 +77,13 @@ export function chooserWaitingCopy(machine: string | undefined): string {
  * Why a sharing-dialog start ended without a live view, as one sentence: the machine's own
  * words for a decline or no answer, else the usual problem.
  */
-export function chooserFailure(code: string | undefined, message: string): string {
+export function chooserFailure(
+  code: string | undefined,
+  message: string,
+  platform?: string,
+): string {
   if ((code === "denied" || code === "timeout") && message.endsWith(".")) return message;
-  const problem = screenProblem(code, message);
+  const problem = screenProblem(code, message, undefined, platform);
   return `${problem.title}. ${problem.hint ?? "Try again."}`;
 }
 
@@ -117,8 +122,15 @@ export function screenSession(
       tone = "failed";
       break;
     default:
+      // Shared (cowork): the agent works in it, and waits while the person's input is recent.
       status =
-        who === "You" ? "You're in control" : who ? `${who} is in control` : "Nobody is in control";
+        who === "You"
+          ? "You're in control"
+          : state.controller === "agent" && state.sharing !== "exclusive"
+            ? coworkLine(state.personActive ? "waiting" : "working", who ?? "An agent")
+            : who
+              ? `${who} is in control`
+              : "Nobody is in control";
       tone =
         state.controller === "agent"
           ? "working"
@@ -229,6 +241,7 @@ export function screenProblem(
   code: string | undefined,
   fallback: string,
   holder?: string,
+  platform: string = "darwin",
 ): { title: string; hint: string | undefined } {
   switch (code) {
     case "target_busy":
@@ -244,6 +257,16 @@ export function screenProblem(
     case "screen_disabled":
       return { title: "Computer use is off", hint: "Turn it on in Settings › Computer use." };
     case "permission_denied":
+      if (platform !== "darwin")
+        return {
+          title:
+            platform === "win32"
+              ? "Windows desktop access needs attention"
+              : platform === "linux"
+                ? "Linux desktop access needs attention"
+                : "Desktop access needs attention",
+          hint: `${fallback}. Check the requirements in Settings › Computer use on the machine running ace.`,
+        };
       return {
         title: "macOS hasn't granted a permission",
         hint: "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
@@ -285,7 +308,10 @@ export function screenProblem(
         hint: "Nothing changed. Try again if you still need it.",
       };
     case "forbidden":
-      return { title: "This device can't manage computer use", hint: "Use the Mac running ace." };
+      return {
+        title: "This device can't manage computer use",
+        hint: platform === "darwin" ? "Use the Mac running ace." : "Use the computer running ace.",
+      };
     default:
       return { title: fallback, hint: undefined };
   }
@@ -316,14 +342,22 @@ export function permissionsReading(input: {
   const off = input.enabled === false;
   const turnOn = "Turn on Let agents use apps above.";
   if (input.problem) {
-    const { title, hint } = screenProblem(input.problem.code, input.problem.message);
+    const { title, hint } = screenProblem(
+      input.problem.code,
+      input.problem.message,
+      undefined,
+      input.permissions?.platform,
+    );
     return {
       state: "unavailable",
       reason: off || input.problem.code === "screen_disabled" ? "Computer use is off" : title,
       next:
         off || input.problem.code === "screen_disabled"
           ? turnOn
-          : (hint ?? "If it keeps failing, restart ace on this Mac."),
+          : (hint ??
+            (input.permissions?.platform && input.permissions.platform !== "darwin"
+              ? "If it keeps failing, restart ace on the computer running it."
+              : "If it keeps failing, restart ace on this Mac.")),
     };
   }
   if (input.permissions) return { state: "known", permissions: input.permissions };
@@ -338,3 +372,23 @@ export function permissionsReading(input: {
 }
 
 export { appName } from "./app-names.ts";
+
+/** Requirement words are supplied by the remote host; unknown states stay unverified. */
+export function requirementStatus(state: string): { label: string; ready: boolean } {
+  if (state === "ready" || state === "granted" || state === "n/a" || state === "not-applicable")
+    return { label: "Ready", ready: true };
+  if (state === "prompt") return { label: "Needs your approval", ready: false };
+  if (state === "blocked" || state === "denied") return { label: "Needs attention", ready: false };
+  return { label: "Not checked", ready: false };
+}
+
+/** Unknown requirement names are readable, but cannot select a request operation. */
+export function requirementPermission(requirement: {
+  state: string;
+  permission?: string | undefined;
+}): "screenRecording" | "accessibility" | undefined {
+  if (requirementStatus(requirement.state).ready) return undefined;
+  return requirement.permission === "screenRecording" || requirement.permission === "accessibility"
+    ? requirement.permission
+    : undefined;
+}

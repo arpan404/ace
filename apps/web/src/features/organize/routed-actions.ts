@@ -1,4 +1,11 @@
-import type { PinPlacement, ThreadActions, ThreadTarget } from "./use-thread-actions.ts";
+import type {
+  PinPlacement,
+  SnoozeWakeOn,
+  ThreadActions,
+  ThreadTarget,
+} from "./use-thread-actions.ts";
+import type { Decided } from "@/lib/list-actions.ts";
+import { askBeforeArchive, type useArchiveConfirmation } from "./delete-confirmation.ts";
 
 /** Where one list row's action goes: its machine's actions, and the thread's id there. */
 export interface RowRoute {
@@ -14,7 +21,10 @@ export interface RowRoute {
  * machine with that machine's rows, in the order given, so one machine's pins still lead the
  * group together and each machine offers its own Undo.
  */
-export function routedThreadActions(route: (rowId: string) => RowRoute | undefined): ThreadActions {
+export function routedThreadActions(
+  route: (rowId: string) => RowRoute | undefined,
+  archiving: ReturnType<typeof useArchiveConfirmation>,
+): ThreadActions {
   const on = <T extends ThreadTarget>(entry: T) => {
     const found = route(entry.id);
     return found && { actions: found.actions, entry: { ...entry, id: found.threadId } };
@@ -58,7 +68,9 @@ export function routedThreadActions(route: (rowId: string) => RowRoute | undefin
     settle: one((actions, entry) => actions.settle(entry)),
     unsettle: one((actions, entry) => actions.unsettle(entry)),
     setAutoSettle: one((actions, entry, enabled: boolean) => actions.setAutoSettle(entry, enabled)),
-    snooze: one((actions, entry, until: number) => actions.snooze(entry, until)),
+    snooze: one((actions, entry, until: number, wake?: SnoozeWakeOn, label?: string) =>
+      actions.snooze(entry, until, wake, label),
+    ),
     wake: one((actions, entry) => actions.wake(entry)),
     setPinned: one((actions, entry, pinned: boolean) => actions.setPinned(entry, pinned)),
     placePinned: (items) => {
@@ -70,9 +82,33 @@ export function routedThreadActions(route: (rowId: string) => RowRoute | undefin
     setPinnedMany: (items, pinned) => {
       for (const [actions, group] of entries(items)) actions.setPinnedMany(group, pinned);
     },
-    archiveMany: (items) => {
-      for (const [actions, group] of entries(items)) actions.archiveMany(group);
+    // One question for the whole selection, every machine's commands counted together: Archive
+    // archives every machine's rows, Cancel none (`askBeforeArchive`).
+    archiveMany: (items, archived) => {
+      // What the person sees as they are asked: each archive is fenced to it, not to its send.
+      const groups = entries(items).map(
+        ([actions, group]) => [actions, group, actions.decisions(group)] as const,
+      );
+      askBeforeArchive(
+        archiving,
+        groups.flatMap(([actions, group]) => actions.leftRunning(group)),
+        () => {
+          for (const [actions, group, asked] of groups) actions.archiveManyNow(group, asked);
+          archived?.();
+        },
+      );
     },
+    archiveManyNow: (items, decided) => {
+      for (const [actions, group] of entries(items)) actions.archiveManyNow(group, decided);
+    },
+    decisions: (items) => {
+      const all = new Map<string, Decided>();
+      for (const [actions, group] of entries(items))
+        for (const [id, decided] of actions.decisions(group)) all.set(id, decided);
+      return all;
+    },
+    leftRunning: (items) =>
+      entries(items).flatMap(([actions, group]) => actions.leftRunning(group)),
     removeMany: (items) => {
       for (const [actions, group] of entries(items)) actions.removeMany(group);
     },

@@ -1,6 +1,9 @@
 import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
+import { previewSocket } from "./node-socket.ts";
+import { createMux, gracefulDrainMs, systemTimer, type MuxTimer } from "./relay-mux.ts";
+import { decodeFrame, encodeFrame, kinds } from "./relay-wire.ts";
 import { openPreviewProxy, type PreviewChannel } from "./transport.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -31,6 +34,7 @@ test.each(["credit", "writer"])(
       replacementOpened = resolve;
     });
     const resets: number[] = [];
+    const ends: number[] = [];
     let releaseWriter: (() => void) | undefined;
     const writer = new Promise<void>((resolve) => {
       releaseWriter = resolve;
@@ -49,6 +53,7 @@ test.each(["credit", "writer"])(
           receive?.(control(2, id));
           if (id === 2) replacementOpened?.();
         }
+        if (bytes[1] === 5) ends.push(id);
         if (bytes[1] === 6) resets.push(id);
         if (mode === "writer" && bytes[1] === 3) {
           transportBytes = bytes.length;
@@ -80,7 +85,8 @@ test.each(["credit", "writer"])(
             accepted = socket;
             sockets.add(socket);
             socket.once("close", () => sockets.delete(socket));
-            openSocket(socket);
+            // As the Node runtime does: Bun reads more than one window at a time.
+            openSocket(previewSocket(socket, systemTimer));
             let seen = 0;
             socket.on("data", (bytes) => {
               seen += bytes.length;
@@ -137,5 +143,164 @@ test.each(["credit", "writer"])(
     await once(next, "connect");
     await reopened;
     expect(proxy.stats().streams).toBe(1);
+    // An aborted transfer is never reported to the peer as complete.
+    expect(ends).toEqual([]);
+  },
+);
+
+/** Fires timers when the test moves the clock, never on its own. */
+function manualTimer() {
+  let now = 0;
+  const due = new Set<{ at: number; run: () => void }>();
+  const timer: MuxTimer = (run, ms) => {
+    const entry = { at: now + ms, run };
+    due.add(entry);
+    return () => due.delete(entry);
+  };
+  const advance = (ms: number) => {
+    now += ms;
+    for (const entry of due) {
+      if (entry.at > now) continue;
+      due.delete(entry);
+      entry.run();
+    }
+  };
+  return { timer, advance };
+}
+
+const turns = async (condition: () => boolean) => {
+  for (let i = 0; i < 1000 && !condition(); i++)
+    await new Promise((resolve) => setImmediate(resolve));
+  if (!condition()) throw new Error("Condition never held");
+};
+
+/**
+ * The peer half-closes first, so the socket closes as soon as its own end is read, while the
+ * adapter still holds most of its last oversized read behind credit the peer hasn't returned.
+ */
+async function closedWhileDraining() {
+  let receive: ((frame: Uint8Array) => void) | undefined;
+  let creditOpen = false;
+  let owedCredit = 0;
+  const delivered: Uint8Array[] = [];
+  const after: string[] = [];
+  const clock = manualTimer();
+  const peer = (frame: Uint8Array) => receive?.(frame);
+  const mux = createMux({
+    maxStreams: 1,
+    timer: clock.timer,
+    channel: {
+      async send(bytes) {
+        const frame = decodeFrame(bytes);
+        if (frame.kind === kinds.open) {
+          peer(encodeFrame(kinds.ready, frame.id));
+          peer(encodeFrame(kinds.end, frame.id));
+        } else if (frame.kind === kinds.data) {
+          delivered.push(Buffer.from(frame.data));
+          if (creditOpen) peer(encodeFrame(kinds.credit, frame.id, frame.value));
+          else owedCredit += frame.value;
+        } else if (frame.kind === kinds.end || frame.kind === kinds.reset) {
+          after.push(frame.kind === kinds.end ? "end" : "reset");
+        }
+      },
+      close() {},
+      subscribe(onFrame) {
+        receive = onFrame;
+        return () => {
+          receive = undefined;
+        };
+      },
+    },
+  });
+  cleanup.push(mux.close);
+  const server = createServer({ allowHalfOpen: true });
+  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing loopback address");
+  const accepted = once(server, "connection") as Promise<[Socket]>;
+  const client = connect(address.port, "127.0.0.1");
+  client.on("error", () => {});
+  cleanup.push(() => {
+    client.destroy();
+  });
+  const [raw] = await accepted;
+  raw.pause();
+  // Bun reads up to 512 KiB at once: put such a read back as the socket's last.
+  const last = Buffer.from(Array.from({ length: 600_000 }, (_, i) => i % 251));
+  raw.unshift(last);
+  client.end();
+  const rawClosed = once(raw, "close");
+  mux.open(previewSocket(raw, clock.timer), 3000);
+  await rawClosed;
+  const deliveredBytes = () => Buffer.concat(delivered).byteLength;
+  expect(deliveredBytes()).toBeLessThan(last.byteLength);
+  return {
+    mux,
+    last,
+    delivered,
+    after,
+    clock,
+    peer,
+    deliveredBytes,
+    /** Returns the credit owed so far; with `keepGoing`, returns all later credit at once. */
+    credit(keepGoing: boolean) {
+      creditOpen = keepGoing;
+      const value = owedCredit;
+      owedCredit = 0;
+      peer(encodeFrame(kinds.credit, 1, value));
+    },
+  };
+}
+
+test("a socket that closes while its last oversized read waits for credit still ends cleanly", async () => {
+  const drain = await closedWhileDraining();
+  drain.credit(true);
+  await turns(() => drain.after.length > 0 && drain.mux.stats().streams === 0);
+
+  expect(Buffer.concat(drain.delivered)).toEqual(drain.last);
+  expect(drain.after).toEqual(["end"]);
+});
+
+test("a closed stream whose peer stops returning credit is reset and frees its slot", async () => {
+  const drain = await closedWhileDraining();
+  drain.clock.advance(gracefulDrainMs - 1);
+  expect(drain.mux.stats().streams).toBe(1);
+  drain.clock.advance(1);
+  await turns(() => drain.after.length > 0);
+
+  expect(drain.after).toEqual(["reset"]);
+  expect(drain.mux.stats().streams).toBe(0);
+  await turns(() => drain.mux.stats().pendingPayloadBytes === 0);
+});
+
+test("a closed stream that keeps draining slowly is not cut off by the deadline", async () => {
+  const drain = await closedWhileDraining();
+  const before = drain.deliveredBytes();
+  drain.clock.advance(gracefulDrainMs - 1);
+  drain.credit(false);
+  await turns(() => drain.deliveredBytes() > before);
+  // Past the deadline from the close, but not from the last progress.
+  drain.clock.advance(gracefulDrainMs - 1);
+  drain.credit(true);
+  await turns(() => drain.after.length > 0 && drain.mux.stats().streams === 0);
+
+  expect(Buffer.concat(drain.delivered)).toEqual(drain.last);
+  expect(drain.after).toEqual(["end"]);
+});
+
+test.each(["peer reset", "mux close"])(
+  "a %s during a closed stream's drain releases it without reporting it complete",
+  async (cancel) => {
+    const drain = await closedWhileDraining();
+    if (cancel === "peer reset") drain.peer(encodeFrame(kinds.reset, 1));
+    else drain.mux.close();
+    await turns(() => drain.mux.stats().pendingPayloadBytes === 0);
+    drain.clock.advance(gracefulDrainMs);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(drain.mux.stats().streams).toBe(0);
+    expect(drain.after).toEqual([]);
   },
 );

@@ -1,4 +1,3 @@
-import type { WorkspaceFileSystem, WorkspaceRuntime } from "./runtime.ts";
 export type WorkspaceErrorCode =
   | "INVALID_PATH"
   | "PATH_ESCAPE"
@@ -9,10 +8,8 @@ export type WorkspaceErrorCode =
   | "PERMISSION_DENIED"
   | "IO_ERROR"
   | "INVALID_ARGUMENT"
-  | "INVALID_CURSOR"
   | "LIMIT_EXCEEDED"
-  | "ABORTED"
-  | "SEARCH_FAILED";
+  | "ABORTED";
 
 export class WorkspaceError extends Error {
   readonly code: WorkspaceErrorCode;
@@ -28,6 +25,7 @@ export function errorCode(error: unknown): unknown {
 export function failure(error: unknown): WorkspaceError {
   if (error instanceof WorkspaceError) return error;
   const code = errorCode(error);
+  if (process.platform === "win32" && code === "EBADF") return windowsChangedPath(error);
   const mapped =
     code === "ENOENT"
       ? "NOT_FOUND"
@@ -39,6 +37,17 @@ export function failure(error: unknown): WorkspaceError {
             ? "PATH_CHANGED"
             : "IO_ERROR";
   return new WorkspaceError(mapped, error instanceof Error ? error.message : String(error), error);
+}
+/**
+ * Win32: realpath fails with EBADF when a link along the path is removed while Windows
+ * resolves it, so the path changed under the request.
+ */
+function windowsChangedPath(error: unknown): WorkspaceError {
+  return new WorkspaceError(
+    "PATH_CHANGED",
+    error instanceof Error ? error.message : String(error),
+    error,
+  );
 }
 export function integer(value: number, name: string, min: number, max: number): number {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
@@ -59,74 +68,5 @@ export interface Entry {
   mtime: number;
   ignored: boolean;
 }
-export interface ListOptions {
-  dir: string;
-  depth?: number;
-  includeIgnored?: boolean;
-  limit?: number;
-  cursor?: string;
-}
-export interface ListResult {
-  entries: Entry[];
-  nextCursor: string | null;
-  truncated: boolean;
-}
-export interface ReadOptions {
-  path: string;
-  offset?: number;
-  length?: number;
-}
-export type ReadResult = {
-  path: string;
-  size: number;
-  mtime: number;
-  offset: number;
-  bytesRead: number;
-  truncated: boolean;
-} & ({ binary: true } | { binary: false; text: string; encoding: "utf-8" | "utf-8-lossy" });
-export interface SearchOptions {
-  query: string;
-  regex?: boolean;
-  caseSensitive?: boolean;
-  glob?: string;
-  limit: number;
-  byteBudget?: number;
-  signal?: AbortSignal;
-}
-export interface Match {
-  path: string;
-  line: number;
-  column: number;
-  preview: string;
-}
-export interface SearchResult {
-  matches: Match[];
-  truncated: boolean;
-  bytesScanned: number;
-  backend: "ripgrep" | "node";
-}
-export interface Change {
-  path: string;
-  kind: "created" | "changed" | "deleted";
-}
-export interface WatchOptions {
-  onChange: (changes: Change[]) => void;
-  onWarning?: (message: string) => void;
-}
-export interface WorkspaceWatcher {
-  readonly mode: "native" | "polling";
-  /** Reconcile immediately and wait for the resulting batch. */
-  flush(): Promise<void>;
-  dispose(): Promise<void>;
-}
-export interface WorkspaceOptions {
-  filesystem?: WorkspaceFileSystem;
-  runtime?: Partial<WorkspaceRuntime>;
-  /** null forces the pure Node backend; otherwise resolved from PATH by default. */
-  ripgrep?: string | null;
-  watchMode?: "native" | "polling";
-}
-export const READ_CAP = 1024 * 1024;
 export const TREE_CAP = 100_000;
 export const DIRECTORY_CAP = 10_000;
-export const SEARCH_BUDGET = 16 * 1024 * 1024;

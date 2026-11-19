@@ -1,18 +1,15 @@
 import type { BrowserProfileScope, ProjectDefaults } from "@ace/protocol";
+import { projectBrowserProfiles } from "@ace/ui-core";
 import { Select } from "@/components/ui/select.tsx";
 
 const inherit = "inherit";
-const options = [
-  { value: inherit, label: "Inherit" },
-  { value: "global", label: "Global" },
-  { value: "project", label: "This project" },
-  { value: "thread", label: "Each thread" },
-] as const;
-const notes: Record<(typeof options)[number]["value"], string> = {
+const options = projectBrowserProfiles.map((profile) => ({
+  value: profile.value ?? inherit,
+  label: profile.label,
+}));
+const notes: Record<string, string> = {
+  ...Object.fromEntries(projectBrowserProfiles.map((profile) => [profile.value, profile.note])),
   inherit: "Follows Settings › Browser.",
-  global: "Shares sign-ins with every project.",
-  project: "Sign-ins stay in this project.",
-  thread: "Each thread signs in on its own.",
 };
 
 /**
@@ -40,7 +37,9 @@ export function ProjectBrowserProfile(props: {
           onValueChange={(picked) => {
             const next = { ...value };
             delete next.browserProfileScope;
-            const scope: BrowserProfileScope | undefined = picked === inherit ? undefined : picked;
+            const scope: BrowserProfileScope | undefined = projectBrowserProfiles.find(
+              (profile) => (profile.value ?? inherit) === picked,
+            )?.value;
             onChange(scope ? { ...next, browserProfileScope: scope } : next);
           }}
         />

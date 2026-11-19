@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/SnoozeWake.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "on": {
+          "const": "needs_you",
+          "type": "string"
+        }
+      },
+      "required": [
+        "on"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "on": {
+          "const": "pr",
+          "type": "string"
+        },
+        "prs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SnoozedPullRequest.json"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "on",
+        "prs"
+      ],
+      "type": "object"
+    }
+  ]
+}

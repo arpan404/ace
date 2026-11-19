@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseObservation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRevision.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseStatus.json"
+    }
+  },
+  "required": [
+    "revision",
+    "status"
+  ],
+  "type": "object"
+}

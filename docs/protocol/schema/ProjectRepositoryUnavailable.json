@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRepositoryUnavailable.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "host_not_configured",
+    "provider_mismatch",
+    "provider_unsupported",
+    "remote_missing"
+  ],
+  "type": "string"
+}

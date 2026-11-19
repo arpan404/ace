@@ -1,5 +1,7 @@
 import { join } from "node:path";
+import { win32 } from "node:path";
 import { z } from "zod";
+import { homeServiceTag, taggedName } from "./service-name.ts";
 const text = z
   .string()
   .min(1)
@@ -30,6 +32,14 @@ export const ServiceConfig = z.object({
   executable: absolute,
   path: text,
   uid: z.number().int().nonnegative(),
+  /**
+   * The tag of this home's service names, chosen by the I/O shell (`chooseServiceIdentity`):
+   * empty for the default names. When absent, it follows from the paths alone.
+   */
+  serviceTag: z
+    .string()
+    .regex(/^[0-9a-f]{0,16}$/)
+    .optional(),
 });
 export type ServiceConfig = z.input<typeof ServiceConfig>;
 export interface ServicePlan {
@@ -40,20 +50,33 @@ export interface ServicePlan {
   domain: string;
   logDir: string;
 }
-const xml = (s: string) =>
+export const xml = (s: string) =>
   s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-const quote = (s: string) =>
+/** Text `xml` escaped, back to its value. */
+export const unxml = (s: string) =>
+  s
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
+/** A systemd unit-file quoted word: `\\`, `"` and the `%` specifier escaped. */
+export const quote = (s: string) =>
   '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
+/** The inside of a word `quote` wrote, back to its value. */
+export const unquote = (s: string) => s.replace(/\\(.)/g, "$1").replaceAll("%%", "%");
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
-  const label = "dev.ace.next.daemon";
-  const unit = "ace-next.service";
+  // The default home's names; any other home's carry a hash of its path (ADR 0185).
+  const tag = c.serviceTag ?? homeServiceTag(c.dataDir, c.home, c.platform);
+  const label = taggedName("dev.ace.next.daemon", ".", tag);
+  const unit = `${taggedName("ace-next", "-", tag)}.service`;
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
@@ -90,4 +113,115 @@ export function planService(input: ServiceConfig): ServicePlan {
     logDir,
     content: `[Unit]\nDescription=ace local daemon\nStartLimitIntervalSec=0\n[Service]\nType=simple\nExecStart=${quote(c.executable.replaceAll("$", () => "$$"))} supervise\nEnvironment=${unitEnvironment}\nRestart=always\nRestartSec=15s\nTimeoutStopSec=60s\nKillMode=control-group\nStandardOutput=journal\nStandardError=journal\nSyslogIdentifier=ace\n[Install]\nWantedBy=default.target\n`,
   };
+}
+
+const windowsAbsolute = text.refine((v) => /^[A-Za-z]:\\/.test(v));
+/** A per-user Task Scheduler task (Windows). */
+export const TaskConfig = z.object({
+  environment: ServiceEnvironment.default({}),
+  updatePolicy: z.enum(["daily", "manual"]).default("daily"),
+  dataDir: windowsAbsolute,
+  /** The home's `bin\ace.cmd` launcher; cmd.exe would expand a `%` in its command line. */
+  executable: windowsAbsolute.refine((v) => !v.includes("%"), "ACE_HOME must not contain %"),
+  path: text,
+  /** The account's SID, from `whoami /user`. */
+  user: z.string().regex(/^S-1-\d+(?:-\d+){1,14}$/),
+  systemRoot: windowsAbsolute,
+  /** The person's profile folder: its `.ace` is the default home, which keeps the plain name. */
+  userHome: windowsAbsolute,
+  /** The tag of this home's task name, as `ServiceConfig.serviceTag`. */
+  serviceTag: z
+    .string()
+    .regex(/^[0-9a-f]{0,16}$/)
+    .optional(),
+  /** The task's name; by default `ace-next-daemon`, with a hash of any other home's path. */
+  name: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,64}$/)
+    .optional(),
+});
+export type TaskConfig = z.input<typeof TaskConfig>;
+export interface TaskPlan {
+  platform: "win32";
+  command: readonly [string, "supervise"];
+  /** The task's path in the Task Scheduler root folder, such as `\ace-next-daemon`. */
+  name: string;
+  /** ace's copy of the registered task XML, the record later registrations are checked against. */
+  file: string;
+  content: string;
+  /** The service environment the supervisor applies; a task has no environment of its own. */
+  environmentFile: string;
+  environment: string;
+  logDir: string;
+  user: string;
+  program: string;
+  arguments: string;
+}
+/**
+ * The login service on Windows. A Task Scheduler task rather than an HKCU Run entry, because
+ * only a task restarts on failure, starts without a console window and can be stopped.
+ */
+export function planTask(input: TaskConfig): TaskPlan {
+  const c = TaskConfig.parse(input);
+  const variables: Record<string, string> = {
+    ACE_HOME: c.dataDir,
+    PATH: c.path,
+    ACE_AUTO_UPDATE: c.updatePolicy === "daily" ? "1" : "0",
+  };
+  for (const [key, value] of Object.entries(c.environment))
+    if (value !== undefined) variables[key] = value;
+  // A console node.exe started by Task Scheduler opens a window; headless conhost hosts it
+  // without one, and the launcher's console processes inherit that hidden console. conhost
+  // splits its arguments and quotes each again, so cmd.exe runs the launcher: `( ) & @ ^` in the
+  // home's path stay inside its quotes, and the leading `@` keeps cmd from stripping them.
+  const program = win32.join(c.systemRoot, "System32", "conhost.exe");
+  const cmd = win32.join(c.systemRoot, "System32", "cmd.exe");
+  const args = `--headless "${cmd}" /d /c @ "${c.executable}" supervise`;
+  const content = taskXml({ description: "ace local daemon", user: c.user, program, args });
+  return {
+    platform: "win32",
+    command: [c.executable, "supervise"],
+    name: `\\${c.name ?? taggedName("ace-next-daemon", "-", c.serviceTag ?? homeServiceTag(c.dataDir, c.userHome, "win32"))}`,
+    file: win32.join(c.dataDir, "service", "task.xml"),
+    content,
+    environmentFile: win32.join(c.dataDir, "service", "environment.json"),
+    environment: JSON.stringify(variables) + "\n",
+    logDir: win32.join(c.dataDir, "logs"),
+    user: c.user,
+    program,
+    arguments: args,
+  };
+}
+
+/** A per-user Task Scheduler task: a logon trigger and one program, restarted on failure. */
+export function taskXml(task: {
+  description: string;
+  user: string;
+  program: string;
+  args: string;
+}): string {
+  const { description, user, program, args } = task;
+  return `<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>${xml(description)}</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(user)}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>${xml(program)}</Command><Arguments>${xml(args)}</Arguments></Exec></Actions>
+</Task>
+`;
 }

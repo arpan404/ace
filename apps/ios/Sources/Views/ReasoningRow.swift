@@ -5,7 +5,6 @@ import SwiftUI
 /// same height either way so nothing moves when it finishes. The thought opens in place as muted
 /// Markdown; the open row takes the fill, with no caret, as on the web.
 struct ReasoningRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: TranscriptRow
     /// Its header as the log reads it; without one it reads the row's own header, else plainly.
     var thought: BlockRow.Thought? = nil
@@ -23,11 +22,11 @@ struct ReasoningRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("thought", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
+                withAnimation {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: {
-                LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text(label).shimmer(!done) }
+                LogRowBox(open: open) { AceIcon(.brain, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(label) }
             }
             .buttonStyle(.plain)
             // Still thinking with no words yet: a header with nothing to open.
@@ -35,15 +34,15 @@ struct ReasoningRow: View {
             .accessibilityIdentifier("thought.\(row.id)")
             .accessibilityValue(text.isEmpty ? "" : open ? "Expanded" : "Collapsed")
             if open, !text.isEmpty {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    MarkdownView(text: text).foregroundStyle(AceTheme.Colours.mutedForeground)
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    AceMarkdown(text: text, streaming: !done, tone: .muted)
                     if row.truncated, let openMessage {
                         Button("Read full thought") { openMessage(row) }
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                 }
-                .rowDetailIndent().padding(.bottom, AceTheme.Spacing.sm)
+                .rowDetailIndent().padding(.bottom, AceDesign.Space.related)
                 .onAppear { DisclosureTrace.shared.shown(key) }
             }
         }

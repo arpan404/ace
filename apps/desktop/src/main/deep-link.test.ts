@@ -26,6 +26,22 @@ describe("ace:// links", () => {
     );
   });
 
+  it("brings Profile forward with how sign-in ended when the browser returns from it", () => {
+    expect(route("ace://account/signed-in?status=signed-in")).toBe(
+      "/settings/profile?signin=signed-in",
+    );
+    expect(route("ace://account/signed-in?status=cancelled")).toBe(
+      "/settings/profile?signin=cancelled",
+    );
+    for (const input of [
+      "ace://account/signed-in",
+      "ace://account/signed-in?status=hacked",
+      "ace://account/signed-in?status=signed-in&token=x",
+      "ace://account/other?status=signed-in",
+    ])
+      expect(parseDeepLink(input)).toBeUndefined();
+  });
+
   it("still understands the older path= spelling", () => {
     expect(route("ace://open?path=/srv/app")).toBe("/new?folder=%2Fsrv%2Fapp");
   });
@@ -62,5 +78,60 @@ describe("ace:// links", () => {
       { kind: "open-folder", path: "/home/me/My Code" },
       { kind: "open-folder", path: "/home/me/My Code" },
     ]);
+  });
+});
+
+it("message links keep item ids exactly as the desktop always read them", () => {
+  expect(parseDeepLink("ace://thread/t/item/a%2Fb")).toEqual({
+    kind: "thread",
+    threadId: "t",
+    itemId: "a/b",
+  });
+  expect(parseDeepLink("ace://thread/my%20thread/item/one%20two")).toEqual({
+    kind: "thread",
+    threadId: "my thread",
+    itemId: "one two",
+  });
+  const long = "x".repeat(300);
+  expect(parseDeepLink(`ace://thread/t/item/${long}`)).toEqual({
+    kind: "thread",
+    threadId: "t",
+    itemId: long,
+  });
+});
+
+describe.runIf(process.platform === "win32")("Windows links never reach another computer", () => {
+  it("refuses an ace://open link to a network share", () => {
+    for (const folder of [
+      "//attacker/share",
+      "\\\\attacker\\share",
+      "\\\\?\\UNC\\attacker\\share",
+      "\\\\.\\pipe\\x",
+    ])
+      expect(parseDeepLink(`ace://open?folder=${encodeURIComponent(folder)}`)).toBeUndefined();
+    expect(parseDeepLink("ace://open?folder=C%3A%5Cwork%5Cace")).toEqual({
+      kind: "open-folder",
+      path: "C:\\work\\ace",
+    });
+  });
+
+  it("never looks at a network folder handed over as an argument", () => {
+    const looked: string[] = [];
+    const isDirectory = (path: string) => {
+      looked.push(path);
+      return true;
+    };
+    const links = linksFromArgv(
+      [
+        "\\\\attacker\\share",
+        "//attacker/share",
+        "file:////attacker/share",
+        "ace://open?folder=%5C%5Cattacker%5Cshare",
+        "C:\\work\\ace",
+      ],
+      isDirectory,
+    );
+    expect(links).toEqual([{ kind: "open-folder", path: "C:\\work\\ace" }]);
+    expect(looked).toEqual(["C:\\work\\ace"]);
   });
 });

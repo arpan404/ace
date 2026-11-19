@@ -8,6 +8,8 @@ export interface OpenFileOptions {
   /** The tab the pick came from (its tree): an empty or preview tab turns into the file. */
   from?: string | undefined;
   line?: number | undefined;
+  /** With `line`, the 0-based column to reveal. */
+  column?: number | undefined;
   /** The tree choice the tab carries over (a tree laid over the file closes on a pick). */
   tree?: boolean | undefined;
 }
@@ -28,6 +30,8 @@ export function openFile(
   const keep = options.keep ?? false;
   const extra = {
     ...(options.line === undefined ? {} : { line: options.line }),
+    // A jump without a column starts its line; a stale column from an earlier jump must not stay.
+    ...(options.line === undefined ? {} : { column: options.column ?? 0 }),
     ...(options.tree === undefined ? {} : { tree: options.tree }),
   };
   const existing = findTab(workspace, `files:${id}`);
@@ -40,7 +44,6 @@ export function openFile(
     });
     return;
   }
-  const data = { path, preview: !keep, ...extra };
   const replaceable = (key: string | undefined) => {
     const found = key ? findTab(workspace, key) : undefined;
     if (found?.tab.kind !== "files" || found.tab.pinned) return undefined;
@@ -50,6 +53,20 @@ export function openFile(
   const target =
     replaceable(options.from) ??
     workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
+  // The tree beside the file keeps what the person left there: its filter, which folders were
+  // opened, and where it was scrolled. A replacement carries its own tree over; a new tab takes
+  // its source tab's (or the showing files tab's, for quick open), so browsing files never
+  // resets the explorer.
+  const inheritKey = target ?? options.from ?? workspace.active;
+  const inheritTab = inheritKey ? findTab(workspace, inheritKey)?.tab : undefined;
+  const inheritData = inheritTab && inheritTab.kind === "files" ? fileTabData(inheritTab) : {};
+  const carried = {
+    ...(inheritData.expanded === undefined ? {} : { expanded: inheritData.expanded }),
+    ...(inheritData.query === undefined ? {} : { query: inheritData.query }),
+    ...(inheritData.treeScroll === undefined ? {} : { treeScroll: inheritData.treeScroll }),
+    ...(inheritData.side === undefined ? {} : { side: inheritData.side }),
+  };
+  const data = { ...carried, path, preview: !keep, ...extra };
   if (target) actions.replace(target, { kind: "files", id, data });
   else actions.open({ kind: "files", id, data });
 }

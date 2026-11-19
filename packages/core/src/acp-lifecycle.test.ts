@@ -40,6 +40,7 @@ function setup() {
       kind: "shell",
       title: "Unobserved shell",
       stoppable: false,
+      blocksPrompts: true,
     });
   }
   return { state, send, child, shell };

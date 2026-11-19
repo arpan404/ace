@@ -1,8 +1,8 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
-import { randomBytes } from "@noble/hashes/utils.js";
 export { x25519, sha256 };
+export { keyPair, type KeyPair } from "./key-pair.ts";
 export const empty = new Uint8Array();
 export const encode = (value: string): Uint8Array => new TextEncoder().encode(value);
 export function concat(...parts: Uint8Array[]): Uint8Array {
@@ -17,10 +17,6 @@ export function concat(...parts: Uint8Array[]): Uint8Array {
 export function derive(ck: Uint8Array, input: Uint8Array): [Uint8Array, Uint8Array] {
   const result = hkdf(sha256, input, ck, empty, 64);
   return [result.slice(0, 32), result.slice(32)];
-}
-export type KeyPair = { privateKey: Uint8Array; publicKey: Uint8Array };
-export function keyPair(privateKey: Uint8Array = randomBytes(32)): KeyPair {
-  return { privateKey: privateKey.slice(), publicKey: x25519.getPublicKey(privateKey) };
 }
 export function fingerprint(publicKey: Uint8Array): string {
   if (publicKey.length !== 32) throw new Error("Invalid static public key");

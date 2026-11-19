@@ -23,8 +23,8 @@ import {
   StopCircleIcon,
   TerminalWindowIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
-import { openExternal, revealer } from "@/boot/open-external.ts";
+} from "@ace/icons";
+import { revealer } from "@/boot/open-external.ts";
 import {
   Menu,
   MenuCheckboxItem,
@@ -42,13 +42,15 @@ import { useLocal } from "../store.ts";
 import type { BrowserTabView } from "../sources.ts";
 import { roundButton } from "./page-toolbar.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
+import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { extensionsHidden } from "./extensions-menu.tsx";
-import { useAlwaysShowDevices } from "./device-settings.ts";
 import type { PageActions } from "./use-page-actions.ts";
 import type { PageTools } from "./use-page-tools.ts";
 import { ZoomRow } from "./zoom-controls.tsx";
 import { AskAgentItem } from "./ask-agent-item.tsx";
 import { LatencyItem } from "./latency-item.tsx";
+import { EngineMenu } from "./engine-menu.tsx";
+import { useOpenOutside } from "./open-outside.tsx";
 
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
@@ -75,6 +77,10 @@ export function BrowserActions(props: {
   onSettings(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
+  /** Where this thread's pages run; undefined before its browser opens. */
+  engine: "embedded" | "headless" | "user" | undefined;
+  /** Move the thread's browser to another engine, reopening its tabs there. */
+  onEngine(engine: "embedded" | "headless"): void;
   /** The console and network drawer shows under the page. */
   drawer: boolean;
   onDrawer(open: boolean): void;
@@ -90,10 +96,10 @@ export function BrowserActions(props: {
   onLeaveSplit: (() => void) | undefined;
 }) {
   const toast = useToast();
+  const openOutside = useOpenOutside();
   const { shownUrl, external, browser, tab, tools, actions } = props;
   const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
   const hidden = useLocal(extensionsHidden, (value) => value);
-  const [always, setAlways] = useAlwaysShowDevices();
   const live = tab !== undefined;
   const usable = live && props.online;
   const privately = tab?.private === true;
@@ -127,15 +133,9 @@ export function BrowserActions(props: {
         : {}),
     });
   };
-  const openOutside = () =>
-    external &&
-    void openExternal(external).catch((error: unknown) =>
-      toast.error({
-        title: "Couldn't open the page",
-        description: error instanceof Error ? error.message : undefined,
-      }),
-    );
   const pageTool = usable && actions.available;
+  // The in-app browser lives in the desktop app only; elsewhere there is nothing to pick.
+  const desktop = desktopBrowserViews() !== undefined;
   return (
     <Menu>
       <MenuTrigger
@@ -178,9 +178,6 @@ export function BrowserActions(props: {
             >
               Show device toolbar
             </MenuCheckboxItem>
-            <MenuCheckboxItem checked={always} onCheckedChange={(checked) => setAlways(checked)}>
-              Always show in new tabs
-            </MenuCheckboxItem>
           </MenuContent>
         </MenuSub>
         <MenuSub>
@@ -213,7 +210,6 @@ export function BrowserActions(props: {
           keys="mod+alt+i"
           resolve={false}
           disabled={!usable || actions.devtoolsReason !== undefined}
-          reason={live ? actions.devtoolsReason : undefined}
           onClick={() => actions.devtools()}
         >
           Developer tools
@@ -248,6 +244,9 @@ export function BrowserActions(props: {
         >
           {recording ? "Stop recording" : "Record the page"}
         </MenuItem>
+        {desktop && (
+          <EngineMenu engine={props.engine} online={props.online} onEngine={props.onEngine} />
+        )}
         <MenuItem
           icon={icon(CopyIcon)}
           disabled={!shownUrl}
@@ -260,7 +259,11 @@ export function BrowserActions(props: {
         >
           Copy address
         </MenuItem>
-        <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
+        <MenuItem
+          icon={icon(ArrowSquareOutIcon)}
+          disabled={!external}
+          onClick={() => external && openOutside(external)}
+        >
           Open in your browser
         </MenuItem>
         <AskAgentItem threadId={props.threadId} tab={tab} />

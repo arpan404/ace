@@ -1,15 +1,22 @@
+import {
+  decodeStoredItem,
+  decodeStoredPayload,
+  justWrittenItem,
+  storedItem,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { HistorySearchReplay } from "./history-search-replay.ts";
 import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
+import { Event, type Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
 import { outputStreamId, summarizeOutput, utf8Tail } from "@ace/projection";
 import { ItemTextStore } from "./item-text-store.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const Stream = z.object({ id: z.string(), size: count });
 const Version = z.object({
   stream_id: z.string(),
   thread_id: ThreadId,
@@ -18,6 +25,21 @@ const Version = z.object({
   size: count,
   encoding: z.enum(["utf-16le", "utf-8"]),
 });
+// Built once: Zod compiles a parser per schema object, and pages are read per request.
+const ItemHead = z.object({ id: ItemId, created_seq: count });
+const OpeningRows = z.array(z.object({ id: ItemId })).max(64);
+const PageRows = z.array(ItemHead).max(201);
+const StreamReadLimit = z
+  .number()
+  .int()
+  .min(1)
+  .max(256 * 1024);
+const PageLimit = z.number().int().min(1).max(200);
+const PageByteLimit = z
+  .number()
+  .int()
+  .min(512)
+  .max(1024 * 1024);
 type ReadBytes = (
   stream: string,
   offset: number,
@@ -39,13 +61,17 @@ export class HistoryIndex {
   private texts: ItemTextStore;
   private readBytes: ReadBytes;
   private archiveOutput: ArchiveOutput;
+  /** Which revisions are read as stored, by their sequence (`isTrusted`). */
+  private readonly trust: StoredTrust;
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync,
     readBytes: ReadBytes,
     archiveOutput: ArchiveOutput,
+    trust: StoredTrust = untrusted(),
   ) {
     this.db = db;
+    this.trust = trust;
     this.searchReplay = new HistorySearchReplay(db, {
       source: (thread, item, stream, through) => {
         const source = this.latest(stream, through);
@@ -92,7 +118,7 @@ export class HistoryIndex {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         });
         this.replay(event);
       }
@@ -141,11 +167,18 @@ export class HistoryIndex {
     ).get(streamId, through);
     return row ? Version.parse(row) : undefined;
   }
+  private hasVersion(streamId: string, through: number): boolean {
+    return (
+      this.statement(
+        "SELECT 1 FROM history_stream_versions WHERE stream_id=? AND seq<=? LIMIT 1",
+      ).get(streamId, through) !== undefined
+    );
+  }
   private itemAt(id: string, through: number): Item | undefined {
     const row = this.statement(
-      "SELECT item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+      "SELECT seq,item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
-    return row ? Item.parse(JSON.parse(String(row.item))) : undefined;
+    return row ? storedItem(Number(row.seq), String(row.item), this.trust) : undefined;
   }
   /** A replay revision refers to durable text streams, never a full canonical message body. */
   searchItem(
@@ -196,12 +229,13 @@ export class HistoryIndex {
     if (p.type === "item.created" || p.type === "item.updated") {
       // Text items carry the sources their preview was just given; any other item's preview
       // policy is the identity, so it is taken from the event instead of a stored copy.
+      // The item store seeded that preview from this event's item just before (event-writer.ts).
+      // No trust check: the row is the one this transaction wrote from the validated event, so
+      // it is never a row an older build left, whatever its item's sequence.
       const item = hasTextPreview(p.item)
-        ? Item.parse(
-            JSON.parse(
-              String(
-                this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id)?.item,
-              ),
+        ? justWrittenItem(
+            String(
+              this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id)?.item,
             ),
           )
         : textPreview(p.item).item;
@@ -217,11 +251,15 @@ export class HistoryIndex {
               "SELECT s.id,s.size FROM item_text_targets t JOIN item_text_streams s ON s.id=t.stream_id WHERE t.item_id=? AND s.thread_id=?",
             ).get(p.itemId, event.threadId);
       if (!row) return;
-      const stream = Stream.parse(row);
+      // Columns of the daemon's own stream tables, read as stored (ADR 0125). No trust check:
+      // they are an id and a byte count, not a body any schema shapes, and every build has
+      // written them the same way (the id it made, the size it summed), so an older build's row
+      // reads the same as this one's.
+      const stream = { id: String(row.id), size: Number(row.size) };
       // A message ending in an attachment acquires a new append target on its first delta.
-      if (p.field !== "output" && !this.latest(stream.id, event.seq)) {
+      if (p.field !== "output" && !this.hasVersion(stream.id, event.seq)) {
         const preview = this.statement("SELECT item FROM item_previews WHERE id=?").get(p.itemId);
-        this.revision(event, Item.parse(JSON.parse(String(preview?.item))));
+        this.revision(event, decodeStoredItem(JSON.parse(String(preview?.item))));
       }
       this.statement("INSERT INTO history_stream_versions VALUES (?,?,?,?,?,?)").run(
         stream.id,
@@ -286,7 +324,8 @@ export class HistoryIndex {
         itemId,
       );
     if (!row) throw new Error("Item completion boundary is unavailable");
-    return { throughSeq: count.parse(row.seq), item: Item.parse(JSON.parse(String(row.item))) };
+    const throughSeq = count.parse(row.seq);
+    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust) };
   }
   stream(threadId: ThreadId, streamId: string, through: number) {
     const version = this.latest(streamId, through);
@@ -297,11 +336,7 @@ export class HistoryIndex {
   readStream(threadId: ThreadId, streamId: string, through: number, offset: number, limit: number) {
     count.parse(through);
     count.parse(offset);
-    z.number()
-      .int()
-      .min(1)
-      .max(256 * 1024)
-      .parse(limit);
+    StreamReadLimit.parse(limit);
     const version = this.stream(threadId, streamId, through);
     const remaining = Math.max(0, version.size - offset);
     if (!remaining)
@@ -355,14 +390,11 @@ export class HistoryIndex {
    */
   opening(threadId: ThreadId, through: number, scan = 16): Item | undefined {
     count.parse(through);
-    const rows = z
-      .array(z.object({ id: ItemId }))
-      .max(64)
-      .parse(
-        this.statement(
-          "SELECT id FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq ASC LIMIT ?",
-        ).all(threadId, through, Math.min(scan, 64)),
-      );
+    const rows = OpeningRows.parse(
+      this.statement(
+        "SELECT id FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq ASC LIMIT ?",
+      ).all(threadId, through, Math.min(scan, 64)),
+    );
     for (const row of rows) {
       const value = this.itemAt(row.id, through);
       if (value?.type !== "message" || value.role !== "user") continue;
@@ -382,7 +414,7 @@ export class HistoryIndex {
       "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT 1",
     ).get(threadId, through, before);
     if (!row) return undefined;
-    const head = z.object({ id: ItemId, created_seq: count }).parse(row);
+    const head = ItemHead.parse(row);
     const value = this.itemAt(head.id, through);
     if (!value) throw new Error("Historical revision is unavailable");
     return { item: this.preview(threadId, value, through), seq: head.created_seq };
@@ -403,20 +435,13 @@ export class HistoryIndex {
   ): Omit<ItemsPage, "seq"> {
     count.parse(through);
     count.parse(before);
-    z.number().int().min(1).max(200).parse(limit);
-    z.number()
-      .int()
-      .min(512)
-      .max(1024 * 1024)
-      .parse(byteLimit);
-    const rows = z
-      .array(z.object({ id: ItemId, created_seq: count }))
-      .max(201)
-      .parse(
-        this.statement(
-          "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
-        ).all(threadId, through, before, limit + 1),
-      );
+    PageLimit.parse(limit);
+    PageByteLimit.parse(byteLimit);
+    const rows = PageRows.parse(
+      this.statement(
+        "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
+      ).all(threadId, through, before, limit + 1),
+    );
     const items: Item[] = [],
       cursors: [string, number][] = [];
     let bytes = 512;

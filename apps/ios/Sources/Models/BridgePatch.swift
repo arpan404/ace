@@ -33,6 +33,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
     var chat: Bool? = nil
     var badge: String? = nil
+    /// The project's tint, 1 to 12, that stays with its id (`projectBadge`); nil for a chat.
+    var tint: Int? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
     /// The pull request the thread's card names, and whether it is still in review.
@@ -44,6 +46,48 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the account mark the provider glyph wears when its provider has several
     /// accounts (`inbox-accounts.ts`); nil draws the plain mark.
     var account: String? = nil
+    /// Inbox rows only: pinned threads lead the list in `pinOrder` (higher first; nil for a pin
+    /// from before places existed); `listOrder` is the place when the list is sorted by hand.
+    var pinned: Bool? = nil
+    var pinOrder: Double? = nil
+    var listOrder: Double? = nil
+    /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
+    /// a pinned row keeps while it shows under Pinned.
+    var group: String? = nil
+    /// Inbox rows only: false when the thread never settles by itself.
+    var autoSettle: Bool? = nil
+    /// Inbox rows only: the snoozes that end on an event and fit the thread now ("Until it
+    /// needs you", "Until the PR changes"), beside the layout's times. Nil from older bridges.
+    var snoozeEvents: [SnoozeEvent]? = nil
+    /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
+    var snoozeWake: String? = nil
+    /// Inbox rows only: that event's id ("needs_you", "pr"), so Undo of a settle puts it back.
+    var snoozeOn: String? = nil
+    /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
+    /// the words are the layout's `menuLabels`. Nil from older bridges.
+    var menu: [String]? = nil
+    /// A chat's row menu in the Chats tab (Rename, Pin or Unpin, Move, Delete); nil for a
+    /// project thread and from older bridges.
+    var chatMenu: [String]? = nil
+    /// Inbox rows only, the desktop card's facts (`inbox-card.ts`): the branch cut in the
+    /// middle, the lines changed (only when some were), every linked pull request, the hover
+    /// card's status sentence, the account's name, and what an agent drives for the thread.
+    var branchLabel: String? = nil
+    var work: Work? = nil
+    var prs: [LinkedPull]? = nil
+    var hover: HoverLine? = nil
+    var accountLabel: String? = nil
+    var browsing: String? = nil
+    var computerUse: String? = nil
+    /// "Started by Claude" when an outside app started the thread (ADR 0122).
+    var startedBy: String? = nil
+
+    struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct SnoozeEvent: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String; let detail: String }
+    struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
+    /// The preview's first line: the sentence, what it is about, and its ink ("warning",
+    /// "destructive" or "muted").
+    struct HoverLine: Codable, Sendable, Equatable { let sentence: String; let detail: String?; let code: Bool; let ink: String }
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -58,6 +102,23 @@ struct RowLook: Codable, Sendable, Equatable {
     let since: Double?
     let settled: Bool
     let subagents: Int
+    /// A finished result not yet opened, or marked unread by hand; nil from older bridges.
+    var unread: Bool? = nil
+    /// The desktop row's status mark (`rowStatusLook`): which icon ("approve", "working",
+    /// "agents"… or "none"), the colour it draws in, the count an `agents` icon holds, what sits
+    /// beside it ("icon" alone, "elapsed", "age" or a quiet "word") and the state in words for
+    /// VoiceOver. Nil from older bridges.
+    var icon: String? = nil
+    var iconTone: String? = nil
+    var count: Int? = nil
+    var mode: String? = nil
+    var meaning: String? = nil
+    /// Only a thread that needs the person sets its title in semibold.
+    var strong: Bool? = nil
+    /// The design language's status state (`rowStatusState`): "needs-you", "failed", "working",
+    /// "waiting", "limited", "background", "finished", "idle" or "syncing". The lock screen
+    /// counts by it. Nil from older bridges.
+    var state: String? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -83,6 +144,11 @@ struct TextEdit: Sendable, Equatable {
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let index: Int?
+    /// The daemon's creation sequence for this item, when the bridge sends it.
+    /// Nil from older bridges. Viewport uses it with history range metadata to
+    /// order rows, detect gaps and distinguish canonical deletion from page
+    /// eviction; it never changes how rows draw.
+    var creationSeq: Int? = nil
     let type: String
     let role: String
     var text: String
@@ -102,6 +168,8 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var bubble: BubbleLine? = nil
     /// A thought's header: "Thinking…", "Thought for 12s"; nil on every other row.
     var thought: String? = nil
+    /// What a message's action row offers beyond Copy; nil on every other row.
+    var actions: MessageActionsLine? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
@@ -116,9 +184,23 @@ struct BubbleLine: Codable, Sendable, Equatable {
         /// A mention's catalog kind; empty for words and code.
         let mention: String
     }
+    /// A passage of an agent's message this one replies to, drawn above the words.
+    struct Quote: Codable, Sendable, Equatable { let text: String }
     let segments: [Segment]
+    /// Absent from older bridges.
+    var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
+    /// How many lines a long bubble shows folded; absent from older bridges (ten).
+    var fold: Int? = nil
+    /// The markdown the bubble renders instead of its runs, every line break kept as a hard
+    /// break; empty (or absent from older bridges) when it draws its runs.
+    var markdown: String? = nil
+    /// The words as written, for Copy, Select text and Share; empty for a message with mentions
+    /// (it copies its runs) and absent from older bridges.
+    var source: String? = nil
+    /// The words ran past what the row carries: the menu reads them whole (`readBubble`).
+    var cut: Bool? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
@@ -152,11 +234,23 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var plan: PlanRequest? = nil
     var form: FormRequest? = nil
     var help: HelpRequest? = nil
+    /// The request as its strip above the composer says it (`StripLine`); nil from older bridges.
+    var strip: StripLineRow? = nil
+    /// Why only declines are offered: the daemon sent a summary, too large to review on the
+    /// phone (ADR 0157); "" or nil when the request came whole.
+    var summarized: String? = nil
+    var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
     /// The shared unsent wording ("Sends on reconnect", "Not sent") and its colour token.
     let label: String?; let token: String?
+    /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
+    var detail: String? = nil; var files: Int? = nil
+    /// What runs on the send now ("editing", "retrying"): the other control waits for it.
+    var busy: String? = nil
+    /// A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered.
+    var fenced: Bool? = nil
 }
 /// A status the bridge has already worded; Swift only maps `token` to a theme colour.
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
@@ -170,6 +264,11 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var order: Int? = nil
         /// Threads in the section, loaded or not: Settled counts the daemon's older pages too.
         var total: Int? = nil
+        /// Chats only: the section's rows are settled and draw dimmed.
+        var settled: Bool? = nil
+        /// The Threads tab that lists the section ("inbox", "snoozed", "settled"); nil from older
+        /// bridges and checkpoints, which `tabs` places instead.
+        var tab: String? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
@@ -183,7 +282,47 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// older bridges.
     var sortBy: String? = nil
     var sorts: [SortOption]? = nil
+    /// The words for each row's `menu` ids (`threadMenuLabels`).
+    var menuLabels: [String: String]? = nil
+    var menuSections: [String: String]? = nil
+    /// The Threads panel's tabs as the daemon placed them (Inbox, Snoozed, Settled thread ids in
+    /// order); nil from older bridges and older checkpoints, which `sections` still draw.
+    struct Tabs: Codable, Sendable, Equatable { let inbox: [String]; let snoozed: [String]; let settled: [String] }
+    var tabs: Tabs? = nil
+    /// The machine's rail dots, as its daemon sent them; nil from older daemons and bridges.
+    struct PlaceAttention: Codable, Sendable, Equatable { let needsYou: Int; let unread: Int }
+    struct Attention: Codable, Sendable, Equatable { let threads: PlaceAttention; let chats: PlaceAttention }
+    var attention: Attention? = nil
+    /// Each Threads tab's words, in order (label, whether its count shows, what it says empty);
+    /// nil from older bridges and the Chats layout. The lists are `tabs`, as the daemon placed them.
+    struct TabWords: Codable, Sendable, Identifiable, Equatable {
+        let id: String; let label: String; let empty: String
+        var counted: Bool? = nil
+        var emptyLine: String? = nil
+        /// What the compose button starts on this tab: "thread", or "chat" on Chats.
+        var compose: String? = nil
+    }
+    var tabWords: [TabWords]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
+}
+
+/// Evidence for an item removal carried alongside a null row. `seq` is the
+/// item's last known creation sequence (from `TranscriptRow.creationSeq` or the
+/// bridge's ledger); `reason` is `"deleted"` for an explicit canonical deletion
+/// (`store.deleted(id)`) or `"evicted"` when the item left the window/tail but
+/// was not deleted. Nil when the bridge cannot tell (older bridges, ledger
+/// removals without store access): viewport treats unknown conservatively and
+/// uses `creationSeq` plus history range metadata to decide.
+struct ItemRemoval: Codable, Sendable, Equatable {
+    var seq: Int? = nil
+    var reason: String? = nil
+}
+/// A bounded log entry for an item that left the visible order, so the viewport
+/// can choose a deletion successor without inferring it from list edges.
+struct ThreadItemRemoval: Sendable, Equatable {
+    let id: String
+    let seq: Int?
+    let reason: String?
 }
 
 enum BridgePatch: Decodable, Sendable {
@@ -193,21 +332,38 @@ enum BridgePatch: Decodable, Sendable {
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
     case inboxReset([String]?)
     case inbox(String, ThreadRow?)
-    case threadReset(String, Int)
+    /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
+    case needs(String, InboxNeeds)
+    /// The agent's last words for the needs-you run's page of a thread.
+    case needsWords(String, String)
+    case threadReset(String, Int, Int?, Int?)
     case position(String, Int, String, Int?)
-    case item(String, Int, String, TranscriptRow?)
+    case item(String, Int, String, TranscriptRow?, ItemRemoval?)
     /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
-    case itemText(String, Int, String, TextEdit, TranscriptRow)
+    case itemText(String, Int, String, TextEdit, TranscriptRow?)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
-    case ready(String, Int, Int)
-    case connection(String, Int?)
+    case ready(String, Int, Int, Int?)
+    /// A warm whole-thread pass began: like `threadReset` but native keeps showing
+    /// its copy until `thread.ready` with the same revision commits. Cold opens use
+    /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
+    case snapshotBegin(String, Int, Int, Int?)
+    /// The state, the inbox's confirmation generation, and the daemon socket while ready (a
+    /// number that changes with every reconnect, `ClientCore.connectionGeneration`).
+    case connection(String, Int?, socket: Int?)
+    /// A connection drop or recovery as the client reported it, for the device log.
+    case connectionEvent(String)
     case pending(String, PendingRow?)
     case error(String)
     case receipt(String, Bool, String)
     case admission(String, Bool, String)
+    /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
+    /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
+    case words(String, Bool, String?, String, Int?)
+    /// The machine's last answer to a bulk action whose first answer left threads waiting.
+    case bulkFinal(String, BulkOutcome)
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
@@ -215,31 +371,57 @@ enum BridgePatch: Decodable, Sendable {
     case models(String, Int, ThreadModels)
     case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
+    /// The Chats tab's sections, in the inbox layout's shape (`chats.sections`).
+    case chatSections(InboxLayout)
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
+    /// The chats this machine's runtime keeps on the phone (`bridge/chat-cache.ts`).
+    case cacheUsage(CacheUsage)
+    case machineAdmission(MachineAdmissionInfo)
+    case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
-    /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
-    case machineIdentity(String)
+    /// The mark this runtime's machine chose, its own id and the paths it serves
+    /// (`bridge/machine-identity.ts`).
+    case machineIdentity(MachineIdentityPatch)
+    /// An account machine asks for its machine code: `machine_code_required`, `_wrong` or `_locked`; nil once answered.
+    case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
+    /// The thread's Summary (`bridge/thread-summary.ts`).
+    case summary(String, Int, ThreadSummarySheet)
+    /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
+    case logs(String, Int, LogsSheet)
+    case logsCopy(String, String)
     case changesSummary(String, Int, ChangesSummary)
-    case changesFile(String, Int, String, FileDiff)
+    case changes(String, Int, ChangesPatch)
     case gitResult(String, Bool, String)
     case gitDraft(GitDraft)
+    case workSummary(String, Int, WorkSummary)
+    case workBranches(String, Int, WorkBranches)
+    case workResult(WorkResult)
     case archiveList(ArchiveList)
     /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
     case compose(ComposePatch)
+    /// The composer's `@`, `/` and + lists (`Models/ComposerSuggestions.swift`).
+    case composer(ComposerSuggestPatch)
     case files(FilesPatch)
     /// Continue on… and Open on… (`bridge/transfers.ts`).
     case transfers(TransfersPatch)
+    /// A thread's side panel on iPad (`bridge/workspace.ts`).
+    case workspace(PanelView)
     /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
     case screen(String, Int, ScreenPatch)
     /// The thread's live browser view (`bridge/browser-live.ts`).
     case browser(BrowserPatch)
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
+    case computerAccess(ComputerAccessModel.State)
+    /// Outside apps' sign-ins and screen use on this machine (`bridge/outside-clients.ts`).
+    case outside(OutsideClientsModel.State)
+    /// Spade on this machine (`bridge/spade.ts`).
+    case spade(SpadeModel.Patch)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
@@ -248,7 +430,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -264,30 +446,51 @@ enum BridgePatch: Decodable, Sendable {
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
-        case "thread.reset": let (id, epoch) = try scope(); self = .threadReset(id, epoch)
+        case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
+        case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))
+        case "thread.reset":
+            let (id, epoch) = try scope()
+            self = .threadReset(id, epoch, try box.decodeIfPresent(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
         case "thread.position":
             let (id, epoch) = try scope()
             self = .position(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Int.self, forKey: .index))
         case "thread.item":
             let (id, epoch) = try scope()
-            self = .item(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
+            let row = try box.decodeIfPresent(TranscriptRow.self, forKey: .row)
+            let seq = try box.decodeIfPresent(Int.self, forKey: .seq)
+            let reason = try box.decodeIfPresent(String.self, forKey: .reason)
+            let removal: ItemRemoval? = row == nil && (seq != nil || reason != nil) ? ItemRemoval(seq: seq, reason: reason) : nil
+            self = .item(id, epoch, try box.decode(String.self, forKey: .id), row, removal)
         case "thread.item.text":
             let (id, epoch) = try scope()
             let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
                                 append: try box.decode(String.self, forKey: .append))
             guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
-            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()
             self = .interaction(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ApprovalRow.self, forKey: .row))
         case "thread.cursor": let (id, epoch) = try scope(); self = .cursor(id, epoch, try box.decode(Int.self, forKey: .cursor))
-        case "thread.ready": let (id, epoch) = try scope(); self = .ready(id, epoch, try box.decode(Int.self, forKey: .count))
-        case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
+        case "thread.ready":
+            let (id, epoch) = try scope()
+            self = .ready(id, epoch, try box.decode(Int.self, forKey: .count), try box.decodeIfPresent(Int.self, forKey: .revision))
+        case "thread.snapshot.begin":
+            let (id, epoch) = try scope()
+            self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
+        case "connection.event": self = .connectionEvent(try box.decode(String.self, forKey: .text))
+        case "connection":
+            self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation),
+                               socket: try box.decodeIfPresent(Int.self, forKey: .socket))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "words":
+            let ok = try box.decode(Bool.self, forKey: .ok)
+            self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
+                          try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "inbox.bulk.final": self = .bulkFinal(try box.decode(String.self, forKey: .id), try box.decode(BulkOutcome.self, forKey: .outcome))
         case "thread.block":
             let (id, epoch) = try scope()
             self = .block(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(BlockRow.self, forKey: .row))
@@ -304,31 +507,69 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .models(id, epoch, try ThreadModels(from: decoder))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
+        case "chats.sections": self = .chatSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
+        case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))
+        case "machine.admission": self = .machineAdmission(try MachineAdmissionInfo(from: decoder))
+        case "machine.appUpdate": self = .machineAppUpdate(try MachineAppUpdateInfo(from: decoder))
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
-        case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
+        case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
+        case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
+                                                    lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
+        case let kind where kind.hasPrefix("composer."): self = .composer(try ComposerSuggestPatch(from: decoder))
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "thread.summary": let (id, epoch) = try scope(); self = .summary(id, epoch, try box.decode(ThreadSummarySheet.self, forKey: .sheet))
+        case "logs.sheet": let (id, epoch) = try scope(); self = .logs(id, epoch, try LogsSheet(from: decoder))
+        case "logs.copy": self = .logsCopy(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .text))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
-        case "changes.file":
+        case let kind where ChangesPatch.types.contains(kind):
             let (id, epoch) = try scope()
-            self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
+            self = .changes(id, epoch, try ChangesPatch(type: kind, from: decoder))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
+        case "work.summary": let (id, epoch) = try scope(); self = .workSummary(id, epoch, try WorkSummary(from: decoder))
+        case "work.branches": let (id, epoch) = try scope(); self = .workBranches(id, epoch, try WorkBranches(from: decoder))
+        case "work.result": self = .workResult(try WorkResult(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
+        case "workspace": self = .workspace(try box.decode(PanelView.self, forKey: .view))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
+        case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))
+        case "outside.state": self = .outside(try OutsideClientsModel.State(from: decoder))
+        case let kind where SpadeModel.Patch.types.contains(kind): self = .spade(try SpadeModel.Patch(type: kind, from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }
+}
+
+/// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
+/// own id, the paths it serves and its own name (absent from older daemons and bridges).
+struct MachineIdentityPatch: Decodable, Equatable, Sendable {
+    let glyph: String
+    let hostId: String?
+    let paths: [MachinePath]?
+    /// The name the machine gives itself (`host.displayName`), set from any device.
+    let name: String?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil, name: String? = nil) {
+        self.glyph = glyph; self.hostId = hostId; self.paths = paths; self.name = name
+    }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        glyph = try box.decode(String.self, forKey: .glyph)
+        hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
+        paths = MachinePath.lenient(box, forKey: .paths)
+        name = (try? box.decodeIfPresent(String.self, forKey: .name)).flatMap { $0 }
+    }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths, name }
 }

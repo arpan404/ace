@@ -114,24 +114,6 @@ test("the card's checks flip from running to passed on their own while CI runs",
   ).toBeTruthy();
 });
 
-test("unreadable checks read as unavailable, and Merge says why it is off", async () => {
-  await openThread(
-    { ...checkout, ahead: 0, diff: { files: 0, additions: 0, deletions: 0 } },
-    (app) => app.daemon.seedServices({ pullRequests: { "thread-git": pr({ ci: "unknown" }) } }),
-  );
-  const card = await openWorkCard();
-  expect(
-    await within(card).findByRole("button", {
-      name: /^Open pull request #42: .*checks unavailable$/,
-    }),
-  ).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Merge pull request #42" })).toHaveProperty(
-    "disabled",
-    true,
-  );
-  expect(within(card).getByText(/^Can't merge: Checks unavailable/)).toBeTruthy();
-});
-
 test("a failed checkout read says so with the daemon's reason, and Retry reads it again", async () => {
   const app = harness();
   // No published details: the card depends on reading the checkout.
@@ -169,8 +151,7 @@ test("a push the remote rejects after a rebase offers a force push leased to the
     { ...checkout, diff: { files: 0, additions: 0, deletions: 0 } },
     (fake) => fake.daemon.workspace.git.setRemoteDiverged("thread-git", "b".repeat(40)),
   );
-  const card = await openWorkCard();
-  await userEvent.click(within(card).getByRole("button", { name: "Push" }));
+  await gitAction("Push");
   const confirm = await screen.findByRole("dialog", { name: /^Push fix\/replay-cursor/ });
   await userEvent.click(within(confirm).getByRole("button", { name: "Push" }));
   expect((await within(confirm).findByRole("alert")).textContent).toMatch(

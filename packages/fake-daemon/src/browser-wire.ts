@@ -1,4 +1,5 @@
 import { BrowserOriginError } from "@ace/browser/policy";
+import { encodeDownloadChunk } from "@ace/browser/stream";
 import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import { fakeScreenshotSet } from "./browser-captures.ts";
@@ -15,6 +16,13 @@ export function fakeBrowserSession(
   send: (message: ServerMessage) => void,
   connectionId: string,
   binary?: (bytes: Uint8Array) => void,
+  options: {
+    /**
+     * The thread's engine choice, as the daemon's `backendPreference` reads it (a thread-layer
+     * `browser.backend` over the default). Omitted: the fixture's historical default.
+     */
+    backendPreference?: (threadId: string) => "auto" | "embedded" | "headless";
+  } = {},
 ) {
   const recording = new Set<string>();
   let streamIds = 0;
@@ -147,13 +155,31 @@ export function fakeBrowserSession(
             await download.done;
             progress("ready", download.total);
           }
-          if (!browser.view(id) || browser.view(id)?.closed)
-            browser.drive(id, {
-              url: "about:blank",
-              backend: message.options.background ? "headless" : "embedded",
-            });
+          if (!browser.view(id) || browser.view(id)?.closed) {
+            // As the daemon's `backendCandidates`: an explicit engine wins, otherwise the
+            // fixture's historical default (its embedded stand-in for the desktop's view).
+            const preference = options.backendPreference?.(id) ?? "auto";
+            if (preference === "embedded" && !browser.desktop)
+              throw new Error("Desktop browser backend unavailable");
+            const backend =
+              preference === "headless" ||
+              !browser.desktop ||
+              (preference === "auto" && message.options.background)
+                ? "headless"
+                : "embedded";
+            browser.drive(id, { url: "about:blank", backend });
+          }
           browser.reopen(id);
-          result = BrowserState.parse(browser.view(id));
+          const opened = BrowserState.parse(browser.view(id));
+          // As the daemon: which engines can open now.
+          result = {
+            ...opened,
+            features: [
+              ...(opened.features ?? []),
+              "engines",
+              ...(browser.desktop ? ["embedded-engine"] : []),
+            ],
+          };
           break;
         }
         case "browser.close":
@@ -240,6 +266,7 @@ export function fakeBrowserSession(
           else if (command.action === "pdf")
             result = { path: "/fixture/page.pdf", mimeType: "application/pdf", bytes: 1024 };
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
+          else if (command.action === "extensions") result = { extensions: browser.extensions };
           else if (command.action === "screenshot" && command.sizes) {
             browser.sizedCaptures.push({ threadId: id, tabId, sizes: command.sizes });
             result = fakeScreenshotSet(id, command.sizes);
@@ -343,12 +370,36 @@ export function fakeBrowserSession(
           }
           break;
         }
+        case "browser.download.read": {
+          const bytes = browser.downloadBytes.get(`${id}\u0000${message.downloadId}`);
+          if (!bytes || !binary) throw new Error("download_not_found");
+          const chunk = bytes.subarray(message.offset, message.offset + message.length);
+          for (const piece of encodeDownloadChunk(++streamIds, {
+            threadId: id,
+            downloadId: message.downloadId,
+            offset: message.offset,
+            size: bytes.length,
+            bytes: chunk,
+          }))
+            binary(piece);
+          result = {
+            downloadId: message.downloadId,
+            offset: message.offset,
+            bytes: chunk.length,
+            size: bytes.length,
+            validator: `fake-${bytes.length}`,
+            done: message.offset + chunk.length >= bytes.length,
+          };
+          break;
+        }
         case "browser.recording.start":
           if (browser.tab(id)?.private) throw new Error("human_private");
           recording.add(id);
+          browser.setRecording(id, true);
           break;
         case "browser.recording.stop": {
           if (!recording.delete(id)) throw new Error("No browser recording");
+          browser.setRecording(id, false);
           result = { path: `/fake/browser/${id}/player.html`, mimeType: "text/html", bytes: 128 };
           break;
         }

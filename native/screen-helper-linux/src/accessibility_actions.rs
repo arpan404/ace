@@ -1,5 +1,5 @@
 use crate::{
-    accessibility::{Accessibility, Bounds, semantic},
+    accessibility::{Accessibility, semantic},
     protocol::{Fault, Result, internal},
 };
 impl Accessibility {
@@ -15,7 +15,7 @@ impl Accessibility {
         reference: &str,
         action: &str,
         value: Option<&str>,
-    ) -> Result<Option<Bounds>> {
+    ) -> Result<()> {
         let object = self
             .refs
             .get(reference)
@@ -71,11 +71,10 @@ impl Accessibility {
                 .await
                 .map_err(internal)?
             }
-            "press" | "focus" => return Ok(Some(node.bounds)),
             _ => {
                 return Err(Fault::new(
                     "not_supported",
-                    "Semantic action is unsupported; no safe pointer equivalent",
+                    "The element does not offer this action, and Wayland lets ace send no pointer input",
                 ));
             }
         };
@@ -85,7 +84,7 @@ impl Accessibility {
                 "Application rejected semantic action",
             ));
         }
-        Ok(None)
+        Ok(())
     }
     pub async fn type_text(&mut self, text: &str) -> Result<()> {
         let root = self

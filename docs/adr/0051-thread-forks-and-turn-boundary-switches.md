@@ -237,3 +237,32 @@ Decisions:
   them. The iOS transcript leaves the block out until it has a native divider.
 - **Source side.** A fork an agent made with `thread_fork` reads in the source as one quiet
   "Forked to <title>" line, not an agent row.
+
+## Amendment 2026-10-27: switching away from blocked execution
+
+A normal switch still waits for provider-owned foreground and background work. Independently
+delegated threads and ace-owned tasks do not belong to the provider process, so they do not
+prevent its root from switching between turns.
+
+When quota blocks any branch, an explicit replacement provider, account or model may retire
+the source provider session instead of waiting for that blocked tree to become idle. Destination
+selection and bounded recovery context are validated before closing the source. A durable
+recovery record carries unfinished native work and independent child identities with the next
+input, including after restart. An unconfirmed source shutdown prevents the switch. This does
+not bypass uncertain delivery or replay an input whose consumption was acknowledged.
+
+Limited delegated children that have not been manually paused or stopped receive durable
+switch and continuation commands for the same destination. The parent selection and child
+admissions commit together; replay uses stable command receipts. Working children keep their
+provider session and task identity. Each recovering child handles its own limited descendants.
+No switch implies successful completion of interrupted tools or native subagents.
+
+Stop cancels execution and earlier resume requests, but retains a queued replacement selection.
+Its stopped queue remains held after that selection applies. Explicit Stop clears the stopped
+execution's quota hold and cancels its timer; account quota evidence is unchanged. Startup and
+liveness reconciliation repair older stopped queues that retained an execution quota badge.
+
+Quota recovery controls act on the root's own hold. Aggregated child limits remain visible in
+the agent tree and cannot label the destination provider as exhausted or supply a reset for
+the root's account. Presentation distinguishes active execution from agents waiting on quota,
+children or a person. The model picker labels pending and failed switches explicitly.

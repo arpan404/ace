@@ -1,12 +1,13 @@
 # Incremental typechecking
 
-`bun run typecheck` runs [tsc-rs](https://github.com/pingdotgg/ts-rust) (pinned in
+`bun run typecheck` runs [tsrs](https://github.com/oxc-project/tsrs) (pinned in
 `package.json`), a Rust port of the TypeScript 7.1 native compiler that takes the same
-options as `tsc`, with at most two project builders and one checker per project. The
+options as `tsc`, with at most two project builders and one checker per project, plus
+tsrs's `--fast` preset (verified to report identical diagnostics). The
 `typescript` package still supplies the config API (`typescript/unstable/sync`), which
 runs with `GOMAXPROCS=2`, and editors. The config API and the two build stages run
 sequentially, so there is at most one compiler process at a time. On 4 cores a cold run
-takes about 2.5 minutes with tsc-rs (4 minutes with tsc 7.0.2); a cached run takes 1-2 s.
+takes about 2.5 minutes with tsrs (4 minutes with tsc 7.0.2); a cached run takes 1-2 s.
 
 The code also passes tsc 7.0.2, so editors on the `typescript` package agree with it.
 Avoid `z.json()`: TypeScript 7.1 reports its recursive type as infinitely circular

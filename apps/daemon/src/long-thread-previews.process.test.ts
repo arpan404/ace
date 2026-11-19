@@ -161,3 +161,39 @@ test("late deletion changes only the original turn while the next root run is ac
     outcome: "active",
   });
 });
+
+const textDelta = (itemId: string, append: string) => ({
+  type: "item.delta" as const,
+  agentId: root,
+  itemId: ItemId.parse(itemId),
+  field: "text" as const,
+  append,
+});
+test("a streamed answer's preview stops at 1,024 characters and stays the turn's latest", async () => {
+  const f = storeFixture();
+  start(f.store, f.thread, "run", 10);
+  f.store.appendEvents(
+    f.thread.id,
+    [
+      { type: "item.created", item: agentMessage("answer", "a", "run") },
+      textDelta("answer", "b".repeat(1000)),
+      textDelta("answer", "c".repeat(100)),
+      textDelta("answer", "d".repeat(100)),
+    ],
+    20,
+  );
+  const full = "a" + "b".repeat(1000) + "c".repeat(23);
+  expect(turns(f.store, f.thread).turns[0]).toMatchObject({ latestAgentMessagePreview: full });
+  f.store.appendEvents(
+    f.thread.id,
+    [
+      { type: "item.created", item: agentMessage("later", "Later answer", "run") },
+      { type: "item.deleted", itemId: ItemId.parse("later") },
+      textDelta("answer", "e".repeat(10)),
+    ],
+    30,
+  );
+  expect(turns(f.store, f.thread).turns[0]).toMatchObject({ latestAgentMessagePreview: full });
+  await f.restart();
+  expect(turns(f.store, f.thread).turns[0]).toMatchObject({ latestAgentMessagePreview: full });
+});

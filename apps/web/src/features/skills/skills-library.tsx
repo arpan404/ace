@@ -1,4 +1,4 @@
-import { useClient, useConnectionState } from "@ace/client-react";
+import { useClient, useConnectionGeneration, useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type SkillEntry } from "@ace/protocol";
 import {
   createContext,
@@ -37,6 +37,8 @@ export const useSkillLibrary = () => useContext(LibraryContext);
 export function SkillsLibraryProvider({ children }: { children: ReactNode }) {
   const client = useClient();
   const connection = useConnectionState();
+  // The list subscription ends with the daemon socket; a move to another path renews it.
+  const socket = useConnectionGeneration();
   const directory = useProjectDirectory();
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState("");
@@ -62,7 +64,9 @@ export function SkillsLibraryProvider({ children }: { children: ReactNode }) {
       (entries) => setSnapshot({ key, entries, failed: false }),
       () => setSnapshot({ key, entries: [], failed: true }),
     );
-  }, [client, ready, workspaceId, key]);
+    // `socket` renews the list's subscription after a move to another path.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [client, ready, socket, workspaceId, key]);
   // A project switch keeps the last list on screen until the new one arrives.
   const current = snapshot?.key === key ? snapshot : undefined;
   const retry = useCallback(() => setRevision((value) => value + 1), []);

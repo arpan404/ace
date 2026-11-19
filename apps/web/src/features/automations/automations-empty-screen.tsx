@@ -1,4 +1,4 @@
-import { ClockIcon } from "@phosphor-icons/react";
+import { TimerIcon } from "@ace/icons";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -18,6 +18,7 @@ export function AutomationsEmptyScreen() {
     return (
       <ViewListPage
         title="Automations"
+        page="automations"
         fallback={
           <Navigate
             to="/automations/$automationId"
@@ -29,9 +30,9 @@ export function AutomationsEmptyScreen() {
     );
   if (list.isError && !list.data)
     return (
-      <Screen title="Automations">
+      <Screen page="automations" title="Automations" namedByPanel>
         <EmptyState
-          icon={ClockIcon}
+          icon={TimerIcon}
           title="Automations unavailable"
           description={describeDaemonError(daemonErrorCode(list.error))}
           action={
@@ -43,11 +44,16 @@ export function AutomationsEmptyScreen() {
       </Screen>
     );
   // Until the list arrives there's nothing to say: the sidebar shows its skeleton.
-  if (!list.data) return <Screen title="Automations">{null}</Screen>;
+  if (!list.data)
+    return (
+      <Screen page="automations" title="Automations" namedByPanel>
+        {null}
+      </Screen>
+    );
   return (
-    <Screen title="Automations">
+    <Screen page="automations" title="Automations" namedByPanel>
       <EmptyState
-        icon={ClockIcon}
+        icon={TimerIcon}
         heading
         title="No automations yet"
         description="Run a prompt on a schedule, when a pull request changes, or when files change."

@@ -7,6 +7,7 @@
 export {
   ClientMessage,
   ItemsWindowRequest,
+  ItemsWindowResponse,
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
   ThreadSearchRequest,

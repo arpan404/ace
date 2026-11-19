@@ -1,0 +1,364 @@
+---
+/*
+ * An inner page's story: a drawing that stays in view while its steps scroll past, one caption
+ * at a time. The drawing goes in the `art` slot and changes with the step the reader is on: the
+ * root carries `data-step` (0, 1, 2…), so the art's own styles can answer it, and fires a
+ * `scrollstory:step` event for a script that wants to act. On a wide screen the steps run down
+ * the left and the drawing holds on the right; on a narrow one the drawing holds at the top.
+ * Without the script every step shows and the drawing stays on its first.
+ *
+ * Given an `index` (its name for assistive technology), the story is a tour: each step is a
+ * name, a sentence and a link, and a list of the step names lets a reader jump to one. It
+ * stands in its own column on a wide screen and runs as a row under the drawing on a narrower
+ * one. Without the script a tour is that ruled list of steps in a card, and the drawing is left
+ * out.
+ */
+import type { StoryStep } from "../../scripts/feature-tour.ts";
+
+interface Props {
+  steps: (StoryStep & { href?: string })[];
+  /** Names the story for assistive technology. */
+  label: string;
+  /** Makes the story a tour with an index of its steps, named this. */
+  index?: string | undefined;
+}
+
+const { steps, label, index } = Astro.props;
+const tour = index !== undefined;
+const anchor = (step: StoryStep, at: number) => step.id ?? `step-${at + 1}`;
+---
+
+<section
+  class:list={["page story", { tour }]}
+  data-scroll-story
+  data-step="0"
+  aria-label={label}
+>
+  <ol class:list={["steps", { card: tour }]}>
+    {
+      steps.map((step, index) => (
+        <li class:list={{ on: index === 0 }} id={tour ? anchor(step, index) : undefined} data-scroll-step={index}>
+          {!tour && (
+            <span class="ticks" aria-hidden="true">
+              {steps.map((_, at) => (
+                <i class:list={{ on: at === index }} />
+              ))}
+            </span>
+          )}
+          <h2>{step.title}</h2>
+          <p>
+            {step.body} {step.href && <a href={step.href}>More</a>}
+          </p>
+          {step.link && (
+            <a class="text-link more" href={step.link.href} aria-label={`${step.link.name}: ${step.link.label}`}>
+              {step.link.label}
+            </a>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+  <div class="pin">
+    <div class="art" aria-hidden="true">
+      <slot name="art" />
+    </div>
+    {
+      tour && (
+        <nav class="index" aria-label={index}>
+          <ol data-scroll-index>
+            {steps.map((step, at) => (
+              <li>
+                <a href={`#${anchor(step, at)}`} aria-current={at === 0 ? "step" : undefined} data-scroll-jump={at}>
+                  {step.title}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )
+    }
+  </div>
+</section>
+
+<style>
+  .story {
+    /* How far the stage reaches past the text column to the viewport's edge on its side. */
+    --bleed: calc(
+      (min(var(--viewport, 100vw), var(--page) + var(--gutter) * 2) - var(--viewport, 100vw)) / 2 -
+        var(--gutter)
+    );
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0 clamp(32px, 6vw, 88px);
+    margin-top: var(--section);
+  }
+
+  /*
+   * The stage holds while the steps pass. On a phone it is the top of the screen, edge to edge,
+   * and the steps scroll under it; from tablet width up it is its whole side of the screen, top
+   * to bottom, reaching the viewport's edge.
+   */
+  .pin {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    order: -1;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    height: min(56svh, 560px);
+    margin-inline: calc(var(--gutter) * -1);
+    background: var(--background);
+  }
+
+  .art {
+    display: grid;
+    place-items: center;
+    min-height: 0;
+  }
+
+  .steps li {
+    display: grid;
+    align-content: center;
+    min-height: 52svh;
+    padding-block: 24px;
+    opacity: 0.3;
+    transition: opacity 0.4s var(--ease-out);
+  }
+
+  .steps li.on {
+    opacity: 1;
+  }
+
+  /* Without the script nothing is dimmed and the steps close up. */
+  .story:not([data-live]) .steps li {
+    min-height: 0;
+    opacity: 1;
+  }
+
+  .story:not([data-live]) .pin {
+    position: static;
+    height: auto;
+  }
+
+  @media (min-width: 900px) {
+    .story {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    }
+
+    .pin {
+      order: 0;
+      align-self: start;
+      height: 100vh;
+      height: 100svh;
+      margin-inline: 0 var(--bleed);
+      background: none;
+    }
+
+    /* Room after the last step, so the stage stays pinned while that step is current. */
+    .steps {
+      padding-bottom: 8svh;
+    }
+
+    .steps li {
+      min-height: 86svh;
+    }
+  }
+
+  .ticks {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+
+  .ticks i {
+    width: 22px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border-strong);
+  }
+
+  .ticks .on {
+    background: var(--foreground);
+  }
+
+  h2 {
+    max-width: 14em;
+    font-size: clamp(28px, 3.6vw, 48px);
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+
+  p {
+    margin-top: 14px;
+    max-width: 32em;
+    color: var(--muted);
+    font-size: clamp(15px, 1.3vw, 18px);
+    line-height: 1.5;
+  }
+
+  p a {
+    color: var(--foreground);
+    text-underline-offset: 3px;
+  }
+
+  .more {
+    justify-self: start;
+    margin-top: 18px;
+    font-size: 15px;
+  }
+
+  /* A tour without the script: its steps as ruled rows in a card, and no stage. */
+  .tour:not([data-live]) .pin {
+    display: none;
+  }
+
+  .tour:not([data-live]) .steps {
+    padding: 6px;
+  }
+
+  .tour:not([data-live]) .steps li {
+    gap: 3px;
+    padding: 14px 14px 15px;
+  }
+
+  .tour:not([data-live]) .steps li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .tour:not([data-live]) h2 {
+    font-size: 19px;
+    letter-spacing: -0.02em;
+  }
+
+  .tour:not([data-live]) p {
+    margin-top: 0;
+    font-size: 15px;
+  }
+
+  .tour:not([data-live]) .more {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+
+  /* With the script a tour's steps are bare on the page; the card was for the list alone. */
+  .tour[data-live] .steps {
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  /* The index: a row of the step names under the stage, scrolling sideways without a bar. */
+  .index ol {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 6px calc(var(--gutter) - 6px);
+    border-top: 1px solid var(--border);
+    scrollbar-width: none;
+  }
+
+  .index ol::-webkit-scrollbar {
+    display: none;
+  }
+
+  .index li {
+    flex: none;
+  }
+
+  /* The current name is marked as the app marks a selected row: full ink on the active wash. */
+  .index a {
+    display: block;
+    padding: 7px 10px;
+    border-radius: 8px;
+    color: var(--subtle);
+    font-size: 14px;
+    white-space: nowrap;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  .index a:hover {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  .index a[aria-current] {
+    background: var(--active);
+    color: var(--foreground);
+    font-weight: 500;
+  }
+
+  @media (min-width: 900px) {
+    .index ol {
+      padding-inline: 0;
+    }
+  }
+
+  /* On a wide screen the index is a list in its own column, beside the steps. */
+  @media (min-width: 1200px) {
+    .tour {
+      grid-template-columns: 168px minmax(0, 4fr) minmax(0, 7fr);
+      gap: 0 48px;
+    }
+
+    .tour .pin {
+      display: contents;
+    }
+
+    .tour .art {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      grid-area: 1 / 3;
+      align-self: start;
+      height: 100vh;
+      height: 100svh;
+      margin-right: var(--bleed);
+    }
+
+    .tour .steps {
+      grid-area: 1 / 2;
+    }
+
+    /* A track as tall as the screen, held like the stage, with the list centred in it: it starts
+       in the story's own row, so it never rises over what comes before the story. */
+    .tour .index {
+      position: sticky;
+      top: 0;
+      grid-area: 1 / 1;
+      align-self: start;
+      display: grid;
+      align-content: center;
+      height: 100vh;
+      height: 100svh;
+    }
+
+    .index ol {
+      display: grid;
+      padding: 0;
+      overflow: visible;
+      border-top: 0;
+    }
+
+    .index a {
+      padding: 8px 12px;
+      white-space: normal;
+      line-height: 1.3;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .steps li {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  import { startScrollStory } from "../../scripts/scroll-story.ts";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-scroll-story]")) startScrollStory(root);
+</script>

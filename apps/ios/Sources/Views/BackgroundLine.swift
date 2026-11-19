@@ -1,27 +1,30 @@
 import SwiftUI
 
 /// A command the agent left running, where it started in the work log: "Running in background"
-/// with Stop at the right, the command in mono under it with how long it has run. The line
-/// changes when the daemon reports the task ended, not when Stop is pressed.
+/// with Stop at the right, the command in mono under it with how long it has run. While the strip
+/// above the composer offers Stop for it, the line is quiet and has none (one place per state).
+/// The line changes when the daemon reports the task ended, not when Stop is pressed.
 struct BackgroundLine: View {
     let line: BlockRow.Background
     @Environment(\.stopBackground) private var stopBackground
+    @Environment(\.stripTasks) private var stripTasks
     @State private var stopping = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-                AceIcon(.terminal, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(minWidth: AceTheme.Spacing.xl).accessibilityHidden(true)
+            HStack(spacing: AceDesign.Space.related) {
+                // The strip's own terminal glyph, quiet here.
+                RowStatusIcon(kind: "background", tone: "idle")
+                    .frame(minWidth: AceDesign.Size.lead).accessibilityHidden(true)
                 Text(line.label).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if line.running, line.stoppable, let stopBackground {
+                Spacer(minLength: AceDesign.Space.related)
+                if line.running, line.stoppable, !stripTasks.contains(line.taskId), let stopBackground {
                     Button {
                         stopping = true
                         stopBackground(line.taskId)
                     } label: {
-                        AceIcon(.stop, size: 14, relativeTo: .footnote)
+                        AceIcon(.stop, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md)
+                            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -30,21 +33,21 @@ struct BackgroundLine: View {
                     .accessibilityIdentifier("background.stop.\(line.taskId)")
                 }
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 // The command, drawn as the work log's target chips are.
                 Text(line.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
-                    .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+                    .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
             }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+        .frame(minHeight: AceDesign.Size.tap, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("background.\(line.taskId)")
     }
@@ -67,17 +70,22 @@ struct BackgroundLine: View {
 /// Commands a log's calls left running, as a step of the log where they started: one task's
 /// line, or several started back to back as one group ("2 background tasks · 1 running") whose
 /// running lines stay in view, Stop and all; the ended ones open from the group. The rows
-/// update in place as the tasks end; they never move.
+/// update in place as the tasks end; they never move. While any of them runs, every running one
+/// is a command the pill counts, and the pill over the composer names commands, the pill says it
+/// (its Agents sheet has Stop) and the step waits here until they have all ended (`ThreadFoot`).
 struct BackgroundStep: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
+    @Environment(\.pillNames) private var pillNames
     private var key: String { "group:\(row.id)" }
     var body: some View {
+        let lines = (row.items ?? []).compactMap { source.background[$0] }
+        if pillNames.transcriptShows(.commands, live: BlockRow.Background.leaveToPill(lines)) { step(lines) }
+    }
+    private func step(_ lines: [BlockRow.Background]) -> some View {
         let items = row.items ?? []
-        let lines = items.compactMap { source.background[$0] }
         let running = Set(row.runningIds ?? [])
-        Group {
+        return Group {
             if items.count == 1, let line = lines.first {
                 BackgroundLine(line: line)
             } else {
@@ -85,12 +93,12 @@ struct BackgroundStep: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     let listed = row.listed ?? []
                     if listed.isEmpty {
-                        LogRowBox { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                        LogRowBox { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                     } else {
                         Button {
-                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { source.thread.disclosures.toggle(key) }
+                            withAnimation { source.thread.disclosures.toggle(key) }
                         } label: {
-                            LogRowBox(open: open) { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                            LogRowBox(open: open) { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                         }
                         .buttonStyle(.plain)
                         .accessibilityValue(open ? "Expanded" : "Collapsed")
@@ -120,4 +128,9 @@ struct BackgroundStep: View {
 extension EnvironmentValues {
     /// Stops a background task by id; nil where the person can't act.
     @Entry var stopBackground: ((String) -> Void)? = nil
+    /// Background tasks the strip above the composer offers Stop for.
+    @Entry var stripTasks: Set<String> = []
+    /// What the pill over the composer names while it shows (`ThreadFoot`); nothing outside a
+    /// thread's own page.
+    @Entry var pillNames: PillRow.Covers = .nothing
 }

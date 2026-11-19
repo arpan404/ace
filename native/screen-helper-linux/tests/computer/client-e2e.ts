@@ -1,10 +1,9 @@
 /*
  * End to end through the daemon's real ComputerClient and computer-use tools: the tools an
  * agent calls (screen_apps, screen_state, screen_act) against the Linux helper binary.
- * Usage (inside a desktop session, after `bun install`):
+ * Usage (inside a Wayland desktop session, after `bun install`; run-client-e2e.sh makes one):
  *   node native/screen-helper-linux/tests/computer/client-e2e.ts <helper-binary>
  */
-import { execFileSync } from "node:child_process";
 // Each package's public entry (its package.json "." export); this script lives outside the
 // workspaces, so their names do not resolve from here.
 import { CredentialRegistry, ToolRegistry } from "../../../../packages/mcp-server/src/index.ts";
@@ -50,12 +49,8 @@ try {
     apps.text,
   );
 
-  const look = await call("screen_state", { app: "Calculator", screenshot: true });
-  check(
-    "screen_state shows the outline and a screenshot",
-    !look.error && look.images === 1 && look.text.includes("button 7"),
-    look.text,
-  );
+  const look = await call("screen_state", { app: "Calculator" });
+  check("screen_state shows the outline", !look.error && look.text.includes("button 7"), look.text);
   const id = (name: string) =>
     look.text.match(
       new RegExp(`(\\d+) button ${name.replace(/[+*]/g, "\\$&")}(?:,|\\n|$)`, "m"),
@@ -88,16 +83,14 @@ try {
   });
   check("if guards expand to when and skip", guarded.text.includes("skipped click"), guarded.text);
 
-  // Put another window in front, as when the person is working elsewhere.
-  execFileSync("xdotool", ["search", "--class", "xterm", "windowactivate", "--sync"]);
-  const background = await call("screen_act", {
+  const raw = await call("screen_act", {
     app: "Calculator",
     actions: [{ type: "key", key: "Escape" }],
   });
   check(
-    "raw keys to a background window explain how to proceed",
-    background.text.includes("activate"),
-    background.text,
+    "a raw key Wayland can't send explains how to proceed",
+    raw.text.includes("element ids"),
+    raw.text,
   );
 } finally {
   client.close();

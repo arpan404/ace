@@ -2,7 +2,9 @@ import { CliTree, ThreadId, maxWaitThreads, type Thread } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import type { Args } from "./args.ts";
 import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
-import { print, result } from "./io.ts";
+import { print } from "./io.ts";
+import { show } from "./work/output.ts";
+import { outcomeLines, statusWords } from "./render/thread.ts";
 import { CliFailure, treeOutcome, type Outcome } from "./output.ts";
 
 type WorkOutcome = NonNullable<ReturnType<typeof treeOutcome>>;
@@ -119,7 +121,12 @@ export async function waitThread(args: Args, client: Client, id: string, signal:
     });
     await stream;
     if (streamError) throw streamError;
-    await result(args, { type: "outcome", ...outcomeBody(observed) }, observed.status);
+    await show(
+      args,
+      { type: "outcome" as const, ...outcomeBody(observed) },
+      { human: (value) => outcomeLines([value]), quiet: (value) => [value.threadId] },
+      observed.status,
+    );
   } finally {
     stop();
     await stream;
@@ -182,15 +189,47 @@ export async function waitThreads(
     observation.abort();
   }
   const finished = new Set(settled.map((each) => each.threadId));
-  await result(
+  await show(
     args,
     {
-      type: "outcome",
+      type: "outcome" as const,
       mode,
       status,
       threads: settled.map(outcomeBody),
       pending: unique.filter((id) => !finished.has(id)),
     },
+    {
+      human: (value) => [
+        ...outcomeLines(value.threads),
+        ...value.pending.map((id) => `◌ ${id}  Still working`),
+      ],
+      quiet: (value) => value.threads.map((each) => each.threadId),
+    },
     status,
+  );
+}
+
+/**
+ * `--follow` on a terminal: one line each time the thread's state changes, then its outcome
+ * over the whole tree (ADR 0178 §2). JSON Lines are `waitThread`'s stream.
+ */
+export async function followThread(args: Args, client: Client, id: string, signal: AbortSignal) {
+  let last = "";
+  const say = (line: string) =>
+    new Promise<void>((resolve) => {
+      if (line === last) return resolve();
+      last = line;
+      process.stderr.write(`${line}\n`, () => resolve());
+    });
+  await say(`Following ${id}. Ctrl-C stops following; the work carries on.`);
+  const observed = await observe(client, id, true, signal, (thread) =>
+    // Only called while the tree has no outcome: a root that ended waits on its agents.
+    say(thread.status.state === "done" ? "Waiting on its agents" : statusWords(thread.status)),
+  );
+  await show(
+    args,
+    { type: "outcome" as const, ...outcomeBody(observed) },
+    { human: (value) => outcomeLines([value]), quiet: (value) => [value.threadId] },
+    observed.status,
   );
 }

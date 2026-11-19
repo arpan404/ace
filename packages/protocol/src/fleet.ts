@@ -1,6 +1,14 @@
 import { z } from "zod";
-import { DeviceId, HostId } from "./ids.ts";
-import { Device, PairingRequest, PendingPairing } from "./remote.ts";
+import { CommandId, DeviceId, HostId } from "./ids.ts";
+import {
+  Device,
+  DeviceScope,
+  PairingRequest,
+  PendingPairing,
+  RemoteAccessStatus,
+} from "./remote.ts";
+import { MachineAgentAccess } from "./machine-calls.ts";
+import { MachineCapability, MachineDeviceGrants, MachineGrantLevel } from "./machine-grants.ts";
 
 const id = z.string().min(1).max(128);
 const timestamp = z.number().int().nonnegative();
@@ -50,8 +58,36 @@ const FleetOperation = z.discriminatedUnion("op", [
   /** This machine's paired devices, as `GET /v1/devices` lists them. */
   z.object({ op: z.literal("devices") }),
   z.object({ op: z.literal("revoke"), deviceId: DeviceId }),
+  /**
+   * Allow or stop allowing one scope for a paired device, keeping its credential (ADR 0101,
+   * "Changing what a link allows"). Durable: `commandId` names its receipt, so a retry after a
+   * lost reply answers the first outcome. The caller grants only scopes it holds; local
+   * credentials and the scopes only they hold never change here.
+   */
+  z.object({
+    op: z.literal("scope"),
+    commandId: CommandId,
+    deviceId: DeviceId,
+    scope: DeviceScope.exclude(["desktop", "user-browser"]),
+    allowed: z.boolean(),
+  }),
   /** Revoke every paired device except the caller's own and local credentials. */
   z.object({ op: z.literal("revokeOthers") }),
+  /** This machine's remote access listeners, relay route and ace account, as `GET /v1/status`. */
+  z.object({ op: z.literal("remoteStatus") }),
+  /** What each paired device's agents may do here, per capability (ADR 0105). */
+  z.object({
+    op: z.literal("grants"),
+    /** Only these devices; every paired device when absent. */
+    deviceIds: z.array(DeviceId).max(64).optional(),
+  }),
+  /** Set one capability's level for one paired device; it applies to the next call. */
+  z.object({
+    op: z.literal("grant"),
+    deviceId: DeviceId,
+    capability: MachineCapability,
+    level: MachineGrantLevel,
+  }),
 ]);
 export type FleetOperation = z.infer<typeof FleetOperation>;
 
@@ -81,6 +117,15 @@ const FleetOutcome = z.discriminatedUnion("kind", [
     /** The calling device's id when it is one of `devices`. */
     selfId: DeviceId.optional(),
   }),
+  z.object({
+    kind: z.literal("grants"),
+    /** This machine's `remote.agentAccess`: `off` closes it to every capability. */
+    master: MachineAgentAccess,
+    devices: z.array(MachineDeviceGrants).max(1000),
+  }),
+  z.object({ kind: z.literal("remoteStatus"), status: RemoteAccessStatus }),
+  /** The device as `scope` left it. */
+  z.object({ kind: z.literal("scoped"), device: Device }),
   /** `count`: how many devices `revokeOthers` revoked. */
   z.object({ kind: z.literal("revoked"), count: z.number().int().nonnegative().optional() }),
 ]);

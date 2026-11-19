@@ -32,7 +32,8 @@ struct ProjectPickerSheet: View {
 }
 
 /// The machine's projects, recent ones first, with search; adding a folder from the computer
-/// when this phone may, otherwise how to add one there.
+/// when this phone may, otherwise how to add one there. Quiet sections over hairlines, the
+/// chosen one marked, and Add project a row that carries the caret of the page it opens.
 struct ProjectPickerView: View {
     @Bindable var compose: ComposeModel
     let selected: String?
@@ -52,141 +53,151 @@ struct ProjectPickerView: View {
         return needle.isEmpty || "No project chat".localizedCaseInsensitiveContains(needle)
     }
     var body: some View {
-        List {
-            if offersChat {
-                Section { chatRow }.insetRowBackground()
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                if offersChat { chatRow }
+                projects
+                addProjectSection
             }
-            switch compose.projectsState {
-            case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
-                .listRowBackground(Color.clear)
-            case "ready":
-                let recent = matches.filter(\.recent)
-                let rest = matches.filter { !$0.recent }
-                if matches.isEmpty, !query.isEmpty {
-                    ContentUnavailableView("No projects match", systemImage: "folder")
-                        .listRowBackground(Color.clear)
-                }
-                if !recent.isEmpty {
-                    Section { ForEach(recent) { row($0) } } header: { InsetHeader("Recent") }.insetRowBackground()
-                }
-                if !rest.isEmpty {
-                    Section { ForEach(rest) { row($0) } } header: { InsetHeader(recent.isEmpty ? "Projects" : "Other projects") }
-                        .insetRowBackground()
-                }
-            default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
-            }
-            Section {
-                if canAdd {
-                    Button(action: addProject) { InsetRow("Add project", systemImage: "folder.badge.plus") }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("projects.add")
-                }
-            } footer: {
-                if !canAdd { Text("To add a project, open ace on your computer and choose Add project.") }
-            }
-            .insetRowBackground()
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
-        .insetGroupedList()
+        .background(AceDesign.Surface.background)
         .searchBarEdge()
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
         .refreshable { reload() }
     }
+
     /// A chat with no project (ADR 0099).
     private var chatRow: some View {
-        Button { choose(NewThreadDraft.chat) } label: {
-            HStack(spacing: AceTheme.Spacing.md) {
-                Image(systemName: "bubble.left").foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text("No project").aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                Spacer(minLength: AceTheme.Spacing.none)
-                if selected == NewThreadDraft.chat { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
+        QuietSection {
+            Button { choose(NewThreadDraft.chat) } label: {
+                QuietSectionRow {
+                    QuietRowText(title: "No project")
+                    if selected == NewThreadDraft.chat {
+                        AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.primary)
+                    }
+                }
             }
-            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
+            .buttonStyle(.row)
+            .accessibilityAddTraits(selected == NewThreadDraft.chat ? .isSelected : [])
+            .accessibilityIdentifier("project.chat")
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected == NewThreadDraft.chat ? .isSelected : [])
-        .accessibilityIdentifier("project.chat")
     }
+
+    @ViewBuilder private var projects: some View {
+        switch compose.projectsState {
+        case "failed":
+            ProblemRow("Couldn't read projects.", detail: "Your computer didn't answer.",
+                            retryId: "projects.retry", retry: reload)
+        case "ready":
+            let recent = matches.filter(\.recent)
+            let rest = matches.filter { !$0.recent }
+            if matches.isEmpty, !query.isEmpty {
+                quietLine("No projects match “\(query)”.")
+            }
+            if !recent.isEmpty {
+                QuietSection("Recent") {
+                    ForEach(recent) { project in row(project) }
+                }
+            }
+            if !rest.isEmpty {
+                QuietSection(recent.isEmpty ? "Projects" : "Other projects") {
+                    ForEach(rest) { project in row(project) }
+                }
+            }
+        default:
+            SkeletonRows(count: 3, label: "Loading")
+        }
+    }
+
+    /// One project: its name, its folder in mono, and a check when it's the one chosen.
     private func row(_ project: ComposeProject) -> some View {
         Button { choose(project.id) } label: {
-            HStack(spacing: AceTheme.Spacing.md) {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    Text(project.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                    Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+            QuietSectionRow {
+                QuietPathRow(name: project.name, path: project.path)
+                if project.id == selected {
+                    AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        .foregroundStyle(AceDesign.Ink.primary)
                 }
-                Spacer(minLength: AceTheme.Spacing.none)
-                if project.id == selected { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
             }
-            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.row)
         .accessibilityAddTraits(project.id == selected ? .isSelected : [])
         .accessibilityIdentifier("project.\(project.id)")
+    }
+
+    @ViewBuilder private var addProjectSection: some View {
+        QuietSection {
+            if canAdd {
+                Button(action: addProject) {
+                    QuietSectionRow {
+                        QuietRowText(title: "Add project")
+                        RowCaret()
+                    }
+                }
+                .buttonStyle(.row)
+                .accessibilityIdentifier("projects.add")
+            } else {
+                QuietSectionRow {
+                    QuietRowText(title: "To add a project, open ace on your computer and choose Add project.",
+                                 tone: AceDesign.Ink.muted)
+                }
+            }
+        }
     }
 }
 
 /// Register an existing folder on the computer as a project (`workspace.add`), found among its
-/// recent folders or by search.
+/// recent folders or by search. The folders are quiet rows with their path in mono; a folder the
+/// machine refuses can be allowed, and a search that failed can be asked again.
 struct AddProjectView: View {
     let client: ClientModel
     let added: (String) -> Void
     @State private var query = ""
     @State private var adding: String?
     @State private var failure: String?
+    /// The folder refused for being outside the machine's project folders, to allow and add.
+    @State private var allowable: ComposeFolder?
+    /// Allowing the folder that failed, when the person may change this machine.
+    private var allowRetry: (() -> Void)? {
+        guard let allowable, client.canOperate else { return nil }
+        return { Task { await allow(allowable) } }
+    }
     private var folders: (query: String, state: String, folders: [ComposeFolder])? { client.compose.folders }
     var body: some View {
-        List {
-            if client.canOperate {
-                Section {
-                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { InsetRow("New project", systemImage: "folder.badge.plus") }
-                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { InsetRow("Clone repository", systemImage: "arrow.down.doc") }
-                }
-                .insetRowBackground()
-            }
-            if let failure {
-                Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .listRowBackground(Color.clear)
-            }
-            switch folders?.state {
-            case "ready":
-                if folders?.folders.isEmpty == true { ContentUnavailableView.search(text: query).listRowBackground(Color.clear) }
-                Section {
-                    ForEach(folders?.folders ?? []) { folder in
-                        Button { add(folder) } label: {
-                            HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(.system(size: 19))
-                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
-                                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                                    Text(folder.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                                    Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                                }
-                                Spacer(minLength: AceTheme.Spacing.none)
-                                if adding == folder.path { ProgressView() } else if folder.project { InsetValue(text: "Added") }
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                if client.canOperate {
+                    QuietSection {
+                        NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: {
+                            QuietSectionRow {
+                                QuietRowText(title: "New project")
+                                RowCaret()
                             }
-                            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain).disabled(adding != nil || folder.project)
-                        .accessibilityIdentifier("folder.\(folder.name)")
+                        .accessibilityIdentifier("projects.new")
+                        NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: {
+                            QuietSectionRow {
+                                QuietRowText(title: "Clone repository")
+                                RowCaret()
+                            }
+                        }
+                        .accessibilityIdentifier("projects.clone")
                     }
                 }
-                .insetRowBackground()
-            case "forbidden":
-                ContentUnavailableView("Add it on your computer", systemImage: "desktopcomputer",
-                                       description: Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project."))
-                    .listRowBackground(Color.clear)
-            case "failed":
-                ContentUnavailableView("Couldn't search folders", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
-                    .listRowBackground(Color.clear)
-            default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                if let failure {
+                    ProblemRow(failure, retryId: "folder.allow", retryLabel: "Allow this folder", disabled: adding != nil,
+                               retry: allowRetry)
+                    .transition(.opacity)
+                }
+                folderList
             }
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
+            .smoothChange(failure)
         }
-        .insetGroupedList()
+        .background(AceDesign.Surface.background)
         .searchBarEdge()
         .searchable(text: $query, prompt: "Search folders on your computer")
         .navigationTitle("Add project").navigationBarTitleDisplayMode(.inline)
@@ -196,9 +207,63 @@ struct AddProjectView: View {
             client.composeAction(["kind": "folders", "query": query])
         }
     }
+
+    @ViewBuilder private var folderList: some View {
+        switch folders?.state {
+        case "ready":
+            let rows = folders?.folders ?? []
+            if rows.isEmpty {
+                quietLine(query.isEmpty ? "No folders to add." : "No folders match “\(query)”.")
+            } else {
+                QuietSection("Folders on your computer") {
+                    ForEach(rows) { folder in
+                        Button { add(folder) } label: {
+                            QuietSectionRow {
+                                QuietPathRow(name: folder.name, path: folder.path)
+                                if adding == folder.path {
+                                    ProgressView().accessibilityLabel("Adding \(folder.name)")
+                                } else if folder.project {
+                                    Text("Added").aceFont(AceDesign.TextRole.action)
+                                        .foregroundStyle(AceDesign.Ink.subtle)
+                                }
+                            }
+                        }
+                        .buttonStyle(.row)
+                        .disabled(adding != nil || folder.project)
+                        .accessibilityIdentifier("folder.\(folder.name)")
+                    }
+                }
+            }
+        case "forbidden":
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                Text("Add it on your computer").aceFont(AceDesign.TextRole.rowTitle)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case "failed":
+            ProblemRow("Couldn't search folders.", detail: "Check the connection and try again.",
+                            retryId: "folders.retry") {
+                client.composeAction(["kind": "folders", "query": query])
+            }
+        default:
+            SkeletonRows(count: 3, label: "Loading")
+        }
+    }
+
+    /// Allow the folder on the machine, then add it, as the web's Allow this folder.
+    private func allow(_ folder: ComposeFolder) async {
+        adding = folder.path
+        let outcome = await client.projectWrite(["op": "allowFolder", "path": folder.path, "create": false])
+        adding = nil
+        if outcome.ok { add(folder) } else { failure = outcome.message ?? "Couldn't allow this folder. Check that it exists, then try again." }
+    }
     private func add(_ folder: ComposeFolder) {
         let requestId = "add-" + UUID().uuidString.lowercased().prefix(24)
-        adding = folder.path; failure = nil
+        adding = folder.path; failure = nil; allowable = nil
         Task {
             guard await client.addProject(path: folder.path, requestId: requestId) else {
                 adding = nil; failure = client.error ?? "Couldn't save the request on this phone."; client.error = nil
@@ -208,7 +273,7 @@ struct AddProjectView: View {
                 if let outcome = client.compose.added[requestId] {
                     adding = nil
                     if outcome.ok, let id = outcome.id { client.composeAction(["kind": "projects"]); added(id) }
-                    else { failure = outcome.message }
+                    else { failure = outcome.message; allowable = outcome.canAllow ? folder : nil }
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))
@@ -216,5 +281,28 @@ struct AddProjectView: View {
             adding = nil
             failure = "Saved on this phone. It's added once your computer answers."
         }
+    }
+}
+
+/// A page's one quiet line: what was searched and found nothing, or why there's no list.
+@MainActor private func quietLine(_ text: String) -> some View {
+    Text(text).aceFont(AceDesign.TextRole.meta)
+        .foregroundStyle(AceDesign.Ink.muted)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+/// A project or a folder as both pickers list it: its name in the row role over its folder in mono.
+private struct QuietPathRow: View {
+    let name: String
+    let path: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Text(name).aceFont(AceDesign.TextRole.rowTitle)
+                .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+            Text(verbatim: path).aceMonospace(AceDesign.TextRole.branch)
+                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

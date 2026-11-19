@@ -16,6 +16,7 @@ export const UploadRow = z.object({
   done: z.number().int().min(0).max(1),
 });
 export type UploadRow = z.infer<typeof UploadRow>;
+const UsageTotals = z.object({ bytes: z.number(), count: z.number() });
 export class Metadata {
   readonly ready: Promise<void>;
   private db: DatabaseSync;
@@ -32,6 +33,7 @@ export class Metadata {
       CREATE TABLE IF NOT EXISTS blobs(sha256 TEXT PRIMARY KEY, metadata TEXT NOT NULL, refs INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS unreferenced ON blobs(refs);
       CREATE TABLE IF NOT EXISTS refs(thread TEXT NOT NULL, sha256 TEXT NOT NULL REFERENCES blobs(sha256), name TEXT NOT NULL, PRIMARY KEY(thread,sha256));
+      CREATE INDEX IF NOT EXISTS refs_by_age ON refs(thread);
       CREATE TABLE IF NOT EXISTS usage(scope TEXT PRIMARY KEY, bytes INTEGER NOT NULL, count INTEGER NOT NULL);
       INSERT OR IGNORE INTO usage VALUES('*',0,0);
       CREATE TABLE IF NOT EXISTS storage(id INTEGER PRIMARY KEY CHECK(id=1),bytes INTEGER NOT NULL,count INTEGER NOT NULL);
@@ -111,16 +113,12 @@ export class Metadata {
     return row ? Attachment.parse(JSON.parse(z.string().parse(row.metadata))) : undefined;
   }
   usage(scope: string): { bytes: number; count: number } {
-    return z
-      .object({ bytes: z.number(), count: z.number() })
-      .parse(
-        this.get("SELECT bytes,count FROM usage WHERE scope=?", scope) ?? { bytes: 0, count: 0 },
-      );
+    return UsageTotals.parse(
+      this.get("SELECT bytes,count FROM usage WHERE scope=?", scope) ?? { bytes: 0, count: 0 },
+    );
   }
   storage(): { bytes: number; count: number } {
-    return z
-      .object({ bytes: z.number(), count: z.number() })
-      .parse(this.get("SELECT bytes,count FROM storage WHERE id=1"));
+    return UsageTotals.parse(this.get("SELECT bytes,count FROM storage WHERE id=1"));
   }
   adjustStorage(bytes: number, count: number): void {
     this.run("UPDATE storage SET bytes=bytes+?,count=count+? WHERE id=1", bytes, count);

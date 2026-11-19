@@ -7,6 +7,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 import type { Choice } from "./project-choices.tsx";
 import { chatChoice } from "./chat-project.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const DeferredChoices = deferredComponent(() =>
   import("./project-choices.tsx").then((module) => module.ProjectChoices),
@@ -39,7 +40,10 @@ export function ProjectPicker(props: {
   });
   const selected = choices.find((choice) => choice.id === props.project);
   const chat = props.project === chatChoice;
-  const value = chat ? "No project" : (selected?.name ?? "Choose a project");
+  // A project still to be copied here isn't in this machine's list, but it is the choice.
+  const value = chat
+    ? "No project"
+    : (selected?.name ?? (props.project ? props.projectName(props.project) : "Choose a project"));
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tip label="Change project" side="top">
@@ -47,6 +51,7 @@ export function ProjectPicker(props: {
           onPointerEnter={warm}
           onFocus={warm}
           aria-label={chat ? "Project: none" : `Project: ${value}`}
+          {...part("link", undefined, "picker")}
           className="inline max-w-full rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.2em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
         >
           {value}

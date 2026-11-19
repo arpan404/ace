@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { helpUrl, issuesUrl } from "./links.ts";
-import { keymapAccelerator, shortcuts } from "./shortcuts.ts";
+import { acceleratorFor, keymapAccelerator, shortcuts } from "./shortcuts.ts";
 import type { ZoomChange } from "./window/zoom.ts";
 
 /**
@@ -16,6 +16,8 @@ export function applicationMenu(options: {
   trigger(keymapId: string): void;
   bindings?: Readonly<Record<string, string>> | undefined;
   checkForUpdates(): void;
+  /** Quits and stops the daemon too; a plain Quit leaves it running (ADR 0186). */
+  quitCompletely(): void;
   openUrl(url: string): void;
   showLogs(): void;
   /** View › Zoom: the focused window's own page, whichever page inside it has focus. */
@@ -28,7 +30,8 @@ export function applicationMenu(options: {
     const shortcut = shortcuts.find((entry) => entry.keymapId === keymapId);
     if (!shortcut?.label) throw new Error(`No menu shortcut for ${keymapId}`);
     const bound = options.bindings?.[keymapId];
-    const accelerator = bound === undefined ? shortcut.accelerator : keymapAccelerator(bound);
+    const accelerator =
+      bound === undefined ? acceleratorFor(shortcut, options.platform) : keymapAccelerator(bound);
     return {
       label: shortcut.label,
       ...(accelerator ? { accelerator } : {}),
@@ -55,6 +58,10 @@ export function applicationMenu(options: {
     ...item("reloadApp"),
     click: () => options.reload(),
   };
+  const quitCompletely: MenuItemConstructorOptions = {
+    label: `Quit ${options.appName} completely`,
+    click: () => options.quitCompletely(),
+  };
   const checkForUpdates: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => options.checkForUpdates(),
@@ -76,6 +83,7 @@ export function applicationMenu(options: {
             { role: "unhide" },
             { type: "separator" },
             { role: "quit" },
+            quitCompletely,
           ],
         },
       ]
@@ -89,7 +97,9 @@ export function applicationMenu(options: {
         { type: "separator" },
         item("addProject"),
         { type: "separator" },
-        ...(mac ? [{ role: "close" } as const] : [item("settings"), { role: "quit" } as const]),
+        ...(mac
+          ? [{ role: "close" } as const]
+          : [item("settings"), { role: "quit" } as const, quitCompletely]),
       ],
     },
     { role: "editMenu" },

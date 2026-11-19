@@ -563,8 +563,13 @@ export function threadEffortControl(input: {
 }): EffortControl {
   const { choice, capabilities } = input;
   const efforts = choice?.efforts ?? [];
-  const current = input.current ?? resolveEffort(efforts, undefined, choice?.defaultEffort);
-  const reported = input.current !== undefined;
+  // A level the thread carried from another model (a switch from a provider with more
+  // levels) is not this model's level: fall back to its default instead of showing stale
+  // thinking.
+  const listed =
+    input.current !== undefined && efforts.includes(input.current) ? input.current : undefined;
+  const current = listed ?? resolveEffort(efforts, undefined, choice?.defaultEffort);
+  const reported = listed !== undefined;
   const blocked = (reason: string): EffortControl => ({ efforts, current, reported, reason });
   if (!choice) return blocked("Choose a model first");
   if (!efforts.length) return blocked(`${choice.model} has no effort levels`);

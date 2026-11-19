@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { aceClientName } from "@ace/client/ace-client";
+import { ACE_CLIENT_DEVELOPMENT, type AceClient } from "@ace/protocol/ace-client";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { resolveDaemonHome } from "@ace/service";
+import { resolveDaemonHome } from "@ace/service/home-path";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { WebOrigins } from "./web-origins.ts";
-import { LogMaxBytes, RetentionDays, type SettingsValues } from "@ace/protocol";
+import { LogMaxBytes, RetentionDays, SettingsValues } from "@ace/protocol";
+import { ACE_HOSTED_ACCOUNT_ORIGIN, AceAccountOrigin } from "@ace/protocol/ace-account";
 import { parseByteSize } from "@ace/diagnostics/log-policy";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
@@ -21,6 +24,7 @@ const Environment = z.object({
   ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
   /** Diagnostics: any value logs per-request computer-use timings to stderr (the helper reads it too). */
   ACE_CU_TIMINGS: z.string().min(1).optional(),
+  ACE_SAFE_MODE: z.enum(["0", "1"]).optional(),
   ACE_HOME: z.string().optional(),
   /** A Chromium for ace's headless browser instead of its pinned Chrome for Testing. */
   ACE_CHROMIUM_PATH: z.string().min(1).optional(),
@@ -41,6 +45,15 @@ const Environment = z.object({
   ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
+  /** Development only: a marketplace other than market.acehq.dev (ADR 0168 §3). */
+  ACE_MARKET_URL: z.url().optional(),
+  /** ace's account backend (ADR 0111), where `ace login` signs in; ace's own by default. */
+  ACE_ACCOUNT_URL: AceAccountOrigin.optional(),
+  /**
+   * ace's hosted relay: the one relay this daemon offers machine grants to (ADR 0111). By
+   * default the account backend's host as `wss://`, where ace serves both.
+   */
+  ACE_HOSTED_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
   ACE_WEB_ORIGINS: WebOrigins.optional(),
   /** Seconds a done thread keeps its provider process warm before releasing it (default 300). */
@@ -60,6 +73,8 @@ const Environment = z.object({
     })
     .pipe(LogMaxBytes)
     .optional(),
+  /** Overrides the saved `notifications.pushGatewayUrl` while set (ADR 0106). */
+  ACE_PUSH_GATEWAY_URL: SettingsValues.shape["notifications.pushGatewayUrl"].optional(),
   /** Overrides the saved `worktree.preparationTimeoutMs` while set, in milliseconds. */
   ACE_WORKTREE_PREPARATION_TIMEOUT_MS: z.coerce
     .number()
@@ -75,6 +90,17 @@ export interface Config {
   cursorSdkHome?: string;
   workspaceRoot?: string;
   relayUrl?: string;
+  /** ACE_MARKET_URL: a development marketplace in place of market.acehq.dev. */
+  marketUrl?: string;
+  /** ACE_ACCOUNT_URL: the account backend `ace login` uses. */
+  accountOrigin?: string;
+  /** ACE_HOSTED_RELAY_URL: ace's hosted relay, which needs a machine grant to register. */
+  hostedRelayUrl?: string;
+  /**
+   * How this daemon names itself to ace cloud and the market (`ace-client`, ADR 0189), from
+   * ACE_VERSION; a daemon run without one is a development build.
+   */
+  aceClient?: AceClient;
   host: "127.0.0.1";
   port: number;
   listen: "local" | "lan" | "tailscale";
@@ -94,7 +120,10 @@ export interface Config {
   settingsOverrides?: Partial<
     Pick<
       SettingsValues,
-      "storage.retentionDays" | "logs.maxBytes" | "worktree.preparationTimeoutMs"
+      | "storage.retentionDays"
+      | "logs.maxBytes"
+      | "worktree.preparationTimeoutMs"
+      | "notifications.pushGatewayUrl"
     >
   >;
   /** How long worktree preparation may take when settings are unavailable (ACE_WORKTREE_PREPARATION_TIMEOUT_MS). */
@@ -110,7 +139,34 @@ export interface Config {
   screenHelperInheritsResponsibility?: boolean;
   /** Log per-request computer-use timings to stderr (ACE_CU_TIMINGS). */
   computerUseTimings?: boolean;
+  /**
+   * ACE_SAFE_MODE=1, set by the app after starts that kept failing: services the last run was
+   * still starting when it stopped stay off for this run (ADR 0175).
+   */
+  safeMode?: boolean;
 }
+/**
+ * Where `ace login` signs in and which relay gets machine grants: ace's own backend and relay
+ * unless the environment names others. The relay follows a named backend's host.
+ */
+export function accountSettings(
+  accountUrl: string | undefined,
+  hostedRelayUrl: string | undefined,
+): { accountOrigin: string; hostedRelayUrl: string } {
+  const accountOrigin = accountUrl ?? ACE_HOSTED_ACCOUNT_ORIGIN;
+  const origin = new URL(accountOrigin);
+  return {
+    accountOrigin,
+    hostedRelayUrl:
+      hostedRelayUrl ?? `${origin.protocol === "http:" ? "ws:" : "wss:"}//${origin.host}`,
+  };
+}
+
+function namedDaemon(version: string | undefined): { aceClient?: AceClient } {
+  const aceClient = aceClientName("daemon", version ?? ACE_CLIENT_DEVELOPMENT);
+  return aceClient ? { aceClient } : {};
+}
+
 export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
   assertTestEnvironmentIsolation(env);
@@ -125,6 +181,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ? { screenHelperInheritsResponsibility: true }
       : {}),
     ...(settings.ACE_CU_TIMINGS ? { computerUseTimings: true } : {}),
+    ...(settings.ACE_SAFE_MODE === "1" ? { safeMode: true } : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
     ...(settings.ACE_CHROMIUM_PATH ? { chromiumPath: resolve(settings.ACE_CHROMIUM_PATH) } : {}),
     ...(settings.ACE_CHROMIUM_NO_SANDBOX === "1" ? { chromiumNoSandbox: true } : {}),
@@ -141,6 +198,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       : {}),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
+    ...(settings.ACE_MARKET_URL ? { marketUrl: settings.ACE_MARKET_URL } : {}),
+    ...accountSettings(settings.ACE_ACCOUNT_URL, settings.ACE_HOSTED_RELAY_URL),
+    ...namedDaemon(env.ACE_VERSION),
     host: "127.0.0.1",
     port,
     listen: settings.ACE_LISTEN,
@@ -161,6 +221,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
         : {}),
       ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined
         ? { "worktree.preparationTimeoutMs": settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS }
+        : {}),
+      ...(settings.ACE_PUSH_GATEWAY_URL !== undefined
+        ? { "notifications.pushGatewayUrl": settings.ACE_PUSH_GATEWAY_URL }
         : {}),
     },
     ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined

@@ -1,4 +1,5 @@
 import { ClientError } from "@ace/client";
+import { endpointDeviceId, machineScope } from "@/boot/main-machine.ts";
 import { useClient } from "@ace/client-react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import {
@@ -80,13 +81,13 @@ export function useCreateThread(
   const { storage } = useLayout();
   const connection = useDaemonConnection();
   const host = useHostIdentity();
-  const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
+  const deviceId = endpointDeviceId(connection.endpoint);
   // Under another machine's client (ADR 0102) its starts are kept apart from this window's
   // own, so each machine's recovery replays only its own starts, on its own client.
   const scoped = useScopedMachine()?.id;
   const recoveryKey = scoped
     ? createAttemptsKey(`machine:${scoped}`, deviceId)
-    : createAttemptsKey(connection.url, deviceId);
+    : createAttemptsKey(machineScope(connection), deviceId);
   const search = useMachineSearch();
   const [error, setError] = useState<string>();
 

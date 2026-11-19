@@ -1,9 +1,6 @@
-import { EyeIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { useLocal } from "../store.ts";
 import type { BrowserView } from "../sources.ts";
-import { roundButton } from "./page-toolbar.tsx";
 import { agentTab, startWatching, stopWatching, watching } from "./watch-mode.ts";
 
 /**
@@ -21,17 +18,4 @@ export function useWatchToggle(threadId: string, live: BrowserView | undefined) 
       else if (target) startWatching(store, threadId, target);
     },
   };
-}
-
-/** The toolbar's eye: shows the agent's tab large beside the chat while it works. */
-export function WatchButton(props: { watching: boolean | undefined; toggle(): void }) {
-  return (
-    <IconButton
-      icon={EyeIcon}
-      label={props.watching ? "Stop watching the agent" : "Watch the agent"}
-      pressed={props.watching === true}
-      className={roundButton}
-      onClick={props.toggle}
-    />
-  );
 }

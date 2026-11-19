@@ -13,11 +13,12 @@ beforeEach(() => {
 });
 afterEach(() => browser.restore());
 
-async function openSharing(watchOnly?: string) {
+async function openSharing(watchOnly?: string, platform = "linux", denyCapture = false) {
   const app = harness();
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   const world = screenWorld(app.daemon, "thread-checkout");
   app.daemon.screen.enabled = true;
+  Object.assign(app.daemon.screen.permissions, { platform, screenRecording: !denyCapture });
   app.daemon.screen.sharingDialog = true;
   app.daemon.screen.watchOnly = watchOnly;
   await app.open("/t/thread-checkout");
@@ -120,3 +121,17 @@ test("Cancel while the machine's dialog waits ends the wait without a complaint"
   await waitFor(async () => expect(await world.sessions()).toEqual([]));
   expect(within(dialog).queryByRole("alert")).toBeNull();
 });
+
+test.each(["linux", "win32"])(
+  "%s chooser permission refusal keeps the remote platform's guidance",
+  async (platform) => {
+    const { dialog } = await openSharing(undefined, platform, true);
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain(
+      platform === "linux"
+        ? "Linux desktop access needs attention"
+        : "Windows desktop access needs attention",
+    );
+    expect(alert.textContent).not.toMatch(/macOS|Grant Screen Recording|Use the Mac/);
+  },
+);

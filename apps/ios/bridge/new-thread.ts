@@ -2,8 +2,10 @@ import type { ClientCore } from "@ace/client";
 import {
   AccessMode,
   ForgeIssueRef,
+  ForgePrWorktree,
   KnownSpeed,
   WorkspaceId,
+  type CatalogEntry,
   type CatalogModel,
 } from "@ace/protocol";
 import {
@@ -12,26 +14,22 @@ import {
   createPayload,
   defaultWorktreeBase,
   messageHasContent,
-  providerNames,
-  readModelCatalog,
-  selectionInputs,
-  type AttachmentReader,
-  type ModelCatalog,
+  worktreeUnmade,
 } from "@ace/ui-core";
-import {
-  newThreadAgents,
-  newThreadProjects,
-  selectNewThreadAgent,
-  type NewThreadAgents,
-} from "@ace/ui-core/mobile";
+import { newThreadProjects, selectNewThreadAgent, type NewThreadAgents } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
+import { joinContext, messageContent, References } from "./composer-references.ts";
 import { readProjects } from "./project-list.ts";
+import { logicalIds } from "./project-logical.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
-import { ModelFavorites } from "./model-favorites.ts";
+import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
+import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
+import { WorktreeStarts } from "./worktree-starts.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 
 /*
  * The New thread sheet on one machine. Reads (projects, coding agents, a project's branches,
@@ -44,7 +42,15 @@ import type { AttachmentTray } from "./thread-attachments.ts";
 
 export type NewThreadOwner = Pick<
   ClientCore,
-  "request" | "enqueue" | "intent" | "commandId" | "cachedThreads"
+  | "request"
+  | "enqueue"
+  | "intent"
+  | "commandId"
+  | "cachedThreads"
+  | "onMessage"
+  | "connectionState"
+  | "connectionGeneration"
+  | "pendingSends"
 >;
 
 /** The first message's files: the project's tray, and handing its draft scope to the thread. */
@@ -89,9 +95,20 @@ export const CreateAction = z.object({
   text: z.string().max(100_000),
   /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
   issue: ForgeIssueRef.optional(),
+  /** The pull request the thread works on, in a worktree of the head the person saw. */
+  pullRequest: ForgePrWorktree.optional(),
+  /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
+  references: References.optional(),
 });
 type Create = z.infer<typeof CreateAction>;
 type Choice = z.infer<typeof ChoiceAction>;
+
+/** A refusal with no words of the daemon's own: a worktree's in the worktree's words. */
+function refusalWords(code: string | undefined): string {
+  if (worktreeUnmade(code))
+    return "Couldn't create the worktree. Try again or use the local checkout.";
+  return code ?? "The thread didn't start";
+}
 
 /** At most this many projects are read and listed. */
 const maxProjects = 300;
@@ -104,6 +121,8 @@ export class NewThread {
   #now: () => number;
   #files: NewThreadFiles;
   #access: NewThreadAccessReader;
+  /** Worktree starts' cards (`compose.worktree`) and their actions. */
+  readonly worktrees: WorktreeStarts;
   #agents: NewThreadAgents | undefined;
   #catalog: readonly CatalogModel[] = [];
   #favorites: ModelFavorites;
@@ -114,6 +133,9 @@ export class NewThread {
   /** Each command id once: a repeated send waits on the first. */
   #flights = new Map<string, Promise<boolean>>();
   #memory: NewThreadMemory | undefined;
+  /** The draft's catalog as the composer last read it, for a typed `/name`. */
+  #commands: (workspaceId: string, provider: string) => readonly CatalogEntry[] | undefined = () =>
+    undefined;
   constructor(
     owner: NewThreadOwner,
     sink: PatchSink,
@@ -121,6 +143,7 @@ export class NewThread {
     now: () => number,
     files: NewThreadFiles,
     memory?: NewThreadMemory,
+    dismissed?: DismissedSends,
   ) {
     this.#owner = owner;
     this.#sink = sink;
@@ -130,6 +153,7 @@ export class NewThread {
     this.#memory = memory;
     this.#access = new NewThreadAccessReader(owner, sink);
     this.#favorites = new ModelFavorites(owner);
+    this.worktrees = new WorktreeStarts(owner, sink, preview, dismissed);
   }
 
   /** Read the machine's projects, coding agents and default access for a sheet that opened. */
@@ -139,26 +163,16 @@ export class NewThread {
     void this.#access.open();
   }
 
+  /** The coding agents the last read found; undefined until one succeeds. */
+  get loadedAgents(): NewThreadAgents | undefined {
+    return this.#agents;
+  }
+
   /** What the sheet has chosen: the picker leads with it, and its access modes are read. */
   choose(choice: Choice): void {
     this.#choice = choice;
     if (this.#agents) this.#emitAgents(this.#agents);
     void this.#access.target(this.#accessTarget(choice));
-  }
-
-  /** What the agent the sheet would start on reads, for checking a file before it uploads. */
-  reader(): AttachmentReader | undefined {
-    const start = this.#agents && selectNewThreadAgent(this.#agents, this.#choice);
-    if (!start?.ok) return undefined;
-    return {
-      provider: providerNames[start.provider],
-      imageInput: undefined,
-      model: start.model.label,
-      modalities: selectionInputs(this.#catalog, {
-        provider: start.provider,
-        model: start.model.id,
-      }),
-    };
   }
 
   async projects(): Promise<void> {
@@ -186,11 +200,15 @@ export class NewThread {
           ? [{ workspaceId: entry.workspaceId, at: entry.activityAt ?? entry.updatedAt }]
           : [];
       });
+      const logical = logicalIds(listed);
       const projects = newThreadProjects(listed.slice(0, maxProjects), activity).map((row) => ({
         id: row.id,
         name: this.#preview(row.name, 256),
         path: this.#preview(row.path, 1024),
         recent: row.recent,
+        // Its logical project's ids (ADR 0180): moving to another machine opens its checkout
+        // there, the one whose ids meet these. Empty: a project of its own.
+        logical: logical.get(row.id) ?? [],
       }));
       const patch = { type: "compose.projects", state: "ready", projects };
       this.#put("compose:projects", patch);
@@ -211,27 +229,12 @@ export class NewThread {
       last ?? { type: "compose.agents", state: "loading", providers: [] },
     );
     try {
-      const catalogRead = readModelCatalog(this.#owner, {}).catch((): ModelCatalog => ({
-        models: [],
-        instances: [],
-      }));
-      const [readiness, accounts, catalog, stars] = await Promise.all([
-        this.#owner.request({ type: "providers.request", operation: "readiness" }, quiet),
-        this.#owner
-          .request({ type: "accounts.list" }, quiet)
-          .then((reply) => reply.accounts)
-          .catch(() => []),
-        catalogRead,
-        catalogRead.then((read) => this.#favorites.read(catalogModelIds(read.models))),
-      ]);
+      const { agents, catalog, stars } = await readAgents(
+        this.#owner,
+        this.#favorites,
+        this.#now(),
+      );
       this.#stars = { keys: stars, problem: null };
-      if (!readiness.result.ok) throw new Error(readiness.result.error);
-      const agents = newThreadAgents({
-        statuses: readiness.result.providers,
-        accounts,
-        catalog,
-        now: this.#now(),
-      });
       this.#agents = agents;
       this.#catalog = catalog.models;
       this.#emitAgents(agents);
@@ -255,11 +258,8 @@ export class NewThread {
         keys: await this.#favorites.toggle(key, catalogModelIds(this.#catalog)),
         problem: null,
       };
-    } catch {
-      this.#stars = {
-        ...this.#stars,
-        problem: "Couldn't save this favourite. Reconnect and try again.",
-      };
+    } catch (error) {
+      this.#stars = { ...this.#stars, problem: starProblem(error) };
     }
     if (this.#agents) this.#emitAgents(this.#agents);
   }
@@ -308,6 +308,13 @@ export class NewThread {
    * Start the thread. Admission (saved on this phone, or why not) answers on `admission:<id>`;
    * the daemon's receipt, naming the new thread, on `compose.start`.
    */
+  /** Where a typed `/name` finds its catalog entry (`composer-suggest.ts`). */
+  readCatalogFrom(
+    catalog: (workspaceId: string, provider: string) => readonly CatalogEntry[] | undefined,
+  ): void {
+    this.#commands = catalog;
+  }
+
   /** Resolves true once the thread is saved on this phone to start. */
   create(action: Create): Promise<boolean> {
     const running = this.#flights.get(action.commandId);
@@ -339,7 +346,7 @@ export class NewThread {
       admission(false, "Write the first message or attach a file.");
       return false;
     }
-    const files = tray?.context() ?? { context: undefined };
+    const files = tray?.context() ?? { context: undefined, ids: [] };
     if ("refused" in files) {
       admission(false, files.refused);
       return false;
@@ -354,6 +361,11 @@ export class NewThread {
       admission(false, access.problem);
       return false;
     }
+    const content = messageContent(
+      action.text,
+      action.references ?? [],
+      this.#commands(action.workspaceId, start.provider),
+    );
     const payload = createPayload({
       project: action.workspaceId,
       scope: start.model.scope,
@@ -364,34 +376,49 @@ export class NewThread {
       serviceTier: start.serviceTier,
       permission: access.permission,
       text: action.text,
-      context: files.context,
+      input: content.input,
+      context: joinContext(files.context, content.references),
       ...(action.issue ? { issue: action.issue } : {}),
+      ...(action.pullRequest ? { pullRequest: action.pullRequest } : {}),
     });
     const draftId = files.context?.draftId;
+    // The new thread takes only these files: none joins until it is saved or refused.
+    tray?.lock("Wait for the thread to start, then add files.");
+    const worktree = payload.type === "thread.create" && payload.mode === "worktree";
+    if (worktree)
+      this.worktrees.follow(action.commandId, {
+        message: action.text,
+        workspaceId: action.workspaceId,
+      });
     try {
       await submitCommand(
         this.#owner,
         payload,
         () => {
           // The thread takes the files and their draft scope with it.
-          tray?.sent();
+          tray?.sent(files.ids);
           if (draftId) this.#files.adopt(draftId);
           admission(true, "");
         },
-        (result) =>
+        (result) => {
+          if (worktree)
+            this.worktrees.settled(action.commandId, result.ok ? undefined : result.error);
           this.#put(`compose:start:${action.commandId}`, {
             type: "compose.start",
             id: action.commandId,
             ok: result.ok,
             threadId: result.threadId ?? null,
+            // The daemon's own words for why, never its code.
             message: result.ok
               ? ""
-              : this.#preview(result.error ?? "The thread didn't start", 2048),
-          }),
+              : this.#preview(result.detail ?? result.title ?? refusalWords(result.error), 2048),
+          });
+        },
         action.commandId,
       );
       return true;
     } catch {
+      tray?.unlock();
       admission(false, "Couldn't save the new thread on this phone. Your draft is still here.");
       return false;
     }

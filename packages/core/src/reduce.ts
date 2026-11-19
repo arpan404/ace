@@ -7,7 +7,13 @@ import { recomputeStatuses } from "./status.ts";
 import { reconcileItem } from "./reconciled-item.ts";
 import { appendItem, upsertItem } from "./items.ts";
 import { startTurn, endTurn } from "./runs.ts";
-import { openInteraction, closeInteraction, startBackground, endBackground } from "./entities.ts";
+import {
+  openInteraction,
+  closeInteraction,
+  startBackground,
+  endBackground,
+  listenBackground,
+} from "./entities.ts";
 import { exitProcess } from "./cleanup.ts";
 import { validateFact } from "./validate.ts";
 import { flushNotices, rejectFact } from "./diagnostics.ts";
@@ -198,6 +204,9 @@ function fold(
         else if (item.type === "message" && item.role === "assistant")
           record.activity = "responding";
         else if (item.type === "compaction") record.activity = "compacting";
+      } else if (item.type === "compaction" && record.activity === "compacting") {
+        // A finished compaction ends the compacting step even if no other frame follows it.
+        record.activity = "starting_turn";
       }
       break;
     }
@@ -216,13 +225,20 @@ function fold(
     case "background.started":
       startBackground(state, fact, ctx, events);
       break;
+    case "background.listening":
+      listenBackground(state, fact, events);
+      break;
     case "background.ended":
       endBackground(state, fact, ctx, events);
       break;
     case "retry": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       const { type: _type, agent: _agent, ...retry } = fact;
-      record.retry = { ...retry };
+      // Only a running turn retries. A limit reported after its turn ended (Codex can end the
+      // turn on systemError before it says why) holds the agent as limited, with no retry left
+      // that would keep it looking busy forever.
+      if (fact.on !== "rate_limit" || record.activeRun) record.retry = { ...retry };
+      else delete record.retry;
       if (fact.on === "rate_limit")
         record.limited = {
           ...(fact.until === undefined ? {} : { until: fact.until }),
@@ -267,6 +283,10 @@ function fold(
     case "process.exited":
       exitProcess(state, fact, ctx, events);
       break;
+    case "thread.moved":
+      if (fact.to) state.movedTo = fact.to;
+      else delete state.movedTo;
+      break;
     case "process.started":
       state.queueSources.provider = 0;
       state.queueCount = state.queueSources.engine;
@@ -278,6 +298,8 @@ function fold(
       if (fact.source !== "provider") {
         if (fact.held && fact.count > 0) state.queueHeld = true;
         else delete state.queueHeld;
+        if (fact.stopped && fact.count > 0) state.queueStopped = true;
+        else delete state.queueStopped;
       }
       break;
     }

@@ -160,8 +160,38 @@ database file. Compaction is a separate, admin-only operation.
 
 ## Compaction
 
-`cleanup.compact` compacts `events.sqlite`. It runs under the Store maintenance
-fence, never inside a retention plan.
+Compaction is automatic. The daemon returns free pages in `events.sqlite` to the OS
+by itself, with no setting, and `cleanup.compact` runs the same compaction on request.
+Both run under the Store maintenance fence, never inside a retention plan.
+
+### Automatic space reclaim
+
+`SpaceReclaim` (`storage/space-reclaim.ts`) is separate from retention and cleanup: it
+never deletes rows, so it is always on. Its policy is pure
+(`storage/space-reclaim-policy.ts`):
+
+- **When**: 10 minutes after start, then every 4 hours. The due time is durable in
+  `storage_reclaim_schedule`, so restarts don't bring it forward, except after a cut-short
+  run, which resumes 10 minutes after the restart.
+- **Threshold**: free pages reach 64 MiB, or 10% of the file, and at least 1 MiB. Below
+  that, ordinary writes reuse the pages anyway. Files with `auto_vacuum=NONE` are skipped.
+- **Load**: each run is preceded by a 15 s probe. More than 60 commits in it, or a history
+  publication in progress, postpones the run by 5 minutes.
+- **Bounded runs**: `StorageService.reclaimSpace` runs at most 16 chunks of 256 pages
+  (16 MiB of 4 KiB pages) per maintenance hold, then releases writers. A remainder runs
+  1 s later, after a fresh probe. A failure retries after 30 minutes.
+- **Journal**: runs use the `storage_compactions` journal with owner `storage:reclaim`.
+  An unfinished compaction of any owner, including one from `ace doctor`, is resumed
+  rather than replaced. Startup recovery leaves `storage:reclaim` entries to the loop, so
+  startup is not slowed.
+- **Shutdown** waits for the current chunk at most; the journal stays `running` and the
+  next start resumes it.
+- The last run ends with `wal_checkpoint(TRUNCATE)`. Between runs, the Store's own WAL
+  maintenance truncates the WAL 5 s after writes go idle, so no separate WAL step is needed.
+
+`PRAGMA optimize` is not run: measured on a large home, it gave no read gain. The small
+`*.sqlite` files beside `events.sqlite` are created without incremental vacuum and hold
+negligible free space, so they are not compacted.
 
 ### What the write fence covers
 
@@ -201,8 +231,8 @@ opt-in bound for tests; the engine actor retries a busy admission rather than fa
 New databases are created with `auto_vacuum=INCREMENTAL`. Compaction releases free
 pages with `incremental_vacuum(256)`. Each chunk is its own transaction, journaled in
 `storage_compactions`, and the step yields between chunks. A run is limited to
-4,096 chunks; any remainder stays `pending` and resumes on the next request or at
-startup. `cleanup.compactAbandon` stops resuming it. Each run ends with
+4,096 chunks; any remainder stays `pending` and resumes on the next request, at
+startup, or in the next automatic run. `cleanup.compactAbandon` stops resuming it. Each run ends with
 `wal_checkpoint(TRUNCATE)`, and `checkpointed: false` means a reader kept the WAL
 from being truncated.
 
@@ -236,6 +266,58 @@ unused attachments and rotated logs older than the window, through `StorageServi
 with the reviewer `storage:retention`. It uses the same protections and executor as reviewed
 cleanup. See ADR 0076.
 
+### Settled worktrees
+
+Worktrees have their own per-daemon preferences in Settings → Storage. They are
+independent of daily cleanup for other storage:
+
+- `storage.worktreeRetentionDays`: null by default, disabling automatic deletion.
+  A number from 1 to 3650 enables deletion after that many days since the latest
+  owning thread settled. Recent checkout files do not restart this window.
+- `storage.backupWorktrees`: false by default. When enabled, settled topic branches
+  outside `origin/main` are backed up to the repository's `origin` remote. This
+  works with any supported Git host. Tracked and untracked changes are committed
+  using the user's Git identity; ignored files are excluded, so any secret not
+  covered by `.gitignore` (for example an untracked `.env`) is pushed. Branches
+  with no local changes and nothing unpushed are skipped without a network call.
+  Pushes never force,
+  and use the user's existing Git credential helpers. Hooks and repository filters
+  do not execute during this unattended operation.
+
+Automatic removal requires every owner to be settled, no live work or pins, and
+a clean checkout. The branch must be contained in the locally recorded
+`origin/main`, or have the same tracked tree as that ref. A published topic branch
+with unmerged changes stays, even after a successful backup. Missing `origin/main`
+cannot prove eligibility, so repositories whose default branch is `master`,
+`develop` or anything else are never removed automatically. Cleanup does not fetch. Main checkouts, unmanaged
+worktrees and unknown Git state remain protected. A failed backup is reported
+in usage and keeps the worktree; the local backup commit survives a failed push
+for a later retry.
+
+Maintenance first runs 30 seconds after daemon startup, two seconds after a
+preference changes, and hourly thereafter. Worktree inspection, filesystem sizing,
+backup commits, pushes and removal run on a dedicated idle worker. The daemon
+retains ownership and admission fences, and the worker asks it to recheck
+permission immediately before mutations. Shutdown drains accepted operations.
+Backup and deletion are separate operations composed by the scheduler. Each has
+its own per-daemon cursor over managed creation records and examines at most 256
+records per pass. The cursors advance past protected or unavailable entries and
+wrap at the end, so an early protected checkout cannot starve later work.
+Manual usage and cleanup previews keep their existing bounded prefix scans and
+do not advance either maintenance cursor. Cursors reset when the daemon restarts.
+
+"Delete all settled worktrees" creates a worktree-only preview that ignores age.
+Unlike automatic removal it does not require `origin/main` to contain the branch:
+a clean branch whose commits are already pushed is removed, and its work stays on
+`origin`. It requires the existing explicit confirmation before applying. It preserves
+threads and other storage. Dirty or unpublished work still requires selecting
+the individual worktree's force option and reviewing a new preview. Active,
+pinned, locked and unmanaged worktrees cannot be forced.
+
+Settlement only frees a worktree in these settled modes. The regular cleanup
+preview and its `storage.retention.worktrees` window still treat a settled but
+unarchived thread as open and keep its worktree.
+
 Behavior tests are written for real temporary SQLite, files, Git repositories
 and a daemon process killed after its first deletion. Additional UI tests guard
 preview, protected explanations and confirmation. Tests, mutation runs and
@@ -258,3 +340,87 @@ verification should include these production mutations:
 - Omit either running journal or its startup replay.
 - Drop replay deletion coverage when purging a transcript.
 - Apply a preview before the user's confirmation.
+
+## Usage snapshots and automatic scans
+
+`storage.usage` without `force`, or with `force: false`, returns the last valid
+measurement. With no valid snapshot, startup performs no activity probes or
+usage scans until the first usage request. That first read starts and awaits a
+scan, and enables idle retries even if the attempt fails. A persisted valid
+snapshot enables automatic scheduling immediately after restart.
+Explicit Refresh sends `{"op":"storage.usage","force":true}` and awaits a new
+scan, or joins the scan already running. All clients and automatic scans share
+one scanner. The explicit `ace storage usage` CLI command also requests a forced
+measurement. Usage and explicit refresh both retain read authority. Concurrent
+refreshes join the active scan rather than queueing scans. A cached read stays
+available while that scanner works. No push
+event announces a new measurement; a client sees it on its next usage read.
+The response retains the scanner's `measuredAt` and `complete` fields, including
+`complete: false` for bounded partial measurements. Backup outcomes remain live
+from the existing backup journal.
+
+The daemon atomically saves the measurement and its next deadline in SQLite.
+The binding includes the data root and host, so a copied database cannot supply
+another root or host's measurement. Invalid persisted data is ignored. The next
+automatic scan is due four hours after the last complete scan finishes.
+A valid partial result is displayed and persisted, but retries after 15 minutes,
+subject to the same idle gate. Restart preserves that retry deadline. Each scan
+starts afresh; Refresh does not advance a traversal cursor or promise to cover
+more data. A root that exceeds the scanner limits can continue to report a
+partial measurement.
+Restarting does not extend that deadline. A failed or cancelled scan keeps the
+previous snapshot. These measurements never authorize cleanup; planning and
+apply still inspect and validate their own current inventory.
+
+When due, automatic scans wait for measured CPU busy time at or below 20% and
+aggregate disk throughput at or below 1 MiB/s. CPU uses `os.cpus()` time deltas.
+macOS reads the second interval from `iostat`; Linux samples the kernel disk
+sector counters twice; Windows reads the CIM physical disk throughput counter.
+Probes run only when due, use bounded asynchronous commands without elevated
+privileges, and accept cancellation. Disk counters can include multiple layers
+on Linux, which can defer a scan conservatively. A missing tool, counter, access
+refusal or unrecognized output means activity is unknown. Unknown activity does
+not establish an idle disk and postpones automatic scans for 15 minutes. Busy
+activity retries after one minute, and sampling or scan errors after five
+minutes. Explicit Refresh and the first uncached read bypass this idle gate;
+they retain the scanner's resource limits.
+
+Cleanup and compaction invalidate the measurement generation before effects
+begin. The previous snapshot remains visible, but a scan from before those
+effects cannot replace it. Before effects begin, the mutation waits for the
+scanner's required `waitForIdle()` ownership barrier, which resolves only after
+its children exit and release their read handles. It waits even when the scan
+caller already rejected after a reap timeout. A five-second cancellation
+deadline refuses the mutation if the scanner cannot stop. This wait is separate
+from the refresh promise, which waits for mutations and then scans again. Mutations make the automatic deadline due immediately, including after
+partial failures. Scans receive an abort signal after ten minutes. Shutdown
+aborts probes and scans, calls the worker's close method, and bounds the wait
+for usage shutdown to five seconds. Worker cancellation must settle promptly
+before a later scan starts.
+
+Disk counter formats follow the [Linux kernel I/O statistics documentation](https://cdn.kernel.org/doc/html/latest/admin-guide/iostats.html)
+and Microsoft's [physical disk performance counters](<https://learn.microsoft.com/en-us/previous-versions/aa394262(v=vs.85)>).
+
+### Worker resource limits
+
+The scanner forks one read-only Node process per measurement and reaps it before
+admitting another. Filesystem operations are sequential. Traversal pauses for one
+millisecond every 32 steps; transcript and registry pages also yield. Usage only
+measures registered worktrees, without Git status or cleanup inspection. Cleanup
+retains its separate ownership and Git validation.
+
+Default measurement limits are 10 seconds, 250,000 traversal steps, depth 64, and
+10,000 names in any one directory. Results that hit a limit or an unreadable path
+are lower bounds with `complete: false`. Each attempt starts afresh. A partial
+measurement does not imply that another refresh will cover additional paths.
+
+Cancellation gives the child one second to cooperate, then sends a kill and waits
+at most two seconds for exit. Missing exit evidence rejects the caller but keeps
+the scanner slot occupied. Mutation admission separately waits for actual exit,
+so a rejected scan never serves as proof that its read handles were released.
+
+Run the temporary-fixture benchmark with
+`node apps/daemon/src/storage/usage-worker.bench.ts`. One macOS run on Node 26.7.0
+measured 20,000 files and 2,560,000 log bytes completely in 1,552 ms, with daemon
+event-loop p99 delay 6.71 ms and cancellation in 12 ms. These are fixture results;
+filesystem latency, directory shape, and host activity affect real measurements.

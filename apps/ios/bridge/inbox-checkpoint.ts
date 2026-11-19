@@ -1,6 +1,13 @@
 import type { SidebarReader } from "@ace/client";
-import type { InboxThread } from "@ace/ui-core/mobile";
-import { inboxLayout, inboxRow, type InboxClock, type RowContext } from "./inbox-rows.ts";
+import { placeReader } from "@ace/ui-core";
+import { isChatThread, type InboxThread } from "@ace/ui-core/mobile";
+import {
+  chatsLayout,
+  inboxLayout,
+  inboxRow,
+  type InboxClock,
+  type RowContext,
+} from "./inbox-rows.ts";
 
 /** At most this many rows are kept: more than a phone screen scrolls through at launch. */
 export const checkpointRows = 300;
@@ -19,31 +26,43 @@ export function inboxCheckpoint(
   context: RowContext,
 ): Record<string, unknown>[] {
   const held: InboxThread[] = [];
+  const place = placeReader({
+    fallback: { baseline: context.baseline, now: context.now, sortBy: context.sortBy },
+  });
   for (const id of store.ids) {
     const entry = store.thread(id);
-    if (entry) held.push({ key: id, machineId: context.machineId, entry, unconfirmed: true });
+    if (entry)
+      held.push({
+        key: id,
+        machineId: context.machineId,
+        entry,
+        unconfirmed: true,
+        place: place(entry),
+      });
   }
   const layout = inboxLayout(
-    held,
+    held.filter((thread) => !isChatThread(thread)),
     [],
     context.now,
     (store.homeWindow ?? store.window)?.before != null,
     // Saved in the order the phone shows, so the next launch draws it the same way.
     { sortBy: context.sortBy },
   );
+  // Chats keep their own tab's list, so the next launch draws them there too.
+  const chats = chatsLayout(held.filter(isChatThread), context.now, context.baseline, "");
   const kept = new Set<string>();
-  for (const section of layout.sections)
+  for (const section of [...layout.sections, ...chats.sections])
     for (const id of section.ids) if (kept.size < checkpointRows) kept.add(id);
-  const sections = layout.sections
-    .map((section) => {
-      const indices = section.ids.flatMap((id, index) => (kept.has(id) ? [index] : []));
-      return {
-        ...section,
-        ids: indices.map((index) => section.ids[index]),
-        ranks: indices.map((index) => section.ranks[index]),
-      };
-    })
-    .filter((section) => section.ids.length > 0);
+  const keep = <T extends { ids: string[]; ranks: string[] }>(section: T): T => {
+    const indices = section.ids.flatMap((id, index) => (kept.has(id) ? [index] : []));
+    return {
+      ...section,
+      ids: indices.flatMap((index) => section.ids[index] ?? []),
+      ranks: indices.flatMap((index) => section.ranks[index] ?? []),
+    };
+  };
+  const sections = layout.sections.map(keep).filter((section) => section.ids.length > 0);
+  const chatSections = chats.sections.map(keep).filter((section) => section.ids.length > 0);
   const rows = held
     .filter((thread) => kept.has(thread.key))
     .map((thread) => ({
@@ -51,7 +70,12 @@ export function inboxCheckpoint(
       id: thread.key,
       row: { ...inboxRow(thread, context), confirmed: false, generation: 0 },
     }));
-  return [{ type: "inbox.reset", ids: [...kept] }, ...rows, { ...layout, sections }];
+  return [
+    { type: "inbox.reset", ids: [...kept] },
+    ...rows,
+    { ...chats, sections: chatSections },
+    { ...layout, sections },
+  ];
 }
 
 /**

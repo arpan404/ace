@@ -81,6 +81,19 @@ pub struct Request {
     /// The person at a live view sent this input, not an agent.
     #[serde(default)]
     pub person: bool,
+    /// `watch`: whether anyone is watching the capture now.
+    pub active: Option<bool>,
+    /// `start` and `watch`: the daemon's capture generation, stamped on each picture.
+    pub capture_generation: Option<u64>,
+    /// `stream.configure`: the view's settings, parsed as `media::stream::StreamSettings`.
+    pub settings: Option<Value>,
+    /// `stream.configure`: ace-media's ingest socket and the source's token (base64), or
+    /// absent for the daemon's socket.
+    pub ingest: Option<Value>,
+    /// `stream.configure`: the privacy epoch pictures captured from now on carry.
+    pub epoch: Option<u32>,
+    /// `stream.configure`: whether pictures under `epoch` are private (absent: private).
+    pub epoch_private: Option<bool>,
 }
 #[derive(Debug, Deserialize, Default)]
 pub struct Query {

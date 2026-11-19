@@ -19,21 +19,29 @@ struct NotificationSettingsView: View {
                     Button("Allow in Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                     }
+                    .buttonStyle(.rowAction)
                 }
             } footer: {
-                Text("Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
+                Text("Alerts arrive while ace is open or refreshing in the background. A locked iPhone may show them late.")
             }
             .insetRowBackground()
+            Section {
+                Toggle("Live Activity", isOn: Binding(get: { notifications.liveActivity },
+                                                      set: { notifications.setLiveActivity($0) }))
+                .accessibilityIdentifier("notifications.liveActivity")
+            } footer: {
+                Text("What needs you and what's working, on the Lock Screen and in the Dynamic Island.")
+            }
+            .insetRowBackground()
+            PhoneNotificationSections(notifications: notifications)
             Section {
                 ForEach(inbox.sessions) { session in
                     NavigationLink {
                         MachineNotificationSettings(notifications: notifications, hostId: session.hostId,
                                                     name: inbox.name(session.hostId), model: session.client)
                     } label: {
-                        Toggle(inbox.name(session.hostId), isOn: Binding(
-                            get: { !notifications.muted.contains(session.hostId) },
-                            set: { notifications.setMachine(session.hostId, enabled: $0) }))
-                        .disabled(!notifications.delivering)
+                        InsetRow(inbox.name(session.hostId), systemImage: nil,
+                                 value: notifications.muted.contains(session.hostId) ? "Off" : "On")
                     }
                     .accessibilityIdentifier("notifications.machine.\(session.hostId)")
                 }
@@ -56,6 +64,23 @@ struct MachineNotificationSettings: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Notifications from \(name)", isOn: Binding(
+                    get: { !notifications.muted.contains(hostId) },
+                    set: { notifications.setMachine(hostId, enabled: $0) }))
+                .disabled(!notifications.delivering)
+                .accessibilityIdentifier("notifications.machineEnabled")
+            }
+            .insetRowBackground()
+            // Whether this machine pushes alerts while ace is closed (ADR 0106): a setting the
+            // machine keeps, on its bridge-described Notifications page.
+            Section {
+                NavigationLink {
+                    SettingsPageView(model: model, page: "notifications", title: "Notifications")
+                } label: { InsetRow("Push when the app is closed", systemImage: nil) }
+                .accessibilityIdentifier("notifications.machine.push")
+            }
+            .insetRowBackground()
             Section {
                 Toggle("Quiet hours", isOn: Binding(get: { preferences.quietHours != nil }, set: { on in
                     var next = preferences
@@ -130,6 +155,9 @@ struct NotificationHooks: ViewModifier {
             .task(id: inbox.sessions.contains { $0.client.inboxLoaded && !$0.client.inbox.isEmpty && $0.client.connection == "ready" }) {
                 await notifications?.askAfterFirstThread()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: .constant(LockGallery.requested)) { LockGallery() }
+            #endif
     }
 }
 extension View {

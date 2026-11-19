@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserVideoStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "attempts": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "retrying"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "reason",
+    "attempts"
+  ],
+  "type": "object"
+}

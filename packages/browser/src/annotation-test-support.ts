@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, vi } from "vitest";
+import { afterAll, afterEach, vi } from "vitest";
 import { designTokens } from "@ace/design-tokens";
 import { z } from "zod";
 import {
@@ -98,13 +98,24 @@ export interface DesktopStandIn {
 }
 
 /** A person's connection to the thread's browser over the real bridge, plus page helpers. */
-export async function annotationFixture(desktop?: DesktopStandIn) {
-  const home = await mkdtemp(join(tmpdir(), "ace-annotate-"));
+async function startSite() {
   const server = createServer(serve);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing server address");
-  const origin = `http://127.0.0.1:${address.port}`;
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+/** A browser service of its own, embedded in `desktop` when given, open on the test pages. */
+export async function annotationFixture(desktop?: DesktopStandIn) {
+  const home = await mkdtemp(join(tmpdir(), "ace-annotate-"));
+  const site = await startSite();
   const service = new BrowserService({
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
@@ -115,11 +126,55 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
     try {
       await service.close();
     } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await site.close();
       await rm(home, { recursive: true, force: true });
     }
   });
+  return annotationPage(service, site.origin);
+}
+
+let shared: { service: BrowserService; home: string } | undefined;
+afterAll(async () => {
+  const last = shared;
+  shared = undefined;
+  if (!last) return;
+  try {
+    await last.service.close();
+  } finally {
+    await rm(last.home, { recursive: true, force: true });
+  }
+}, 60_000);
+
+/**
+ * Like `annotationFixture()` in ace's own Chrome, but every test in the file shares one service.
+ * Each test gets a fresh thread browser on pages of its own; its connections and thread close
+ * after it.
+ */
+export async function sharedAnnotationFixture() {
+  if (!shared) {
+    const home = await mkdtemp(join(tmpdir(), "ace-annotate-"));
+    shared = {
+      home,
+      service: new BrowserService({
+        dataDir: home,
+        ...(executablePath ? { executablePath } : {}),
+      }),
+    };
+  }
+  const { service } = shared;
+  const site = await startSite();
+  cleanups.push(async () => {
+    try {
+      await service.closeThread("thread");
+    } finally {
+      await site.close();
+    }
+  });
+  return annotationPage(service, site.origin);
+}
+
+/** Opens the thread's browser on the test pages; connections made through it close after the test. */
+async function annotationPage(service: BrowserService, origin: string) {
   await service.open({ threadId: "thread", workspaceId: "workspace" });
   await service.execute("thread", { action: "navigate", url: `${origin}/` });
   let request = 0;
@@ -133,6 +188,7 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
         return true;
       },
     });
+    cleanups.push(async () => bridge.close());
     const call = async (message: Record<string, unknown>): Promise<unknown> => {
       const requestId = `r${++request}`;
       await bridge.handle({ requestId, threadId: "thread", ...message });

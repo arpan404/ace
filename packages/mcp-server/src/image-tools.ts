@@ -13,13 +13,11 @@ export interface ImagePublicationPort {
 }
 const { path, data, mimeType, alt, caption } = ImageShowInput.shape;
 const ShowInput = ImageShowInput.extend({
-  path: path.describe(
-    "An image file on this machine, absolute or relative to your working directory.",
-  ),
+  path: path.describe("An image file on this machine, absolute or relative to your cwd."),
   data: data.describe("The image as base64 (no data: prefix), up to 16 MiB decoded."),
-  mimeType: mimeType.describe("The type of data. ace checks the bytes either way."),
-  alt: alt.describe("What the image shows, for people who cannot see it."),
-  caption: caption.describe("A short line shown under the image."),
+  mimeType: mimeType.describe("The type of data; ace checks the bytes anyway."),
+  alt: alt.describe("What it shows, for people who cannot see it."),
+  caption: caption.describe("A line under the image."),
 });
 export const imageToolCatalog = [
   {

@@ -1,3 +1,4 @@
+import { openThreads } from "@/test/navigation.ts";
 import { longHistory, replayCursor, teamAtLimit, workbench } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -61,7 +62,7 @@ test("a renamed default account immediately names the new-thread composer and pi
   await userEvent.hover(renamed);
   await userEvent.click(within(renamed).getByRole("button", { name: "Make default" }));
   await within(renamed).findByText("Default");
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
   // The chip's account badge is decorative; the provider mark names the account (6ce23181d).
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();
@@ -96,11 +97,15 @@ test("a limited current account remains selected while account management stays 
   await app.open(`/t/${scenario.thread.id}`);
   const popover = await openModelControl();
   await openModelPicker(popover);
-  // Each account is its own rail tab; the limited one the thread runs on stays selected.
+  // Each account is its own rail tab. The limited one the thread runs on stays in the rail,
+  // dimmed; the picker opens on the account with room.
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
   const team = within(rail).getByRole("tab", { name: "Codex · Team" });
-  expect(team.getAttribute("aria-selected")).toBe("true");
   expect(team.getAttribute("aria-disabled")).toBe("true");
+  expect(team.getAttribute("aria-selected")).toBe("false");
+  expect(
+    within(rail).getByRole("tab", { name: "Codex · Personal" }).getAttribute("aria-selected"),
+  ).toBe("true");
   await closeModelControl();
   expect(screen.queryByRole("button", { name: "Add another account" })).toBeNull();
 });

@@ -7,7 +7,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import type { CdpSend } from "./cdp-connection.ts";
 import { chromeProcesses } from "./chrome-test-process.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, ref, sharedFixture } from "./test-support.ts";
 
 const exec = promisify(execFile);
 const Attached = z.object({
@@ -146,22 +146,6 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
     );
   }, 60_000);
 
-  it("restarts a killed browser and reopens the thread's page", async () => {
-    const f = await fixture();
-    await f.execute({ action: "navigate", url: `${f.url}/?restarted` });
-    const first = await browserPid(f.home);
-    process.kill(first, "SIGKILL");
-    await vi.waitFor(async () => expect(await f.evaluate("location.search")).toBe("?restarted"), {
-      timeout: 30_000,
-      interval: 200,
-    });
-    expect(await browserPid(f.home)).not.toBe(first);
-    expect(f.service.state("thread")).toMatchObject({ status: "ready", closed: false });
-    const snapshot = await f.execute({ action: "snapshot" });
-    await f.execute({ action: "type", ref: ref(snapshot, "Name"), text: "after restart" });
-    expect(await f.evaluate("document.querySelector('input').value")).toBe("after restart");
-  }, 60_000);
-
   it("fails a command with no reply at its deadline while later commands still run", async () => {
     const f = await fixture({ chrome: { commandTimeoutMs: 1_000 } });
     await f.navigate();
@@ -196,7 +180,7 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
   );
 
   it("types key chords the way a keyboard does", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     await f.execute({ action: "press", ref: name, key: "Shift+a" });
@@ -207,3 +191,24 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
     expect(await f.evaluate("document.querySelector('input').value")).toBe("");
   }, 60_000);
 });
+
+// The original gives every command, the setup's navigation and screenshots included, a 1 s
+// budget; a new tab's first navigation takes about 2 s on an ARM64 Windows machine. The deadline
+// here is above any setup command measured there, and the hung command must fail at it.
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: fails a command with no reply at its deadline while later commands still run",
+  async () => {
+    const deadline = 10_000;
+    const f = await fixture({ chrome: { commandTimeoutMs: deadline } });
+    await f.navigate();
+    const pid = await browserPid(f.home);
+    const started = performance.now();
+    await expect(f.evaluate("new Promise(() => {})")).rejects.toThrow();
+    const waited = performance.now() - started;
+    expect(waited).toBeGreaterThanOrEqual(deadline - 50);
+    expect(waited).toBeLessThan(deadline + 5_000);
+    expect(await f.evaluate("2 + 2")).toBe(4);
+    expect(await browserPid(f.home)).toBe(pid);
+  },
+  90_000,
+);

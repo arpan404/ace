@@ -1,22 +1,17 @@
 import SwiftUI
 
 /// A list row's press (DESIGN.md §3 list rows, §5 press): no dividers; while pressed, or while
-/// `selected`, the row takes a soft fill, concentric with its container and never
-/// rounder than its 12pt padding. Rows
-/// stay flat: no shadow, no tint.
+/// `selected` (the page open beside or under the list), the row takes a soft fill with 16pt
+/// continuous corners, at once, as a system list row highlights. Rows stay flat: no shadow, no
+/// tint, no scale.
 struct RowPressStyle: ButtonStyle {
     var selected = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: AceDesign.Size.rowCorner, style: .continuous)
         configuration.label
-            .aceConcentricBackground(
-                AceTheme.Colours.fill.opacity(configuration.isPressed || selected ? 1 : 0),
-                minimum: AceShape.rowRadius
-            )
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(.easeOut(duration: AceTheme.Motion.fast), value: configuration.isPressed)
-            .aceConcentricContentShape(minimum: AceShape.rowRadius)
+            .background(AceDesign.Surface.fill.opacity(configuration.isPressed || selected ? 1 : 0), in: shape)
+            .contentShape(shape)
     }
 }
 

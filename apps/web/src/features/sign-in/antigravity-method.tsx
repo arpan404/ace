@@ -1,6 +1,12 @@
 import { useId, useState, type FormEvent } from "react";
-import { AntigravitySignIn, type AntigravitySignInMethod } from "@ace/protocol";
-import { antigravitySignInMethods } from "@ace/ui-core";
+import type { AntigravitySignIn, AntigravitySignInMethod } from "@ace/protocol";
+import {
+  antigravitySignIn,
+  antigravitySignInMethods,
+  googleSignIn,
+  type AntigravityMethodDraft,
+} from "@ace/ui-core";
+
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -15,38 +21,14 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 
+export { antigravitySignIn, googleSignIn, type AntigravityMethodDraft };
+
 /*
  * How an Antigravity account signs in: its Google account, Gemini Enterprise in the browser, or
  * Agent Platform with the Application Default Credentials already on the computer running ace.
  * The cloud methods name a Google Cloud project and location, which ace writes to that
  * account's own Antigravity settings. Key-based methods aren't offered.
  */
-
-export interface AntigravityMethodDraft {
-  method: AntigravitySignInMethod;
-  project: string;
-  location: string;
-}
-
-export const googleSignIn: AntigravityMethodDraft = { method: "google", project: "", location: "" };
-
-/** The sign-in to ask for, or what to fix first. */
-export function antigravitySignIn(
-  draft: AntigravityMethodDraft,
-): { signIn: AntigravitySignIn } | { problem: string } {
-  const parsed = AntigravitySignIn.safeParse(
-    draft.method === "google"
-      ? { method: "google" }
-      : { method: draft.method, project: draft.project.trim(), location: draft.location.trim() },
-  );
-  if (parsed.success) return { signIn: parsed.data };
-  const project = parsed.error.issues.some((issue) => issue.path[0] === "project");
-  return {
-    problem: project
-      ? "Enter the Google Cloud project ID, like my-project-123."
-      : "Enter the location, like global, us or us-central1.",
-  };
-}
 
 export function AntigravityMethodFields(props: {
   value: AntigravityMethodDraft;

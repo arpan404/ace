@@ -59,9 +59,15 @@ export class ManagedWorktrees {
     );
   }
   list(): ManagedWorktree[] {
+    return this.listAfter("");
+  }
+  /** Bounded keyset page for daemon maintenance; the extra row signals continuation. */
+  listAfter(path: string): ManagedWorktree[] {
     return this.store
-      .statement("SELECT record FROM managed_worktrees WHERE removed=0 ORDER BY path LIMIT 257")
-      .all()
+      .statement(
+        "SELECT record FROM managed_worktrees WHERE removed=0 AND path>? ORDER BY path LIMIT 257",
+      )
+      .all(path)
       .map((row) => Record.parse(JSON.parse(z.string().parse(row.record))));
   }
   get(path: string): ManagedWorktree | undefined {

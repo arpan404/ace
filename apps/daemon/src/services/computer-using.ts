@@ -3,7 +3,7 @@ import type { ThreadApps } from "../computer-using.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /**
- * `computer.using.watch`: the threads this client may read whose agent is using Mac apps, and
+ * `computer.using.watch`: the threads this client may read whose agent is using desktop apps, and
  * which, now and again on every change, for the task list's indicator. A daemon without
  * computer use answers with nobody.
  */

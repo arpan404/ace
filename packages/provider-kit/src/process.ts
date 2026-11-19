@@ -8,12 +8,21 @@ import type { OutputFlow } from "./flow-control.ts";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
+import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { toWindowsCommand } from "./windows-command.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { registerGroup, signalTree, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
+import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { windowsTreeRunning } from "./process-owner.ts";
+import { toWindowsCommand } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
+import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
+import { probeLaunch } from "./discovery/probe-launch.ts";
+import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -66,6 +75,11 @@ export type SpawnOptions = {
   windowsKillTree?: WindowsKillTree;
   /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
   windowsJobFactory?: WindowsJobFactory;
+  /**
+   * Runs `run` once after `ms`; returns a cancel. Rechecks a retained Windows tree that survived
+   * its stop. Defaults to an unref'd timer, so the recheck never keeps the daemon alive.
+   */
+  schedule?: (run: () => void, ms: number) => () => void;
   /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
   onStdoutLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
@@ -96,16 +110,10 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
-  const terminate = (pid: number) => {
-    if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
-  };
-  const destroy = (pid: number) => {
-    if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
-  };
   const stopRetained = (pid: number, graceMs: number) =>
-    windows ? stopRetainedWindowsTree(pid, graceMs, killTree) : stopRetainedGroup(pid, graceMs);
+    windows
+      ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
+      : stopRetainedGroup(pid, graceMs);
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -121,6 +129,10 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  reportBunStdinFailures(child.stdin);
+  // Never throws: stops run from timers, exit listeners and voided stop() calls.
+  const terminate = (pid: number) => signalTree(pid, false, windows, killTree, child);
+  const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
   const controller = new AbortController();
   const pid = child.pid;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
@@ -164,6 +176,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   let timer: ReturnType<typeof setTimeout> | undefined;
   let retainedStop: Promise<ProcessExit> | undefined;
   let retainedKill: ReturnType<typeof setTimeout> | undefined;
+  let cancelRecheck: (() => void) | undefined;
+  const schedule =
+    options.schedule ??
+    ((run: () => void, ms: number) => {
+      const recheck = setTimeout(run, ms);
+      recheck.unref?.();
+      return () => clearTimeout(recheck);
+    });
   /** When the current stop escalates to SIGKILL; a shorter later stop moves it earlier. */
   let killAt: number | undefined;
   const shortens = (graceMs: number) => {
@@ -179,6 +199,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     ended = true;
     if (timer) clearTimeout(timer);
     if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
+      // This runs in the child's exit listener, where a throw would be uncaught (and would end
+      // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
+      // without a kernel32 binding, is reported and ownership still ends.
       destroy(pid);
       unregisterGroup(pid);
       job?.dispose();
@@ -201,7 +224,8 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       }
       resolve({
         code,
-        signal,
+        // After a failed spawn Bun reports no signal at all, where Node reports null.
+        signal: signal ?? null,
         reason: outputLimited
           ? "output-limit"
           : failed
@@ -227,16 +251,46 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
         if (!retainedStop) {
           stopped = true;
           killAt = performance.now() + graceMs;
-          // A retained Windows tree has no group owner to release it; the stop
-          // completion releases ownership and its job handle, like the POSIX path.
-          const stopping = windows
-            ? stopRetained(pid, graceMs).finally(() => {
-                unregisterGroup(pid);
-                job?.dispose();
-              })
-            : stopRetained(pid, graceMs);
-          retainedStop = stopping.then(() => exited);
-          void stopping.finally(() => clearTimeout(retainedKill));
+          // Resolves only once the tree is confirmed gone. A retained Windows tree has no group
+          // owner to release it, so that confirmation releases ownership and its job handle.
+          // Survivors stay owned and the stop rejects: the daemon's shutdown still ends them.
+          const treeGone = () => {
+            clearTimeout(retainedKill);
+            cancelRecheck?.();
+            if (windows) {
+              unregisterGroup(pid);
+              job?.dispose();
+            }
+          };
+          retainedStop = stopRetained(pid, graceMs).then(() => {
+            treeGone();
+            return exited;
+          });
+          /*
+           * Survivors keep the group owned, and later stops keep failing, until the tree is
+           * confirmed gone. On Windows nothing else would ever notice that, so it is rechecked
+           * with backoff; then ownership and the job end, and later stops resolve.
+           */
+          const recheck = (delayMs: number) => {
+            cancelRecheck = schedule(() => {
+              cancelRecheck = undefined;
+              let running = true;
+              try {
+                running = windowsTreeRunning(pid, job);
+              } catch {
+                /* Unknown: still owned. */
+              }
+              if (running) return recheck(Math.min(delayMs * 2, 60_000));
+              treeGone();
+              retainedStop = exited;
+            }, delayMs);
+          };
+          // stop() is often voided (abort listeners, timers). Every awaiting caller still sees
+          // the failure; this only keeps it from going unheard.
+          retainedStop.catch((error: unknown) => {
+            process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`);
+            if (windows) recheck(1_000);
+          });
         } else if (shortens(graceMs)) {
           // The group can outlive its leader, so this deadline survives the leader's exit.
           clearTimeout(retainedKill);
@@ -321,6 +375,8 @@ export async function probeOutput(
   options: {
     timeoutMs?: number;
     env?: NodeJS.ProcessEnv;
+    /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
+    cwd?: string;
     maxBytes?: number;
     signal?: AbortSignal;
     /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
@@ -331,6 +387,28 @@ export async function probeOutput(
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
+  // A probe only reads. A version manager's shim can install or update its tool when it runs,
+  // so a shim is probed through the installed binary its manager names, or not at all.
+  const found = await findInstalledExecutable(
+    command,
+    { ...process.env, ...options.env },
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
+  if (found && "refused" in found) throw found.refused;
+  if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
+  // The CLI's own interpreter and anything it starts from PATH must not reach a shim either.
+  const launch = await probeLaunch(
+    found && "run" in found ? found.run : command,
+    args,
+    { ...process.env, ...options.env },
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -339,18 +417,20 @@ export async function probeOutput(
     });
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
-    return probeOffThread(command, args, {
+    return probeOffThread(launch.command, launch.args, {
       timeoutMs: options.timeoutMs ?? 30_000,
-      env: options.env ?? process.env,
+      env: launch.env,
+      cwd: options.cwd,
       maxBytes,
       signal: options.signal,
       schedule,
       thread: options.thread,
     });
   const proc = options.spawn({
-    command,
-    args,
-    env: options.env ?? process.env,
+    command: launch.command,
+    args: launch.args,
+    env: launch.env,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
@@ -363,7 +443,8 @@ export async function probeOutput(
   const collect = (target: Buffer[], chunk: unknown) => {
     if (!Buffer.isBuffer(chunk)) {
       failure ??= new Error("Invalid probe output chunk");
-      void proc.stop({ graceMs: 0 });
+      // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+      void proc.stop({ graceMs: 0 }).catch(() => {});
       return;
     }
     target.push(chunk);
@@ -372,13 +453,15 @@ export async function probeOutput(
   proc.stderr.on("data", (chunk: unknown) => collect(stderr, chunk));
   const abort = () => {
     failure ??= new Error("Probe aborted");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   }, options.timeoutMs ?? 30_000);
   try {
     const exit = await proc.exited;
@@ -402,3 +485,5 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   return output.stdout;
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
+export { toWindowsCommand, type WindowsCommand } from "./process-owner.ts";
+export { createProbeThread, type ProbeThread } from "./probe-thread.ts";

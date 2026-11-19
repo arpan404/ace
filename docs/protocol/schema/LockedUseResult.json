@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/LockedUseErrorCode.json"
+        },
+        {
+          "maxLength": 64,
+          "type": "string"
+        }
+      ]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRevision.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/LockedUseStatus.json"
+    },
+    "type": {
+      "const": "lockedUse.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

@@ -10,10 +10,10 @@ import {
 } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
 import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback } from "react";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { buttonVariants } from "@/components/ui/button.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import {
   countSubagents,
@@ -27,6 +27,7 @@ import { Screen } from "@/features/shell/index.ts";
 import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { whenIdle } from "@/lib/idle.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { ComposerDock } from "../composer/composer-dock.tsx";
@@ -35,14 +36,18 @@ import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
 import { ThreadLoadError } from "../thread-load-error.tsx";
 import { AgentTranscript } from "../transcript/agent-transcript.tsx";
 import { SubagentCrumb } from "../header/thread-crumb.tsx";
-import { WorkButton } from "../header/work-button.tsx";
-import { useRememberedWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { DeferredWorkPopover, WorkButton } from "../header/work-button.tsx";
+
+import { DeferredStepDetail } from "../items/deferred-step-detail.ts";
+import { createWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { WorkCardTreeFollower } from "../header/work-card-tree.tsx";
 import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
@@ -69,7 +74,15 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   // An unnamed subagent goes by its task, as its row in the Summary does.
   const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
-  const details = useRememberedWorkCardStore();
+  const [details] = useState(() => createWorkCardStore());
+  // An opened step's detail and the details icon's popover, so neither waits on first open.
+  useEffect(
+    () =>
+      whenIdle(
+        () => void Promise.all([DeferredStepDetail.preload(), DeferredWorkPopover.preload()]),
+      ),
+    [],
+  );
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
   // Esc steps back up to the parent, as Open parent does, once nothing above the page has it.
   const navigate = useNavigate();
@@ -89,41 +102,63 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   return (
     <SubagentFocusProvider value={agentId}>
       <WorkCardContext value={details}>
+        <WorkCardTreeFollower key={threadId} threadId={threadId} />
         <Screen
+          page="thread"
           crumb={
             agent?.parentId && <SubagentCrumb threadId={threadId} parentAgentId={agent.parentId} />
           }
-          title={agent ? name : error ? "Subagent unavailable" : meta ? "Subagent" : ""}
+          title={agent ? name : ""}
           tools={meta && !error && <WorkButton threadId={threadId} />}
-          workspace={{ scope: threadId, definition: threadWorkspace }}
+          // A subagent that couldn't be shown has nothing to open beside it or below it.
+          workspace={
+            error || (meta && !agent) ? undefined : { scope: threadId, definition: threadWorkspace }
+          }
         >
           {error ? (
             <ThreadLoadError error={error} />
           ) : !meta ? (
             <SkeletonText lines={4} className={`${readingColumn} pt-16`} />
           ) : !agent ? (
-            <EmptyState
-              icon={RobotIcon}
-              title="This subagent isn't in the loaded thread"
-              description="It may belong to older history that hasn't loaded yet."
-            />
+            <div role="alert" className="h-full">
+              <MissingState
+                title="This subagent isn't in the loaded thread"
+                description="It may belong to older history that hasn't loaded yet."
+                actions={
+                  <>
+                    <Link
+                      to="/t/$threadId"
+                      params={{ threadId }}
+                      search={machine}
+                      className={buttonVariants({ size: "sm", variant: "primary" })}
+                    >
+                      Open the thread
+                    </Link>
+                    <Link to="/" className={buttonVariants({ size: "sm" })}>
+                      Back to Home
+                    </Link>
+                  </>
+                }
+              />
+            </div>
           ) : (
             <div
               data-thread-column
               className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
             >
               <WorkSide threadId={threadId} />
-              <div className="col-start-1 row-start-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
-                <div
-                  className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+2rem)]`}
-                >
-                  {agent.spawnedBy && (
-                    <SubagentPrompt threadId={threadId} spawnedBy={agent.spawnedBy} />
-                  )}
-                  {/* As in a thread, the live line heads the work in progress. */}
-                  <SubagentLive threadId={threadId} agent={agent} />
-                  <AgentTranscript threadId={threadId} agentId={agentId} />
-                </div>
+              <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                <AgentTranscript
+                  threadId={threadId}
+                  agentId={agentId}
+                  prompt={
+                    agent.spawnedBy && (
+                      <SubagentPrompt threadId={threadId} spawnedBy={agent.spawnedBy} />
+                    )
+                  }
+                  // As in a thread, the live line heads the work in progress.
+                  live={<SubagentLive threadId={threadId} agent={agent} />}
+                />
               </div>
               <SubagentBottom threadId={threadId} agent={agent} root={root} />
             </div>
@@ -146,6 +181,7 @@ function useBranch(threadId: string, agentId: string) {
 
 function SubagentLive(props: { threadId: string; agent: Agent }) {
   const { phase } = useBranch(props.threadId, props.agent.id);
+  const { live } = useThreadLiveState(props.threadId);
   const { work } = useTreeWork(props.threadId);
   const tree = useAgentTree(props.threadId);
   const node = tree && findAgentNode(tree, props.agent.id);
@@ -156,6 +192,7 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
       agent={props.agent}
       phase={phase}
       subagents={running}
+      live={live}
     />
   );
 }
@@ -164,12 +201,14 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
  * Its open requests in the composer's one strip, then the bar: model and effort, how it ended
  * or how long it has worked (its whole branch: never "Completed" while anything under it
  * runs or waits on the person), Stop while it runs or has gone silent, Ask parent to retry once
- * it failed or was stopped, and Open parent.
+ * it failed or was stopped, and Open parent. While the thread's copy isn't confirmed the bar says
+ * so ("Reconnecting…") instead of how it went, and offers only Open parent.
  */
 function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }) {
   const { threadId, agent } = props;
   const meta = useThreadMeta(threadId);
   const { branch, phase } = useBranch(threadId, agent.id);
+  const { live } = useThreadLiveState(threadId);
   const requests = useBranchRequests(threadId, agent.id);
   const tree = useAgentTree(threadId);
   const node = tree && findAgentNode(tree, agent.id);
@@ -187,6 +226,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
         acpAgentId={agent.native.acpAgentId}
         model={agent.model ? modelLabel(agent.model) : providerNames[agent.native.provider]}
         phase={phase}
+        live={live}
         startedAt={agent.createdAt}
         endedAt={subagentEnded(phase) ? branch?.end : undefined}
         parent={
@@ -197,30 +237,32 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
             : undefined
         }
         actions={
-          !subagentEnded(phase)
-            ? stoppable && (
-                <StopAgent
-                  threadId={threadId}
-                  agent={agent}
-                  pending
-                  variant="ghost"
-                  feedback="toast"
-                  className={barAction}
-                  subagents={node ? countSubagents(node) : 0}
-                />
-              )
-            : // Only its parent can run it again; a read-only thread can't be asked. It is its
-              // own ending that is retried, not a failure further down its branch.
-              (agent.status.state === "failed" || agent.status.state === "interrupted") &&
-              !meta?.continuation && (
-                // A resumed subagent that ends again can be asked about again.
-                <AskParentRetry
-                  key={branch?.end ?? 0}
-                  threadId={threadId}
-                  agent={agent}
-                  direct={props.root}
-                />
-              )
+          !live.current
+            ? undefined
+            : !subagentEnded(phase)
+              ? stoppable && (
+                  <StopAgent
+                    threadId={threadId}
+                    agent={agent}
+                    pending
+                    variant="ghost"
+                    feedback="toast"
+                    className={barAction}
+                    subagents={node ? countSubagents(node) : 0}
+                  />
+                )
+              : // Only its parent can run it again; a read-only thread can't be asked. It is its
+                // own ending that is retried, not a failure further down its branch.
+                (agent.status.state === "failed" || agent.status.state === "interrupted") &&
+                !meta?.continuation && (
+                  // A resumed subagent that ends again can be asked about again.
+                  <AskParentRetry
+                    key={branch?.end ?? 0}
+                    threadId={threadId}
+                    agent={agent}
+                    direct={props.root}
+                  />
+                )
         }
       />
     </ComposerDock>

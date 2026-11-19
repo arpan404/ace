@@ -2,12 +2,21 @@
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
-import { bundleDaemon, linuxScreenHelperName, stageLinuxScreenHelper } from "@ace/release";
-import { stageNodeRuntime } from "@ace/release/node-runtime";
+import {
+  assembleRelease,
+  bundleDaemon,
+  linuxScreenHelperName,
+  RustToolchainError,
+  stageLinuxScreenHelper,
+} from "@ace/release";
+import { stageBunRuntime } from "@ace/release/daemon-runtime";
+import { stageAceMedia } from "@ace/release/ace-media";
+import { stageAceFiles } from "@ace/release/ace-files";
+import { stageSpade } from "@ace/release/spade";
+import { ReleaseTarget } from "@ace/protocol";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
@@ -19,17 +28,22 @@ import {
   repo,
   targetArch,
 } from "./common.ts";
+import { mainProcessNeedsKoffi, stageMainProcessNatives } from "./koffi.ts";
+import { stageLockedUse } from "./locked-use.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * Builds everything the packaged app ships, into `apps/desktop/dist`:
  * - `app/`: main, preload, the web renderer and the app's package.json (becomes app.asar);
+ * - `node_modules/` (Windows only): koffi with this target's prebuilt binary, for the main
+ *   process (scripts/koffi.ts; the standalone daemon ships none);
  * - `daemon/`: the daemon bundle from `@ace/release`, its worker bundles, staged runtime
- *   packages (koffi, playwright-core, the Claude SDK), `descriptor.node`, node-pty and
- *   `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
+ *   packages (playwright-core, the Claude SDK), `descriptor.node` and `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
- * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
+ * - `spade/`: Spade's binary (`spade`), always (Settings › Beta hides it at run time);
+ * - `media/` and `files/`: the daemon's Rust helpers, ace-media and ace-files;
+ * - `runtime/`: the pinned Bun runtime the daemon runs on.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
  * finishes, every staged native binary is checked against the target architecture.
@@ -49,6 +63,9 @@ await mkdir(app, { recursive: true });
 
 log("main and preload");
 await Promise.all(electronBundles(app, process.env).map((options) => build(options)));
+
+if (mainProcessNeedsKoffi(process.platform)) log("koffi");
+await stageMainProcessNatives(dist, process.platform, arch);
 
 log("renderer (apps/web)");
 run(
@@ -87,21 +104,80 @@ await writeFile(
 log("daemon bundle");
 const daemon = join(dist, "daemon");
 await mkdir(daemon, { recursive: true });
-await bundleDaemon(repo, daemon, releasePublicKey(process.env));
-await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
-await stageNodePty(daemon);
-await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
-// The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
-await writeFile(
-  join(daemon, desktopAppMarker),
-  JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
+// Every file of the daemon folder is staged here; the build id is written over all of them
+// last. Packaging copies the folder as it is; macOS signing later rewrites its natives'
+// signatures, which the id (naming the unsigned build) leaves out.
+await assembleRelease(daemon, [
+  () => bundleDaemon(repo, daemon, releasePublicKey(process.env)),
+  () => cp(join(app, "renderer"), join(daemon, "web"), { recursive: true }),
+  () => copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE")),
+  // The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
+  () =>
+    writeFile(
+      join(daemon, desktopAppMarker),
+      JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
+    ),
+]);
+
+// Spade's server, copied out to <ACE_HOME>/releases/spade on install (ADR 0123).
+log("spade");
+log(
+  `spade: ${await stageSpade({
+    repo,
+    root: dist,
+    target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+    version: appVersion,
+    env: process.env,
+  })}`,
 );
+
+log("ace-media");
+await stageAceMedia({
+  repo,
+  root: dist,
+  target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+  version: appVersion,
+  env: process.env,
+});
+
+log("ace-files");
+await stageAceFiles({
+  repo,
+  root: dist,
+  target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+  env: process.env,
+});
 
 log("ripgrep");
 await stageRipgrep(join(dist, "bin"));
 
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));
+
+if (process.platform === "darwin" && process.env.ACE_SCREEN_SIGN_RELEASE === "1") {
+  log("locked-use components");
+  await stageLockedUse(repo, join(dist, "locked-use"));
+}
+
+// The Windows installer runs this on the bundled Node for PATH, the `ace` command and
+// uninstall cleanup (src/packaging/setup.ts, build/installer.nsh).
+if (process.platform === "win32") {
+  log("installer helper");
+  await build({
+    entryPoints: [join(desktop, "src/packaging/setup-entry.ts")],
+    outfile: join(dist, "setup/ace-setup.mjs"),
+    bundle: true,
+    minify: true,
+    platform: "node",
+    target: "node26",
+    format: "esm",
+    legalComments: "eof",
+    logLevel: "warning",
+    banner: {
+      js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
+    },
+  });
+}
 
 const releaseTarget = `${process.platform}-${arch}`;
 if (
@@ -110,53 +186,27 @@ if (
   releaseTarget === "linux-arm64" ||
   releaseTarget === "linux-x64"
 ) {
-  log("node runtime");
+  log("bun runtime");
   const runtime = join(dist, "runtime");
-  const cacheDir = join(desktop, "node_modules/.cache/ace-node");
-  await mkdir(runtime, { recursive: true });
-  await mkdir(cacheDir, { recursive: true });
-  await stageNodeRuntime({
+  await stageBunRuntime({
     target: releaseTarget,
-    version: appVersion,
-    cacheDir,
-    destination: runtime,
+    cacheDir: join(desktop, "node_modules/.cache/ace-runtime"),
+    executable: join(runtime, "bin", "node"),
+    licensePath: join(runtime, "LICENSE"),
+  });
+} else if (releaseTarget === "win32-x64" || releaseTarget === "win32-arm64") {
+  log("bun runtime");
+  await stageBunRuntime({
+    target: releaseTarget,
+    cacheDir: join(desktop, "node_modules/.cache/ace-runtime"),
+    executable: join(dist, "runtime", "node.exe"),
+    licensePath: join(dist, "runtime", "LICENSE"),
   });
 }
 
 log(`native code for ${process.platform}-${arch}`);
 await verifyNatives(arch);
 log(`done: ${dist}`);
-
-/**
- * node-pty is external to the bundle. It is a Node-API addon, so one binary serves Node and
- * Electron's Node alike; a binary rebuilt by `desktop:rebuild-native` (build/Release) wins
- * over the npm prebuild, and is the only option on Linux, which has no prebuilds.
- */
-async function stageNodePty(root: string): Promise<void> {
-  const require = createRequire(join(repo, "packages/terminal/package.json"));
-  const source = dirname(require.resolve("node-pty/package.json"));
-  const target = join(root, "node_modules/node-pty");
-  await mkdir(target, { recursive: true });
-  for (const name of ["lib", "package.json", "LICENSE"])
-    await cp(join(source, name), join(target, name), { recursive: true });
-  const rebuilt = join(source, "build/Release");
-  const prebuild = join(source, "prebuilds", `${process.platform}-${process.arch}`);
-  const from = existsSync(join(rebuilt, "pty.node")) ? rebuilt : prebuild;
-  const to =
-    from === rebuilt
-      ? join(target, "build/Release")
-      : join(target, "prebuilds", `${process.platform}-${process.arch}`);
-  if (!existsSync(join(from, "pty.node")))
-    throw new Error(
-      "No node-pty binary for this platform; run `bun run desktop:rebuild-native` first",
-    );
-  await mkdir(to, { recursive: true });
-  await copyFile(join(from, "pty.node"), join(to, "pty.node"));
-  if (existsSync(join(from, "spawn-helper"))) {
-    await copyFile(join(from, "spawn-helper"), join(to, "spawn-helper"));
-    await chmod(join(to, "spawn-helper"), 0o755);
-  }
-}
 
 async function stageRipgrep(bin: string): Promise<void> {
   const { rgPath } = await import("@vscode/ripgrep");
@@ -171,7 +221,10 @@ async function stageRipgrep(bin: string): Promise<void> {
 /**
  * macOS: the Swift helper as a signed `.app` with a stable bundle id, plus the manifest the
  * daemon verifies before installing it. Windows and Linux: the Rust helpers via cargo.
- * A missing toolchain skips the helper with a warning; screen use is then unavailable.
+ * A missing toolchain skips the helper with a warning; screen use is then unavailable. On
+ * Linux a Rust older than the crate's `rust-version` fails the build: that toolchain is there
+ * to be used, so a package quietly without screen use would be a mistake. A release package
+ * (`ACE_REQUIRE_SCREEN_HELPER=1`) fails on any reason.
  */
 async function stageScreenHelper(helpers: string): Promise<void> {
   await mkdir(helpers, { recursive: true });
@@ -198,8 +251,18 @@ async function stageScreenHelper(helpers: string): Promise<void> {
     }
   } catch (error) {
     if (process.env.ACE_REQUIRE_SCREEN_HELPER === "1") throw error;
+    if (error instanceof RustToolchainError && error.reason === "too-old") throw error;
+    const reason = error instanceof Error ? error.message : String(error);
     console.warn(
-      `[build] screen helper skipped: ${error instanceof Error ? error.message : String(error)}`,
+      [
+        "",
+        "[build] ************************************************************************",
+        "[build] SCREEN HELPER SKIPPED: this build cannot see or use the screen.",
+        `[build] ${reason}`,
+        "[build] Set ACE_REQUIRE_SCREEN_HELPER=1 to make this an error.",
+        "[build] ************************************************************************",
+        "",
+      ].join("\n"),
     );
   }
 }

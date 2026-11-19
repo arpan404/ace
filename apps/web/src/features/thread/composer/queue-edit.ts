@@ -13,6 +13,12 @@ import { queuedText } from "./use-queue.ts";
 export interface QueueEditSession {
   message: QueuedMessage;
   stash: ComposerDraft | undefined;
+  /** The queue revision its words were read at: saving is fenced to it. */
+  revision?: number | undefined;
+  /** The message that wasn't sent (the transcript's), not one of the strip's waiting ones. */
+  held?: boolean;
+  /** What it says now, when another device changed it since; the composer keeps the edit. */
+  newer?: string | undefined;
 }
 
 const sessions = new Observable<ReadonlyMap<string, QueueEditSession>>(new Map());
@@ -44,6 +50,9 @@ export function beginQueueEdit(
   storage: KeyValueStorage | undefined,
   threadId: string,
   message: QueuedMessage,
+  /** The revision of the queue page `message` was read from. */
+  revision?: number,
+  held = false,
 ): boolean {
   const key = draftKey(threadId);
   const open = queueEditSession(threadId);
@@ -51,8 +60,23 @@ export function beginQueueEdit(
   const stash = open ? open.stash : readDraft(storage, key);
   const taken = replaceOpenDraft(key, { text: queuedText(message), mentions: [], attachments: [] });
   if (taken === undefined) return false;
-  set(threadId, { message, stash });
+  set(threadId, { message, stash, revision, held });
   return true;
+}
+
+/**
+ * Another device changed the message being edited: the composer keeps the person's words, the
+ * strip shows what it says now, and the next save is fenced to the newer revision, so it replaces
+ * that on purpose.
+ */
+export function markQueueEditChanged(
+  threadId: string,
+  message: QueuedMessage,
+  revision: number,
+): void {
+  const session = queueEditSession(threadId);
+  if (!session) return;
+  set(threadId, { ...session, message, revision, newer: queuedText(message) });
 }
 
 /** Cancel: the composer shows the draft set aside again, exactly as it was. */
@@ -71,22 +95,24 @@ export function finishQueueEdit(threadId: string): void {
   if (session.stash && !isEmptyDraft(session.stash)) returnDraft(draftKey(threadId), session.stash);
 }
 
-/** How saving an edit went: saved, refused (try again), or the message already left the queue. */
-export type QueueEditOutcome = "saved" | "failed" | "gone";
+/**
+ * How saving an edit went: saved, refused (try again), changed on another device since it was
+ * read (shown, the edit kept), or the message already left the queue.
+ */
+export type QueueEditOutcome = "saved" | "failed" | "changed" | "gone";
 
 /*
  * The thread's queue strip saves edits through its own queue controls, so the change shows on
  * its pill at once. It registers here while mounted.
  */
-const savers = new Map<
-  string,
-  (message: QueuedMessage, text: string) => Promise<QueueEditOutcome>
->();
+type Saver = (
+  message: QueuedMessage,
+  text: string,
+  revision: number | undefined,
+) => Promise<QueueEditOutcome>;
+const savers = new Map<string, Saver>();
 
-export function registerQueueEditSaver(
-  threadId: string,
-  save: (message: QueuedMessage, text: string) => Promise<QueueEditOutcome>,
-): () => void {
+export function registerQueueEditSaver(threadId: string, save: Saver): () => void {
   savers.set(threadId, save);
   return () => {
     if (savers.get(threadId) === save) savers.delete(threadId);
@@ -99,7 +125,7 @@ export async function saveQueueEdit(threadId: string, text: string): Promise<Que
   const save = savers.get(threadId);
   if (!session) return "gone";
   if (!save) return "failed";
-  return save(session.message, text);
+  return save(session.message, text, session.revision);
 }
 
 const emptyDraft: ComposerDraft = { text: "", mentions: [], attachments: [] };

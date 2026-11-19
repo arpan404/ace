@@ -1,15 +1,7 @@
 import type { Toolchain } from "@ace/protocol";
 import { Fragment } from "react";
-import { ToolchainHints, useToolchains } from "@/features/diagnostics/index.ts";
-import { Button } from "@/components/ui/button.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
+import { useToolchains } from "@/features/diagnostics/index.ts";
+import { Link } from "@tanstack/react-router";
 
 /** One tool as the readiness line names it: "Xcode 26.0", "serve-sim 0.1.49-beta.139.1", "Android SDK". */
 function toolWords(tool: Toolchain): string | undefined {
@@ -32,16 +24,16 @@ function toolWords(tool: Toolchain): string | undefined {
 
 /**
  * One quiet line at the end of the list: the device tools on this machine and their versions,
- * with "Set up…" when one is missing, which opens the setup guidance.
+ * with "Set up…" when one is missing, which opens the tools in Settings › Simulators.
  */
-export function ToolReadiness(props: { onSetUp(): void }) {
+export function ToolReadiness() {
   const tools = useToolchains();
   const shown = (tools.data ?? []).flatMap((tool) => {
     const words = toolWords(tool);
     return words ? [{ tool, words }] : [];
   });
   if (!shown.length) return null;
-  const missing = shown.some(({ tool }) => !tool.available && tool.id !== "serve-sim");
+  const missing = shown.some(({ tool }) => !tool.available);
   return (
     <p
       aria-label="Device tools"
@@ -54,39 +46,14 @@ export function ToolReadiness(props: { onSetUp(): void }) {
         </Fragment>
       ))}
       {missing && (
-        <button
-          type="button"
-          onClick={props.onSetUp}
+        <Link
+          to="/settings/simulators"
+          hash="tools"
           className="rounded-xs text-link focus-ring hover:underline"
         >
           Set up…
-        </button>
+        </Link>
       )}
     </p>
-  );
-}
-
-/** The device tools and how to install the missing ones (the existing guidance). */
-export function ToolSetupDialog(props: { open: boolean; onOpenChange(open: boolean): void }) {
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Device tools</DialogTitle>
-          <DialogDescription>
-            Simulators need Xcode; emulators need the Android SDK. Install what's missing, then
-            refresh the list.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-2">
-          <ToolchainHints devices />
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

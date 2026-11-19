@@ -88,5 +88,5 @@ export const fields = {
     .min(1)
     .max(128)
     .regex(/^[a-zA-Z0-9_.-]+$/)
-    .describe("Any stable id; repeating a call with it runs once."),
+    .describe("Any stable id; a repeat with it runs once."),
 };

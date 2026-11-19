@@ -5,7 +5,8 @@ import { useAutomationRuns } from "@/features/automation-data/index.ts";
 import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
-import { runStatusLine, runToasts } from "./toast-rules.ts";
+import { runAlertTitle, runStatusLine } from "@ace/ui-core/automations";
+import { runToasts } from "./toast-rules.ts";
 
 /** A failed run's toast stays as long as a request's: it wants a look. */
 const failedTimeout = 10_000;
@@ -41,7 +42,7 @@ export default function RunNotifier() {
         void (run.threadId
           ? go({ to: "/t/$threadId", params: { threadId: run.threadId } })
           : go({ to: "/automations/$automationId", params: { automationId: run.automationId } }));
-      const title = run.status === "failed" ? `${run.title} failed` : `${run.title} finished`;
+      const title = runAlertTitle(run);
       if (!documentVisibility.visible()) {
         // No run output on a lock screen: the system notification says only what happened.
         if (current.browser)

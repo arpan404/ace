@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketEntryVersion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "changelog": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "published": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    },
+    "withdrawn": {
+      "maxLength": 500,
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "hash",
+    "size",
+    "published",
+    "downloads"
+  ],
+  "type": "object"
+}

@@ -1,10 +1,11 @@
-import type { DeviceInput } from "@ace/protocol";
+import type { AgentPointer, DeviceInput } from "@ace/protocol";
 import type { DeviceRow } from "@ace/ui-core";
 import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
-import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
+import { ActivityRipple, DeviceAgentPointer, type ShownActivity } from "./activity-overlay.tsx";
 import {
   chromeLayout,
+  chromePicture,
   chromeTurn,
   screenFraction,
   bodyTurn,
@@ -82,6 +83,9 @@ export function DeviceStage({
   onFrame(shown: ShownScreen): void;
   stream?: StreamObserver | undefined;
   activity: ShownActivity | undefined;
+  /** The agent sharing the device: where it last acted, and who it is. */
+  agentPointer?: AgentPointer | undefined;
+  holder?: { threadId: string; agentId: string } | undefined;
   highlight: Bounds | undefined;
   idle?: ReactNode;
   rail?: ReactNode;
@@ -105,14 +109,15 @@ export function DeviceStage({
     : { buttons: deviceButtons(kind, row.name, turn), turn, press: props.press };
   // The real body from the SDK, when the daemon's machine has it; else the drawn frame.
   const chrome = useDeviceChrome(props.session, row, !props.bare);
-  // Before the first picture, the chrome's own screen stands in for its shape.
-  const picture = framed || !chrome ? screen : chrome.screen;
   const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
+  // Before the first picture, the chrome's own screen stands in for its shape.
+  const picture = framed || !chrome ? screen : chromePicture(chrome, bodyTurned);
   const layout = chrome && chromeLayout(chrome, bodyTurned, picture, fit);
   const dimmed = !props.live && !row.running && "opacity-40";
   const overlay = (
     <>
       <ActivityRipple shown={props.activity} screen={screen} />
+      <DeviceAgentPointer pointer={props.agentPointer} holder={props.holder} screen={screen} />
       {props.highlight && <BoundsOutline bounds={props.highlight} screen={screen} />}
     </>
   );

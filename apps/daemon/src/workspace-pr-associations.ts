@@ -1,6 +1,7 @@
 import { ForgeError, repositoryKey, prFromUrl, prUrl, prRepository } from "@ace/forge";
 import {
   ForgePrRef,
+  configuredForge,
   type ForgePrStatus,
   type ThreadId,
   type ForgeRepository,
@@ -36,7 +37,7 @@ export class WorkspacePrAssociations {
     if (existing) {
       try {
         const status = await (
-          await this.ctx.backends.backend(cwd, pr.repository)
+          await this.ctx.backends.reader(cwd, pr.repository, signal)
         ).status(pr.number, signal);
         signal.throwIfAborted();
         if (!allowed()) throw new Error("forbidden");
@@ -72,7 +73,7 @@ export class WorkspacePrAssociations {
     let status: ForgePrStatus;
     try {
       status = await (
-        await this.ctx.backends.backend(cwd, pr.repository)
+        await this.ctx.backends.reader(cwd, pr.repository, signal)
       ).status(pr.number, signal);
     } catch (error) {
       signal.throwIfAborted();
@@ -133,21 +134,20 @@ export class WorkspacePrAssociations {
     try {
       // A bare `owner/name` lives on this checkout's host (an Enterprise host, say), never
       // an assumed github.com.
+      // Each configured host reads addresses and `host/owner/name` by its own provider.
+      const hosts = (await this.ctx.sourceControl?.preferences())?.hosts;
       const origin = operation.url
         ? undefined
         : "repo" in operation && operation.repo
-          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd))
+          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd), hosts)
           : await this.ctx.backends.repository(cwd);
       const pr = operation.url
-        ? prFromUrl(
-            operation.url,
-            (await this.ctx.sourceControl?.preferences())?.hosts.map((entry) => entry.host),
-          )
+        ? prFromUrl(operation.url, hosts)
         : ForgePrRef.parse({
             number: operation.number,
             repository:
               origin && "repo" in operation && operation.repo
-                ? prRepository(operation.repo, origin)
+                ? prRepository(operation.repo, origin, hosts)
                 : origin,
           });
       if (operation.op === "thread.link_pr") {
@@ -171,8 +171,10 @@ export class WorkspacePrAssociations {
     try {
       return await this.ctx.backends.repository(cwd);
     } catch {
-      const host = (await this.ctx.sourceControl?.preferences())?.host ?? "github.com";
-      return { forge: "github", host, owner: "unused", name: "unused" };
+      const preferences = await this.ctx.sourceControl?.preferences();
+      const host = preferences?.host ?? "github.com";
+      const entry = preferences?.hosts.find((candidate) => candidate.host === host) ?? { host };
+      return { forge: configuredForge(entry), host, owner: "unused", name: "unused" };
     }
   }
   async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
@@ -183,7 +185,7 @@ export class WorkspacePrAssociations {
     const revision = this.ctx.owner.capture(link.pr);
     try {
       const status = await (
-        await this.ctx.backends.backend(cwd, link.pr.repository)
+        await this.ctx.backends.reader(cwd, link.pr.repository, this.ctx.signal)
       ).status(link.pr.number, this.ctx.signal);
       await this.ctx.store.write(() => {
         check?.();
@@ -242,9 +244,7 @@ export class WorkspacePrAssociations {
     for (const group of groups.values()) {
       try {
         const check = await this.ctx.sourceControl?.guard();
-        const backend = await this.ctx.backends.backend(group.cwd, group.repo);
         const numbers = [...new Set(group.entries.map((entry) => entry.pr.number))];
-        if (!backend.states) continue;
         for (let offset = 0; offset < numbers.length; offset += 100) {
           const batch = numbers.slice(offset, offset + 100);
           const revisions = new Map(
@@ -253,7 +253,12 @@ export class WorkspacePrAssociations {
               this.ctx.owner.capture({ repository: group.repo, number }),
             ]),
           );
-          const summaries = await backend.states(batch, this.ctx.signal);
+          const summaries = await this.ctx.backends.states(
+            group.cwd,
+            group.repo,
+            batch,
+            this.ctx.signal,
+          );
           // Ownership and generation checks run inside the same commit as the projection.
           await this.ctx.store.write(() => {
             check?.();

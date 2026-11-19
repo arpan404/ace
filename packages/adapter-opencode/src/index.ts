@@ -23,16 +23,21 @@ export function createOpenCodeAdapter(
       const lease = await pool.acquire(ctx);
       try {
         pool.assertOpen();
+        let opened: OpenCodeSession | undefined;
         const session = await OpenCodeSession.open(
           {
             ...ctx,
             onExit: (exit) => {
-              void lease.release().catch(() => {});
+              // Nobody awaits this release; a server stop that failed is recorded on the thread.
+              // An awaited close still rejects with it through its own release.
+              void lease.release().catch((error: unknown) => opened?.noteStopFailure(error));
               ctx.onExit(exit);
             },
           },
           lease.server,
         );
+        opened = session;
+        lease.opened();
         return {
           ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get mcp() {
@@ -41,7 +46,8 @@ export function createOpenCodeAdapter(
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
+          send: (input, delivery, commandId, origin, fence) =>
+            session.send(input, delivery, commandId, origin, fence),
           configure: (selection) => session.configure(selection),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),

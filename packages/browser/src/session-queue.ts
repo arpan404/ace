@@ -99,9 +99,12 @@ export class SessionQueue {
       () => {},
     );
     this.dialogWork = settled;
-    void settled.then(() => {
-      if (this.dialogWork === settled) this.dialogWork = undefined;
-    });
+    // `settled` swallows the work's failure already, so only the clearing callback is left.
+    void settled
+      .then(() => {
+        if (this.dialogWork === settled) this.dialogWork = undefined;
+      })
+      .catch(() => {});
     notify?.();
     try {
       return await Promise.race([work, dialog]);

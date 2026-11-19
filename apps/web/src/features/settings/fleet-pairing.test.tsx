@@ -53,6 +53,24 @@ test("pairing explains the actual Tailscale listener instead of asking to enable
   expect(within(dialog).queryByText(/Turn on LAN or Tailscale/)).toBeNull();
 });
 
+test("a machine on a relay makes a pairing link without asking for LAN or Tailscale", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({
+    "remote.enabled": true,
+    "remote.lan": false,
+    "remote.tailscale": false,
+    "remote.relay": true,
+    "remote.relayUrl": "wss://relay.example.com/",
+  });
+  await app.open("/settings/remote");
+  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  expect(await within(dialog).findByText(/pairs through this machine's relay/)).toBeTruthy();
+  expect(within(dialog).queryByText(/Turn on LAN or Tailscale/)).toBeNull();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+  expect(await within(dialog).findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+});
+
 test("remote access off explains the missing listener and prevents making an unusable code", async () => {
   const app = harness();
   app.daemon.services.settings.seed({ "remote.enabled": false });
@@ -66,15 +84,22 @@ test("remote access off explains the missing listener and prevents making an unu
 });
 
 test("turning remote access off changes pairing instructions on the same page", async () => {
-  await harness().open("/settings/remote");
-  // The switch replaces its placeholder once settings load: look it up again after.
+  await harness().open("/settings/remote/primary");
+  await userEvent.click(await screen.findByText("More options"));
+  // The button replaces its placeholder once settings load: look it up again after.
   await waitFor(() =>
     expect(
-      screen.getByRole("switch", { name: "Remote access", checked: true }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "Turn off remote access" }).hasAttribute("disabled"),
     ).toBe(false),
   );
-  await userEvent.click(screen.getByRole("switch", { name: "Remote access" }));
-  await screen.findByRole("switch", { name: "Remote access", checked: false });
+  await userEvent.click(screen.getByRole("button", { name: "Turn off remote access" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Turn off remote access?" })).getByRole(
+      "button",
+      { name: "Turn off" },
+    ),
+  );
+  await screen.findAllByRole("button", { name: "Turn on remote access" });
   await userEvent.click(screen.getByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   expect(await within(dialog).findByText(/Turn on LAN or Tailscale/)).toBeTruthy();
@@ -124,7 +149,7 @@ test("a named link that lasts an hour pairs a device under that name for the cho
   await user.click(within(dialog).getByRole("button", { name: "Done" }));
   const devices = await screen.findByRole("region", { name: "Devices" });
   expect(await within(devices).findByText("Kitchen iPad")).toBeTruthy();
-  expect(within(devices).getByText(/Expires in (7d|6d 23h)/)).toBeTruthy();
+  expect(within(devices).getByText(/expires in (7d|6d 23h)/)).toBeTruthy();
 });
 
 test("an unused link is listed without its code and can be cancelled", async () => {
@@ -137,13 +162,15 @@ test("an unused link is listed without its code and can be cancelled", async () 
   const code = (await within(dialog).findByLabelText(/^Pairing code \S+$/)).textContent ?? "";
   await userEvent.keyboard("{Escape}");
 
-  const open = await screen.findByRole("region", { name: "Open pairing links" });
-  expect(within(open).getByText("Spare phone")).toBeTruthy();
-  expect(open.textContent).not.toContain(code);
-  await userEvent.click(within(open).getByRole("button", { name: "Cancel" }));
+  const devices = await screen.findByRole("region", { name: "Devices" });
+  expect(await within(devices).findByText("Pairing link for Spare phone")).toBeTruthy();
+  expect(devices.textContent).not.toContain(code);
+  await userEvent.click(
+    within(devices).getByRole("button", { name: "Cancel the link for Spare phone" }),
+  );
   await waitFor(() => expect(app.daemon.access.pendingPairings()).toEqual([]));
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Open pairing links" })).toBeNull(),
+    expect(within(devices).queryByText("Pairing link for Spare phone")).toBeNull(),
   );
 });
 
@@ -154,7 +181,11 @@ test("a link for another machine is made on that machine", async () => {
   });
   await app.open("/settings/remote");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
+  // With more than one machine there are no next steps: pairing is under Add.
+  await userEvent.click(await screen.findByRole("button", { name: "Add", expanded: false }));
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: /^A phone, tablet or browser/ }),
+  );
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("combobox", { name: "Pairs with" }));
   await userEvent.click(await screen.findByRole("option", { name: "Build server" }));

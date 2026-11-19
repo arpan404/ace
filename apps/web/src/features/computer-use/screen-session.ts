@@ -4,6 +4,7 @@ import {
   ScreenStreamClient,
   browserScreenSocket,
   screenTransport,
+  type MediaRoute,
   type ScreenTransport,
 } from "@ace/client/screen-stream";
 import {
@@ -16,8 +17,11 @@ import {
 import { useClient } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useDaemonConnection, type DaemonEndpoint } from "@/boot/connection.tsx";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
+import { channelEndpoint, throughAccount, type ChannelEndpoint } from "@/boot/main-machine.ts";
+import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -28,7 +32,7 @@ const schedule = (callback: () => void, delayMs: number) => {
  * The dedicated, authenticated screen channel: a socket of its own against a real daemon
  * (pictures never share the client's socket), the fake daemon's in memory.
  */
-function transportFor(endpoint: DaemonEndpoint): ScreenTransport {
+function transportFor(endpoint: ChannelEndpoint): ScreenTransport {
   if (endpoint.kind === "fake") return endpoint.screen();
   const { url } = endpoint.target;
   return screenTransport({
@@ -55,6 +59,11 @@ export interface ScreenSnapshot {
   permissionsProblem: { code: string | undefined; message: string } | undefined;
   /** The daemon has no screen helper here (another OS, or none installed). */
   unavailable: boolean;
+  /**
+   * The machine was opened through the person's ace account, which carries only its main
+   * conversation: there is no screen channel to it. `unavailable` is set too.
+   */
+  throughAccount?: boolean | undefined;
   states: readonly ScreenState[];
 }
 
@@ -73,6 +82,12 @@ export interface ScreenSession {
   ack: ScreenStreamClient["ack"];
   /** Hold a session's live stream for one view; views of one session share it. */
   retainStream: ScreenStreamClient["retainStream"];
+  /** The still a session's subscribe brought back, shown until its first live picture. */
+  poster: ScreenStreamClient["poster"];
+  /** Whether a picture is of its session's current subscribe; an older one is never drawn. */
+  current: ScreenStreamClient["current"];
+  /** A session's view couldn't decode `codec`: that session alone asks again without it. */
+  fallBack: ScreenStreamClient["fallBack"];
   close(): void;
 }
 
@@ -86,25 +101,44 @@ const offline: ScreenSnapshot = {
   states: [],
 };
 
-function openSession(endpoint: DaemonEndpoint): ScreenSession {
+/** A machine opened through the ace account: no screen channel, and the screens say why. */
+const accountOnly: ScreenSnapshot = { ...offline, unavailable: true, throughAccount: true };
+
+/**
+ * A new channel starts from what the last one knew for this endpoint (on or off, the grants,
+ * whether there's a helper), so returning to Computer use shows apps as on while it connects,
+ * never off then on. Each fact is replaced as soon as the daemon answers it again. Sessions
+ * aren't carried over: their pictures need the new channel.
+ */
+function openSession(
+  endpoint: ChannelEndpoint,
+  known: ScreenSnapshot = offline,
+  media?: MediaRoute,
+): ScreenSession {
   const client = new ScreenStreamClient({ id: () => crypto.randomUUID(), schedule });
+  // Live pictures come by the daemon connection's media connection when it has one.
+  client.useMedia(media);
   const listeners = new Set<() => void>();
   const holders = new Map<string, ScreenAgentScope>();
   let opening = true;
   let wasConnected = false;
-  let permissions: ScreenPermissions | undefined;
+  let permissions: ScreenPermissions | undefined = known.permissions;
   let permissionsProblem: ScreenSnapshot["permissionsProblem"];
-  let unavailable = false;
-  let snapshot: ScreenSnapshot = offline;
+  let unavailable = known.unavailable;
+  // The latest the daemon said, starting from what the last channel knew: a channel that drops
+  // forgets it, and must not bring back an older answer.
+  let lastEnabled = known.enabled;
+  let snapshot: ScreenSnapshot = { ...offline, enabled: known.enabled, permissions, unavailable };
   const publish = () => {
     const next = client.getSnapshot();
+    if (next.enabled !== undefined) lastEnabled = next.enabled;
     for (const state of next.states)
       if (state.controller === "agent" && state.holder) holders.set(state.sessionId, state.holder);
     snapshot = {
       connected: next.connected,
       // Closed once an opened channel drops (it then carries why); one still connecting isn't.
       closed: !opening && !next.connected && next.error !== undefined,
-      enabled: next.enabled,
+      enabled: next.enabled ?? lastEnabled,
       permissions,
       permissionsProblem,
       unavailable,
@@ -198,25 +232,42 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
     watchPictures: (sessionId, draw) => client.watchPictures(sessionId, draw),
     ack: (picture, keyframe) => client.ack(picture, keyframe),
     retainStream: (sessionId) => client.retainStream(sessionId),
+    poster: (sessionId) => client.poster(sessionId),
+    fallBack: (sessionId, codec) => client.fallBack(sessionId, codec),
+    current: (picture) => client.current(picture),
     close() {
       stop();
+      client.useMedia(undefined);
       client.disconnect();
     },
   };
 }
 
+/** What each endpoint's last channel knew when it closed, for the next one to start from. */
+const lastKnown = new WeakMap<ChannelEndpoint, ScreenSnapshot>();
+
 interface Shared {
   session: ScreenSession;
+  media: MediaRoute | undefined;
   users: number;
   stop: () => void;
   listeners: Set<() => void>;
 }
-const shared = new WeakMap<DaemonEndpoint, Shared>();
+const shared = new WeakMap<ChannelEndpoint, Shared>();
 
-function acquire(endpoint: DaemonEndpoint, client: ClientApi): Shared {
+function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    entry = { session: openSession(endpoint), users: 0, stop: () => {}, listeners: new Set() };
+    const web = endpoint.kind === "fake" ? undefined : mediaFor(client);
+    web?.relayWith(mediaRelayFor(endpoint));
+    const media = web?.route;
+    entry = {
+      session: openSession(endpoint, lastKnown.get(endpoint), media),
+      media,
+      users: 0,
+      stop: () => {},
+      listeners: new Set(),
+    };
     shared.set(endpoint, entry);
     let wasReady = client.state === "ready";
     entry.stop = client.connectionState().subscribe(() => {
@@ -230,19 +281,21 @@ function acquire(endpoint: DaemonEndpoint, client: ClientApi): Shared {
   return entry;
 }
 
-function release(endpoint: DaemonEndpoint, entry: Shared) {
+function release(endpoint: ChannelEndpoint, entry: Shared) {
   entry.users--;
   if (entry.users > 0) return;
   entry.stop();
+  lastKnown.set(endpoint, entry.session.get());
   entry.session.close();
   if (shared.get(endpoint) === entry) shared.delete(endpoint);
 }
 
-function reopen(endpoint: DaemonEndpoint) {
+function reopen(endpoint: ChannelEndpoint) {
   const entry = shared.get(endpoint);
   if (!entry) return;
+  const known = entry.session.get();
   entry.session.close();
-  entry.session = openSession(endpoint);
+  entry.session = openSession(endpoint, known, entry.media);
   for (const listener of entry.listeners) listener();
 }
 
@@ -255,7 +308,9 @@ const none = () => () => {};
  * replayed: control, subscriptions and approvals are asked for again.
  */
 export function useScreenSession() {
-  const { endpoint } = useDaemonConnection();
+  const connection = useDaemonConnection();
+  const endpoint = channelEndpoint(connection.endpoint);
+  const blank = throughAccount(connection.endpoint) ? accountOnly : offline;
   const client = useClient();
   const [session, setSession] = useState<ScreenSession | undefined>();
   useEffect(() => {
@@ -272,8 +327,8 @@ export function useScreenSession() {
   }, [endpoint, client]);
   const snapshot = useSyncExternalStore(
     session?.subscribe ?? none,
-    session?.get ?? (() => offline),
-    session?.get ?? (() => offline),
+    session?.get ?? (() => blank),
+    session?.get ?? (() => blank),
   );
   return { session, snapshot, reconnect: () => endpoint && reopen(endpoint) };
 }

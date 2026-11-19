@@ -1,4 +1,4 @@
-import type { ForgeComment, ForgeMergeState, ForgePrStatus } from "@ace/protocol";
+import type { ForgeCheck, ForgeComment, ForgeMergeState, ForgePrStatus } from "@ace/protocol";
 import type { LocalCheckResult } from "./pr-next-step.ts";
 
 /** A reviewer's latest verdict on a pull request. */
@@ -73,9 +73,22 @@ function reviewsGate(facts: GateFacts): Gate {
   if (decision === "CHANGES_REQUESTED" || [...facts.outcomes.values()].includes("changes"))
     return { key: "reviews", label, value: "Changes requested", tone: "failed" };
   if (decision === "APPROVED" || (!decision && approved))
-    return { key: "reviews", label, value: `${Math.max(1, approved)} approved`, tone: "done" };
+    return {
+      key: "reviews",
+      label,
+      value: approved ? `${approved} approved` : "Approved",
+      tone: "done",
+    };
   if (decision === "REVIEW_REQUIRED")
     return { key: "reviews", label, value: "Review required", tone: "needs-you" };
+  // The host can't say whether its rules are met: approvals so far, never "done".
+  if (decision === "UNKNOWN")
+    return {
+      key: "reviews",
+      label,
+      value: approved ? `${approved} approved` : "Unavailable",
+      tone: "idle",
+    };
   return { key: "reviews", label, value: "None", tone: "idle" };
 }
 
@@ -124,6 +137,84 @@ export function prGates(facts: GateFacts): Gate[] {
     reviewsGate(facts),
     conflictsGate(status),
     branchGate(facts.mergeState),
+  ];
+}
+
+const plural = (n: number) => (n === 1 ? "check" : "checks");
+
+/** Up to two names, then how many more: "mira", "mira and dana", "mira, dana and 2 more". */
+function names(list: readonly string[]): string {
+  if (list.length <= 2) return list.join(" and ");
+  return `${list.slice(0, 2).join(", ")} and ${list.length - 2} more`;
+}
+
+/**
+ * The same four gates as one sentence each, for a page's facts line: "1 of 3 checks failing",
+ * "mira requested changes", "No conflicts", "Up to date with main". Only for an open PR.
+ */
+export function prFacts(facts: GateFacts): Gate[] {
+  const [checks, reviews, conflicts, branch] = prGates({ ...facts, ended: undefined });
+  if (!checks || !reviews || !conflicts || !branch || checks.key !== "checks") return [];
+  const { status, local } = facts;
+  const total = status.checks.length + Number(local !== undefined);
+  const count = (state: ForgeCheck["status"], localState: LocalCheckResult) =>
+    status.checks.filter((c) => c.status === state).length + Number(local === localState);
+  const failed = count("failure", "failed");
+  const running = count("pending", "running");
+  const passed = count("success", "passed");
+  const checksSaid =
+    checks.tone === "failed"
+      ? failed
+        ? `${failed} of ${total} ${plural(total)} failing`
+        : "Checks failing"
+      : checks.tone === "working"
+        ? running
+          ? `${running} of ${total} ${plural(total)} running`
+          : "Checks running"
+        : checks.tone === "done"
+          ? passed === 1
+            ? "1 check passed"
+            : `All ${passed} checks passed`
+          : status.ci === "unknown"
+            ? "Checks unavailable"
+            : "No checks";
+  const by = (outcome: ReviewOutcome) =>
+    [...facts.outcomes].filter(([, value]) => value === outcome).map(([login]) => login);
+  const asking = by("changes");
+  const approving = by("approved");
+  const reviewsSaid =
+    reviews.tone === "failed"
+      ? asking.length
+        ? `${names(asking)} requested changes`
+        : "Changes requested"
+      : reviews.tone === "done"
+        ? approving.length
+          ? `Approved by ${names(approving)}`
+          : "Approved"
+        : reviews.tone === "needs-you"
+          ? "Review required"
+          : reviews.value === "Unavailable"
+            ? "Review status unavailable"
+            : approving.length
+              ? `Approved by ${names(approving)}`
+              : "No reviews yet";
+  const conflictsSaid =
+    conflicts.tone === "failed"
+      ? `Conflicts with ${facts.baseBranch}`
+      : conflicts.tone === "done"
+        ? "No conflicts"
+        : "Checking for conflicts";
+  const branchSaid =
+    branch.tone === "needs-you"
+      ? `Behind ${facts.baseBranch}`
+      : branch.tone === "done"
+        ? `Up to date with ${facts.baseBranch}`
+        : "Checking the branch";
+  return [
+    { ...checks, value: checksSaid },
+    { ...reviews, value: reviewsSaid },
+    { ...conflicts, value: conflictsSaid },
+    { ...branch, value: branchSaid },
   ];
 }
 

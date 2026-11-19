@@ -21,11 +21,12 @@ import {
   automationFromForm,
   blankForm,
   titleFromPrompt,
-} from "./automation-values.ts";
+} from "@ace/ui-core/automations";
 import { ideas, type Idea } from "./ideas.ts";
 import { AutomationAccess, AutomationModelChip, useShownModel } from "./run-settings.tsx";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useAutomationActions } from "@/features/automation-data/index.ts";
+import { part } from "@/lib/suit-part.ts";
 import { fieldErrors, whenFields, WhenPopover } from "./when-popover.tsx";
 
 const newDraftKey = "automation-new";
@@ -40,13 +41,13 @@ export function NewAutomationScreen() {
   const { ids: projects, loaded } = useRegisteredProjects();
   if (!loaded)
     return (
-      <Screen title="New automation">
+      <Screen page="automation" title="New automation" namedByPanel>
         <ComposeSkeleton />
       </Screen>
     );
   if (!projects.length || !projects[0])
     return (
-      <Screen title="New automation">
+      <Screen page="automation" title="New automation" namedByPanel>
         <ProjectsEmptyState />
       </Screen>
     );
@@ -168,13 +169,16 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
 
   const blocked = !ready ? "Reconnect to create this automation." : undefined;
   return (
-    <Screen title="New automation">
+    <Screen page="automation" title="New automation" namedByPanel>
       <div
         ref={page}
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
-          <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+          <h2
+            {...part("page-title")}
+            className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground"
+          >
             What should run on its own in{" "}
             <ProjectPicker
               projects={[...new Set([form.workspace, ...projects])]}
@@ -231,6 +235,7 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
               controls={
                 <AutomationAccess
                   fields={{ ...modelFields, workspace: form.workspace, access: form.access }}
+                  webhook={form.trigger === "webhook"}
                   onChange={(access) => change({ access })}
                 />
               }
@@ -254,14 +259,19 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
               </p>
             )}
           </div>
-          <section aria-label="Ideas" className="mt-8">
+          <section
+            aria-label="Ideas"
+            {...part("page-section", undefined, "ideas")}
+            className="mt-8"
+          >
             <h3 className="px-1 pb-1.5 text-xs text-muted-foreground">Ideas</h3>
-            <ul className="flex flex-col">
+            <ul {...part("list", undefined, "ideas")} className="flex flex-col">
               {ideas.map((idea) => (
                 <li key={idea.prompt}>
                   <button
                     type="button"
                     onClick={() => applyIdea(idea)}
+                    {...part("list-row")}
                     className="flex min-h-9 w-full items-center gap-3 rounded-md px-2 text-left text-ui transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset"
                   >
                     <span className="min-w-0 flex-1 truncate">{idea.prompt}</span>

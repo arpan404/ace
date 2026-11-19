@@ -1,6 +1,6 @@
 # 0006: Large payloads: output streams, capped raw data, paged snapshots
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-02. Status: accepted. Decision 3 amended by [ADR 0157](0157-large-requests-go-summarized.md).
 
 ## Context
 

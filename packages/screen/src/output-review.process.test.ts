@@ -1,17 +1,23 @@
 import { dirname } from "node:path";
+import { Writable } from "node:stream";
 import { access } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { Helper } from "./index.ts";
 import { deferred, ids } from "./testing/support.ts";
-import { windowsFixture } from "./testing/windows-fixture.ts";
+import { helperFixture } from "./testing/support.ts";
 
 it("an unterminated oversized POSIX helper reply kills the process before readline grows further", async () => {
   const exited = deferred<unknown>();
   const failed = deferred<Error>();
   const helper = await Helper.open({
     command: process.execPath,
-    args: ["-e", 'process.stdin.once("data", () => process.stdout.write("x".repeat(1048577)));'],
+    // The helper's own arguments follow; "--" keeps Node from reading them as its options.
+    args: [
+      "-e",
+      'process.stdin.once("data", () => process.stdout.write("x".repeat(1048577)));',
+      "--",
+    ],
     platform: "darwin",
     nextId: ids(),
     spawn: (options) => {
@@ -23,9 +29,38 @@ it("an unterminated oversized POSIX helper reply kills the process before readli
     onFailure: failed.resolve,
   });
   try {
-    await expect(helper.request({ op: "permissions" })).rejects.toThrow("exited");
-    await exited.promise;
-    expect(await failed.promise).toBeInstanceOf(Error);
+    await expect(helper.request({ op: "permissions" })).rejects.toThrow("line exceeded limit");
+    expect(await exited.promise).toMatchObject({ reason: "output-limit" });
+    expect((await failed.promise).message).toContain("line exceeded limit");
+  } finally {
+    await helper.close();
+  }
+});
+it("a request whose write hears EPIPE from a dying helper fails as the helper's exit", async () => {
+  const failed = deferred<Error>();
+  const helper = await Helper.open({
+    command: process.execPath,
+    args: ["-e", 'process.stdin.once("data", () => process.exit(3));', "--"],
+    platform: "darwin",
+    nextId: ids(),
+    spawn: (options) => {
+      const child = spawnSupervised(options);
+      // The write reaches the helper, which exits; the pipe reports EPIPE before the exit lands.
+      const stdin = new Writable({
+        write(chunk, _encoding, done) {
+          child.stdin.write(chunk);
+          done(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+        },
+      });
+      stdin.on("error", () => {});
+      return { ...child, stdin };
+    },
+    onFrame: () => {},
+    onFailure: failed.resolve,
+  });
+  try {
+    await expect(helper.request({ op: "permissions" })).rejects.toThrow("Screen helper exited");
+    expect((await failed.promise).message).toBe("Screen helper exited");
   } finally {
     await helper.close();
   }
@@ -51,7 +86,7 @@ it("spawn failure removes the private Unix frame socket directory", async () => 
 });
 it("the injected snapshot deadline rejects a missing frame and releases capture demand", async () => {
   const deadlines = new Set<() => void>();
-  const f = await windowsFixture({
+  const f = await helperFixture("win32", {
     env: { NO_FRAMES: "1" },
     scheduler: {
       schedule(run, _ms) {

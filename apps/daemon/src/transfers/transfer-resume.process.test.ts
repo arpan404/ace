@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { transferChunkBytes } from "@ace/protocol";
-import { MachineFailure } from "../machines/transport.ts";
+import { MachineFailure, MachineTimeout } from "../machines/transport.ts";
 import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
 
 const digest = (data: Buffer) => createHash("sha256").update(data).digest("hex");
@@ -43,6 +43,40 @@ it("resumes from the acknowledged offset after a connection drops mid-upload", a
   expect(bytes).toEqual([...bytes].toSorted((a, b) => a - b));
 });
 
+it("a chunk that times out on a slow link is sent again smaller, from the acknowledged offset", async () => {
+  const puts: { offset: number; bytes: number }[] = [];
+  const m = await transferMachines({
+    transport: (inner) => async (profile, route, options) => {
+      if (route.method !== "PUT") return inner(profile, route, options);
+      const offset = Number(new URL(route.path, profile.origin).searchParams.get("offset"));
+      puts.push({ offset, bytes: Buffer.byteLength(route.body) });
+      // The second chunk reaches the target, but its answer doesn't come in time.
+      const answer = await inner(profile, route, options);
+      if (puts.length === 2) throw new MachineTimeout("disconnected");
+      return answer;
+    },
+  });
+  const { path, digest: sent } = await largeProject(m.sourceRoot);
+  const workspaceId = await m.addProject(m.source, path);
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: false,
+  });
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({ phase: "completed", method: "remote" });
+  expect(digest(await readFile(join(transfer.result?.path ?? "", "data.bin")))).toBe(sent);
+  const [, timedOut, retry] = puts;
+  if (!timedOut || !retry) throw new Error("The upload never retried");
+  // Sent again from where it was, as a smaller piece.
+  expect(retry.offset).toBe(timedOut.offset);
+  expect(retry.bytes).toBeLessThan(timedOut.bytes);
+  // Each piece starts at what the target last acknowledged: never behind it, never past it.
+  const offsets = puts.map((put) => put.offset);
+  expect(offsets).toEqual([...offsets].toSorted((a, b) => a - b));
+});
+
 it("carries on after the sending machine restarts mid-upload", async () => {
   let puts = 0;
   const m = await transferMachines({
@@ -70,8 +104,7 @@ it("carries on after the sending machine restarts mid-upload", async () => {
   await vi.waitFor(
     () => {
       const row = m.source.daemon.transfers.outgoing.get(started.transferId);
-      if ((row?.transfer.sentBytes ?? 0) < transferChunkBytes)
-        throw new Error("First chunk not sent");
+      if ((row?.transfer.sentBytes ?? 0) === 0) throw new Error("First chunk not sent");
     },
     { timeout: 30_000, interval: 20 },
   );

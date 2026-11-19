@@ -1,10 +1,9 @@
 import { z } from "zod";
-import type { Transport as LegacyWire } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, expect, it } from "vitest";
 import { registerBuiltins } from "./index.ts";
-import { deferred, harness, scope } from "./test-support.ts";
+import { deferred, harness, legacyWire, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -85,20 +84,7 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   const transport = new LegacyTransport(new URL(h.server.url), {
     requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
   });
-  // v1's own optional sessionId declaration is incompatible with exactOptionalPropertyTypes.
-  const wire: LegacyWire = {
-    start: () => transport.start(),
-    close: () => transport.close(),
-    send: (message, options) => transport.send(message, options),
-  };
-  // SDK Transport uses callback properties, not DOM events.
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onmessage = (message) => wire.onmessage?.(message);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onerror = (error) => wire.onerror?.(error);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onclose = () => wire.onclose?.();
-  await client.connect(wire);
+  await client.connect(legacyWire(transport));
   expect(client.getServerVersion()?.name).toBe("ace");
   expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
     "context",
@@ -108,6 +94,62 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   expect(await client.callTool({ name: "ace_echo", arguments: { value: "legacy" } })).toMatchObject(
     { structuredContent: { value: "legacy" } },
   );
+});
+
+it("a call's acting-for comes from the client's _meta, never from the tool's arguments", async () => {
+  const h = await harness(cleanups);
+  h.registry.register({
+    name: "ace_whom",
+    description: "Whom",
+    input: z.object({ for: z.string().optional() }),
+    output: z.object({ actingFor: z.string() }),
+    capability: null,
+    timeoutMs: 1000,
+    async run(_value, context) {
+      return { actingFor: context.actingFor ?? "nobody" };
+    },
+  });
+  // Spade's client: the legacy SDK with a session and its list-change stream.
+  const lease = h.credentials.issue(scope(), new AbortController().signal);
+  const client = new LegacyClient({ name: "spade", version: "1" });
+  cleanups.push(() => client.close());
+  const transport = new LegacyTransport(new URL(h.server.url), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${lease.bearer}`, "X-Ace-Notifications": "stream" },
+    },
+  });
+  await client.connect(legacyWire(transport));
+  const whom = async (params: {
+    arguments?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  }) => (await client.callTool({ name: "ace_whom", ...params })).structuredContent;
+  expect(await whom({ _meta: { "ace/acting-for": "fares" } })).toEqual({ actingFor: "fares" });
+  expect(await whom({ arguments: { for: "fares" } })).toEqual({ actingFor: "nobody" });
+  // A name that isn't a short id is ignored rather than passed on.
+  expect(await whom({ _meta: { "ace/acting-for": "../x y" } })).toEqual({ actingFor: "nobody" });
+
+  // A client that reaches tools through tools_call keeps the outer call's name.
+  const core = new LegacyClient({ name: "spade-core", version: "1" });
+  cleanups.push(() => core.close());
+  await core.connect(
+    legacyWire(
+      new LegacyTransport(new URL(h.server.url), {
+        requestInit: {
+          headers: {
+            Authorization: `Bearer ${lease.bearer}`,
+            "X-Ace-Notifications": "stream",
+            "X-Ace-Tools": "core",
+          },
+        },
+      }),
+    ),
+  );
+  const wrapped = await core.callTool({
+    name: "tools_call",
+    arguments: { name: "ace_whom", arguments: {} },
+    _meta: { "ace/acting-for": "fares" },
+  });
+  expect(JSON.stringify(wrapped)).toContain('"actingFor":"fares"');
 });
 
 it("filters unauthorized tools and rejects direct capability bypasses", async () => {

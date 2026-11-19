@@ -10,11 +10,56 @@ import {
 } from "./file-references.ts";
 
 describe("inline code", () => {
-  test("a bare filename, a relative path and an absolute path count as files", () => {
+  test("a bare filename, a relative path, an absolute path and a home path count as files", () => {
     expect(codeFileReference("loader.ts")).toEqual({ path: "loader.ts" });
     expect(codeFileReference("src/app/x.tsx")).toEqual({ path: "src/app/x.tsx" });
     expect(codeFileReference("/Users/dev/acme/a.ts")).toEqual({ path: "/Users/dev/acme/a.ts" });
     expect(codeFileReference("./README.md")).toEqual({ path: "./README.md" });
+    expect(codeFileReference("~/Downloads/Draft3/Proposal_Draft3.pdf")).toEqual({
+      path: "~/Downloads/Draft3/Proposal_Draft3.pdf",
+    });
+  });
+
+  test("Windows paths count as files: drive letters, backslashes and a backslashed home", () => {
+    for (const path of [
+      "C:\\Users\\dev\\Downloads\\report.pdf",
+      "C:/Users/dev/Downloads/report.pdf",
+      "~\\Downloads\\report.pdf",
+      "src\\app\\x.tsx",
+      ".\\README.md",
+    ])
+      expect(codeFileReference(path), path).toEqual({ path });
+    expect(codeFileReference("C:\\work\\a.ts:12")).toEqual({ path: "C:\\work\\a.ts", line: 12 });
+  });
+
+  test("a whole path from the root, a drive or home may hold spaces and punctuation", () => {
+    for (const path of [
+      "~/Downloads/Group38 Proposal/Group38 Proposal Draft3.pdf",
+      "/Users/dev/Study Guide.pdf",
+      "C:\\Program Files\\My App\\config.json",
+      "~/Downloads/Bob's Notes & More (v2).pdf",
+      "/tmp/report(1).pdf",
+    ])
+      expect(codeFileReference(path), path).toEqual({ path });
+    expect(codeFileReference("/Users/dev/My Notes.md:12")).toEqual({
+      path: "/Users/dev/My Notes.md",
+      line: 12,
+    });
+  });
+
+  test("relative names and command lines with spaces stay code", () => {
+    for (const text of [
+      "my notes.md",
+      "src/My Notes.md",
+      "cat /tmp/a.txt",
+      "/tmp/a.txt /tmp/b.txt",
+      "/usr/bin/python3 run.py",
+      "/opt/homebrew/bin/node app.js",
+      "C:\\Tools\\node.exe app.js",
+      "/bin/ls -la notes.txt",
+      "/Users/dev/My  Notes.md",
+    ])
+      expect(codeFileReference(text), text).toBeUndefined();
   });
 
   test("line and column suffixes are read in both colon and #L forms", () => {
@@ -38,7 +83,10 @@ describe("inline code", () => {
       "README",
       "me@example.com",
       "src/app/",
-      "~/notes.md",
+      "~notes.md",
+      "\\\\server\\share\\a.pdf",
+      "C:\\Users\\",
+      "~user/notes.md",
       "file:///tmp/a.ts",
     ])
       expect(codeFileReference(text), text).toBeUndefined();
@@ -67,6 +115,20 @@ describe("plain text", () => {
     expect(files("Built on Node.js and Vue.js 3.4.1, e.g. v2.0.")).toEqual([]);
     expect(files("Docs at https://ace.dev/guide/start.html and www.example.com/a.ts")).toEqual([]);
     expect(files("Install @scope/pkg or email dev@acme.io/x.ts")).toEqual([]);
+  });
+
+  test("a home path in prose is one reference, tilde included", () => {
+    expect(files("Saved to ~/Downloads/report.pdf.")).toEqual([{ path: "~/Downloads/report.pdf" }]);
+  });
+
+  test("a Windows path in prose is one reference, drive letter included", () => {
+    expect(files("Saved it to C:\\Users\\dev\\Downloads\\report.pdf, then ran it.")).toEqual([
+      { path: "C:\\Users\\dev\\Downloads\\report.pdf" },
+    ]);
+  });
+
+  test("running text never reads a space as part of a path", () => {
+    expect(files("Saved to ~/Downloads/My Report.pdf today.")).toEqual([]);
   });
 
   test("text without any reference comes back unchanged as one span", () => {
@@ -108,6 +170,16 @@ describe("resolution", () => {
     expect(workspaceRelative("/Users/dev/acme/src/a.ts", "/Users/dev/acme/")).toBe("src/a.ts");
     expect(workspaceRelative("/etc/hosts.conf", "/Users/dev/acme")).toBeUndefined();
     expect(workspaceRelative("./src/a.ts", undefined)).toBe("src/a.ts");
+    expect(workspaceRelative("~/acme/src/a.ts", "/Users/dev/acme")).toBeUndefined();
+  });
+
+  test("Windows paths are made workspace-relative under a Windows root, whatever the case", () => {
+    const root = "C:\\Users\\Dev\\acme\\";
+    expect(workspaceRelative("C:\\Users\\Dev\\acme\\src\\a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("c:/users/dev/acme/src/a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("D:\\acme\\src\\a.ts", root)).toBeUndefined();
+    expect(workspaceRelative(".\\src\\a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("~\\acme\\a.ts", root)).toBeUndefined();
   });
 });
 
@@ -121,7 +193,22 @@ describe("message links", () => {
   test("a link outside the checkout has no checkout path", () => {
     expect(checkoutLinkPath("/Users/me/Downloads/report.pdf", root, undefined)).toBeUndefined();
     expect(checkoutLinkPath("../other/a.ts", root, undefined)).toBeUndefined();
+    expect(checkoutLinkPath("~/Downloads/report.pdf", root, root)).toBeUndefined();
   });
+  test("Windows links land in a Windows checkout, and outside it have no checkout path", () => {
+    const windows = "C:\\work\\relay";
+    expect(checkoutLinkPath("C:\\work\\relay\\apps\\a.ts", windows, undefined)).toBe("apps/a.ts");
+    expect(checkoutLinkPath("src\\a.ts", windows, "C:\\work\\relay\\apps")).toBe("apps/src/a.ts");
+    expect(checkoutLinkPath("C:/work/relay/x/../b.ts", windows, undefined)).toBe("b.ts");
+    expect(checkoutLinkPath("C:\\Users\\me\\Downloads\\r.pdf", windows, undefined)).toBeUndefined();
+    expect(checkoutLinkPath("~\\Downloads\\r.pdf", windows, windows)).toBeUndefined();
+  });
+
+  test("Windows drive paths and file URLs read as local paths", () => {
+    expect(localLinkPath("C:\\Users\\me\\a.ts:12")).toBe("C:\\Users\\me\\a.ts");
+    expect(localLinkPath("file:///C:/Users/me/My%20Report.pdf")).toBe("C:/Users/me/My Report.pdf");
+  });
+
   test("file URLs, line suffixes and web links read as local paths or none", () => {
     expect(localLinkPath("file:///Users/me/with%20space.pdf")).toBe("/Users/me/with space.pdf");
     expect(localLinkPath("src/a.ts:12:3")).toBe("src/a.ts");

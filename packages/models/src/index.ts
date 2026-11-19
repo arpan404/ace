@@ -28,6 +28,7 @@ export { providerConfiguration, modelVisibility, configuredModels } from "./pref
 
 export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 export { executionModelId } from "./execution-id.ts";
+export { compareVersions } from "./catalog-classification.ts";
 export { selectionModelFilter } from "./selection-scope.ts";
 
 export { normalizeOpenCodeReport } from "./opencode-report.ts";

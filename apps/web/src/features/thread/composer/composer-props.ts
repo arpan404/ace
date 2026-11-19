@@ -16,10 +16,15 @@ export interface ComposerHandle {
   openAdd(): void;
   /** Put the caret in the message. */
   focus(): void;
+  /** Add words at the end of the message (a voice transcript), the caret after them. */
+  insertText(words: string): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
-  /** Send the message as Send would (the Browser's annotate bar asks for it). */
-  submit(): void;
+  /**
+   * Send the message as Send would (the Browser's annotate bar asks for it); `opposite` as the
+   * other send key would.
+   */
+  submit(opposite?: boolean): void;
 }
 
 export interface ComposerProps {
@@ -73,6 +78,16 @@ export interface ComposerProps {
   /** Model and effort controls beside Stop and send on the main action row. */
   trailing?: ReactNode;
   /**
+   * In the primary slot while the draft is empty and nothing can be stopped (a mic): Send takes
+   * its place once there are words.
+   */
+  idleAction?: ReactNode;
+  /**
+   * One capsule row at every width, not only on a phone, and it stays one row while the draft is
+   * words alone: the field grows upward in place. A file, quote or annotation opens it.
+   */
+  capsule?: boolean | undefined;
+  /**
    * The tab attached to the composer (what the agents are doing, their plan, an
    * agent's question): drawn above it, narrower and tucked behind its top edge. It reads
    * `useComposerCompact()` too.
@@ -91,6 +106,13 @@ export interface ComposerProps {
   /** Send may go while files upload: the message waits in the strip until they're done. */
   sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
+  /**
+   * There is no project, agent or command to suggest (Spade): + opens the file picker itself,
+   * and `@` or `/` open no list.
+   */
+  filesOnly?: boolean | undefined;
+  /** With `filesOnly`: names `@` offers, inserted as plain text (a Spade group's members). */
+  mentionNames?: readonly string[] | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;

@@ -2,16 +2,17 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
 import { isMeasurementCall, opensAgentPage, stepOpens, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { Suspense, useId } from "react";
+import { Suspense, use, useId } from "react";
 import { cn } from "@/lib/cn.ts";
+import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredQuestionStep } from "../interactions/deferred-card.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
-import { StepDetail } from "./step-detail.tsx";
+import { DeferredStepDetail } from "./deferred-step-detail.ts";
 import { StepImages } from "./ace-steps.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
-import { RailMark } from "./step-rail.tsx";
+import { RailMark, StepsLive } from "./step-rail.tsx";
 import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 import { useStepOpen } from "./step-open.ts";
@@ -126,7 +127,15 @@ function StepLine(props: {
         )}
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-7">
-          <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />
+          <LocalBoundary label="this step's detail">
+            <Suspense fallback={null}>
+              <DeferredStepDetail.Component
+                item={data.item}
+                threadId={props.threadId}
+                ace={data.step.ace}
+              />
+            </Suspense>
+          </LocalBoundary>
         </div>
       )}
     </li>
@@ -163,8 +172,9 @@ function PageStepLine(props: {
 }
 
 /**
- * One quiet step row: glyph or spinner, verb, target, diff stat and note. It toggles the step's
- * detail (`panel`), or with `onOpen` shows what the step made somewhere else.
+ * One quiet step row: glyph or spinner, verb, target, diff stat and note, and while the step is
+ * in flight how long it has run. It toggles the step's detail (`panel`), or with `onOpen` shows
+ * what the step made somewhere else.
  */
 export function StepRow(
   props: {
@@ -178,6 +188,8 @@ export function StepRow(
   ),
 ) {
   const { step } = props;
+  // A step in flight only on a current copy (`StepsLive`): a cached one neither shimmers nor runs.
+  const live = use(StepsLive);
   const toggles = !props.onOpen && props.expandable !== false;
   return (
     <button
@@ -186,26 +198,42 @@ export function StepRow(
       aria-controls={toggles ? props.panel : undefined}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
+      data-part="tool-row"
+      data-variant={step.icon}
+      data-state={
+        !step.settled
+          ? "working"
+          : step.failed
+            ? "failed"
+            : toggles
+              ? props.open
+                ? "open"
+                : "closed"
+              : "done"
+      }
       onClick={props.onOpen ?? (toggles ? props.onToggle : undefined)}
       className={cn(
         props.onOpen || toggles ? pressableRowClass : rowClass,
         "text-muted-foreground",
       )}
     >
-      <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
+      <span
+        data-part="tool-icon"
+        className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground"
+      >
         <StepGlyph
           threadId={props.threadId}
           item={props.item}
           surface={props.surface}
           mark={step.ace?.mark}
-          running={!step.settled}
+          running={!step.settled && live}
           failed={step.failed}
         />
       </span>
       <span
         className={cn(
           step.target ? "shrink-0" : "min-w-0 truncate",
-          !step.settled && "step-shimmer",
+          !step.settled && live && "step-shimmer",
         )}
       >
         {step.verb}
@@ -220,6 +248,9 @@ export function StepRow(
         )}
         {step.note && step.note !== "Waiting for your approval" && (
           <span className={cn(step.failed && "text-status-failed")}>{step.note}</span>
+        )}
+        {!step.settled && live && props.item?.type === "tool_call" && (
+          <ElapsedTime from={props.item.call.startedAt} />
         )}
       </span>
     </button>

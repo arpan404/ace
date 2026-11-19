@@ -13,6 +13,12 @@ interface Task {
   degraded: boolean;
   parked: boolean;
   settled: boolean;
+  /**
+   * The snapshot revision current when this task was created (put), for
+   * `thread:ready`. A newer begin before the flush leaves this stale on purpose:
+   * native rejects the mismatch instead of attributing old readiness to new rows.
+   */
+  snapshotRevision?: number | undefined;
 }
 interface Delivery {
   task: Task;
@@ -42,7 +48,13 @@ const framePatches = 32;
 const transcript = /^(thread|reading):(item:|position:|block|history$|ready$|cursor$|settled$)/;
 
 function priority(key: string): 0 | 1 | 2 {
-  if (key === "inbox:reset" || key === "thread:reset" || key === "reading:reset") return 0;
+  if (
+    key === "inbox:reset" ||
+    key === "thread:reset" ||
+    key === "reading:reset" ||
+    key === "thread:snapshot.begin"
+  )
+    return 0;
   if (transcript.test(key) || key === "changes:file") return 2;
   return 1; // Canonical status, interactions, connection and command outcomes precede content.
 }
@@ -69,11 +81,37 @@ export class PatchPump {
   }
   put(key: string, read: Reader): void {
     if (this.#bound?.ledger.passing && keptKey(key)) this.#bound.ledger.touch(key);
+    // Capture the snapshot revision at creation for begins and readies. Peeking
+    // calls the reader once now (trivial for these keys); row readers still run
+    // at flush time, so counts stay current while the revision stays put-time.
+    if (key === "thread:reset" || key === "thread:snapshot.begin" || key === "thread:ready") {
+      try {
+        const peeked = read();
+        if (peeked && typeof peeked.threadId === "string" && typeof peeked.epoch === "number") {
+          if (key === "thread:ready") {
+            const known = this.#snapshots.get(
+              `${peeked.threadId as string}:${peeked.epoch as number}`,
+            );
+            if (known) this.#pendingReadyRevision = known.revision;
+          } else if (typeof peeked.revision === "number") {
+            this.#rememberSnapshot(peeked.threadId, peeked.epoch, peeked.revision, peeked.before);
+          }
+        }
+      } catch {
+        // A reader that cannot run now still runs at flush time.
+      }
+    }
     const queue = this.#queue(key);
     const existing = queue.get(key);
     if (existing) {
       existing.read = read;
       existing.settled = false;
+      if (key === "thread:ready" && this.#pendingReadyRevision !== undefined) {
+        existing.snapshotRevision = this.#pendingReadyRevision;
+        this.#pendingReadyRevision = undefined;
+      } else if (key !== "thread:ready") {
+        existing.snapshotRevision = undefined;
+      }
       // A quarantined identity gets one degraded retry when its canonical data changes.
       if (existing.parked) {
         existing.parked = false;
@@ -88,6 +126,7 @@ export class PatchPump {
         degraded: false,
         parked: false,
         settled: false,
+        snapshotRevision: key === "thread:ready" ? this.#takePendingReadyRevision() : undefined,
       });
     this.#schedule();
   }
@@ -117,15 +156,66 @@ export class PatchPump {
   #queue(key: string): Map<string, Task> {
     return this.#queues[priority(key)];
   }
+  /** Explicit snapshot revisions for live commits, stamped onto ready when missing. */
+  #snapshots = new Map<string, { revision: number; before: number | null }>();
+  /** Revision captured for a ready at put time; consumed by that put. */
+  #pendingReadyRevision: number | undefined;
+  #takePendingReadyRevision(): number | undefined {
+    const revision = this.#pendingReadyRevision;
+    this.#pendingReadyRevision = undefined;
+    return revision;
+  }
+  #rememberSnapshot(threadId: unknown, epoch: unknown, revision: unknown, before: unknown): void {
+    if (typeof threadId !== "string" || typeof epoch !== "number" || typeof revision !== "number")
+      return;
+    if (epoch < 0) return; // Reading uses settled, not revisioned ready.
+    const key = `${threadId}:${epoch}`;
+    this.#snapshots.set(key, { revision, before: typeof before === "number" ? before : null });
+    while (this.#snapshots.size > 20) {
+      const oldest = this.#snapshots.keys().next().value;
+      if (oldest === undefined) break;
+      this.#snapshots.delete(oldest);
+    }
+  }
+  #stampedReady(patch: Record<string, unknown>, task?: Task): void {
+    if (patch.type !== "thread.ready" || patch.revision !== undefined) return;
+    if (typeof patch.threadId !== "string" || typeof patch.epoch !== "number") return;
+    // Prefer the revision captured when this ready was created. A newer begin
+    // before the flush leaves this stale on purpose: native rejects the mismatch
+    // instead of attributing old readiness to new rows.
+    if (task?.snapshotRevision !== undefined) {
+      patch.revision = task.snapshotRevision;
+      return;
+    }
+    const known = this.#snapshots.get(`${patch.threadId as string}:${patch.epoch as number}`);
+    if (known) patch.revision = known.revision;
+  }
   #blocked(task: Task): boolean {
+    // Rows may join behind an already queued fence while a snapshot streams.
+    // Readiness describes the current store, so every queued patch in its scope,
+    // status (metadata, interactions) as well as content, must be acknowledged
+    // before that fence can describe native. Status leads each frame only up to
+    // its share, so a full inbox would otherwise let the fence pass the thread's
+    // own status and native would commit the snapshot without it.
+    if (task.key === "thread:ready" || task.key === "reading:settled") {
+      const prefix = task.key.startsWith("thread:") ? "thread:" : "reading:";
+      for (const queue of [this.#queues[1], this.#queues[2]])
+        for (const sibling of queue.values())
+          if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
+    }
     // A delayed reset must not erase already-confirmed rows from its own scope.
+    // A warm begin likewise precedes its rows.
+    const threadBegin =
+      this.#queue("thread:reset").has("thread:reset") ||
+      this.#queue("thread:snapshot.begin").has("thread:snapshot.begin");
     return (
       (task.key !== "inbox:reset" &&
         task.key.startsWith("inbox:") &&
         this.#queue("inbox:reset").has("inbox:reset")) ||
       (task.key !== "thread:reset" &&
+        task.key !== "thread:snapshot.begin" &&
         task.key.startsWith("thread:") &&
-        this.#queue("thread:reset").has("thread:reset")) ||
+        threadBegin) ||
       (task.key !== "reading:reset" &&
         task.key.startsWith("reading:") &&
         this.#queue("reading:reset").has("reading:reset"))
@@ -187,6 +277,8 @@ export class PatchPump {
     let bytes = 2;
     const now = host.now();
     const tracing = host.tracing === true;
+    // Spans are timed on the monotonic clock: a flush often takes under a millisecond.
+    const flushAt = tracing ? host.monotonicMs() : 0;
     let reading = 0;
     let serializing = 0;
     const contentWaits = this.#waiting(2, now);
@@ -200,9 +292,9 @@ export class PatchPump {
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
         if (task.failures && frame.length) break outer;
         const read = task.read;
-        const readAt = tracing ? host.now() : 0;
+        const readAt = tracing ? host.monotonicMs() : 0;
         const original = read();
-        if (tracing) reading += host.now() - readAt;
+        if (tracing) reading += host.monotonicMs() - readAt;
         if (original === undefined) {
           queue.delete(task.key);
           continue;
@@ -214,14 +306,17 @@ export class PatchPump {
           queue.delete(task.key); // Native already shows exactly this.
           continue;
         }
-        const serializeAt = tracing ? host.now() : 0;
+        const serializeAt = tracing ? host.monotonicMs() : 0;
         // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
         const sent = record
           ? itemPatch(patch, record.ledger.streaming(task.key), host.utf8Length)
           : patch;
+        if (sent.type === "thread.reset" || sent.type === "thread.snapshot.begin")
+          this.#rememberSnapshot(sent.threadId, sent.epoch, sent.revision, sent.before);
+        else if (sent.type === "thread.ready") this.#stampedReady(sent, task);
         const json = JSON.stringify(sent);
         const size = host.utf8Length(json);
-        if (tracing) serializing += host.now() - serializeAt;
+        if (tracing) serializing += host.monotonicMs() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
           this.#fragment = {
@@ -257,13 +352,13 @@ export class PatchPump {
           for (const entry of delivered) this.#confirm(entry);
         },
       };
-      const emitAt = tracing ? host.now() : 0;
+      const emitAt = tracing ? host.monotonicMs() : 0;
       host.emit(`[${texts.join(",")}]`);
       if (tracing) {
         host.trace?.("pump.read", reading, 0);
         host.trace?.("pump.serialize", serializing, bytes);
-        host.trace?.("pump.emit", host.now() - emitAt, 0);
-        host.trace?.("pump.flush", host.now() - now, frame.length);
+        host.trace?.("pump.emit", host.monotonicMs() - emitAt, 0);
+        host.trace?.("pump.flush", host.monotonicMs() - flushAt, frame.length);
       }
     } else this.#schedule();
   }

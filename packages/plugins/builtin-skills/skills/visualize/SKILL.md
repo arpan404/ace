@@ -1,125 +1,192 @@
 ---
 name: visualize
-description: Show an interactive or static HTML page inline in ace chat when seeing or trying something explains better than prose, such as explainers, quizzes, simulations, comparisons, diagrams, mockups and charts.
+description: Show an HTML page inline in chat (diagram, mockup, chart, explainer, quiz) when seeing beats prose. How to pick the form, design a page that holds from phone to full screen, preview it and publish it.
 ---
 
 # Visualize in ace chat
 
-`html_render` puts a self-contained HTML page inline in your reply. It renders at the full width of the message column, on the chat's own background, and grows to fit its content. In `interactive` mode its scripts run; in `static` mode they are stripped.
+`html_render` puts a self-contained HTML page inline in your reply, on the chat's background, at the full width of the message column. Its height grows to fit the content. The same page shows at **360 px on a phone, about 760 px on a desktop, and about 1200 px** full screen in the side panel.
 
-## When to use it
+`html_preview` lays the page out exactly as the app will and returns screenshots plus a report, including what `html_render` would refuse. Nothing is published.
 
-Use a page when the reader learns faster by seeing or doing:
+Tool names: Claude Code `mcp__ace__html_render` / `mcp__ace__html_preview`; OpenCode and Pi `ace_html_render` / `ace_html_preview`.
 
-- **Explaining a concept:** an explainer with a slider that changes a parameter and shows the effect, or a step-through ("Next" walks through an algorithm one state at a time).
-- **Interactive learning:** a quiz with feedback, a small simulation, a sandbox to try inputs, or a tiny game that teaches a rule.
-- **Comparing options:** tabs or toggles between approaches, or a side-by-side table that can be sorted or filtered.
-- **Structure:** diagrams, flows, timelines and architecture sketches.
-- **Mockups:** a clickable sketch of a UI under discussion.
-- **Data:** charts with hover detail or a control for the range.
+**The page is yours.** Write whatever HTML, CSS, SVG and script the content needs. ace adds three things underneath: the app theme as CSS variables, quiet defaults for plain elements, and a few optional helper classes. Your CSS always wins over them.
+
+The bar: someone understands the point in ten seconds, and the page could only have been made for this topic.
+
+## The workflow
+
+1. **Decide a page beats prose.** Use one when the reader learns faster by seeing or doing: how something works, what changed, a comparison, data, a UI proposal, a parameter to move, a quiz. A single fact, a one-step action or a short clear list stays prose. One page per idea.
+2. **Write the takeaway**: the one sentence the reader should leave with ("Transfers resume from the last acknowledged chunk"). It becomes the page's first line.
+3. **Gather the real material.** Every name, number, state and label comes from the task, the conversation or code you read. When the page shows something that already exists (a screen, a component, a flow in the codebase), find and read its code first and take its real structure, wording and design tokens. Done when you can point to a source for every fact the page will show.
+4. **Plan, then check the plan.** Before any HTML, write a short plan:
+   - the figures, one per point (see [Show, don't tell](#show-dont-tell)), in reading order;
+   - an ASCII sketch of the layout at 360 px, and what changes at 760 and 1200 px;
+   - what colour means on this page, and the one element that gets the emphasis.
+
+   Then read the plan as if it were for a different topic. Any part that would come out the same for any similar request, or that appears in [Generic defaults](#generic-defaults), gets replaced with a choice made for this content.
+
+5. **Build it** with your own markup and CSS ([Responsive layout](#responsive-layout), [Design](#design)).
+6. **Preview** with `html_preview`. Add `widths: [360, 760, 1200]` for anything people will open full screen: dashboards, wide tables, desktop mockups. Check `scheme: "light"` too when you set colours yourself. Go through [Before you publish](#before-you-publish) against the screenshots and fix with small edits. Done when your last preview is of the exact page you will publish, its report lists nothing `html_render` would refuse, and every checklist line holds.
+7. **Publish** with `html_render` (`{ title, html, mode, height? }`). The `title` is a short caption above the page. In your reply, say only what the page doesn't already show.
+
+## Show, don't tell
+
+The figures carry the meaning; words label them.
+
+- **One point per figure.** Each figure has a caption or heading that states its point as a sentence ("Cache hits skip Postgres"), not a topic ("Caching").
+- **Draw the mechanism, not the name.** Show the request travelling through the cache, not a box labelled "cache". Every arrow carries a verb: "writes", "polls every 30 s", "retries 3×".
+- **Draw the difference.** A comparison shows what each option adds, removes or reroutes, side by side, with the changed parts emphasised.
+- **Give every number a picture**: a bar, a sparkline, a dimension line on the span it measures, or the limit it is measured against. A number with nothing to compare to tells the reader little.
+- **Repeat for cases.** Several scenarios or failure modes become small multiples: the same small diagram once per case.
+- **Turn descriptions into labels.** A sentence that describes the picture becomes a label, a callout or an edge verb inside it. Keep prose for reasoning and trade-offs, a few short sentences at most.
+- **Encode with position and shape first:** position for order and rank, size for amount, closeness for what belongs together, lines for flow and dependency, shape or pattern for kind. Colour adds one meaning along one axis (status, or series, or team) and keeps it across the whole page. State is never shown by colour alone.
+
+| You're showing                    | A figure that works                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------- |
+| How a system or request works     | Boxes laid out where they sit, arrows with verbs, the path of one request highlighted |
+| Steps, a pipeline, a lifecycle    | A flow or state diagram; a stepper when the order of events is the point              |
+| What happened when                | A timeline on a real time axis, gaps drawn to scale when they matter                  |
+| Messages between parties          | Lanes per party with arrows between them, or a timeline of "A → B: what"              |
+| Choices and branches              | A decision tree: the question, then each answer's path                                |
+| 2–4 options                       | Side-by-side drawings of the difference, then a table of trade-offs                   |
+| Quantities                        | A chart (see [Charts](#charts))                                                       |
+| A setting with an effect          | A slider with the result drawn right beside it                                        |
+| A UI proposal                     | A mockup (see [Mockups](#mockups))                                                    |
+| Facts or properties with no shape | Hairline rows of label and value                                                      |
+
+## Responsive layout
+
+The page's viewport is the chat column itself, so `@media (width < 520px)` asks how wide the column is. Build layouts that adapt by themselves, and add breakpoints only where the design changes shape.
+
+- **Columns that wrap by themselves:** `grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr))`.
+- **Rows that wrap:** `display: flex; flex-wrap: wrap` with `flex: 1 1 200px` on the children.
+- **Tracks that can shrink:** `minmax(0, 1fr)`, and `min-width: 0` on text containers inside flex and grid, so long words can't push a column wider.
+- **Sizes with a ceiling:** `width: min(100%, 480px)`, `max-width`, `clamp()` for type and gaps.
+- **Components that adapt to their own box:** `container-type: inline-size` on the component and `@container (width < 420px)` inside it.
+- **Line length at 1200 px:** prose near 70 characters (`max-width: 70ch`); grids, charts and tables use the width.
+- **Content that is wide by nature** (a 12-column table, a long timeline) goes in a box with `overflow-x: auto`.
+- **SVG:** draw the `viewBox` about as wide as it will be shown (360–600 units) and scale it with `width: 100%`; 13–14 unit labels then stay readable on a phone. When a diagram must reflow (three boxes across on desktop, stacked on a phone), build it in HTML with CSS connectors, or draw two SVGs and show one per width.
+
+### What the frame needs
+
+The frame sizes itself to your page. `html_render` refuses a page that breaks these:
+
+- **Height comes from content.** Viewport units (`vh`, `dvh`, `svh`) and `height: 100%` on `html` or `body` make the frame grow without end.
+- **Overlays sit in a positioned box.** `position: fixed` pins to the whole page. Put sheets, menus, dialogs and toasts in a `position: relative` box with a fixed height, using `position: absolute`. `position: sticky` works.
+- **At 360 px, nothing reaches past the edge** except inside an `overflow-x: auto` box, and **no text renders under 9 px**. `html_render` lays the page out at 360 px to check. Aim for 12 px or more.
+
+## Design
+
+Choose the visual language for the content, then hold it across the page.
+
+- **Explanations, diagrams, charts and data** read best as part of ace: theme variables for every colour, ace's type sizes (12 px metadata, 13 px controls and dense lists, 14 px body, 16 px a lead line, about 20 px a heading), hairlines and space to separate things, the accent on the one thing to look at, status colours only for status.
+- **Anything with its own identity**, such as another product's UI, a game or a poster-like explainer, takes its own palette, type, depth and texture when they serve it. If it ignores the theme variables, set its own background and text colours so it reads in light and dark mode.
+
+Whatever the language:
+
+- **Spend boldness in one place.** One element is the memorable thing (the diagram's highlighted path, the recommended option, the number that changed); everything around it is quiet. Before publishing, remove one thing.
+- **A clear hierarchy:** a few type sizes with real jumps between them, two or three text tones, weight for emphasis, one left edge per column. Space on a 4 px grid (4, 8, 12, 16, 24).
+- **Words like ace's:** sentence case, short labels, buttons that name their action ("Show the retry path"). The page states things; it doesn't narrate itself ("This diagram shows…").
+- **Motion answers the reader:** 150–300 ms on what changed after a click or a drag, a stepper that advances, a dot travelling along a flow to show direction. Honour `prefers-reduced-motion`.
+
+### Generic defaults
+
+These come out of any request when no choice was made, and they make a page read as generated. Each has a better move:
+
+| Default                                                       | Instead                                                                            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| A small uppercase label above every heading                   | A heading that states the point                                                    |
+| Everything in identical rounded cards with soft shadows       | Space and hairlines for grouping; a box only for a separate object, like an option |
+| A giant number with a tiny label                              | The number beside what it's measured against: a bar, a limit, last week            |
+| `01 / 02 / 03` markers                                        | Numbers only for real steps; otherwise the content's own order                     |
+| Metadata strung together with `·`, `→` on every link          | A short phrase that says the fact                                                  |
+| Gradient text, glows, blobs, emoji as markers                 | Emphasis spent on the data or the path that matters                                |
+| A fade-and-slide on every section, a hover lift on every card | Motion only where something changes for the reader                                 |
+| Everything centred                                            | One left edge; centre only a lone number or an empty state                         |
+| Boxes labelled with component names, joined by bare arrows    | The mechanism, with verbs on the arrows                                            |
+
+### Theme variables
+
+The app theme arrives as CSS variables and updates live when the person switches theme or light/dark mode. Leave the page background transparent unless the design has its own.
+
+- **Surfaces and text:** `--background`, `--foreground`, `--muted-foreground`, `--subtle-foreground`, `--card`, `--surface-2`, `--muted`, `--hover`, `--border`, `--input` (control edges), `--field`.
+- **Emphasis:** `--accent` (the person's accent colour), `--accent-foreground` (text on it), `--accent-text` (accent-coloured text), `--primary`, `--primary-foreground`.
+- **Status:** `--success`, `--warning`, `--info`, `--destructive`.
+- **Data series:** `--chart-1` to `--chart-6`, six distinct colours that read on the background.
+- **Shape and type:** `--radius`, `--font-sans`, `--font-mono`.
+
+A script reads them with `getComputedStyle(document.documentElement)` and redraws on the `ace:theme` window event.
+
+## Charts
+
+- **Pick the chart by the question:** bars to compare categories, a line for change over time, a scatter for a relationship, small multiples to compare across groups. Stack only when the total matters. Parts of a whole: three parts at most. Two measures get two small charts, not two axes.
+- **Sort categories** by value unless the order means something (days, steps).
+- **Label directly:** values on or beside the marks, series names at the line ends, units written out. A legend only past three series.
+- **Put the accent on the focal point:** the bar, line or dot the headline is about. The rest stays in a muted tone or lighter series colour.
+- **Headline the finding** above the chart, with its number ("Thursday peaked at 510 messages, 4× Sunday").
+- **Quiet scaffolding:** 12 px axis labels in `--muted-foreground`, a few horizontal gridlines in `--border`, axes only where data is, bars from zero. A sparkline beside a number shows its trend in a line of text.
+- **Build it** as inline SVG with a `viewBox` about as wide as it shows, as HTML for bar lists, or as a `<canvas>` sized from its container (`ResizeObserver`) at `devicePixelRatio`.
+
+## Mockups
+
+- **Start from the real thing.** For a change to something that exists, read its code first and build the mockup in its actual layout, wording, tokens and icons. Show the current state next to the proposal, so the difference is visible.
+- **Give the screen a box:** `position: relative`, `overflow: hidden`, `container-type: inline-size`, and a fixed pixel height on desktop. Inside it, a header and footer keep their height and the body scrolls (`overflow: auto; min-height: 0`).
+- **Let it collapse on a phone:** `@container (width < 520px)` hides or narrows sidebars, and lets the screen's height follow its content (`height: auto`, the body `overflow: visible`), so nothing is cut off at the bottom.
+- **For ace's own UI, use ace's measurements:** 13 px controls and list text, 14 px titles, 12 px metadata; 30 px controls, 32–36 px rows; 8 px radius on rows and buttons, 12 px on cards and dialogs, 18 px on the composer; hairline `--border` edges; round send and stop buttons. Icons are inline SVG line icons, `stroke="currentColor"`, 1.5 px stroke, 16 px beside 13–14 px text.
+- **Show states and options with tabs** above the screen, one muted line under each saying what it is.
+- **Make it clickable** (`mode: "interactive"`) when the interaction is the point.
 
 ## Interactive or static
 
-Choose a `mode` for every page:
+- **`interactive`** when the reader manipulates the page: sliders, steppers, quizzes, simulations, sortable tables, clickable mockups. Put each control next to what it changes, update on `input`, use real `<button>`, `<input>` and `<label>` elements, keep focus outlines, and announce changing results with `aria-live="polite"`. Keep state in variables and render from it: a page scrolled far away is unloaded and rebuilt when it returns.
+- **`static`** for read-only pages. Scripts are removed, so draw the result as markup.
 
-- **`interactive`** when the reader manipulates it: sliders, step-throughs, quizzes, simulations, sandboxes, sortable or filterable tables, clickable mockups.
-- **`static`** for read-only explanations, charts and diagrams. Scripts and event handlers are removed. A static page is lighter, and it loses nothing when it is unloaded offscreen. Draw it with HTML, CSS and inline SVG.
-
-If you leave `mode` out, a page with no script is static and a page with a script is interactive. Choose static even when a script only draws something once; render the result as markup instead.
-
-Use prose for a single fact, a one-step action, or a short list that is already clear. Use one page per idea, not a page for every reply.
-
-## How
-
-1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 16 MiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed every image as base64 (see [Images: base64 only](#images-base64-only)).
-2. Call `html_render` with `{ title, html, mode, height? }`. Claude Code exposes it as `mcp__ace__html_render`, OpenCode and Pi as `ace_html_render`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
-3. If it returns `invalid_html`, nothing was published: fix every problem listed in `issues` and call it again.
-4. In the reply, say only what the page doesn't already show.
-
-## Images: base64 only
-
-To show an image (a screenshot, a plot, a photo, a generated picture) inside a page, encode it as base64 and put it in the page as a `data:` URL. The page has no file access and no network, so anything else renders as a broken image.
-
-- Wrong: `<img src="/tmp/shot.png">`, `<img src="shot.png">`, `<img src="file:///…">`, `<img src="https://…">`. The same goes for CSS `url(…)`, `<source>`, `<image href>` in SVG and `<link rel="icon">`.
-- Right: `<img src="data:image/png;base64,iVBORw0KGgo…" alt="What it shows">`. Use `image/jpeg`, `image/gif` or `image/webp` in the prefix for those formats.
-- Get the string with `base64 -i shot.png` on macOS or `base64 -w0 shot.png` on Linux, and paste it after the `data:image/png;base64,` prefix.
-- Images count toward the 16 MiB page cap, and base64 is a third larger than the file. Downscale a large image before encoding it, for example `sips -Z 1600 -s format jpeg shot.png --out shot.jpg` on macOS.
-- To show an image on its own, with no page around it, use `image_show` instead (see [Posting an image](#posting-an-image)).
-
-## The sandbox
-
-Both modes use the same sandbox; a static page also runs no authored script. The page runs in an opaque-origin sandbox. It cannot read the app, its storage, cookies, the daemon token or the parent page.
-
-- **No network.** `fetch`, XHR, WebSocket, beacons, external images, fonts, scripts, stylesheets, `<link>` elements and frames are refused. Put every library, data set and asset inside the document.
-- **No navigation.** Links to other pages, forms, pop-ups, downloads and dialogs (`alert`, `confirm`) do nothing. Use in-page state for steps and tabs.
-- **No `eval`.** `new Function` and string timers are blocked too.
-- **Storage.** `localStorage`, cookies and IndexedDB are unavailable; keep state in variables.
-- **Inserting HTML.** `innerHTML` works, but `<link>`, `<meta>`, `<base>` and frame elements are dropped from it. `document.createElement` refuses those elements.
-
-The page can be unloaded while it is scrolled far out of view and rebuilt when it returns. An interactive page loses its in-memory state then, so derive what it shows from its own state.
-
-## Look like ace
-
-Every page starts with ace's own style kit, so plain markup already looks like the app: write semantic HTML first and add your own CSS only where the kit doesn't cover it. Headings, paragraphs, lists, links, `code`/`pre`/`kbd`, `<button>`, text inputs, `<select>`, `<textarea>`, checkboxes, `<input type="range">`, `<progress>`, `<meter>`, `<table>` and `<details>` are styled with the app's type, hairlines, corners and accent. Your own CSS always wins over the kit; it never needs `!important` or extra specificity.
-
-Classes for what pages often need:
-
-| Class                                                                 | What it is                                                      |
-| --------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `card` (`card raised`, `card plain`)                                  | A bordered panel for one group of content.                      |
-| `stack` (`tight`, `loose`), `row` (`between`, `end`)                  | Vertical and wrapping horizontal layouts with gaps.             |
-| `grid` (`grid two`)                                                   | Responsive columns; set `--min` on it for the narrowest column. |
-| `stat` with `.label`, `.value`, `.delta`                              | A metric tile. `up` / `down` colour a change.                   |
-| `badge` (`success`, `warning`, `danger`, `info`, `accent`, `dot`)     | A small status pill.                                            |
-| `callout` (`info`, `success`, `warning`, `danger`)                    | A tinted note.                                                  |
-| `tabs` with `<button aria-selected="true">` (or any `role="tablist"`) | A segmented control; your script moves `aria-selected`.         |
-| `button.primary`, `button.ghost`, `button.small`, `button.icon`       | Button variants; a plain `<button>` is the secondary style.     |
-| `bar` with a `<span>` and `--value: 40%`                              | A thin horizontal bar; `--c` sets its colour.                   |
-| `muted`, `subtle`, `mono`, `num`, `eyebrow`, `lead`, `swatch` (`--c`) | Text tiers and helpers.                                         |
-
-The app theme arrives as CSS variables and updates live when the person changes theme or light/dark mode:
-
-- **Surfaces and text:** `--background`, `--foreground`, `--muted-foreground`, `--subtle-foreground`, `--card`, `--surface-2`, `--hover`, `--border`, `--input` (control edges), `--field`.
-- **Emphasis:** `--accent` (the person's accent colour), `--accent-foreground` (text on it), `--accent-text` (accent-coloured text), `--primary`, `--primary-foreground`.
-- **Status:** `--success`, `--warning`, `--info`, `--destructive`.
-- **Data series:** `--chart-1` to `--chart-6`.
-- **Shape and type:** `--radius`, `--font-sans`, `--font-mono`.
-
-Use `var(--…)` instead of fixed colours. A `<canvas>` reads the variables with `getComputedStyle(document.documentElement)` and redraws on the `ace:theme` window event. In SVG, set `fill`/`stroke` to `var(--chart-1)`, `currentColor` and so on.
-
-Make it feel like part of ace, not a web page dropped into the chat:
-
-- Leave the page background transparent. Don't wrap the whole page in a card, add a page title bar or repeat the `title` as a big heading; it sits in the conversation like a message.
-- Use one accent. Colour means state or data series, never decoration: no gradients, glows or emoji headings.
-- Match the chat's density: 13–14px text, 8–16px gaps, hairline borders. Separate with hairlines and space before adding boxes.
-- Prefer a few well-made controls over many; put the thing that changes right next to the control that changes it.
+Left out, `mode` is static for a page with no script and interactive otherwise.
 
 ## Before you publish
 
-Check the page against this list; fix anything that fails:
+Look at the preview screenshots, not the source, and check each line:
 
-- It answers the question better than prose would, with one clear idea.
-- It is mostly the style kit's markup and classes; your own CSS is short.
-- Every control does something visible right away, and its result sits beside it.
-- Nothing decorative: no gradients, glows, shadows on content, emoji, stock icons or filler text.
-- It reads in light and dark, at 360 px and at 1200 px.
-- Every image is a base64 `data:` URL: no `src`, `href` or CSS `url(…)` points at a file path or a web address.
+- **The first screen is the answer:** the takeaway sentence and the main figure.
+- **Each figure makes one point**, stated in its caption or heading, and draws the mechanism or the difference.
+- **Every fact has a source.** Nothing invented: no labels, limits, names or numbers the task didn't give. Where something is illustrative, the page says so.
+- **It is specific:** swap the topic and the page would have to change. Nothing from [Generic defaults](#generic-defaults) is there by accident.
+- **It holds at every width:** one column on the phone with nothing cut off, the layout you sketched at 760 and 1200 px.
+- **It reads in light and dark mode**, and nothing relies on colour alone.
+- **Every control changes something visible**, right beside it.
+- **One thing removed** that the page didn't need.
 
-## Layout and access
+## ace's defaults and helpers
 
-- **Responsive.** The same page shows inline (about 360–760 px wide, phone to desktop) and full screen in the side panel (up to about 1200 px). Build with `grid`/`row`, `minmax()` and `clamp()`, never fixed pixel widths; let multi-column layouts collapse to one column below about 520 px, and cap prose at about 70 characters. No horizontal scrolling except inside a wide table or code block.
-- **Height.** Let content set the height. Avoid `100vh` and percentage heights on `html`/`body`; they create resize loops.
-- **Controls.** Use real `<button>`, `<input type="range">` and `<label>` elements. Support the keyboard and keep focus outlines visible.
-- **Readable values.** Give essential values as text or a table, not only as colour or position. Add labels or patterns when colour separates categories.
-- **Motion.** Honour `prefers-reduced-motion`.
+Every page starts with a small stylesheet in the `ace` cascade layer, so any rule you write beats it.
 
-The reader can view the page full screen (it opens at full size in the side panel), copy its source or download it. A page in the side panel fills the panel's height, so let it scroll naturally rather than fixing its height.
+- **Plain elements** take ace's look: type, headings, lists, links, `code`/`pre`/`kbd`, tables (full width, hairline rows, tabular figures), `<details>`, form controls, sliders, `<progress>` and `<meter>`. `box-sizing: border-box` applies everywhere; SVG keeps its own paint.
+- **Buttons:** a `<button>` with a class of your own (`<button class="option">`) starts as a plain box with no padding, border or background, so your CSS lays it out as written. A bare `<button>`, a lone state class (`active`, `selected`, `current`, `on`, `checked`), or `ace-button`, `primary`, `ghost`, `small`, `icon` or `danger` give ace's 30 px button. A button with one of those state classes or `aria-pressed="true"` also gets an accent tint until your CSS sets its own `background` and `color`.
+- **Optional helpers**, all prefixed `ace-` (name your own classes anything else):
+
+| Class                                            | What it does                                                                                  |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `ace-stack`, `ace-row`, `ace-grid`, `ace-split`  | Column; wrapping row; `auto-fit` columns at least `--min` wide; two columns, one under 520 px |
+| `ace-scroll-x`                                   | Sideways scroller; its child is at least `--min-width` (default 640 px)                       |
+| `ace-rows`, `ace-kv`                             | Hairline-separated list; a `<dl>` as label and value columns                                  |
+| `ace-flow`, `ace-timeline`                       | Simple step list joined by arrows (stacks under 560 px); events along a line with dots        |
+| `ace-frame` (`phone`)                            | Mockup screen with fixed height `--h`, clipping, size container; `ace-scroll` scrolls inside  |
+| `ace-tabs` or `role="tablist"`                   | Segmented control; your script moves `aria-selected="true"`                                   |
+| `ace-badge`, `ace-callout`, `ace-bar`            | Small pill; tinted note; thin bar (`--value`, `--c`)                                          |
+| `ace-muted`, `ace-subtle`, `ace-mono`, `ace-num` | Text tones, monospace, tabular figures                                                        |
+
+## The sandbox
+
+The page runs in an opaque-origin sandbox and can't read the app, storage, cookies or the parent page.
+
+- **Everything inline, no network.** External images, fonts, scripts, stylesheets, `fetch` and WebSocket are refused, as are web or file addresses in CSS. `data:` URLs and in-page references (`url(#arrow)`) work. The page is at most 16 MiB.
+- **Images as base64:** `<img src="data:image/png;base64,…" alt="…">`. Get the string with `base64 -i shot.png` (macOS) or `base64 -w0 shot.png` (Linux); downscale first (`sips -Z 1600 -s format jpeg shot.png --out shot.jpg`).
+- **No navigation, dialogs, `eval` or storage.** `#fragment` links work; keep state in variables.
+
+`invalid_html` means nothing was published; fix every listed problem and call again. Besides unsafe content (frames, forms, plugins, `<link>`, external addresses), it refuses `viewport-height`, `root-height` and `fixed-position` ([What the frame needs](#what-the-frame-needs)), and at 360 px `overflow` and `text-too-small`. `fixed-width` and `svg-text-too-small` are the same checks guessed from the markup when the page can't be laid out.
 
 ## Posting an image
 
-For real pixels, such as a screenshot you took, a plot a script rendered or a generated picture, call `image_show` (`mcp__ace__image_show` in Claude Code, `ace_image_show` in OpenCode and Pi) instead of building a page. Anything you would draw with HTML or SVG still belongs in `html_render`.
-
-- Pass the image as base64 in `data`: the raw base64 of a PNG, JPEG, WebP or GIF, with no `data:image/...;base64,` prefix, up to 16 MiB of image. For example, `base64 -i shot.png` on macOS or `base64 -w0 shot.png` on Linux gives you the string.
-- Only for an image over 16 MiB, pass `path` instead (up to 128 MiB, relative to your working directory or absolute). The file itself must not be a symbolic link.
-- `alt` says what the image shows. `caption` is an optional short line shown under it.
-- `invalid_image` means the bytes are not one of those formats, so nothing was posted. Convert the image to PNG and call `image_show` again.
+For real pixels (a screenshot, a rendered plot), call `image_show` (`mcp__ace__image_show` in Claude Code, `ace_image_show` in OpenCode and Pi) instead of building a page. Pass `data` as raw base64 of a PNG, JPEG, WebP or GIF (no `data:` prefix, up to 16 MiB), or `path` for a larger file (up to 128 MiB, not a symbolic link). `alt` says what it shows; `caption` is optional. `invalid_image` means the bytes aren't one of those formats: convert to PNG and call again.

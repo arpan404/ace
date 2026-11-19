@@ -1,119 +1,121 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { useState } from "react";
-import { cn } from "@/lib/cn.ts";
-import { Icon } from "@/components/icon.tsx";
-import { SearchField } from "@/components/search-field.tsx";
+import { Fragment, useState } from "react";
+import {
+  panelLabel,
+  PanelRowBody,
+  panelRow,
+  PanelSearch,
+  PanelSection,
+} from "@/components/ui/panel.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { pageTitle, searchSettings } from "./settings-index.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
+import { entryRoute, pageTitle, searchSettings } from "./settings-index.ts";
 import {
   settingsGroupTitles,
   settingsPageOf,
   visibleSettingsPages,
   type SettingsGroup,
   type SettingsPage,
-  type SettingsPath,
 } from "./settings-pages.ts";
 
-const rowClass =
-  "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring-inset";
-
-const groupOrder: readonly SettingsGroup[] = ["device", "machine", "network"];
+const groupOrder: readonly SettingsGroup[] = ["profile", "device", "machine", "network"];
 
 /**
- * Settings' pages as links, the current one marked: under "This device" the pages this screen
+ * Settings' pages as links, the current one marked: Profile first, then under "This device" the pages this screen
  * keeps, then under "Environment" the pages a machine keeps, then Fleet. Also the phone's
- * Settings page.
+ * Settings page. It reads nothing from a machine: a window with none lists its pages too.
  */
-export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
+export function SettingsPageLinks(props: { pages: readonly SettingsPage[] }) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = settingsPageOf(pathname)?.to;
   const listKeys = useViewListKeys<HTMLDivElement>();
-  const pages = props.pages
-    ? visibleSettingsPages().filter((page) => props.pages?.includes(page.to))
-    : visibleSettingsPages();
   return (
-    <div className="flex flex-col gap-4" {...listKeys}>
+    <div className="flex flex-col" {...listKeys}>
       {groupOrder.map((group) => {
-        const inGroup = pages.filter((page) => page.group === group);
+        const inGroup = props.pages.filter((page) => page.group === group);
         if (!inGroup.length) return null;
         const title = settingsGroupTitles[group];
+        const own = inGroup.filter((page) => !page.section);
+        // A place's pages (Spade's) under their own label, after their group.
+        const sections = [
+          ...new Set(inGroup.flatMap((page) => (page.section ? [page.section.label] : []))),
+        ];
         return (
-          <section key={group} aria-label={title ?? "Network"}>
-            {title && (
-              <h3 className="flex h-6 items-center px-2.5 text-xs font-medium text-subtle-foreground">
-                {title}
-              </h3>
-            )}
-            <PageList pages={inGroup} current={current} />
-          </section>
+          <Fragment key={group}>
+            {own.length > 0 &&
+              (title ? (
+                <PanelSection label={title}>
+                  <PageList pages={own} current={current} />
+                </PanelSection>
+              ) : (
+                <section aria-label="You" className="mt-5 first:mt-1">
+                  <ul className="flex flex-col gap-px">
+                    <PageList pages={own} current={current} />
+                  </ul>
+                </section>
+              ))}
+            {sections.map((label) => (
+              <PanelSection key={label} label={label}>
+                <PageList
+                  pages={inGroup.filter((page) => page.section?.label === label)}
+                  current={current}
+                />
+              </PanelSection>
+            ))}
+          </Fragment>
         );
       })}
     </div>
   );
 }
 
+/** A group's pages, as panel rows: the open one on the current row's fill. */
 function PageList(props: { pages: readonly SettingsPage[]; current: string | undefined }) {
-  return (
-    <ul className="flex flex-col gap-px">
-      {props.pages.map((page) => {
-        const active = props.current === page.to;
-        return (
-          <li key={page.to}>
-            <Link
-              to={page.to}
-              data-view-row=""
-              aria-current={active ? "page" : undefined}
-              className={cn(rowClass, active && "bg-sidebar-accent font-medium text-foreground")}
-            >
-              {/* Icons stay outlined: the row's fill and text say which page is open. */}
-              <Icon
-                icon={page.icon}
-                className={
-                  active
-                    ? "text-foreground"
-                    : "text-subtle-foreground group-hover:text-muted-foreground"
-                }
-              />
-              {page.title}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  );
+  return props.pages.map((page) => (
+    <li key={page.to}>
+      <Link
+        to={page.to}
+        // The current page is worked out above (a sub-page marks its page), never by the
+        // router's prefix match, which would also mark Spade's General on its other pages.
+        activeOptions={{ exact: true }}
+        aria-current={props.current === page.to ? "page" : undefined}
+        {...panelRow()}
+        data-state={props.current === page.to ? "active" : undefined}
+      >
+        <PanelRowBody icon={page.icon} title={page.section?.nav ?? page.title} />
+      </Link>
+    </li>
+  ));
 }
 
 /** Settings' list in the sidebar: its pages, and a filter that finds single settings. */
 export function SettingsNav() {
   const [query, setQuery] = useState("");
   const text = query.trim().toLowerCase();
-  const found = searchSettings(query);
-  const pages = visibleSettingsPages()
-    .filter(
-      (page) =>
-        page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
-    )
-    .map((page) => page.to);
+  const spadeShown = useSpadeShown() === true;
+  const found = searchSettings(query, spadeShown);
+  const visible = visibleSettingsPages(spadeShown);
+  const pages = visible.filter(
+    (page) =>
+      page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
+  );
   return (
     <ViewSidebar
       title="Settings"
       toolbar={
-        <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          <SearchField
-            label="Search settings"
-            placeholder="Search settings"
-            value={query}
-            onValueChange={setQuery}
-            className="bg-sidebar-accent"
-          />
-        </div>
+        <PanelSearch
+          label="Search settings"
+          placeholder="Search settings"
+          value={query}
+          onValueChange={setQuery}
+        />
       }
     >
-      <nav aria-label="Settings pages">
+      <nav aria-label="Settings pages" data-part="settings-nav">
         {!text ? (
-          <SettingsPageLinks />
+          <SettingsPageLinks pages={visible} />
         ) : pages.length ? (
           <SettingsPageLinks pages={pages} />
         ) : (
@@ -121,20 +123,18 @@ export function SettingsNav() {
         )}
       </nav>
       {found.length > 0 && (
-        <section aria-label="Matching settings" className="mt-4">
-          <h3 className="flex h-6 items-center px-2.5 text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase">
-            Settings
-          </h3>
+        <section aria-label="Matching settings" className="mt-5">
+          <h3 className={panelLabel}>Settings</h3>
           <ul className="flex flex-col gap-px">
             {found.map((entry) => (
               <li key={entry.id}>
                 <Link
-                  to={entry.page}
+                  {...entryRoute(entry)}
                   hash={entry.id}
-                  className={cn(rowClass, "h-auto flex-col items-start gap-0 py-1.5")}
+                  {...panelRow("h-auto flex-col items-start gap-0 py-1.5")}
                 >
-                  <span className="text-foreground">{entry.title}</span>
-                  <span className="text-sm">{pageTitle(entry.page)}</span>
+                  <span data-view-row-title="">{entry.title}</span>
+                  <span className="text-sm text-muted-foreground">{pageTitle(entry.page)}</span>
                 </Link>
               </li>
             ))}

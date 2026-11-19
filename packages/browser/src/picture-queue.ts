@@ -6,6 +6,11 @@ import type { PictureChunk } from "./stream-picture.ts";
  */
 export interface SourcePicture extends PictureChunk {
   sourceId: string;
+  /**
+   * The subscribe of its source it was delivered for (`MediaSubscriptions`). A picture of an
+   * older generation is never drawn or acked; absent, it counts as current.
+   */
+  generation?: number;
 }
 
 /** A view's pictures waiting to be drawn, at most this many. */
@@ -71,9 +76,11 @@ export class PictureQueue {
       return;
     }
     viewer.busy = true;
+    // A draw that fails is skipped; a drain that cannot run has nothing to report either.
     void Promise.resolve()
       .then(() => viewer.draw(next))
       .catch(() => {})
-      .then(() => this.#drain(viewer));
+      .then(() => this.#drain(viewer))
+      .catch(() => {});
   }
 }

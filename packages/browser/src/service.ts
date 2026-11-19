@@ -12,6 +12,7 @@ import { DesktopLoss } from "./desktop-loss.ts";
 import { RecoveryRetry } from "./recovery-retry.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
+import type { PagePreviewRequest, PagePreviewShot } from "./page-preview.ts";
 import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
 import { forkTabRecords, type BrowserTabRecord } from "./tab-store.ts";
@@ -49,6 +50,7 @@ import {
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
+import { mediaVideoHosts } from "./media-video.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -87,6 +89,15 @@ export class BrowserService {
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
+  /**
+   * The tabs kept for a thread whose browser isn't loaded, as a restart left them; it restores
+   * them when it next opens. Empty when none were kept. Throws when the store can't be read.
+   */
+  savedTabs(threadId: string): { tabId: string; url: string; title: string }[] {
+    return (this.options.tabStore?.load(threadId) ?? [])
+      .toSorted((a, b) => a.position - b.position)
+      .map(({ tabId, url, title }) => ({ tabId, url, title }));
+  }
   hasActiveSession(threadId: string): boolean {
     return (
       this.sessions.has(threadId) || this.opening.has(threadId) || this.recoveries.has(threadId)
@@ -102,6 +113,13 @@ export class BrowserService {
    */
   videoEncoder(): VideoHost | undefined {
     return this.acquisition.videoEncoder();
+  }
+  /**
+   * Lays a self-contained page out at each width in a hidden Chrome of ace's and captures it
+   * (html_preview). Nothing is shown to the person and no thread browser is touched.
+   */
+  previewPage(request: PagePreviewRequest): Promise<PagePreviewShot[]> {
+    return this.acquisition.previewer().capture(request);
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;
@@ -235,12 +253,15 @@ export class BrowserService {
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     const selfRecovery = new RecoveryRetry(this.navigationClock);
+    /** Moving off a locked desktop that failed tries again, less often each time. */
+    const handOffRetry = new RecoveryRetry(this.navigationClock);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
       loss.finish();
       selfRecovery.stop();
+      handOffRetry.stop();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -354,7 +375,7 @@ export class BrowserService {
           return;
         // A recovery under way (or none needed) holds the callback; it retries on failure.
         if (!this.embedded || this.resumable.get(options.threadId) !== resume) return;
-        void resume();
+        void resume().catch((error) => this.options.onError?.(error));
       });
     /**
      * The desktop can't draw (its screen locked): its views give no live picture, so the pages
@@ -396,13 +417,17 @@ export class BrowserService {
         });
       };
       const moving = move()
-        .catch((error: unknown) => {
-          this.options.onError?.(error);
-          // Still locked: try again shortly; the desktop's frozen view stays meanwhile.
-          if (signal.aborted) return;
-          const retry = setTimeout(() => void handOff(), 5_000);
-          retry.unref();
-        })
+        .then(
+          () => handOffRetry.recovered(),
+          (error: unknown) => {
+            this.options.onError?.(error);
+            // Still locked: try again, waiting longer each time (up to a minute) so a move that
+            // keeps failing neither floods the log nor keeps opening pages; the desktop's
+            // frozen view stays meanwhile.
+            if (signal.aborted) return;
+            handOffRetry.schedule(() => void handOff());
+          },
+        )
         .finally(() => this.recoveries.delete(options.threadId));
       this.recoveries.set(options.threadId, moving);
       return moving;
@@ -475,7 +500,8 @@ export class BrowserService {
           const lose = () => {
             if (owned.state.closed || signal.aborted) return;
             announce(url, reason);
-            if (lossPolicy === "headless") void resume();
+            if (lossPolicy === "headless")
+              void resume().catch((error) => this.options.onError?.(error));
           };
           // A dropped link (the backend unregistered) keeps the desktop's views for re-adoption;
           // a view that died with the link up is gone now.
@@ -493,11 +519,15 @@ export class BrowserService {
       };
       opening = request;
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
+      const media = this.options.media;
       const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
         new BrowserSession({
           threadId: options.threadId,
           backend: opened,
           backendKind: kind,
+          ...(media
+            ? { mediaVideo: mediaVideoHosts(media, () => ({ threadId: options.threadId })) }
+            : {}),
           dir,
           now: this.now,
           id: this.id,
@@ -505,6 +535,7 @@ export class BrowserService {
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },
+          embeddedAvailable: () => this.embedded !== undefined,
           ...(this.options.userChromeStorageReads
             ? {
                 storageReads: () =>
@@ -611,7 +642,7 @@ export class BrowserService {
       if (preference === "auto") {
         this.handOffs.set(options.threadId, handOff);
         // The screen locked while this page was opening.
-        void handOff();
+        void handOff().catch((error) => this.options.onError?.(error));
       }
       return session;
     } catch (error) {
@@ -676,7 +707,8 @@ export class BrowserService {
   desktopDrawable(drawable: boolean): void {
     this.desktopCanDraw = drawable;
     if (drawable) return;
-    for (const handOff of this.handOffs.values()) void handOff();
+    for (const handOff of this.handOffs.values())
+      void handOff().catch((error) => this.options.onError?.(error));
   }
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -695,7 +727,8 @@ export class BrowserService {
     // After this returns the caller sends the registration reply; requests follow it.
     queueMicrotask(() => {
       this.options.onEmbeddedRegistered?.();
-      for (const resume of this.resumable.values()) void resume();
+      for (const resume of this.resumable.values())
+        void resume().catch((error) => this.options.onError?.(error));
     });
     return backend;
   }

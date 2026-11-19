@@ -105,7 +105,7 @@ test("with another machine picked, Computer use leaves screen access to that mac
   ).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull();
   expect(screen.queryByRole("region", { name: "macOS permissions" })).toBeNull();
-  expect(screen.getByRole("switch", { name: "Show emulator window" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Apps agents can't use" })).toBeTruthy();
 }, 30_000);
 
 test("with All machines picked, a change on Agents lands on every connected machine", async () => {

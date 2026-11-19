@@ -29,6 +29,7 @@
           "enum": [
             "ready",
             "needs_you",
+            "limited",
             "timeout",
             "interrupted"
           ],
@@ -38,10 +39,49 @@
           "items": {
             "additionalProperties": false,
             "properties": {
+              "contact": {
+                "enum": [
+                  "lost",
+                  "unconfirmed"
+                ],
+                "type": "string"
+              },
               "elapsedSeconds": {
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "failure": {
+                "additionalProperties": false,
+                "properties": {
+                  "accountId": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "accountLabel": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "code": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "message": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "resetsAt": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
               },
               "last": {
                 "maxLength": 160,
@@ -122,6 +162,12 @@
               },
               "truncated": {
                 "type": "boolean"
+              },
+              "waitingFor": {
+                "enum": [
+                  "storage"
+                ],
+                "type": "string"
               }
             },
             "required": [

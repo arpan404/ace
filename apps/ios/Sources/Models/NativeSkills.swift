@@ -1,0 +1,181 @@
+import Foundation
+
+/// The skill library as `bridge/skill-library.ts` sends it: rows and pages with their words
+/// already written, so these views only draw.
+struct SkillRow: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let title: String
+    let description: String
+    let marks: [String]
+    let editable: Bool
+}
+struct SkillGroup: Decodable, Identifiable, Equatable {
+    let id: String
+    let title: String
+    let rows: [SkillRow]
+}
+struct SkillLibrary: Decodable, Equatable {
+    let groups: [SkillGroup]
+    let stale: Bool
+}
+struct SkillAgentChoice: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    var on: Bool
+    let locked: Bool
+}
+struct SkillRunsChoice: Decodable, Hashable {
+    let manual: Bool
+    let label: String
+}
+struct SkillPage: Decodable, Equatable {
+    struct LastUse: Decodable, Equatable { let threadId: String; let title: String; let ago: String }
+    let id: String
+    let title: String
+    let description: String
+    let editable: Bool
+    let hash: String
+    let agentsText: String
+    let agents: [SkillAgentChoice]
+    let savedIn: String
+    let path: String?
+    let manual: Bool
+    let runs: String
+    let runsChoices: [SkillRunsChoice]
+    let argumentHint: String?
+    let used: String
+    let last: LastUse?
+    let instructions: String
+    let body: String
+    let deleteMessage: String
+    /// Where Open on computer opens the skill; null until the host can open it.
+    let open: SkillHostTarget?
+    /// Where a skill installed from a repository came from and when; null for one written here.
+    let source: String?
+}
+struct SkillHostTarget: Decodable, Equatable { let workspaceId: String; let path: String }
+struct SkillDraftChoices: Decodable {
+    let agents: [SkillAgentChoice]
+    let runs: [SkillRunsChoice]
+}
+struct SkillNameCheck: Decodable { let problem: String?; let path: String }
+struct SkillCreated: Decodable { let id: String }
+struct SkillSaved: Decodable { let hash: String }
+struct SkillAgentsSaved: Decodable { let hash: String; let note: String? }
+
+/// A skill's update as `bridge/skill-update.ts` sends it: a check's answer, the review of the
+/// newer version, and what applying it said.
+struct SkillUpdateCheck: Decodable, Equatable { let available: Bool; let status: String }
+struct SkillUpdateReview: Decodable, Equatable {
+    struct File: Decodable, Equatable { let path: String; let change: String; let runnable: String? }
+    struct Line: Decodable, Equatable { let kind: String; let number: Int?; let text: String }
+    struct Diff: Decodable, Equatable { let additions: Int; let deletions: Int; let rows: [Line] }
+    let id: String
+    let title: String
+    let summary: String
+    let baseHash: String
+    let folderHash: String
+    let files: [File]
+    let diff: Diff
+}
+struct SkillUpdatePrepared: Decodable { let review: SkillUpdateReview }
+struct SkillUpdateApplied: Decodable { let hash: String; let notice: String }
+
+/// A refusal from the skill library. `unreachable` means the change may or may not have reached
+/// the machine: the next send of it says `retry`, and the bridge recognises its own change.
+struct SkillFailure: LocalizedError {
+    let code: String
+    let message: String
+    var errorDescription: String? { message }
+    var uncertain: Bool { code == "unreachable" }
+}
+private struct SkillOutcome: Decodable { let ok: Bool; let code: String?; let message: String? }
+
+extension ClientModel {
+    /// One `skills.native` request; the reply decoded as `T`, or its refusal thrown. `timeout`
+    /// bounds the wait: longer only where the machine fetches something first.
+    func skills<T: Decodable>(_ operation: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
+        do {
+            let value = try await service(operation.merging(["type": "skills.native"]) { $1 }, as: ServiceValue.self, timeout: timeout)
+            return try skillAnswer(value, as: type)
+        } catch let failure as SkillFailure { throw failure }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw SkillFailure(code: "unreachable", message: "Couldn't reach the machine. Your changes are still here; try again.") }
+    }
+    /// The library list, kept between visits (`bridge/read-policy.ts`).
+    func skillLibrary(_ payload: [String: Any]) async throws -> SkillLibrary {
+        try skillAnswer(try await read(payload, as: ServiceValue.self), as: SkillLibrary.self)
+    }
+    func keptSkillLibrary(_ payload: [String: Any]) -> SkillLibrary? {
+        kept(payload, as: ServiceValue.self).flatMap { try? skillAnswer($0, as: SkillLibrary.self) }
+    }
+    /// One `plugins.native` request (`bridge/skill-plugins.ts`).
+    func pluginAgents<T: Decodable>(_ operation: [String: Any], as type: T.Type) async throws -> T {
+        let value = try await service(operation.merging(["type": "plugins.native"]) { $1 }, as: ServiceValue.self)
+        return try skillAnswer(value, as: type)
+    }
+    /// Every project on the machine, for choosing whose skills to show.
+    func allProjects() async throws -> [NativeProject] {
+        var after: String?
+        var all: [NativeProject] = []
+        for _ in 0..<10 {
+            var operation: [String: Any] = ["op": "workspace.list", "limit": 100]
+            if let after { operation["after"] = after }
+            let reply = try await service(["type": "projects.request", "operation": operation], as: ProjectListReply.self)
+            guard reply.result.kind == "projects" else { throw ServiceFailure(message: "This pairing needs Projects access to show project skills.") }
+            all += reply.result.projects ?? []
+            after = reply.result.next
+            if after == nil { break }
+        }
+        return all
+    }
+}
+
+private func skillAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) throws -> T {
+    let outcome = try value.decode(SkillOutcome.self)
+    guard outcome.ok else { throw SkillFailure(code: outcome.code ?? "unavailable", message: outcome.message ?? "The machine refused that.") }
+    return try value.decode(type)
+}
+
+/// A plugin's agents as `bridge/skill-plugins.ts` sends them.
+struct PluginAgents: Decodable, Identifiable, Equatable {
+    struct Agent: Decodable, Identifiable, Equatable { let id: String; let name: String; let on: Bool }
+    let name: String
+    let version: String
+    /// The repository and branch it was installed from, when the machine recorded them.
+    let source: String?
+    let on: Bool
+    let enabled: Bool
+    let summary: String
+    let agents: [Agent]
+    var id: String { name }
+}
+struct PluginAgentsList: Decodable { let plugins: [PluginAgents] }
+struct PluginAgentsChanged: Decodable { let plugin: PluginAgents }
+
+/// What a repository's marketplace offers (`bridge/skill-plugins.ts` `find`). `manual`: it
+/// couldn't be read, so the plugin's name is typed, starting from `picked`.
+struct PluginMarketplace: Decodable, Equatable {
+    struct Listing: Decodable, Identifiable, Equatable {
+        let name: String
+        let version: String?
+        let description: String?
+        var id: String { name }
+    }
+    let repository: String
+    let ref: String
+    let from: String
+    let plugins: [Listing]
+    let picked: String?
+    let manual: Bool
+    let note: String?
+}
+/// The chosen plugin, checked and written as `plugins.prepare` takes it.
+struct PluginSourceChecked: Decodable {
+    struct Prepare: Decodable { let type: String; let repository: String; let ref: String; let name: String }
+    let prepare: Prepare
+    var operation: [String: Any] {
+        ["type": prepare.type, "repository": prepare.repository, "ref": prepare.ref, "name": prepare.name]
+    }
+}

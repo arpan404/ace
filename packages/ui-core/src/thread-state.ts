@@ -1,4 +1,4 @@
-import { sidebarSettled } from "@ace/projection";
+import { sidebarSettled, snoozeWakeDue, stoppedByPerson } from "@ace/projection";
 import type { ThreadListEntry, ThreadListWindow, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
@@ -19,16 +19,26 @@ export function settledTotal(window: ThreadListWindow | undefined): number | und
   return window?.before ? window.total : undefined;
 }
 
-/** Snoozed until a moment still ahead. The daemon clears it once it passes. */
+/**
+ * Snoozed until a moment still ahead, and not woken yet by the event it waits for (a request,
+ * failure or finish; a pull request change). The daemon clears both once either happens; this
+ * reads the wake here too, so a thread that needs the person never hides while that word travels.
+ */
 export function isSnoozed(entry: ThreadListEntry, now: number): boolean {
-  return entry.snoozedUntil !== undefined && entry.snoozedUntil > now;
+  return entry.snoozedUntil !== undefined && entry.snoozedUntil > now && !snoozeWakeDue(entry);
+}
+
+/** Snoozed to a time the person chose: only these stay out of the needs-you counts. */
+export function isSnoozedToTime(entry: ThreadListEntry, now: number): boolean {
+  return isSnoozed(entry, now) && entry.snoozeWake === undefined;
 }
 
 /** When the thread last did work; organization changes don't count. */
 export const activityOf = (entry: ThreadListEntry): number => entry.activityAt ?? entry.updatedAt;
 
 /**
- * Device read cursors compare execution sequences. Explicit read/unread choices win.
+ * Device read cursors compare execution sequences. Explicit read/unread choices win, and a turn
+ * the person stopped themselves is read.
  * Older snapshots without sequence facts fall back to finished activity newer than the read
  * time, or this device's first launch when it has never read the thread.
  */
@@ -38,6 +48,8 @@ export function isUnread(
   read?: ThreadReadStateResponse,
 ): boolean {
   if (entry.unread === true) return true;
+  // The person's own Stop ended the turn: they saw it end, so it is already read (ADR 0052).
+  if (stoppedByPerson(entry)) return false;
   if (read?.updatedAt != null && entry.activitySeq !== undefined) {
     if (entry.readAt !== undefined && entry.readAt >= activityOf(entry)) return false;
     return entry.activitySeq > read.lastSeenSeq;

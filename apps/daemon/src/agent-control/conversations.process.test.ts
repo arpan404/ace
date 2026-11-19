@@ -91,6 +91,46 @@ test("an ordinary conversation has durable owner authority without child status 
   }
 });
 
+test("a thread an agent starts names its starter, and its brief and follow-ups name the sending thread", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
+  try {
+    const context = { store: h.store, services: { workspaceActions: runtime }, signal: signal() };
+    const port = createAgentControlPort(h.store, h.service, {
+      startConversation: createConversationStarts(context, h.service, h.service.conversations),
+    });
+    expect((await port.execute(parent, conversation("named"), signal())).ok).toBe(true);
+    const thread = h.store.listThreads().find((row) => row.id !== parent.threadId);
+    if (!thread) throw new Error("Conversation missing");
+    expect(h.store.getThread(thread.id)?.startedBy).toBe(parent.threadId);
+    await h.engine.flush();
+    await h.complete(thread.id, "first answer");
+    const followUp = AgentControlOperation.parse({
+      op: "thread.message",
+      threadId: thread.id,
+      requestId: "more",
+      text: "One more thing",
+    });
+    expect(await port.execute(parent, followUp, signal())).toMatchObject({ ok: true });
+    await h.engine.flush();
+    const sender = {
+      kind: "parent_agent",
+      parentThreadId: parent.threadId,
+      from: { provider: h.store.getThread(parent.threadId)?.provider },
+    };
+    const sent = Object.values(h.store.snapshotThread(thread.id).items).filter(
+      (item) => item.type === "message" && item.role === "user",
+    );
+    expect(sent).toEqual([
+      expect.objectContaining({ origin: expect.objectContaining(sender) }),
+      expect.objectContaining({ origin: expect.objectContaining(sender) }),
+    ]);
+  } finally {
+    await runtime.close();
+  }
+});
+
 test("conversation ownership and launch deduplication survive reopening SQLite", async () => {
   const h = setup();
   const parent = await h.parent();

@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
-import { useListMotion } from "./motion.ts";
+import { staggerSpanMs, useListMotion } from "./motion.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,6 +13,7 @@ const media = (reduced: boolean) => (query: string) =>
   }) as unknown as MediaQueryList;
 
 const keyOf = (key: string) => key;
+const rowOf = (key: string, unconfirmed: boolean) => ({ key, unconfirmed });
 
 test("a row that moves up slides over the rows it passes, and only that row", () => {
   vi.stubGlobal("matchMedia", media(false));
@@ -56,4 +57,44 @@ test("a list that never settles keeps only the rows still fading out, not every 
   expect(result.current.rows.filter((row) => row.phase !== "exit").map((row) => row.key)).toEqual(
     slide(500),
   );
+});
+
+test("rows leaving together with a stagger go one after another, and a big fold still ends within the span", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const many = Array.from({ length: 30 }, (_, n) => `row-${n}`);
+  const { result, rerender } = renderHook(
+    ({ items }) => useListMotion(items, keyOf, { exitStagger: 40, bulkAt: Infinity }),
+    { initialProps: { items: [...many, "kept"] } },
+  );
+  rerender({ items: ["kept"] });
+
+  const delays = result.current.rows.filter((row) => row.phase === "exit").map((r) => r.delay);
+  expect(delays).toHaveLength(30);
+  expect(delays.every((delay, n) => n === 0 || delay > (delays[n - 1] ?? 0))).toBe(true);
+  expect((delays.at(-1) ?? 0) + 140).toBeLessThanOrEqual(staggerSpanMs);
+});
+
+test("without a stagger, a change past the bulk limit shows at once", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const many = Array.from({ length: 30 }, (_, n) => `row-${n}`);
+  const { result, rerender } = renderHook(({ items }) => useListMotion(items, keyOf), {
+    initialProps: { items: [...many, "kept"] },
+  });
+  rerender({ items: ["kept"] });
+  expect(result.current.rows.map((row) => row.key)).toEqual(["kept"]);
+});
+
+test("a change the list marks as a settle shows at once, with no row playing an exit", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const { result, rerender } = renderHook(
+    ({ items }) =>
+      useListMotion(items, (item) => item.key, {
+        exitStagger: 40,
+        snapWhen: (leaving) => leaving.some((item) => item.unconfirmed),
+      }),
+    { initialProps: { items: [rowOf("a", true), rowOf("b", true), rowOf("done", false)] } },
+  );
+  // The facts behind a and b became current: they fold into done, with nothing to fade.
+  rerender({ items: [rowOf("done", false)] });
+  expect(result.current.rows.map((item) => item.key)).toEqual(["done"]);
 });

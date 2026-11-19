@@ -28,6 +28,7 @@ export const RecoveryRecord = QueueState.extend({
 });
 export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
 export const maxMessages = 256;
+const withState = "thread_id IN (SELECT thread_id FROM thread_state)";
 /**
  * Whether a hold reads as the provider dying on its own. It only describes a restart hold: any
  * other hold, or none, clears it, and a restart hold set anew (a real restart) clears it unless
@@ -108,6 +109,11 @@ export class QueueStore {
     const row = this.sql("SELECT paused, reason FROM engine_queue WHERE thread_id=?").get(id);
     return row?.paused === 1 && (row.reason === "not_sent" || row.reason === "model_unavailable");
   }
+  /** Paused by a Stop: what it retains waits for the person's Resume. */
+  stoppedByPerson(id: ThreadId): boolean {
+    const row = this.sql("SELECT paused, reason FROM engine_queue WHERE thread_id=?").get(id);
+    return row?.paused === 1 && row.reason === "stopped";
+  }
   get(id: ThreadId): RecoveryRecord {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
     if (!row) throw new Error("Missing queue metadata");
@@ -186,6 +192,14 @@ export class QueueStore {
       ).get(id)?.n,
     );
   }
+  /** Sends still to go, child results ace delivers included: the person's queue and ace's. */
+  waitingSends(id: ThreadId): number {
+    return Number(
+      this.sql(
+        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
+      ).get(id)?.n,
+    );
+  }
   private uncertainRecovery(id: ThreadId): boolean {
     return Boolean(
       this.sql(
@@ -193,7 +207,7 @@ export class QueueStore {
       ).get(id),
     );
   }
-  private message(payload: unknown, uncertain: unknown) {
+  private message(payload: unknown, uncertain: unknown, fellBack?: unknown) {
     const command = Command.parse(JSON.parse(String(payload)));
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create") {
@@ -217,6 +231,7 @@ export class QueueStore {
       context: p.context,
       delivery: p.type === "thread.send" ? (p.delivery ?? "queue") : "queue",
       state: uncertain === 1 ? "uncertain" : "queued",
+      fellBack: fellBack === 1 || undefined,
     });
   }
   hasUncertain(id: ThreadId): boolean {
@@ -238,14 +253,14 @@ export class QueueStore {
         messages: [],
       });
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
+      "SELECT payload,uncertain,(SELECT fell_back FROM engine_steer_notes WHERE intent_id=intents.id) AS fell_back FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
     const { exited, ...shown } = this.shown(id);
     return QueueSnapshot.parse({
       ...shown,
       ...exitShown(exited),
       threadId: id,
-      messages: rows.map((row) => this.message(row.payload, row.uncertain)),
+      messages: rows.map((row) => this.message(row.payload, row.uncertain, row.fell_back)),
     });
   }
   page(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">): QueuePage {
@@ -262,7 +277,7 @@ export class QueueStore {
       : undefined;
     if (request.after && !cursor) throw new Error("invalid_queue_cursor");
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
+      "SELECT payload,uncertain,(SELECT fell_back FROM engine_steer_notes WHERE intent_id=intents.id) AS fell_back FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
     ).all(
       request.threadId,
       cursor?.position ?? -1,
@@ -276,7 +291,7 @@ export class QueueStore {
       const size = Buffer.byteLength(String(row.payload));
       if (messages.length >= limit || (messages.length && bytes + size > 512 * 1024)) break;
       bytes += size;
-      messages.push(this.message(row.payload, row.uncertain));
+      messages.push(this.message(row.payload, row.uncertain, row.fell_back));
     }
     const { exited, ...shown } = queue;
     return QueuePage.parse({
@@ -287,6 +302,13 @@ export class QueueStore {
       total: this.count(request.threadId),
       next: rows.length > messages.length ? (messages.at(-1)?.id ?? null) : null,
     });
+  }
+  /** The first message the person sees queued: the one a failed-send hold keeps as not sent. */
+  head(id: ThreadId): number | undefined {
+    const row = this.sql(
+      "SELECT id FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 1",
+    ).get(id);
+    return row ? Number(row.id) : undefined;
   }
   position(id: ThreadId): number {
     return Number(
@@ -388,25 +410,50 @@ export class QueueStore {
   uncertain(id: number): void {
     this.sql("UPDATE intents SET uncertain=1 WHERE id=?").run(id);
   }
+  /**
+   * Deadlines of threads that still have engine state. A deleted thread whose state was purged
+   * keeps its queue row; it has nothing left to resume, and must not hold up the threads after it.
+   */
   nextDeadline(): number | undefined {
     const row = this.sql(
-      "SELECT resume_at FROM engine_queue WHERE resume_at IS NOT NULL ORDER BY resume_at LIMIT 1",
+      `SELECT resume_at FROM engine_queue WHERE resume_at IS NOT NULL AND ${withState}
+      ORDER BY resume_at LIMIT 1`,
     ).get();
     return row ? z.number().int().nonnegative().parse(row.resume_at) : undefined;
   }
   /** Threads a usage limit holds, for an account reading that may let them go. */
   limited(): ThreadId[] {
     return this.sql(
-      "SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit' LIMIT 256",
+      `SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit'
+      AND ${withState} LIMIT 256`,
     )
       .all()
       .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
   }
   due(now: number): ThreadId[] {
     return this.sql(
-      "SELECT thread_id FROM engine_queue WHERE resume_at<=? ORDER BY resume_at LIMIT 64",
+      `SELECT thread_id FROM engine_queue WHERE resume_at<=? AND ${withState}
+      ORDER BY resume_at LIMIT 64`,
     )
       .all(now)
       .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
+  }
+  /**
+   * Which deadline a thread holds now, as its time and hold; undefined with none, or when its
+   * state is gone. A new hold or a moved deadline reads as a different one.
+   */
+  deadlineKey(id: ThreadId): string | undefined {
+    const row = this.sql(
+      `SELECT resume_at,hold_token FROM engine_queue WHERE thread_id=? AND resume_at IS NOT NULL
+      AND ${withState}`,
+    ).get(id);
+    return row ? `${String(row.resume_at)}:${String(row.hold_token)}` : undefined;
+  }
+  /** Moves a deadline that could not be acted on to `at`, keeping everything else it holds. */
+  defer(id: ThreadId, at: number): void {
+    this.sql("UPDATE engine_queue SET resume_at=? WHERE thread_id=? AND resume_at IS NOT NULL").run(
+      at,
+      id,
+    );
   }
 }

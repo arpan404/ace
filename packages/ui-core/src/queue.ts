@@ -1,7 +1,13 @@
-import type { ContextMeter, ProviderKind, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import type {
+  ContextMeter,
+  ProviderKind,
+  QueuedMessage,
+  QueueSnapshot,
+  ThreadStatus,
+} from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 import { unavailableModelNotice } from "./model-availability.ts";
-import type { ExecutionSelection } from "@ace/protocol";
+import type { ExecutionSelection, SwitchSelection } from "@ace/protocol";
 import type { LimitContext } from "./limits.ts";
 import { describeWake } from "./snooze.ts";
 import { formatCountdown } from "./time.ts";
@@ -21,8 +27,12 @@ export type QueueAction =
       label: string;
       /** The account it moves to, when one is named. */ instanceId?: string;
     }
+  /** Drop a chosen resume at reset: the thread goes back to waiting on its limit. */
+  | { id: "cancel_resume"; label: string }
+  /** Carry the held turn on at `selection` (another account, model or provider) now. */
+  | { id: "switch"; label: string; selection: SwitchSelection }
   | { id: "resume"; label: string }
-  /** Carry the stopped turn on: one "Continue where you left off." in the person's words. */
+  /** Carry a turn a restart cut short on: one "Continue where you left off." in the person's words. */
   | { id: "continue"; label: string }
   | { id: "hold"; label: string }
   | { id: "choose_model"; label: string };
@@ -54,14 +64,14 @@ export type QueueHold = Pick<
 /**
  * What stopped a held turn, in words: "Stopped by a restart" when ace restarted, "Cursor
  * stopped unexpectedly" when the provider's process died on its own (the provider's name when
- * known), "Agent stopped" after the person's Stop. Undefined when no stop holds the turn.
+ * known). Undefined when no such stop holds the turn. The person's own Stop is never said here:
+ * their turn is done, and their next message starts a new one (ADR 0052).
  */
 export function stopTitle(
   queue: Pick<QueueHold, "paused" | "reason" | "exited"> | undefined,
   provider?: ProviderKind,
 ): string | undefined {
   if (!queue?.paused) return undefined;
-  if (queue.reason === "stopped") return "Agent stopped";
   if (queue.reason !== "restart") return undefined;
   if (!queue.exited) return "Stopped by a restart";
   return `${provider ? providerNames[provider] : "Agent"} stopped unexpectedly`;
@@ -96,7 +106,7 @@ export function queueNotice(
       detail: `Queued messages send ${describeWake(resumeAt, now, locale)}.`,
       actions: [
         { id: "resume_now", label: "Continue now" },
-        { id: "hold", label: "Don't resume" },
+        { id: "cancel_resume", label: "Cancel" },
       ],
     };
   if (reason === "snooze")
@@ -110,9 +120,10 @@ export function queueNotice(
           : `Resets ${describeWake(resumeAt, now, locale)}. Nothing sends until you resume.`,
       actions: [{ id: "resume_now", label: "Continue now" }],
     };
-  if (status?.state === "limited" || reason === "limit") {
+  if (reason === "limit") {
     // The thread's own reset, else the account's: the daemon resumes at the account's too.
-    const until = (status?.state === "limited" ? status.until : undefined) ?? account?.resetsAt;
+    const until =
+      account?.resetsAt ?? resumeAt ?? (status?.state === "limited" ? status.until : undefined);
     const known = until !== undefined && until > now;
     const who = account?.name ?? "The account";
     const target = account?.target;
@@ -157,12 +168,14 @@ export function queueNotice(
           queue?.lastFailure?.title ?? "Your message is kept in the queue. Try sending it again.",
         actions: [{ id: "resume", label: "Try again" }],
       };
+    // The person's Stop ended the turn: nothing to continue. Only messages it kept say so.
     case "stopped":
+      if (!queue?.pendingCount) return undefined;
       return {
         kind: "stopped",
-        title: "Agent stopped",
-        detail: "",
-        actions: [{ id: "continue", label: "Continue" }],
+        title: "Queued messages wait",
+        detail: "Your Stop kept them. They send with your next message.",
+        actions: [{ id: "resume", label: "Send now" }],
       };
     case "restart":
       return {
@@ -193,11 +206,12 @@ export function queueNotice(
 }
 
 /**
- * A stopped turn (the person's Stop, a restart, a provider that died) is not a queue state: it
- * reads as a pill over the composer with Continue, never as an item in the queue's strip.
+ * A turn a restart or a provider that died cut short is not a queue state: it reads as a pill
+ * over the composer with Continue, never as an item in the queue's strip. The person's Stop has
+ * no pill: their turn is done.
  */
 export function stoppedHold(notice: QueueNotice | undefined): boolean {
-  return notice?.kind === "restart" || notice?.kind === "stopped";
+  return notice?.kind === "restart";
 }
 
 /**
@@ -268,4 +282,19 @@ export function queueMoveAfter(
   if (index < 0 || index >= ids.length || target < 0 || target >= ids.length) return undefined;
   if (step === 1) return ids[target];
   return target === 0 ? null : ids[target - 1];
+}
+
+/**
+ * Whether a queued message still says what it said when it was read: the same words, attachments
+ * and context. A queue change that only moved it, or touched other messages, leaves it the same,
+ * so saving an edit over it overwrites nobody's change.
+ */
+export function sameQueuedContent(
+  read: Pick<QueuedMessage, "input" | "context">,
+  now: Pick<QueuedMessage, "input" | "context">,
+): boolean {
+  return (
+    JSON.stringify([read.input, read.context ?? null]) ===
+    JSON.stringify([now.input, now.context ?? null])
+  );
 }

@@ -1,5 +1,8 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
-import { Event, ThreadId, type EntityCollection, ThreadView, type Thread } from "@ace/protocol";
+import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
+import { entityPage, type TooLarge } from "@ace/projection/entity-pages";
+import { summarizeInteraction, wholeRequestChars } from "@ace/projection/interaction-summary";
+import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
 
 const active = `CASE
  WHEN collection='agents' THEN json_extract(value,'$.origin')='root' OR json_extract(value,'$.status.state') IN ('starting','working','blocked','unresponsive')
@@ -8,10 +11,14 @@ const active = `CASE
  WHEN collection='backgroundTasks' THEN json_extract(value,'$.status') IN ('running','unknown')
  ELSE 0 END`;
 const collections = ["agents", "runs", "interactions", "backgroundTasks"] as const;
+/** The bytes of entries a page holds unless the reader asks for less (`maxBytes`). */
+export const entityPageBytes = 128 * 1024;
 export class EntityWindow {
   private sql: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, sql: (sql: string) => StatementSync) {
+  private trust: EntityTrust;
+  constructor(db: DatabaseSync, sql: (sql: string) => StatementSync, trust: EntityTrust) {
     this.sql = sql;
+    this.trust = trust;
     const existing = sql("SELECT 1 FROM sqlite_master WHERE name='view_entity_windows'").get();
     db.exec(`CREATE TABLE IF NOT EXISTS view_entity_windows (
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -53,7 +60,7 @@ export class EntityWindow {
     for (const collection of collections) {
       const values: [string, unknown][] = [];
       for (const row of this.rows(view.thread.id, collection, "w.active=1", "ASC"))
-        values.push([String(row.id), JSON.parse(String(row.value))]);
+        values.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
       let bytes = 0;
       let before: number | undefined;
       let count = 0;
@@ -66,14 +73,13 @@ export class EntityWindow {
           break;
         }
         before = Number(row.created_seq);
-        recent.push([String(row.id), JSON.parse(String(row.value))]);
+        recent.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
         bytes += size;
         count++;
       }
+      // Own data properties for every id, as decoding a record gives (`__proto__` included).
       Object.assign(view, {
-        [collection]: ThreadView.shape[collection].parse(
-          Object.fromEntries([...recent.toReversed(), ...values]),
-        ),
+        [collection]: Object.fromEntries([...recent.toReversed(), ...values]),
       });
       cursors[collection] = older ? (before ?? Number.MAX_SAFE_INTEGER) : null;
     }
@@ -100,7 +106,8 @@ export class EntityWindow {
         : this.sql(
             "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
           ).get(view.thread.id, id);
-      const agent = existing ?? (row ? importAgent(row.value) : undefined);
+      const agent =
+        existing ?? (row ? storedEntity("agents", String(row.value), this.trust) : undefined);
       if (!agent) continue;
       Object.defineProperty(view.agents, id, {
         value: agent,
@@ -120,39 +127,114 @@ export class EntityWindow {
     const row = this.sql(
       "SELECT created_seq FROM view_entity_windows WHERE thread_id=? AND collection=? AND id=?",
     ).get(threadId, collection, id);
-    return row ? Event.shape.seq.parse(Number(row.created_seq)) : 1;
+    return row ? Number(row.created_seq) : 1;
   }
-  page(thread: Thread, collection: EntityCollection, before: number, limit: number) {
-    const entries: unknown[] = [];
-    let bytes = 0;
-    let oldest = before;
-    let more = false;
-    for (const row of this.rows(
-      thread.id,
-      collection,
-      "w.created_seq<?",
-      "DESC LIMIT ?",
-      before,
-      Math.min(limit, 200) + 1,
-    )) {
-      const size = Buffer.byteLength(String(row.value));
-      if (entries.length >= limit || (entries.length && bytes + size > 131072)) {
-        more = true;
-        break;
-      }
-      entries.push(JSON.parse(String(row.value)));
-      bytes += size;
-      oldest = Number(row.created_seq);
+  /** A page of `collection`'s entities created before `before`; `seq` is the reader's to add. */
+  page(
+    thread: Pick<Thread, "id">,
+    collection: EntityCollection,
+    before: number,
+    limit: number,
+    maxBytes = entityPageBytes,
+  ) {
+    const page = { threadId: thread.id };
+    // Each case narrows `collection`, so its entries are that collection's entities.
+    switch (collection) {
+      case "agents":
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
+      case "runs":
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
+      case "interactions":
+        return {
+          ...page,
+          collection,
+          // A request too large to send with its thread goes as its summary (ADR 0157).
+          ...this.entries(thread, collection, before, limit, maxBytes, summarizeInteraction),
+        };
+      case "backgroundTasks":
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
     }
-    return {
-      threadId: ThreadId.parse(thread.id),
-      collection,
-      entries: entries.toReversed(),
-      entitiesBefore: more ? oldest : null,
-    };
   }
-}
-import { Agent } from "@ace/protocol";
-function importAgent(value: unknown) {
-  return Agent.parse(JSON.parse(String(value)));
+  /**
+   * At most `limit` (and 200) entries and `maxBytes` of them, as `entityPage` cuts pages, each
+   * as `sent` gives it to clients and weighed as that.
+   */
+  private entries<C extends EntityCollection>(
+    thread: Pick<Thread, "id">,
+    collection: C,
+    before: number,
+    limit: number,
+    maxBytes: number,
+    sent?: (entity: StoredEntity<C>) => StoredEntity<C>,
+  ): { entries: StoredEntity<C>[]; tooLarge?: TooLarge[]; entitiesBefore: number | null } {
+    const trust = this.trust;
+    const statement = this.rows.bind(this);
+    const kindOf = (id: string) => {
+      const row = this.sql(
+        "SELECT json_extract(value,'$.request.kind') AS kind FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
+      ).get(thread.id, collection, id);
+      return typeof row?.kind === "string" ? row.kind : undefined;
+    };
+    /** Read lazily: a page stops at its first row past its bound. */
+    const rows = (isActive: 0 | 1) =>
+      function* (below: number, most: number) {
+        const predicate = `w.active=${isActive} AND w.created_seq<?`;
+        for (const row of statement(
+          thread.id,
+          collection,
+          predicate,
+          "DESC LIMIT ?",
+          below,
+          most,
+        )) {
+          const value = String(row.value);
+          const id = String(row.id);
+          const seq = Number(row.created_seq);
+          const bytes = Buffer.byteLength(value);
+          const kind = () => kindOf(id);
+          // UTF-8 bytes are never fewer than UTF-16 units: a row within the bound goes as it is.
+          const stored =
+            sent && bytes > wholeRequestChars ? storedEntity(collection, value, trust) : undefined;
+          const shaped = stored && sent?.(stored);
+          if (shaped !== undefined && shaped !== stored) {
+            const json = JSON.stringify(shaped);
+            yield {
+              seq,
+              id,
+              bytes: Buffer.byteLength(json),
+              length: json.length,
+              entity: () => shaped,
+              kind,
+            };
+          } else
+            yield {
+              seq,
+              id,
+              bytes,
+              length: value.length,
+              entity: () => stored ?? storedEntity(collection, value, trust),
+              kind,
+            };
+        }
+      };
+    const { tooLarge, ...page } = entityPage(
+      { active: rows(1), inactive: rows(0) },
+      before,
+      limit,
+      maxBytes,
+    );
+    return tooLarge.length ? { ...page, tooLarge } : page;
+  }
 }

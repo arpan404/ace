@@ -6,6 +6,7 @@ import { agentName, rootRunning } from "./agents.ts";
 import {
   askingLabel,
   describeLive,
+  liveStatusSince,
   waitingOnSubagentsLabel,
   treeWorking,
   type LiveFact,
@@ -282,15 +283,20 @@ export function readTurnActivity(
             ? "Stopping…"
             : waitingOnSubagents
               ? waitingOnSubagentsLabel(subagents)
-              : "Working",
+              : rootActivityLabel(status),
           tone: "working" as const,
           waitingOnSubagents: waitingOnSubagents && !options.stopping ? true : undefined,
-          elapsedFrom:
-            from === undefined
-              ? undefined
-              : from +
-                (clock?.idle ?? stretch.idle) +
-                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+          // The daemon's stamp for the status shown, as the sidebar row reads it; the turn's own
+          // clock only stands in when the daemon hasn't stamped one. A compaction counts from
+          // when it began, never the Working stretch it interrupted: no stamp, no time.
+          elapsedFrom: compacting(status, waitingOnSubagents)
+            ? reader.thread?.live?.compactingSince
+            : (liveStatusSince(reader.thread?.live, waitingOnSubagents) ??
+              (from === undefined
+                ? undefined
+                : from +
+                  (clock?.idle ?? stretch.idle) +
+                  ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from))),
           // A root held while its tree works names the hold as its step: "Rate limited · …".
           current:
             (root === "held" && activity ? heldText(activity) : undefined) ??
@@ -383,6 +389,16 @@ function rootWaitsOnSubagents(status: AgentStatus | undefined, subagents: number
 /** A held root's line as its tree's step: the hold and the command it names. */
 function heldText(activity: TurnActivity): string {
   return activity.code ? `${activity.label} ${activity.code}` : activity.label;
+}
+
+/** The root itself compacts, and the line says so rather than waiting on its subagents. */
+function compacting(status: AgentStatus | undefined, waitingOnSubagents: boolean): boolean {
+  return !waitingOnSubagents && status?.state === "working" && status.activity === "compacting";
+}
+
+/** "Compacting context" while the root itself compacts; "Working" for any other work. */
+function rootActivityLabel(status: AgentStatus | undefined): string {
+  return (status?.state === "working" && activityLabels[status.activity]) || "Working";
 }
 
 /** Where the root stands under its live line, for the shared `treeWorking` rule. */

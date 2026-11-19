@@ -13,4 +13,6 @@ export interface SessionRuntime {
   spawn: typeof spawnSupervised;
   now(): number;
   schedule?(delay: number, run: () => void): () => void;
+  /** Host platform; tests inject "win32" to cover the Windows stop path. */
+  platform?: NodeJS.Platform;
 }

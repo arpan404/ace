@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { matchesChord } from "./hotkeys.ts";
 import {
   bindingsFor,
@@ -6,6 +6,7 @@ import {
   normalizeKeys,
   recordChord,
   resolveKeymap,
+  systemKeys,
   type KeyboardEnv,
 } from "./keybindings.ts";
 import { keymapIds, parseChord, type KeymapId } from "./keymap.ts";
@@ -25,6 +26,8 @@ const sharing: [KeymapId, KeymapId, string][] = [
   ["findInThread", "findInTerminal", "the terminal takes ⌘F only while it has focus"],
   ["fullView", "findInTerminal", "off Apple the terminal takes Ctrl+Shift+F while focused"],
   ["panel.closeTab", "files.delete", "a tab and a file in the tree never have focus together"],
+  ["fullView", "files.search", "a Files tab takes ⌘⇧F only while focus is inside it"],
+  ["findInTerminal", "files.search", "a terminal and a Files tab never have focus together"],
   ["files.move", "devices", "off Apple the file tree takes Ctrl+Shift+M only on a focused file"],
   [
     "followUpOther",
@@ -58,6 +61,51 @@ test.each(platforms)(
 );
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
+
+test.each(platforms)("no shortcut defaults to keys the system or desktop keeps (%s)", (_, env) => {
+  const resolved = resolveKeymap({}, env);
+  const reserved = new Set(systemKeys(env).map((keys) => normalizeKeys(keys, env)));
+  const taken = keymapIds.flatMap((id) =>
+    bindingsFor(id, resolved, env)
+      .filter((keys) => reserved.has(normalizeKeys(keys, env)))
+      .map((keys) => `${id}: ${keys}`),
+  );
+  expect(taken).toEqual([]);
+});
+
+test("off Apple, AltGr typing a character never fires a Ctrl+Alt shortcut", () => {
+  const ctrlAlt = parseChord("alt+mod+a");
+  // Polish ą: AltGr+A, which the browser reports as Ctrl+Alt with AltGraph.
+  const polish = key({
+    key: "ą",
+    code: "KeyA",
+    ctrlKey: true,
+    altKey: true,
+    modifierAltGraph: true,
+  });
+  expect(matchesChord(polish, ctrlAlt, false)).toBe(false);
+  // German @ is AltGr+Q; a browser that doesn't flag AltGraph still shows the typed symbol.
+  const german = key({ key: "@", code: "KeyQ", ctrlKey: true, altKey: true });
+  expect(matchesChord(german, parseChord("alt+mod+q"), false)).toBe(false);
+  // Ctrl+Alt+A on a US layout is the shortcut.
+  const us = key({ key: "a", code: "KeyA", ctrlKey: true, altKey: true });
+  expect(matchesChord(us, ctrlAlt, false)).toBe(true);
+});
+
+test("a letter shortcut follows the layout's letter, and the physical key where it types none", () => {
+  const undo = parseChord("mod+z");
+  // AZERTY: Z sits where QWERTY has W, and W where QWERTY has Z.
+  expect(matchesChord(key({ key: "z", code: "KeyW", metaKey: true }), undo, true)).toBe(true);
+  expect(matchesChord(key({ key: "w", code: "KeyZ", metaKey: true }), undo, true)).toBe(false);
+  // A Cyrillic layout types я on the Z key: the key itself counts.
+  expect(matchesChord(key({ key: "я", code: "KeyZ", ctrlKey: true }), undo, false)).toBe(true);
+  expect(
+    recordChord(
+      { key: "z", code: "KeyW", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false },
+      true,
+    ),
+  ).toEqual({ kind: "chord", keys: "mod+z" });
+});
 
 test("on a Mac ⌃⇧B is the Browser and ⇧⌘B the side panel; elsewhere Ctrl+Shift+B is only the Browser", () => {
   const ctrlShiftB = key({ key: "B", code: "KeyB", ctrlKey: true, shiftKey: true });
@@ -128,3 +176,25 @@ test("rebindings of unknown or fixed shortcuts are ignored", () => {
   expect(resolved.reorderQueued).toBe("alt+arrowup");
   expect(resolved.palette).toBe("shift+mod+y");
 });
+
+test.runIf(process.platform === "win32")(
+  "in a Windows app or browser, labels put Ctrl first, then Shift, then Alt",
+  async () => {
+    vi.resetModules();
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron" });
+    try {
+      const windows = await import("./keymap.ts");
+      expect(windows.formatKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+      expect(windows.formatKeys("alt+shift+mod+r")).toBe("Ctrl+Shift+Alt+R");
+      expect(windows.formatKeys("mod++")).toBe("Ctrl++");
+      expect(windows.formatKeys("g h")).toBe("G H");
+      expect(windows.formatChordParts("shift+mod+k")).toEqual(["Ctrl", "Shift", "K"]);
+      expect(windows.describeKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+      // Asked for Apple glyphs, the order stays Apple's.
+      expect(windows.formatKeys("shift+mod+n", true)).toBe("⇧⌘N");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  },
+);

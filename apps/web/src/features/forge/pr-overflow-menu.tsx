@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { can, forgeDisplayName } from "@ace/ui-core";
+import { useCallback, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useSidebarAll } from "@ace/client-react";
-import { lifecycleLabels, mergeMethods, type MergeMethod } from "@ace/ui-core";
+import { useSidebarAll, useSidebarIndex } from "@ace/client-react";
+import type { SidebarReader } from "@ace/client";
+import type { ThreadListEntry } from "@ace/protocol";
+import { lifecycleLabels } from "@ace/ui-core";
 import { prUrl } from "@ace/forge/pr-reference";
 import {
   ArrowClockwiseIcon,
@@ -26,15 +29,12 @@ import {
   TimerIcon,
   UserPlusIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import {
   Menu,
   MenuContent,
   MenuGroup,
   MenuItem,
-  MenuLabel,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -52,19 +52,24 @@ const icon = (Glyph: typeof LinkIcon) => <Glyph aria-hidden size={16} />;
 
 /** The tasks of this project, for linking the PR or checking it out in one. */
 function useProjectTasks(workspaceId: string) {
-  return (
-    useSidebarAll((reader) =>
-      reader.ids.flatMap((id) => {
-        const thread = reader.thread(id);
-        return thread?.workspaceId === workspaceId ? [{ id, title: thread.title }] : [];
-      }),
-    ) ?? []
+  // Kept from the changed entries alone, and only a task's id or title changing counts.
+  const pick = useCallback(
+    (entry: ThreadListEntry) =>
+      entry.workspaceId === workspaceId ? { id: entry.id, title: entry.title } : undefined,
+    [workspaceId],
   );
+  return useSidebarIndex(pick, sameTask) ?? noTasks;
 }
+const sameTask = (a: ProjectTask, b: ProjectTask) => a.id === b.id && a.title === b.title;
+interface ProjectTask {
+  id: string;
+  title: string;
+}
+const noTasks: readonly ProjectTask[] = [];
 
 /**
  * Everything the PR panel can do besides its primary control, in five groups: tasks and
- * refresh, state changes, the merge method, links, and the destructive actions at the bottom.
+ * refresh, state changes, links, and the destructive actions at the bottom.
  */
 export function PrOverflowMenu(props: {
   actions: PrActions;
@@ -92,7 +97,11 @@ export function PrOverflowMenu(props: {
   const related = detail.relatedThreads;
   const hostId = props.hostThreadId;
   // The panel's own task, when it is one this device knows.
-  const host = useSidebarAll((reader) => (hostId && reader.thread(hostId) ? hostId : undefined));
+  const readHost = useCallback(
+    (reader: SidebarReader) => (hostId && reader.thread(hostId) ? hostId : undefined),
+    [hostId],
+  );
+  const host = useSidebarAll(readHost);
   const hostLinked = host !== undefined && related.some((t) => t.id === host);
   const unlinked = tasks.filter((task) => !related.some((t) => t.id === task.id));
   const writeTask = related.find((t) => t.id === actions.threadId);
@@ -118,6 +127,7 @@ export function PrOverflowMenu(props: {
     kind: "ready" | "draft" | "reopen" | "update.merge" | "update.rebase",
     glyph: typeof LinkIcon,
   ) =>
+    can(detail, "reviews.edit") &&
     lifecycle.can(kind) && (
       <MenuItem
         icon={icon(glyph)}
@@ -240,7 +250,7 @@ export function PrOverflowMenu(props: {
               </MenuSub>
             )
           )}
-          {status.state === "open" && (
+          {can(detail, "reviews.reviewers.request") && status.state === "open" && (
             <MenuItem
               icon={icon(UserPlusIcon)}
               disabled={writes.fenced || context.disabled}
@@ -286,72 +296,64 @@ export function PrOverflowMenu(props: {
           )}
           {props.extensions?.overflow?.(context)}
         </MenuGroup>
-        {open && (
-          <>
-            <MenuSeparator />
-            <MenuGroup>
-              {lifecycleItem("ready", EyeIcon)}
-              {lifecycleItem("draft", EyeIcon)}
-              {actions.primary.kind !== "merge" && status.state === "open" && (
-                <MenuItem
-                  icon={icon(GitMergeIcon)}
-                  disabled={actions.mergeBlocked !== undefined}
-                  reason={actions.mergeBlocked}
-                  onClick={() => void actions.merge()}
-                >
-                  Merge now
-                </MenuItem>
-              )}
-              {mergeState.state?.autoMerge ? (
-                <MenuItem
-                  icon={icon(TimerIcon)}
-                  disabled={mergeState.blocked !== undefined || !mergeState.state.canDisable}
-                  reason={mergeState.blocked}
-                  onClick={() => void mergeState.run("disable", actions.method)}
-                >
-                  Disable auto-merge
-                </MenuItem>
-              ) : (
-                status.state === "open" && (
+        {open &&
+          (can(detail, "reviews.merge") ||
+            can(detail, "reviews.edit") ||
+            can(detail, "reviews.autoMerge")) && (
+            <>
+              <MenuSeparator />
+              <MenuGroup>
+                {lifecycleItem("ready", EyeIcon)}
+                {lifecycleItem("draft", EyeIcon)}
+                {can(detail, "reviews.merge") &&
+                  actions.primary.kind !== "merge" &&
+                  status.state === "open" && (
+                    <MenuItem
+                      icon={icon(GitMergeIcon)}
+                      disabled={actions.mergeBlocked !== undefined}
+                      reason={actions.mergeBlocked}
+                      onClick={() => void actions.merge()}
+                    >
+                      Merge now
+                    </MenuItem>
+                  )}
+                {can(detail, "reviews.autoMerge") &&
+                  (mergeState.state?.autoMerge ? (
+                    <MenuItem
+                      icon={icon(TimerIcon)}
+                      disabled={mergeState.blocked !== undefined || !mergeState.state.canDisable}
+                      reason={mergeState.blocked}
+                      onClick={() => void mergeState.run("disable", actions.method)}
+                    >
+                      Disable auto-merge
+                    </MenuItem>
+                  ) : (
+                    status.state === "open" && (
+                      <MenuItem
+                        icon={icon(TimerIcon)}
+                        disabled={actions.autoMergeBlocked !== undefined}
+                        reason={actions.autoMergeBlocked}
+                        onClick={() => void actions.enableAutoMerge()}
+                      >
+                        Enable auto-merge
+                      </MenuItem>
+                    )
+                  ))}
+                {can(detail, "reviews.autoMerge") && mergeState.state?.queue && (
                   <MenuItem
-                    icon={icon(TimerIcon)}
-                    disabled={actions.autoMergeBlocked !== undefined}
-                    reason={actions.autoMergeBlocked}
-                    onClick={() => void actions.enableAutoMerge()}
+                    icon={icon(QueueIcon)}
+                    disabled={mergeState.blocked !== undefined || !mergeState.state.canDequeue}
+                    reason={mergeState.blocked}
+                    onClick={() => void mergeState.run("dequeue", actions.method)}
                   >
-                    Enable auto-merge
+                    Leave merge queue
                   </MenuItem>
-                )
-              )}
-              {mergeState.state?.queue && (
-                <MenuItem
-                  icon={icon(QueueIcon)}
-                  disabled={mergeState.blocked !== undefined || !mergeState.state.canDequeue}
-                  reason={mergeState.blocked}
-                  onClick={() => void mergeState.run("dequeue", actions.method)}
-                >
-                  Leave merge queue
-                </MenuItem>
-              )}
-              {lifecycleItem("update.merge", GitBranchIcon)}
-              {lifecycleItem("update.rebase", GitBranchIcon)}
-            </MenuGroup>
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuLabel>Merge method</MenuLabel>
-              <MenuRadioGroup
-                value={actions.method}
-                onValueChange={(value: MergeMethod) => actions.setMethod(value)}
-              >
-                {mergeMethods.map((choice) => (
-                  <MenuRadioItem key={choice.method} value={choice.method} closeOnClick={false}>
-                    {choice.label}
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
-          </>
-        )}
+                )}
+                {lifecycleItem("update.merge", GitBranchIcon)}
+                {lifecycleItem("update.rebase", GitBranchIcon)}
+              </MenuGroup>
+            </>
+          )}
         <MenuSeparator />
         <MenuGroup>
           <MenuItem
@@ -360,11 +362,10 @@ export function PrOverflowMenu(props: {
             resolve={false}
             onClick={() => openOnGitHub(status.url)}
           >
-            Open on GitHub
+            Open on {forgeDisplayName(status.ref.repository.forge)}
           </MenuItem>
           <MenuItem
             icon={icon(CopyIcon)}
-            keys="c"
             resolve={false}
             onClick={() =>
               copy(

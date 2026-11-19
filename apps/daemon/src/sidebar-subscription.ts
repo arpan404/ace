@@ -6,99 +6,242 @@ import type {
   SubscriptionScope,
   ThreadListCursor,
   ThreadListEntry,
+  ThreadListWindow,
+  ThreadReadCursor,
 } from "@ace/protocol";
+import { noAttention, withSignal, type PlaceAttentions } from "@ace/ui-core/thread-place";
+import { PlacedEntries, type Placed, type SidebarPlacement } from "./sidebar-placement.ts";
 import type { SubscriptionStore } from "./subscription.ts";
 
 export interface SidebarSubscription {
   stop(): void;
   page(before: ThreadListCursor, requestId: string): void;
 }
+
+/**
+ * The subscribing device's read cursors: each row is sent with its own, and again when the
+ * device marks it read, so a list needs no read-state request per row.
+ */
+export interface DeviceReads {
+  read(threadId: ThreadId): ThreadReadCursor;
+  /** Calls `moved` after the device's cursor for a thread may have moved, once committed. */
+  listen(moved: (threadId: ThreadId) => void): () => void;
+}
+
+type WindowOptions = NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>;
+
+const samePlace = (a: Placed | undefined, b: Placed) =>
+  JSON.stringify(a?.entry.place) === JSON.stringify(b.entry.place) &&
+  JSON.stringify(a?.signal) === JSON.stringify(b.signal);
+
+/**
+ * A windowed thread list (ADR 0107): every live thread and the newest settled page, each sent
+ * with the place the daemon gives it in the Threads panel (`SidebarPlacement`). A change sends
+ * only the threads it touched, each placed anew, so a thread that moves tabs costs one entry.
+ * A list that resumes from a revision of this database and epoch gets only what changed since,
+ * and the ids it keeps; any other starts from the whole window. The window carries the rail's
+ * dots for what it places live (`threadSignal`), kept as running totals of the threads sent.
+ */
 export function sidebarSubscription(
   store: SubscriptionStore,
   id: string,
-  options: NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>,
+  options: WindowOptions,
   send: (message: ServerMessage) => void,
+  placement: SidebarPlacement,
+  reads?: DeviceReads,
 ): SidebarSubscription {
+  const { resume, ...scope } = options;
+  /** A row as this device is sent it: with its read cursor when the daemon has the device's. */
+  const stamp = (entry: ThreadListEntry): ThreadListEntry =>
+    reads ? { ...entry, readState: reads.read(entry.id) } : entry;
+  /** The daemon's rows as last read, keyed by id: what a live read reuses. */
   const selected = new Map<string, ThreadListEntry>();
+  /** What the client was last sent for each row, with its place and part in the dots. */
+  const sent = new Map<string, Placed>();
+  let attention: PlaceAttentions = noAttention;
+  /** Send `placed` for a row: its old part in the dots goes, its new one comes. */
+  const track = (threadId: string, placed: Placed | undefined) => {
+    attention = withSignal(attention, sent.get(threadId)?.signal, -1);
+    if (!placed) {
+      sent.delete(threadId);
+      return;
+    }
+    attention = withSignal(attention, placed.signal, 1);
+    sent.set(threadId, placed);
+  };
+  const places = new PlacedEntries(placement);
   let stopped = false;
   let initializing = true;
   let queued: Event[] = [];
   let before: ThreadListCursor | null = null;
-  let limit = options.limit;
+  let limit = scope.limit;
+  let window: ThreadListWindow | undefined;
+  const stamped = (current: ThreadListWindow): ThreadListWindow => ({
+    ...current,
+    epoch: placement.epoch,
+    attention,
+  });
   const deliver = (events: Event[]) => {
     if (stopped || !events.some(isSidebarEvent)) return;
     const changed = new Set(events.filter(isSidebarEvent).map((event) => event.threadId));
-    const current = store.sidebarPage({ ...options, limit }, undefined, {
+    const current = store.sidebarPage({ ...scope, limit }, undefined, {
       entries: selected,
       changed,
     });
     const present = new Set<string>(current.threads.map((entry) => entry.id));
     const threads: Record<string, ThreadListEntry> = {};
-    const removed: import("@ace/protocol").ThreadId[] = [];
+    const removed: ThreadId[] = [];
     for (const threadId of selected.keys())
       if (!present.has(threadId)) {
         selected.delete(threadId);
+        track(threadId, undefined);
         removed.push(ThreadId.parse(threadId));
       }
     for (const entry of current.threads) {
-      if (changed.has(entry.id) || selected.get(entry.id) !== entry)
+      if (changed.has(entry.id) || selected.get(entry.id) !== entry) {
+        const placed = places.placed(entry);
         Object.defineProperty(threads, entry.id, {
-          value: entry,
+          value: stamp(placed.entry),
           enumerable: true,
           configurable: true,
         });
+        track(entry.id, placed);
+      }
       selected.set(entry.id, entry);
     }
     before = current.window.before;
+    window = stamped(current.window);
     send({
       type: "threads.patch",
       subscriptionId: id,
       seq: store.headSeq(),
       threads,
       removed,
-      window: current.window,
+      window,
+    });
+  };
+  /** What places threads changed (the sort, the seen baseline): send only the threads that moved. */
+  const replace = () => {
+    if (stopped || initializing || !window) return;
+    const threads: Record<string, ThreadListEntry> = {};
+    for (const [threadId, entry] of selected) {
+      const placed = places.placed(entry);
+      if (samePlace(sent.get(threadId), placed)) continue;
+      Object.defineProperty(threads, threadId, {
+        value: stamp(placed.entry),
+        enumerable: true,
+        configurable: true,
+      });
+      track(threadId, placed);
+    }
+    window = stamped(window);
+    send({
+      type: "threads.patch",
+      subscriptionId: id,
+      seq: store.headSeq(),
+      threads,
+      removed: [],
+      window,
     });
   };
   const stopListening = store.subscribe((events) => {
     if (initializing) queued.push(...events);
     else deliver(events);
   });
+  const stopPlacing = placement.subscribe(replace);
+  /** This device marked a row read: send that row again with its cursor. */
+  const reread = (threadId: ThreadId) => {
+    const entry = selected.get(threadId);
+    if (stopped || initializing || !window || !entry) return;
+    send({
+      type: "threads.patch",
+      subscriptionId: id,
+      seq: store.headSeq(),
+      threads: { [threadId]: stamp(places.placed(entry).entry) },
+      removed: [],
+      window,
+    });
+  };
+  const stopReading = reads?.listen(reread);
   try {
-    const initial = store.sidebarPage(options);
-    for (const entry of initial.threads) selected.set(entry.id, entry);
+    const initial = store.sidebarPage(scope);
     before = initial.window.before;
-
-    const view = createThreadListView(initial.threads);
+    const revision = initial.window.revision;
+    // Resumable only from this database and epoch, and from a revision this one has reached.
+    const resumable =
+      resume !== undefined &&
+      revision !== undefined &&
+      resume.epoch === placement.epoch &&
+      resume.revision <= revision;
+    const keep: ThreadId[] = [];
+    const fresh: ThreadListEntry[] = [];
+    for (const entry of initial.threads) {
+      selected.set(entry.id, entry);
+      const placed = places.placed(entry);
+      track(entry.id, placed);
+      const read = store.sidebarRowRevision?.(entry);
+      if (resumable && read !== undefined && read <= resume.revision)
+        keep.push(ThreadId.parse(entry.id));
+      else fresh.push(stamp(placed.entry));
+    }
+    window = stamped(initial.window);
+    const view = createThreadListView(fresh);
     view.seq = store.headSeq();
-    view.window = initial.window;
+    view.window = window;
+    if (resumable) view.keep = keep;
+    // A kept row's cursor may have moved without the row changing: each is sent on its own.
+    if (resumable && reads) {
+      const kept: Record<string, ThreadReadCursor> = {};
+      for (const threadId of keep) {
+        const cursor = reads.read(threadId);
+        if (cursor.updatedAt !== null) kept[threadId] = cursor;
+      }
+      view.reads = kept;
+    }
     send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
     initializing = false;
     deliver(queued);
     queued = [];
   } catch (error) {
     stopListening();
+    stopPlacing();
+    stopReading?.();
     throw error;
   }
   return {
     stop() {
       stopped = true;
       stopListening();
+      stopPlacing();
+      stopReading?.();
     },
     page(cursor, requestId) {
       if (stopped || !before || cursor.at !== before.at || cursor.id !== before.id)
         throw new Error("Stale page cursor");
-      const next = store.sidebarPage(options, cursor);
-      for (const entry of next.threads) selected.set(entry.id, entry);
+      const next = store.sidebarPage(scope, cursor);
+      const threads: Record<string, ThreadListEntry> = {};
+      for (const entry of next.threads) {
+        selected.set(entry.id, entry);
+        const placed = places.placed(entry);
+        track(entry.id, placed);
+        Object.defineProperty(threads, entry.id, {
+          value: stamp(placed.entry),
+          enumerable: true,
+          configurable: true,
+        });
+      }
       limit += next.threads.length;
       before = next.window.before;
+      // A page keeps the list's revision: rows older than the window don't advance it.
+      window = stamped({ ...next.window, revision: window?.revision ?? next.window.revision });
       send({
         type: "threads.patch",
         subscriptionId: id,
         requestId,
         seq: store.headSeq(),
-        threads: Object.fromEntries(next.threads.map((entry) => [entry.id, entry])),
+        threads,
         removed: [],
-        window: next.window,
+        window,
       });
     },
   };

@@ -4,43 +4,43 @@
   "additionalProperties": false,
   "properties": {
     "effort": {
-      "description": "Reasoning effort, with model.",
+      "description": "With model.",
       "maxLength": 64,
       "minLength": 1,
       "type": "string"
     },
     "model": {
-      "description": "Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.",
+      "description": "Same provider and account: id from models, or a name (\"opus 5.5\").",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "runId": {
-      "description": "Fork after this finished run. Default: the latest finished one.",
+      "description": "Fork after this finished run instead.",
       "maxLength": 128,
       "minLength": 1,
       "type": "string"
     },
     "text": {
-      "description": "The fork's first message: the other approach, standing on its own.",
+      "description": "The other approach, standing on its own.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "threadId": {
-      "description": "The thread to fork. Default: this thread.",
+      "description": "Default: this thread.",
       "minLength": 1,
       "type": "string"
     },
     "title": {
-      "description": "Its sidebar title.",
+      "description": "Sidebar title.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

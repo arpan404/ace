@@ -1,4 +1,12 @@
-import type { Command, DeviceId, DeviceScope, ServerMessage } from "@ace/protocol";
+import { hostAnswerRefusal } from "./answer-gate.ts";
+import {
+  ThreadId,
+  type Command,
+  type DeviceId,
+  type DeviceScope,
+  type ServerMessage,
+} from "@ace/protocol";
+import type { Store } from "./store.ts";
 import type { MaintenanceGate } from "@ace/service";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { commandLane, settledWithin, type CommandLanes } from "./command-lanes.ts";
@@ -21,6 +29,11 @@ export interface CommandAdmission {
   flights: { count: number };
   open(): boolean;
   authorize(scope: DeviceScope): boolean;
+  /**
+   * The socket's credential is the person's (`answer-gate.ts`): not the host token, and not an
+   * account device without the person's standing (ADR 0190).
+   */
+  personProven(): boolean;
   send(message: ServerMessage): void;
   delay(run: () => void, milliseconds: number): () => void;
 }
@@ -87,6 +100,12 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     refuseBeforeAccept("device_mismatch", "Command device must match hello");
     return;
   }
+  // A Spade bot's hidden session (ADR 0133) is Spade's alone: no client command touches it,
+  // whichever service would have handled it.
+  if (spadeBotTarget(command, options.store)) {
+    refuseBeforeAccept("host_thread", "Spade runs this bot's turns; talk to the bot in Spade.");
+    return;
+  }
   if (!maintenance.admitCommand(command)) {
     refuseBeforeAccept(
       "maintenance",
@@ -99,6 +118,19 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     refuseBeforeAccept("not_implemented", "Command is not supported");
     return;
   }
+  // A person-only market request answered over the host token needs a fresh ace sign-in.
+  const market = options.marketAgent;
+  const held = market
+    ? await hostAnswerRefusal(command, {
+        unproven: !admission.personProven(),
+        personOnlyMarket: (id) => market.requests.isPending(id),
+      })
+    : undefined;
+  if (held) {
+    refuseBeforeAccept(held.code, held.message);
+    return;
+  }
+  if (!admission.open()) return;
   // Accepted commands run on their thread's lane, not on this socket's input queue:
   // a command still waiting after the grace keeps running while the socket goes on.
   const task = lanes.run(commandLane(command, device), device, command.id, async () => {
@@ -110,8 +142,18 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     }
   });
   admission.flights.count++;
-  void task.finally(() => admission.flights.count--);
+  // lanes.run never rejects: the accept above reports its own failure.
+  void task.finally(() => admission.flights.count--).catch(() => {});
   // Bounded work per socket: past the cap the queue waits, so TCP backpressure applies.
   if (admission.flights.count > commandFlights) await task;
   else await settledWithin(task, commandGraceMs, admission.delay);
+}
+
+/** Whether a client's command names a Spade bot's hidden session as its thread or its source. */
+function spadeBotTarget(command: Command, store: Pick<Store, "getThread">): boolean {
+  const payload: Record<string, unknown> = command.payload;
+  return ["threadId", "handoffFrom", "sourceThreadId"].some((key) => {
+    const id = ThreadId.safeParse(payload[key]);
+    return id.success && store.getThread(id.data)?.host === "spade-bot";
+  });
 }

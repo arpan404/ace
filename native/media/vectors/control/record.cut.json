@@ -1,0 +1,8 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "record.cut",
+    "recording": "source-1",
+    "reason": "size"
+  }
+}

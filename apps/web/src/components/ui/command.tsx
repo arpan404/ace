@@ -1,11 +1,10 @@
 import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
 import { FloatingContents } from "./floating-material.tsx";
-import { Kbd } from "./kbd.tsx";
 import { layers, menuLabel, overlaySurface } from "./menu-styles.ts";
 
 /**
@@ -36,6 +35,8 @@ function CommandDialog({
         <DialogOverlay className={overlayClassName} style={overlayStyle} />
         <Dialog.Popup
           aria-label={title}
+          data-part="command-palette"
+          data-state="open"
           className={cn(
             layers.modal,
             overlaySurface,
@@ -92,9 +93,9 @@ function Command<Item>(props: {
 
 /**
  * The sheet's top row: a magnifier, the field (`commandField`), anything beside it (a spinner)
- * and the esc chip, which is the close control (so Tab lands on something visible). On touch,
- * where there's no Esc key, a "Close" button takes the chip's place. The field is always focused
- * while the sheet is open, so the caret is its focus mark.
+ * and Close, a quiet word that always closes (so Tab lands on something visible), on touch too.
+ * It shows no key: what Esc does here (clear the field first, or close) is the key hints' to say. The field is
+ * always focused while the sheet is open, so the caret is its focus mark.
  */
 const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
@@ -105,20 +106,20 @@ function CommandSearchRow(props: {
   leading?: React.ReactNode;
 }) {
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
+    <div
+      data-part="search-field"
+      className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4"
+    >
       {props.leading ?? (
         <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
       )}
       {props.children}
       <Dialog.Close
         aria-label={props.closeLabel}
-        className="focus-ring relative grid shrink-0 place-items-center rounded-sm text-sm font-medium text-muted-foreground touch-hit touch-hit-lg"
+        aria-keyshortcuts="Escape"
+        className="focus-ring relative shrink-0 rounded-sm px-1 text-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground touch-hit touch-hit-lg"
       >
-        {/* The chip hides itself on touch, where "Close" shows instead. */}
-        <Kbd>esc</Kbd>
-        <span aria-hidden className="hidden px-1 pointer-coarse:inline">
-          Close
-        </span>
+        Close
       </Dialog.Close>
     </div>
   );
@@ -134,6 +135,8 @@ function CommandInput({
     <CommandSearchRow closeLabel={closeLabel}>
       <Autocomplete.Input
         data-slot="command-input"
+        data-part="input"
+        data-variant="search"
         className={cn(commandField, className)}
         {...props}
       />
@@ -179,6 +182,8 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
   return (
     <Autocomplete.Item
       data-slot="command-item"
+      data-part="menu-item"
+      data-variant="command"
       className={cn(
         "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui text-foreground outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         className,

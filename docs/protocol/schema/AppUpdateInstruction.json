@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppUpdateInstruction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "action": {
+      "anyOf": [
+        {
+          "enum": [
+            "download",
+            "install"
+          ],
+          "type": "string"
+        },
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "idle",
+            "now"
+          ],
+          "type": "string"
+        },
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "version": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "action",
+    "mode",
+    "version"
+  ],
+  "type": "object"
+}

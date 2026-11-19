@@ -1,11 +1,18 @@
 import { RepositoryPublishInput } from "./hosted-repositories.ts";
 import { z } from "zod";
+import { ProjectRepositoriesSetCommand } from "./project-repositories.ts";
 import { WorkspaceId } from "./ids.ts";
 import { BadgeColor } from "./badge-color.ts";
 import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
 import { BrowserProfileScope } from "./browser-backend.ts";
 import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
+import {
+  ProjectIdentity,
+  ProjectIdentityCommands,
+  ProjectMarker,
+  ProjectRemoteKey,
+} from "./project-identity.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -137,6 +144,19 @@ export const Project = z.object({
   badge: ProjectBadgeStyle.optional(),
   defaults: ProjectDefaults.optional(),
   notes: z.array(ProjectNote).max(maxProjectNotes).optional(),
+  /**
+   * The logical project this registration belongs to (`project-identity.ts`). Absent: a
+   * registration of its own, which clients key as `hostId/workspaceId`, or an older daemon.
+   */
+  identity: ProjectIdentity.optional(),
+  /**
+   * Its remotes and folder inside the repository, once its daemon has read them (ADR 0189):
+   * clients group registrations with the same key. Absent: not read yet, not a checkout with
+   * a remote, unlinked by the person, or an older daemon.
+   */
+  remoteKey: ProjectRemoteKey.optional(),
+  /** When work last started here or it was last added (ms); a machine's default checkout. */
+  openedAt: z.number().nonnegative().optional(),
 });
 export type Project = z.infer<typeof Project>;
 export const ProjectInspection = z.object({
@@ -146,6 +166,8 @@ export const ProjectInspection = z.object({
   /** Registration can succeed while uncertain Git cleanup still fences execution. */
   gitUnavailable: z.literal("git_quarantined").optional(),
   suggestedRepoRoot: path.optional(),
+  /** The folder's project marker (ADR 0181): a hint to confirm, never a link on its own. */
+  marker: ProjectMarker.optional(),
 });
 export const ProjectCommands = [
   z.object({
@@ -173,6 +195,16 @@ export const ProjectCommands = [
     type: z.literal("workspace.root.add"),
     path,
     create: z.literal(true).optional(),
+  }),
+  /**
+   * Stop allowing one project root, leaving every other root as it is now. A folder that isn't
+   * an allowed root changes nothing; the last root is refused with `last_root`, since no roots
+   * would allow home again. Projects inside it stay registered, hidden until it is allowed
+   * again; nothing is deleted.
+   */
+  z.object({
+    type: z.literal("workspace.root.remove"),
+    path,
   }),
   z.object({
     type: z.literal("workspace.create"),
@@ -203,6 +235,8 @@ export const ProjectCommands = [
     notes: z.array(ProjectNoteEdit).max(maxProjectNotes).optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
+  ProjectRepositoriesSetCommand,
+  ...ProjectIdentityCommands,
   /**
    * "Clear stale lock" from New thread, after the person confirms: retire Git mutation leases
    * fencing the project's repository whose owning daemon is definitively gone, then retry the
@@ -214,9 +248,13 @@ export const ProjectCommands = [
    * a hidden `chat` project. The result's `workspace` is where the chat's `thread.create` goes.
    */
   z.object({ type: z.literal("workspace.chat.create") }),
+  /**
+   * Remove a project: ace deletes its threads and stops listing it; nothing on disk is touched.
+   * Refused with `workspace_threads_running` while a thread still runs, unless `stopRunning`.
+   */
   z.object({
     type: z.literal("workspace.remove"),
     workspaceId: WorkspaceId,
-    archiveThreads: z.boolean().default(false),
+    stopRunning: z.boolean().default(false),
   }),
 ] as const;

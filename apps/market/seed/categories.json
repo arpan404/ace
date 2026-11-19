@@ -1,0 +1,17 @@
+{
+  "categories": [
+    { "id": "calm", "title": "Calm" },
+    { "id": "dark", "title": "Dark" },
+    { "id": "light", "title": "Light" },
+    { "id": "mail", "title": "Mail and messages" },
+    { "id": "writing", "title": "Writing" },
+    { "id": "research", "title": "Research" },
+    { "id": "engineering", "title": "Engineering" },
+    { "id": "meetings", "title": "Meetings" },
+    { "id": "planning", "title": "Planning" },
+    { "id": "money", "title": "Money" },
+    { "id": "learning", "title": "Learning" },
+    { "id": "health", "title": "Health" },
+    { "id": "travel", "title": "Travel" }
+  ]
+}

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-type Failure = "plain" | "disk-full" | "busy-rejection" | "plain-rejection";
+type Failure = "plain" | "disk-full" | "busy-rejection" | "plain-rejection" | "disk-full-rejection";
 async function crash(failure: Failure, exit: { code: number } = { code: 1 }) {
   const directory = await mkdtemp(join(tmpdir(), "ace-fatal-log-"));
   try {
@@ -53,8 +53,22 @@ test("an uncaught rejection from a busy store is logged and the daemon keeps run
   expect(records[1].data.message).toBe("Store is busy");
 });
 
-test("any other uncaught rejection is still fatal and logged", async () => {
-  const records = await crash("plain-rejection");
-  expect(records.map((record) => record.message)).toEqual(["buffered before crash", "Fatal error"]);
+test("an uncaught rejection from a full disk is logged and the daemon keeps running", async () => {
+  const records = await crash("disk-full-rejection", { code: 0 });
+  expect(records.map((record) => record.message)).toEqual([
+    "buffered before crash",
+    "Unhandled store failure; continuing",
+    "still running",
+  ]);
+  expect(records[1].data.message).toBe("database or disk is full");
+});
+
+test("any other uncaught rejection is logged and the daemon keeps running", async () => {
+  const records = await crash("plain-rejection", { code: 0 });
+  expect(records.map((record) => record.message)).toEqual([
+    "buffered before crash",
+    "Unhandled rejection; continuing",
+    "still running",
+  ]);
   expect(records[1].data.message).toBe("simulated daemon crash");
 });

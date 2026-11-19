@@ -7,6 +7,13 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { decodeFileFrame, CHUNK_SIZE } from "./index.ts";
 import { fixture, isolated } from "./test-support.ts";
+import { SafeRoot } from "@ace/workspace";
+import { localFilesIo } from "./local-io.ts";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
+import tar from "tar-stream";
+import { type Client } from "./test-support.ts";
 
 const run = promisify(execFile);
 const cleanup: (() => Promise<void>)[] = [];
@@ -186,7 +193,8 @@ it("reports a changed root directory without crashing while an archive waits for
   client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
   expect(await client.next()).toMatchObject({ code: "CONFLICT" });
 });
-it("streams interoperable PAX archives with long UTF-8 names and complete files beyond 8 GiB", async () => {
+// Sizes beyond 8 GiB are PAX header records: tar.test.ts.
+it("streams interoperable PAX archives with long UTF-8 names", async () => {
   const f = await setup();
   const client = await f.connect();
   const name = "界".repeat(70);
@@ -213,37 +221,172 @@ it("streams interoperable PAX archives with long UTF-8 names and complete files 
   await mkdir(extracted);
   await run("tar", ["-xzf", output, "-C", extracted]);
   expect(await readFile(join(extracted, name), "utf8")).toBe("unicode bytes");
-  const huge = await open(join(f.root, "huge"), "w");
-  await huge.truncate(9 * 1024 ** 3);
-  await huge.close();
-  const big = Preview.parse(
-    await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
-  );
-  expect(big.value.bytes).toBe(9 * 1024 ** 3 + Buffer.byteLength("unicode bytes"));
-  const transfer = Ready.parse(
-    await client.request({ op: "archive.download", previewId: big.value.previewId }),
-  );
-  const largeArchive = join(f.home, "large.tar.gz");
-  const largeOutput = await open(largeArchive, "w");
+});
+
+const windows = process.platform === "win32";
+/** Saves a whole archive download to `file`; returns its byte count. */
+async function windowsSave(client: Client, previewId: string, file: string): Promise<number> {
+  const ready = Ready.parse(await client.request({ op: "archive.download", previewId }));
+  const output = await open(file, "w");
   const digest = createHash("sha256");
   let offset = 0;
   try {
     for (;;) {
-      client.send({ type: "files.credit", channel: transfer.channel, credits: 1 });
-      const next = await client.next();
-      if (!Buffer.isBuffer(next)) {
-        expect(next).toMatchObject({ type: "files.end", offset, sha256: digest.digest("hex") });
-        break;
+      client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+      const message = await client.next();
+      if (!Buffer.isBuffer(message)) {
+        expect(message).toMatchObject({ type: "files.end", offset, sha256: digest.digest("hex") });
+        return offset;
       }
-      const frame = decodeFileFrame(next);
-      await largeOutput.writeFile(frame.bytes);
+      const frame = decodeFileFrame(message);
+      expect(frame.offset).toBe(offset);
+      await output.write(frame.bytes);
       digest.update(frame.bytes);
       offset += frame.bytes.length;
     }
   } finally {
-    await largeOutput.close();
+    await output.close();
   }
-  const listing = (await run("tar", ["-tvzf", largeArchive])).stdout;
-  expect(listing).toContain(String(9 * 1024 ** 3));
-  expect(listing).toContain("huge");
-}, 600_000);
+}
+/** Member names and sizes as an independent tar reader decodes them. */
+async function windowsMembers(file: string): Promise<Map<string, number>> {
+  const members = new Map<string, number>();
+  const extract = tar.extract();
+  extract.on("entry", (header, stream, next) => {
+    members.set(header.name, header.size ?? 0);
+    stream.on("end", next);
+    stream.resume();
+  });
+  await pipeline(createReadStream(file), createGunzip(), extract);
+  return members;
+}
+
+it.runIf(windows)(
+  "Windows: streams a folder archive Windows tar reads, with bounded RSS, leaving out ignored files and junctions",
+  async () => {
+    const f = await setup();
+    await run("git", ["init", "-q", f.root]);
+    await writeFile(join(f.root, ".gitignore"), "ignored/\n");
+    await mkdir(join(f.root, "ignored"));
+    await writeFile(join(f.root, "ignored", "secret"), "secret");
+    await mkdir(join(f.root, "nested"));
+    await writeFile(join(f.root, "nested", "text"), "archive text");
+    await symlink(f.home, join(f.root, "junction"), "junction");
+    const large = await open(join(f.root, "binary"), "w");
+    const block = randomBytes(CHUNK_SIZE);
+    const expected = createHash("sha256");
+    for (let i = 0; i < 3200; i++) {
+      await large.writeFile(block);
+      expected.update(block);
+    }
+    await large.close();
+    const server = await isolated(f.root, join(f.home, "isolated"));
+    cleanup.push(() => server.close());
+    const client = server.client;
+    const preview = Preview.parse(
+      await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+    );
+    expect(preview.value.bytes).toBe(
+      200 * 1024 * 1024 + Buffer.byteLength("archive text") + Buffer.byteLength("ignored/\n"),
+    );
+    client.send({ type: "test.metrics" });
+    const baseline = z.object({ peak: z.number() }).parse(await client.next()).peak;
+    await windowsSave(client, preview.value.previewId, join(f.home, "archive.tar.gz"));
+    client.send({ type: "test.metrics" });
+    const peak = z.object({ peak: z.number() }).parse(await client.next()).peak;
+    expect(peak - baseline).toBeLessThan(96 * 1024 * 1024);
+    // Windows tar prints CRLF lines; relative paths keep it from reading `D:` as a host.
+    const listing = (await run("tar", ["-tzf", "archive.tar.gz"], { cwd: f.home })).stdout
+      .trim()
+      .split(/\r?\n/);
+    expect(listing).toContain("binary");
+    expect(listing).toContain("nested/text");
+    expect(
+      listing.some(
+        (name) => name.includes("ignored") || name.startsWith(".git/") || name === "junction",
+      ),
+    ).toBe(false);
+    await mkdir(join(f.home, "extract"));
+    await run("tar", ["-xzf", "archive.tar.gz", "-C", "extract"], { cwd: f.home });
+    expect(await readFile(join(f.home, "extract", "nested", "text"), "utf8")).toBe("archive text");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(join(f.home, "extract", "binary")))
+      hash.update(z.instanceof(Buffer).parse(chunk));
+    expect(hash.digest("hex")).toBe(expected.digest("hex"));
+  },
+  120_000,
+);
+
+it.runIf(windows)(
+  "Windows: streams PAX archives with long UTF-8 names and complete files beyond 8 GiB",
+  async () => {
+    const f = await setup();
+    const client = await f.connect();
+    // Windows tar decodes names through the ANSI code page, so an independent reader checks them.
+    const name = "界".repeat(70);
+    await writeFile(join(f.root, name), "unicode bytes");
+    const small = Preview.parse(
+      await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+    );
+    const unicode = join(f.home, "unicode.tar.gz");
+    await windowsSave(client, small.value.previewId, unicode);
+    expect(await windowsMembers(unicode)).toEqual(new Map([[name, 13]]));
+    const huge = await open(join(f.root, "huge"), "w");
+    await huge.truncate(9 * 1024 ** 3);
+    await huge.close();
+    const big = Preview.parse(
+      await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+    );
+    expect(big.value.bytes).toBe(9 * 1024 ** 3 + Buffer.byteLength("unicode bytes"));
+    const largeArchive = join(f.home, "large.tar.gz");
+    await windowsSave(client, big.value.previewId, largeArchive);
+    expect(await windowsMembers(largeArchive)).toEqual(
+      new Map([
+        ["huge", 9 * 1024 ** 3],
+        [name, 13],
+      ]),
+    );
+  },
+  600_000,
+);
+
+it("refuses a file that changed while the folder's version looked unchanged", async () => {
+  // A folder digest is read once, at each end of the archive; a file that changes in between is
+  // caught by the version the preview recorded for it, before its header is written.
+  const io = localFilesIo((root) => SafeRoot.create(root));
+  let frozen: string | undefined;
+  const workspaceIo = {
+    ...io,
+    async describe(
+      root: string,
+      path: string,
+      options?: Parameters<typeof io.describe>[2],
+    ): ReturnType<typeof io.describe> {
+      const found = await io.describe(root, path, options);
+      if (path !== "" || found === null) return found;
+      frozen ??= found.version;
+      return { ...found, version: frozen };
+    },
+  };
+  const f = await fixture({ workspaceIo });
+  cleanup.push(() => f.close());
+  await writeFile(join(f.root, "a.md"), "before\n");
+  const preview = z.object({ previewId: z.string() }).parse(
+    await f.service.request("writer", {
+      op: "archive.preview",
+      path: "",
+      includeIgnored: false,
+    }),
+  );
+  await writeFile(join(f.root, "a.md"), "after\n");
+
+  const download = await f.service.download("writer", {
+    op: "archive.download",
+    previewId: preview.previewId,
+  });
+  const failure = (async () => {
+    // The archive fails before it can be read to the end, so the loop never finishes.
+    for await (const chunk of download.chunks) void chunk;
+  })();
+  await expect(failure).rejects.toMatchObject({ code: "CONFLICT" });
+});

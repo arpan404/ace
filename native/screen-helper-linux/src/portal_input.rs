@@ -137,11 +137,11 @@ impl Portal {
         } else {
             self.wake_pointer().await?;
         }
-        // Wheel notches, as the person's wheel turns: one per 40 points, as on X11. Smooth
+        // Wheel notches, as the person's wheel turns: one per 40 points. Smooth
         // axis motion alone doesn't reach GTK's scroll handling in GNOME.
         let path = self.path()?;
         for (axis, delta) in [(0u32, dy), (1u32, dx)] {
-            let steps = crate::x11_pointer::wheel_steps(delta) as i32;
+            let steps = crate::keysym::wheel_steps(delta) as i32;
             if steps > 0 {
                 let signed = if delta > 0. { steps } else { -steps };
                 self.call("NotifyPointerAxisDiscrete", (path, dict([]), axis, signed))

@@ -181,7 +181,8 @@ try {
   const result = BenchResult.parse({
     version: 2,
     platform: `${process.platform}-${process.arch}`,
-    node: process.version,
+    // The daemon's runtime, asked of the daemon itself rather than of this script's.
+    node: await inspector.runtime(),
     workload: {
       version: workloadVersion,
       options,

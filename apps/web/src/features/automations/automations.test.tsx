@@ -1,4 +1,4 @@
-import { openProfileView } from "@/test/navigation.ts";
+import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { fakeClient } from "@/test/fake-client.ts";
 import { chooseModel } from "@/test/model-control.ts";
 import type { Client } from "@ace/client";
@@ -8,6 +8,8 @@ import { configure, act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { listGroup } from "@/test/list-groups.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -71,8 +73,9 @@ const setAutomations = (app: ReturnType<typeof harness>, value: boolean) =>
 
 const heading = (name: string | RegExp) => screen.findByRole("heading", { level: 2, name });
 const main = () => within(screen.getByRole("main"));
+/** The rows under one of the list's section headings (Upcoming, Paused, In threads). */
 const group = (sidebar: ReturnType<typeof within>, name: string) =>
-  within(sidebar.getByRole("region", { name }));
+  listGroup(sidebar.getByRole("list", { name: "Automations" }), name);
 const prompt = () => screen.findByRole("combobox", { name: "What the agent does each time" });
 
 async function menu(item: string) {
@@ -116,8 +119,7 @@ test("the list groups upcoming automations, then paused ones, each with when it 
 
 test("searching the list keeps only the automations whose names match", async () => {
   const { sidebar } = await open("/automations/auto-dependency-audit");
-  await userEvent.click(screen.getByRole("button", { name: "Search automations" }));
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search automations" }), "flaky");
+  await userEvent.type(await openPanelSearch("Search automations"), "flaky");
   await waitFor(() => expect(sidebar.queryByRole("link", { name: /Nightly/ })).toBeNull());
   expect(sidebar.getByRole("link", { name: /Flaky test triage/ })).toBeTruthy();
 });
@@ -204,7 +206,7 @@ test("while automations are off it can't be run, and turning them on lets it run
   await userEvent.click(main().getByRole("link", { name: "Turn on Run automations" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
   await waitFor(() => expect(app.daemon.services.settings.get("automations.enabled")).toBe(true));
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   await openProfileView("Automations");
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   await userEvent.click(
@@ -220,9 +222,7 @@ test("pausing from the switch moves it to Paused and stops runs; the switch resu
   await heading("Nightly dependency audit");
   await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   expect(
-    await within(await sidebar.findByRole("region", { name: "Paused" })).findByRole("link", {
-      name: /Nightly dependency audit/,
-    }),
+    await group(sidebar, "Paused").findByRole("link", { name: /Nightly dependency audit/ }),
   ).toBeTruthy();
   expect(await main().findByText(/Paused\. Resume to schedule the next run\./)).toBeTruthy();
   await waitFor(async () =>
@@ -662,10 +662,10 @@ test("an agent's automation opens as the same conversation, runs and pauses thro
     threads: true,
   });
   await setAutomations(app, true);
-  const row = await within(await sidebar.findByRole("region", { name: "In threads" })).findByRole(
-    "link",
-    { name: /Re-run the checkout test overnight/ },
-  );
+  await sidebar.findByRole("heading", { name: "In threads" });
+  const row = await group(sidebar, "In threads").findByRole("link", {
+    name: /Re-run the checkout test overnight/,
+  });
   await userEvent.click(row);
   await heading("Re-run the checkout test overnight");
   // Its page links back to the thread it belongs to.

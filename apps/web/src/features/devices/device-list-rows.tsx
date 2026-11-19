@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { deviceKind, type DeviceGroup, type DeviceKind } from "@ace/ui-core/devices";
 import { deviceGlyphs } from "./device-frame.tsx";
 
@@ -21,7 +22,10 @@ function DeviceListRow(props: {
 }) {
   const { row } = props;
   return (
-    <li className={rowBox}>
+    <li
+      {...part("list-row", props.open ? "open" : row.running ? "working" : undefined, "device")}
+      className={rowBox}
+    >
       <button
         type="button"
         onClick={props.onOpen}
@@ -68,7 +72,11 @@ export function RecentRows(props: {
   onBoot(row: DeviceRow): void;
 }) {
   return (
-    <ul aria-label="Recent devices" className="flex flex-col">
+    <ul
+      aria-label="Recent devices"
+      {...part("list", undefined, "recent-devices")}
+      className="flex flex-col"
+    >
       {props.recent.map(({ row, at }) => (
         <DeviceListRow
           key={row.id}
@@ -76,11 +84,21 @@ export function RecentRows(props: {
           meta={[row.runtime, `used ${formatAgo(at, props.now)}`].filter(Boolean).join(" · ")}
           open={props.open.has(row.id)}
           onOpen={() => props.onOpen(row)}
-          action={{ label: "Boot", disabled: props.pending, onClick: () => props.onBoot(row) }}
+          action={
+            row.bootable
+              ? { label: "Boot", disabled: props.pending, onClick: () => props.onBoot(row) }
+              : undefined
+          }
         />
       ))}
     </ul>
   );
+}
+
+/** A folded kind's count, saying how many run so a folded list still shows they're there. */
+function groupCount(group: DeviceGroup): string {
+  const running = group.rows.filter((row) => row.running).length;
+  return running ? `${group.rows.length} · ${running} running` : `${group.rows.length}`;
 }
 
 /**
@@ -91,17 +109,20 @@ export function DeviceGroups(props: {
   groups: readonly DeviceGroup[];
   searching: boolean;
   open: ReadonlySet<string>;
+  pending: boolean;
   onOpen(row: DeviceRow): void;
+  onBoot(row: DeviceRow): void;
 }) {
   const [unfolded, setUnfolded] = useState<ReadonlySet<DeviceKind>>(new Set());
   return (
-    <div className="flex flex-col">
+    <div {...part("list", undefined, "device-kinds")} className="flex flex-col">
       {props.groups.map((group) => {
         const expanded = props.searching || unfolded.has(group.kind);
         return (
           <Disclosure
             key={group.kind}
             open={expanded}
+            {...part("list-group", expanded ? "open" : "closed", group.kind)}
             onToggle={(event) => {
               const next = event.currentTarget.open;
               if (props.searching || next === unfolded.has(group.kind)) return;
@@ -122,7 +143,7 @@ export function DeviceGroups(props: {
                 />
                 <span className="min-w-0 flex-1 truncate">{group.label}</span>
                 <span className="text-xs text-subtle-foreground tabular-nums">
-                  {group.rows.length}
+                  {groupCount(group)}
                 </span>
               </>
             }
@@ -137,6 +158,15 @@ export function DeviceGroups(props: {
                     meta={row.detail}
                     open={props.open.has(row.id)}
                     onOpen={() => props.onOpen(row)}
+                    action={
+                      row.bootable
+                        ? {
+                            label: "Boot",
+                            disabled: props.pending,
+                            onClick: () => props.onBoot(row),
+                          }
+                        : undefined
+                    }
                   />
                 ))}
               </ul>

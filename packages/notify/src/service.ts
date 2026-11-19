@@ -53,7 +53,13 @@ export class NotificationService {
   private options: NotificationOptions;
   private inFlight = new Map<
     number,
-    { device: DeviceId; address: NotificationDevice["address"]; controller: AbortController }
+    {
+      device: DeviceId;
+      address: NotificationDevice["address"];
+      controller: AbortController;
+      /** The one thread the alert is about; a catch-up names several and has none. */
+      thread: ThreadId | undefined;
+    }
   >();
   private running: Promise<void> | undefined;
   private closed = false;
@@ -123,7 +129,24 @@ export class NotificationService {
     events: readonly MetadataEvent[],
     coverage: { afterSeq: number; throughSeq: number },
   ): void {
-    this.database.ingest(events, this.options.now(), coverage);
+    this.stopSends(this.database.ingest(events, this.options.now(), coverage));
+  }
+  /**
+   * Threads a paired machine delegated here, from the daemon's records: nothing here alerts
+   * about them, including alerts already queued or on their way.
+   */
+  markRemote(threads: readonly ThreadId[]): void {
+    this.stopSends(this.database.markRemote(threads));
+  }
+  /**
+   * Stops sends still in flight for these threads. An aborted send never falls back to a push
+   * (the router checks its signal first) and is not retried.
+   */
+  private stopSends(threads: readonly ThreadId[]): void {
+    if (!threads.length) return;
+    const stopped = new Set<string>(threads);
+    for (const flight of this.inFlight.values())
+      if (flight.thread !== undefined && stopped.has(flight.thread)) flight.controller.abort();
   }
   register(id: DeviceId, address: unknown): void {
     this.database.register(
@@ -155,6 +178,10 @@ export class NotificationService {
     }
     this.database.touch(id, this.options.now());
     this.database.catchUp(id, this.options.now());
+  }
+  /** Push addresses among these devices that may be alerted now (see `pushable`). */
+  pushAddresses(ids: readonly DeviceId[]): NotificationDevice[] {
+    return this.database.pushable(ids);
   }
   getPreferences(id: DeviceId) {
     return this.database.device(id)?.preferences;
@@ -221,17 +248,26 @@ export class NotificationService {
           return;
         }
         const controller = new AbortController();
-        this.inFlight.set(job.id, { device: device.id, address: device.address, controller });
+        this.inFlight.set(job.id, {
+          device: device.id,
+          address: device.address,
+          controller,
+          thread: catchUp ? undefined : job.notification.threadId,
+        });
         let result: DeliveryResult;
         try {
           const preview =
             device.preferences.includePreview && !catchUp
               ? this.options.preview?.(notice.threadId)?.slice(0, 300)
               : undefined;
-          const notification = preview ? { ...notice, preview } : notice;
-          // A phone can be suspended with its socket open; its app catches up from this record.
-          if (device.address.platform === "phone")
-            this.database.inbox.record(device.id, notification, job.generation, job.expires);
+          const shown = preview ? { ...notice, preview } : notice;
+          // A phone can be suspended with its socket open; its app catches up from this record,
+          // and the live alert carries its cursor so the app can order the two.
+          const cursor =
+            device.address.platform === "phone"
+              ? this.database.inbox.record(device.id, shown, job.generation, job.expires)
+              : undefined;
+          const notification = cursor === undefined ? shown : { ...shown, cursor };
           result = await this.options.transport.send(
             device,
             notification,

@@ -39,57 +39,42 @@ test("cyclic worker ownership fails instead of producing a valid process sample"
   });
 });
 
-test.each(["schema", "shutdown", "acceptance"])(
-  "%s failure remains fatal when real subprocess cleanup crosses its deadline",
-  async (kind) => {
-    const diagnostics: string[] = [];
-    const source = `
+// measureWithCleanup treats every non-timing error alike; a schema failure proves the subprocess path.
+test("a schema failure remains fatal when real subprocess cleanup crosses its deadline", async () => {
+  const diagnostics: string[] = [];
+  const source = `
       import { measureWithCleanup } from '@ace/perf-kit';
       import { writeSync } from 'node:fs';
       import { spawn } from 'node:child_process';
       import { once } from 'node:events';
       import { z } from 'zod';
-      import { strict as assert } from 'node:assert';
       await measureWithCleanup(
         async () => {
-          ${
-            kind === "schema"
-              ? `
-            const child = spawn(process.execPath,['-e','process.send({ok:false})'],{stdio:['ignore','ignore','ignore','ipc']});
-            const exited = once(child,'exit');
-            const [input] = await once(child,'message');
-            await exited;
-            z.object({ok:z.literal(true)}).parse(input);
-          `
-              : kind === "shutdown"
-                ? `
-            const child=spawn(process.execPath,['-e','process.exit(7)']);
-            const [code]=await once(child,'exit');
-            if(code!==0) throw new Error('Shutdown failed: '+code);
-          `
-                : "assert.equal(1,2,'acceptance assertion failed');"
-          }
+          const child = spawn(process.execPath,['-e','process.send({ok:false})'],{stdio:['ignore','ignore','ignore','ipc']});
+          const exited = once(child,'exit');
+          const [input] = await once(child,'message');
+          await exited;
+          z.object({ok:z.literal(true)}).parse(input);
         },
         async () => { await new Promise(resolve => setTimeout(resolve, 5000)); },
         marker => writeSync(2, marker + '\\n'),
       );
     `;
-    const result = retryTiming(
-      () =>
-        runTimed(run, process.execPath, ["--input-type=module", "-e", source], {
-          cwd: import.meta.dirname,
-          timeout: 2000,
-        }),
-      (error) => diagnostics.push(error.message),
-    );
-    await expect(result).rejects.not.toBeInstanceOf(TimingFailure);
-    await expect(result).rejects.toMatchObject({
-      killed: true,
-      stderr: expect.stringContaining('"type":"measurement.failed"'),
-    });
-    expect(diagnostics).toEqual([]);
-  },
-);
+  const result = retryTiming(
+    () =>
+      runTimed(run, process.execPath, ["--input-type=module", "-e", source], {
+        cwd: import.meta.dirname,
+        timeout: 2000,
+      }),
+    (error) => diagnostics.push(error.message),
+  );
+  await expect(result).rejects.not.toBeInstanceOf(TimingFailure);
+  await expect(result).rejects.toMatchObject({
+    killed: true,
+    stderr: expect.stringContaining('"type":"measurement.failed"'),
+  });
+  expect(diagnostics).toEqual([]);
+});
 
 test("legacy acceptance assertions cannot become timing retries during cleanup", async () => {
   await expect(

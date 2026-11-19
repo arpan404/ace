@@ -107,6 +107,33 @@ test("while the desktop retries on its own the screen says so, then offers Try a
   expect(await screen.findByText("Starting ace…")).toBeTruthy();
 });
 
+test("while another ace process holds ace's data the screen says ace is waiting, not that it failed", async () => {
+  const { daemon, emit } = desktop();
+  daemon.status = async () => ({ state: "starting", cause: "lock-held" });
+  render(
+    <AppFrame environment={{}}>
+      <DesktopFailureScreen reason="The daemon exited (code 7)" daemon={daemon} />
+    </AppFrame>,
+  );
+  expect(await screen.findByRole("heading", { name: "ace is waiting" })).toBeTruthy();
+  expect(
+    screen.getByText("Waiting for another ace process to finish starting or stopping."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "ace didn't start" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+  emit({
+    state: "failed",
+    cause: "lock-held",
+    message: "Another ace process kept ace's data busy",
+  });
+  expect(screen.getByRole("heading", { name: "ace didn't start" })).toBeTruthy();
+  expect(
+    screen.getByText("Another ace process is still using ace's data. Quit it, then try again."),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
 test("a daemon that failed for another reason is not blamed on the port", async () => {
   const { daemon, emit } = desktop();
   render(

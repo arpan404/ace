@@ -1,11 +1,10 @@
+import { decodeStoredItem, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { z } from "zod";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Item, EventPayload, ThreadId, type TextSource } from "@ace/protocol";
-const StreamRow = z.object({
-  id: z.string(),
-  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-});
+const StreamSize = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const StreamRow = z.object({ id: z.string(), size: StreamSize });
 /** Page previews and indexed UTF-16 text streams. Delta work touches one target
  * and new bytes only; preview materialization happens on an explicit page read. */
 export class ItemTextStore {
@@ -14,8 +13,23 @@ export class ItemTextStore {
   private target: StatementSync | undefined;
   private insert: StatementSync | undefined;
   private grow: StatementSync | undefined;
-  constructor(db: DatabaseSync) {
+  /** Which previews are read as stored, by their item's creation sequence (`isTrusted`). */
+  private readonly trust: StoredTrust;
+  constructor(db: DatabaseSync, trust: StoredTrust = untrusted()) {
     this.db = db;
+    this.trust = trust;
+  }
+  /**
+   * A stored preview, trusted by its item's creation sequence like the item body (`storedItem`):
+   * only this build writes previews of the items it created. One with no item row is decoded.
+   */
+  private preview(id: string): { item: Item; target: unknown } | undefined {
+    const row = this.statement(
+      "SELECT p.item, p.target, i.created_seq FROM item_previews p LEFT JOIN items i ON i.id = p.id WHERE p.id = ?",
+    ).get(id);
+    if (!row) return undefined;
+    const created = row.created_seq === null ? Number.NEGATIVE_INFINITY : Number(row.created_seq);
+    return { item: storedItem(created, String(row.item), this.trust), target: row.target };
   }
   private statement(sql: string): StatementSync {
     const previous = this.prepared.get(sql);
@@ -101,11 +115,9 @@ export class ItemTextStore {
     ));
     let row = target.get(delta.itemId);
     if (!row) {
-      const stored = this.statement("SELECT item, target FROM item_previews WHERE id = ?").get(
-        delta.itemId,
-      );
+      const stored = this.preview(delta.itemId);
       if (!stored) return;
-      const item = Item.parse(JSON.parse(String(stored.item)));
+      const item = stored.item;
       if (item.type !== "message" || delta.field !== "text") return;
       const threadId = ThreadId.parse(
         this.statement("SELECT thread_id FROM items WHERE id=?").get(item.id)?.thread_id,
@@ -133,7 +145,7 @@ export class ItemTextStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of this.statement("SELECT id, item, created_seq FROM items").iterate()) {
-        const item = Item.parse(JSON.parse(String(row.item)));
+        const item = decodeStoredItem(JSON.parse(String(row.item)));
         this.seed(item, Number(row.created_seq));
         for (const chunk of this.statement(
           "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
@@ -154,40 +166,73 @@ export class ItemTextStore {
       throw error;
     }
   }
-  private preview(source: TextSource, units: number): string {
-    source.bytes = z
-      .number()
-      .int()
-      .nonnegative()
-      .max(Number.MAX_SAFE_INTEGER)
-      .parse(
-        this.statement("SELECT size FROM item_text_streams WHERE id = ?").get(source.streamId)
-          ?.size,
-      );
-    const end = Math.min(units * 2, source.bytes);
+  /** The stream's whole length now, which the stored descriptor may trail. */
+  private size(source: TextSource): number {
+    return StreamSize.parse(
+      this.statement("SELECT size FROM item_text_streams WHERE id = ?").get(source.streamId)?.size,
+    );
+  }
+  /** The text in bytes [start, end) of a stream, read from the chunks that hold it. */
+  private slice(streamId: string, start: number, end: number): string {
+    if (end <= start) return "";
     const pieces: Buffer[] = [];
+    // A chunk holds at most 32,768 units (`write`), so one starting before `start - 65536` ends
+    // before it: the primary key bounds the scan to the chunks that hold the range.
     for (const row of this.statement(
-      "SELECT substr(bytes, 1, ? - offset) AS bytes FROM item_source_chunks WHERE stream_id = ? AND offset < ? ORDER BY offset",
-    ).iterate(end, source.streamId, end)) {
+      "SELECT offset, bytes FROM item_source_chunks WHERE stream_id = ? AND offset > ? AND offset < ? ORDER BY offset",
+    ).iterate(streamId, start - 65536, end)) {
       // Checked by its internal slot, not instanceof: a host realm (a jsdom test) has its own Uint8Array.
       if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
-      pieces.push(Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength));
+      const offset = Number(row.offset);
+      const bytes = Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
+      const from = Math.max(0, start - offset);
+      const to = Math.min(bytes.length, end - offset);
+      if (to > from) pieces.push(bytes.subarray(from, to));
     }
     return Buffer.concat(pieces).toString("utf16le");
   }
+  /** The stream's first `units`: the preview of finished text, read from the top. */
+  private head(source: TextSource, units: number): string {
+    source.bytes = this.size(source);
+    delete source.offset;
+    return this.slice(source.streamId, 0, Math.min(units * 2, source.bytes));
+  }
+  /**
+   * The stream's last `units`, marked with where they start: the preview of text still streaming,
+   * which the client extends with each delta. Never starts inside a surrogate pair.
+   */
+  private tail(source: TextSource, units: number): string {
+    source.bytes = this.size(source);
+    let start = Math.max(0, source.bytes - units * 2);
+    let text = this.slice(source.streamId, start, source.bytes);
+    const first = text.charCodeAt(0);
+    if (first >= 0xdc00 && first <= 0xdfff) {
+      text = text.slice(1);
+      start += 2;
+    }
+    if (start) source.offset = start;
+    else delete source.offset;
+    return text;
+  }
   read(id: string): Item {
-    const row = this.statement("SELECT item FROM item_previews WHERE id = ?").get(id);
-    if (!row) throw new Error("Missing item preview");
-    const item = Item.parse(JSON.parse(String(row.item)));
+    const item = this.preview(id)?.item;
+    if (!item) throw new Error("Missing item preview");
     let remaining = 4096;
-    if (item.type === "message")
-      for (const part of item.parts)
+    // Text still streaming shows its newest end, marked so deltas keep extending it; finished
+    // text shows from its start.
+    const streaming = !item.complete;
+    const read = (source: TextSource) =>
+      streaming ? this.tail(source, remaining) : this.head(source, remaining);
+    if (item.type === "message") {
+      const parts = streaming ? item.parts.toReversed() : item.parts;
+      for (const part of parts)
         if (part.type === "text" && part.source) {
-          part.text = this.preview(part.source, remaining);
+          part.text = read(part.source);
           remaining -= part.text.length;
         }
+    }
     if ((item.type === "reasoning" || item.type === "notice") && item.source)
-      item.text = this.preview(item.source, remaining);
+      item.text = read(item.source);
     return item;
   }
 }

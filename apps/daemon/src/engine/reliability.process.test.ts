@@ -60,7 +60,11 @@ test("steering reaches a capable provider while background work remains live", a
   h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
   await h.engine.flush();
   expect(h.adapter.commands.at(-1)).toEqual({ type: "send", input, delivery: "steer" });
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  // The replied thread reads done while its build still runs (ADR 0116).
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(
+    Object.values(h.store.snapshotThread(id)?.backgroundTasks ?? {}).map((entry) => entry.status),
+  ).toEqual(["running"]);
 });
 
 test("unsupported steering stays queued until provider work finishes", async () => {

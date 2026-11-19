@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketOwnVersion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "appeal": {
+      "$ref": "https://ace.local/protocol/v1/MarketAppeal.json"
+    },
+    "changelog": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "held": {
+      "type": "boolean"
+    },
+    "published": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersionStatus.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    }
+  },
+  "required": [
+    "version",
+    "hash",
+    "size",
+    "published",
+    "status",
+    "held",
+    "changelog",
+    "downloads"
+  ],
+  "type": "object"
+}

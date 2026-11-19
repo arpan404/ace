@@ -1,5 +1,7 @@
+import { readFeatures } from "./forge-features.ts";
 import { ClientError } from "@ace/client";
-import { actionErrorText } from "@ace/ui-core";
+import type { ForgeKind } from "@ace/protocol";
+import { forgeErrorText } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeIssueRequest, readIssue } from "./forge-issue.ts";
@@ -7,6 +9,9 @@ import { ForgeListRequest, readIssues, readPulls } from "./forge-lists.ts";
 import { ForgePullRequest, readPull, writePull } from "./forge-pull.ts";
 import { ForgeReads, ForgeRefusal, type ForgeMemory, type ForgeOwner } from "./forge-reads.ts";
 import { ForgeFileRequest, ForgeFilesRequest, readFile, readFiles } from "./forge-code.ts";
+import { ForgeHostedFilesRequest, readHostedFiles } from "./forge-hosted.ts";
+import { ForgeCommitsRequest, readCommits } from "./forge-commits.ts";
+import { ForgeFileSidesRequest, readFileSides } from "./forge-file-sides.ts";
 import {
   complete,
   ForgeCompleteRequest,
@@ -16,13 +21,34 @@ import {
 import type { ShownBodies } from "./forge-conversation.ts";
 import { ProjectListRefused, readProjects } from "./project-list.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
-import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from "./forge-inbox.ts";
+import {
+  ForgeStartFromPickRequest,
+  ForgeStartFromRequest,
+  pickStartFrom,
+  readStartFrom,
+} from "./forge-start-from.ts";
+import {
+  ForgeMergeRunRequest,
+  ForgeMergeRunWriteRequest,
+  MergeRunMemory,
+  readMergeRun,
+  writeMergeRun,
+} from "./forge-merge-run.ts";
+import {
+  ForgeInboxRequest,
+  ForgeInboxWriteRequest,
+  readInbox,
+  writeInbox,
+  type ReadAllSent,
+} from "./forge-inbox.ts";
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
 import { ForgeMediaRequest, readMedia, type Download } from "./forge-media-read.ts";
 import { ForgeTaskRequest, writeTask } from "./forge-task.ts";
 import {
   checkIssueWrite,
+  changeIssue,
   commentOnIssue,
+  ForgeIssueChangeRequest,
   ForgeIssueCommentRequest,
   ForgeIssueReconcileRequest,
 } from "./forge-issue-write.ts";
@@ -32,6 +58,19 @@ import {
   readManage,
   writeManage,
 } from "./forge-manage.ts";
+import {
+  ForgeChecksRequest,
+  readCheck,
+  readCheckLog,
+  readChecks,
+  readLocalLog,
+  writeChecks,
+  writeLocal,
+} from "./forge-checks.ts";
+import { LogPages } from "./forge-log-pages.ts";
+import { ForgeConflictsRequest, readPullConflicts, writeConflicts } from "./forge-conflicts.ts";
+import { ForgeStackRequest, readStack, writeStack } from "./forge-stack.ts";
+import { ForgeWorktreeRequest, readWork, writeWorktree } from "./forge-worktree.ts";
 import {
   createPr,
   ForgeNewPrCompareRequest,
@@ -50,12 +89,14 @@ import {
 export const ForgeRequest = z.intersection(
   z.union([
     z.object({ type: z.literal("forge.projects") }),
+    z.object({ type: z.literal("forge.features"), project: z.string().min(1).max(512) }),
     ForgeListRequest,
     ForgePullRequest,
     ForgeIssueRequest,
     ForgeTimelineRequest,
     ForgeFileRequest,
     ForgeFilesRequest,
+    ForgeHostedFilesRequest,
     ForgeReviewRequest,
     ForgeCompleteRequest,
     ForgeReviewersRequest,
@@ -69,7 +110,18 @@ export const ForgeRequest = z.intersection(
     ForgeNewPrCompareRequest,
     ForgeNewPrCreateRequest,
     ForgeIssueCommentRequest,
+    ForgeIssueChangeRequest,
     ForgeIssueReconcileRequest,
+    ForgeChecksRequest,
+    ForgeConflictsRequest,
+    ForgeStackRequest,
+    ForgeWorktreeRequest,
+    ForgeCommitsRequest,
+    ForgeFileSidesRequest,
+    ForgeMergeRunRequest,
+    ForgeMergeRunWriteRequest,
+    ForgeStartFromRequest,
+    ForgeStartFromPickRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -90,6 +142,12 @@ export class ForgeService {
   #cache = new Map<string, ForgeMemory>();
   /** Comment bodies as last shown, which an edit or delete expects to replace. */
   #shown: ShownBodies = new Map();
+  /** Check logs split into lines, read by the page a page at a time. */
+  #logs = new LogPages();
+  /** Each project's last Mark all read, which GitHub may still be applying. */
+  #readAll: ReadAllSent = new Map();
+  /** Each project's merge run started here and the ones dismissed from the strip. */
+  #mergeRuns = new MergeRunMemory();
 
   /**
    * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
@@ -126,6 +184,8 @@ export class ForgeService {
     );
     try {
       switch (request.type) {
+        case "forge.features":
+          return await readFeatures(reads, request.project);
         case "forge.projects":
           return await this.#projects(signal);
         case "forge.pulls":
@@ -145,6 +205,12 @@ export class ForgeService {
           return this.#trimmed(await readFile(reads, request, this.#preview, this.#shown));
         case "forge.pull.files":
           return await readFiles(reads, request, this.#preview);
+        case "forge.pull.hosted-files":
+          return await readHostedFiles(reads, request, this.#preview);
+        case "forge.pull.commits":
+          return await readCommits(reads, request, this.#preview);
+        case "forge.pull.file.sides":
+          return await readFileSides(reads, request, this.#preview);
         case "forge.complete":
           return await complete(reads, request, this.#preview);
         case "forge.pull.reviewers":
@@ -161,6 +227,8 @@ export class ForgeService {
           return await createPr(this.#owner, reads, request);
         case "forge.issue.comment":
           return await commentOnIssue(this.#owner, reads, request, this.#newId);
+        case "forge.issue.change":
+          return await changeIssue(this.#owner, reads, request, this.#newId);
         case "forge.issue.check":
           return await checkIssueWrite(this.#owner, reads, request);
         case "forge.task":
@@ -168,16 +236,68 @@ export class ForgeService {
         case "forge.media":
           return await readMedia(reads, this.#download, request, signal);
         case "forge.inbox":
-          return await readInbox(reads, request, this.#preview);
+          return await readInbox(reads, request, this.#preview, this.#readAll, this.#now);
         case "forge.inbox.write":
-          return await writeInbox(this.#owner, reads, request);
+          return await writeInbox(this.#owner, reads, request, this.#readAll, this.#now);
         case "forge.review":
           return await writeReview(this.#owner, reads, request, this.#shown, this.#newId);
+        case "forge.pull.checks":
+          return await readChecks(this.#owner, reads, request, this.#preview);
+        case "forge.pull.check":
+          return await readCheck(reads, this.#logs, request, this.#preview);
+        case "forge.pull.check.log":
+          return await readCheckLog(reads, this.#logs, request);
+        case "forge.local.log":
+          return await readLocalLog(this.#owner, this.#logs, request);
+        case "forge.checks.write":
+          return await writeChecks(this.#owner, reads, request);
+        case "forge.local.write":
+          return await writeLocal(this.#owner, reads, request);
+        case "forge.pull.conflicts":
+          return await readPullConflicts(this.#owner, reads, request, this.#preview);
+        case "forge.conflicts":
+          return await writeConflicts(this.#owner, reads, request);
+        case "forge.pull.stack":
+          return await readStack(reads, request, this.#preview);
+        case "forge.stack":
+          return await writeStack(this.#owner, reads, request);
+        case "forge.pull.work":
+          return await readWork(this.#owner, reads, request, this.#preview);
+        case "forge.worktree":
+          return await writeWorktree(this.#owner, reads, request);
+        case "forge.merge-run":
+          return await readMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.merge-run.write":
+          return await writeMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.start-from":
+          return await readStartFrom(reads, request, this.#preview);
+        case "forge.start-from.pick":
+          return await pickStartFrom(reads, request, this.#preview);
       }
     } catch (error) {
       const code =
         error instanceof ForgeRefusal || error instanceof ClientError ? error.code : undefined;
-      throw new Error(actionErrorText(code), { cause: error });
+      // Said in the provider's words: a GitLab or Origin read never names GitHub or `gh`.
+      throw new Error(forgeErrorText(code, await this.#forgeOf(request, signal)), { cause: error });
+    }
+  }
+
+  /**
+   * The provider a failed request was about: the repository it named, else its project's own,
+   * read from the checkout's remote (no request to the host). Unknown leaves GitHub's words.
+   */
+  async #forgeOf(request: ForgeRequest, signal: AbortSignal): Promise<ForgeKind | undefined> {
+    if ("repository" in request && request.repository) return request.repository.forge;
+    if (!("project" in request) || signal.aborted) return undefined;
+    try {
+      const reads = new ForgeReads(this.#owner, this.#now, this.#cache, signal, false);
+      const value = await reads.read(
+        { op: "forge.repository", workspaceId: request.project },
+        true,
+      );
+      return value.resource === "repository" ? value.value.forge : undefined;
+    } catch {
+      return undefined;
     }
   }
 

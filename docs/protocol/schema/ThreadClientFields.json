@@ -26,12 +26,27 @@
     "hasSentMessage": {
       "type": "boolean"
     },
+    "host": {
+      "enum": [
+        "spade",
+        "spade-bot"
+      ],
+      "type": "string"
+    },
+    "hostKey": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
     "listOrder": {
       "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
       "type": "number"
     },
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
+    },
+    "movedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
     },
     "pinOrder": {
       "description": "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
@@ -44,6 +59,10 @@
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
       "type": "integer"
+    },
+    "prSettledKey": {
+      "maxLength": 131072,
+      "type": "string"
     },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
@@ -63,6 +82,12 @@
         "pr_closed"
       ],
       "type": "string"
+    },
+    "snoozeWake": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWake.json"
+    },
+    "snoozeWoke": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWoke.json"
     },
     "snoozedUntil": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

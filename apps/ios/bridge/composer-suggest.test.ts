@@ -1,0 +1,474 @@
+import "./test-host.ts";
+import { afterEach, expect, test } from "vitest";
+import { facts, type FakeDaemon } from "@ace/fake-daemon";
+import type { ClientCore } from "@ace/client";
+import { ThreadId } from "@ace/protocol";
+import { CatalogPage } from "./catalog-page.ts";
+import { ComposeSearch } from "./compose-search.ts";
+import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import {
+  commands,
+  connect,
+  fixture,
+  latest,
+  native,
+  open,
+  pump,
+  reset,
+  rows,
+  sent,
+  until,
+} from "./thread-harness.ts";
+
+/*
+ * The phone composer's `@`, `/` and + lists over the real SDK and the fake daemon: the rows
+ * Swift draws, what picking them leaves in the message, and that typing fast asks the daemon
+ * once. No provider CLI runs.
+ */
+
+afterEach(reset);
+
+type Row = {
+  id: string;
+  group: string;
+  label: string;
+  pick: string;
+  action: string | null;
+  reference: Record<string, unknown> | null;
+};
+type List = { seq: number; state: string; rows: Row[] };
+const list = () => latest("composer.suggestions") as List | undefined;
+const plus = () => latest("composer.add") as List | undefined;
+const settled = (seq: number, read = list) =>
+  until(() => {
+    const shown = read();
+    return shown?.seq === seq && shown.state !== "loading" && shown;
+  }, `list ${seq}`);
+
+function daemon(provider: "claude" | "codex" = "claude"): FakeDaemon {
+  const fake = fixture();
+  fake.createThread({ id: "here", workspaceId: "ace", title: "Composer work", provider });
+  fake.createThread({ id: "other", workspaceId: "ace", title: "Login fix", provider });
+  fake.createThread({ id: "away", workspaceId: "elsewhere", title: "Login elsewhere", provider });
+  fake.apply("here", [facts.rootAgent(provider), facts.turn("root"), facts.endTurn("root")]);
+  return fake;
+}
+/** Connected, with the inbox followed as the phone's inbox does. */
+async function ready(fake: FakeDaemon): Promise<ClientCore> {
+  const client = connect(fake);
+  client.threads();
+  await until(() => client.connectionState().getSnapshot() === "ready", "the connection");
+  return client;
+}
+function suggest(client: ClientCore, provider: "claude" | "codex" = "claude") {
+  return new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (delay, run) => {
+      const timer = setTimeout(run, delay);
+      return () => clearTimeout(timer);
+    },
+    now: () => Date.now(),
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider }),
+    threads: () => sidebarThreads(client),
+    draft: new ComposeSearch(client, pump, (text) => text),
+  });
+}
+const thread = { type: "thread", threadId: "here" };
+
+test("typing / lists the thread's skills and commands, and + offers only what the phone can run", async () => {
+  const client = await ready(daemon());
+  const lists = suggest(client);
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1 });
+  const typed = await settled(1);
+  expect(typed.state).toBe("ready");
+  expect(typed.rows.some((row) => row.group === "Skills" && row.pick === "reference")).toBe(true);
+  expect(typed.rows.some((row) => row.group === "Add")).toBe(false);
+
+  lists.handle({ kind: "query", scope: thread, list: "add", query: "", seq: 2 });
+  const adding = await settled(2, plus);
+  expect(adding.rows.map((row) => row.label)).toEqual([
+    "Attach files",
+    "Files and folders",
+    "Plan mode",
+    "Attachments",
+  ]);
+  expect(adding.rows.map((row) => row.action ?? row.pick)).toEqual([
+    "attach",
+    "files",
+    "plan",
+    "attachments",
+  ]);
+});
+
+test("New thread's + follows the draft rules: a project to choose, no stored files", async () => {
+  const client = await ready(daemon("codex"));
+  const lists = suggest(client, "codex");
+  const draft = { type: "draft", workspaceId: "ace", provider: "codex" };
+  lists.handle({ kind: "query", scope: draft, list: "add", query: "", seq: 1 });
+  const adding = await settled(1, plus);
+  expect(adding.rows.map((row) => row.action)).toEqual(["attach", "files", "project", "goal"]);
+});
+
+test("@ lists the project's files and its other threads, and fast typing asks the daemon once", async () => {
+  const client = await ready(daemon());
+  await until(() => sidebarThreads(client).length === 3, "the inbox");
+  const lists = suggest(client);
+  for (const [seq, query] of ["R", "RE", "REA"].entries())
+    lists.handle({ kind: "query", scope: thread, list: "mention", query, seq });
+  const files = await until(() => {
+    const shown = list();
+    return shown?.seq === 2 && shown.rows.some((row) => row.group === "Files") && shown;
+  }, "files");
+  expect(files.rows[0]).toMatchObject({
+    group: "Files",
+    label: "README.md",
+    pick: "reference",
+    reference: { label: "@README.md", file: { path: "README.md" } },
+  });
+  const completes = sent.filter((text) => text.includes('"op":"mention.complete"'));
+  expect(completes).toHaveLength(1);
+
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "login", seq: 3 });
+  const threads = await until(() => list()?.seq === 3 && list(), "threads");
+  expect(threads.rows.filter((row) => row.group === "Threads").map((row) => row.label)).toEqual([
+    "Login fix",
+  ]);
+});
+
+test("a message carries the references still written in it, and a picked skill goes inline", async () => {
+  const session = open(connect(daemon()), "here");
+  await until(() => latest("thread.controls"), "the composer");
+  session.handle({
+    type: "send",
+    text: "Writing tidy @README.md please",
+    opposite: false,
+    requestId: "m1",
+    references: [
+      {
+        label: "Writing",
+        start: 0,
+        end: 7,
+        catalog: {
+          type: "mention",
+          entryId: "claude:skill:writing",
+          name: "writing",
+          kind: "skill",
+          arguments: "",
+        },
+      },
+      { label: "@README.md", start: 13, end: 23, file: { path: "README.md" } },
+      // Deleted from the words before sending: it goes nowhere.
+      {
+        label: "Login fix",
+        start: 31,
+        end: 40,
+        thread: { type: "thread_ref", threadId: "other", budgetBytes: 4096 },
+      },
+    ],
+  });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]).toMatchObject({
+    input: [
+      { type: "mention", name: "writing" },
+      { type: "text", text: " tidy @README.md please" },
+    ],
+    context: { mentions: [{ path: "README.md" }] },
+  });
+  expect(commands("thread.send")[0]?.context).not.toHaveProperty("items");
+});
+
+test("@ gives up on a building index with Try again instead of searching forever", async () => {
+  const held: (() => void)[] = [];
+  let clock = 0;
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async () => ({
+        result: { kind: "completion", paths: [], ready: false },
+      }),
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => clock,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 1 });
+  // The pause after typing, then the first wait before asking the building index again.
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.();
+  await until(() => held.length === 1, "the wait on the building index");
+  clock = 6_000;
+  held.shift()?.();
+  const failed = await until(() => list()?.state === "failed" && list(), "the retryable failure");
+  expect(failed?.seq).toBe(1);
+});
+
+test("@ spends one file deadline across its requests instead of a timeout per request", async () => {
+  const held: { delay: number; run: () => void }[] = [];
+  let clock = 0;
+  const timeouts: number[] = [];
+  let answers = 0;
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async (input: { type: string }, options?: { timeoutMs?: number }) => {
+        if (input.type === "browser.tabs.list") return { ok: true, result: [] };
+        timeouts.push(options?.timeoutMs ?? 0);
+        answers++;
+        // The first file request takes 3s of the 5s wait; the retry takes more than what is left.
+        clock += answers === 1 ? 3_000 : 6_000;
+        return { result: { kind: "completion", paths: [], ready: false } };
+      },
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (delay, run) => {
+      held.push({ delay, run });
+      return () => {};
+    },
+    now: () => clock,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 1 });
+  // The pause after typing, then the first file request.
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.run();
+  // What is left of the wait, not a fresh request timeout, sizes the retry's pause and request.
+  await until(() => held.length === 1, "the wait before the next request");
+  expect(held[0]?.delay).toBe(250);
+  clock += 250;
+  held.shift()?.run();
+  const failed = await until(() => list()?.state === "failed" && list(), "the retryable failure");
+
+  expect(failed?.seq).toBe(1);
+  expect(timeouts).toEqual([5_000, 1_750]);
+});
+
+test("a slow browser-tab lookup leaves the file wait alone", async () => {
+  const held: (() => void)[] = [];
+  let clock = 0;
+  const timeouts: number[] = [];
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async (input: { type: string }, options?: { timeoutMs?: number }) => {
+        if (input.type === "browser.tabs.list") {
+          // Four of the five seconds pass while the phone lists its tabs.
+          clock += 4_000;
+          return { ok: true, result: [] };
+        }
+        timeouts.push(options?.timeoutMs ?? 0);
+        return { result: { kind: "completion", paths: ["src/main.ts"], ready: true } };
+      },
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => clock,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "s", seq: 1 });
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.();
+  const shown = await until(() => list()?.state === "ready" && list(), "the file list");
+
+  expect(shown?.rows.some((row) => row.id === "file:src/main.ts")).toBe(true);
+  // The file request had the whole file wait, whatever the tab lookup spent of its own.
+  expect(timeouts).toEqual([5_000]);
+});
+
+test("a newer @ query cancels the wait on a building index", async () => {
+  const held: (() => void)[] = [];
+  const replies = [
+    async () => ({ result: { kind: "completion", paths: [], ready: false } }),
+    async () => ({ result: { kind: "completion", paths: ["src/main.ts"], ready: true } }),
+  ];
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async (input: { type: string }) => {
+        if (input.type === "browser.tabs.list") return { ok: true, result: [] };
+        return (replies.shift() ?? (async () => ({ result: { kind: "empty" } })))();
+      },
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => 0,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "s", seq: 1 });
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.();
+  await until(() => held.length === 1, "the wait on the building index");
+  // The person typed again: the old wait stops and never reports its failure.
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 2 });
+  await until(() => held.length === 2, "the newer typing pause");
+  held.pop()?.();
+  const shown = await until(() => list()?.seq === 2 && list(), "the newer list");
+  expect(shown?.state).toBe("ready");
+  expect(
+    native.frames.some(
+      (frame) =>
+        frame.type === "composer.suggestions" && frame.seq === 1 && frame.state === "failed",
+    ),
+  ).toBe(false);
+});
+
+test("lists keep answering after a thousand queries", async () => {
+  const client = await ready(daemon());
+  const lists = suggest(client);
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1_234_567 });
+  const shown = await settled(1_234_567);
+  expect(shown.state).toBe("ready");
+});
+
+test("a 65th pick leaves the rest of the message going", async () => {
+  const session = open(connect(daemon()), "here");
+  await until(() => latest("thread.controls"), "the composer");
+  const text = Array.from({ length: 65 }, (_, index) => `@f${index}.ts`).join(" ");
+  let at = 0;
+  const references = Array.from({ length: 65 }, (_, index) => {
+    const label = `@f${index}.ts`;
+    const reference = { label, start: at, end: at + label.length, file: { path: `f${index}.ts` } };
+    at += label.length + 1;
+    return reference;
+  });
+  session.handle({ type: "send", text, opposite: false, requestId: "many", references });
+  await until(() => commands("thread.send").length === 1, "the message");
+  const context = commands("thread.send")[0]?.context as { mentions: unknown[] };
+  expect(context.mentions).toHaveLength(64);
+});
+
+test("/goal sets the goal even while a question waits on the person", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "here", workspaceId: "ace", title: "Goal work", provider: "codex" });
+  fake.apply("here", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "scope",
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "scope",
+            text: "Which part first?",
+            multiSelect: false,
+            allowOther: true,
+            secret: false,
+            options: [{ id: "api", label: "The API" }],
+          },
+        ],
+      },
+    },
+  ]);
+  const session = open(connect(fake), "here");
+  const card = await until(
+    () => rows("thread.interaction").find((row) => row.kind === "question"),
+    "the question",
+  );
+  session.handle({
+    type: "send",
+    text: "/goal ship the release",
+    opposite: false,
+    requestId: "goal",
+    reply: { interactionId: String(card.id), picked: {}, written: {}, at: 0 },
+  });
+  await until(() => commands("thread.goal.set").length === 1, "the goal");
+  expect(commands("thread.goal.set")[0]).toMatchObject({
+    change: { objective: "ship the release" },
+  });
+  expect(commands("interaction.resolve")).toHaveLength(0);
+});
+
+test("a query whose held references can't be read still answers", async () => {
+  const client = await ready(daemon());
+  const lists = suggest(client);
+  const draft = { type: "draft", workspaceId: "ace", provider: "claude" };
+  expect(
+    lists.handle({ kind: "query", scope: draft, list: "mention", query: "", seq: 7, held: {} }),
+  ).toBe(true);
+  const shown = await settled(7);
+  expect(shown.rows.some((row) => row.group === "Files")).toBe(true);
+});
+
+/** The composer and a Skills page on one reader, the reader's pauses held until released. */
+async function sharedReader(fake: FakeDaemon) {
+  const client = await ready(fake);
+  const held: (() => void)[] = [];
+  const lists = new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => Date.now(),
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => sidebarThreads(client),
+    draft: new ComposeSearch(client, pump, (text) => text),
+  });
+  const skill = (
+    await client.request({ type: "catalog.list", threadId: ThreadId.parse("here"), limit: 512 })
+  ).entries.find((entry) => entry.kind === "skill");
+  if (!skill) throw new Error("The fake catalog has no skill");
+  // Discovery ends with a skill the cached answer didn't have.
+  const discovered = () =>
+    fake.seedServices({
+      extensionCatalogs: { claude: [{ ...skill, id: "fresh-skill", name: "fresh-skill" }] },
+    });
+  return { lists, page: new CatalogPage(lists.catalogs), held, discovered };
+}
+const settling = { type: "catalog.page", threadId: "here", settle: true } as const;
+const freshShown = (seq: number) =>
+  until(() => {
+    const shown = list();
+    return shown?.seq === seq && shown.rows.some((row) => row.id === "entry:fresh-skill");
+  }, "the discovered skill");
+
+test("/ opened while a Skills page's first catalog read is out shows that read's fresh skills", async () => {
+  const fake = daemon();
+  fake.seedServices({ extensionCatalogs: {}, catalogLoading: ["claude"] });
+  const { lists, page, discovered } = await sharedReader(fake);
+  discovered();
+  const answered = page.answer(settling, new AbortController().signal);
+  // The page's loop has its first read out; the composer joins it.
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1 });
+  await freshShown(1);
+  await expect(answered).resolves.toMatchObject({ stale: false });
+});
+
+test("/ opened between a Skills page's stale reads redraws when the next read is fresh", async () => {
+  const fake = daemon();
+  fake.seedServices({ extensionCatalogs: {}, catalogLoading: ["claude"] });
+  const { lists, page, held, discovered } = await sharedReader(fake);
+  const answered = page.answer(settling, new AbortController().signal);
+  await until(() => held.length === 1, "the loop's first pause");
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1 });
+  await settled(1);
+  discovered();
+  held.shift()?.();
+  await freshShown(1);
+  await expect(answered).resolves.toMatchObject({ stale: false });
+});

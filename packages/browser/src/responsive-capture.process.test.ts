@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { imageSize } from "./image-size.ts";
 import { browserToolkit } from "./index.ts";
-import { executablePath, fixture, toolPort } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, toolPort } from "./test-support.ts";
 
 const person = { kind: "human", connectionId: "person" } as const;
 const metrics = "[innerWidth, innerHeight, devicePixelRatio].join('x')";
@@ -45,7 +45,7 @@ describe.skipIf(!executablePath)("multi-size screenshots in real Chrome", () => 
   }, 90_000);
 
   it("a device the tab was emulating comes back after the capture", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const before = await f.evaluate(metrics);
     await f.service.execute(
@@ -60,7 +60,7 @@ describe.skipIf(!executablePath)("multi-size screenshots in real Chrome", () => 
   }, 90_000);
 
   it("an agent's ace_browser_screenshot with sizes returns one labelled image per size", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const before = await f.evaluate(metrics);
     const registry = new ToolRegistry({ scheduler: nodeScheduler });

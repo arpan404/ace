@@ -5,7 +5,7 @@ import { daemonCursorInstance } from "./cursor-instance.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
-import { createInstance, instanceEnv } from "@ace/accounts";
+import { cursorCatalogEnvironment } from "../cursor-catalog-env.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import {
   openDaemonModels,
@@ -49,26 +49,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
       cursorEnv: options.engine?.cursor?.env ?? process.env,
-      cursorEnvironment(instance) {
-        if (!instance.homeDir) throw new Error("SDK model catalog needs an instance home");
-        const selected =
-          services.accountRegistry?.get(instance.id)?.instance ??
-          createInstance({
-            id: instance.id,
-            provider: "cursor",
-            label: instance.id,
-            homeDir: instance.homeDir,
-          });
-        if (selected.homeDir !== instance.homeDir || selected.provider !== "cursor")
-          throw new Error("SDK catalog instance does not match accounts");
-        if (services.cursorAccounts?.isFenced(selected.id))
-          throw Object.assign(new Error("Sign in to Cursor"), { code: "not_configured" });
-        return instanceEnv(
-          selected,
-          { ...(options.engine?.cursor?.env ?? process.env), ...instance.env },
-          "cursor-sdk",
-        );
-      },
+      cursorEnvironment: (instance) =>
+        cursorCatalogEnvironment(
+          {
+            registry: services.accountRegistry,
+            launchEnv: options.engine?.cursor?.env ?? process.env,
+            isFenced: (id) => services.cursorAccounts?.isFenced(id) ?? false,
+          },
+          instance,
+        ),
     },
     () => context.services.providerConfigurations?.current() ?? [],
     (provider, instance, error, source, diagnostic) =>
@@ -106,13 +95,27 @@ export async function startModels(context: ServiceContext): Promise<void> {
   // hand over; seed them now, before any instance registers and admits discovery.
   if (services.providerStatuses)
     applyInstallations(models, services.providerStatuses.installations());
+  // CLI instances run their CLIs (and the `node` their scripts name) on PATH, and CLI paths are
+  // resolved once and kept: only on the login shell's PATH. A daemon the app started on a saved
+  // PATH waits for it (`login-path-handoff.ts`); any other runs this at once.
+  const loginPath = options.loginPath;
+  const pathFinal = Promise.resolve(loginPath?.final);
+  const afterPath = (run: () => void) => {
+    if (!loginPath) return run();
+    // A stopping daemon's PATH is settled unchanged, never confirmed: register nothing on it.
+    void loginPath.final.then(() => {
+      if (!context.signal.aborted) run();
+    });
+  };
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
     if (options.modelInstances === undefined)
-      registerConfiguredModelInstances(
-        models,
-        config.dataDir,
-        services.providerConfigurations?.current() ?? [],
+      afterPath(() =>
+        registerConfiguredModelInstances(
+          models,
+          config.dataDir,
+          services.providerConfigurations?.current() ?? [],
+        ),
       );
   });
   if (stopConfiguration) resources.own(stopConfiguration);
@@ -158,14 +161,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
         return () => clearTimeout(timer);
       },
     );
-    registerConfiguredModelInstances(
-      models,
-      config.dataDir,
-      services.providerConfigurations?.current() ?? [],
+    afterPath(() =>
+      registerConfiguredModelInstances(
+        models,
+        config.dataDir,
+        services.providerConfigurations?.current() ?? [],
+      ),
     );
-    services.refreshModelInstances = (provider) =>
-      models.hasInstance(`${provider}-cli-default`)
-        ? Promise.resolve()
+    services.refreshModelInstances = async (provider) => {
+      await pathFinal;
+      return models.hasInstance(`${provider}-cli-default`)
+        ? undefined
         : registerDefaultModelInstances(
             models,
             config.dataDir,
@@ -175,14 +181,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
             services.providerConfigurations?.current() ?? [],
             installationsKnown,
           );
-    const admission = registerDefaultModelInstances(
-      models,
-      config.dataDir,
-      process.env,
-      context.signal,
-      new Set(sdkInstance ? ["cursor"] : []),
-      services.providerConfigurations?.current() ?? [],
-      installationsKnown,
+    };
+    const admission = pathFinal.then(() =>
+      registerDefaultModelInstances(
+        models,
+        config.dataDir,
+        process.env,
+        context.signal,
+        new Set(sdkInstance ? ["cursor"] : []),
+        services.providerConfigurations?.current() ?? [],
+        installationsKnown,
+      ),
     );
     services.modelsReady = admission.then(() => {
       if (!context.signal.aborted) models.revalidate();
@@ -254,7 +263,8 @@ export function createModelsSession(context: SocketContext): SocketService {
               modelRequests--;
             });
           tasks.add(task);
-          void task.finally(() => tasks.delete(task));
+          // The task answers its own failure above; this only forgets it.
+          void task.finally(() => tasks.delete(task)).catch(() => {});
           return true;
         }
       }

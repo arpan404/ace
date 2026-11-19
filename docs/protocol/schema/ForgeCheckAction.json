@@ -33,6 +33,30 @@
         "jobs"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "attempt": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "cancel",
+          "type": "string"
+        },
+        "runId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "runId",
+        "attempt"
+      ],
+      "type": "object"
     }
   ]
 }

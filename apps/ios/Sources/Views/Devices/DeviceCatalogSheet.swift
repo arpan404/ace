@@ -23,26 +23,34 @@ struct DeviceCatalogSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin,
+                                              bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin))
                 }
                 ForEach(devices.view?.groups ?? []) { group in
-                    Section { ForEach(group.rows) { tile in row(tile) } } header: { InsetHeader(group.label) }
+                    Section { ForEach(group.rows) { tile in row(tile) } } header: { InsetHeader(group.label).listRowInsets(EdgeInsets(top: AceDesign.Space.group, leading: AceDesign.Space.margin, bottom: AceDesign.Space.tight, trailing: AceDesign.Space.margin)) }
+                    .listSectionSeparator(.hidden)
                 }
                 if devices.view?.groups.isEmpty == true {
                     Text(query.isEmpty && platform == "all" ? "Every device is running." : "No devices match.")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .listRowBackground(Color.clear)
+                        .aceFont(AceDesign.TextRole.rowTitle)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
                 if let problem = devices.problem {
-                    Text(problem.text).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear)
+                    Text(problem.text).aceFont(AceDesign.TextRole.rowTitle)
+                        .foregroundStyle(AceDesign.Ink.muted).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
             }
-            .insetGroupedList()
-            .searchable(text: $query, prompt: "Search devices")
+            // Cardless: kinds under quiet headings, devices split by hairlines, on the sheet's surface, as Work.
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(AceDesign.Surface.background)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search devices")
             .navigationTitle("Start a device").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", ace: .x) { dismiss() }
+                    Button("Close", ace: .x) { dismiss() }.accessibilityIdentifier("devices.catalog.close")
                 }
             }
             .onChange(of: query) { search() }
@@ -55,13 +63,16 @@ struct DeviceCatalogSheet: View {
 
     private func row(_ tile: DeviceTile) -> some View {
         Button { Task { await start(tile) } } label: {
-            InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
-                if booting == tile.id { ProgressView() }
+            // One that can't boot (offline, not authorized, already booting) says what it needs instead.
+            InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.hint ?? tile.detail) {
+                if booting == tile.id { WorkingMark(label: "Booting") }
             }
+            .frame(minHeight: AceDesign.Size.rowLine)
         }
         .buttonStyle(.plain)
-        .insetRowBackground()
-        .disabled(booting != nil || !model.canOperate)
+        .listRowBackground(Color.clear)
+        .listRowSeparatorTint(AceTheme.Colours.separator)
+        .disabled(booting != nil || !model.canOperate || tile.bootable == false)
         .accessibilityIdentifier("devices.catalog.row")
     }
 

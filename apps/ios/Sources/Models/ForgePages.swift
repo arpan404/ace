@@ -30,10 +30,15 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let headSha: String
     let additions: Int?
     let deletions: Int?
-    let commits: Int
-    let changedFiles: Int
+    /// Nil where the host can't say: never shown as a number.
+    let commits: Int?
+    let changedFiles: Int?
+    /// A review ace only reads (not GitHub): the page shows it and offers no writes.
+    let hosted: ForgeHostedReview?
+    let capabilities: [String]?
+    func can(_ capability: String) -> Bool { capabilities?.contains(capability) == true }
+    /// The description as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
-    let bodyBlocks: [ForgeRichBlock]
     let tasks: Bool
     let conversation: String
     let labels: [ForgeLabel]
@@ -50,6 +55,42 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let checks: [Check]
     let files: [File]
     let threads: [ForgeRelatedThread]
+}
+
+/// What a read-only review's page says and links (`bridge/forge-hosted.ts`).
+struct ForgeHostedReview: Decodable, Sendable, Equatable {
+    /// The provider's name: "GitLab", "Cursor Origin".
+    let provider: String
+    /// "merge request" on GitLab, "pull request" elsewhere.
+    let noun: String
+    /// The one sentence under the header.
+    let line: String
+    /// Said in place of the files when the host doesn't share them.
+    let filesUnavailable: String?
+    let links: ForgeHostedLinks
+}
+
+/// Where references in a read-only review's text open: address templates filled with
+/// `{number}`, `{sha}` or `{login}`; nil leaves that kind inert. `review` opens `#N` as that
+/// review's page in ace.
+struct ForgeHostedLinks: Decodable, Sendable, Equatable, Hashable {
+    let issue: String?
+    let review: Bool
+    let commit: String?
+    let mention: String?
+}
+
+/// One page of a read-only review's changed files (`forge.pull.hosted-files`).
+struct ForgeHostedFiles: Decodable, Sendable, Equatable {
+    struct File: Decodable, Sendable, Equatable, Hashable { let path: String; let status: String; let additions: Int; let deletions: Int }
+    let headSha: String
+    let page: Int
+    /// The branch moved since the page was read: this is page 1 of its new changes.
+    let moved: Bool
+    let files: [File]
+    let nextPage: Int?
+    let truncated: String?
+    let unavailable: String?
 }
 
 /// A pull request write pinned to what the person saw when they asked: the head commit and
@@ -106,7 +147,6 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
         let event: String
         let at: Double?
         let body: String?
-        let blocks: [ForgeRichBlock]
     }
     struct IssueRef: Codable, Sendable, Equatable, Hashable {
         let repository: ForgeRepository
@@ -123,8 +163,12 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let author: String
     let createdAt: Double?
     let updatedAt: Double?
+    /// GitHub's own updatedAt, which an edit or a state change names; nil from an older bridge.
+    let revision: String?
+    /// The body arrived whole, not shortened for the phone; nil from an older bridge.
+    let bodyComplete: Bool?
+    /// The body as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
-    let bodyBlocks: [ForgeRichBlock]
     let tasks: Bool
     let labels: [ForgeLabel]
     let assignees: [String]
@@ -132,7 +176,29 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let events: [Event]
     let moreEvents: Bool
     let threads: [ForgeRelatedThread]
+    let writable: Bool?
     let box: ForgeBox
     let unconfirmed: [ForgeManage.Unconfirmed]
     let start: Start
+}
+
+/// Merge and squash commits the person edited but couldn't send because the pull request's head
+/// moved under them, kept per pull request and method so reopening Merge picks the words up at
+/// the new head. Discarding or merging drops them; words that are GitHub's own again are no
+/// draft.
+struct ForgeMergeDrafts {
+    private struct Key: Hashable { let number: Int; let repository: ForgeRepository; let method: String }
+    private var kept: [Key: ForgePullPage.MergeCommit] = [:]
+
+    /// What Merge opens with: the kept draft for this pull request and method, else GitHub's.
+    func opening(number: Int, repository: ForgeRepository, method: String, prefill: ForgePullPage.MergeCommit) -> ForgePullPage.MergeCommit {
+        kept[Key(number: number, repository: repository, method: method)] ?? prefill
+    }
+
+    /// Keeps `commit` for the next opening, or forgets the draft when nil or GitHub's own.
+    mutating func keep(_ commit: ForgePullPage.MergeCommit?, number: Int, repository: ForgeRepository, method: String,
+                       prefill: ForgePullPage.MergeCommit) {
+        let key = Key(number: number, repository: repository, method: method)
+        if let commit, commit != prefill { kept[key] = commit } else { kept[key] = nil }
+    }
 }

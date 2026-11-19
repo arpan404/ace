@@ -1,13 +1,15 @@
 import { Link } from "@tanstack/react-router";
-import { GithubMark } from "@/components/github-mark.tsx";
+import { GitPullRequestIcon } from "@ace/icons";
+import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
+import { railDotClass, railPlaceClass } from "./rail-place.ts";
 
 /**
- * The one GitHub button beside Settings at the sidebar's foot. It opens the list last looked at
- * (Inbox, Pull requests or Issues), lit while one of those pages is open. A needs-you dot shows
- * while pull requests wait on the person; unread notifications only go in its name and tooltip,
- * so they never pull the eye.
+ * Code review in the sidebar's rail. It opens the list last looked at (Inbox, Pull requests or
+ * Issues), the current place while one of those pages is open. Away from it, its dot is in the
+ * warning colour while pull requests wait on the person, else blue while notifications are
+ * unread; none at all when nothing waits, and none while Code review is open, as Threads' and
+ * Chats' dots.
  */
 export function ForgeButton(props: {
   to: "/pulls" | "/inbox" | "/issues";
@@ -23,25 +25,27 @@ export function ForgeButton(props: {
     waiting > 0 && `${waiting} ${waiting === 1 ? "needs" : "need"} you`,
     unread > 0 && `${unread} unread`,
   ].filter(Boolean);
-  const said = parts.length ? `GitHub, ${parts.join(", ")}` : "GitHub";
+  const said = parts.length ? `Code review, ${parts.join(", ")}` : "Code review";
   return (
-    <Tip label={parts.length ? `GitHub · ${parts.join(" · ")}` : "GitHub"}>
+    <Tip
+      label={parts.length ? `Code review · ${parts.join(" · ")}` : "Code review"}
+      shortcut="goPullRequests"
+    >
       <Link
         to={props.to}
         aria-current={props.active ? "page" : undefined}
+        data-state={props.active ? "active" : undefined}
         aria-label={said}
-        className={cn(
-          "relative grid size-8 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground",
-          props.active && "bg-sidebar-accent text-foreground",
-        )}
+        data-part="rail-item"
+        className={railPlaceClass}
       >
-        {/* The mark fills its box; the gear beside it draws 13px tall in 16, so this matches it. */}
-        <GithubMark size={13.5} />
-        {waiting > 0 && (
+        <Icon icon={GitPullRequestIcon} size={20} active={props.active} />
+        {/* As Threads' and Chats' dots: only off the place, where it says there is news. */}
+        {!props.active && (waiting > 0 || unread > 0) && (
           <span
             aria-hidden
-            data-tone="needs-you"
-            className="absolute top-1 right-1 size-1.5 rounded-full bg-(--tone) ring-2 ring-sidebar"
+            data-tone={waiting > 0 ? "needs-you" : "unread"}
+            className={railDotClass}
           />
         )}
       </Link>

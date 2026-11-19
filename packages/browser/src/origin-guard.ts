@@ -4,6 +4,11 @@ import type { BrowserCdp } from "./backend.ts";
 import { compactPolicyEvent } from "./policy-events.ts";
 import { CommandSlots } from "./command-slots.ts";
 
+const FrameNavigated = z.object({
+  frame: z.object({ id: z.string(), parentId: z.string().optional() }),
+});
+const SessionEnvelope = z.object({ sessionId: z.string() });
+
 const Paused = z.object({
   responseStatusCode: z.number().optional(),
   responseHeaders: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
@@ -70,9 +75,7 @@ export async function installOriginGuard(
   const frameTree = FrameTree.safeParse(await cdp.send("Page.getFrameTree"));
   let mainFrame = frameTree.success ? frameTree.data.frameTree.frame.id : undefined;
   const frameChanged = (raw: unknown) => {
-    const frame = z
-      .object({ frame: z.object({ id: z.string(), parentId: z.string().optional() }) })
-      .safeParse(raw);
+    const frame = FrameNavigated.safeParse(raw);
     if (frame.success && !frame.data.frame.parentId) mainFrame = frame.data.frame.id;
   };
   cdp.on("Page.frameNavigated", frameChanged);
@@ -233,7 +236,7 @@ export async function installOriginGuard(
     initializing = Promise.all([initializing, init]).then(() => undefined);
   }
   function received(raw: unknown): void {
-    const envelope = z.object({ sessionId: z.string() }).safeParse(raw);
+    const envelope = SessionEnvelope.safeParse(raw);
     if (!envelope.success) return;
     const child = children.get(envelope.data.sessionId);
     if (!child) return;
@@ -271,7 +274,7 @@ export async function installOriginGuard(
     if (message.method === "Target.detachedFromTarget") detached(message.params);
   }
   function detached(raw: unknown): void {
-    const result = z.object({ sessionId: z.string() }).safeParse(raw);
+    const result = SessionEnvelope.safeParse(raw);
     if (!result.success) return;
     const detachedIds = new Set([result.data.sessionId]);
     // A parent's transport owns all nested sessions, even without child detach events.

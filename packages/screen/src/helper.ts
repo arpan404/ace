@@ -1,25 +1,41 @@
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import type { RedactionContext } from "@ace/redaction";
+import { homedir, hostname } from "node:os";
+import { hostPermissions } from "./permission-model.ts";
 import { PermissionFacts } from "./permission-facts.ts";
 import { z } from "zod";
 import { ScreenPermissions, ScreenError } from "@ace/protocol";
 import { frameChannel } from "./transport.ts";
-import { spawnWindowsHelper } from "./windows-process.ts";
-import { ScreenHelperRequestV2, ScreenPermissionsV2 } from "@ace/protocol";
+import { ScreenHelperRequestV2 } from "@ace/protocol";
 import { createServer, type Socket } from "node:net";
 import {
+  lineReader,
   spawnSupervised,
+  type ProcessExit,
   type SpawnOptions,
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
+import { spawn } from "node:child_process";
 import {
   ScreenEndpoint,
   ScreenCapabilities,
   ScreenHelperReply,
   ScreenHelperRequest,
+  ScreenStreamIngestEvent,
 } from "@ace/protocol";
 import { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { FrameDecoder, type Frame } from "./frames.ts";
 
+const PermissionsChangedEvent = z.object({
+  event: z.literal("permissions.changed"),
+  permissions: ScreenPermissions,
+});
+const SessionFailedEvent = z.object({
+  event: z.literal("session.failed"),
+  sessionId: z.string(),
+  error: ScreenError,
+});
 export type HelperOptions = {
   command: string;
   platform?: NodeJS.Platform;
@@ -35,12 +51,16 @@ export type HelperOptions = {
   transport?: "endpoint" | "legacy";
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
+  /** Additional host context for diagnostics; inherited and helper environment values are included. */
+  redactionContext?: RedactionContext;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   nextId: () => string;
   onFrame: (frame: Frame) => void;
   onFailure: (error: Error) => void;
   onSessionFailure?: (sessionId: string, error: Error) => void;
   onPermissionsChanged?: (permissions: ScreenPermissions) => void;
+  /** A session's connection to ace-media's ingest failed; its video is on the helper socket. */
+  onStreamIngestClosed?: (sessionId: string) => void;
   timeoutMs?: number;
   scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
 };
@@ -59,8 +79,12 @@ export class Helper {
     }
   >();
   private readonly recent: unknown[] = [];
+  private startupDiagnostic = "";
+  private replied = false;
+  private cancelStartupFailure: (() => void) | undefined;
   capabilities: ScreenCapabilities | undefined;
   private closed = false;
+  private failure: Error | undefined;
   private readonly proc: SupervisedProcess;
   private readonly cleanup: () => Promise<void>;
   private readonly options: HelperOptions;
@@ -77,17 +101,18 @@ export class Helper {
       try {
         if (Buffer.byteLength(line) > 128 * 1024) throw new Error("Helper reply exceeds limit");
         const raw: unknown = JSON.parse(line);
-        const event = z
-          .object({ event: z.literal("permissions.changed"), permissions: ScreenPermissions })
-          .safeParse(raw);
+        const event = PermissionsChangedEvent.safeParse(raw);
         if (event.success) {
           this.permissionFacts.changed(event.data.permissions);
           this.options.onPermissionsChanged?.(event.data.permissions);
           return;
         }
-        const failedSession = z
-          .object({ event: z.literal("session.failed"), sessionId: z.string(), error: ScreenError })
-          .safeParse(raw);
+        const ingest = ScreenStreamIngestEvent.safeParse(raw);
+        if (ingest.success) {
+          this.options.onStreamIngestClosed?.(ingest.data.sessionId);
+          return;
+        }
+        const failedSession = SessionFailedEvent.safeParse(raw);
         if (failedSession.success) {
           const { sessionId, error } = failedSession.data;
           this.options.onSessionFailure?.(
@@ -105,8 +130,11 @@ export class Helper {
         if (!pending) return;
         this.pending.delete(reply.id);
         pending.cancel();
-        if (reply.ok) pending.resolve(reply.data);
-        else {
+        if (reply.ok) {
+          this.replied = true;
+          this.startupDiagnostic = "";
+          pending.resolve(reply.data);
+        } else {
           if (typeof reply.error === "object" && reply.error.code === "permission_denied") {
             this.permissionFacts.invalidate();
           }
@@ -125,7 +153,24 @@ export class Helper {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
     });
-    void proc.exited.then(() => this.fail(new Error("Screen helper exited")));
+    const redactStartup = createDiagnosticRedactor({
+      home: homedir(),
+      host: hostname(),
+      username: process.env.USER ?? process.env.USERNAME,
+      ...options.redactionContext,
+      env: { ...process.env, ...options.env, ...options.redactionContext?.env },
+    });
+    proc.stderr.on("line", (line: string) => {
+      if (!this.replied && !this.closed)
+        this.startupDiagnostic = `${this.startupDiagnostic}\n${redactStartup(line)}`
+          .slice(-1536)
+          .trim();
+    });
+    // Process close follows stdio draining, unlike frame-socket close.
+    // `exited` reports the helper's exit and does not reject.
+    void proc.exited
+      .then(() => this.fail(this.transportError(new Error("Screen helper exited"))))
+      .catch(() => {});
   }
   static async open(options: HelperOptions): Promise<Helper> {
     if ((options.platform ?? process.platform) === "win32") {
@@ -145,7 +190,7 @@ export class Helper {
             helper?.fail(error instanceof Error ? error : new Error("Invalid frame"));
           }
         },
-        (error) => helper?.fail(error),
+        (error) => helper?.transportFailed(error),
       );
       try {
         const proc = (options.spawn ?? spawnWindowsHelper)({
@@ -163,7 +208,7 @@ export class Helper {
           !helper.capabilities.codecs.includes("jpeg")
         )
           throw new Error("Helper platform or codec differs from host");
-        await channel.connect();
+        if (!helper.capabilities.inspectionOnly) await channel.connect();
         return helper;
       } catch (error) {
         if (helper) await helper.close();
@@ -199,8 +244,8 @@ export class Helper {
           helper?.fail(error instanceof Error ? error : new Error("Invalid frame"));
         }
       });
-      candidate.on("error", (error) => helper?.fail(error));
-      candidate.on("close", () => helper?.fail(new Error("Frame socket closed")));
+      candidate.on("error", (error) => helper?.transportFailed(error));
+      candidate.on("close", () => helper?.transportFailed(new Error("Frame socket closed")));
     });
     try {
       await new Promise<void>((resolve, reject) => {
@@ -281,14 +326,10 @@ export class Helper {
     const revision = this.permissionFacts.version();
     const dispatched = this.dispatch(command, beforeDispatch);
     const result =
-      command.op === "permissions" && this.capabilities?.platform === "windows"
-        ? dispatched.then((data) => {
-            const permissions = ScreenPermissionsV2.parse(data);
-            return {
-              screenRecording: ["granted", "n/a"].includes(permissions.screen),
-              accessibility: ["granted", "n/a"].includes(permissions.input),
-            };
-          })
+      command.op === "permissions" || command.op === "permissions.request"
+        ? dispatched.then((data) =>
+            hostPermissions(data, this.options.platform ?? process.platform),
+          )
         : dispatched;
     if (command.op !== "permissions" && command.op !== "permissions.request") return result;
     return result.then((data) => {
@@ -307,7 +348,7 @@ export class Helper {
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
     beforeDispatch?: () => void,
   ): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error("Helper is closed"));
+    if (this.closed) return Promise.reject(this.failure ?? new Error("Helper is closed"));
     const send = () => {
       beforeDispatch?.();
       return this.send(command);
@@ -350,7 +391,7 @@ export class Helper {
   ): Promise<unknown> {
     if (Buffer.byteLength(JSON.stringify(command)) > 64 * 1024)
       return Promise.reject(new HelperCommandError("bounds", "Helper command exceeds limit"));
-    if (this.closed) return Promise.reject(new Error("Helper is closed"));
+    if (this.closed) return Promise.reject(this.failure ?? new Error("Helper is closed"));
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
     const windows = (this.options.platform ?? process.platform) === "win32";
     const linux =
@@ -425,13 +466,49 @@ export class Helper {
         replyLimit: request.op === "measure_interaction" ? 128 * 1024 : 64 * 1024,
       });
       this.proc.stdin.write(line, (error) => {
-        if (error) this.fail(error);
+        if (!error) return;
+        if ((error as NodeJS.ErrnoException).code !== "EPIPE") {
+          this.fail(error);
+          return;
+        }
+        // A helper that died closed its stdin on the way out: its exit, which the exit handler
+        // reports as "Screen helper exited", is the failure; EPIPE is only how the write heard
+        // of it first. A pipe closed by a helper that keeps running still fails, a moment later.
+        const settle = () => this.fail(error);
+        const stopWaiting = (this.options.scheduler ?? nodeScheduler).schedule(settle, 1_000);
+        // The timer reports the failure either way; `exited` does not reject.
+        void this.proc.exited
+          .then(() => {
+            stopWaiting();
+            settle();
+          })
+          .catch(() => {});
       });
     });
+  }
+  private transportError(error: Error): Error {
+    return !this.replied && this.startupDiagnostic
+      ? new Error(`${error.message}: ${this.startupDiagnostic}`)
+      : error;
+  }
+  private transportFailed(error: Error): void {
+    if (this.closed) return;
+    if (this.replied) {
+      this.fail(error);
+      return;
+    }
+    // Give an exiting helper time to drain stderr; a broken but living helper still fails.
+    this.cancelStartupFailure ??= (this.options.scheduler ?? nodeScheduler).schedule(
+      () => this.fail(this.transportError(error)),
+      100,
+    );
   }
   private fail(error: Error): void {
     if (this.closed) return;
     this.closed = true;
+    this.failure = error;
+    this.cancelStartupFailure?.();
+    this.cancelStartupFailure = undefined;
     for (const pending of this.pending.values()) {
       pending.cancel();
       pending.reject(error);
@@ -440,8 +517,9 @@ export class Helper {
     try {
       this.options.onFailure(error);
     } finally {
-      void this.proc.stop({ graceMs: 0 });
-      void this.close();
+      // The helper is already failing: a stop or close that cannot finish reports nothing new.
+      void this.proc.stop({ graceMs: 0 }).catch(() => {});
+      void this.close().catch(() => {});
     }
   }
   diagnostics(): readonly unknown[] {
@@ -452,6 +530,8 @@ export class Helper {
     return this.closing;
   }
   private async finish(): Promise<void> {
+    this.cancelStartupFailure?.();
+    this.cancelStartupFailure = undefined;
     if (!this.closed) {
       this.closed = true;
       for (const pending of this.pending.values()) {
@@ -481,4 +561,53 @@ export class HelperCommandError extends Error {
     this.phase = phase;
     this.candidates = candidates;
   }
+}
+
+/** The native helper never creates children. Own this one process until stdin EOF, then kill if stuck. */
+export function spawnWindowsHelper(options: SpawnOptions): SupervisedProcess {
+  const child = spawn(options.command, [...(options.args ?? [])], {
+    env: { ...process.env, ...options.env },
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const controller = new AbortController();
+  const stdout = lineReader(child.stdout, options.maxLineBytes ?? 1024 * 1024, () => child.kill());
+  const stderr = lineReader(child.stderr, options.maxLineBytes ?? 1024 * 1024, () => child.kill());
+  child.stdin.on("error", () => {});
+  let failed = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  child.once("error", () => {
+    failed = true;
+    controller.abort();
+  });
+  const exited = new Promise<ProcessExit>((resolve) =>
+    child.once("close", (code, signal) => {
+      if (timer) clearTimeout(timer);
+      controller.abort();
+      stdout.close();
+      stderr.close();
+      resolve({
+        code,
+        // Bun reports a failed spawn's signal as undefined.
+        signal: signal ?? null,
+        reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
+      });
+    }),
+  );
+  return {
+    stdin: child.stdin,
+    stdout,
+    stderr,
+    signal: controller.signal,
+    exited,
+    stop({ graceMs = 1000 } = {}) {
+      if (!stopped && !controller.signal.aborted) {
+        stopped = true;
+        child.stdin.end();
+        timer = setTimeout(() => child.kill(), graceMs);
+      }
+      return exited;
+    },
+  };
 }

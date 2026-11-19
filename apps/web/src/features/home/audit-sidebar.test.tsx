@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
+import { rowText } from "@/test/row-text.ts";
 import { resetDismissed } from "@/lib/dismissed-sends.ts";
 
 const originalMedia = globalThis.matchMedia;
@@ -23,7 +24,7 @@ function app(options: Parameters<typeof harness>[0] = {}) {
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   return made;
 }
-const nav = () => screen.getByRole("navigation", { name: "Threads" });
+const nav = () => screen.getByRole("navigation", { name: "Projects" });
 const row = (name: RegExp) => within(nav()).getByRole("link", { name });
 function narrow() {
   globalThis.matchMedia = (query) => ({
@@ -43,19 +44,25 @@ async function rename(link: HTMLElement) {
   return screen.findByRole("textbox", { name: "Thread title" });
 }
 
-test("a refused send shows Not sent in both the sidebar and its spoken name", async () => {
+/** The attention level a row is drawn at: rows show no status words, only their mark. */
+const attentionOf = (link: HTMLElement) =>
+  link.closest<HTMLElement>("[data-attention]")?.dataset.attention;
+
+test("a refused send names its row Not sent and draws it as needing the person", async () => {
   const made = app();
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Message" }),
-    "Keep this message{Enter}",
-  );
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  // Before the send, the row is only working.
+  await waitFor(() => expect(attentionOf(row(/^Dedupe/))).toBe("active"));
+  await userEvent.type(message, "Keep this message{Enter}");
   await screen.findByRole("button", { name: "Retry" });
-  await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  await waitFor(() => expect(row(/^Dedupe.*\. Not sent,/)).toBeTruthy());
+  expect(attentionOf(row(/^Dedupe/))).toBe("needs-you");
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  // Away from the thread, the row still says so.
+  expect(row(/^Dedupe.*\. Not sent,/)).toBeTruthy();
+  expect(attentionOf(row(/^Dedupe/))).toBe("needs-you");
 });
 
 test("the palette finds other projects and their threads while the sidebar is filtered", async () => {
@@ -90,7 +97,7 @@ test("a remembered project filter is applied before the first sidebar request", 
       received.push(Object.values(message.view.threads).map((thread) => thread.workspaceId));
   });
   await made.open("/new?project=relay");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   stop();
   expect(received.length).toBeGreaterThan(0);
   expect(received.flat().every((project) => project === "relay")).toBe(true);
@@ -171,8 +178,8 @@ test("a filtered empty state names the project rather than its opaque id", async
   await made.client.start();
   await made.client.command({ type: "thread.archive", threadId: ThreadId.parse("ledger-seed") });
   await made.open("/new");
-  expect(await screen.findByText("Nothing in Ledger")).toBeTruthy();
-  expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
+  expect(await screen.findByText("No threads in Ledger")).toBeTruthy();
+  expect(screen.queryByText(`No threads in ${project.id}`)).toBeNull();
 });
 
 test("a task keeps project and provider context visible without duplicating Done", async () => {
@@ -184,12 +191,14 @@ test("a task keeps project and provider context visible without duplicating Done
     provider: "codex",
   });
   await made.open("/new");
-  const bare = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const bare = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Bare thread/ },
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
-  expect(within(bare).getByText("relay")).toBeTruthy();
+  // The flat Inbox has no project headings: the row's own top line names its project.
+  expect(rowText(bare)).toMatch(/^relay/);
+  expect(bare.getAttribute("aria-label")).toContain("Project relay");
   // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
   expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
   expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
@@ -202,12 +211,11 @@ test("a task keeps project and provider context visible without duplicating Done
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {
   await app().open("/new");
-  const first = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    { name: /^Approval sheet/ },
-  );
+  const first = await within(
+    await screen.findByRole("navigation", { name: "Projects" }),
+  ).findByRole("link", { name: /^Invoice PDF/ });
   fireEvent.click(first, { metaKey: true });
-  const title = await rename(row(/^Approval sheet/));
+  const title = await rename(row(/^Invoice PDF/));
   await userEvent.clear(title);
   await userEvent.type(title, "候補");
   fireEvent.keyDown(title, { key: "Enter", keyCode: 229, isComposing: false });
@@ -215,12 +223,12 @@ test("composition Enter leaves rename open and Escape preserves the existing mul
   fireEvent.keyDown(title, { key: "Escape" });
   expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.getByRole("toolbar", { name: "Selected threads" })).toBeTruthy();
-  row(/^Approval sheet/).focus();
+  row(/^Invoice PDF/).focus();
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
-test("a rename survives changing from a task row to a settled row", async () => {
+test("a rename in progress survives its thread settling: what was typed is kept in Settled", async () => {
   const made = app();
   createIdleTask(made.daemon, {
     id: "rename-row",
@@ -229,31 +237,43 @@ test("a rename survives changing from a task row to a settled row", async () => 
     provider: "codex",
   });
   await made.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: /^Rename across/,
   });
-  await userEvent.click(screen.getByRole("button", { name: /^Settled / }));
   const title = await rename(row(/^Rename across/));
   await userEvent.clear(title);
   await userEvent.type(title, "Retained rename");
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  const retained = await screen.findByRole<HTMLInputElement>("textbox", { name: "Thread title" });
-  expect(retained.value).toBe("Retained rename");
-  await userEvent.type(retained, "{Enter}");
-  expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
+  // Settled, the thread leaves the Inbox, and the title typed so far is saved, not dropped.
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull());
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(view?.kind === "threads" ? view.threads["rename-row"]?.title : undefined).toBe(
+      "Retained rename",
+    );
+  });
+  await userEvent.click(within(nav()).getByRole("tab", { name: /^Settled/ }));
+  expect(await within(nav()).findByRole("link", { name: /^Retained rename\. / })).toBeTruthy();
 });
 
 test("Shift-click selects a range in the narrow sheet without closing it", async () => {
   narrow();
-  await app().open("/t/thread-dedupe");
-  await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
+  const made = app();
+  for (const [id, title] of [
+    ["thread-readme", "Tidy the README"],
+    ["thread-docs-index", "Sketch the docs index"],
+  ] as const)
+    createIdleTask(made.daemon, { id, workspaceId: "notes", title, provider: "codex" });
+  await made.open("/t/thread-dedupe");
+  await userEvent.click(await screen.findByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   const rows = within(sheet);
-  const first = await rows.findByRole("link", { name: /^Approval sheet/ });
+  // The notes project holds just these two, so the range from one to the other is both.
+  const first = await rows.findByRole("link", { name: /^Tidy the README/ });
   fireEvent.click(first, { metaKey: true });
-  fireEvent.click(rows.getByRole("link", { name: /^Retry budget/ }), { shiftKey: true });
+  fireEvent.click(rows.getByRole("link", { name: /^Sketch the docs index/ }), { shiftKey: true });
   expect(screen.getByRole("dialog", { name: "Sidebar" })).toBe(sheet);
   expect(rows.getByText("2 selected")).toBeTruthy();
 });
@@ -268,7 +288,7 @@ test("streaming execution changes do not reread every row's read cursor", async 
   });
   const read = vi.spyOn(made.client, "threadReadState");
   await made.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(0));
   const before = read.mock.calls.length;
   act(() => made.daemon.apply("read-storm", [facts.turn("root")]));

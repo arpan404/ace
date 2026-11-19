@@ -1,14 +1,19 @@
+import { agentAnswerRefusal } from "../answer-gate.ts";
+import { ThreadOwnership } from "../transfers/live/ownership.ts";
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
-import { configuredDiscovery } from "../provider-discovery.ts";
+import { stagedDiscovery } from "../provider-discovery.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
+import { withNativeTools } from "./native-tools.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
+import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerAntigravity } from "./antigravity.ts";
 import { registerPi } from "./pi.ts";
@@ -23,16 +28,19 @@ import { recoverOnFreshReadings } from "./limit-recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { accessDefaults } from "../engine/access-defaults.ts";
 import { projectAccess } from "../project-access.ts";
-import { discoverAdapters } from "../engine/adapters.ts";
+import { discoverAdapters, settleAll } from "../engine/adapters.ts";
+import { AdapterRegistry } from "../engine/registry.ts";
+import { activateProviders, discoverThenBind, engineReadiness } from "./provider-activation.ts";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services, log } = context;
 
   if (options.handler) {
+    services.startupProbes?.close();
     services.handler = options.handler;
     return;
   }
-  const recoverSkillRoots = await builtinSkillRecovery(config.dataDir);
   const engineOptions = options.engine ?? {};
   const defaultInstance = await daemonCursorInstance(context);
   const cursorOptions = {
@@ -45,23 +53,22 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     limitsForSession: (instanceId?: string) =>
       cursorCheckpointLimitOverride(services.providerConfigurations?.for("cursor", instanceId)),
   };
-  const registry =
-    engineOptions.registry ??
-    (await discoverAdapters(
-      configuredDiscovery(context, engineOptions.adapterDiscovery),
-      (cli) => daemonClaudeAdapter(context, cli),
-      async (adapters) => {
-        await registerPi(context, adapters);
-        await registerAntigravity(context, adapters);
-      },
-      cursorOptions,
-      services.providerConfigurations?.for("cursor").enabled === false
-        ? async () => ({ installed: false, supported: false })
-        : undefined,
-    ));
-  if (!engineOptions.registry) resources.own(() => registry.close());
-  context.signal.throwIfAborted();
+  // Adapters register once each CLI's path and version are read; its login follows, since
+  // OpenCode's login probe alone takes most of a second and nothing at startup needs it.
+  const logins = new Map<"claude" | "codex" | "opencode", DiscoveryResult>();
+  let target: AdapterRegistry | undefined;
+  const loginRead = (provider: "claude" | "codex" | "opencode", cli: DiscoveryResult) => {
+    logins.set(provider, cli);
+    target?.refreshDiscovery(provider, cli);
+  };
+  // Adapters join this registry as discovery finds them; every session open waits for
+  // `providerActivation` first, so none opens on an adapter that is not bound yet.
+  const registry = engineOptions.registry ?? new AdapterRegistry();
+  if (!engineOptions.registry) resources.own(() => registry.close(), "provider registry");
+  // Once clients can connect, every check observes the CLI afresh (a login may change).
+  context.onListen.push(() => services.startupProbes?.close());
   const capabilities = daemonMcpCapabilities(services);
+  const worktrees = new ManagedWorktrees(store, config.dataDir);
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
@@ -74,6 +81,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           options,
           accounts: services.accounts,
           accountRegistry: services.accountRegistry,
+          worktreeSource: (path) => {
+            const record = worktrees.get(path);
+            return record && worktrees.verify(record.repo, path)?.repo;
+          },
           report: (error) => log.log("error", "ACP metadata failure", logError(error)),
         })
       : {};
@@ -95,8 +106,21 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor" }),
       );
   };
+  const nativeTools = {
+    // Read at each launch: settings may start after the engine.
+    get settings() {
+      return services.settings;
+    },
+    log,
+    env: options.accounts?.env ?? process.env,
+    files: cachedToolFiles(nodeFileSystem),
+  };
   const bindProvider = (source: ProviderAdapter) => {
-    const adapter = configuredAdapter(source, services.providerConfigurations);
+    // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0138).
+    const adapter = withNativeTools(
+      nativeTools,
+      configuredAdapter(source, services.providerConfigurations),
+    );
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
       return withDaemonMcp(context, {
         ...adapter,
@@ -136,31 +160,83 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       ? configuredAdapter(withShippedSkills(wrapped), services.providerConfigurations)
       : withDaemonMcp(context, wrapped);
   };
-  await registerCursorSdkHome();
-  registry.bindSessions(bindProvider);
-  await activateCursorProvider(context, registry);
-  if (!engineOptions.registry) {
-    let update = Promise.resolve();
-    services.rediscoverProviders = () => {
-      const discovery = update.then(async () => {
-        context.signal.throwIfAborted();
-        await discoverAdapters(
-          configuredDiscovery(context, engineOptions.adapterDiscovery),
-          (cli) => daemonClaudeAdapter(context, cli),
-          async (adapters) => {
-            if (!adapters.has("pi")) await registerPi(context, adapters);
-            await registerAntigravity(context, adapters);
-          },
-          cursorOptions,
-          services.providerConfigurations?.for("cursor").enabled === false
-            ? async () => ({ installed: false, supported: false })
-            : undefined,
-          registry,
-        );
+  // Provider CLIs, the Cursor SDK and ace's skill folder are read after the engine is up
+  // (ADR 0175): a CLI that never answers, or a slow disk, leaves the engine "starting" and
+  // commands waiting for their provider instead of failing the daemon's start.
+  const activationBegan = context.now();
+  const activation = activateProviders({
+    signal: context.signal,
+    captureSkillRoots: () => builtinSkillRecovery(config.dataDir),
+    discover: async () => {
+      if (engineOptions.registry) return;
+      // A daemon the app started on last session's PATH reads CLIs only on the login shell's:
+      // a stale PATH could miss a CLI or pick another installation of one.
+      const changed = await options.loginPath?.final;
+      // A stopping daemon's PATH is settled unchanged, never confirmed: read nothing on it.
+      context.signal.throwIfAborted();
+      if (changed === true)
+        log.log("info", "Providers are read on the login shell's PATH, which changed");
+      await discoverAdapters(
+        stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
+        (cli) => daemonClaudeAdapter(context, cli),
+        async (adapters) => {
+          // Independent providers: Pi's CLI and Antigravity's approved install are read together,
+          // and both settle before sessions are bound.
+          await settleAll([registerPi(context, adapters), registerAntigravity(context, adapters)]);
+        },
+        cursorOptions,
+        services.providerConfigurations?.for("cursor").enabled === false
+          ? async () => ({ installed: false, supported: false })
+          : undefined,
+        registry,
+      ).finally(() => services.startupProbes?.close());
+      // Logins read before their adapters registered; later ones apply as they arrive.
+      target = registry;
+      for (const [provider, cli] of logins) registry.refreshDiscovery(provider, cli);
+    },
+    bind: async () => {
+      try {
         await registerCursorSdkHome();
-        registry.bindSessions(bindProvider, { unboundOnly: true });
-        await activateCursorProvider(context, registry);
-      });
+      } finally {
+        registry.bindSessions(bindProvider);
+      }
+      await activateCursorProvider(context, registry);
+    },
+    report: (error) => log.log("warn", "Abandoned skill folders unreadable", logError(error)),
+  });
+  services.providerActivation = activation.settled;
+  if (!engineOptions.registry) {
+    let update = activation.settled;
+    services.rediscoverProviders = () => {
+      const discovery = update.then(() =>
+        discoverThenBind({
+          signal: context.signal,
+          discover: () =>
+            discoverAdapters(
+              stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
+              (cli) => daemonClaudeAdapter(context, cli),
+              async (adapters) => {
+                await settleAll([
+                  adapters.has("pi") ? Promise.resolve() : registerPi(context, adapters),
+                  registerAntigravity(context, adapters),
+                ]);
+              },
+              cursorOptions,
+              services.providerConfigurations?.for("cursor").enabled === false
+                ? async () => ({ installed: false, supported: false })
+                : undefined,
+              registry,
+            ).then(() => {}),
+          bind: async () => {
+            try {
+              await registerCursorSdkHome();
+            } finally {
+              registry.bindSessions(bindProvider, { unboundOnly: true });
+            }
+            await activateCursorProvider(context, registry);
+          },
+        }),
+      );
       update = discovery.catch((error: unknown) =>
         log.log("warn", "Provider discovery failed", logError(error)),
       );
@@ -198,8 +274,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engine = new Engine(store, {
     ...(config.providerIdleMs === undefined ? {} : { idleMs: config.providerIdleMs }),
     ...acp,
+    agentHome: config.dataDir,
     ...engineOptions,
     registry,
+    providersActivated: activation.settled,
     waitForProvider:
       engineOptions.waitForProvider ??
       (async (provider) => {
@@ -266,9 +344,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           prepareWorkspace: (id, policy) =>
             services.workspaceActions?.prepare(id, policy) ??
             Promise.reject(new Error("Workspace unavailable")),
-          assertWorkspaceAvailable: async (cwd) => {
-            await engineOptions.assertWorkspaceAvailable?.(cwd);
+          assertWorkspaceAvailable: async (cwd, threadId) => {
+            await engineOptions.assertWorkspaceAvailable?.(cwd, threadId);
             if (!services.workspaceActions) throw new Error("Workspace unavailable");
+            // A gone checkout says so before Git is asked to lock a folder that isn't there.
+            await services.workspaceActions.assertCheckoutPresent(threadId, cwd);
             await services.workspaceActions.git.assertMutationAvailable(cwd);
           },
           machine: services.workspaceActions.machine,
@@ -352,18 +432,67 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       ((thread, error) =>
         log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
-  resources.own(() => engine.close());
+  resources.own(() => engine.close(), "provider sessions");
   // Turns deferred while maintenance held new work start when it reopens.
   const stopReopen = context.maintenance?.onReopen(() => engine.admissionReopened());
   if (stopReopen) resources.own(() => stopReopen());
-  // DB recovery orders startup; each projection's kernel process lease separately gates deletion.
-  await recoverSkillRoots(engine.ready(), (error) =>
-    log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),
+  // Skill folders the last run left are removed once recovery has reattached what still runs;
+  // each projection's kernel process lease separately gates deletion.
+  const reportCleanup = (error: unknown) =>
+    log.log("warn", "Abandoned skill projection cleanup failed", logError(error));
+  void activation.skillRoots
+    .then((recoverSkillRoots) => recoverSkillRoots?.(engine.ready(), reportCleanup, context.signal))
+    .catch(reportCleanup);
+  const readEngine = engineReadiness(activation, engine.ready());
+  context.readiness?.(readEngine);
+  // One line once providers are read and recovery has run: what kept the engine starting.
+  const settledAt = (step: Promise<void>) =>
+    step.then(
+      () => context.now() - activationBegan,
+      () => context.now() - activationBegan,
+    );
+  void Promise.all([settledAt(activation.settled), settledAt(engine.ready())]).then(
+    ([providersMs, recoveryMs]) => {
+      if (context.signal.aborted) return;
+      const state = readEngine();
+      log.log(
+        state.state === "degraded" ? "warn" : "info",
+        "Engine ready",
+        logFields([
+          ["state", state.state],
+          ["providersMs", Math.round(providersMs)],
+          ["recoveryMs", Math.round(recoveryMs)],
+          ...(state.state === "degraded" ? [["error", state.error] as const] : []),
+        ]),
+      );
+    },
+    (error: unknown) => log.log("warn", "Engine readiness line failed", logError(error)),
   );
+  // The reader changes on its own as providers and recovery settle: say so each time.
+  for (const step of [activation.settled, engine.ready()])
+    void step.then(
+      () => context.readiness?.(readEngine),
+      () => context.readiness?.(readEngine),
+    );
   engine.bindHostInteractions(
-    (command) => services.asks?.resolve(command) ?? services.browserHelp?.resolve(command),
+    (command) =>
+      // Agents never answer the person's requests: approvals, plans, elicitations.
+      agentAnswerRefusal(command, (id) => store.getInteraction(id)?.request.kind) ??
+      services.asks?.resolve(command) ??
+      services.browserHelp?.resolve(command) ??
+      services.marketAgent?.requests.resolve(command),
   );
   services.engine = engine;
+  // A thread moving or moved to another machine refuses new turns from the first command
+  // (ADR 0191), before transfers start.
+  // One record holds the whole tree: a subagent is held by its root's.
+  const owners = new ThreadOwnership(store);
+  engine.bindOwnershipFence((threadId) => {
+    const own = owners.refusal(threadId);
+    if (own) return own;
+    const root = services.agentControl?.delegations.journal.rootOf(threadId) ?? threadId;
+    return root === threadId ? undefined : owners.refusal(root);
+  });
   if (accountRegistry)
     resources.own(
       recoverOnFreshReadings({

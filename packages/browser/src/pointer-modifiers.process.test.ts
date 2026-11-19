@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 const owner = { kind: "human", connectionId: "owner" } as const;
 
 describe.skipIf(!executablePath)("the person's pointer input", () => {
   it("delivers held keys on clicks and wheels, and held buttons on drags", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const evaluate = (expression: string) =>
       f.service.execute("thread", { action: "evaluate", expression }, owner);
@@ -43,7 +43,7 @@ describe.skipIf(!executablePath)("the person's pointer input", () => {
   }, 60_000);
 
   it("keeps plain clicks plain when no keys are held", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const evaluate = (expression: string) =>
       f.service.execute("thread", { action: "evaluate", expression }, owner);

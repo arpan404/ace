@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Production root: app lock, then onboarding or the inbox across every paired computer.
+/// Production root: app lock, then the inbox across every paired computer.
 struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
@@ -28,43 +28,31 @@ struct RootView: View {
             }
         }
     }
-    @ViewBuilder private var content: some View {
-        if !machines.loaded {
-            AceTheme.Colours.background.ignoresSafeArea()
-        } else if machines.machines.isEmpty {
-            NavigationStack {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    ContentUnavailableView("Your agents, with you", systemImage: "point.3.connected.trianglepath.dotted",
-                                           description: Text("Pair this phone with ace on your own computer, over your network or Tailscale."))
-                        .frame(maxHeight: 260)
-                    PairingView(machines: machines)
-                }
-                .background(AceTheme.Colours.background)
-            }
-            .tint(AceTheme.Colours.foreground)
-        } else {
-            InboxView(inbox: machines.inbox, machines: machines, lock: lock)
-        }
+    /// The inbox from the first frame: with no computer paired it offers Add device, and
+    /// while the phone is still reading its machines the list shows its loading rows.
+    private var content: some View {
+        InboxView(inbox: machines.inbox, machines: machines, lock: lock)
+            .machineCodePrompt(machines.inbox)
     }
 }
 
 struct LockView: View {
     let lock: AppLock
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.lg) {
-            Image(systemName: "lock.fill").aceFont(AceTheme.Typography.title, relativeTo: .largeTitle)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            Text("ace is locked").aceFont(AceTheme.Typography.title, relativeTo: .title2).foregroundStyle(AceTheme.Colours.foreground)
+        VStack(spacing: AceDesign.Space.margin) {
+            Image(systemName: "lock.fill").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+                .foregroundStyle(AceDesign.Ink.muted)
+            Text("ace is locked").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
             if lock.failed {
-                Text("Couldn't verify it's you.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("Couldn't verify it's you.").font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             Button("Unlock") { Task { await lock.unlock() } }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).disabled(lock.authenticating)
                 .accessibilityIdentifier("lock.unlock")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .task { await lock.unlock() }
     }
 }
@@ -72,7 +60,7 @@ struct LockView: View {
 /// Hides content from the app switcher snapshot.
 struct PrivacyCover: View {
     var body: some View {
-        AceTheme.Colours.background.ignoresSafeArea()
-            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceTheme.Colours.decoration) }
+        AceDesign.Surface.background.ignoresSafeArea()
+            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceDesign.Ink.faint) }
     }
 }

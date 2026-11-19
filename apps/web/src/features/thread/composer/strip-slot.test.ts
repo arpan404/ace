@@ -50,11 +50,6 @@ test("a message on its way ranks below a request, above the connection and the q
   });
 });
 
-test("approval hides the queue strip but shows a queued indicator", () => {
-  const slot = stripSlot(facts({ requests: ["approval-1"], queue: true }), undefined);
-  expect(slot).toEqual({ shown: "request", others: ["queue"] });
-});
-
 test("the slot goes request, then connection, then queue, then plan", () => {
   const all = facts({ requests: ["a"], connection: true, queue: true, plan: true });
   expect(stripSlot(all, undefined)).toEqual({

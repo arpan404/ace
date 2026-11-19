@@ -12,9 +12,19 @@ export interface ToolDelivery {
   readonly how?: string | undefined;
 }
 
-/** Codex's code-mode models reach MCP tools only from inside `exec`. */
-export const codexCallForm = "Inside exec, call these as await tools.mcp__ace__<name>(args).";
+/**
+ * Codex's code-mode models reach MCP tools only from inside `exec`; its other models load a
+ * deferred tool with their tool search, then call it by name.
+ */
+export const codexCallForm =
+  "Inside exec, call these as await tools.mcp__ace__<name>(args); without exec, load them with your tool_search, then call mcp__ace__<name>.";
 const viaToolsCall = "Call these with tools_call {name, arguments}.";
+/**
+ * A Codex session on the fixed list: `tools_call`, which code mode calls from `exec`. Its
+ * destructive tools are listed by name, so Codex asks before them (`namesDestructiveTools`).
+ */
+const codexViaToolsCall =
+  "Call these with tools_call {name, arguments}; inside exec, await tools.mcp__ace__tools_call({name, arguments}). A destructive one is in your list: call it by name.";
 /**
  * A core client reloads its list on `tools/list_changed` and gets every schema from it, so a
  * schema returned here too would be paid twice. The reload can land a model step late (OpenCode
@@ -25,14 +35,23 @@ const untilReloaded =
 
 /** What a guide returns about its family's tools. */
 export function guideDelivery(listing: ToolListing = "all", client?: AceClient): ToolDelivery {
-  if (client === "codex") return { schemas: true, how: codexCallForm };
+  if (client === "codex") return codexDelivery(listing);
   if (listing === "static") return { schemas: true, how: viaToolsCall };
   return listing === "core" ? { schemas: false, how: untilReloaded } : { schemas: false };
 }
 
 /** What `tools_find` returns about its matches. */
 export function findDelivery(listing: ToolListing = "all", client?: AceClient): ToolDelivery {
-  if (client === "codex") return { schemas: true, how: codexCallForm };
+  if (client === "codex") return codexDelivery(listing);
   if (listing === "static") return { schemas: true, how: viaToolsCall };
   return listing === "core" ? { schemas: false, how: untilReloaded } : { schemas: true };
+}
+
+/**
+ * Codex never shows a code-mode model a schema, so it always gets them inline. Codex never
+ * reloads its list, so a session it connected with the fixed list reaches the rest through
+ * `tools_call`.
+ */
+function codexDelivery(listing: ToolListing): ToolDelivery {
+  return { schemas: true, how: listing === "static" ? codexViaToolsCall : codexCallForm };
 }

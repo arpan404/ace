@@ -30,6 +30,8 @@ export function openCodeLoginDriver(
     onIntegration?(id: string): void;
     /** OpenCode's server for this sign-in; absent or failing, the terminal flow runs. */
     signIn?(signal: AbortSignal): Promise<OpenCodeSignIn>;
+    /** Integrations with a login from before OpenCode 2.2, marked when not connected now. */
+    earlierLogins?(): Promise<ReadonlySet<string>>;
     pollMs?: number;
   },
 ): ProviderLoginDriver {
@@ -39,7 +41,9 @@ export function openCodeLoginDriver(
   const ask = (
     signal: AbortSignal,
     emit: (update: LoginUpdate) => void,
-    update: LoginUpdate & { choices: { id: string; label: string }[] },
+    update: LoginUpdate & {
+      choices: { id: string; label: string; note?: "sign_in_again" }[];
+    },
   ) =>
     new Promise<string>((resolve, reject) => {
       const abort = () => {
@@ -77,7 +81,8 @@ export function openCodeLoginDriver(
       name: "OpenCode v2 sign-in",
     });
     const abort = () => {
-      void terminal?.stop();
+      // Only a head start: the login closes the same terminal below and reports there.
+      void terminal?.stop().catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
     try {
@@ -192,7 +197,10 @@ export function openCodeLoginDriver(
       if (options.action === "login" && options.signIn)
         try {
           server = await options.signIn(signal);
-          choices = openCodeSignInChoices(await server.integrations());
+          const earlier = await (options.earlierLogins?.() ?? Promise.resolve(new Set<string>()))
+            // Unreadable, it marks nothing: every service is still offered.
+            .catch(() => new Set<string>());
+          choices = openCodeSignInChoices(await server.integrations(), earlier);
         } catch {
           // OpenCode's own terminal still signs in when its server can't answer.
           signal.throwIfAborted();
@@ -209,7 +217,7 @@ export function openCodeLoginDriver(
           }));
         const picked = await ask(signal, emit, {
           state: "awaiting_input",
-          choices: offered.map(({ id, label }) => ({ id, label })),
+          choices: offered.map(({ id, label, note }) => ({ id, label, ...(note ? { note } : {}) })),
         });
         signal.throwIfAborted();
         const choice = offered.find((candidate) => candidate.id === picked);

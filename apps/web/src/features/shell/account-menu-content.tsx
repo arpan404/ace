@@ -1,11 +1,5 @@
 import { DaemonMenuItems } from "./daemon-menu-content.tsx";
-import {
-  ArchiveIcon,
-  ChartBarIcon,
-  InfoIcon,
-  KeyboardIcon,
-  PlugsIcon,
-} from "@phosphor-icons/react";
+import { ArchiveIcon, InfoIcon, KeyboardIcon, PlugsIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
@@ -14,9 +8,13 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { menuViews } from "./views.ts";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
+import { ProfileAvatar } from "@/components/profile-avatar.tsx";
+import {
+  useAccountPicture,
+  useAceAccount,
+  useAceAccountStore,
+} from "@/features/ace-account/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProfileName } from "@/lib/profile.ts";
@@ -30,37 +28,37 @@ function desktopVersion(): string | undefined {
 }
 
 /**
- * The profile's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
- * with connection actions in their own submenu, usage and accounts, and the desktop version.
- * Settings is the gear
- * beside the profile, so it isn't repeated here.
+ * The profile's menu, loaded after the first paint (`SidebarMenu`): the person first (their
+ * avatar, name and ace account, opening Settings › Profile), then the app,
+ * with connection actions in their own submenu, and the desktop version. Settings, Usage,
+ * Automations and Skills are places in the rail above it, so they aren't repeated here.
  */
 export function AccountMenuContent() {
   const layout = useLayout();
   const [name] = useProfileName();
+  const { session } = useAceAccount();
+  const accounts = useAceAccountStore();
+  const picture = useAccountPicture();
   const navigate = useNavigate();
   const version = desktopVersion();
+  const shown = session?.account.name || name.trim();
   return (
-    // About the sidebar's width: a narrower menu ended mid-row, where the rows' status text behind
-    // the glass ran on from its shortcut hints and read as clipped.
-    <MenuContent side="top" align="start" className="min-w-[max(var(--anchor-width),16rem)]">
-      <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui text-muted-foreground">
-        <span className="truncate">{name || "You"}</span>
-      </div>
-      <MenuSeparator />
-      {menuViews.map((view) => (
-        <MenuItem
-          key={view.id}
-          icon={<Icon icon={view.icon} />}
-          onClick={() => void navigate({ to: view.to })}
-        >
-          {view.label}
-        </MenuItem>
-      ))}
-      <MenuSeparator />
-      <MenuItem icon={<ChartBarIcon aria-hidden />} onClick={() => void navigate({ to: "/usage" })}>
-        Usage
+    <MenuContent side="right" align="end" className="min-w-64">
+      <MenuItem
+        icon={
+          <ProfileAvatar name={shown} picture={picture} className="size-9 text-sm" iconSize={16} />
+        }
+        className="h-auto gap-3 py-2"
+        onClick={() => void navigate({ to: "/settings/profile" })}
+      >
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{shown || "You"}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {session?.account.email ?? (accounts ? "Not signed in" : "Your profile")}
+          </span>
+        </span>
       </MenuItem>
+      <MenuSeparator />
       <MenuItem
         icon={<ArchiveIcon aria-hidden />}
         onClick={() => void navigate({ to: "/archived" })}

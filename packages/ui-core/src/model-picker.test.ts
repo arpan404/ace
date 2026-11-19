@@ -5,6 +5,7 @@ import {
   nextOptions,
   pickerList,
   pickerModelsFromChoices,
+  pickerProviders,
   reconcileNextOptions,
 } from "./model-picker.ts";
 import { modelKey, recordedChoice, type ModelChoice } from "./models.ts";
@@ -101,4 +102,21 @@ test("an opus alias favourite survives a catalog refresh and stays listed once",
       favorites: [modelKey("claude", "opus"), modelKey("claude", "claude-opus-5-5")],
     }).rows.map((row) => row.label),
   ).toEqual(["Opus 5.5"]);
+});
+
+test("a turned-off provider keeps its place in the picker and says how to turn it on", () => {
+  const providers = pickerProviders(
+    [],
+    [
+      { provider: "claude", state: "off" },
+      { provider: "codex", state: "not_installed" },
+    ],
+  );
+  expect(providers).toEqual([
+    {
+      provider: "claude",
+      reason: "Claude Code is turned off. Turn it on in Settings › Providers.",
+    },
+    { provider: "codex", reason: "Codex isn't installed" },
+  ]);
 });

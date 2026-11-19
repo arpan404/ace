@@ -1,4 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { build } from "vite";
@@ -6,10 +5,17 @@ import { beforeAll, expect, test } from "vitest";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 
 /*
- * The production stylesheet, built the way `vite build` builds it (Tailwind scanning the app's
- * source, the polyfill strip, minification), checked for the animations it actually ships and
- * for the backdrop filters it can apply.
+ * The production stylesheets, built the way `vite build` builds them (Tailwind scanning the app's
+ * source, the polyfill strip, minification), checked for the animations they actually ship and
+ * for the backdrop filters they can apply: the global sheet and the ones lazy components import.
  */
+const sheets = [
+  "index.css",
+  "model-control.css",
+  "composer-strip.css",
+  "composer-pill.css",
+  "composer-markdown.css",
+];
 
 const root = import.meta.dirname;
 let css = "";
@@ -22,7 +28,7 @@ beforeAll(async () => {
     plugins: [tailwindcss(), cssWithoutLegacyPolyfills()],
     build: {
       write: false,
-      rolldownOptions: { input: join(root, "src/styles/index.css") },
+      rolldownOptions: { input: sheets.map((sheet) => join(root, "src/styles", sheet)) },
     },
   });
   const outputs = (Array.isArray(result) ? result : [result]).flatMap((built) =>
@@ -82,27 +88,6 @@ const themeAnimations = () =>
   );
 const animationOf = (body: string) =>
   /(?:^|;)\s*animation(?:-name)?:([^;]+)/.exec(body)?.[1]?.replace("!important", "");
-const reducedOnly = (selector: string) =>
-  selector.includes("data-reduce-motion") || selector.includes("data-live-held");
-
-/** Every `animate-<name>` utility class written in the app's runtime source. */
-function animateUtilities(): string[] {
-  const used = new Set<string>();
-  const walk = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name))
-        for (const [, name] of readFileSync(path, "utf8").matchAll(
-          /(?<![\w-])animate-([a-z][\w-]*)/g,
-        ))
-          if (name) used.add(name);
-    }
-  };
-  walk(join(root, "src"));
-  return [...used].map((name) => `animate-${name}`);
-}
-
 test("every animation the production stylesheet plays has its keyframes", () => {
   const defined = keyframes();
   const theme = themeAnimations();
@@ -116,51 +101,33 @@ test("every animation the production stylesheet plays has its keyframes", () => 
   expect(missing).toEqual([]);
 });
 
-test("reduced motion keeps every live indicator animating, so loading never looks hung", () => {
-  const live = ["spin-ring", "aperture-part", "fx-breathe", "fx-indeterminate", "animate-pulse"];
-  const defined = keyframes();
-  const theme = themeAnimations();
-  const stopped = rules().flatMap(({ selector, body }) => {
-    const value = animationOf(body);
-    if (value === undefined || !selector.includes("data-reduce-motion")) return [];
-    if (namesIn(value, theme).some((name) => defined.has(name))) return [];
-    return live
-      .filter((name) => new RegExp(`\\.${name}(?![\\w-])`).test(selector))
-      .map((name) => `.${name} stops under ${selector}`);
-  });
-  expect(stopped).toEqual([]);
-});
+/*
+ * Nothing loops forever: an infinite animation keeps the compositor drawing frames for as long as
+ * its element shows, which is idle CPU on the GPU and renderer. Live state is a still mark. Only
+ * the startup mark's breath (while ace starts), an indeterminate progress bar (during a transfer
+ * it can't measure), a live agent's mark in the open Summary tree (ADR 0108) and a working Spade
+ * bot's eyes, its face being its status (ADR 0127), may repeat, and each goes away when what it
+ * stands for ends. A bot's character face moves its eyes, pupils and head the same way while it
+ * works or thinks, and only then.
+ */
+const mayLoop =
+  /^(?:(?::root\[data-reduce-motion\] )?\.(?:fx-breathe|fx-indeterminate|fx-alive|fx-spade-look|fx-spade-blink)|:root:not\(\[data-reduce-motion\]\) \.bot-face\[data-state=(?:working|thinking)\] \.bf-(?:ey|pu|hd))$/;
 
-test("live indicators and every animate-* utility the app uses animate unless motion is reduced", () => {
-  const classes = [
-    ...animateUtilities(),
-    "spin-ring",
-    "aperture-part",
-    "fx-breathe",
-    "fx-indeterminate",
-  ];
-  expect(classes).toContain("animate-pulse");
-  const defined = keyframes();
+test("the production stylesheet loops no animation but the startup breath, indeterminate progress, live Summary marks and a working Spade bot's eyes", () => {
   const theme = themeAnimations();
-  const problems = classes.flatMap((name) => {
-    const mentions = rules().filter((rule) =>
-      rule.selector
-        .split(",")
-        .some((selector) => new RegExp(`\\.${name}(?![\\w-])`).test(selector)),
-    );
-    const plays = mentions.some((rule) => {
-      const value = animationOf(rule.body);
-      if (!value || reducedOnly(rule.selector)) return false;
-      const names = namesIn(value, theme);
-      return names.length > 0 && names.every((keyframe) => defined.has(keyframe));
-    });
-    const found = plays ? [] : [`.${name} plays no animation with keyframes`];
-    for (const rule of mentions)
-      if (animationOf(rule.body)?.trim().startsWith("none") && !reducedOnly(rule.selector))
-        found.push(`.${name} is stopped outside reduced motion by ${rule.selector}`);
-    return found;
+  const resolved = (value: string) =>
+    value.replace(/var\((--animate-[\w-]+)\)/g, (call, name: string) => theme.get(name) ?? call);
+  const looping = rules().filter(({ body }) => {
+    const animation = animationOf(body);
+    const count = /(?:^|;)\s*animation-iteration-count:([^;]+)/.exec(body)?.[1];
+    return [animation, count].some((value) => value && /\binfinite\b/.test(resolved(value)));
   });
-  expect(problems).toEqual([]);
+  // The two that may loop are in the build, so this reads real rules and not an empty list.
+  expect(looping.length).toBeGreaterThan(0);
+  const refused = looping.flatMap((rule) =>
+    selectorsOf(rule.selector).filter((selector) => !mayLoop.test(selector)),
+  );
+  expect(refused).toEqual([]);
 });
 
 /** A selector list split at its top-level commas, so `:is(.a, .b)` stays one selector. */

@@ -40,8 +40,15 @@ import XCTest
         XCTAssertTrue(conversation.exists)
         screenshot("code")
         app.buttons["forge.line.RIGHT.6"].tap()
+        // A tap picks the line; Comment opens the comment on it.
+        XCTAssertTrue(app.buttons["forge.pick.comment"].waitForExistence(timeout: 10))
+        app.buttons["forge.pick.comment"].tap()
         XCTAssertTrue(app.buttons["forge.write.suggest"].waitForExistence(timeout: 10))
         app.buttons["forge.write.suggest"].tap()
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+        app.buttons["Keep editing"].tap()
+        XCTAssertTrue((app.textFields["forge.editor"].firstMatch.value as? String)?.contains("suggestion") == true)
         screenshot("line-comment")
         let threads = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'forge.thread.RT_'"))
         let before = threads.count
@@ -93,13 +100,12 @@ import XCTest
         timeline.tap()
         let comment = element(app, "forge.comment.issue:2452")
         XCTAssertTrue(comment.waitForExistence(timeout: 20))
-        let boxes = comment.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'forge.task.'"))
-        let open = boxes.matching(NSPredicate(format: "value == 'Not done'")).firstMatch
+        // markit draws a box as a glyph in the text, a link where the box ticks.
+        let open = comment.links.matching(NSPredicate(format: "label BEGINSWITH '☐'")).firstMatch
         if !open.waitForExistence(timeout: 10) { screenshot("task-missing") }
-        XCTAssertTrue(open.exists)
-        XCTAssertTrue(open.isEnabled, "The box in your own comment ticks")
+        XCTAssertTrue(open.exists, "The box in your own comment ticks")
         app.lower(open)
-        let done = boxes.matching(NSPredicate(format: "value == 'Done'"))
+        let done = comment.links.matching(NSPredicate(format: "label BEGINSWITH '☑'"))
         let before = done.count
         open.tap()
         let ticked = expectation(for: NSPredicate(format: "count > \(before)"), evaluatedWith: done)
@@ -111,9 +117,9 @@ import XCTest
     private func openPull() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.launchWithArguments()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
+        app.openPulls()
         let row = app.buttons["forge.pull.245"]
         XCTAssertTrue(row.waitForExistence(timeout: 25))
         row.tap()

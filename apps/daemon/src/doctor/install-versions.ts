@@ -42,6 +42,12 @@ export function cliOrigin(
   if (!entry) return undefined;
   const app = /^(.+\.app)\/Contents\/Resources\/daemon\/ace\.mjs$/.exec(entry);
   if (app?.[1]) return { kind: "app", bundle: app[1] };
+  if (process.platform === "win32") {
+    // `C:\Users\me\.ace\releases\<version>-win32-<arch>\ace.mjs`
+    const windows = /[\\/]releases[\\/]([^\\/]+)-win32-(?:arm64|x64)[\\/]ace\.mjs$/i.exec(entry);
+    const version = ReleaseVersion.safeParse(windows?.[1]).data;
+    if (version) return { kind: "release", version };
+  }
   const release = /\/releases\/([^/]+)-(?:darwin|linux)-(?:arm64|x64)\/ace\.mjs$/.exec(entry);
   const version = ReleaseVersion.safeParse(release?.[1]).data;
   return version ? { kind: "release", version } : undefined;

@@ -1,0 +1,917 @@
+{
+  "start": {
+    "hex": "0700000000"
+  },
+  "steps": [
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 4096
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "limited": true,
+        "counting": true
+      }
+    },
+    {
+      "input": {
+        "cost": 65519
+      },
+      "output": {
+        "allowed": true,
+        "accepted": true,
+        "credit": {
+          "hex": "0700043fbc"
+        },
+        "limited": true,
+        "counting": true
+      }
+    }
+  ]
+}

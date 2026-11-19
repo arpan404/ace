@@ -4,6 +4,7 @@ import { configure, cleanup, screen, waitFor, within } from "@testing-library/re
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
+import { archiveAnyway } from "@/test/archive-question.ts";
 import { fakeClient, harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
@@ -11,16 +12,13 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
-/** The question archiving a thread that still works asks first. */
-const keep = () => screen.queryByRole("button", { name: "Archive, keep running" });
-
 async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openHome>>;
@@ -37,11 +35,25 @@ async function choose(title: RegExp, item: string | RegExp) {
       within(dialog).getByRole("button", { name: /^(Delete|Stop and delete)$/ }),
     );
   }
-  // A thread still working asks before it is archived; these tests keep it running.
+  // A thread still working, or one that left a command running, asks first; these tests archive.
   if (item !== "Archive") return;
-  await waitFor(() => expect(screen.queryByText(/^Archived ·/) ?? keep()).toBeTruthy());
-  const ask = keep();
+  await waitFor(() => expect(screen.queryByText(/^Archived ·/) ?? archiveAnyway()).toBeTruthy());
+  const ask = archiveAnyway();
   if (ask) await userEvent.click(ask);
+}
+
+/** The row's menu item names, read and closed again. */
+async function menuItems(title: RegExp): Promise<string[]> {
+  const target = card(title);
+  if (!target) throw new Error(`No card for ${title}`);
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  const names = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent ?? "");
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  return names;
 }
 
 /** The thread as the daemon's list has it. */
@@ -55,18 +67,25 @@ const pinned = (title: RegExp) => {
   return row !== null && /\bPinned\b/.test(row.getAttribute("aria-label") ?? "");
 };
 
-test("offline, Archive hides the thread at once, says it will apply, and applies on reconnect", async () => {
+test("offline, Archive waits for a current list: nothing is hidden or sent, and once back it archives", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  await choose(/Backpressure/, "Archive");
-
-  expect(card(/Backpressure/)).toBeNull();
-  const toast = await screen.findByText("Archived · Backpressure on broadcast fan-out");
-  expect(toast.closest("[role]")?.textContent).toContain("Will apply when reconnected");
+  // Archiving stops commands a thread left running: never decided on a list that isn't current.
+  const target = card(/Backpressure/);
+  if (!target) throw new Error("No Backpressure row");
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+  expect(await screen.findByText("Not changed yet")).toBeTruthy();
+  expect(card(/Backpressure/)).toBeTruthy();
   expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
 
   app.client.networkOnline(true);
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  await waitFor(async () => {
+    if (card(/Backpressure/)) await choose(/Backpressure/, "Archive");
+    expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined();
+  });
   expect(card(/Backpressure/)).toBeNull();
 });
 
@@ -98,38 +117,40 @@ test("Mark unread shows at once and a refusal puts the row back as read", async 
   const app = await openHome();
   app.client.networkOnline(false);
   await choose(/Backpressure/, "Mark unread");
-  expect(card(/Backpressure.*, unread/)).toBeTruthy();
+  // Offline the row claims nothing from the old list; the mark the person just made shows in its
+  // menu at once.
+  expect(await menuItems(/Backpressure/)).toContain("Mark read");
 
   app.daemon.refuseCommands("forbidden", "thread.read");
   app.client.networkOnline(true);
   expect(
     await screen.findByRole("heading", { name: "Couldn't mark the thread unread" }),
   ).toBeTruthy();
-  await waitFor(() => expect(card(/Backpressure.*, unread/)).toBeNull());
+  await waitFor(async () => expect(await menuItems(/Backpressure/)).toContain("Mark unread"));
 });
 
 test("a rename the daemon refuses opens the field again with the typed title", async () => {
   const app = await openHome();
   app.daemon.refuseCommands("forbidden", "thread.rename");
-  await choose(/Retry budget/, /Rename/);
+  await choose(/Backpressure/, /Rename/);
   const field = await screen.findByRole("textbox", { name: "Thread title" });
   await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.clear(field);
-  await userEvent.type(field, "Cap app-server restarts{Enter}");
+  await userEvent.type(field, "Cap fan-out backpressure{Enter}");
 
   expect(await screen.findByRole("heading", { name: "Couldn't rename the thread" })).toBeTruthy();
   const again = await screen.findByRole("textbox", { name: "Thread title" });
-  expect(again).toHaveProperty("value", "Cap app-server restarts");
+  expect(again).toHaveProperty("value", "Cap fan-out backpressure");
 
   // Saving again once the daemon takes it.
   app.daemon.restoreRequests();
   await waitFor(() => expect(document.activeElement).toBe(again));
   await userEvent.type(again, "{Enter}");
   expect(
-    await within(threads()).findByRole("link", { name: /^Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /^Cap fan-out backpressure/ }),
   ).toBeTruthy();
   await waitFor(() =>
-    expect(listed(app, "thread-retry-budget")?.title).toBe("Cap app-server restarts"),
+    expect(listed(app, "thread-fan-out")?.title).toBe("Cap fan-out backpressure"),
   );
 });
 
@@ -152,7 +173,7 @@ test.each([false, true])(
 
     // A fresh window sees the persisted tombstone.
     await app.open("/");
-    await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+    await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
     expect(card(/Invoice PDF/)).toBeNull();
   },
   15_000,
@@ -196,7 +217,7 @@ test("deleting the open thread from the sidebar opens New thread", async () => {
   await choose(/Invoice PDF/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-pdf-locale")).toBeUndefined());
   expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
-  expect(screen.queryByText("Thread unavailable")).toBeNull();
+  expect(screen.queryByText("This thread doesn't exist")).toBeNull();
 });
 
 test("deleting another thread and a refused active delete preserve the open thread", async () => {
@@ -208,12 +229,16 @@ test("deleting another thread and a refused active delete preserve the open thre
       })(),
   );
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
-  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  // The workbench's Codex bump rests in Settled: unsettle it back into the Inbox.
+  await userEvent.click(within(threads()).getByRole("tab", { name: /^Settled/ }));
+  await within(threads()).findByRole("link", { name: /^Bump Codex/ });
   await userEvent.click(
-    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
+    await screen.findByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
-  await waitFor(() => expect(card(/Bump Codex/)).toBeTruthy());
+  await waitFor(() => expect(card(/^Bump Codex/)).toBeNull());
+  await userEvent.click(within(threads()).getByRole("tab", { name: /^Inbox/ }));
+  await waitFor(() => expect(card(/^Bump Codex/)).toBeTruthy());
   await choose(/Bump Codex/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());
   expect(

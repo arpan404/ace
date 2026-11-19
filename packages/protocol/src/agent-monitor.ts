@@ -1,5 +1,7 @@
+import { DelegationFailure } from "./delegation-failure.ts";
 import { z } from "zod";
 import { InteractionId, ThreadId } from "./ids.ts";
+import { RemoteContact } from "./agent.ts";
 import { QueueFacts } from "./thread-transitions.ts";
 
 /**
@@ -35,6 +37,7 @@ export const WatchedRequest = z.object({
 });
 export type WatchedRequest = z.infer<typeof WatchedRequest>;
 export const WatchedThread = z.object({
+  failure: DelegationFailure.optional(),
   threadId: ThreadId,
   state: WatchedState,
   title: z.string().max(120),
@@ -52,6 +55,13 @@ export const WatchedThread = z.object({
   needs: z.array(WatchedRequest).max(8).optional(),
   /** The paired machine this child runs on, when it is not this one (ADR 0078). */
   machine: z.string().max(64).optional(),
+  /**
+   * A child on another machine that this machine can't vouch for (ADR 0052): `lost` (its machine
+   * stopped answering; read as `needs_you`, its parent asking the person, ADR 0153) or
+   * `unconfirmed` (stopped here, read as `cancelled`, though its machine never confirmed it).
+   * Only this machine sets it.
+   */
+  contact: RemoteContact.optional(),
 });
 export type WatchedThread = z.infer<typeof WatchedThread>;
 export const WaitStatus = z.enum([
@@ -59,6 +69,11 @@ export const WaitStatus = z.enum([
   "ready",
   /** A watched thread needs the person; returned early in both modes. */
   "needs_you",
+  /**
+   * A watched thread's turn ended on its provider's usage limit and nothing runs until the limit
+   * resets or someone switches it; returned early in both modes when nothing has settled.
+   */
+  "limited",
   /** The timeout elapsed first; work continues and the agent may wait again. */
   "timeout",
   /** The daemon is stopping or restarting; work is retained and the agent may wait again. */
@@ -71,13 +86,27 @@ export const WaitResult = z.object({
   threads: z.array(WatchedThread).max(maxWaitThreads),
 });
 export type WaitResult = z.infer<typeof WaitResult>;
+/**
+ * A snapshot row's state. `unknown`: ace could not read this child's facts. It is never settled,
+ * so an unreadable child can't make its parent look done. `cancelling`: a child on another
+ * machine was stopped here, and ace keeps sending the cancel until that machine confirms it
+ * ended; its work there may still be running. A wait reads it as cancelled, so it never holds
+ * its parent on a machine that may never answer again.
+ */
+export const MonitoredState = z.enum([...WatchedState.options, "unknown", "cancelling"]);
+export type MonitoredState = z.infer<typeof MonitoredState>;
+/** How many children one snapshot lists; `counts` and `omitted` cover the rest. */
+export const maxMonitoredChildren = 64;
 /** One child in a compact tree snapshot. */
 export const MonitoredChild = z.object({
+  failure: DelegationFailure.optional(),
+  /** The start of its result once settled; read the child by threadId for all of it. */
+  result: z.string().max(200).optional(),
   id: ThreadId,
   /** Present when the child belongs to another child rather than the caller. */
   parent: ThreadId.optional(),
   role: z.string().max(40),
-  state: WatchedState,
+  state: MonitoredState,
   step: z.string().max(60).optional(),
   /** While queued past its parent's run slots: where it stands. */
   ...QueueFacts.partial().shape,
@@ -91,17 +120,25 @@ export const MonitoredChild = z.object({
   /** A message to it that failed or was kept back after it was accepted, and what ace did. */
   notice: z.string().max(400).optional(),
   machine: z.string().max(64).optional(),
+  /** See WatchedThread.contact. */
+  contact: RemoteContact.optional(),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;
 export const MonitorSnapshot = z.object({
-  children: z.array(MonitoredChild).max(64),
-  /** Children in each state. */
+  /** Unsettled children first, so a full list never hides one that still works or waits. */
+  children: z.array(MonitoredChild).max(maxMonitoredChildren),
+  /** Children left out because the list is full; `counts` includes them. */
+  omitted: z.number().int().positive().optional(),
+  /** Children in each state, the whole tree. */
   counts: z.object({
     working: z.number().int().nonnegative(),
+    queued: z.number().int().nonnegative(),
     needs_you: z.number().int().nonnegative(),
+    unknown: z.number().int().nonnegative(),
     done: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     cancelled: z.number().int().nonnegative(),
+    cancelling: z.number().int().nonnegative(),
   }),
 });
 export type MonitorSnapshot = z.infer<typeof MonitorSnapshot>;

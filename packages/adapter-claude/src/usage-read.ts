@@ -29,6 +29,7 @@ const UsageResponse = z.object({
   rate_limits: z.record(z.string().max(128), z.unknown()).nullable().optional(),
 });
 /** The account's own windows, by the names Claude gives them, and how long each runs. */
+const ModelScopedLimits = z.array(z.unknown()).max(16);
 const windowLengths = {
   five_hour: 300,
   seven_day: 10080,
@@ -70,7 +71,7 @@ export function usageReading(result: unknown): Record<string, unknown> | undefin
       windowDurationMins: minutes,
     };
   }
-  const scoped = z.array(z.unknown()).max(16).safeParse(parsed.rate_limits["model_scoped"]).data;
+  const scoped = ModelScopedLimits.safeParse(parsed.rate_limits["model_scoped"]).data;
   for (const entry of scoped ?? []) {
     const reading = modelWindow.safeParse(entry).data;
     if (reading?.utilization == null) continue;

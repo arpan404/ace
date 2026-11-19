@@ -28,3 +28,9 @@ export function threadForkSwitchRoute(thread: SwitchThread, choice: ModelChoice)
 
 /** What the model picker says beside a model this thread can't move to. */
 export const switchUnsupportedNote = "Starts new threads only";
+
+/** What a model or account switch says until it reaches the agent. */
+export const switchNextTurnNote = "Applies at the agent's next turn";
+
+/** What the model control says while a continuation waits for the person's next message. */
+export const continuationNote = "Continues in a new thread with your next message";

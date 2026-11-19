@@ -59,6 +59,8 @@ export const ComputerState = z.looseObject({
     .optional(),
   launched: z.boolean().optional(),
   screenLocked: z.boolean().optional(),
+  /** Why the app exposes almost nothing, and how to fix it (Linux: a Chromium app started without accessibility). */
+  accessibilityNote: z.string().optional(),
   /** "active", "locked" or "unavailable"; kept as a string so a newer helper's value never fails the state. */
   sessionState: z.string().optional(),
   /** Nodes may be only conservative search candidates and their ancestors. */
@@ -94,6 +96,28 @@ export const ComputerApps = z.looseObject({
   ),
 });
 export type ComputerApps = z.infer<typeof ComputerApps>;
+
+/** `displays` and `capture_displays`: the Mac's displays, and the apps with windows on screen. */
+export const ComputerDisplays = z.looseObject({
+  displays: z
+    .array(
+      z.looseObject({
+        index: z.number().int(),
+        name: z.string().default(""),
+        width: z.number(),
+        height: z.number(),
+        main: z.boolean().optional(),
+        rotation: z.number().optional(),
+        screenshot: z
+          .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
+          .optional(),
+        screenshotError: z.string().optional(),
+      }),
+    )
+    .default([]),
+  apps: z.array(z.looseObject({ bundleId: z.string(), name: z.string().default("") })).default([]),
+});
+export type ComputerDisplays = z.infer<typeof ComputerDisplays>;
 
 /** `hello`: the helper's protocol version, its macOS grants and what it can do. */
 export const ComputerHello = z.looseObject({

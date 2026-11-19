@@ -1,3 +1,11 @@
+import {
+  decodeStoredItem,
+  isTrusted,
+  storedItem,
+  storedTextChunk,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -11,9 +19,36 @@ import {
   type Event,
   type ItemsPage,
   type OmittedItem,
+  RawPayload,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
+
+// Item head rows, built once: Zod compiles a parser per schema object, and pages are per request.
+const createdSeq = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const WirePageRows = z
+  .array(
+    z.object({
+      id: ItemId,
+      created_seq: createdSeq,
+      size: z.number().int().nonnegative(),
+      // Only text previews are special-cased below; any other item type, including ones
+      // added after this reader, pages by its stored size.
+      item_type: z.string().min(1).max(64),
+    }),
+  )
+  .max(201);
+const NewestHead = z.object({
+  id: ItemId,
+  created_seq: createdSeq,
+  item_type: z.string().min(1).max(64),
+});
+const TailHead = z.object({
+  id: ItemId,
+  created_seq: createdSeq,
+  size: z.number().int().nonnegative(),
+  agent_id: z.string(),
+});
 
 function decodeAppend(value: unknown): string {
   return z.string().parse(JSON.parse(z.string().parse(value)));
@@ -42,14 +77,29 @@ function appendSize(append: string, lastUnit: number): number {
   return Buffer.byteLength(JSON.stringify(append)) - 2 - (joinsPair ? 8 : 0);
 }
 /** Authoritative bodies plus append-only text: delta writes never read or rewrite history. */
+/**
+ * An item's raw payloads from an index, oldest first (`rawEntries`): `json_each` yields array
+ * elements in order, so there is no sort or temporary b-tree, and the caller stops stepping once
+ * its page is full. What still grows with the item: SQLite parses the stored item JSON and walks
+ * the array's elements up to `from` (in C, no rows returned) before the first one comes back.
+ */
+export const rawEntriesQuery =
+  "SELECT e.value AS value, e.type AS type FROM items i, json_each(i.item, ?) e WHERE i.id = ? AND i.thread_id = ? AND e.key >= ?";
+
 export class ItemStore {
   private readonly texts: ItemTextStore;
   private readonly db: DatabaseSync;
   private readonly statement: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, statement: (sql: string) => StatementSync) {
+  private readonly trust: StoredTrust;
+  constructor(
+    db: DatabaseSync,
+    statement: (sql: string) => StatementSync,
+    trust: StoredTrust = untrusted(),
+  ) {
     this.statement = statement;
     this.db = db;
-    this.texts = new ItemTextStore(db);
+    this.texts = new ItemTextStore(db, trust);
+    this.trust = trust;
   }
   /** Rebuild encoding metadata once after migration, recovering old chunks from the event log. */
   initialize(): void {
@@ -57,7 +107,7 @@ export class ItemStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of this.statement("SELECT id, item FROM items").iterate()) {
-        const item = Item.parse(JSON.parse(String(row.item)));
+        const item = decodeStoredItem(JSON.parse(String(row.item)));
         let { prefix, lastUnit } = textMetadata(item);
         let size = Buffer.byteLength(JSON.stringify(item));
         for (const chunk of this.statement(
@@ -89,8 +139,10 @@ export class ItemStore {
     this.statement(
       "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
     ).run(item.id, event.threadId, event.seq, body);
-    this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`).run(
+    // `raw_seq`: this write's sequence. Only an upsert rewrites an item's raw payloads (a delta
+    // changes its text or output), so it names their version (`rawRevision`).
+    this.statement(`INSERT INTO item_heads (id, thread_id, created_seq, size, item_type, text_prefix, text_last_unit, agent_id, raw_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit, raw_seq = excluded.raw_seq`).run(
       item.id,
       event.threadId,
       event.seq,
@@ -99,6 +151,7 @@ export class ItemStore {
       prefix,
       lastUnit,
       item.agentId ?? "",
+      event.seq,
     );
     this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
     recordSkillUsage((sql) => this.statement(sql), event.threadId, item);
@@ -133,29 +186,97 @@ export class ItemStore {
       "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
     ).run(size, lastUnit, delta.itemId);
   }
-  private materialize(id: string, body: unknown): Item {
-    const item = Item.parse(JSON.parse(String(body)));
+  /** A missing row keeps the old behaviour: decoding `undefined` throws. */
+  private materializeRow(id: string, row: Record<string, unknown> | undefined): Item {
+    return this.materialize(id, row?.item, row?.created_seq);
+  }
+  /**
+   * `created` (the item's creation sequence) decides whether this build wrote the body (see
+   * `storedItem`); each text chunk is trusted by its own sequence the same way.
+   */
+  private materialize(id: string, body: unknown, created: unknown): Item {
+    // Stream rows instead of retaining their objects.
+    return this.withChunks(
+      storedItem(Number(created), String(body), this.trust),
+      this.statement(
+        "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+      ).iterate(id),
+    );
+  }
+  /** `item` with its unmerged text chunks, in sequence order, applied. */
+  private withChunks(item: Item, chunks: Iterable<Record<string, unknown>>): Item {
     let field: unknown;
+    // Set from the first chunk when every chunk is trusted: the field `applyDelta` takes as is.
+    let trustedField: ReturnType<typeof storedTextChunk>["field"] | undefined;
+    let trusted = true;
     const appends: string[] = [];
-    // Stream rows instead of retaining their objects. Accepted fields share one append target.
-    for (const row of this.statement(
-      "SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
-    ).iterate(id)) {
+    // Accepted fields share one append target.
+    for (const row of chunks) {
       field ??= row.field;
-      appends.push(decodeAppend(row.append));
+      if (isTrusted(this.trust, Number(row.seq))) {
+        const chunk = storedTextChunk(row.field, row.append);
+        trustedField ??= chunk.field;
+        appends.push(chunk.append);
+      } else {
+        trusted = false;
+        appends.push(decodeAppend(row.append));
+      }
     }
-    if (appends.length) {
-      const delta = EventPayload.parse({
-        type: "item.delta",
-        itemId: item.id,
-        agentId: item.agentId,
-        field,
-        append: appends.join(""),
-      });
-      if (delta.type !== "item.delta") throw new Error("Invalid text delta");
-      applyDelta(item, delta.field, delta.append);
+    if (!appends.length) return item;
+    if (trusted && trustedField) {
+      applyDelta(item, trustedField, appends.join(""));
+      return item;
     }
+    const delta = EventPayload.parse({
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field,
+      append: appends.join(""),
+    });
+    if (delta.type !== "item.delta") throw new Error("Invalid text delta");
+    applyDelta(item, delta.field, delta.append);
     return item;
+  }
+  /**
+   * Whole items by id, each as `materialize` gives it. Bodies and their chunks come from one
+   * statement, so from one snapshot: a completion committed meanwhile (which folds the chunks
+   * into the body and deletes them) is seen whole or not at all. An id with no body throws.
+   */
+  private materializeAll(ids: readonly string[]): Map<string, Item> {
+    const bodies = new Map<string, Record<string, unknown>>();
+    const chunks = new Map<string, Record<string, unknown>[]>();
+    // Each item's body row (kind 0) comes before its chunks (kind 1), in sequence order. One
+    // snapshot is enough because a completion writes the body and deletes its chunks atomically.
+    for (const row of this.statement(
+      `SELECT j.value AS id, 0 AS kind, i.item, i.created_seq, NULL AS seq, NULL AS field, NULL AS append
+         FROM json_each(?1) j JOIN items i ON i.id = j.value
+       UNION ALL
+       SELECT j.value, 1, NULL, NULL, c.seq, c.field, c.append
+         FROM json_each(?1) j JOIN item_text_chunks c ON c.item_id = j.value
+       ORDER BY 1, 2, 5`,
+    ).iterate(JSON.stringify(ids))) {
+      const id = String(row.id);
+      if (row.kind === 0) bodies.set(id, row);
+      else {
+        const rows = chunks.get(id);
+        if (rows) rows.push(row);
+        else chunks.set(id, [row]);
+      }
+    }
+    const items = new Map<string, Item>();
+    for (const id of ids) {
+      const row = bodies.get(id);
+      if (!row) throw new Error("Missing item body");
+      items.set(
+        id,
+        this.withChunks(
+          storedItem(Number(row.created_seq), String(row.item), this.trust),
+          chunks.get(id) ?? [],
+        ),
+      );
+    }
+    return items;
   }
   wirePage(
     threadId: ThreadId,
@@ -166,19 +287,7 @@ export class ItemStore {
     const rows = this.statement(
       "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
     ).all(threadId, before, limit + 1);
-    const decoded = z
-      .array(
-        z.object({
-          id: ItemId,
-          created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-          size: z.number().int().nonnegative(),
-          // Only text previews are special-cased below; any other item type, including ones
-          // added after this reader, pages by its stored size.
-          item_type: z.string().min(1).max(64),
-        }),
-      )
-      .max(201)
-      .parse(rows);
+    const decoded = WirePageRows.parse(rows);
     const items: Item[] = [];
     const cursors: [string, number][] = [];
     let bytes = 512;
@@ -196,7 +305,12 @@ export class ItemStore {
         break;
       }
       const item = this.pageItem(id, row.item_type);
-      const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
+      // A body this build wrote is read as stored and takes no text chunks, so its stored size
+      // is exactly its JSON's. Text previews and older bodies are measured.
+      const size =
+        (!preview && isTrusted(this.trust, row.created_seq)
+          ? row.size
+          : Buffer.byteLength(JSON.stringify(item))) + overhead;
       if (bytes + size > byteLimit) {
         if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
@@ -217,7 +331,10 @@ export class ItemStore {
   private pageItem(id: string, type: string): Item {
     return type === "message" || type === "notice" || type === "reasoning"
       ? this.texts.read(id)
-      : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+      : this.materializeRow(
+          id,
+          this.statement("SELECT item, created_seq FROM items WHERE id = ?").get(id),
+        );
   }
   /** The newest item created before `before`, as a page shows it, with its creation cursor. */
   newestBefore(threadId: ThreadId, before: number): { item: Item; seq: number } | undefined {
@@ -225,13 +342,7 @@ export class ItemStore {
       "SELECT id, created_seq, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT 1",
     ).get(threadId, before);
     if (!row) return undefined;
-    const head = z
-      .object({
-        id: ItemId,
-        created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-        item_type: z.string().min(1).max(64),
-      })
-      .parse(row);
+    const head = NewestHead.parse(row);
     return { item: this.pageItem(String(head.id), head.item_type), seq: head.created_seq };
   }
   hasItemBefore(threadId: ThreadId, before: number): boolean {
@@ -277,11 +388,39 @@ export class ItemStore {
       head.item_type === "reasoning"
     )
       return this.texts.read(itemId);
-    const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?").get(
-      itemId,
-      threadId,
-    );
-    return row ? this.materialize(itemId, row.item) : undefined;
+    const row = this.statement(
+      "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
+    return row ? this.materialize(itemId, row.item, row.created_seq) : undefined;
+  }
+  /**
+   * Which version of an item's raw payloads is stored: its creation and the write that last
+   * replaced its body, read from its head row alone. Undefined without the item. A row from
+   * before `raw_seq` holds 0 there: its body was last written at its creation.
+   */
+  rawRevision(threadId: ThreadId, itemId: string): string | undefined {
+    const row = this.statement(
+      "SELECT created_seq, CASE raw_seq WHEN 0 THEN created_seq ELSE raw_seq END AS raw_seq FROM item_heads WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
+    return row ? `${Number(row.created_seq)}.${Number(row.raw_seq)}` : undefined;
+  }
+  /**
+   * An item's raw payloads (a tool call's `call.raw`) from index `from`, read one at a time
+   * as the caller takes them: SQLite walks the stored JSON, and only the entries taken are
+   * decoded here. Each is read leniently: one that is not a raw payload comes as its data.
+   */
+  *rawEntries(threadId: ThreadId, itemId: string, from: number): Generator<RawPayload> {
+    const head = this.statement(
+      "SELECT item_type FROM item_heads WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
+    if (!head) return;
+    const path = head.item_type === "tool_call" ? "$.call.raw" : "$.raw";
+    for (const row of this.statement(rawEntriesQuery).iterate(path, itemId, threadId, from)) {
+      const value: unknown =
+        row.type === "object" || row.type === "array" ? JSON.parse(String(row.value)) : row.value;
+      const parsed = RawPayload.safeParse(value);
+      yield parsed.success ? parsed.data : { type: "unreadable", data: value };
+    }
   }
   createdSeq(threadId: ThreadId, itemId: string): number | undefined {
     const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(
@@ -397,13 +536,7 @@ export class ItemStore {
     rootAgentId: string | undefined,
     limit: number,
     byteLimit: number,
-  ): Omit<ItemsPage, "seq"> {
-    const Head = z.object({
-      id: ItemId,
-      created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-      size: z.number().int().nonnegative(),
-      agent_id: z.string(),
-    });
+  ): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
     const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
     // The root lane is the root agent's items and the thread's own (no agent): one indexed
     // read each, never one IN query, which would sort the whole lane.
@@ -418,9 +551,11 @@ export class ItemStore {
       ...(rootAgentId === undefined ? [] : lane(rootAgentId)),
       ...lane(""),
     ];
-    const heads = new Map<number, z.infer<typeof Head>>();
+    const heads = new Map<number, z.infer<typeof TailHead>>();
+    // The bound follows `limit`; the element schema is the shared, compiled `TailHead`.
+    // oxlint-disable-next-line ace/zod-schema-in-function -- wraps a module-level schema
     for (const row of z
-      .array(Head)
+      .array(TailHead)
       .max(3 * limit + 1)
       .parse(rows))
       heads.set(row.created_seq, row);
@@ -447,13 +582,9 @@ export class ItemStore {
     while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
     // A newest item larger than the whole budget still shows, as its bounded text preview.
     const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
+    const whole = preview ? undefined : this.materializeAll(tail.kept.map((entry) => entry.id));
     const kept = tail.kept.flatMap((entry) => {
-      const item = preview
-        ? this.stepItem(threadId, entry.id)
-        : this.materialize(
-            entry.id,
-            this.statement("SELECT item FROM items WHERE id = ?").get(entry.id)?.item,
-          );
+      const item = whole ? whole.get(entry.id) : this.stepItem(threadId, entry.id);
       return item ? [{ item, seq: entry.seq ?? 0 }] : [];
     });
     return {
@@ -461,6 +592,7 @@ export class ItemStore {
       items: kept.map((entry) => entry.item),
       itemSeqs: Object.fromEntries(kept.map((entry) => [entry.item.id, entry.seq])),
       itemsBefore: tail.before ?? null,
+      ...(preview && kept[0] ? { previewed: [kept[0].item.id] } : {}),
     };
   }
   page(
@@ -504,10 +636,10 @@ export class ItemStore {
       ? [oversized]
       : count
         ? this.statement(
-            "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
+            "SELECT id, item, created_seq FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
           )
             .all(threadId, oldest, before)
-            .map((row) => this.materialize(String(row.id), row.item))
+            .map((row) => this.materialize(String(row.id), row.item, row.created_seq))
         : [];
     return {
       threadId,

@@ -69,14 +69,15 @@ it("a client sending data before the authenticated host joins is rejected", asyn
   await early.send(new Uint8Array([1]));
   const join = await openPeer(address(relay.url, "/join", { ticket: offer.ticket }));
   cleanup.push(() => join.close());
-  const result = await Promise.race([
-    early.closed.then((code) => ({ closed: code })),
-    join.next().then(
-      () => ({ forwarded: true }),
-      () => ({ joinClosed: true }),
-    ),
-  ]);
-  expect(result).toEqual({ closed: 1008 });
+  // Two sockets close here, the client's and the join's, in whichever order the network
+  // delivers them: the client's close code is what is asserted, then that nothing reached the
+  // join.
+  const forwarded = join.next().then(
+    () => true,
+    () => false,
+  );
+  expect(await early.closed).toBe(1008);
+  expect(await forwarded).toBe(false);
 });
 it("a full host evicts its oldest unauthenticated channel so a paired device can reach it", async () => {
   const relay = await startRelay();
@@ -320,7 +321,7 @@ it("an allowlist denial ends host registration instead of retrying forever", asy
   cleanup.push(() => relay.close());
   await expect(
     connectHostToRelay({ relayUrl: relay.url, hostKeys: keyPair(), onClientChannel() {} }),
-  ).rejects.toThrow("Host connection closed");
+  ).rejects.toThrow("Host not allowed");
 });
 
 it("a dead client channel expires while control pongs keep its host registered", async () => {

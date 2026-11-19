@@ -27,7 +27,9 @@ A chat is a thread whose project is a hidden **chat project** ace makes for it.
   without a project name. The daemon leaves them out of recent projects, the folder picker's
   hints and the agent `projects_find` lookup. Rename, edit and remove refuse with `chat_project`,
   and so does moving a thread into a chat that still has a thread (moving back into an empty
-  one is how Undo after Move to project works).
+  one is how Undo after Move to project works). On web and desktop, chats have their own place
+  in the rail and their own panel, and the Threads panel leaves them out
+  ([ADR 0107](0107-rail-and-panel-sidebar.md), Chats).
 - **No Git.** The folder is not a repository, so the existing "not a Git repository" handling
   applies: no worktree mode, branches or pull requests.
 - **Moving out.** "Move to project" works unchanged: the chat's thread moves to the project's

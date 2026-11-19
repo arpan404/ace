@@ -1,0 +1,85 @@
+import SwiftUI
+
+/// One image full screen on a dark ground: fitted to the screen, pinch or double tap to zoom,
+/// drag down or Done to close. `load` reads it (a staged file, a sent message's bytes) and
+/// answers nil when it can't be read.
+struct MediaViewer: View {
+    let title: String
+    let load: @MainActor () async -> UIImage?
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+    @State private var failed = false
+    var body: some View {
+        ZStack {
+            AceDesign.Surface.media.ignoresSafeArea()
+            if let image {
+                ZoomableImage(image: image, label: title, dismiss: { dismiss() }).ignoresSafeArea()
+            } else if failed {
+                Text("\(title) couldn't be read.")
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .padding(AceDesign.Space.margin)
+            } else {
+                ProgressView().accessibilityLabel("Loading \(title)")
+            }
+        }
+        .overlay(alignment: .topTrailing) { MediaDoneButton { dismiss() } }
+        .overlay(alignment: .topLeading) {
+            if let image {
+                MediaShareButton(item: Image(uiImage: image), title: title)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.default, value: image != nil)
+        .environment(\.colorScheme, .dark)
+        // VoiceOver's scrub gesture closes it too.
+        .accessibilityAction(.escape) { dismiss() }
+        .task {
+            guard image == nil else { return }
+            image = await load()
+            failed = image == nil
+        }
+    }
+
+    /// A file on the phone, decoded for viewing off the main thread (`ImageDecoding.viewed`).
+    static func image(at url: URL) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) { ImageDecoding.source(at: url).flatMap(ImageDecoding.viewed) }.value
+    }
+    /// Base64 bytes from the bridge, decoded from text and as an image together off the main thread.
+    static func image(base64: String) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            Data(base64Encoded: base64).flatMap(ImageDecoding.source).flatMap(ImageDecoding.viewed)
+        }.value
+    }
+}
+
+/// Share in the top corner across from Done: the picture or video as it is, to any app.
+struct MediaShareButton<Item: Transferable>: View {
+    let item: Item
+    let title: String
+    var body: some View {
+        ShareLink(item: item, preview: SharePreview(title)) { Text("Share") }
+            .aceFont(AceTheme.Typography.label, relativeTo: .body)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
+            .floatingGlass()
+            .padding(.leading, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+            .accessibilityIdentifier("media.share")
+    }
+}
+
+/// Done in the top corner of a full-screen picture or video.
+struct MediaDoneButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button("Done", action: action)
+            .aceFont(AceTheme.Typography.label, relativeTo: .body)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
+            .floatingGlass()
+            .padding(.trailing, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+            .accessibilityIdentifier("media.close")
+    }
+}

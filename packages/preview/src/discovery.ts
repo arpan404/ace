@@ -3,6 +3,7 @@ import { z } from "zod";
 import { readBoundedText } from "./bounded-file.ts";
 
 import { PreviewPort } from "@ace/protocol/preview";
+const MissingFileError = z.object({ code: z.literal("ENOENT") });
 /** Listener tables are snapshots, not history. Malformed OS rows are ignored. */
 export function parseListeningPorts(text: string, format: "lsof" | "proc"): Set<number> {
   if (text.length > 4_194_304) throw new Error("Listener table exceeds limit");
@@ -22,6 +23,20 @@ export function parseListeningPorts(text: string, format: "lsof" | "proc"): Set<
   }
   return ports;
 }
+/** Windows `netstat -a -n -o` rows: TCP listeners only (netstat.exe prints LISTENING). */
+export function parseNetstatListeningPorts(text: string): Set<number> {
+  if (text.length > 4_194_304) throw new Error("Listener table exceeds limit");
+  const ports = new Set<number>();
+  for (const line of text.split("\n")) {
+    const [proto, local = "", , state = ""] = line.trim().split(/\s+/);
+    if ((proto !== "TCP" && proto !== "TCPv6") || !["LISTENING", "LISTEN"].includes(state))
+      continue;
+    const port = /:(\d+)$/.exec(local)?.[1];
+    const result = PreviewPort.safeParse(Number(port));
+    if (port !== undefined && result.success) ports.add(result.data);
+  }
+  return ports;
+}
 export async function discoverListeningPorts(
   platform: NodeJS.Platform = process.platform,
 ): Promise<Set<number>> {
@@ -37,11 +52,19 @@ export async function discoverListeningPorts(
     const tables = await Promise.all([
       readBoundedText("/proc/net/tcp"),
       readBoundedText("/proc/net/tcp6").catch((error: unknown) => {
-        if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return "";
+        if (MissingFileError.safeParse(error).success) return "";
         throw error;
       }),
     ]);
     return parseListeningPorts(tables.join("\n"), "proc");
+  }
+  if (platform === "win32") {
+    const output = await probeOutput("netstat", ["-a", "-n", "-o"], {
+      maxBytes: 4_194_304,
+      timeoutMs: 5000,
+    });
+    if (output.code !== 0) throw new Error("netstat listener discovery failed");
+    return parseNetstatListeningPorts(output.stdout);
   }
   throw new Error(`Unsupported preview discovery platform: ${platform}`);
 }

@@ -29,6 +29,12 @@
     "automations.enabled": {
       "type": "boolean"
     },
+    "beta.marketplace": {
+      "type": "boolean"
+    },
+    "beta.spade": {
+      "type": "boolean"
+    },
     "browser.backend": {
       "enum": [
         "auto",
@@ -80,7 +86,13 @@
       "maxItems": 200,
       "type": "array"
     },
+    "computer.lockedUse": {
+      "type": "boolean"
+    },
     "devices.emulatorWindow": {
+      "type": "boolean"
+    },
+    "devices.enabled": {
       "type": "boolean"
     },
     "generation.autoDraftCommits": {
@@ -106,6 +118,34 @@
     "logs.maxBytes": {
       "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
     },
+    "market.askBeforeAgentPublish": {
+      "type": "boolean"
+    },
+    "media.delivery": {
+      "enum": [
+        "auto",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "media.encode": {
+      "enum": [
+        "auto",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "notifications.pushGatewayUrl": {
+      "examples": [
+        "https://push.acehq.dev"
+      ],
+      "maxLength": 2048,
+      "type": "string",
+      "x-ace-constraint": "An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1."
+    },
+    "notifications.remotePush": {
+      "type": "boolean"
+    },
     "projects.roots": {
       "items": {
         "maxLength": 4096,
@@ -114,6 +154,14 @@
       },
       "maxItems": 32,
       "type": "array"
+    },
+    "providers.claude.chrome": {
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "type": "string"
     },
     "providers.coder.model": {
       "maxLength": 256,
@@ -152,6 +200,19 @@
         "priority"
       ],
       "type": "string"
+    },
+    "providers.codex.toolSource": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /."
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "providers.configuration": {
       "$ref": "https://ace.local/protocol/v1/ProviderConfigurations.json"
@@ -290,6 +351,34 @@
     "remote.hostedPairingLink": {
       "type": "boolean"
     },
+    "remote.lan": {
+      "type": "boolean"
+    },
+    "remote.mcpPublicUrl": {
+      "anyOf": [
+        {
+          "examples": [
+            null,
+            "https://ace.example.com"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "Null, or an https origin without path, query, fragment, credentials or trailing slash."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "remote.publicUrlWebhooks": {
+      "type": "boolean"
+    },
+    "remote.relay": {
+      "type": "boolean"
+    },
+    "remote.relayMcp": {
+      "type": "boolean"
+    },
     "remote.relayUrl": {
       "examples": [
         "",
@@ -298,6 +387,18 @@
       "maxLength": 2048,
       "type": "string",
       "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
+    },
+    "remote.relayWebhooks": {
+      "type": "boolean"
+    },
+    "remote.tailscale": {
+      "type": "boolean"
+    },
+    "remote.tailscaleMcp": {
+      "type": "boolean"
+    },
+    "remote.tailscaleWebhooks": {
+      "type": "boolean"
     },
     "remote.transferIgnoredFiles": {
       "type": "boolean"
@@ -314,6 +415,12 @@
     "sourceControl.preferences": {
       "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
     },
+    "spade.enabled": {
+      "type": "boolean"
+    },
+    "storage.backupWorktrees": {
+      "type": "boolean"
+    },
     "storage.retention": {
       "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
     },
@@ -322,6 +429,16 @@
     },
     "storage.scheduledCleanup": {
       "type": "boolean"
+    },
+    "storage.worktreeRetentionDays": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/RetentionDays.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "threads.autoSettleAfter": {
       "enum": [
@@ -341,6 +458,15 @@
     },
     "threads.forkOnSwitch": {
       "type": "boolean"
+    },
+    "threads.keepSettledFor": {
+      "enum": [
+        "0d",
+        "1d",
+        "3d",
+        "7d"
+      ],
+      "type": "string"
     },
     "threads.limitPolicy": {
       "enum": [
@@ -385,6 +511,8 @@
   "required": [
     "storage.retention",
     "storage.scheduledCleanup",
+    "storage.worktreeRetentionDays",
+    "storage.backupWorktrees",
     "storage.retentionDays",
     "logs.maxBytes",
     "sourceControl.preferences",
@@ -412,6 +540,8 @@
     "providers.verifier.model",
     "providers.verifier.tier",
     "providers.verifier.reasoningEffort",
+    "providers.codex.toolSource",
+    "providers.claude.chrome",
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",
@@ -420,7 +550,15 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "computer.lockedUse",
+    "spade.enabled",
+    "beta.spade",
+    "beta.marketplace",
+    "market.askBeforeAgentPublish",
     "devices.emulatorWindow",
+    "media.encode",
+    "media.delivery",
+    "devices.enabled",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",
@@ -430,13 +568,25 @@
     "threads.settleOnMerge",
     "threads.settleOnClose",
     "threads.sortBy",
+    "threads.keepSettledFor",
     "remote.enabled",
     "remote.transport",
+    "remote.lan",
+    "remote.tailscale",
+    "remote.relay",
     "remote.agentAccess",
     "remote.agentTransfers",
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
+    "remote.relayMcp",
+    "remote.relayWebhooks",
+    "remote.tailscaleWebhooks",
+    "remote.publicUrlWebhooks",
+    "remote.tailscaleMcp",
+    "remote.mcpPublicUrl",
     "remote.relayUrl",
+    "notifications.remotePush",
+    "notifications.pushGatewayUrl",
     "automations.enabled",
     "agents.maxRunningChildren",
     "generation.model",

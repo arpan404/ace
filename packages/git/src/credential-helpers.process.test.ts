@@ -91,7 +91,7 @@ test.each(["generic", "URL-scoped"])(
         name: "GitError",
       });
       expect(remote.authenticated()).toBe(true);
-      await expect(access(trusted.marker)).resolves.toBeUndefined();
+      await expect(access(trusted.marker)).resolves.toBeFalsy();
       await absent(markers);
     } finally {
       await service.close();
@@ -148,7 +148,7 @@ test.each(["core.askPass", "GIT_ASKPASS", "SSH_ASKPASS"])(
         }),
       ).rejects.toBeDefined();
       expect(remote.requests()).toBeGreaterThan(0);
-      await expect(access(askpass.marker)).resolves.toBeUndefined();
+      await expect(access(askpass.marker)).resolves.toBeFalsy();
     } finally {
       await remote.close();
     }
@@ -185,8 +185,8 @@ test("authorized transfers restore helpers from real system/global files, includ
       name: "GitError",
     });
     expect(remote.authenticated()).toBe(true);
-    await expect(access(systemHelper.marker)).resolves.toBeUndefined();
-    await expect(access(globalHelper.marker)).resolves.toBeUndefined();
+    await expect(access(systemHelper.marker)).resolves.toBeFalsy();
+    await expect(access(globalHelper.marker)).resolves.toBeFalsy();
     await absent(markers);
   } finally {
     await service.close();

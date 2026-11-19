@@ -1,6 +1,6 @@
-import { catalogDisplayName, displayAddress } from "@ace/ui-core";
+import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
-import { useConnectionState, useSidebarIndex } from "@ace/client-react";
+import { useConnectionGeneration, useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +18,8 @@ export interface Suggestion {
   /** A tab of this thread's browser. */
   tab?: MentionTab | undefined;
   entry?: CatalogEntry | undefined;
+  /** A name inserted as plain text (a Spade group's member), never a reference chip. */
+  plain?: boolean | undefined;
 }
 export type Suggestions = (
   | { state: "closed" }
@@ -28,21 +30,41 @@ export type Suggestions = (
   /** The current catalog, for resolving a `/name` typed without picking from the menu. */
   entries?: readonly CatalogEntry[] | undefined;
 };
-const groups = {
-  builtin: "Add",
-  plugin: "Plugins",
-  skill: "Skills",
-  command: "Commands",
-  agent: "Agents",
-  workflow: "Workflows",
-  "mcp-tool": "Tools",
-};
-const groupOrder = ["Add", "Plugins", "Skills", "Commands", "Agents", "Workflows", "Tools"];
 const threadReference = (thread: ThreadListEntry) => ({
   id: thread.id,
   title: thread.title,
   workspaceId: thread.workspaceId,
 });
+/** A building index is asked for about this long before the list offers Try again. */
+export const buildingWaitMs = 12_000;
+/**
+ * Whether the answer is still an index being built, not a list of matches. `since` is when the
+ * first still-building answer arrived: later identical answers keep it, so polling cannot renew
+ * the wait forever.
+ */
+export function indexStillBuilding(
+  answer: { ready?: boolean | undefined } | undefined,
+  since: number,
+  now = Date.now(),
+): boolean {
+  return answer?.ready === false && now - since < buildingWaitMs;
+}
+/** A deadline per mention query: one query's wait never shortens the wait of another. */
+const deadlineLimit = 32;
+const deadlineKey = (key: readonly unknown[]) => JSON.stringify(key);
+/** Records a query's first still-building answer, dropping the oldest keys past the limit. */
+function withDeadline(held: Readonly<Record<string, number>>, key: string, at: number) {
+  const next: Record<string, number> = { ...held, [key]: at };
+  const keys = Object.keys(next);
+  for (const stale of keys.slice(0, Math.max(0, keys.length - deadlineLimit))) delete next[stale];
+  return next;
+}
+const withoutDeadline = (held: Readonly<Record<string, number>>, key: string) => {
+  if (!(key in held)) return held;
+  const next = { ...held };
+  delete next[key];
+  return next;
+};
 const sameThread = (a: ReturnType<typeof threadReference>, b: ReturnType<typeof threadReference>) =>
   a.id === b.id && a.title === b.title && a.workspaceId === b.workspaceId;
 export function useSuggestions(
@@ -53,6 +75,8 @@ export function useSuggestions(
 ): Suggestions {
   const sources = useThreadSources();
   const ready = useConnectionState() === "ready";
+  // Discovery subscriptions end with the daemon socket; a move to another path renews them.
+  const socket = useConnectionGeneration();
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, provider, instanceId, workspaceId, draft } = thread;
   const tabs = useMentionTabs(draft ? undefined : id, trigger?.kind === "mention");
@@ -83,117 +107,85 @@ export function useSuggestions(
     );
     // Opening the menu retries discovery even when its target is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [sources, scoped, ready, reference, commandOpen, draft, provider]);
+  }, [sources, scoped, ready, socket, reference, commandOpen, draft, provider]);
+  // When each mention query's first still-building answer arrived, keyed by its own query. The
+  // wait belongs to the query, so a cached answer for one query never inherits another's deadline,
+  // and Try again clears it. The answer records it, never render.
+  const [deadlines, setDeadlines] = useState<Record<string, number>>({});
+  const mentionKey = deadlineKey([
+    "thread",
+    "mention",
+    thread.id,
+    trigger?.kind === "mention" ? trigger.query : "",
+  ]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
-    queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
+    queryFn: async ({ signal }) => {
+      const answer = await sources.context.complete(thread, trigger?.query ?? "", signal);
+      // The first still-building answer starts the wait; later ones keep it, so polling cannot
+      // renew it. A ready answer ends the wait for this query.
+      setDeadlines((held) =>
+        answer.ready === false
+          ? held[mentionKey] === undefined
+            ? withDeadline(held, mentionKey, Date.now())
+            : held
+          : withoutDeadline(held, mentionKey),
+      );
+      return answer;
+    },
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data?.ready !== false) return false;
+      const since = deadlines[deadlineKey(query.queryKey)];
+      return since === undefined || indexStillBuilding(data, since) ? 300 : false;
+    },
   });
+  const waiting = mentions.data?.ready === false;
+  const since = deadlines[mentionKey];
+  /** Try again: this query's wait starts over, so a fresh building answer gets its full time. */
+  const retryMentions = () => {
+    setDeadlines((held) => withoutDeadline(held, mentionKey));
+    void mentions.refetch();
+  };
   const known =
     catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
   if (!trigger) return { state: "closed", entries: known };
   const { kind, query } = trigger;
   if (!scoped || !ready) return { state: "loading", kind, query };
-  const q = query.toLowerCase();
   let items: Suggestion[];
   if (kind === "mention") {
-    const lately = !query ? recent() : [];
-    items = [...new Set([...lately, ...(mentions.data ?? [])])].map((path) => ({
-      kind,
-      group: "Files",
-      insert: `@${path}`,
-      label: path.slice(path.lastIndexOf("/") + 1),
-      detail: path.includes("/") ? path : undefined,
-      path,
-    }));
-    items.push(
-      ...tabs
-        .filter((tab) => tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q))
-        .slice(0, 8)
-        .map((tab) => ({
-          kind,
-          group: "Browser tabs",
-          insert: `@${tab.title || displayAddress(tab.url)}`,
-          label: tab.title || displayAddress(tab.url),
-          detail: displayAddress(tab.url),
-          tab,
-        })),
-      ...threads
-        .filter(
-          (t) =>
-            t.id !== thread.id &&
-            t.workspaceId === thread.workspaceId &&
-            t.title.toLowerCase().includes(q),
-        )
-        .slice(0, 8)
-        .map((t) => ({
-          kind,
-          group: "Threads",
-          insert: `@${t.title}`,
-          label: t.title,
-          threadId: t.id,
-        })),
+    // An answer that has not recorded its deadline yet is the first of its wait.
+    const building = waiting && (since === undefined || indexStillBuilding(mentions.data, since));
+    const failing = mentions.isError || mentions.isRefetchError;
+    items = mentionSuggestions({
+      query,
+      recent: query ? [] : recent(),
+      paths: building ? [] : (mentions.data?.paths ?? []),
+      tabs,
+      threads,
+      threadId: thread.id,
+      workspaceId: thread.workspaceId,
+    }).map((item) =>
+      Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
     );
-    if (!items.length && mentions.isPending) return { state: "loading", kind, query };
-    if (!items.length && mentions.isError)
-      return { state: "failed", kind, query, retry: () => void mentions.refetch() };
+    // A failed read is retryable even while a cached answer still says the index is building.
+    if (!items.length && failing) return { state: "failed", kind, query, retry: retryMentions };
+    if (!items.length && (mentions.isPending || building)) return { state: "loading", kind, query };
+    if (!items.length && mentions.data?.ready === false)
+      return { state: "failed", kind, query, retry: retryMentions };
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
     if (catalog.failed)
       return { state: "failed", kind, query, retry: () => setRevision((value) => value + 1) };
     if (catalog.stale && !catalog.entries.length) return { state: "loading", kind, query };
-    const entries = thread.draft
-      ? catalog.entries
-      : [
-          ...catalog.entries,
-          {
-            id: "ace:attachments",
-            kind: "builtin",
-            name: "Attachments",
-            description: "Manage files stored for this thread",
-            source: { provider: "ace", scope: "ace" },
-            invocation: { type: "action", action: "attachments" },
-          } satisfies CatalogEntry,
-        ];
-    const described = entries.map((entry) =>
-      entry.kind === "command" && !entry.description.trim()
-        ? Object.assign({}, entry, { description: "Run saved prompt" })
-        : entry,
-    );
-    const available = described.filter(
-      (entry) =>
-        entry.description.trim() &&
-        entry.invocation.type !== "unavailable" &&
-        !(
-          entry.invocation.type === "action" &&
-          entry.invocation.action === "plan" &&
-          provider !== "claude"
-        ) &&
-        (adding ? entry.kind === "builtin" : entry.kind !== "builtin" || !!query.trim()),
-    );
-    const named = available.filter(
-      (entry) =>
-        entry.name.toLowerCase().includes(q) || catalogDisplayName(entry).toLowerCase().includes(q),
-    );
-    items = (
-      named.length
-        ? named
-        : available.filter((entry) => entry.description.toLowerCase().includes(q))
-    )
-      .map((entry) => ({
-        kind,
-        group: adding
-          ? groups[entry.kind]
-          : entry.kind === "builtin"
-            ? "Commands"
-            : groups[entry.kind],
-        insert: entry.name,
-        label: entry.kind === "builtin" ? entry.name : catalogDisplayName(entry),
-        detail: entry.description,
-        entry,
-      }))
-      .toSorted((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+    items = commandSuggestions(catalog.entries, {
+      query,
+      provider,
+      draft: !!thread.draft,
+      adding,
+    }).map((item) => Object.assign(item, { kind, insert: item.entry?.name ?? item.label }));
     if (!items.length && catalog.stale) return { state: "loading", kind, query };
   }
   return items.length

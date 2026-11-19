@@ -53,24 +53,37 @@ export async function fakeServeSim(
   home: string,
   version: string,
   udid: string,
-  options: { video?: boolean; turned?: string; notice?: string } = {},
+  options: {
+    video?: boolean;
+    turned?: string;
+    notice?: string;
+    /** Real H.264 instead of placeholder NAL units: what each subscription opens with. */
+    stream?: { description: Buffer; key: Buffer };
+  } = {},
 ) {
   const base = `/helper/${udid}`;
   const avcc: ServerResponse[] = [];
   let avccOpened = 0;
   let mjpegOpen = 0;
+  const mjpeg = new Set<ServerResponse>();
   const jpeg = await sharp({
     create: { width: 201, height: 437, channels: 3, background: "white" },
   })
     .jpeg()
     .toBuffer();
+  /** What the screen shows now: like serve-sim, a new MJPEG stream starts with it. */
+  let current = jpeg;
   const server = createServer((req, res) => {
     if (req.url === `${base}/stream.mjpeg`) {
       mjpegOpen++;
-      res.on("close", () => mjpegOpen--);
+      mjpeg.add(res);
+      res.on("close", () => {
+        mjpegOpen--;
+        mjpeg.delete(res);
+      });
       res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=frame" });
-      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
-      res.write(jpeg);
+      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${current.length}\r\n\r\n`);
+      res.write(current);
       return;
     }
     if (req.url === `${base}/stream.avcc` && options.video !== false) {
@@ -80,7 +93,11 @@ export async function fakeServeSim(
       res.on("close", () => avcc.splice(avcc.indexOf(res), 1));
       // Like serve-sim: a preview seed, then the description and an IDR for every subscriber.
       res.write(record(4, jpeg));
-      res.write(Buffer.concat([record(1, description), record(2, unit([0x25, 0x88, avccOpened]))]));
+      res.write(
+        options.stream
+          ? Buffer.concat([record(1, options.stream.description), record(2, options.stream.key)])
+          : Buffer.concat([record(1, description), record(2, unit([0x25, 0x88, avccOpened]))]),
+      );
       return;
     }
     if (req.url === `${base}/ax`) {
@@ -146,7 +163,25 @@ export async function fakeServeSim(
     avcc,
     opened: () => avccOpened,
     mjpegOpen: () => mjpegOpen,
-    delta: (byte: number) => avcc.at(-1)?.write(record(3, unit([0x21, byte]))),
+    /** The screen changes: every open MJPEG stream gets `image`, as serve-sim sends a change. */
+    paint: (image: Buffer) => {
+      current = image;
+      for (const res of mjpeg) {
+        res.write(
+          `\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${image.length}\r\n\r\n`,
+        );
+        res.write(image);
+      }
+    },
+    /** A delta access unit; `size` pads it, to stand for a busy screen's bigger pictures. */
+    delta: (byte: number, size = 2) =>
+      avcc
+        .at(-1)
+        ?.write(record(3, unit([0x21, byte, ...Array<number>(Math.max(0, size - 2)).fill(0)]))),
+    /** One record to every subscription, as serve-sim broadcasts its stream. */
+    send: (tag: number, body: Buffer) => {
+      for (const res of avcc) res.write(record(tag, body));
+    },
     /** Announces a new screen orientation, as serve-sim does after a rotate request. */
     orient: (orientation: string) => {
       device = announced = orientation;

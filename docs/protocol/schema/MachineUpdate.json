@@ -1,0 +1,140 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineUpdate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "arch": {
+      "maxLength": 32,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ask": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/MachineUpdateAsk.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "available": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "blocked": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/MachineUpdateBlock.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "busy": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "checkedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "install": {
+      "$ref": "https://ace.local/protocol/v1/MachineInstall.json"
+    },
+    "last": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/MachineUpdateOutcome.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "percent": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "platform": {
+      "maxLength": 32,
+      "minLength": 1,
+      "type": "string"
+    },
+    "releaseUrl": {
+      "anyOf": [
+        {
+          "format": "ace-whatwg-url",
+          "type": "string",
+          "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+          "x-ace-url-maxLength": 400
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/MachineUpdateState.json"
+    },
+    "version": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "platform",
+    "arch",
+    "install",
+    "state",
+    "available",
+    "releaseUrl",
+    "blocked",
+    "ask",
+    "busy",
+    "percent",
+    "error",
+    "last",
+    "checkedAt"
+  ],
+  "type": "object"
+}

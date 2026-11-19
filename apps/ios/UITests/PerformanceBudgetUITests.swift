@@ -19,7 +19,7 @@ import XCTest
         var rows: [Double] = []
         for _ in 0..<5 {
             let app = fixtureApp()
-            app.launch()
+            app.launchWithArguments()
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch.waitForExistence(timeout: 30))
             rows.append(try XCTUnwrap(app.waitForProbe("launch.inbox.rowsOnScreen")))
             app.terminate()
@@ -34,9 +34,11 @@ import XCTest
         let seeded = try XCTUnwrap(try fixtureHealth(port: busyPort)["busy"] as? Int, "fixture /health has no busy count")
         XCTAssertGreaterThanOrEqual(seeded, Workload.busyThreads, "Start the busy fixture with ACE_IOS_SPIKE_INBOX=\(Workload.busyThreads)")
         let app = fixtureApp(port: busyPort)
-        app.launch()
-        let busy = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-busy-")).firstMatch
-        XCTAssertTrue(busy.waitForExistence(timeout: 30), "no busy rows listed")
+        app.launchWithArguments()
+        // The rows needing the person come first and fill the screen, so the busy rows sit below
+        // the fold: wait for the list, then for the app to hold every busy row.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch.waitForExistence(timeout: 30), "no rows listed")
+        XCTAssertTrue(app.waitForProbe("inbox.rows", atLeast: Double(Workload.busyThreads), timeout: 30), "the busy rows never arrived")
         // Two full five-second bridge windows while one row changes every 200 ms.
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
@@ -64,7 +66,7 @@ import XCTest
 
     func testOpeningTheLongLiveThreadColdThenWarm() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         XCTAssertEqual(app.probe["open.thread"], "ios-stream")
         XCTAssertEqual(app.probe["open.warm"], "false")
@@ -100,7 +102,7 @@ import XCTest
 
     func testStreamingIntoAnOpenLongThreadStaysCheap() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let sent = try streamedDeltas()
         // Two windows of streaming at 20 deltas a second with nothing else moving.
@@ -110,9 +112,7 @@ import XCTest
         XCTAssertGreaterThan(try streamedDeltas(), sent, "the fixture stopped streaming")
         let updates = app.probeValue("bridge.rowUpdates") ?? 0
         report("streaming per 5 s: row updates applied", [updates])
-        XCTExpectFailure(Workload.longStreamFreezes) {
-            XCTAssertGreaterThanOrEqual(updates, Workload.streamingRowUpdatesPer5s, "streamed row updates applied")
-        }
+        XCTAssertGreaterThanOrEqual(updates, Workload.streamingRowUpdatesPer5s, "streamed row updates applied")
         let main = try XCTUnwrap(app.probeValue("bridge.mainMs"))
         let script = try XCTUnwrap(app.probeValue("bridge.scriptMs"))
         let bytes = try XCTUnwrap(app.probeValue("bridge.bytes"))
@@ -132,9 +132,7 @@ import XCTest
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         let later = app.probeValue("bridge.rowUpdates") ?? 0
-        XCTExpectFailure(Workload.longStreamFreezes) {
-            XCTAssertGreaterThanOrEqual(later, Workload.streamingRowUpdatesPer5s, "still streaming after a minute")
-        }
+        XCTAssertGreaterThanOrEqual(later, Workload.streamingRowUpdatesPer5s, "still streaming after a minute")
         let after = try XCTUnwrap(app.probeValue("footprintMiB"))
         report("footprint growth over a minute of streaming (MiB)", [after - before])
         XCTAssertLessThan(after - before, PerfBudget.streamingGrowthMiBPerMinute)
@@ -142,10 +140,32 @@ import XCTest
 
     func testScrollingTheLongTranscriptKeepsFramesOnTime() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
+        measureTranscriptScroll(app, list: app.scrollViews.firstMatch, name: "transcript scroll")
+    }
+
+    /// The same swipes on iPad with the thread's side panel open beside the transcript (Changes,
+    /// its first tab): the panel must not cost the transcript its frames.
+    func testScrollingTheLongTranscriptWithThePanelOpenKeepsFramesOnTime() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("the side panel is iPad's") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try longThreadApp()
+        app.launchWithArguments()
+        XCTAssertTrue(app.openThread("ios-stream"))
+        let toggle = app.buttons["thread.panel"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        toggle.tap()
+        XCTAssertTrue(app.buttons["panel.tab.changes"].waitForExistence(timeout: 10), "the panel opened")
+        measureTranscriptScroll(app, list: app.scrollViews["transcript"], name: "transcript scroll beside the panel")
+        XCTAssertTrue(app.buttons["panel.tab.changes"].exists, "the panel stayed open while measured")
+    }
+
+    /// Late-frame time lost during runs of fast swipes on `list`, per second of swiping, held to
+    /// the scroll budget.
+    private func measureTranscriptScroll(_ app: XCUIApplication, list: XCUIElement, name: String) {
         let windowsBefore = app.probe["frames.windows"]
-        let list = app.scrollViews.firstMatch
         let options = XCTMeasureOptions()
         options.iterationCount = 5
         // Late-frame time lost during each run of swipes alone: the sampler's running total,
@@ -163,10 +183,10 @@ import XCTest
         }
         // The sampler ran while the thread was on screen (it reports every five seconds).
         XCTAssertTrue(app.waitForCount("frames.windows", from: windowsBefore, timeout: 10), "frame sampler never reported")
-        report("transcript scroll lost frame time per run (ms)", lostMs)
-        report("transcript scroll run length (s)", spentS)
+        report("\(name) lost frame time per run (ms)", lostMs)
+        report("\(name) run length (s)", spentS)
         let hitches = lostMs.reduce(0, +) / max(spentS.reduce(0, +), 0.001)
-        report("transcript scroll hitch time (ms per s)", [hitches])
+        report("\(name) hitch time (ms per s)", [hitches])
         XCTAssertLessThan(hitches, PerfBudget.scrollHitchMsPerS)
     }
 
@@ -178,7 +198,7 @@ import XCTest
         XCTAssertGreaterThanOrEqual(history, Workload.longHistoryItems,
                                     "Start the fixture with ACE_IOS_SPIKE_HISTORY=\(Workload.longHistoryItems)")
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let list = app.scrollViews["transcript"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
@@ -188,7 +208,7 @@ import XCTest
         var swipes = 0
         // Toward older, until the window has slid well past its bound.
         while (app.probeValue("pages.older") ?? 0) < Workload.olderPages, swipes < 600 {
-            list.fling(older: true)
+            list.fling(older: true, velocity: Workload.readingFlingVelocity)
             swipes += 1
         }
         let older = app.probeValue("pages.older") ?? 0
@@ -197,7 +217,7 @@ import XCTest
         // Back toward live for a few pages: the window slides the other way.
         swipes = 0
         while (app.probeValue("pages.newer") ?? 0) < Workload.newerPages, swipes < 300 {
-            list.fling(older: false)
+            list.fling(older: false, velocity: Workload.readingFlingVelocity)
             swipes += 1
         }
         XCTAssertGreaterThanOrEqual(app.probeValue("pages.newer") ?? 0, Workload.newerPages, "newer pages read")
@@ -222,7 +242,7 @@ import XCTest
 
     func testTypingWithTheLongThreadBehindIt() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let field = app.textViews["composer.input"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -241,7 +261,7 @@ import XCTest
 
     func testThreadSheetsFillWithinBudget() throws {
         let app = fixtureApp()
-        app.launch()
+        app.launchWithArguments()
         app.openThread("ios-tree", timeout: 1)
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         var agents: [Double] = [], changes: [Double] = [], models: [Double] = []
@@ -251,19 +271,24 @@ import XCTest
             app.openAgents()
             XCTAssertTrue(app.waitForCount("sheets", from: before, timeout: 15))
             agents.append(try XCTUnwrap(app.probeValue("sheet.agentsMs")))
-            app.buttons["agents.close"].tap()
+            app.closeAgents()
             before = app.probe["sheets"]
             app.buttons["thread.menu"].tap()
             app.threadMenuItem("thread.changes").tap()
             XCTAssertTrue(app.waitForCount("sheets", from: before, timeout: 15))
             changes.append(try XCTUnwrap(app.probeValue("sheet.changesMs")))
-            app.buttons["changes.close"].tap()
-            // The model sheet reads nothing; this is tap to shown, XCUITest's own time included.
+            app.closeChanges()
+            // The model sheet reads nothing; this is the title's tap to the sheet shown, XCUITest's
+            // own taps included. `appears` polls: `waitForExistence` checks about once a second.
+            let title = app.threadTitle()
             models.append(timed {
-                app.composerControl("composer.model").tap()
-                XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 15))
+                title.tap()
+                let item = app.titleMenuItem("thread.title.model", label: "Model")
+                XCTAssertTrue(app.appears(item, timeout: 10), "the title's menu has no Model")
+                item.tap()
+                XCTAssertTrue(app.appears(app.buttons["modelSheet.done"], timeout: 15))
             })
-            app.buttons["modelSheet.close"].tap()
+            app.buttons["modelSheet.done"].tap()
         }
         report("Agents sheet rows (ms, asked to applied)", agents)
         report("Changes sheet rows (ms, asked to applied)", changes)
@@ -336,47 +361,54 @@ enum Workload {
     /// Older pages read: about 5,000 items, two and a half times the window's bound.
     static let olderPages = 25.0
     static let newerPages = 5.0
+    /// Points per second for reading's flings, as a reader racing back through history flings.
+    static let readingFlingVelocity: CGFloat = 20_000
     static let streamingRowUpdatesPer5s = 50.0    // the fixture streams 100 deltas (20 a second)
-    /// Known bug, 2026-10-22: with ACE_IOS_SPIKE_STREAMED of 1,000 or more, the open thread's
-    /// streaming row stops updating after the open (only `thread.cursor` patches arrive; the screen
-    /// stays on the step it opened at), while an unseeded or 1-delta seed streams. The bridge alone
-    /// (`thread-harness.ts`) streams it, so the loss is between the patch pump and native. Strict:
-    /// once fixed, these expectations fail until the wrapper goes. Until then the streaming budgets
-    /// measure cursor traffic, not text.
-    static let longStreamFreezes = "a long seeded stream stops updating on screen (see Workload)"
 }
 
 /// The budgets, on the iOS 26 simulator with the `Perf` configuration. Each sits about 1.5 to 5
 /// times above the measured median (README "Performance budgets"), so a real regression fails
 /// while a busy Mac does not. Lower them when the app gets faster; never raise one without a measured reason.
+/// Time budgets stretch by `slack` on slower machines; counts, bytes and memory don't, since a
+/// slower runner sends no more of them.
 enum PerfBudget {
+    /// How many times slower than a dev Mac this machine may be: `ACE_PERF_SLACK` (set as
+    /// `TEST_RUNNER_ACE_PERF_SLACK`, as for `TerminalPerformanceTests`): a finite number of at
+    /// least 1, else 1. `inf` would switch every time budget off.
+    static let slack: Double = {
+        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""),
+              value.isFinite, value >= 1 else { return 1 }
+        return value
+    }()
     // Measured medians in brackets (Perf, iOS 26 simulator, 2026-10-22).
-    static let launchRowsMs = 1_700.0             // [1,157]
-    static let busyInboxPatchesPer5s = 400.0      // [50; 8,200 when every row was resent]
-    static let busyInboxBytesPer5s = 800_000.0    // [614,000; 6.3 MB before]
-    static let busyInboxMainMsPer5s = 40.0        // [15; 155 before]
-    static let coldOpenReadyMs = 700.0            // [317]
-    static let coldOpenPaintMs = 800.0            // [387]
-    static let warmOpenReadyMs = 500.0            // [280]
-    static let streamingMainMsPer5s = 30.0        // [5.4]
-    static let streamingScriptMsPer5s = 250.0     // [95]
-    static let streamingBytesPer5s = 40_000.0     // [7,400]
-    static let streamingGrowthMiBPerMinute = 8.0  // [-1]
-    static let scrollHitchMsPerS = 60.0           // [13.6]
-    static let typingMs = 1_800.0                 // [830, XCUITest's own typing pace]
-    static let sheetFillMs = 350.0                // [Agents 140, Changes 128]
-    static let modelSheetTapMs = 3_000.0          // [1,940, mostly XCUITest waiting]
-    static let pageMainMs = 25.0                  // [4.6; 58 when each page replaced the whole window]
-    static let readingLostMsPerPage = 600.0       // [252; 362 before]
-    static let readingGrowthMiB = 50.0            // [24; 60 before]
+    static let launchRowsMs = 1_700.0 * slack             // [1,157]
+    static let busyInboxPatchesPer5s = 400.0              // [50; 8,200 when every row was resent]
+    static let busyInboxBytesPer5s = 800_000.0            // [614,000; 6.3 MB before]
+    static let busyInboxMainMsPer5s = 40.0 * slack        // [15; 155 before]
+    static let coldOpenReadyMs = 700.0 * slack            // [317]
+    static let coldOpenPaintMs = 800.0 * slack            // [387]
+    static let warmOpenReadyMs = 500.0 * slack            // [280]
+    static let streamingMainMsPer5s = 30.0 * slack        // [5.4]
+    static let streamingScriptMsPer5s = 250.0 * slack     // [95]
+    static let streamingBytesPer5s = 40_000.0             // [7,400]
+    static let streamingGrowthMiBPerMinute = 8.0          // [-1]
+    static let scrollHitchMsPerS = 60.0 * slack           // [13.6]
+    static let typingMs = 1_800.0 * slack                 // [830, XCUITest's own typing pace]
+    static let sheetFillMs = 350.0 * slack                // [Agents 140, Changes 128]
+    static let modelSheetTapMs = 3_000.0 * slack          // [1,940, mostly XCUITest waiting]
+    static let pageMainMs = 25.0 * slack                  // [4.6; 58 when each page replaced the whole window]
+    static let readingLostMsPerPage = 600.0 * slack       // [252; 362 before]
+    static let readingGrowthMiB = 50.0                    // [24; 60 before]
 }
 
 extension XCUIElement {
     /// One fast fling, several screens long: toward older rows (down the screen) or newer.
-    func fling(older: Bool) {
+    /// XCUITest waits out each fling's deceleration, about 3 s, so its reach sets how long
+    /// reading 25 pages takes: a page of history is about 20 screens of rows.
+    func fling(older: Bool, velocity: CGFloat = 6_000) {
         let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.3 : 0.75))
         let to = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.75 : 0.3))
-        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: XCUIGestureVelocity(6_000), thenHoldForDuration: 0)
+        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: 0)
     }
 }
 
@@ -401,6 +433,41 @@ extension XCUIApplication {
         } while Date() < deadline
         return nil
     }
+    /// Waits until `element` exists, checking every 50 ms, so a short wait reads as short.
+    func appears(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            if element.exists { return true }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        } while Date() < deadline
+        return false
+    }
+    /// Waits until `key` reads at least `least`.
+    func waitForProbe(_ key: String, atLeast least: Double, timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            if let value = probeValue(key), value >= least { return true }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        } while Date() < deadline
+        return false
+    }
+    /// Back from the Agents page to the thread: a phone pushes it and goes back with the bar's
+    /// back button; a sheet (iPad without its side panel) closes with its X.
+    func closeAgents() {
+        let close = buttons["agents.close"]
+        if close.exists { close.tap(); return }
+        let back = navigationBars["Agents"].buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "the Agents page has no back button")
+        back.tap()
+        XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
+    }
+    /// Back from Changes to the transcript: a phone shows Changes as a page beside Chat, Chat
+    /// back from ⋯; a sheet closes with its X.
+    func closeChanges() {
+        let close = buttons["changes.close"]
+        if close.exists { close.tap(); return }
+        showThreadPage("chat")
+    }
     /// Waits until the counter `key` (opens, bridge or frame windows) moves on.
     func waitForCount(_ key: String, from start: String?? = nil, timeout: TimeInterval = 20) -> Bool {
         let before = start ?? probe[key]
@@ -413,24 +480,20 @@ extension XCUIApplication {
     }
     /// Opens a thread from its inbox row; true once the app reports the open finished.
     @discardableResult func openThread(_ id: String, timeout: TimeInterval = 30) -> Bool {
+        // Return to the full-screen list on a compact phone.
+        let sidebar = navigationBars.buttons.element(boundBy: 0)
+        if !inboxReady.isHittable, sidebar.exists { sidebar.tap() }
         let row = revealRow("thread.\(id)")
         let before = probe["opens"]
         row.tap()
         return waitForCount("opens", from: before, timeout: timeout)
     }
-    /// Back to the inbox from a thread, or on to another thread beside the list.
+    /// Return to the list and open the fixture's form thread.
     func goBack() {
-        // Beside the list (iPad) a thread never leaves the detail column: opening another one
-        // closes it, as going back does on a phone.
-        if buttons["inbox.settings"].isHittable {
-            revealRow("thread.ios-form").tap()
-            let deadline = Date(timeIntervalSinceNow: 10)
-            while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
-            return
-        }
-        navigationBars.buttons.firstMatch.tap()
-        let composer = textViews["composer.input"]
+        let sidebar = navigationBars.buttons.element(boundBy: 0)
+        if !inboxReady.isHittable, sidebar.exists { sidebar.tap() }
+        revealRow("thread.ios-form").tap()
         let deadline = Date(timeIntervalSinceNow: 10)
-        while composer.exists && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
+        while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
     }
 }

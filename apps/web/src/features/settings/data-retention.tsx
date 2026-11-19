@@ -5,6 +5,7 @@ import { SettingNote, SettingRow, SettingSection } from "@/components/setting-ro
 import { fieldClassName } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useDaemonSetting, useDaemonSettingProvenance } from "@/lib/daemon-setting.ts";
+import { settingRow } from "./settings-index.ts";
 
 const MiB = 1024 * 1024;
 
@@ -22,10 +23,11 @@ export function DataRetentionSettings() {
     <SettingSection
       label="Data window"
       scope="daemon"
-      note="Idle threads, unused attachments and old logs go after this many days. Pinned and live work stays."
+      note="Idle threads, unused attachments and old logs are removed after this. Pinned and live work stays."
     >
       <NumberRow
-        title="Keep data for"
+        id="storage.retentionDays"
+        title={settingRow("storage.retentionDays").title}
         unit="days"
         value={days}
         pinnedBy={daysSource === "environment" ? "ACE_RETENTION_DAYS" : undefined}
@@ -39,7 +41,8 @@ export function DataRetentionSettings() {
         onError={setError}
       />
       <NumberRow
-        title="Log limit"
+        id="logs.maxBytes"
+        title={settingRow("logs.maxBytes").title}
         unit="MB"
         value={logBytes === undefined ? undefined : Math.round(logBytes / MiB)}
         pinnedBy={logSource === "environment" ? "ACE_LOG_MAX_BYTES" : undefined}
@@ -62,6 +65,8 @@ export function DataRetentionSettings() {
 }
 
 function NumberRow(props: {
+  /** Its entry in the settings index: the row's anchor. */
+  id: string;
   title: string;
   unit: string;
   value: number | undefined;
@@ -95,6 +100,7 @@ function NumberRow(props: {
   };
   return (
     <SettingRow
+      id={props.id}
       title={props.title}
       density="compact"
       inline
@@ -107,7 +113,7 @@ function NumberRow(props: {
           inputMode="numeric"
           min={props.min}
           max={props.max}
-          className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+          className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
           value={draft ?? props.value ?? ""}
           disabled={!ready || saving || props.value === undefined || props.pinnedBy !== undefined}
           onChange={(event) => setDraft(event.target.value)}

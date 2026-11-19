@@ -8,8 +8,6 @@ import { linuxLaunchDiagnosis, smallSharedMemory, type LinuxMachine } from "./la
 const ubuntu = 'PRETTY_NAME="Ubuntu 26.04 LTS"\nID=ubuntu\nID_LIKE=debian\n';
 const fedora = 'NAME="Fedora Linux"\nID=fedora\n';
 const arch = 'NAME="Arch Linux"\nID=arch\n';
-const tumbleweed =
-  'NAME="openSUSE Tumbleweed"\nID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n';
 const loaderError =
   "/home/a/.ace/chromium/x/chrome-linux64/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory\n";
 const ldd = [
@@ -90,9 +88,6 @@ describe("Chrome start failures on Linux", () => {
   });
 
   it("uses the 64-bit time package names only on the releases that renamed them", async () => {
-    expect(await release('ID=ubuntu\nVERSION_ID="22.04"\nVERSION_CODENAME=jammy')).toMatch(
-      / libasound2$/,
-    );
     expect(await release('ID=ubuntu\nVERSION_ID="24.04"\nVERSION_CODENAME=noble')).toMatch(
       / libasound2t64$/,
     );
@@ -102,8 +97,8 @@ describe("Chrome start failures on Linux", () => {
     expect(await release('ID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie')).toMatch(
       / libasound2t64$/,
     );
-    // Linux Mint 21 builds on Ubuntu 22.04 and says so.
-    expect(await release("ID=linuxmint\nVERSION_CODENAME=vanessa\nUBUNTU_CODENAME=jammy")).toMatch(
+    // LMDE 6 builds on Debian 12 and says so.
+    expect(await release("ID=linuxmint\nVERSION_CODENAME=faye\nDEBIAN_CODENAME=bookworm")).toMatch(
       / libasound2$/,
     );
   });
@@ -111,7 +106,6 @@ describe("Chrome start failures on Linux", () => {
   it("uses each distribution's own installer and package names", async () => {
     expect(await detail(fedora)).toMatch(/sudo dnf install -y nss alsa-lib$/);
     expect(await detail(arch)).toMatch(/sudo pacman -S --needed nss alsa-lib$/);
-    expect(await detail(tumbleweed)).toMatch(/sudo zypper install -y mozilla-nss libasound2$/);
   });
 
   it("installs what a base Arch Linux ARM system lacks, by Arch's own package names", async () => {

@@ -1,6 +1,8 @@
 // The native host stand-in loads before any bridge module reads it (the upload tray does).
 export { native as nativeHost } from "./test-host.ts";
+import { ClientError } from "@ace/client";
 import { BrowserPageMessage, type ServerMessage } from "@ace/protocol";
+import type { KeyValueStorage } from "@ace/ui-core";
 import { BrowserLive, type BrowserOwner, type BrowserThreadContext } from "./browser-live.ts";
 import { plainPreview, RecordingSink, sheetFixture } from "./sheet-fixture.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
@@ -20,7 +22,23 @@ export const viewport = { width: 390, height: 700, devicePixelRatio: 3 };
 
 /** A real client on the fake daemon; `push` delivers a message the fixture doesn't produce. */
 export async function liveBrowser(
-  options: { browser?: boolean; read?: ChunkReader; names?: Record<string, string> } = {},
+  options: {
+    browser?: boolean;
+    read?: ChunkReader;
+    names?: Record<string, string>;
+    /**
+     * How the daemon answers a subscribe naming a media connection (ADR 0147 §4): `binds` says
+     * so in its reply, `refuses` refuses it as another session's, and by default it serves the
+     * view on the main socket as the fake daemon does. `hangs`: its request waits until the test
+     * fails it (`hanging`), as a lost connection would. `fails`: its request fails at once.
+     */
+    media?: "binds" | "refuses" | "hangs" | "fails";
+    devices?: { storage: KeyValueStorage; ready: Promise<void> };
+    context?: Pick<
+      BrowserThreadContext,
+      "files" | "stage" | "annotations" | "threadState" | "observeThreads"
+    >;
+  } = {},
 ) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
@@ -30,11 +48,27 @@ export async function liveBrowser(
   const listeners = new Set<(message: ServerMessage) => void>();
   const sent: unknown[] = [];
   const requested: unknown[] = [];
+  /** Subscribes left waiting (`media: "hangs"`): each fails its request when called. */
+  const hanging: ((error: Error) => void)[] = [];
   const owner: BrowserOwner = {
-    request: (message, requestOptions) => {
+    request: ((message, requestOptions) => {
       requested.push(message);
-      return client.request(message, requestOptions);
-    },
+      const named = message.type === "browser.subscribe" ? message.media : undefined;
+      if (named && options.media === "refuses")
+        return Promise.resolve({
+          type: "browser.result",
+          requestId: "refused",
+          ok: false,
+          error: "media-connection: that media connection isn't this session's",
+        });
+      if (named && options.media === "fails") return Promise.reject(new ClientError("timeout"));
+      if (named && options.media === "hangs")
+        return new Promise((_resolve, reject) => void hanging.push(reject));
+      const reply = client.request(message, requestOptions);
+      if (!named || options.media !== "binds") return reply;
+      return reply.then((value) => ({ ...value, media: { connection: named.connection } }));
+      // The fake daemon's own replies, changed only where a test asked for a media answer.
+    }) as BrowserOwner["request"],
     send: (message) => {
       sent.push(message);
       client.send(message);
@@ -51,22 +85,28 @@ export async function liveBrowser(
       return client.state;
     },
     connectionState: () => client.connectionState(),
+    onStream: (listener) => client.onStream(listener),
   };
   const sink = new RecordingSink();
   const scheduled: (() => void)[] = [];
+  /** Each scheduled callback's delay, for a test to run only the timers it means. */
+  const delays = new Map<() => void, number>();
   let now = 1_000;
   const context: BrowserThreadContext = {
     agentName: (_threadId, agentId) => (agentId && options.names?.[agentId]) || "An agent",
     workspaceId: (threadId) => (threadId === "web" ? "ace" : undefined),
     now: () => ++now,
     read: options.read ?? (() => Promise.reject(new Error("no files in this test"))),
+    ...(options.devices ? { devices: options.devices } : {}),
+    ...options.context,
   };
   const view = new BrowserLive(
     owner,
     sink,
     plainPreview,
-    (_delay, callback) => {
+    (delay, callback) => {
       scheduled.push(callback);
+      delays.set(callback, delay);
       return () => {
         const index = scheduled.indexOf(callback);
         if (index >= 0) scheduled.splice(index, 1);
@@ -80,5 +120,12 @@ export async function liveBrowser(
     const page = BrowserPageMessage.parse(message);
     for (const listener of listeners) listener(page);
   };
-  return { daemon, sink, view, sent, requested, push, scheduled };
+  /** Runs the scheduled callbacks of `delay` ms, as if that long passed for them alone. */
+  const elapse = (delay: number) => {
+    for (const run of scheduled.filter((callback) => delays.get(callback) === delay)) {
+      scheduled.splice(scheduled.indexOf(run), 1);
+      run();
+    }
+  };
+  return { daemon, client, sink, view, sent, requested, push, scheduled, hanging, elapse };
 }

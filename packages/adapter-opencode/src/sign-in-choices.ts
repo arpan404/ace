@@ -1,9 +1,10 @@
 import type { OpenCodeFormField, OpenCodeIntegration } from "./sign-in.ts";
 
 /*
- * What ace offers when the person signs in to OpenCode, from the integrations OpenCode itself
- * lists. A browser (OAuth) method runs in ace's own dialog; an integration with only keys, or a
- * method whose form needs typing, runs in OpenCode's terminal, aimed at it.
+ * What ace offers when the person signs in to OpenCode: every integration OpenCode itself lists
+ * that can be signed in to. A browser (OAuth) method runs in ace's own dialog; an integration with
+ * only keys, or a method whose form needs typing, runs in OpenCode's terminal, aimed at it, so ace
+ * never sees a key.
  */
 
 export type SignInRoute =
@@ -13,6 +14,8 @@ export interface SignInChoice {
   /** Model-source ids where one exists, so "Connect" on a source picks its choice. */
   id: string;
   label: string;
+  /** Its earlier login didn't carry over to OpenCode's current store: sign in again. */
+  note?: "sign_in_again";
   route: SignInRoute;
 }
 
@@ -24,24 +27,34 @@ const accountSources = [
 ];
 /** The sources most people connect, in this order; the rest follow by name. */
 const preferred = ["github-copilot", "openai", "anthropic", "openrouter", "xai"];
-const choiceId = /^[a-z0-9_-]{1,64}$/;
-/** The progress wire carries at most 32 choices; the last is always "other". */
-const maxChoices = 31;
-
-function rank(id: string): number {
-  const index = preferred.indexOf(id);
-  return index < 0 ? preferred.length : index;
-}
+/** Never `-` or `.` first, so an id can't read as a flag or a path on OpenCode's command line. */
+const choiceId = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/** The progress wire carries at most 512 choices; the last is always "other". */
+const maxChoices = 511;
 
 function browserMethod(integration: OpenCodeIntegration) {
   const methods = integration.methods.filter((method) => method.type === "oauth" && method.id);
   return methods.find((method) => !/\(legacy\)/i.test(method.label ?? "")) ?? methods[0];
 }
 
+/** Something OpenCode's sign-in can take: a key, a browser or an external login, not only env. */
+const canSignIn = (integration: OpenCodeIntegration) =>
+  integration.methods.some((method) => method.type !== "env");
+
+/**
+ * Every integration OpenCode can sign in to, as choices. `earlier` names the integrations whose
+ * login OpenCode kept before its current store (auth.json): one not connected now is marked.
+ */
 export function openCodeSignInChoices(
   integrations: readonly OpenCodeIntegration[],
+  earlier: ReadonlySet<string> = new Set(),
 ): SignInChoice[] {
   const byId = new Map(integrations.map((integration) => [integration.id, integration]));
+  const connected = (id: string) => (byId.get(id)?.connections.length ?? 0) > 0;
+  // Go is served through a connected OpenCode account even without its own login.
+  const lapsed = (id: string) =>
+    earlier.has(id) && !connected(id) && !(id === "opencode-go" && connected(account));
+  const note = (id: string) => (lapsed(id) ? { note: "sign_in_again" as const } : {});
   const choices: SignInChoice[] = [];
   const opencode = byId.get(account);
   const accountMethod = opencode && browserMethod(opencode);
@@ -50,6 +63,7 @@ export function openCodeSignInChoices(
       choices.push({
         id: source.id,
         label: `${source.label} (OpenCode account)`,
+        ...note(source.id),
         route: {
           kind: "browser",
           integration: account,
@@ -61,35 +75,47 @@ export function openCodeSignInChoices(
       choices.push({
         id: source.id,
         label: source.label,
+        ...note(source.id),
         route: { kind: "terminal", integration: source.id },
       });
+  // Logins to renew first, then the usual ones, then everything else by name.
+  const rank = (id: string) => {
+    if (lapsed(id)) return -1;
+    const index = preferred.indexOf(id);
+    return index < 0 ? preferred.length : index;
+  };
   const rest = integrations
     .filter(
       (integration) =>
         choiceId.test(integration.id) &&
         !integration.id.startsWith("mcp_") &&
-        !accountSources.some((source) => source.id === integration.id),
+        !accountSources.some((source) => source.id === integration.id) &&
+        canSignIn(integration),
     )
     .toSorted((a, b) => rank(a.id) - rank(b.id) || a.name.localeCompare(b.name));
   for (const integration of rest) {
     const method = browserMethod(integration);
-    if (method?.id)
-      choices.push({
-        id: integration.id,
-        label: integration.name.slice(0, 128),
-        route: {
-          kind: "browser",
-          integration: integration.id,
-          method: method.id,
-          fields: method.form ?? [],
-        },
-      });
-    else if (preferred.includes(integration.id))
-      choices.push({
-        id: integration.id,
-        label: integration.name.slice(0, 128),
-        route: { kind: "terminal", integration: integration.id },
-      });
+    const label = integration.name.slice(0, 128);
+    choices.push(
+      method?.id
+        ? {
+            id: integration.id,
+            label,
+            ...note(integration.id),
+            route: {
+              kind: "browser",
+              integration: integration.id,
+              method: method.id,
+              fields: method.form ?? [],
+            },
+          }
+        : {
+            id: integration.id,
+            label,
+            ...note(integration.id),
+            route: { kind: "terminal", integration: integration.id },
+          },
+    );
   }
   return [
     ...choices.slice(0, maxChoices),

@@ -1,0 +1,104 @@
+{
+  "note": "RFC 8291 aes128gcm alerts made by packages/notify (encryptWebPush, pushPlaintext) and wrapped by apps/push-gateway's alertPush, for the phone's key below. Test data only.",
+  "receiver": {
+    "privateKey": "qtL-r5qCH7adGCsluxxEHTREWyemesgvQ2c3tF7-Lx0",
+    "p256dh": "BJgWIHRa_Q9rPu5UxpgT9hiNnr9SCggZjnCl0pUl-WdB93mMZGOIemUfHCUiMOCJBBuqYkne7618ciEwif3gDjA",
+    "auth": "bbg67MC6t-SoSCRcJpScdg"
+  },
+  "cases": [
+    {
+      "name": "needs_you",
+      "plaintext": "{\"v\":1,\"hostId\":\"studio\",\"notification\":{\"id\":\"n:41\",\"threadId\":\"t-auth\",\"title\":\"Fix login redirect\",\"status\":\"needs_you\",\"interactionId\":\"i-7\",\"backgroundCount\":0,\"actions\":[{\"action\":\"approve\",\"optionId\":\"allow-once\"},{\"action\":\"deny\",\"optionId\":\"deny\"}]}}",
+      "apns": {
+        "aps": {
+          "alert": {
+            "title": "ace",
+            "body": "New activity"
+          },
+          "mutable-content": 1,
+          "interruption-level": "active",
+          "sound": "default"
+        },
+        "ace": {
+          "v": 1,
+          "c": "woXKiMUN-NM3LU-oT0-51gAAEABBBAGu1rv0jezPXwO5MlzVQhwcIsyQXzw3PaSQDWDlmVgpRPhyDNwPflqoGwbu4PeM-n45o9OY6xlbh3BKbXI9FioZ7Ya2booLyux2_Iw0Riz94lNH_bvDQIU1VqyLxu9d9jk5IV94DdKscec361LnnImDG4En5MYP3B81xxjMS2qj1J-UkFO6lQDpj6R7ujJQTa7UG057qGkSOc4XXmqeGpTmIrJ7lvgw1w6GiuDuhSy-ADZ0WJr0Ap_V-fUMUXQyL3ifEkJw0qByDWdvczU_8Z_IrW3MZrl6eAE7-cWb0OthYpcQeKt7n_oUzz0mltUmW078en47uAATqPw7UkJP7bjyWU7HXRo8BuR6VsErIgVZjb8T_iLb4CYPxWUzs06sbj1s56St8egKy5Dn9ZqSDn89_1dfnO8cE1Ilzr9abZpQ4EIFCFc_Z_OOPTtOpPWNZ5fcvpM"
+        }
+      }
+    },
+    {
+      "name": "done",
+      "plaintext": "{\"v\":1,\"hostId\":\"studio\",\"notification\":{\"id\":\"n:42\",\"threadId\":\"t-docs\",\"title\":\"Write the README\",\"status\":\"done\",\"backgroundCount\":0,\"actions\":[],\"preview\":\"Added a build section\"}}",
+      "apns": {
+        "aps": {
+          "alert": {
+            "title": "ace",
+            "body": "New activity"
+          },
+          "mutable-content": 1,
+          "interruption-level": "active",
+          "sound": "default"
+        },
+        "ace": {
+          "v": 1,
+          "c": "e_bpGjceQGvIJMcp38q11gAAEABBBN3i0WFHY9GReKBGAAu4F6K8v-f_A4wPsTHwzzQO-8ryYBUz21RSQxCzcOZAOhwr5u9sACqkfW3S1t8hZe52-9hIsvgDxnTiTVav5zvVZ6GQZ4y0oUayr9HUCBgzfLnkehtGop4sikQsrHvLjFeY_8BFWQnbQY6JktBRM28mQqwgkDkNou_yGRSbazwupYmv0e0CEM3tJSqBFmS8GHmBwOakS2q7GQbHM4bDl5uw_dXgsJD0-miDMosMJ3gjVyGoCKwnEFxyYNcpSjkjZaL7uLMcBiii8cW2sgM-bh2-75uDX7oth1DagcsnohDl0oNsArX3iKu9-LOFLHcNE9Fg8CybKBADCIPD6uo"
+        }
+      }
+    },
+    {
+      "name": "failed",
+      "plaintext": "{\"v\":1,\"hostId\":\"studio\",\"notification\":{\"id\":\"n:43\",\"threadId\":\"t-ci\",\"title\":\"Fix CI\",\"status\":\"failed\",\"backgroundCount\":0,\"actions\":[],\"preview\":\"bun run test exited 1\"}}",
+      "apns": {
+        "aps": {
+          "alert": {
+            "title": "ace",
+            "body": "New activity"
+          },
+          "mutable-content": 1,
+          "interruption-level": "active",
+          "sound": "default"
+        },
+        "ace": {
+          "v": 1,
+          "c": "r6xeYced9Yxec9-biULingAAEABBBDqlLJ6xdkXtGgprFqfOGKrq4s7AcAI0fLAyOUkMB5TKhQqJvN03-AaZvrdcRB6xISNAha3aZa-0f-fniFcRamU7t0aG-skNkV8ZZBfwSEwoXUBoVqyux_BTWEofNqv5pe9l-ahUD89iLHVB6iJXWuqhCtCNARxzCoCehUgmuTXJ7m1agSyEYN-z9AeMpjgYt-nHf7P3hX1BGoXAUgmI3pPG88JNhvVG9TAKLpZNB2M86Izdibqc93x--dIkO-kKTKanEpnfnDkhnvk2Nt8aQtH9JoYDpxqDSg2fOha8Z5fZ08atjV8JTthBAqCXTeKIPl-o-AZBJsyb5h9Jo00n5w"
+        }
+      }
+    },
+    {
+      "name": "background_done",
+      "plaintext": "{\"v\":1,\"hostId\":\"studio\",\"notification\":{\"id\":\"n:44\",\"threadId\":\"t-bg\",\"title\":\"Index\",\"status\":\"background_done\",\"backgroundCount\":3,\"actions\":[]}}",
+      "apns": {
+        "aps": {
+          "alert": {
+            "title": "ace",
+            "body": "New activity"
+          },
+          "mutable-content": 1,
+          "interruption-level": "passive"
+        },
+        "ace": {
+          "v": 1,
+          "c": "dqnBxvZREFM-hVxOB1EzRwAAEABBBCIX-hhxC9NN8MGa5vMTfkcj0v_By0cFLD0m0aIqklgLmtdOarB5HoLOt6fzONbwbjJorO0VgErK9wkWJ--x57wKHQsmI8MvMgtKW6o2Ic1vmq4njZzrdL1aYwIWMlxN9RfH8ioY-ofHvhZJHgX56SYQvamOZnV-laOObAwH1WD7fNJH-MliWHNcSUUBBUzuINiq0o9PDGSIjn82uMytGSAYLR2EWYoUPQgLqyByO2gLK8cTbI0eooSTkES9Hgl8ycfb46bBhdRU3QIMzf66wC3hovBbUCTVRFAy32Be97LQxNkJJuE"
+        }
+      }
+    },
+    {
+      "name": "access",
+      "plaintext": "{\"v\":1,\"hostId\":\"studio\",\"access\":{\"requestId\":\"r-9\",\"clientName\":\"Claude\",\"domain\":\"claude.ai\",\"matchCode\":\"7KQ2XM\",\"expiresAt\":1800000000000}}",
+      "apns": {
+        "aps": {
+          "alert": {
+            "title": "ace",
+            "body": "New activity"
+          },
+          "mutable-content": 1,
+          "interruption-level": "active",
+          "sound": "default"
+        },
+        "ace": {
+          "v": 1,
+          "c": "JVGBMzJvRSBNcI5OvEgmeAAAEABBBMBWCX8-t9O-dj36yg8Om3PJjYs0I_Yl8aonqsqQq34w5edWweueYJsOdkWYh8KgT9pp3UmT1fNv0VPTZFVh_ed6eyGGRilszS9u-3APkS0891sQAKX247KqnbihpZQfzb407h56Tf9XtQ8JlIu3dV-VnkvcDuJH64U91uuYnO9d35YwFqJAiXQ22TKswne5ZwEKHK258QM0weFMafw6Vl69YCodHw6e1Md6VHewZZvFxXGropdKSoVJxRv3MM94RupZJdJPUT2NAe1dJH8TWHZkMPKxHcLdLX59_9j84uFdVg"
+        }
+      }
+    }
+  ]
+}

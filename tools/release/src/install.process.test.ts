@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
@@ -21,11 +21,8 @@ test(
       await mkdir(bin);
       await mkdir(fixture);
       const marker = join(root, "executed");
-      await writeFile(
-        join(source, "bin/node"),
-        `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n`,
-        { mode: 0o755 },
-      );
+      // The runtime under the name releases ship it as: Bun runs as node there.
+      await symlink(process.execPath, join(source, "bin/node"));
       await writeFile(
         join(source, "ace.mjs"),
         'import {writeFileSync} from "node:fs"; writeFileSync(process.env.TEST_MARKER,"verified");',

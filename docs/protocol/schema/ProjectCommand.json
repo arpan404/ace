@@ -81,6 +81,24 @@
     },
     {
       "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.root.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "git": {
           "properties": {
             "initialBranch": {
@@ -241,6 +259,89 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProjectRepositoriesSetCommand.json"
+    },
+    {
+      "properties": {
+        "identityId": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.link",
+          "type": "string"
+        },
+        "viaMarker": {
+          "const": true,
+          "type": "boolean"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "identityId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "replace": {
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "workspace.identity.marker.write",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "workspace.identity.unlink",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "from": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "into": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "from",
+        "into"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "type": {
           "const": "workspace.git.lock.clear",
@@ -270,7 +371,7 @@
     },
     {
       "properties": {
-        "archiveThreads": {
+        "stopRunning": {
           "default": false,
           "type": "boolean"
         },

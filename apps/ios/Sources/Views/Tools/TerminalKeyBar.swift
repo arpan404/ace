@@ -59,7 +59,7 @@ struct TerminalKeyBar: View {
         } label: {
             Text(key.title).aceMonospace(AceTheme.Typography.code, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -74,7 +74,7 @@ struct TerminalKeyBar: View {
                 .fontWeight(value.isOn ? .semibold : .regular)
                 .underline(value.isOn, pattern: value == .locked ? .solid : .dot)
                 .foregroundStyle(value.isOn ? AceTheme.Colours.accent : AceTheme.Colours.foreground)
-                .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)

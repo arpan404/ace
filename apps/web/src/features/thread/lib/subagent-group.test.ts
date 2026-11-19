@@ -67,9 +67,48 @@ function store(agents: Agent[], items: Item[], tasks: BackgroundTask[] = []) {
 const line = (reader: ThreadStore, ids = ["spawn-review"]) =>
   subagentStatusLine(readSubagentGroup(reader, ids).value.map((entry) => entry.state));
 
-test.each(["running", "unknown", "completed"] as const)(
+const blocked = (child: string): AgentStatus => ({
+  state: "blocked",
+  on: "subagents",
+  refs: [child],
+});
+
+test("a subagent blocked only on its children takes their word: a limit-held child makes it wait, never work", () => {
+  const limited = store(
+    [
+      agent("review", blocked("nested")),
+      agent("nested", { state: "blocked", on: "rate_limit", refs: [] }, "review"),
+    ],
+    [spawn("review")],
+  );
+  expect(line(limited)).toBe("1 waiting");
+  const entry = readSubagentGroup(limited, ["spawn-review"]).value[0];
+  expect(entry && subagentTerminal(entry.state)).toBe(false);
+  // A child still at work makes the branch work.
+  const working = store(
+    [
+      agent("review", blocked("nested")),
+      agent("nested", { state: "working", activity: "tool" }, "review"),
+    ],
+    [spawn("review")],
+  );
+  expect(line(working)).toBe("1 working");
+  // Its children ended while it still waits on them: it resumes, so it is never done.
+  const ended = store(
+    [agent("review", blocked("nested")), agent("nested", { state: "idle" }, "review")],
+    [spawn("review")],
+  );
+  expect(line(ended)).toBe("1 working");
+});
+
+test.each([
+  ["running", "1 working", "Running"],
+  // ace lost track of it (ADR 0052): with no proof of life it holds nothing, so the branch settles.
+  ["unknown", "1 done", "Done"],
+  ["completed", "1 done", "Done"],
+] as const)(
   "a loaded idle branch includes its descendant's %s background task in settlement",
-  (status) => {
+  (status, expected, label) => {
     const reader = store(
       [agent("review", { state: "idle" }), agent("nested", { state: "idle" }, "review")],
       [spawn("review")],
@@ -87,8 +126,8 @@ test.each(["running", "unknown", "completed"] as const)(
       ],
     );
     const entry = readSubagentGroup(reader, ["spawn-review"]).value[0];
-    expect(line(reader)).toBe(status === "completed" ? "1 done" : "1 working");
-    expect(entry && subagentLabels[entry.state]).toBe(status === "completed" ? "Done" : "Running");
+    expect(line(reader)).toBe(expected);
+    expect(entry && subagentLabels[entry.state]).toBe(label);
     expect(entry?.endedAt).toBe(status === "completed" ? 7000 : undefined);
   },
 );

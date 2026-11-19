@@ -7,7 +7,9 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
+import { fieldHints } from "@/components/ui/key-hints.tsx";
+import { sectionRule } from "@/components/ui/rules.ts";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -29,7 +31,8 @@ function branchProblem(branch: string): string | undefined {
 /**
  * Add project › New project, as a palette step: the field is the new folder's name (checked
  * live, a folder already there included); below it the location (beside the machine's latest
- * project to start with) and an optional Git repository with its branch and .gitignore.
+ * project to start with) and, under a Git heading, whether to make a repository, with its
+ * branch and .gitignore folded away until wanted.
  * Enter or ⌘Enter creates.
  */
 export function CreateProjectStep(props: {
@@ -47,11 +50,13 @@ export function CreateProjectStep(props: {
     suggested: latest ? parentFolder(latest.path) : undefined,
   });
   const gitId = useId();
+  const gitHeading = useId();
   const [name, setName] = useState("");
   const [touched, setTouched] = useState(false);
   const [git, setGit] = useState(true);
   const [branch, setBranch] = useState("");
   const [template, setTemplate] = useState<GitignoreTemplate>("none");
+  const [gitOptions, setGitOptions] = useState(false);
   const [creating, setCreating] = useState(false);
   const [problem, setProblem] = useState<string>();
   const parent = place.location;
@@ -61,6 +66,8 @@ export function CreateProjectStep(props: {
 
   const create = async () => {
     setTouched(true);
+    // A branch problem lives with the branch: show it rather than refuse with nothing to see.
+    if (branchIssue) setGitOptions(true);
     if (!parent || nameProblem || branchIssue || creating) return;
     setCreating(true);
     setProblem(undefined);
@@ -123,7 +130,10 @@ export function CreateProjectStep(props: {
           <p className="text-sm text-destructive">{nameProblem}</p>
         )}
         <LocationField state={place} disabled={creating} />
-        <div className="grid gap-3 rounded-md bg-secondary p-3">
+        <section aria-labelledby={gitHeading} className={`grid gap-3 pt-4 ${sectionRule}`}>
+          <h3 id={gitHeading} className="text-sm font-medium text-muted-foreground">
+            Git
+          </h3>
           <div className="flex items-center gap-3">
             <Switch id={gitId} checked={git} onCheckedChange={setGit} />
             <label htmlFor={gitId} className="flex-1 text-ui text-foreground">
@@ -131,36 +141,38 @@ export function CreateProjectStep(props: {
             </label>
           </div>
           {git && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <TextField
-                label="Initial branch"
-                value={branch}
-                onChange={setBranch}
-                placeholder={place.home?.initialBranch || "main"}
-                problem={branchIssue}
-                showProblem
-                mono
-              />
-              <div className="grid content-start gap-1.5">
-                <span className="text-sm font-medium text-muted-foreground">.gitignore</span>
-                <Select<GitignoreTemplate>
-                  label=".gitignore template"
-                  value={template}
-                  options={gitignoreOptions}
-                  onValueChange={setTemplate}
+            <Disclosure
+              summary="Branch and .gitignore"
+              open={gitOptions}
+              onToggle={(event) => setGitOptions(event.currentTarget.open)}
+            >
+              <div className="grid grid-cols-1 gap-3 pt-3 sm:grid-cols-2">
+                <TextField
+                  label="Initial branch"
+                  value={branch}
+                  onChange={setBranch}
+                  placeholder={place.home?.initialBranch || "main"}
+                  problem={branchIssue}
+                  showProblem
+                  mono
                 />
+                <div className="grid content-start gap-1.5">
+                  <span className="text-sm font-medium text-muted-foreground">.gitignore</span>
+                  <Select<GitignoreTemplate>
+                    label=".gitignore template"
+                    value={template}
+                    options={gitignoreOptions}
+                    onValueChange={setTemplate}
+                  />
+                </div>
               </div>
-            </div>
+            </Disclosure>
           )}
-        </div>
+        </section>
         {problem && <Problem>{problem}</Problem>}
       </div>
       <CommandStepFooter
-        hints={[
-          { keys: ["enter"], label: "Create" },
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(name),
-        ]}
+        hints={[{ keys: ["enter"], label: "Create" }, ...fieldHints(name, props.onBack)]}
         note={
           parent && name && !nameProblem
             ? displayPath(childFolder(parent, name), place.home?.path)

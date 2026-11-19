@@ -17,6 +17,12 @@ import {
 import { dirname, join, posix } from "node:path";
 import type { TerminalCommand } from "../../shared/contract.ts";
 import {
+  addToUserPath,
+  removeFromUserPath,
+  userPathRegistry,
+  type UserPathRegistry,
+} from "../../packaging/user-path.ts";
+import {
   assertWritablePath,
   fishFile,
   fishMarker,
@@ -42,6 +48,8 @@ export interface CliPathTarget {
     ZDOTDIR?: string | undefined;
     XDG_CONFIG_HOME?: string | undefined;
   };
+  /** Windows only: the per-user PATH in the registry, replaced in tests. */
+  userPath?: UserPathRegistry | undefined;
 }
 
 /** Larger than any shell startup file ace would edit; such a file is left alone. */
@@ -56,6 +64,7 @@ export async function putCliOnPath(target: CliPathTarget, path: string): Promise
   try {
     const found = await firstAce(path, target);
     const plan = planCliPath({ ...target, path, ...(found ? { found } : {}) });
+    if (plan.kind === "user-path") return await addToWindowsPath(target);
     if (plan.kind === "done") return plan.status;
     if (plan.kind === "link" && (await linkShim(plan.link, target.file)))
       return { state: "ready", command: plan.link };
@@ -70,13 +79,35 @@ export async function putCliOnPath(target: CliPathTarget, path: string): Promise
  * have written, whichever shell the person uses now. The person's own lines stay.
  */
 export async function takeCliOffPath(target: CliPathTarget): Promise<TerminalCommand> {
+  if (target.platform === "win32") {
+    await removeFromUserPath(target.userPath ?? userPathRegistry, target.directory, process.env);
+    return { state: "off", command: target.file };
+  }
   const link = localBin(target.home);
   if (await linksTo(link, target.file)) await unlink(link);
   for (const startup of everyStartupFile(target)) await removeFrom(startup);
   return { state: "off", command: target.file };
 }
 
-/** The first `ace` on PATH, and whether it is this shim (or a link to it). */
+/**
+ * Windows: the shim's folder goes on the per-user PATH, which terminals opened from then on
+ * read. Already there (the installer adds it too) means a new terminal finds the command.
+ */
+async function addToWindowsPath(target: CliPathTarget): Promise<TerminalCommand> {
+  const changed = await addToUserPath(
+    target.userPath ?? userPathRegistry,
+    target.directory,
+    process.env,
+  );
+  return changed
+    ? { state: "added", files: ["your Windows user PATH"] }
+    : { state: "ready", command: target.file };
+}
+
+/**
+ * The first `ace` on PATH, and whether it is this shim (or a link to it, or a copy of it: the
+ * Linux deb installs the same script as `/usr/bin/ace`, so the command works before first launch).
+ */
 async function firstAce(
   path: string,
   target: CliPathTarget,
@@ -90,10 +121,22 @@ async function firstAce(
       const candidate = join(entry, name);
       if (!(await runnable(candidate, windows))) continue;
       const real = await realpath(candidate).catch(() => candidate);
-      return { path: candidate, ours: real === shim };
+      return { path: candidate, ours: real === shim || (await sameScript(real, shim)) };
     }
   }
   return undefined;
+}
+
+/** Both small files with the same content: a copy of the shim runs the same command. */
+async function sameScript(file: string, shim: string): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([stat(file), stat(shim)]);
+    if (a.size !== b.size || a.size > 4096) return false;
+    const [left, right] = await Promise.all([readFile(file), readFile(shim)]);
+    return left.equals(right);
+  } catch {
+    return false;
+  }
 }
 
 async function runnable(file: string, windows: boolean): Promise<boolean> {

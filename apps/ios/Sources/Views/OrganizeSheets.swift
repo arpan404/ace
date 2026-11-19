@@ -1,0 +1,141 @@
+import SwiftUI
+
+/// Which project threads move to: the machine's projects (recent first) without the one they are
+/// all in already, found by typing. Picking moves them at once, with Undo in the toast.
+struct MoveThreadSheet: View {
+    let client: ClientModel
+    /// The project every moving thread is in, left out of the list; nil when they differ.
+    let from: String?
+    /// "“Fix login”" or "3 threads", for the title.
+    let subject: String
+    let choose: (ComposeProject) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            MoveProjectList(client: client, from: from, choose: choose)
+                .navigationTitle("Move \(subject) to…").navigationBarTitleDisplayMode(.inline)
+                .escapeCloses { dismiss() }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("move.close")
+                    }
+                }
+        }
+        .tint(AceTheme.Colours.foreground)
+        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+}
+
+/// One machine's projects to move threads to, searchable; picking one answers and goes back
+/// (closing the sheet, or popping to the machines when moving across several).
+struct MoveProjectList: View {
+    let client: ClientModel
+    let from: String?
+    let choose: (ComposeProject) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var projects: [ComposeProject] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        return client.compose.projects.filter { project in
+            project.id != from && (needle.isEmpty || project.name.localizedCaseInsensitiveContains(needle)
+                                   || project.path.localizedCaseInsensitiveContains(needle))
+        }
+    }
+
+    var body: some View {
+        List {
+            switch client.compose.projectsState {
+            case "failed":
+                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
+                    Button("Try again", action: reload)
+                }
+                .listRowBackground(Color.clear)
+            case "ready":
+                if projects.isEmpty {
+                    EmptyState(systemImage: "folder", title: query.isEmpty ? "No other project" : "No projects match",
+                               line: query.isEmpty ? "Add one on your computer first." : nil)
+                        .listRowBackground(Color.clear)
+                } else {
+                    Section {
+                        ForEach(projects) { project in
+                            Button { choose(project); dismiss() } label: {
+                                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                                    Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
+                                        .foregroundStyle(AceTheme.Colours.foreground)
+                                    Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                                }
+                                .padding(.horizontal, AceDesign.Space.row)
+                                .padding(.vertical, AceDesign.Space.related)
+                                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.row)
+                            .accessibilityIdentifier("move.project.\(project.id)")
+                            .inboxRowChrome()
+                        }
+                    } header: {
+                        Text("Projects").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    }
+                }
+            default:
+                HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() }.listRowBackground(Color.clear)
+            }
+        }
+        // Heading and rows, as the inbox draws them: no card around the list.
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AceTheme.Colours.background)
+        .environment(\.defaultMinListRowHeight, 0)
+        .searchable(text: $query, prompt: "Search projects")
+        .task { reload() }
+        .refreshable { reload() }
+    }
+
+    private func reload() { client.composeAction(["kind": "projects"]) }
+}
+
+extension View {
+    /// The inbox's organize questions: Delete (red words, Cancel first), the project a move goes
+    /// to, and what the machines refused.
+    func organizeSheets(_ organize: InboxOrganize, inbox: MachineInbox) -> some View {
+        modifier(OrganizeSheets(organize: organize, inbox: inbox))
+    }
+}
+
+private struct OrganizeSheets: ViewModifier {
+    @Bindable var organize: InboxOrganize
+    let inbox: MachineInbox
+
+    func body(content: Content) -> some View {
+        content
+            .alert(organize.deleting?.question.title ?? "", isPresented: Binding(
+                get: { organize.deleting != nil }, set: { if !$0 { organize.deleting = nil } }),
+                   presenting: organize.deleting) { ask in
+                Button("Cancel", role: .cancel) { organize.deleting = nil }
+                Button(ask.question.confirm, role: .destructive) { Task { await organize.confirmDelete(ask, in: inbox) } }
+                    .accessibilityIdentifier("delete.confirm")
+            } message: { ask in Text(ask.question.message) }
+            .alert("Couldn't do that", isPresented: Binding(
+                get: { organize.problem != nil }, set: { if !$0 { organize.problem = nil } })) {
+                Button("Close", role: .cancel) { organize.problem = nil }
+            } message: { Text(organize.problem ?? "") }
+            .sheet(item: $organize.moving) { ask in
+                if ask.machines.count > 1 {
+                    MoveAcrossSheet(inbox: inbox, ask: ask) { groups in
+                        Task { await organize.move(groups, in: inbox) }
+                    }
+                } else if let machine = ask.machines.first?.machineId, let client = inbox.client(machine) {
+                    let first = ask.keys.first.flatMap { inbox.row($0) }
+                    MoveThreadSheet(client: client, from: MoveAcrossSheet.sharedProject(ask.keys, in: inbox),
+                                    subject: ask.keys.count == 1 ? "“\(first?.title ?? "thread")”" : "\(ask.keys.count) threads") { project in
+                        Task { await organize.move(ask.keys, to: project, in: inbox) }
+                    }
+                }
+            }
+    }
+}

@@ -1,4 +1,4 @@
-import { atLimitLine } from "@ace/ui-core";
+import { atLimitLine, followUpChoices, limitPolicyChoices } from "@ace/ui-core";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -10,17 +10,8 @@ import { DaemonSlot } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 import { ChildLimitRow } from "./child-limit.tsx";
 
-const followUps: { value: FollowUp; label: string }[] = [
-  { value: "queue", label: "Queue" },
-  { value: "steer", label: "Steer" },
-];
-
-const limitPolicies: { value: LimitPolicy; label: string }[] = [
-  { value: "manual", label: "Stop and ask me" },
-  { value: "resume_at_reset", label: "Resume when it resets" },
-  { value: "snooze_until_reset", label: "Snooze until it resets" },
-  { value: "migrate_now", label: "Move to another account" },
-];
+const followUps: readonly { value: FollowUp; label: string }[] = followUpChoices;
+const limitPolicies: readonly { value: LimitPolicy; label: string }[] = limitPolicyChoices;
 
 /**
  * How threads carry on: messages sent while the agent works, how many delegated agents run at

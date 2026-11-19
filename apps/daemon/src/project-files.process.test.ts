@@ -9,6 +9,7 @@ import { ClientMessage, FilesServerMessage, ServerMessage, WorkspaceId } from "@
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread } from "./index.ts";
 import { ProjectStorage } from "./project-storage.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * New thread on a phone browses a registered project's own folder before any thread exists:
@@ -69,6 +70,7 @@ async function setup(transport: "websocket" | "relay") {
   const relay = transport === "relay" ? await startRelay() : undefined;
   if (relay) cleanup.push(() => relay.close());
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       host: "127.0.0.1",
@@ -80,6 +82,8 @@ async function setup(transport: "websocket" | "relay") {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const workspaceId = daemon.store.createWorkspace(project, "Project");
   const paired = daemon.store.devices.create("Phone", ["read"], 1);
   let wire: Wire;
@@ -225,7 +229,7 @@ it("an unknown, removed or doubly scoped project is refused, and a removal ends 
   ).toMatchObject({ type: "files.error", code: "INVALID_MESSAGE" });
   const ready = await f.request({ op: "download", path: "README.md", offset: 0 });
   if (ready.type !== "files.ready") throw new Error(`Unexpected ${ready.type}`);
-  new ProjectStorage(f.daemon.store, () => 2).remove(f.workspaceId, true, () => false);
+  new ProjectStorage(f.daemon.store, () => 2).remove(f.workspaceId, true, () => false, undefined);
   await f.wire.send({ type: "files.pull", requestId: "pull", channel: ready.channel });
   expect(await f.wire.next()).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
   expect(await f.request({ op: "list", path: "", limit: 10 })).toMatchObject({

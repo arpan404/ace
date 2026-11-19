@@ -1,0 +1,175 @@
+import type { AppUpdateInstruction, AppUpdateReply, AppUpdateReport } from "@ace/protocol";
+import type { UpdateStatus } from "../../shared/contract.ts";
+
+/** States in which a newer version is on offer: found, on its way, or waiting for a restart. */
+const offered = new Set<UpdateStatus["state"]>([
+  "available",
+  "downloading",
+  "downloaded",
+  "installing",
+]);
+const fetched = new Set<UpdateStatus["state"]>(["downloaded", "installing"]);
+
+/** What the daemon is told about this app's update, from the updater's own status. */
+export function appUpdateReport(status: UpdateStatus): AppUpdateReport {
+  const available = offered.has(status.state) ? status.version : null;
+  const downloaded = available !== null && fetched.has(status.state);
+  return {
+    version: status.currentVersion,
+    available,
+    downloaded,
+    // Only an in-place update installs on restart; others open the release page.
+    restartRequired: downloaded && status.inPlace,
+    releaseUrl: status.releaseUrl,
+    // The updater's own state, so an update asked for from elsewhere can follow it (ADR 0113).
+    state: status.state,
+    percent: status.percent,
+    error: status.error?.message ?? null,
+    inPlace: status.inPlace,
+  };
+}
+
+export interface UpdateReportPorts {
+  /**
+   * Sends one report to the daemon this app runs (`probe.ts` `reportAppUpdate`); resolves with
+   * the daemon's reply, which may carry an instruction.
+   */
+  send(report: AppUpdateReport): Promise<AppUpdateReply | void>;
+  /** A fresh health probe, before reporting to a daemon that may still be busy starting. */
+  ready?(): Promise<boolean>;
+  /** The daemon asked for something new (ADR 0113): each instruction id arrives once. */
+  instructed?(instruction: AppUpdateInstruction): void;
+  /** Every reply the daemon sent, for what else it tells the app (its home's data, ADR 0177). */
+  replied?(reply: AppUpdateReply): void;
+  /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
+  withdraw(): Promise<void>;
+  log(message: string): void;
+  timers: { set(delayMs: number, callback: () => void): () => void };
+}
+
+/**
+ * How often the report is sent again unchanged. The daemon drops a report it hasn't heard for a
+ * minute (`app-update-board.ts`), so this keeps it alive while the app runs and brings it back
+ * after the daemon dropped it.
+ */
+export const updateRenewMs = 20_000;
+export const updateRetryMs = 2_000;
+
+/**
+ * Tells this app's daemon about its update status (ADR 0041's loopback host-token routes), so
+ * paired clients can show it: on every change, and once each time the daemon comes up, since
+ * the daemon keeps it only in memory. A failed send retries while connected, checking readiness
+ * before each attempt.
+ */
+export class UpdateReporter {
+  #ports: UpdateReportPorts;
+  #report: AppUpdateReport | undefined;
+  #sent: string | undefined;
+  #connected = false;
+  #withdrawn = false;
+  #sending: Promise<void> = Promise.resolve();
+  #stopRenewing: (() => void) | undefined;
+  #heard: string | undefined;
+  #failures = 0;
+  #stopRetry: (() => void) | undefined;
+  #generation = 0;
+  constructor(ports: UpdateReportPorts) {
+    this.#ports = ports;
+  }
+  status(status: UpdateStatus): void {
+    this.#report = appUpdateReport(status);
+    this.#push();
+  }
+  /** The daemon is running (true) or gone (false); each new connection hears the report again. */
+  connected(on: boolean): void {
+    if (on === this.#connected) return;
+    this.#connected = on;
+    this.#generation++;
+    this.#stopRetry?.();
+    this.#stopRetry = undefined;
+    this.#failures = 0;
+    this.#sent = undefined;
+    this.#push();
+    this.#renew();
+  }
+  /**
+   * The app is quitting or stopping its daemon: take the report back so no client keeps showing
+   * it, and send nothing more. Settles once the daemon was told, or could not be.
+   */
+  withdraw(): Promise<void> {
+    this.#withdrawn = true;
+    this.#stopRetry?.();
+    this.#stopRetry = undefined;
+    this.#stopRenewing?.();
+    this.#stopRenewing = undefined;
+    this.#sending = this.#sending.then(async () => {
+      if (!this.#connected || this.#sent === undefined) return;
+      try {
+        await this.#ports.withdraw();
+        this.#sent = undefined;
+      } catch (error) {
+        this.#ports.log(`Couldn't withdraw the app's update status: ${String(error)}`);
+      }
+    });
+    return this.#sending;
+  }
+  /** Settles once every report asked for so far has been sent or has failed. */
+  settled(): Promise<void> {
+    return this.#sending;
+  }
+  /** While connected, sends the report again every `updateRenewMs`, unchanged or not. */
+  #renew(): void {
+    this.#stopRenewing?.();
+    this.#stopRenewing = undefined;
+    if (!this.#connected || this.#withdrawn) return;
+    this.#stopRenewing = this.#ports.timers.set(updateRenewMs, () => {
+      this.#sent = undefined;
+      this.#push();
+      this.#renew();
+    });
+  }
+  #retry(): void {
+    if (this.#stopRetry || !this.#connected || this.#withdrawn) return;
+    this.#stopRetry = this.#ports.timers.set(updateRetryMs, () => {
+      this.#stopRetry = undefined;
+      this.#push();
+    });
+  }
+  #push(): void {
+    this.#sending = this.#sending.then(async () => {
+      const report = this.#report;
+      if (!report || !this.#connected || this.#withdrawn) return;
+      const key = JSON.stringify(report);
+      if (key === this.#sent) return;
+      const generation = this.#generation;
+      try {
+        if (this.#ports.ready && !(await this.#ports.ready())) {
+          this.#retry();
+          return;
+        }
+        if (generation !== this.#generation || !this.#connected || this.#withdrawn) return;
+        const reply = await this.#ports.send(report);
+        if (generation !== this.#generation || !this.#connected) return;
+        this.#stopRetry?.();
+        this.#stopRetry = undefined;
+        this.#failures = 0;
+        this.#sent = key;
+        if (reply) this.#ports.replied?.(reply);
+        if (this.#withdrawn) return;
+        const instruction = reply?.instruction;
+        if (instruction && instruction.id !== this.#heard) {
+          this.#heard = instruction.id;
+          this.#ports.instructed?.(instruction);
+        }
+      } catch (error) {
+        if (generation !== this.#generation || !this.#connected || this.#withdrawn) return;
+        // Startup stalls are transient; report persistent failures once, while retrying.
+        if (++this.#failures === 3)
+          this.#ports.log(
+            `Couldn't report the app's update status to its daemon: ${String(error)}`,
+          );
+        this.#retry();
+      }
+    });
+  }
+}

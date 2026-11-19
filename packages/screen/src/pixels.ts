@@ -3,6 +3,17 @@ import type { Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
 import { nodeScheduler } from "./runtime.ts";
 
+const CaptureProgress = z.object({ afterSeq: z.number().int().nonnegative() });
+
+/**
+ * Helpers whose capture pauses while nobody watches (`watch`), with each watch a new capture
+ * generation stamped on its pictures: Windows, and Linux, whose desktop sends a buffer only
+ * when the screen changes, so its helper publishes the current picture again on resume.
+ */
+function watched(platform: string | undefined): boolean {
+  return platform === "windows" || platform?.startsWith("linux") === true;
+}
+
 /** Capture has no polling timer. A bounded set of consumers owns the native lease. */
 export class Pixels {
   private leases = 0;
@@ -47,7 +58,7 @@ export class Pixels {
   }
   accepts(frame: Frame): boolean {
     return (
-      this.helper.capabilities?.platform !== "windows" ||
+      !watched(this.helper.capabilities?.platform) ||
       ((this.actual || this.desired) &&
         (frame.header.captureGeneration === undefined ||
           frame.header.captureGeneration === this.generation))
@@ -65,13 +76,13 @@ export class Pixels {
         if (released) return;
         released = true;
         this.leases--;
-        if (!this.stopped && this.leases === 0) void this.set(false);
+        // set() already handles its own drain failure (`task.catch` above).
+        if (!this.stopped && this.leases === 0) void this.set(false).catch(() => {});
       },
     };
   }
   private set(active: boolean): Promise<void> {
-    if (!this.helper.capabilities || this.helper.capabilities.platform.startsWith("linux"))
-      return Promise.resolve();
+    if (!this.helper.capabilities) return Promise.resolve();
     this.desired = active;
     if (this.task) return this.task;
     if (this.actual === active || this.stopped) return Promise.resolve();
@@ -85,7 +96,7 @@ export class Pixels {
       while (!this.stopped && this.actual !== this.desired) {
         const active = this.desired;
         if (active) this.indicator(true);
-        if (this.helper.capabilities?.platform === "windows") {
+        if (watched(this.helper.capabilities?.platform)) {
           this.generation = this.nextGeneration();
           if (active) {
             this.floor = (this.latest?.header.sequence ?? -1) + 1;
@@ -94,7 +105,7 @@ export class Pixels {
           await this.helper.requestV2({ op: "watch", active, captureGeneration: this.generation });
         } else {
           const data = await this.helper.request({ op: "capture", enabled: active });
-          const progress = z.object({ afterSeq: z.number().int().nonnegative() }).parse(data);
+          const progress = CaptureProgress.parse(data);
           if (active) this.floor = progress.afterSeq;
         }
         this.actual = active;

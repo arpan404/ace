@@ -8,7 +8,7 @@ bun run smoke:real --out /tmp/ace-smoke/review --home-source ~/.ace
 bun run smoke:real --max-threads 40 --scan-timeout-ms 120000
 ```
 
-Requires Node 24+, Bun, macOS `sandbox-exec`, `/usr/bin/sqlite3`, and Playwright's
+Requires Node 26+, Bun, macOS `sandbox-exec`, `/usr/bin/sqlite3`, and Playwright's
 headless Chromium. Use the browser installed for `tools/web-e2e`. The runner
 never installs a browser or a provider. Real mode requires macOS filesystem
 protection and fails on other hosts.

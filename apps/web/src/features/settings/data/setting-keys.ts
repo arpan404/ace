@@ -18,9 +18,6 @@ export const SortBy = SettingsValues.shape["threads.sortBy"];
 export type SortBy = z.infer<typeof SortBy>;
 export const FollowUp = z.enum(["queue", "steer"]);
 export type FollowUp = z.infer<typeof FollowUp>;
-/** Keymap id → keys in keymap notation. Only rebound shortcuts are stored. */
-export const Keybindings = z.record(z.string().max(64), z.string().min(1).max(64));
-export type Keybindings = z.infer<typeof Keybindings>;
 
 export type LimitPolicy = z.infer<typeof LimitPolicy>;
 
@@ -33,10 +30,18 @@ export type LimitPolicy = z.infer<typeof LimitPolicy>;
 export const settingKeys = {
   hostName: setting("host.displayName", SettingsValues.shape["host.displayName"], ""),
   hostIcon: setting("host.icon", SettingsValues.shape["host.icon"], { kind: "laptop" }),
-  remoteEnabled: setting("remote.enabled", z.boolean(), false),
-  remoteTransport: setting("remote.transport", SettingsValues.shape["remote.transport"], "local"),
+  remoteEnabled: setting("remote.enabled", z.boolean(), true),
+  remoteLan: setting("remote.lan", z.boolean(), true),
+  remoteTailscale: setting("remote.tailscale", z.boolean(), false),
+  remoteRelay: setting("remote.relay", z.boolean(), false),
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
+  relayMcp: setting("remote.relayMcp", z.boolean(), false),
+  relayWebhooks: setting("remote.relayWebhooks", z.boolean(), false),
+  tailscaleWebhooks: setting("remote.tailscaleWebhooks", z.boolean(), false),
+  publicUrlWebhooks: setting("remote.publicUrlWebhooks", z.boolean(), false),
+  tailscaleMcp: setting("remote.tailscaleMcp", z.boolean(), false),
+  mcpPublicUrl: setting("remote.mcpPublicUrl", SettingsValues.shape["remote.mcpPublicUrl"], null),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),
   agentTransfers: setting("remote.agentTransfers", z.boolean(), true),
   transferIgnoredFiles: setting("remote.transferIgnoredFiles", z.boolean(), true),
@@ -46,6 +51,7 @@ export const settingKeys = {
     SettingsValues.shape["worktree.preparationTimeoutMs"],
     600_000,
   ),
+  backupWorktrees: setting("storage.backupWorktrees", z.boolean(), false),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   sortBy: setting("threads.sortBy", SortBy, "activity"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
@@ -53,13 +59,17 @@ export const settingKeys = {
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
+  mediaEncode: setting("media.encode", SettingsValues.shape["media.encode"], "legacy"),
+  mediaDelivery: setting("media.delivery", SettingsValues.shape["media.delivery"], "legacy"),
+  betaSpade: setting("beta.spade", z.boolean(), false),
+  betaMarketplace: setting("beta.marketplace", z.boolean(), false),
+  marketAskBeforeAgentPublish: setting("market.askBeforeAgentPublish", z.boolean(), false),
   maxRunningChildren: setting(
     "agents.maxRunningChildren",
     SettingsValues.shape["agents.maxRunningChildren"],
     null,
   ),
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
-  keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
   browserEngine: setting("browser.backend", SettingsValues.shape["browser.backend"], "auto"),
   browserProfile: setting("browser.profile", SettingsValues.shape["browser.profile"], "persistent"),

@@ -287,7 +287,7 @@ test("changing the draft project drops the previous project's file references", 
     screen.getByLabelText("Files to attach"),
     new File(["Synthetic file"], "old.txt", { type: "text/plain" }),
   );
-  expect(await screen.findByText("old.txt")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Remove old.txt" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Project: ace" }));
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));
   expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();

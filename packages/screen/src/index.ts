@@ -8,6 +8,15 @@ export { screenConnection, type ScreenPeer } from "./bridge.ts";
 export { computerUseTools, computerUseHandler } from "./tools.ts";
 
 export { localScreenManager } from "./host.ts";
+export type { ScreenMedia } from "./media-source.ts";
+export { wantedStreamSettings } from "./media-source.ts";
+export {
+  commonStream,
+  sameStream,
+  StreamOwners,
+  type StreamOwnersOptions,
+  type StreamResult,
+} from "./stream-owners.ts";
 
 export { installScreenHelper } from "./install.ts";
 export { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";
@@ -17,7 +26,14 @@ export { windowsEndpoint } from "./transport.ts";
 export { HelperCommandError } from "./helper.ts";
 
 export { screenToolkit } from "./mcp.ts";
-export { computerToolkit, type ComputerToolkitOptions } from "./computer/toolkit.ts";
+export {
+  computerToolkit,
+  type ComputerMachineRoute,
+  type ComputerToolkitOptions,
+} from "./computer/toolkit.ts";
+export { computerToolNames } from "./computer/schemas.ts";
+export { ScreenCowork, type PhysicalInput, type ScreenCoworkOptions } from "./cowork.ts";
+export { macPhysicalInput, windowsPhysicalInput } from "./computer/physical-input.ts";
 export type { ComputerPlatform } from "./computer/schemas.ts";
 export { ComputerClient, ComputerError, type ComputerClientOptions } from "./computer/client.ts";
 export type { ComputerRequestTiming } from "./computer/client.ts";
@@ -25,7 +41,7 @@ export type { ComputerRequestTiming } from "./computer/client.ts";
 export { uiReadShape, uiReadRequest, perAction } from "./tool-schemas.ts";
 export type { Scheduler } from "./runtime.ts";
 
-export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";
+export { installedLinuxHelper } from "./linux.ts";
 export {
   graphicalSessionEnvironment,
   parseManagerEnvironment,
@@ -37,3 +53,51 @@ export { ScreenStopError } from "./stop-error.ts";
 export { deviceWindowBundles } from "./device-input-policy.ts";
 
 export type { ScreenAccess } from "./access.ts";
+export {
+  placeholderLockedUseInstaller,
+  LockedUseNotImplementedError,
+  type LockedUseInstaller,
+} from "./locked-use.ts";
+export {
+  macLockedUseInstaller,
+  type LockedUseScheduler,
+  type MacLockedUseOptions,
+  type PrivilegedRunner,
+} from "./locked-use-mac.ts";
+export {
+  detectLockedUse,
+  type LockedUseDetection,
+  type LockedUseExpectation,
+} from "./locked-use-detect.ts";
+export {
+  macHost,
+  lockedUseBrokerLabel,
+  lockedUseGuardianLabel,
+  type MacCommandResult,
+  type MacHost,
+} from "./locked-use-host.ts";
+export {
+  LockedUseConnection,
+  LockedUseConnectionError,
+  LockedUseReplyError,
+  connectLockedUse,
+  openLockedUseConnection,
+} from "./locked-use-connection.ts";
+export {
+  LockedUseFrameDecoder,
+  LockedUseFrameError,
+  decodeLockedUseMessage,
+  encodeLockedUseFrame,
+  encodeLockedUseRequest,
+  type LockedUseServiceStatus,
+} from "./locked-use-wire.ts";
+export { LockedUseAttemptError, runProtectedAttempt } from "./locked-use-attempt.ts";
+export {
+  lockedUseGate,
+  lockedUseRoute,
+  type LockedUseGate,
+  type LockedUseGatePorts,
+  type LockedUseTurnScope,
+} from "./computer/locked-use-gate.ts";
+
+export { bundles as screenTargetApps } from "./policy.ts";

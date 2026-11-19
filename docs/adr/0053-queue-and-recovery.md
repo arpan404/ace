@@ -148,9 +148,10 @@ the default `manual` policy a known reset only clears the limit: the thread and 
 as available and held messages wait for the person's Resume or next message. Only
 `resume_at_reset` sends at the reset, as before; snooze still expires into a manual hold. A
 fresh account reading below the limit clears the limit the same way (a chosen resume-at-reset
-or snooze deadline stays). A completed turn lifts the hold. With no reset, or once the limit
-has cleared, the person's next message is the go-ahead: the hold and ace's "continue" are
-dropped and the queue sends in order. If the provider refuses again, its signal holds the
+or snooze deadline stays). A completed turn lifts the hold. The person's next message is the
+go-ahead even before a known reset, because a limit can lift earlier than advertised. It drops
+the hold, any resume or snooze timer and ace's "continue", then sends the queue in order.
+A manual pause stays held. If the provider refuses again, its signal holds the
 thread again.
 
 ## Amendment 2026-10-17: the person can always talk to the agent
@@ -262,6 +263,39 @@ A person's steer now reaches the model at once, however long the running command
 - **If the interrupt fails**, the engine does not retry it; the provider's own steer delivers the
   message when the command returns.
 
+## Amendment 2026-11-01: every steer goes in at the next step
+
+Another thread's agent sent three steers to a Claude Code thread running one short shell command
+after another. They sat in the tray as "Queued · 3" for about fifteen minutes and went in only
+after the person pressed Stop. Steer on their rows did nothing visible: the rows were already
+steers, and an edit keeps the message's trigger, so the engine still treated them as daemon
+input and kept them waiting for a moment with no foreground command running. None was ever
+claimed before the Stop. The thread kept no provider frames or steering logs, so why each gap
+between commands was missed isn't recorded. The rule below removes the dependency on catching
+that gap.
+
+- **Claude says `steerTiming: after_tool`.** Its CLI holds a `now` message until the running
+  foreground tool returns, which is what `after_tool` means. A person's steer still backgrounds
+  the tool rather than interrupting the turn: the yield route applies only where the session
+  can't background tools.
+- **Where the provider's steer waits for tools, every steer goes in at once.** Daemon input too
+  (an agent's message, a child's result). The provider lands it at the next tool boundary and
+  nothing is interrupted, so the engine no longer has to catch the boundary itself. Where the
+  provider's steer would cut into the command (Cursor, which restarts its operation), daemon
+  steers still wait for the command to end.
+- **The person can steer any waiting message in.** Steer on an agent's queued message records
+  that the person chose it (`engine_steer_notes.person`): from then on it is the person's steer,
+  and it moves a running command out of the way like one they typed. The message keeps its
+  origin, so the transcript still says which thread sent it.
+- **A refused steer falls back to the queue.** A steer the provider refused unread, whoever sent
+  it, goes back to the queue as the next message and the snapshot marks it `fellBack`. A steer
+  still waiting when its turn ends simply becomes the next message.
+- **The tray says what a steer is doing.** A waiting steer while the root turn runs reads
+  "Steering at the next step", with no Steer button. Between turns it reads "Sends as the next
+  message", and one that fell back reads "Couldn't steer · sends after this turn".
+- **`agent_message` defaults to steer for every target**, not only the caller's children
+  ([ADR 0013](0013-orchestration.md)).
+
 ## Amendment 2026-10-18: a Stop always settles
 
 A Stop of a whole thread (a cascading interrupt with no agent or run target) must leave the tree
@@ -304,3 +338,113 @@ one case: a thread whose provider work was live when ace stopped continues by it
 restart continuation, ahead of its queued messages. Turns waiting on the person, stopped or held
 threads, uncertain input, providers that can't resume and turns interrupted three restarts in a
 row still wait for the person. A provider that dies while ace keeps running still holds.
+
+## Amendment 2026-10-27: removing or editing a not-sent message releases its hold
+
+A send or session start that fails keeps its message at the head of the queue, held as not sent
+(`not_sent` or `model_unavailable`). When the person removes that message, or the daemon accepts
+an edit of it, the failure it was held for is gone, so the same transaction releases the hold: the
+edited message, or the one behind a removed message, is tried next, in order. Removing or editing
+any other message, or an edit the daemon refuses, leaves the hold as it was. The queue revision
+fences concurrent devices, so only one of them releases it. Clients read the hold from the
+daemon's queue state; the message behind a released hold shows as queued or sending, never
+"Not sent".
+
+## Amendment 2026-11-01: switching away from a limit, and a resume at reset you can cancel
+
+The person called the usage limit the worst flow in the app. Walking it in the fake app showed:
+
+- The strip's Switch opened the full model picker on the account that ran out, every model
+  greyed out as "Limit reached"; other accounts and providers were small icons in its rail.
+- A pick from the composer's model chip opened the effort slider first, then needed another
+  click on the model's name.
+- After a pick the strip vanished, the chip said "Pending" and its tooltip "Applies at the
+  agent's next turn", and nothing carried on: the person had to type something. The sidebar
+  still showed the thread as limited.
+- "Resume at reset" changed the sentence to "… · resumes at 9:23 PM" with the same Continue, and
+  the only way to call it off ("Don't resume", `queue.pause`) turned the limit into a manual
+  pause the reset never lifted.
+
+Decisions:
+
+- **`thread.limit` `switch`.** It carries a `selection` (provider, model, account, as
+  `thread.switch` takes) and runs as one durable continuation intent, like `migrate_now`: close the
+  limited session, apply the selection through the existing switch path (`Transitions.execute`,
+  so a cross-provider switch gets the same context handoff and "you are resuming" rules as
+  [ADR 0051](0051-thread-forks-and-turn-boundary-switches.md)), then send the held turn's
+  continuation, ahead of queued messages. The person never presses Continue. A replay after a
+  restart finds the selection already applied and doesn't switch again; the continuation keeps the
+  existing exactly-once rules. The transcript shows the move the way any switch does: another
+  provider gets the usual "Context handoff" row, then ace's "Resumed after the usage limit" line.
+- **Switch opens the normal model picker, on its list.** The strip's Switch, and the composer's
+  model chip on a limited thread, open the picker straight on the models (no effort step first).
+  When the thread's account is at its limit, the picker opens on an account with room (the same
+  provider's next one first, `@ace/ui-core` `startingTab`), never on an all-greyed list; the
+  exhausted account keeps its rail tab, greyed with its reset. A pick of any model with room that
+  the thread can move to in place sends `switch` at once, with no confirmation for another
+  provider and whatever the fork preference says; the strip says "Continuing on Claude Code ·
+  Personal" until the turn runs. A first version listed destinations in a menu of its own; the
+  owner rejected it for the existing picker.
+- **`thread.limit` `cancel_resume`.** It drops a chosen resume at reset and leaves the thread held
+  by its limit exactly as the `manual` policy would: the reset only clears the limit, nothing is
+  sent. A new hold token fences a deadline already firing. Refused with `no_scheduled_resume` when
+  nothing is scheduled.
+- **The scheduled state reads as itself.** "Resumes at 9:23 PM when Codex resets · in 1h 28m",
+  with Switch and Cancel. The sidebar row keeps the limit's gauge and its hover card says
+  "Resumes at 9:23 PM". The schedule is the existing durable `resume_at` / `timer_action` row, so
+  it survives restarts and fires once.
+- **What supersedes a scheduled resume.** The person's next message cancels it (the earlier
+  amendment: a message is the go-ahead and drops any timer). A switch from the strip cancels it:
+  admitting the continuation clears the deadline in the same transaction, so the old account's
+  timer can't fire on the new one. A Stop cancels it as before.
+
+## Amendment 2026-11-01: a turn a usage limit paused is a complete turn
+
+The transcript folded a paused turn's steps and messages under a bare "Worked" disclosure, which
+hid what the agent had said. The owner: "When limited we don't hide the message, we treat the whole
+turn as a complete turn and show it as it is."
+
+- **Shown like a completed turn.** The block builder (`ui-core/transcript-blocks.ts`) settles a
+  paused turn as it stands, whether the limit holds it now or a resume followed: the same "Worked
+  for" head as a completed turn, its steps folded under it, and the agent's last message in view as
+  the turn's answer, even when steps followed that message (`pausedTurnsOf` finds the paused turns
+  before grouping, so this holds after a reload too). A held turn's time stops at the last thing it
+  said. There is no pause ending row. A limit hit before any output leaves only the ask.
+- **The limit is said once**, in the composer's held-turn strip (unchanged).
+- **A resume is a new turn.** A `limit_resume` run never joins the paused turn (unchanged); it
+  reads below it as its own turn, and nothing calls the paused turn stopped or interrupted.
+
+Tests: web `turn-structure.test.tsx` (the head and answer while held, a resume below, the same
+after a reload) and `transcript-live-state.test.tsx`.
+
+The person's Stop is now done and already read, never attention and never offered a Continue; see
+[ADR 0052](0052-agent-control.md), amendment of the same date.
+
+## Amendment 2026-11-15: a resume carries its turn on
+
+The owner saw a real thread where every restart added "Interrupted by a restart. Continuing." and
+"Resumed after restart", a usage limit added "Resumed after the usage limit", and the resume read
+as a second turn with its own "Worked for" and its own subagents block. This replaces "A resume is
+a new turn" above.
+
+- **One turn.** A `restart` or `limit_resume` run carries the turn it continues on, like a run the
+  agent starts by itself (`carriesOnStretch` in `ui-core/thread-ledger.ts`). The turn tree, the
+  live "Working for" timer and the transcript all read one turn: one "Working for…" or "Worked
+  for…" line and one subagents block. ace's Continue input ("Continue where you left off.", or an
+  older build's instructions) is never the person's message.
+- **Its time is working time.** The gap before a restart's continuation (ace was down) and before
+  a limit resume (the limit held it) is idle, not work (`TurnStretches.clock`). Gaps while the
+  turn's children work on still count, as before.
+- **Held, it still reads complete.** While a limit holds the turn it reads as the 2026-11-01
+  amendment says. A turn is held only while its newest run is the held one, so once the resume
+  runs the same turn works again and never reads done while it works.
+- **One quiet row per moment, inside the work.** Each restart is one row where it happened,
+  "Restarted, continued" with its time; restarts back to back merge ("Restarted twice, continued",
+  9:23–9:30 AM). A limit's wait is "Waited for the usage limit" with its span. "Delegated work
+  finished" rows that land together merge ("2 subagents finished"). These rows show in place while
+  the turn works and fold into "Worked for" once it completes; nothing outside the fold mentions a
+  restart (`ui-core/turn-moments.ts`, the `moment` block). What ace sent stays behind the row's
+  disclosure. Subagent blocks are never folded.
+
+Tests: web `transcript/blocks-interruptions.test.ts`, `transcript/blocks-resumes.test.ts`,
+`turn-structure.test.tsx` and `system-events.test.tsx`; ui-core `turn-moments.test.ts`.

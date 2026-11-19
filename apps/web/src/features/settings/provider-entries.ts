@@ -1,10 +1,11 @@
-import { readinessView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
+import { readinessView, turnedOffView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
 import { providerSettingsId } from "@/lib/provider-settings-id.ts";
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { useConnectionState } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useProviderReadiness, type ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { useProviderAccountModels } from "@/features/accounts/index.ts";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import type { ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
@@ -57,6 +58,13 @@ export function useProviderEntries() {
   const providers = useQuery({ ...settingsQueries.providers(backend), enabled: ready });
   const readiness = useProviderReadiness();
   const { accounts: accountQuery, model } = useProviderAccountModels();
+  // The saved setting decides "turned off" for every provider, including ACP agents and ones
+  // discovery skipped, so Turn on is always offered.
+  const [configuration] = useDaemonSetting("providers.configuration");
+  const turnedOff = (kind: ProviderInstall["kind"]) =>
+    configuration?.some(
+      (row) => row.provider === kind && row.instance === undefined && row.enabled === false,
+    ) ?? false;
   const entries = providers.data?.map((install): ProviderEntry => {
     const row =
       install.kind === "acp"
@@ -67,7 +75,9 @@ export function useProviderEntries() {
       id: providerPageId(install),
       install,
       row,
-      view: accounts.view ?? (row ? readinessView(row) : undefined),
+      view: turnedOff(install.kind)
+        ? turnedOffView
+        : (accounts.view ?? (row ? readinessView(row) : undefined)),
       accountCount: accountQuery.data && accounts.loaded ? accounts.accounts.length : undefined,
     };
   });

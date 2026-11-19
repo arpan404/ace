@@ -1,8 +1,11 @@
 import { deliverAfterLoads } from "./deep-link-delivery.ts";
+import { followDaemonWithSpade } from "./spade-follow.ts";
+import { rememberSpadeUpdateMode } from "@ace/service/spade-update-mode";
 import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import type { AppUpdateInstruction, HomeData } from "@ace/protocol";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
@@ -11,7 +14,9 @@ import {
   globalShortcut,
   Menu,
   nativeTheme,
+  Notification,
   powerMonitor,
+  session,
   shell,
   type WebContents,
 } from "electron";
@@ -20,14 +25,24 @@ import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
+import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
+import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
+import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
+import { localSpade } from "./spade/local.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
+import { bundledStallWorker, watchFreezes } from "./diagnostics/freeze-watch.ts";
+import { createStallOperation, systemHeartbeat } from "@ace/diagnostics/stall";
+import { startMainBeat } from "./diagnostics/main-beat.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
+import { windowsAppUserModelId } from "./notifications/native.ts";
+import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
+import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
@@ -41,7 +56,8 @@ import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-s
 import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
-import { loginShellPath } from "./daemon/login-path.ts";
+import { claimAceLinks } from "./os/link-handler.ts";
+import { loginShellPath } from "@ace/service/login-path";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -50,10 +66,14 @@ import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
-import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
+import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { QuitGate } from "./os/quit-gate.ts";
+import { daemonAtQuit, shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
+import { spellcheckLanguages } from "./window/spellcheck.ts";
 import {
   disableDnsPrefetching,
   isolateVisualizationSession,
@@ -73,54 +93,54 @@ const paths = appPaths({
   resourcesPath: process.resourcesPath,
   platform: process.platform,
 });
-// The app's own data folder, checked before Electron puts anything in it: never the older
-// ace 0.x app's folders. Development keeps window state, sessions and settings in
-// `.ace-dev/electron` (ACE_DESKTOP_USER_DATA).
+// The app's own data folder. Development keeps window state, sessions and settings in
+// ACE_DESKTOP_USER_DATA (`~/.ace/dev-electron`).
 const userData = desktopUserData({
   explicit: process.env.ACE_DESKTOP_USER_DATA,
   appData: app.getPath("appData"),
 });
-const unsafe = checkUserData(
-  userData,
-  legacyFolders({ appData: app.getPath("appData"), homedir: homedir() }),
-);
-if (unsafe) {
-  dialog.showErrorBox("ace can't start", unsafe);
-  app.exit(1);
-} else {
-  app.setPath("userData", userData);
-  // Local crash dumps only (never uploaded), started before any helper process launches.
-  const crashDumps = startLocalCrashReporter(userData);
-  // Before anything starts Chromium's network service: never the older ace app's keychain item.
-  claimKeychainName(app, process.platform);
-  // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
-  disableDnsPrefetching(app);
-  // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
-  enableFeatures(app.commandLine, linuxFeatures(process.platform));
-  // An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
-  // shortcut, and what `ace://` links open.
-  if (process.platform === "linux" && app.isPackaged)
-    installAppImageEntry({
-      env: process.env,
-      home: homedir(),
-      execPath: process.execPath,
-      files: nodeAppImageEntryFiles,
-      warn: (message) => console.warn(message),
-    });
-  registerAppScheme();
-  if (!app.requestSingleInstanceLock()) app.quit();
-  else
-    main(
-      // The daemon home, chosen and prepared once by the shared resolver (`~/.ace` by default).
-      desktopTarget({
-        env: process.env,
-        packaged: app.isPackaged,
-        daemonEntry: paths.daemonEntry,
-        platform: process.platform,
-      }),
-      crashDumps,
-    );
+app.setPath("userData", userData);
+const logs = desktopLogs(process.env.ACE_DESKTOP_USER_DATA);
+if (logs) app.setAppLogsPath(logs);
+// Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
+if (process.platform === "win32")
+  app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
+// Local crash dumps only (never uploaded), started before any helper process launches.
+const crashDumpDir = startLocalCrashReporter(userData);
+// Before anything starts Chromium's network service: never the older ace app's keychain item.
+claimKeychainName(app, process.platform);
+// Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
+disableDnsPrefetching(app);
+// Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
+enableFeatures(app.commandLine, linuxFeatures(process.platform));
+// An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
+// shortcut, and what `ace://` links open.
+if (process.platform === "linux" && app.isPackaged) {
+  const linux = {
+    env: process.env,
+    home: homedir(),
+    files: nodeAppImageEntryFiles,
+    warn: (message: string) => console.warn(message),
+  };
+  installAppImageEntry({ ...linux, execPath: process.execPath });
+  claimAceLinks(linux);
 }
+registerAppScheme();
+if (!app.requestSingleInstanceLock()) app.quit();
+else
+  main(
+    // The daemon home, chosen and prepared once by the shared resolver (`~/.ace` by default).
+    desktopTarget({
+      env: process.env,
+      packaged: app.isPackaged,
+      daemonEntry: paths.daemonEntry,
+      platform: process.platform,
+    }),
+    crashDumpDir,
+  );
+
+/** Milliseconds since the app launched, for the launch steps the log records. */
+const sinceLaunchMs = () => Math.round(performance.now());
 
 function isDirectory(path: string): boolean {
   try {
@@ -157,8 +177,21 @@ function openLogs(): (component: string) => Log {
 function main(target: DaemonTarget, crashDumps: string): void {
   const logger = openLogs();
   const log = logger("desktop");
-  const daemonLog = logger("daemon");
-  void logFreshStart(target, log, new Date());
+  // Names what the main thread is doing, so a freeze is reported with its operation.
+  const operation = createStallOperation();
+  // One timer notices the main thread freezing, for the stall watchdog and the daemon's
+  // health checks alike. Read on `Date.now`, the supervisor's clock.
+  const beat = startMainBeat({ clock: systemHeartbeat, now: Date.now });
+  watchFreezes({
+    log: logger("freeze"),
+    directory: app.getPath("logs"),
+    pid: process.pid,
+    operation,
+    spawn: bundledStallWorker(import.meta.url),
+    clock: beat.clock,
+  });
+  // logFreshStart records its own failure in the log; a throw from the log itself is all left.
+  void logFreshStart(target, log, new Date()).catch(() => {});
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:
@@ -173,6 +206,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     version: info.version,
     resources: {
       entry: paths.daemonEntry,
+      lockedUseDirectory: paths.lockedUseDirectory,
       screenHelper: paths.screenHelper,
       screenHelperManifest: paths.screenHelperManifest,
       binDirectory: paths.binDirectory,
@@ -180,9 +214,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
       packaged: app.isPackaged,
     },
     env: process.env,
+    savedPathFile: join(app.getPath("userData"), "login-path.json"),
     log: logger("supervisor"),
-    daemonOutput: (line, stream) =>
-      daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
+    sinceLaunch: () => performance.now(),
+    freezes: beat,
   });
   const settings = new SettingsStore(join(app.getPath("userData"), "desktop-settings.json"));
   const backgrounds = new WindowBackgroundStore(
@@ -215,19 +250,93 @@ function main(target: DaemonTarget, crashDumps: string): void {
     window: () => window,
     open: (link) => open(link),
     quitAll: () => app.quit(),
+    quitCompletely: () => quitCompletely(),
     log: (message) => log("warn", message),
+    mark: operation.run,
     trayHost:
       process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
 
-  let quitting = false;
   let systemShutdown = false;
-  /** The browser backend tells the daemon first, then the daemon this app started stops. */
-  const shutDown = async () => {
-    globalShortcut.unregisterAll();
-    await background.stop();
-    await runtime.stop();
+  // Paired clients read the app's update status from its daemon, and an administrator there can
+  // ask for the update; the daemon's reply carries the request (ADR 0113).
+  let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
+  // What the daemon's home holds, from its replies: an older release is offered only if it
+  // reads all of it (ADR 0177).
+  let homeData: HomeData | undefined;
+  const updateReport = new UpdateReporter({
+    ready: async () => healthy(await runtime.local()),
+    send: async (report) => reportAppUpdate(await runtime.local(), report),
+    instructed: (instruction) => remoteUpdate?.(instruction),
+    replied: (reply) => {
+      if (reply.homeData) homeData = reply.homeData;
+    },
+    withdraw: async () => withdrawAppUpdate(await runtime.local()),
+    timers,
+    log: (message) => log("warn", message),
+  });
+  runtime.onStatus((status) => updateReport.connected(status.state === "running"));
+  updateReport.connected(runtime.current().state === "running");
+  /**
+   * "Quit ace completely" (the app menu, the tray) or an update's restart: this quit stops the
+   * daemon too. Any other quit leaves it running for the next launch (ADR 0186).
+   */
+  let stopDaemonOnQuit = false;
+  const quitCompletely = () => {
+    stopDaemonOnQuit = true;
+    app.quit();
   };
+  /**
+   * Every quit waits here until the app has shut down: the browser backend tells the daemon it
+   * is going, then the daemon this app started is left running, or, on a complete quit, stops
+   * (SIGTERM, then SIGKILL after its grace).
+   */
+  const quitLog = logger("quit");
+  const quitGate = new QuitGate({
+    shutDown: async () => {
+      globalShortcut.unregisterAll();
+      // Before the daemon stops or the app goes: no client should keep showing this app's update,
+      // and the browser backend tells the daemon it is going. Both at once, then the daemon.
+      await shutDownBeforeQuit({
+        beforeDaemon: [
+          { name: "update report withdrawn", run: () => updateReport.withdraw() },
+          { name: "browser backend stopped", run: () => background.stop() },
+        ],
+        daemon: () => {
+          const action = daemonAtQuit({
+            completely: stopDaemonOnQuit,
+            // electron-updater installs a downloaded update as the app quits.
+            updateInstalls: updates.current().state === "downloaded",
+          });
+          quitLog("info", action === "stop" ? "Stopping the daemon" : "Leaving the daemon running");
+          return action === "stop" ? runtime.stop() : runtime.release();
+        },
+        now: Date.now,
+        log: (message, data) => quitLog("info", message, data),
+      });
+    },
+    quit: () => {
+      if (relaunch) relaunchAfterExit(relaunch);
+      app.quit();
+    },
+    timers,
+    log: quitLog,
+  });
+  // The daemon's lookup and spawn start now, beside serving the page and creating the window,
+  // not after them: they need nothing from Electron's ready. Only this app's single instance
+  // gets here, the QuitGate above already stops what this starts, and the supervisor picks a
+  // safe start itself. Nothing the updater does, later, can keep it from running.
+  void runtime
+    .start()
+    .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
+  const daemonRunning = new Promise<void>((settle) => {
+    if (runtime.current().state === "running") return settle();
+    const stop = runtime.onStatus((status) => {
+      if (status.state !== "running") return;
+      stop();
+      settle();
+    });
+  });
   const updates = appUpdates({
     version: info.version,
     packaged: app.isPackaged,
@@ -238,17 +347,44 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     random: Math.random,
     now: Date.now,
-    report: (status) => emit(contents(), "updates.status", status),
+    // Checks back off while nobody sees the app or it runs on battery (update-schedule.ts).
+    active: () =>
+      Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()) &&
+      !powerMonitor.isOnBatteryPower(),
+    daemonRunning,
+    report: (status) => {
+      emit(contents(), "updates.status", status);
+      updateReport.status(status);
+    },
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
     // Quit's own question is skipped: the person already confirmed Restart.
-    prepareQuit: async () => {
-      quitting = true;
-      await shutDown();
+    prepareQuit: async (spadeMode) => {
+      if (target.kind === "managed")
+        await rememberSpadeUpdateMode(target.home, spadeMode).catch((error: unknown) =>
+          log("warn", `Remembering Spade's update mode failed: ${String(error)}`),
+        );
+      // The new version starts its own daemon.
+      stopDaemonOnQuit = true;
+      await quitGate.shutDown();
     },
     quit: () => app.quit(),
+    chosenLine: () => settings.get().updateLine,
+    saveLine: async (line) => void (await settings.update({ updateLine: line })),
+    homeData: () => homeData,
+    // The guard's second look before an install: the daemon reads the home again on each report.
+    freshHomeData: async () => {
+      const reply = await reportAppUpdate(
+        await runtime.local(),
+        appUpdateReport(updates.current()),
+      ).catch(() => undefined);
+      if (reply?.homeData) homeData = reply.homeData;
+      return reply?.homeData;
+    },
     log: logger("updates"),
   });
+  updateReport.status(updates.current());
+  remoteUpdate = (instruction) => void updates.remote(instruction);
 
   // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
   const install = linuxInstall(process.env, process.execPath);
@@ -325,8 +461,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
-    // Opening the app (launch, reopening its window, showing it again) asks for an update.
+    // Opening the app (reopening its window, showing or focusing it again) asks for an update
+    // once the last check is a while ago.
     window.on("show", () => updates.opened());
+    window.on("focus", () => updates.opened());
     const closing = window;
     // Browser views move to the parking window before the window (and its views) go.
     closing.on("close", () => background.windowClosing(closing));
@@ -385,7 +523,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (links.length === 0) open();
     for (const link of links) open(link);
     // `ace update apply` from the bundled CLI, while the app runs.
-    if (argv.includes(desktopUpdateArgument)) void updates.apply();
+    if (argv.includes(desktopUpdateArgument))
+      void updates
+        .apply()
+        .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
@@ -397,68 +538,71 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (isDirectory(path)) open({ kind: "open-folder", path });
   });
 
+  // Electron quits only once the gate has finished shutting down; every earlier request, a
+  // second Cmd+Q while the daemon stops included, is held back and waits for that shutdown.
   app.on("before-quit", (event) => {
-    if (quitting) return;
+    if (quitGate.finished) return;
     event.preventDefault();
     // One clear question, only while agents are mid-browse; an answer of Quit is final.
-    if (background.agentsBrowsing(Date.now(), systemShutdown)) {
+    if (!quitGate.started && background.agentsBrowsing(Date.now(), systemShutdown)) {
       const choice = dialog.showMessageBoxSync({
         type: "warning",
         buttons: ["Quit", "Cancel"],
         defaultId: 1,
         cancelId: 1,
         message: "Agents are using the browser",
-        detail: "Quitting closes the pages they are working in, and they stop where they are.",
+        detail: stopDaemonOnQuit
+          ? "Quitting closes the pages they are working in, and they stop where they are."
+          : "Quitting closes the pages they are working in. The agents keep running without them.",
       });
       if (choice !== 0) {
         relaunch = undefined;
+        stopDaemonOnQuit = false;
         return;
       }
     }
-    quitting = true;
-    void shutDown()
-      .catch((error: unknown) => log("error", String(error)))
-      .finally(() => {
-        if (relaunch) relaunchAfterExit(relaunch);
-        app.quit();
-      });
+    quitGate.request();
   });
   // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
   // works or a thread has a browser page. Listening here stops Electron quitting on its own.
   app.on("window-all-closed", () => background.windowChanged());
   app.on("activate", () => open());
 
-  void app.whenReady().then(async () => {
+  // The app's startup: a failure is logged, and the app stays up without a window.
+  const ready = app.whenReady().then(async () => {
     if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
     const network = new DaemonNetwork();
     if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
     if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
     installDaemonNetwork(network);
-    await isolateVisualizationSession();
+    // Windows and Linux load a dictionary per language: only the person's own (spellcheck.ts).
+    if (process.platform !== "darwin")
+      session.defaultSession.setSpellCheckerLanguages(
+        spellcheckLanguages(
+          app.getPreferredSystemLanguages(),
+          session.defaultSession.availableSpellCheckerLanguages,
+        ),
+      );
+    // The visualization session is locked while the renderer is served; both finish before the
+    // app window (the only place a visualization `<webview>` attaches) exists.
     const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
-    if (devUrl && !app.isPackaged) {
-      applyDevCsp(devUrl, remote, network);
-      rendererUrl = devUrl;
-    } else rendererUrl = await serveRenderer(paths.renderer, remote, network);
+    const served =
+      devUrl && !app.isPackaged
+        ? (applyDevCsp(devUrl, remote, network), Promise.resolve(devUrl))
+        : serveRenderer(paths.renderer, remote, network);
+    [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
-    // The page shows "Starting ace…" until its daemon answers, however long a first start
-    // takes. Only a real failure rejects; the page then shows its connection screen and
-    // reloads once the daemon is running again.
-    let missedConnection = false;
-    const connection = async () => {
-      try {
-        return await runtime.connection();
-      } catch (error) {
-        missedConnection = true;
-        throw error;
-      }
-    };
-    runtime.onStatus((status) => {
-      if (status.state !== "running" || !missedConnection) return;
-      missedConnection = false;
-      window?.webContents.reload();
+    // The page's hand-off once its daemon answers, and its reload after a missed one
+    // (`page-connection.ts`).
+    const handoff = createPageConnection({
+      connection: () => runtime.connection(),
+      onStatus: (listener) => runtime.onStatus(listener),
+      reload: () => window?.webContents.reload(),
+      handed: () =>
+        log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
     });
+    const connection = handoff.connection;
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
     // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
     // and the agents in it, is left alone.
@@ -495,6 +639,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
             return result;
           })
         : undefined;
+    if (app.isPackaged && target.kind === "managed")
+      void followDaemonWithSpade({
+        home: target.home,
+        resourcesPath: process.resourcesPath,
+        version: info.version,
+        platform: process.platform,
+        node: paths.node,
+        entry: paths.daemonEntry,
+        env: process.env,
+        daemonReady: () => runtime.local(),
+        log: logger("spade"),
+      }).catch((error: unknown) => log("warn", `Spade's update failed: ${String(error)}`));
     const terminal = terminalCommand({
       shim,
       enabled: () => settings.get().terminalCommand,
@@ -514,15 +670,28 @@ function main(target: DaemonTarget, crashDumps: string): void {
       log: (line) => log("info", line),
     });
     let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
-    void terminal.status().then((status) => (terminalStatus = status));
+    void terminal
+      .status()
+      .then((status) => (terminalStatus = status))
+      .catch((error: unknown) =>
+        log("warn", `Could not read the terminal's status: ${String(error)}`),
+      );
     let bindings: Readonly<Record<string, string>> | undefined;
+    const toolchains = bundledToolchains(import.meta.url);
+    // Spade beside this app's daemon, reached directly so it works while the daemon is down.
+    const spade = localSpade({
+      home: target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
+      onChange: () => emit(contents(), "spade.endpoint.changed", undefined),
+    });
+    app.once("will-quit", spade.close);
     const handlers = createHandlers({
+      spade: spade.direct,
       info,
       runtime,
       settings,
       background,
       window: () => window,
-      env: process.env,
+      toolchains: () => toolchains(process.env),
       connection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
@@ -557,6 +726,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+        // Windows: the caption buttons follow the page's theme, not only the OS scheme.
+        if (process.platform === "win32")
+          window.setTitleBarOverlay({
+            symbolColor: captionSymbolColor(
+              windowBackground(value, nativeTheme.shouldUseDarkColors),
+              nativeTheme.shouldUseDarkColors,
+            ),
+          });
       },
       updateKeymap: (next) => {
         bindings = next;
@@ -572,6 +749,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
             developer: !app.isPackaged,
             bindings,
             trigger: (id) => emit(contents(), "keymap.action", id),
+            quitCompletely,
             checkForUpdates: () =>
               void updates
                 .check("person")
@@ -593,19 +771,37 @@ function main(target: DaemonTarget, crashDumps: string): void {
       rendererUrl,
       isAppWindow: (sender) => sender === window?.webContents,
       handlers,
+      mark: operation.run,
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
+    // Windows keeps toasts in the notification centre after their objects are gone (and after
+    // a restart). A click, button or reply on one that no live toast answered brings ace
+    // forward with its request still waiting (`activation.ts`).
+    if (process.platform === "win32")
+      Notification.handleActivation((details) => {
+        const at = Date.now();
+        setTimeout(() => {
+          if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open") open();
+        }, liveToastGraceMs);
+      });
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
     powerMonitor.on("shutdown", () => {
       systemShutdown = true;
     });
+    // Plugged in again: checks leave their battery back-off.
+    powerMonitor.on("on-ac", () => updates.opened());
     powerMonitor.on("resume", () => {
+      // The gap the main thread just saw was sleep, not a freeze (health checks stay uncounted).
+      beat.resumed();
       background.wake();
       // Timers stall while the Mac sleeps; a wake is an opening too.
       updates.opened();
+      // The page checks its socket now instead of waiting on a heartbeat or a backoff.
       emit(contents(), "system.resumed", undefined);
     });
+    // Back from the lock screen (which may have slept the network): the page checks its socket.
+    powerMonitor.on("unlock-screen", () => emit(contents(), "system.resumed", undefined));
 
     applySettings(settings.get());
     // Launched at login with background mode on: daemon and tray only, no window.
@@ -616,19 +812,25 @@ function main(target: DaemonTarget, crashDumps: string): void {
         process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
       background: settings.get().background,
     });
-    if (!hidden) createWindow();
+    if (!hidden) {
+      createWindow();
+      window?.webContents.once("did-finish-load", () =>
+        log("info", "The page loaded", { sinceLaunchMs: sinceLaunchMs() }),
+      );
+    }
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
-    // The daemon starts first: nothing the updater does can keep it from running.
-    void runtime
-      .start()
-      .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
     try {
       updates.start();
     } catch (error) {
       log("error", `Update checks failed to start: ${String(error)}`);
     }
     // Launched by `ace update apply` from the bundled CLI.
-    if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
+    if (process.argv.includes(desktopUpdateArgument))
+      void updates
+        .apply()
+        .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
   });
+  // A startup that fails is logged; the app stays up with no window rather than dying.
+  void ready.catch((error: unknown) => log("error", `Desktop startup failed: ${String(error)}`));
 }

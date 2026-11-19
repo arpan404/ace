@@ -1,6 +1,6 @@
 import XCTest
 
-/// Plan review and form cards, the effort and speed chip, the attach menu, a finished turn's full
+/// Plan review and form cards, effort in the model sheet, the attach menu, a finished turn's full
 /// steps and going back from a child, against the spike fixture, with screenshots. Run on a fresh
 /// fixture; `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class ThreadGapsUITests: XCTestCase, @unchecked Sendable {
@@ -10,27 +10,58 @@ import XCTest
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         screenshot("plan-review")
+        // The strip's Review opens the whole plan, where it can be sent back.
+        app.buttons["plan.review"].tap()
+        XCTAssertTrue(app.buttons["plan.revise"].waitForExistence(timeout: 10))
         app.buttons["plan.revise"].tap()
         let feedback = app.textFields["plan.feedback"]
         XCTAssertTrue(feedback.waitForExistence(timeout: 10))
         feedback.tap()
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
-        // The model chip's effort part opens effort and speed, the levels in words.
-        app.composerControl("composer.effort", timeout: 25).tap()
-        let high = app.buttons["composer.tune.high"]
-        XCTAssertTrue(high.waitForExistence(timeout: 25))
-        high.tap()
-        XCTAssertTrue(app.buttons["composer.tune.high"].waitForExistence(timeout: 10))
-        let selected = NSPredicate(format: "isSelected == true")
-        expectation(for: selected, evaluatedWith: app.buttons["composer.tune.high"])
-        waitForExpectations(timeout: 10)
+        app.buttons["plan.close"].tap()
+        // The title's menu has one entry for model, effort and speed: its sheet leads with Effort,
+        // the levels in words and one tap each; the line under the title follows the pick.
+        app.threadTitle(timeout: 25).tap()
+        let model = app.titleMenuItem("thread.title.model", label: "Model, effort and speed")
+        XCTAssertTrue(model.waitForExistence(timeout: 10))
+        screenshot("title-menu")
+        model.tap()
+        let high = app.buttons["tune.effort.high"]
+        XCTAssertTrue(high.waitForExistence(timeout: 15))
+        XCTAssertEqual(high.label, "Effort, High")
         screenshot("tune-effort")
-        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
-        XCTAssertTrue(app.buttons["composer.tune.high"].waitForNonExistence(timeout: 10))
+        high.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: high)
+        waitForExpectations(timeout: 10)
+        // Done is the sheet's only bar button.
+        XCTAssertFalse(app.buttons["modelSheet.close"].exists)
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.threadSubtitle(containing: "High").waitForExistence(timeout: 10), "the line under the title shows the new effort")
+        // Another model: the sheet stays open, the row is checked and Effort shows its levels.
+        app.threadTitle().tap()
+        app.titleMenuItem("thread.title.model", label: "Model, effort and speed").tap()
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "threadModel."))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15))
+        let other = (0..<min(rows.count, 20)).map { rows.element(boundBy: $0) }.first { $0.isHittable && !$0.isSelected && $0.isEnabled }
+        XCTAssertNotNil(other)
+        other?.tap()
+        // A move that asks is confirmed on the tap and sent when the sheet closes.
+        let ask = app.alerts.firstMatch
+        if ask.waitForExistence(timeout: 3) {
+            ask.buttons.matching(NSPredicate(format: "label != %@", "Cancel")).firstMatch.tap()
+        }
+        XCTAssertTrue(app.buttons["modelSheet.done"].exists)
+        if let other { expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: other) }
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tune.")).firstMatch.waitForExistence(timeout: 10))
+        screenshot("thread-model-picked")
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
-        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Photo library"].waitForExistence(timeout: 10))
         screenshot("attach-menu")
     }
     func testFormCard() {
@@ -51,23 +82,20 @@ import XCTest
         // The turn's steps open grouped, as on the web: sentence rows on a rail.
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
-        let rollup = app.buttons["subagents.rollup"].firstMatch
-        app.bringToMiddle(rollup)
-        rollup.tap()
-        let review = app.buttons["subagent.Review PID-reuse safety"]
+        // The subagents still work, so their tree is the pill's.
+        app.openAgentsFromPill()
+        let review = app.agentsRow("Review PID-reuse safety")
         XCTAssertTrue(review.waitForExistence(timeout: 10))
-        app.bringToMiddle(review)
         review.tap()
         XCTAssertTrue(app.staticTexts["Review the kill-all change for PID-reuse safety."].waitForExistence(timeout: 25))
         app.navigationBars.buttons.firstMatch.tap()
         // The parent's transcript is on screen at once, never the empty loading state.
         XCTAssertFalse(app.staticTexts["Loading conversation…"].exists)
         screenshot("back-from-child")
-        let explore = app.buttons["subagent.Explore process groups"]
+        app.openAgentsFromPill()
+        let explore = app.agentsRow("Explore process groups")
         XCTAssertTrue(explore.waitForExistence(timeout: 25))
-        app.bringToMiddle(explore)
         explore.tap()
-        XCTAssertTrue(app.collectionViews["lane.transcript"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Process groups are created per thread."].waitForExistence(timeout: 10))
         screenshot("agent-lane-grouped")
     }
@@ -80,7 +108,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

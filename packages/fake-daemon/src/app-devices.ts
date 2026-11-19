@@ -33,6 +33,11 @@ interface Session {
   controller: DeviceState["controller"];
   humanOwner?: Channel;
   holder?: DeviceState["holder"];
+  /** The person's input while an agent uses it in cowork: the agent waits. */
+  personActive?: boolean;
+  agentPointer?: DeviceState["agentPointer"];
+  /** What its live video runs on (ADR 0148), as the daemon reports it. */
+  acceleration?: DeviceState["acceleration"];
   leaseExpiresAt?: number;
   screen: "home" | "app";
   logs: string[];
@@ -112,8 +117,10 @@ export class FakeAppDevices {
   logsFail = false;
   readonly actions: DeviceOperation[] = [];
   private clock: () => number;
-  private enabled = false;
+  private enabled = true;
   private sessions = new Map<string, Session>();
+  /** Devices booted outside ace whose next boot from ace fails (`bootElsewhere`). */
+  private bootedElsewhere = new Set<string>();
   private channels = new Set<Channel>();
   private sequence = 0;
   private streams = 0;
@@ -149,7 +156,8 @@ export class FakeAppDevices {
   readonly acks: DeviceAck[] = [];
   /**
    * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
-   * for a device without one); none by default.
+   * for a device without one); none by default. A foldable's inner screen has its own, under
+   * the model with `:open` after it.
    */
   readonly chromes = new Map<string, DeviceChrome>();
   /** Every device a client asked the look of, in order. */
@@ -195,6 +203,15 @@ export class FakeAppDevices {
     }
   }
 
+  /**
+   * The device boots outside ace (in Xcode): it runs, but open channels aren't told, and a boot
+   * from ace fails as simctl does for a booted device until the list is read again.
+   */
+  bootElsewhere(deviceId: string): void {
+    this.known(deviceId);
+    this.bootedElsewhere.add(deviceId);
+  }
+
   /** The thread whose agent or person took a device last. */
   boundThread(deviceId: string): string | undefined {
     return this.sessions.get(deviceId)?.threadId;
@@ -216,8 +233,17 @@ export class FakeAppDevices {
     session.threadId = threadId;
     session.controller = "agent";
     delete session.humanOwner;
+    delete session.personActive;
     session.holder = DeviceState.shape.holder.unwrap().parse({ threadId, agentId });
     delete session.leaseExpiresAt;
+    this.publish(session);
+  }
+
+  /** What a device's live video runs on (ADR 0148); `undefined` clears it. */
+  setAcceleration(deviceId: string, acceleration: DeviceState["acceleration"]): void {
+    const session = this.known(deviceId);
+    if (acceleration) session.acceleration = acceleration;
+    else delete session.acceleration;
     this.publish(session);
   }
 
@@ -226,6 +252,9 @@ export class FakeAppDevices {
     const session = this.known(deviceId);
     session.activitySequence++;
     session.activity = { ...activity, sequence: session.activitySequence };
+    // Where it acted, for its cursor while the person shares the device (ADR 0143).
+    if (activity.point)
+      session.agentPointer = { ...activity.point, kind: "click", at: this.clock() };
     if (activity.action === "key" && activity.key === "home") session.screen = "home";
     else if (activity.point) session.screen = "app";
     this.publish(session);
@@ -333,6 +362,12 @@ export class FakeAppDevices {
         ? { framed: true }
         : {}),
       controller: session.controller,
+      ...(session.controller === "human" ? { sharing: "exclusive" as const } : {}),
+      ...(session.personActive && session.controller === "agent" ? { personActive: true } : {}),
+      ...(session.agentPointer && session.controller === "agent"
+        ? { agentPointer: session.agentPointer }
+        : {}),
+      ...(session.acceleration ? { acceleration: session.acceleration } : {}),
       ownedHere:
         session.controller === "human" &&
         session.humanOwner === channel &&
@@ -432,25 +467,35 @@ export class FakeAppDevices {
     this.send(channel, { type: "devices.result", requestId: message.requestId, ok: true, data });
   }
 
+  /**
+   * Devices on or off for the whole machine, as Settings › Devices (`devices.enabled`) or a
+   * person's `enable` request sets them: every open channel hears, and turning off ends sessions.
+   */
+  setEnabled(enabled: boolean): { enabled: boolean } {
+    if (this.enabled === enabled) return { enabled };
+    this.enabled = enabled;
+    for (const open of this.channels)
+      this.send(open, { type: "devices.enabled", enabled: this.enabled });
+    if (!this.enabled)
+      for (const session of this.sessions.values()) {
+        delete session.threadId;
+        session.recording = false;
+        delete session.streamId;
+        delete session.leaseExpiresAt;
+        session.lifecycle = "idle";
+        session.controller = "none";
+        delete session.humanOwner;
+        delete session.holder;
+      }
+    this.onEnabled?.(this.enabled);
+    return { enabled: this.enabled };
+  }
+  /** Saves a change made from a devices channel, as the daemon keeps `devices.enabled`. */
+  onEnabled: ((enabled: boolean) => void) | undefined;
+
   private operate(channel: Channel, operation: DeviceOperation): unknown {
     if (operation.op === "inventory.watch") return { watching: operation.watching };
-    if (operation.op === "enable") {
-      this.enabled = operation.enabled;
-      for (const open of this.channels)
-        this.send(open, { type: "devices.enabled", enabled: this.enabled });
-      if (!this.enabled)
-        for (const session of this.sessions.values()) {
-          delete session.threadId;
-          session.recording = false;
-          delete session.streamId;
-          delete session.leaseExpiresAt;
-          session.lifecycle = "idle";
-          session.controller = "none";
-          delete session.humanOwner;
-          delete session.holder;
-        }
-      return { enabled: this.enabled };
-    }
+    if (operation.op === "enable") return this.setEnabled(operation.enabled);
     if (operation.op === "list")
       return { devices: [...this.sessions.values()].map((s) => s.device), issues: this.issues() };
     if (operation.op === "tools.install") {
@@ -475,7 +520,12 @@ export class FakeAppDevices {
     if (operation.op === "chrome") {
       this.chromeAsks.push(session.device.id);
       const key = session.device.model ?? session.device.id;
-      return { chrome: this.chromes.get(key) ?? null };
+      const posture = operation.posture ?? this.folds.get(session.device.id);
+      const open = posture === "open" || posture === "partiallyOpen";
+      return {
+        chrome:
+          (open ? this.chromes.get(`${key}:open`) : undefined) ?? this.chromes.get(key) ?? null,
+      };
     }
     switch (operation.op) {
       case "controller":
@@ -508,6 +558,15 @@ export class FakeAppDevices {
         return this.state(session, channel);
       case "boot":
         this.controlled(session, channel);
+        if (this.bootedElsewhere.delete(session.device.id)) {
+          // Booted all along: ace sees it on its next read of the list.
+          session.device = { ...session.device, state: "booted" };
+          throw new Refusal(
+            "command_failed",
+            "Unable to boot device in current state: Booted",
+            "Refresh the list.",
+          );
+        }
         session.device = { ...session.device, state: "booted" };
         this.log(session, `${session.device.name} booted`);
         this.publish(session);
@@ -569,7 +628,14 @@ export class FakeAppDevices {
         channel.streams.delete(session.device.id);
         return this.state(session, channel);
       case "input":
-        this.controlled(session, channel);
+        // Shared (cowork, ADR 0143): the person's input goes in while an agent uses the device,
+        // and the agent waits while it is recent.
+        if (session.controller === "agent") {
+          if (!session.personActive) {
+            session.personActive = true;
+            this.publish(session);
+          }
+        } else this.controlled(session, channel);
         if (session.device.platform === "ios" && !this.permissions.accessibility)
           throw denied("accessibility");
         this.inputs.push({ deviceId: session.device.id, input: operation.input });

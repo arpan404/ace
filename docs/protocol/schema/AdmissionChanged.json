@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/AdmissionChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "admission": {
+      "$ref": "https://ace.local/protocol/v1/Admission.json"
+    },
+    "type": {
+      "const": "admission.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "admission"
+  ],
+  "type": "object"
+}

@@ -7,6 +7,7 @@ import { AccountRegistry, createInstance } from "@ace/accounts";
 import { ModelCatalog, openModelStorage, type ModelCatalogApi } from "@ace/models";
 import {
   AgentControlOperation,
+  AgentModelRoster,
   CatalogModel,
   ThreadId,
   type AccessModeOffer,
@@ -229,6 +230,45 @@ test("sixty accounts with long labels and large native permission selectors fit 
     expect(page.ok).toBe(true);
     expect((page.data as { instances: unknown[] }).instances).toHaveLength(62);
     expect(page.data).not.toHaveProperty("instancesOmitted");
+  } finally {
+    await close();
+  }
+});
+
+test("the models roster names an account whose models sort after every other account's", async () => {
+  // 120 models on the default login fill the whole first 100-row catalog page before "346" begins.
+  const filler = Array.from({ length: 120 }, (_, index): Served => [
+    `model-${index}`,
+    `Model ${index}`,
+  ]);
+  const { h, run, delegate, childModel, close } = await harness(
+    { "claude-346": "346" },
+    {
+      "claude-cli-default": filler,
+      "claude-346": [
+        ["claude-opus-5-5", "Opus 5.5", "claude-opus", "current", true],
+        ["claude-opus-4-8", "Opus 4.8", "claude-opus", "legacy"],
+      ],
+    },
+  );
+  try {
+    const parent = await h.parent();
+    const page = await run(parent, { op: "agents.models", provider: "claude" });
+    const roster = AgentModelRoster.parse(page.data);
+    const claude = roster.providers.find((group) => group.provider === "claude");
+    const opus = claude?.sets.find((set) => set.ids.includes("claude-opus-5-5"));
+    expect(opus?.accounts).toEqual(["346"]);
+    expect(claude?.accounts.find((entry) => entry.label === "346")?.default).toBe(
+      "claude-opus-5-5",
+    );
+    // A superseded model the default list leaves out is still one delegate away by its name.
+    expect(claude?.sets.flatMap((set) => set.ids)).not.toContain("claude-opus-4-8");
+    const result = await delegate(parent, {
+      requestId: "unlisted",
+      role: "review-on-unlisted-model",
+      model: "opus 4.8",
+    });
+    expect(await childModel(result)).toEqual({ instance: "claude-346", model: "claude-opus-4-8" });
   } finally {
     await close();
   }

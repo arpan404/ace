@@ -1,4 +1,5 @@
 import type { ThreadListEntry } from "@ace/protocol";
+import { isRemoteChild } from "@ace/ui-core";
 import type { Alert } from "../notifications/router.ts";
 
 export interface WorkSummary {
@@ -12,15 +13,34 @@ export interface WorkSummary {
    * answering (its process may still be alive). Stopping the daemon would lose either.
    */
   held: number;
+  /**
+   * Threads an agent on a paired machine delegated here, working on this machine. Their owner
+   * is on that machine, so they never show in this machine's badges or tray, but the app must
+   * not quit or let the computer sleep under them.
+   */
+  hostedWorking: number;
+  /** Such threads not done but not moving: waiting on their owner, paused or silent. */
+  hostedWaiting: number;
 }
 
 type Work = keyof WorkSummary;
 
+export const noWork: WorkSummary = {
+  needsYou: 0,
+  working: 0,
+  held: 0,
+  hostedWorking: 0,
+  hostedWaiting: 0,
+};
+
 function workOf(entry: ThreadListEntry): Work | undefined {
   if (entry.archivedAt) return undefined;
-  if (entry.status.state === "needs_you") return "needsYou";
-  if (entry.status.state === "working" || entry.status.state === "waiting") return "working";
-  if (entry.status.state === "limited" || entry.status.state === "unresponsive") return "held";
+  const hosted = isRemoteChild(entry);
+  if (entry.status.state === "needs_you") return hosted ? "hostedWaiting" : "needsYou";
+  if (entry.status.state === "working" || entry.status.state === "waiting")
+    return hosted ? "hostedWorking" : "working";
+  if (entry.status.state === "limited" || entry.status.state === "unresponsive")
+    return hosted ? "hostedWaiting" : "held";
   return undefined;
 }
 
@@ -30,7 +50,7 @@ function workOf(entry: ThreadListEntry): Work | undefined {
  */
 export class WorkTally {
   private work = new Map<string, Work>();
-  private counts: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private counts: WorkSummary = noWork;
 
   /** Record a thread's latest entry (undefined once it is gone); true if the counts moved. */
   set(id: string, entry: ThreadListEntry | undefined): boolean {
@@ -55,13 +75,14 @@ export class WorkTally {
 /**
  * Alerts the daemon does not send itself, derived from status changes it does publish: a
  * thread that starts waiting on a usage limit. `previous` undefined means first sight, which
- * never alerts (a restart must not replay old news).
+ * never alerts (a restart must not replay old news). A thread a paired machine delegated here
+ * alerts its owner there, never this machine's person.
  */
 export function derivedAlerts(
   previous: ThreadListEntry | undefined,
   next: ThreadListEntry,
 ): Alert[] {
-  if (!previous) return [];
+  if (!previous || isRemoteChild(next)) return [];
   const wasLimited = previous.status.state === "waiting" && previous.status.on === "rate_limit";
   const isLimited = next.status.state === "waiting" && next.status.on === "rate_limit";
   if (!isLimited || wasLimited) return [];

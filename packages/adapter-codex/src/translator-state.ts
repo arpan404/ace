@@ -1,7 +1,13 @@
 import type { Fact, Key } from "@ace/core";
 import type { RunTrigger } from "@ace/protocol";
 import type { Obj } from "./native.ts";
-type OpenItem = { data: Obj; turn: string; streamStarted?: boolean };
+type OpenItem = {
+  data: Obj;
+  turn: string;
+  streamStarted?: boolean;
+  /** Made up from output alone: its start frame was never seen. */
+  unseenStart?: true;
+};
 export type RecoveryRevision = {
   read: number;
   current: number;
@@ -42,6 +48,11 @@ export interface TranslationContext {
   agents: Map<string, Agent>;
   tasks: Set<string>;
   asyncOwners: Map<string, { agent: Agent; item: string }>;
+  /**
+   * Codex output was dropped or its history omitted and recovery hasn't finished: a turn that
+   * ends meanwhile may be missing frames, so ace can't vouch for what it left running.
+   */
+  outputLost: boolean;
   discover(
     id: string,
     p: Obj,

@@ -3,6 +3,67 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ClientModelTests {
+    @Test func aSettledHistoryPageWaitsForTheReadersScrollToStop() throws {
+        let model = ClientModel(now: { 0 })
+        let reading = ThreadModel(id: "a")
+        reading.epoch = -1
+        model.reading = reading
+        var patch = item("older", text: "Earlier message", index: 0)
+        patch["epoch"] = -1
+        model.beginReadingScroll()
+        #expect(model.readingSettled, "A drag with no pending page may request history")
+        model.holdReading()
+        #expect(!model.readingSettled)
+        model.receive(try frame([patch, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
+        #expect(reading.items.isEmpty)
+        #expect(!model.readingSettled, "Do not page again before buffered rows reach the viewport")
+        model.endReadingScroll()
+        #expect(model.readingSettled)
+        #expect(reading.order == ["older"])
+        #expect(reading.items["older"]?.row.text == "Earlier message")
+    }
+
+    @Test func stoppingAScrollDoesNotExposeAPartialHistoryPage() throws {
+        let model = ClientModel(now: { 0 })
+        let reading = ThreadModel(id: "a")
+        reading.epoch = -1
+        model.reading = reading
+        var first = item("first", text: "First", index: 0)
+        first["epoch"] = -1
+        var second = item("second", text: "Second", index: 1)
+        second["epoch"] = -1
+        model.beginReadingScroll()
+        model.holdReading()
+        model.receive(try frame([first]))
+        model.endReadingScroll()
+        #expect(reading.items.isEmpty)
+        model.receive(try frame([second, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
+        #expect(reading.order == ["first", "second"])
+    }
+    @Test func aSubagentGroupOpenedOnTheThreadStaysOpenInAPageOfItsHistory() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        let live = try #require(model.thread)
+        live.toggleGroup("agents-1")
+        // Reading back through the thread draws its rows from a separate page of history.
+        TranscriptReading().jump(toTurn: 1, model: model, live: live)
+        let page = try #require(model.reading)
+        #expect(page !== live)
+        #expect(page.isGroupOpen("agents-1"), "the group the person opened is still open")
+        page.toggleGroup("agents-1")
+        #expect(!live.isGroupOpen("agents-1"), "closing it on the page closes it on the thread")
+    }
+    @Test func aSubagentGroupStaysOpenOnTheWayBackFromAChildThread() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("parent")
+        model.receive(try frame([["type": "thread.ready", "threadId": "parent", "epoch": 1, "count": 0]]))
+        model.thread?.toggleGroup("agents-1")
+        model.open("child")
+        model.back()
+        model.open("parent")
+        #expect(model.thread?.isGroupOpen("agents-1") == true)
+        #expect(model.thread?.isGroupOpen("agents-2") == false, "only the group opened")
+    }
     @Test func aDeltaUpdatesOnlyItsVisibleRowAndKeepsHistory() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")

@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon } from "@ace/icons";
 import type { ForgeCheckLog } from "@ace/protocol";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
-import { nextMatch, searchLog } from "./pr-check-model.ts";
+import { windowsPlatform } from "@/lib/keymap.ts";
+import { nextMatch, searchLog } from "@ace/ui-core";
 
 /** Past this many lines only the rows near the viewport mount. */
 const windowAbove = 400;
-const rowHeight = 18;
+const rowHeight = 20;
 
 function highlight(line: string, query: string): ReactNode {
   const needle = query.trim().toLowerCase();
@@ -93,8 +94,8 @@ export function PrCheckLog(props: {
   };
   const selected = matches[current];
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center gap-1.5 border-b border-border bg-surface-1 px-2 py-1.5">
         <Input
           type="search"
           value={query}
@@ -102,7 +103,7 @@ export function PrCheckLog(props: {
           onKeyDown={onKeyDown}
           aria-label={`Search the log of ${props.name}`}
           placeholder="Search log"
-          className="h-7 flex-1"
+          className="h-6.5 flex-1 bg-background"
         />
         {query.trim() && (
           <span role="status" className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -112,7 +113,7 @@ export function PrCheckLog(props: {
         <IconButton
           icon={CaretUpIcon}
           label="Previous match"
-          keys="⇧↵"
+          keys={windowsPlatform ? "Shift+Enter" : "⇧↵"}
           resolve={false}
           size="sm"
           disabled={!matches.length}
@@ -133,10 +134,10 @@ export function PrCheckLog(props: {
         role="log"
         aria-label={`Log of ${props.name}`}
         tabIndex={0}
-        className="max-h-96 overflow-auto rounded-md border border-border bg-muted py-1 font-mono text-xs leading-[18px] focus-ring-inset"
+        className="max-h-80 overflow-auto bg-background py-1.5 font-mono text-xs leading-5 focus-ring-inset"
       >
         {log.truncated && (
-          <p className="px-2 pb-1 text-subtle-foreground">Earlier lines are on GitHub.</p>
+          <p className="px-3 pb-1 text-subtle-foreground">Earlier lines are on GitHub.</p>
         )}
         <LongRows
           items={lines}
@@ -147,15 +148,16 @@ export function PrCheckLog(props: {
           render={(line, index) => (
             <div
               data-log-line={index}
+              data-tone={errors.has(index) ? "failed" : undefined}
               className={cn(
-                "flex min-w-max gap-3 px-2 whitespace-pre",
-                errors.has(index) ? "text-status-failed" : "text-foreground",
+                "flex min-w-max gap-3 pr-3 whitespace-pre",
+                errors.has(index) ? "bg-(--tone)/8 text-(--tone-text)" : "text-foreground",
                 index === selected && "bg-active",
               )}
             >
               <span
                 aria-hidden
-                className="w-10 shrink-0 text-right text-faint-foreground tabular-nums select-none"
+                className="w-12 shrink-0 text-right text-faint-foreground tabular-nums select-none"
               >
                 {index + 1}
               </span>

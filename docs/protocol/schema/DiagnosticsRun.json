@@ -1,0 +1,132 @@
+{
+  "$id": "https://ace.local/protocol/v1/DiagnosticsRun.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "state": {
+          "const": "idle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "elapsedMs": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "doctor",
+            "fix"
+          ],
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "state": {
+          "const": "running",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "id",
+        "operation",
+        "startedAt",
+        "elapsedMs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "finishedAt": {
+          "type": "number"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "doctor",
+            "fix"
+          ],
+          "type": "string"
+        },
+        "repairs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DiagnosticRepair.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "report": {
+          "$ref": "https://ace.local/protocol/v1/DiagnosticReport.json"
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "state": {
+          "const": "done",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "id",
+        "operation",
+        "startedAt",
+        "finishedAt",
+        "report"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "finishedAt": {
+          "type": "number"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "doctor",
+            "fix"
+          ],
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "state": {
+          "const": "failed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "id",
+        "operation",
+        "startedAt",
+        "finishedAt"
+      ],
+      "type": "object"
+    }
+  ]
+}

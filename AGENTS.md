@@ -6,6 +6,12 @@ ace is a multi-agent coding environment: a local daemon that drives the user's i
 
 ace is a clean-room rewrite. Never copy, paste or closely paraphrase code from t3code, `arpan404/ace-legacy`, or any other codebase whose license we haven't explicitly accepted. Reading other projects to learn which interfaces exist is fine; the implementation must be written fresh from our own specs and from primary provider sources.
 
+## Spade
+
+`spade/` is Spade, ace's assistant, in Rust with its own Cargo workspace and checks
+(`cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` inside `spade/`). Like the rest of
+ace it is Apache-2.0.
+
 ## Priorities
 
 1. Correctness of agent state. Never show an agent as done while any part of its tree is still working or waiting on a human.
@@ -16,27 +22,28 @@ When these conflict, choose in that order.
 
 ## Decisions that are settled
 
-- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002).
-- Daemon runtime is Node 24+. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
+- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002). One narrow exception: Spade keeps the API keys of endpoints the person adds in the OS keychain, nowhere else (ADR 0119).
+- Daemon runtime is Bun (releases ship it as `bin/node`); release builds run on Node 26. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
 - `packages/protocol` is schema-only: Zod schemas and inferred types, no runtime behaviour beyond parsing.
 
 ## Code conventions
 
 - TypeScript must be erasable (`erasableSyntaxOnly`): no enums, namespaces or parameter properties. Node runs `.ts` files directly.
 - Relative imports use the `.ts` extension.
-- No god files. Keep modules small and single-purpose: aim for under 400 lines per file. **Hard limit: 1,500 lines** per source file (tests included), enforced in CI by `bun run check:size`. A file approaching the limit is split by responsibility, never by arbitrary cuts.
+- No god files. Keep modules small and single-purpose: aim for under 400 lines per file. **Hard limit: 1,500 lines** per source file (tests included), enforced in CI by `bun run check:size`. A file approaching the limit is split by responsibility, never by arbitrary cuts. A shipped Suit's scene script (`packages/plugins/builtin-suits/<id>/<scene>.js`) is exempt: a scene is one file by format (ADR 0150).
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
-- UI work follows [DESIGN.md](DESIGN.md).
+- UI work follows the [design language](docs/design/design-language.md) (principles and shared foundations for every platform, including the iPhone) and [DESIGN.md](DESIGN.md) (the desktop and web spec).
 
 ## Design for modularity and testability
 
 - **Pure core, thin I/O shell.** Decision logic (state machines, translators, status rules, parsers) lives in pure functions or modules with no I/O, so it can be tested directly. I/O (processes, sockets, SQLite, filesystem, timers) lives in thin shells around it.
 - **Inject what you can't control.** Clocks, id generators, randomness, process spawners, filesystem roots and network endpoints are passed in, never reached for globally (`Date.now()`, `Math.random()` and module-level singletons are banned in logic code). Tests substitute them at the boundary.
 - **One responsibility per module, one public surface per package.** Each package exposes its API through `package.json` `exports`. Never import another package's internals (`@ace/x/src/...`). Circular imports are a lint error.
-- **Explicit types at boundaries.** Data from outside the process (provider frames, wire messages, files, env) is parsed with a schema before use. No `any`, no unchecked `as` casts on external data, no non-null assertions to silence the compiler.
+- **Explicit types at boundaries, and only there.** Data from outside the process (provider frames, wire messages, files, env) is parsed with a schema before use. Data ace produced (values built with the right type, messages between its own threads, rows this build wrote) is not validated again ([ADR 0125](docs/adr/0125-validate-at-trust-boundaries.md)); trusted casts of stored rows live in `apps/daemon/src/stored-decode.ts`. No `any`, no unchecked `as` casts on external data, no non-null assertions to silence the compiler.
 - **Small, composable units over options-heavy functions.** If a function needs a boolean flag that changes what it does, split it in two.
 - **Performance is designed in.** Hot paths (deltas, frame translation, event fan-out) do work proportional to the change, not to history. Anything slower needs a benchmark and a reason.
+- **The daemon stays responsive ([ADR 0170](docs/adr/0170-daemon-never-blocks-on-history-sized-work.md)).** Startup, migrations and the main thread never do work that grows with stored history: no `CREATE INDEX` or full-table rewrite at open. Such work runs in idle, bounded batches, and anything that adds open-time work is timed on a large home with a cold cache.
 
 ## Tests
 
@@ -46,6 +53,8 @@ Test behaviour, not structure. Every test must fail if the behaviour it names br
 - Name tests after the behaviour they guard ("thread stays waiting while a background shell is still running"), not after functions.
 - Prefer real edges: temp SQLite, real child processes, real local HTTP/WebSocket servers. Mock only what you can't control (time, randomness, provider CLIs), and only at the boundary.
 - For each test ask: if the logic it covers broke, would it fail? If not, fix it or delete it.
+- Time budgets, per file (tests and hooks): 5s in the fast tier, 30s for process tests. `test:fast` fails on a file over budget unless `scripts/test-budgets.json` lists it with a reason.
+- A new `*.process.test.ts` file needs a reason: a real edge (process, socket, git, browser) that a unit test of the pure logic can't cover. Test tables of inputs at the unit level and keep one process test for the wiring.
 
 Don't write tests that:
 
@@ -66,7 +75,12 @@ Reviews reject PRs containing such tests.
 - `bun run lint` (oxlint)
 - `bun run typecheck` is the bounded incremental local check; it reuses declaration/check caches.
 - `bun run typecheck:full` checks every original source program, root test tooling, and the client runtime guard from scratch. CI runs it separately as the required safety net for declaration inference.
-- `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
+- `bun run test` (Vitest) is the full run. Never run `bun test`; that is Bun's own runner. Every tier runs Vitest on Bun, the daemon's runtime, then runs the `web` and `client-react` jsdom projects and the Node-only suites (`nodeProjects` and `nodeOnlySuites` in `scripts/test-tiers.ts`) on Node, which must be on PATH. A file that needs a Node-only API goes in `nodeOnlySuites` with a comment saying why, so a default tier still runs it on Node; `skipIf` on Bun is only for one test in a file that otherwise runs on both. Tiers:
+  - `bun run test:fast`: unit and jsdom tests, on every change.
+  - `bun run test:changed`: only tests importing files changed since `origin/main` (fast tier; `--with-process` or `--with-slow` widens it).
+  - `bun run test:process`: real-process tests, before merging to main.
+  - `bun run test:slow`: release, perf, real-smoke, browser and scale suites, before a release.
+  - `bun run test:timings`: slowest files from the last full run (`test-timings/`, git-ignored).
 - `bun run check:size` fails if any source file exceeds 1,500 lines.
 - `bun run check:deps` checks module boundaries in the web app and client packages (dependency-cruiser).
 - `bun run check` runs the checks listed in the root script. It must pass before a task is complete.
@@ -75,7 +89,7 @@ Reviews reject PRs containing such tests.
 
 Every commit made through ace carries exactly this trailer, no variants:
 
-`Co-Authored-By: ace <bot@acehq.dev>`
+`Co-Authored-By: spade <bot@acehq.dev>`
 
 ## Recording fixtures
 

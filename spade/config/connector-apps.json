@@ -1,0 +1,14 @@
+{
+  "checked": "2026-11-12",
+  "about": "Spade's own registered apps (ADR 0137): public client IDs only, never a secret. An empty client_id means the owner hasn't registered the app yet. See spade/docs/connector-apps.md.",
+  "apps": [
+    {
+      "connector": "github",
+      "issuer": "https://github.com/login/oauth",
+      "client_id": "",
+      "grant": "device",
+      "scopes": ["repo", "read:org", "read:user", "user:email", "gist", "notifications", "project"],
+      "source": "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow"
+    }
+  ]
+}

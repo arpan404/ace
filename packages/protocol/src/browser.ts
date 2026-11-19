@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
+import { MediaBinding, MediaCodec, MediaSubscribed } from "./media-connection.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -50,10 +53,21 @@ export type BrowserOpen = z.infer<typeof BrowserOpen>;
  * `tabId` routes a command to one tab. Omitted: an agent's own current tab (the last it opened or
  * selected), otherwise the tab the person is viewing. Commands on different tabs run concurrently.
  */
+/**
+ * Where a caller's gate decided a command acts (Spade, ADR 0171 amendment 3): the command runs
+ * only while its tab is this tab at this address, checked in the tab's queue and again before
+ * each input it sends. Optional; other callers leave it out.
+ */
+export const BrowserExpectedPlace = z.object({
+  tabId: short,
+  url: z.string().min(1).max(8192),
+});
+export type BrowserExpectedPlace = z.infer<typeof BrowserExpectedPlace>;
 const commandBase = z.object({
   tabId: short
     .optional()
     .describe("The tab to act in, from browser_tabs. Omitted: your current tab."),
+  expect: BrowserExpectedPlace.optional(),
 });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });
@@ -384,6 +398,16 @@ export const BrowserOriginBlock = z.object({
   reason: z.enum(["approval_required", "timeout", "invalid_origin"]),
 });
 export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
+/**
+ * The live video can't start (ADR 0088): the shown tab's capture keeps failing before its first
+ * picture, and is tried again, waiting longer each time. `attempts` counts the failures in a row.
+ */
+export const BrowserVideoStatus = z.object({
+  status: z.enum(["retrying"]),
+  reason: z.string().max(2048),
+  attempts: z.number().int().positive(),
+});
+export type BrowserVideoStatus = z.infer<typeof BrowserVideoStatus>;
 export const BrowserState = z.object({
   threadId: ThreadId,
   url: z.string().max(8192),
@@ -412,9 +436,18 @@ export const BrowserState = z.object({
   recording: z.object({ by: BrowserTabActor }).optional(),
   /**
    * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
-   * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
+   * cursors are drawn in the page itself, so clients draw none over frames. `engines`: the
+   * daemon reports which engines can open now, and `embedded-engine` is there while the desktop
+   * app's can. Unknown names are kept.
    */
   features: z.array(z.string().max(64)).max(32).optional(),
+  /** Set while the live video can't start and is being retried; absent once video plays. */
+  video: BrowserVideoStatus.optional(),
+  /**
+   * What the shown tab's live video runs on while ace-media carries it (ADR 0148). Beside `video`
+   * rather than in it: `video` exists only while the video is retrying.
+   */
+  acceleration: MediaAcceleration.optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -465,17 +498,20 @@ export const BrowserCaptureViewport = z.object({
    * gets the page's sound as stream kind `browserAudio`. Absent or false: muted, no audio bytes.
    */
   audio: z.boolean().optional(),
+  /**
+   * The view is hidden or backgrounded (ADR 0149): while true it is sent no video and no
+   * sound. Its next picture after false is a keyframe. Absent: showing.
+   */
+  paused: z.boolean().optional(),
+  /** What the client knows of its link; it only lowers where the viewer's video starts. */
+  link: MediaLinkHint.optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),
 });
 export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
 /** A WebCodecs codec string (`avc1.42E033`, `vp8`, `vp09.00.10.08`). */
-export const BrowserVideoCodec = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9.]+$/);
+export const BrowserVideoCodec = MediaCodec;
 /**
  * A viewer that plays video (ADR 0088): the codecs its decoder supports, best first. The daemon
  * encodes the first one its encoder supports and sends JPEG frames otherwise.
@@ -538,6 +574,11 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
      * codecs, with JPEG frames until its first keyframe. Needs `binaryFrames`.
      */
     video: BrowserVideoRequest.optional(),
+    /**
+     * Deliver this view on that media connection (`media.connect`) instead of this socket. Its
+     * `browser.result` carries `media`, with a poster when the tab already has a picture.
+     */
+    media: MediaBinding.optional(),
   }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
@@ -599,6 +640,8 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     result: z.unknown().optional(),
     error: z.string().max(2048).optional(),
     blocked: BrowserOriginBlock.optional(),
+    /** A `browser.subscribe` that named a media connection: where its pictures go. */
+    media: MediaSubscribed.optional(),
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),

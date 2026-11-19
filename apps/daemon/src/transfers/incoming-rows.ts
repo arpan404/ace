@@ -7,6 +7,7 @@ import {
   TransferMethod,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { IncomingIndex } from "./incoming-index.ts";
 
 const Row = z.object({
   transfer_id: z.string(),
@@ -35,7 +36,10 @@ export interface IncomingRecord {
   hasOrigin?: boolean | undefined;
   begin: TransferBegin;
   commit?: TransferCommit | undefined;
-  /** method remote: the project reused for its origin. */
+  /**
+   * A project here the transfer lands in instead of a new one: for method remote the one with
+   * the same origin, otherwise the copy an earlier transfer of the same source project made.
+   */
   workspaceId?: string | undefined;
   /** A project this transfer registered, unregistered again if the import fails. */
   registeredId?: string | undefined;
@@ -48,6 +52,13 @@ export interface IncomingRecord {
   result?: IncomingTransfer["result"];
   error?: IncomingTransfer["error"];
   updatedAt: number;
+}
+
+/** A project on a source machine, as the paired device that sends it names it. */
+export interface LandingSource {
+  hostId: string;
+  workspaceId: string;
+  deviceId: string;
 }
 
 const decode = (row: Row): IncomingRecord => ({
@@ -68,6 +79,11 @@ const decode = (row: Row): IncomingRecord => ({
 });
 
 /** The target's durable rows, keyed by transfer id, so a repeated call is idempotent. */
+/** What a write may change on a row. */
+type IncomingChange = Partial<
+  Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">
+>;
+
 export class IncomingRows {
   private store: Store;
   constructor(store: Store) {
@@ -86,7 +102,49 @@ export class IncomingRows {
       // Folders a rollback couldn't prove were its own: left in place, recorded here.
       db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_left (
         path TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, at INTEGER NOT NULL)`);
+      // Which project a source machine's project landed in last, so sending it again reuses it.
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_landed (
+        host_id TEXT NOT NULL, source_workspace_id TEXT NOT NULL, device_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, git INTEGER NOT NULL, at INTEGER NOT NULL,
+        PRIMARY KEY (host_id, source_workspace_id))`);
     });
+    this.index = new IncomingIndex(store);
+  }
+  private index: IncomingIndex;
+  /** Indexes rows from before the side tables, once and in pages; recovery waits for it. */
+  ready(): Promise<void> {
+    return this.index.ready();
+  }
+  /**
+   * Remembers that the source machine's project landed in `workspaceId` here, sent by the paired
+   * `deviceId`; `git` says whether it landed as a repository, so a folder's copy is never reused
+   * for a repository or back.
+   */
+  landedIn(source: LandingSource, landed: { workspaceId: string; git: boolean }, at: number): void {
+    this.store
+      .statement(
+        "INSERT INTO transfer_incoming_landed (host_id,source_workspace_id,device_id,workspace_id,git,at) VALUES (?,?,?,?,?,?) ON CONFLICT(host_id,source_workspace_id) DO UPDATE SET device_id=excluded.device_id, workspace_id=excluded.workspace_id, git=excluded.git, at=excluded.at",
+      )
+      .run(
+        source.hostId,
+        source.workspaceId,
+        source.deviceId,
+        landed.workspaceId,
+        landed.git ? 1 : 0,
+        at,
+      );
+  }
+  /**
+   * The project the source machine's project landed in last, when the same paired device sent
+   * it and it landed as `git` says.
+   */
+  landedFor(source: LandingSource, git: boolean): string | undefined {
+    const row = this.store
+      .statement(
+        "SELECT workspace_id FROM transfer_incoming_landed WHERE host_id=? AND source_workspace_id=? AND device_id=? AND git=?",
+      )
+      .get(source.hostId, source.workspaceId, source.deviceId, git ? 1 : 0);
+    return row ? String(row["workspace_id"]) : undefined;
   }
   /** Records a folder a rollback left in place because it couldn't prove it made it. */
   leftInPlace(transferId: string, path: string, at: number): void {
@@ -102,46 +160,53 @@ export class IncomingRows {
       .get(transferId);
     return raw ? decode(Row.parse(raw)) : undefined;
   }
+  /*
+   * Each read below starts from a side table (see incoming-index.ts) and reaches the row by its
+   * key. CROSS JOIN keeps that order: without statistics SQLite would otherwise scan the
+   * transfers table and look the side table up.
+   */
   /**
    * Rows a restart left mid-import: with a `result` they passed the cutoff and are finished,
    * otherwise they are rolled back and run again.
    */
-  unsettled(): IncomingRecord[] {
+  unsettled(after = ""): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE state IN ('cloning','importing') ORDER BY created_at LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.state IN ('cloning','importing') ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
   /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
-  leftovers(): IncomingRecord[] {
+  leftovers(after = ""): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE state IN ('failed','cancelled') AND (registered_id IS NOT NULL OR created_path IS NOT NULL) LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.state IN ('failed','cancelled')
+        AND (t.registered_id IS NOT NULL OR t.created_path IS NOT NULL) ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
-  /** Transfers whose files are still wanted: receiving, cloning or importing. */
-  live(): string[] {
-    return this.store
-      .statement(
-        "SELECT transfer_id FROM transfer_incoming WHERE state IN ('receiving','cloning','importing') LIMIT 1024",
-      )
-      .all()
-      .map((row) => String(row["transfer_id"]));
-  }
-  /** Settled rows older than `before`, for retention. */
+  /**
+   * Settled rows older than `before`, oldest first, for retention. A moved thread's transfer
+   * whose start is still pending never expires: its start is rebuilt from this row.
+   */
   expired(before: number): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE updated_at<? AND state IN ('receiving','completed','failed','cancelled') LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_expiry e CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE e.at<? AND NOT EXISTS (SELECT 1 FROM transfer_live_pending p WHERE p.transfer_id=e.transfer_id)
+        ORDER BY e.at LIMIT 64`,
       )
       .all(before)
       .map((raw) => decode(Row.parse(raw)));
   }
   insert(record: IncomingRecord, at: number): void {
+    this.store.atomic(() => this.write(record, at));
+  }
+  private write(record: IncomingRecord, at: number): void {
     this.store
       .statement(
         "INSERT INTO transfer_incoming (transfer_id,device_id,state,method,has_origin,begin,workspace_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -157,12 +222,29 @@ export class IncomingRows {
         at,
         at,
       );
+    this.index.sync(record.transferId);
   }
-  update(
+  update(transferId: string, change: IncomingChange, at: number): void {
+    this.writeChange(transferId, change, at, []);
+  }
+  /**
+   * Writes `change` only while the row is in one of `from`, in one statement, and says whether
+   * it did: two writers that race on a transfer's state never both win (ADR 0192).
+   */
+  claim(
     transferId: string,
-    change: Partial<Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">>,
+    from: readonly IncomingTransferState[],
+    change: IncomingChange,
     at: number,
-  ): void {
+  ): boolean {
+    return this.writeChange(transferId, change, at, from) > 0;
+  }
+  private writeChange(
+    transferId: string,
+    change: IncomingChange,
+    at: number,
+    from: readonly IncomingTransferState[],
+  ): number {
     const columns: [string, unknown][] = [];
     if (change.state) columns.push(["state", change.state]);
     if (change.method) columns.push(["method", change.method]);
@@ -182,13 +264,36 @@ export class IncomingRows {
     if ("error" in change)
       columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
     columns.push(["updated_at", at]);
-    this.store
-      .statement(
-        `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?`,
-      )
-      .run(...columns.map(([, value]) => value as string | number | null), transferId);
+    const only = from.length ? ` AND state IN (${from.map(() => "?").join(",")})` : "";
+    // The side tables (`transfer_incoming_open`, `transfer_incoming_expiry`) follow in the same
+    // transaction, whether the claim wrote or not.
+    return this.store.atomic(() => {
+      const done = this.store
+        .statement(
+          `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?${only}`,
+        )
+        .run(...columns.map(([, value]) => value as string | number | null), transferId, ...from);
+      this.index.sync(transferId);
+      return Number(done.changes);
+    });
+  }
+  /**
+   * Deletes the row only while it is still in `state` and unchanged since `updatedAt`, as the
+   * sweep read it, and says whether it did (ADR 0192). Its side-table entries go with it.
+   */
+  expire(transferId: string, state: IncomingTransferState, updatedAt: number): boolean {
+    return this.store.atomic(() => {
+      const done = this.store
+        .statement("DELETE FROM transfer_incoming WHERE transfer_id=? AND state=? AND updated_at=?")
+        .run(transferId, state, updatedAt);
+      this.index.sync(transferId);
+      return Number(done.changes) > 0;
+    });
   }
   delete(transferId: string): void {
-    this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
+    this.store.atomic(() => {
+      this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
+      this.index.sync(transferId);
+    });
   }
 }

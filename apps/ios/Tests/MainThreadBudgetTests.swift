@@ -81,7 +81,7 @@ import QuartzCore
         // The last decode, read back outside the timed region: every row, in order, whole.
         XCTAssertEqual(decoded.count, 32)
         for (index, patch) in decoded.enumerated() {
-            guard case .item(let thread, let epoch, let id, let row) = patch else { return XCTFail("patch \(index) is not an item") }
+            guard case .item(let thread, let epoch, let id, let row, _) = patch else { return XCTFail("patch \(index) is not an item") }
             XCTAssertEqual([thread, "\(epoch)", id, row?.id], ["t", "1", "item-\(index)", "item-\(index)"])
             XCTAssertEqual(row?.text, String(repeating: "Words in a reply. ", count: 40))
         }

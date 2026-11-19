@@ -1,3 +1,10 @@
+import { SharedPictureVideos } from "./shared-picture-video.ts";
+import type { PicturesToVideoOptions } from "./picture-video.ts";
+import {
+  hostPermissions,
+  unavailablePermissions,
+  captureRevokedMessage,
+} from "./permission-model.ts";
 import { selectSessionWindow, performAppOperation, type AppOperation } from "./app-session.ts";
 import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
@@ -11,9 +18,10 @@ import { SessionControllers } from "./session-controllers.ts";
 import { TargetSessions } from "./target-sessions.ts";
 import { startSessionRecording, stopSessionRecording } from "./session-recording.ts";
 import { AppLaunches } from "./app-launches.ts";
-import { executeSessionAction } from "./action-execution.ts";
+import { executeSessionAction, personReturned } from "./action-execution.ts";
 import { ScreenStreamSettings } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
+import { PublicToolError } from "@ace/mcp-server";
 import type { ScreenAccess } from "./access.ts";
 import { captureModelImage } from "./model-capture.ts";
 import { dispatchLegacyAction } from "./legacy-input.ts";
@@ -29,17 +37,24 @@ import {
   type ScreenState,
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
-import { type Helper } from "./helper.ts";
-import { ScreenPolicy, bundles, replaceableSession } from "./policy.ts";
+import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
+import { helperEncodesVideo } from "./helper-codecs.ts";
+import { ScreenMediaSource } from "./media-source.ts";
+import { nodeScheduler } from "./runtime.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
 
 export type { ScreenOptions } from "./options.ts";
 import type { ScreenOptions } from "./options.ts";
 export class ScreenManager {
+  private readonly pictureVideos = new SharedPictureVideos();
+
+  openPictureVideo(options: PicturesToVideoOptions) {
+    return this.pictureVideos.open(options);
+  }
   private readonly policy = new ScreenPolicy();
   private readonly sessions = new Map<string, Session>();
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
@@ -55,6 +70,7 @@ export class ScreenManager {
   private readonly observations: SessionObservations;
   private agentPaused = false;
   private captureGeneration = 0;
+  private readonly stopCowork: (() => void) | undefined;
 
   constructor(options: ScreenOptions) {
     this.options = options;
@@ -62,31 +78,16 @@ export class ScreenManager {
       ...options,
       onFrame: (frame) => {
         const session = this.sessions.get(frame.header.sessionId);
-        if (!session || !["live", "starting"].includes(session.state.lifecycle)) return;
-        if (!session.pixels.accepts(frame)) return;
-        try {
-          if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
-            throw new Error("Invalid frame sequence or session");
-          if (session.frameEpoch !== this.policy.epoch) {
-            this.authorize(session.state.target);
-            session.frameEpoch = this.policy.epoch;
-          }
-          session.latest = frame;
-          session.pixels.frame(frame);
-          if (session.state.lifecycle === "live") {
-            session.hub.publish(frame);
-            session.recording?.push(frame);
-          }
-        } catch (error) {
-          this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
-        }
+        if (session?.media) session.media.daemonFrame(frame);
+        else if (session) this.acceptFrame(session, frame);
       },
+      onStreamIngestClosed: (id) => this.sessions.get(id)?.media?.ingestClosed(),
       onPermissionsChanged: (permissions) => {
         for (const session of this.sessions.values()) {
           session.state.permissions = permissions;
           this.emit(session);
           if (!permissions.screenRecording)
-            this.fail(session, new Error("Screen Recording permission revoked"));
+            this.fail(session, new Error(captureRevokedMessage(permissions)));
         }
         options.onPermissionsChanged?.(permissions);
       },
@@ -97,6 +98,11 @@ export class ScreenManager {
       onFailure: (error) => {
         for (const session of this.sessions.values()) this.fail(session, error);
       },
+    });
+    // The person's lease or the agent's pointer changed in an app: its sessions show it.
+    this.stopCowork = options.cowork?.subscribe((app) => {
+      for (const session of this.sessions.values())
+        if (bundles(session.state.target).includes(app)) this.emit(session);
     });
     this.observations = new SessionObservations({
       host: this.host,
@@ -121,6 +127,7 @@ export class ScreenManager {
       authorize: (target) => this.authorize(target),
       emit: (session) => this.emit(session),
       nextGeneration: () => ++this.captureGeneration,
+      live: (session) => this.attachMedia(session),
     });
     this.windows = new AppWindows(
       this.host,
@@ -170,12 +177,17 @@ export class ScreenManager {
    * only to processes started after it, so an idle helper is replaced before asking.
    */
   async currentPermissions(): Promise<ScreenPermissions> {
-    if (!this.policy.enabled) return { screenRecording: false, accessibility: false };
+    if (!this.policy.enabled)
+      return hostPermissions(
+        { screenRecording: false, accessibility: false },
+        this.options.platform ?? process.platform,
+      );
     return this.inspectDevicePermissions();
   }
   /** OS grants for an explicit human device view, independent of agent access policy. */
   async inspectDevicePermissions(): Promise<ScreenPermissions> {
     if (
+      (this.options.platform ?? process.platform) === "darwin" &&
       this.sessions.size === 0 &&
       !this.lifecycle.pendingCount &&
       !this.launches.pendingCount &&
@@ -197,8 +209,17 @@ export class ScreenManager {
       return ScreenPermissions.parse(
         await helper.request({ op: "permissions.request", permission }),
       );
+    } catch (error) {
+      const platform = this.options.platform ?? process.platform;
+      if (platform === "darwin") throw error;
+      return unavailablePermissions(
+        platform,
+        error instanceof Error
+          ? error.message
+          : "Desktop access could not be requested. Check the requirements on this machine.",
+      );
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
   }
   configureAccess(access: ScreenAccess): void {
@@ -221,7 +242,7 @@ export class ScreenManager {
     try {
       return await this.acquireAgentApp(bundleId, caller, signal, windowId);
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
   }
   private async acquireAgentApp(
@@ -263,6 +284,31 @@ export class ScreenManager {
         ...(await this.windows.list(bundleId)),
       };
     }
+    if (this.isWindowsHost()) {
+      // Windows rejoins a running window only: no launch, and input is always foreground.
+      this.authorize({ kind: "app", bundleId });
+      await (await this.host.open()).negotiate();
+      signal.throwIfAborted();
+      const windows = await this.windows.ready(bundleId, signal, windowId);
+      if (windows.selectedWindowId === undefined)
+        throw new HelperCommandError(
+          "target_gone",
+          "No running window for this app",
+          "rejected-before-dispatch",
+        );
+      const state = await this.start(
+        { kind: "window", bundleId, windowId: windows.selectedWindowId },
+        10,
+        caller,
+      );
+      if (signal.aborted) {
+        await this.stop(state.sessionId);
+        signal.throwIfAborted();
+      }
+      this.mode(state.sessionId, "foreground");
+      this.delegateAgent(state.sessionId, caller);
+      return { ...this.state(state.sessionId), ...windows };
+    }
     await this.openApp(bundleId, signal);
     signal.throwIfAborted();
     const windows = await this.windows.ready(bundleId, signal, windowId);
@@ -283,7 +329,7 @@ export class ScreenManager {
     try {
       return await this.windows.list(bundleId);
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
   }
   async selectWindow(id: string, windowId: number, owner: string, beforeDispatch: () => void) {
@@ -347,7 +393,10 @@ export class ScreenManager {
       operation.op,
     );
   }
-  /** Local device viewing, which no agent can be delegated, and cannot be started through MCP. */
+  /**
+   * Local device viewing, never started through MCP. Only the device service, which holds the
+   * device lease, can hand it to an agent; nobody delegates it directly.
+   */
   startHumanDeviceView(target: ScreenTarget, fps = 10): Promise<ScreenState> {
     return this.lifecycle.startHumanView(target, fps);
   }
@@ -394,22 +443,39 @@ export class ScreenManager {
     if (errors.length || releaseErrors.length)
       throw shutdownFailure([...releaseErrors, ...errors], results.length);
   }
+  private async releaseReservation(): Promise<void> {
+    this.reservations--;
+    if (this.reservations === 0) await this.host.releaseInspection(() => this.reservations === 0);
+  }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");
     this.reservations++;
-    let helper: Helper | undefined;
     try {
-      helper = await this.host.open();
+      const helper = await this.host.open();
       return await helper.request({ op });
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
+  }
+  isWindowsHost(): boolean {
+    return (this.options.platform ?? process.platform) === "win32";
   }
   async capabilities(_id?: string) {
     return (await this.host.open()).negotiate();
   }
   async permissions(): Promise<ScreenPermissions> {
-    return ScreenPermissions.parse(await this.inspect("permissions"));
+    try {
+      return ScreenPermissions.parse(await this.inspect("permissions"));
+    } catch (error) {
+      const platform = this.options.platform ?? process.platform;
+      if (platform === "darwin") throw error;
+      return unavailablePermissions(
+        platform,
+        error instanceof Error
+          ? error.message
+          : "Desktop connection failed. Sign in on this machine and check again.",
+      );
+    }
   }
   /** Simulator windows, which belong to the Devices switch rather than to computer use. */
   async deviceTargets(): Promise<ScreenInventory> {
@@ -425,14 +491,67 @@ export class ScreenManager {
     await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
   }
+  /** A Mac, Windows or Linux session streams into ace-media while the route says so (ADR 0147, phase 2). */
+  private attachMedia(session: Session): void {
+    const media = this.options.media;
+    const capabilities = session.helper.capabilities;
+    if (!media || session.media || !capabilities || !helperEncodesVideo(capabilities)) return;
+    session.media = new ScreenMediaSource({
+      sessionId: session.state.sessionId,
+      platform: capabilities.platform,
+      codecs: capabilities.codecs,
+      // A recording keeps the frames egress hands back in H.264.
+      daemonNeedsVideo: () => session.recording !== undefined || session.recordingStarting === true,
+      helper: session.helper,
+      media,
+      accept: (frame) => this.acceptOrdered(session, frame),
+      schedule: (callback, milliseconds) =>
+        (this.options.scheduler ?? nodeScheduler).schedule(callback, milliseconds),
+    });
+  }
+  /** A frame off the helper socket, for a session without a media source: it must be newer. */
+  private acceptFrame(session: Session, frame: Frame): void {
+    if (!["live", "starting"].includes(session.state.lifecycle)) return;
+    if (!session.pixels.accepts(frame)) return;
+    if (frame.header.sequence <= (session.latest?.header.sequence ?? -1)) {
+      this.fail(session, new Error("Invalid frame sequence or session"));
+      return;
+    }
+    this.takeFrame(session, frame);
+  }
+  /**
+   * A frame its media source has ordered: video and stills each in their own order, since a
+   * still on the helper socket can overtake video still on its way through ace-media.
+   */
+  private acceptOrdered(session: Session, frame: Frame): void {
+    this.takeFrame(session, frame);
+  }
+  private takeFrame(session: Session, frame: Frame): void {
+    if (!["live", "starting"].includes(session.state.lifecycle)) return;
+    if (!session.pixels.accepts(frame)) return;
+    try {
+      if (session.frameEpoch !== this.policy.epoch) {
+        this.authorize(session.state.target);
+        session.frameEpoch = this.policy.epoch;
+      }
+      if (frame.header.sequence > (session.latest?.header.sequence ?? -1)) session.latest = frame;
+      session.pixels.frame(frame);
+      if (session.state.lifecycle === "live") {
+        session.hub.publish(frame);
+        session.recording?.push(frame);
+      }
+    } catch (error) {
+      this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
+    }
+  }
   start(input: ScreenTarget, fps = 10, scope?: ScreenAgentScope): Promise<ScreenState> {
     return this.lifecycle.start(input, fps, scope);
   }
   states(): ScreenState[] {
-    return [...this.sessions.values()].map((session) => structuredClone(session.state));
+    return [...this.sessions.values()].map((session) => this.view(session));
   }
   state(id: string): ScreenState {
-    return structuredClone(this.get(id).state);
+    return this.view(this.get(id));
   }
   watch(listener: (state: ScreenState) => void): () => void {
     if (this.listeners.size >= 64) throw new Error("State subscriber limit");
@@ -491,6 +610,7 @@ export class ScreenManager {
         );
       },
       action.action,
+      "semantic",
     );
   }
   async input(
@@ -696,21 +816,55 @@ export class ScreenManager {
     owner: string,
     dispatch: (session: Session, validate: () => void) => Promise<T>,
     actionName = "input",
+    access: "input" | "semantic" = "input",
   ): Promise<T> {
-    return executeSessionAction(
-      {
-        host: this.host,
-        authorize: (session) => this.authorize(session.state.target),
-        emit: (session) => this.emit(session),
-        fail: (session, error) => this.fail(session, error),
-        audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),
-      },
-      this.live(id),
-      actor,
-      owner,
-      dispatch,
-      actionName,
-    );
+    const cowork = this.options.cowork;
+    const session = this.live(id);
+    const epoch = session.epoch;
+    const apps = bundles(session.state.target);
+    if (actor === "human") cowork?.personInput(apps);
+    const turn = actor === "agent" && cowork ? cowork.turn(apps) : undefined;
+    const authorize = () => {
+      if (session.epoch !== epoch || session.state.lifecycle !== "live")
+        throw new Error("Controller changed");
+      this.authorize(session.state.target);
+      authorizeInput(session, actor, owner, cowork !== undefined);
+      session.controllerBinding?.authorize();
+    };
+    for (;;) {
+      authorize();
+      // Only an agent with a cowork turn waits here. Anything else is queued on the session's
+      // action tail before this call returns, so a viewer leaving right after its input (the
+      // last viewer releasing capture) stops the session only once that input has drained.
+      const outcome = turn ? await turn.wait() : undefined;
+      if (turn) authorize();
+      if (outcome?.busy) throw new PublicToolError("person_busy");
+      const result = await executeSessionAction(
+        {
+          host: this.host,
+          cowork: cowork !== undefined,
+          ...(turn ? { personBusy: turn.busy, personReady: turn.ready } : {}),
+          ...(actor === "human" && cowork ? { onDispatch: () => cowork.personInput(apps) } : {}),
+          authorize,
+          emit: (current) => this.emit(current),
+          fail: (current, error) => this.fail(current, error),
+          audit: (state, action, status) => this.accessPolicy.access?.audit(state, action, status),
+        },
+        session,
+        actor,
+        owner,
+        dispatch,
+        actionName,
+        access,
+      );
+      if (result === personReturned) continue;
+      return outcome?.note &&
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result)
+        ? { ...result, waited: outcome.note }
+        : result;
+    }
   }
 
   releaseController(owner: string): void {
@@ -734,6 +888,7 @@ export class ScreenManager {
         await this.host.close();
         await this.lifecycle.hostClosed();
       } finally {
+        this.stopCowork?.();
         this.listeners.clear();
         this.enabledListeners.clear();
       }
@@ -749,10 +904,24 @@ export class ScreenManager {
     if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
     return session;
   }
+  /** A session's state as clients read it: with cowork's sharing, pointer and person (ADR 0143). */
+  private view(session: Session): ScreenState {
+    const state = structuredClone(session.state);
+    const cowork = this.options.cowork;
+    if (!cowork) return state;
+    const apps = bundles(state.target);
+    const pointer = cowork.pointer(apps);
+    return {
+      ...state,
+      sharing: state.controller === "human" ? "exclusive" : "cowork",
+      ...(pointer ? { agentPointer: pointer } : {}),
+      ...(cowork.personActive(apps) ? { personActive: true } : {}),
+    };
+  }
   private emit(session: Session): void {
     for (const listener of this.listeners) {
       try {
-        listener(this.state(session.state.sessionId));
+        listener(this.view(session));
       } catch {
         /* An observer cannot change session safety. */
       }

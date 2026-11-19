@@ -69,8 +69,10 @@ async function interruptedCommit() {
   const committer = Number((await readFile(started, "utf8")).trim());
   groups.push(committer);
   expect(await exists(join(repo, ".git", "index.lock"))).toBe(true);
-  // The agent's reader starts well after the lock was written: past any timestamp slack.
-  await pause(timestampSlackMs + 1100);
+  // The agent's reader starts well after the lock was written: past any timestamp slack. On
+  // Linux a start is estimated up to two seconds early (btime is whole seconds, and the estimate
+  // takes off another second), so wait past the slack by more than that.
+  await pause(timestampSlackMs + 2600);
   const reader = spawn("sh", ["-c", "sleep 300 | git cat-file --batch"], {
     cwd: repo,
     env: testGitEnvironment(),

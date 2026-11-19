@@ -60,7 +60,15 @@ export function querySearch(
 ): SearchResults {
   const parsed = SearchQuery.safeParse(input);
   if (!parsed.success) throw new Error("search_invalid_query");
-  const q = parsed.data;
+  return searchParsed(sql, parsed.data, generation, trigrams);
+}
+/** `querySearch` for a query already validated where it entered the daemon. */
+export function searchParsed(
+  sql: Statements,
+  q: SearchQuery,
+  generation: number,
+  trigrams: boolean,
+): SearchResults {
   const text = q.text.trim();
   if (!text && q.scope !== "threads") throw new Error("search_invalid_query");
   if (q.mode === "substring" && !trigrams) throw new Error("search_invalid_query");

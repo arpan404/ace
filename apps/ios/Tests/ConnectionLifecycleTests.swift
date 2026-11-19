@@ -5,11 +5,12 @@ import Testing
 @Suite @MainActor struct ConnectionLifecycleTests {
     @Test func replacingAConnectionWaitsForShutdownAndIgnoresItsLateUpdates() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         first.emit("ready")
-        await drain()
+        // Frames decode on their own queue, then apply on the main actor: wait for the state.
+        await settle { model.connection == "ready" }
         #expect(model.connection == "ready")
         model.open("old-thread")
         model.inboxLoaded = true
@@ -31,6 +32,8 @@ import Testing
         second.emit("ready")
         first.emit("offline")
         first.fail("Late old failure")
+        await settle { model.connection == "ready" }
+        // The retired runtime's late updates had their chance to land too; none may show.
         await drain()
         #expect(model.connection == "ready")
         #expect(model.error == "second")
@@ -42,7 +45,7 @@ import Testing
 
     @Test func disconnectCancelsAReplacementWaitingForThePreviousRuntime() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         let replacement = Task { await model.connect(target: try target("second"), directory: directory) }
@@ -61,7 +64,7 @@ import Testing
 
     @Test func theLatestConnectionWinsWhenSeveralWaitForShutdown() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         let second = Task { await model.connect(target: try target("second"), directory: directory) }
@@ -94,12 +97,103 @@ import Testing
         #expect(model.error == nil)
     }
 
+    @Test func aRouteChangeToTheSameMachineKeepsTheOpenThreadOnScreenAndReopensItThere() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let first = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(first), item("kept", epoch: first), ready(first)]))
+        let shown = try #require(model.thread)
+        #expect(shown.loaded)
+
+        // The same machine over another route (direct to relay): the page never empties.
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        #expect(model.thread === shown)
+        #expect(shown.order == ["kept"])
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        #expect(replacement !== direct)
+        // The new route's runtime never saw this thread, so it is asked for it whole.
+        let open = try #require(replacement.actions.last { $0["type"] as? String == "open" })
+        #expect(open["threadId"] as? String == "thread")
+        #expect(open["warm"] as? Bool == false)
+
+        // Its cold reset stages behind the kept copy; only the matching fence replaces it.
+        let second = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(second), item("fresh", epoch: second)]))
+        #expect(model.thread === shown)
+        #expect(shown.order == ["kept"])
+        #expect(shown.loaded)
+        model.receive(try frame([ready(second)]))
+        #expect(shown.order == ["fresh"])
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
+    @Test func aRouteChangeKeepsTheTypedReviewReplyAndAnswersItsUnansweredSend() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await settle { model.connection == "ready" }
+        model.open("thread")
+        model.sheets.replyTexts["comment-1"] = "Half-typed reply"
+        model.sheets.sent("reply-1")
+
+        // Direct to relay on the same machine: the thread stays open, and so does the reply.
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        #expect(model.sheets.replyTexts["comment-1"] == "Half-typed reply")
+        // The retired route can't answer the send, so it reads as uncertain instead of Sending….
+        let notice = try #require(model.sheets.notices["reply-1"])
+        #expect(!notice.ok)
+
+        // Another machine: nothing typed for this one's comments carries over.
+        let other = Task { await model.connect(target: try target("other"), directory: directory) }
+        await drain()
+        sessions.values.last?.finishShutdown()
+        try await other.value
+        #expect(model.sheets.replyTexts.isEmpty)
+        #expect(model.sheets.notices.isEmpty)
+        model.disconnect()
+        await drain()
+        sessions.values.last?.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     private var directory: URL { URL(fileURLWithPath: "/unused-lifecycle-contract") }
-    private func target(_ host: String) throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")),
+    private func target(_ host: String, port: Int = SpikeFixture.port) throws -> ConnectionTarget {
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(port)")),
                          hostId: host, deviceId: "phone", pin: nil, credential: { "{}" })
     }
+    private func reset(_ epoch: Int) -> [String: Any] {
+        ["type": "thread.reset", "threadId": "thread", "epoch": epoch, "revision": 1]
+    }
+    private func ready(_ epoch: Int) -> [String: Any] {
+        ["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 1, "revision": 1]
+    }
+    private func item(_ id: String, epoch: Int) -> [String: Any] {
+        let row: [String: Any] = ["id": id, "index": 0, "type": "message", "role": "user", "text": id,
+                                  "complete": true, "createdAt": 0, "agentId": "root", "truncated": false]
+        return ["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": id, "row": row]
+    }
+    private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
+    /// Until `done`, for at most a second: what crosses the decoder's queue lands in its own time.
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(2)) }
+    }
 }
 
 /// Only the uncontrolled VM/shutdown boundary is substituted. Model state uses its real decoder.
@@ -123,7 +217,13 @@ private final class Session: ClientSession, @unchecked Sendable {
         self.host = host; self.receive = receive; self.fail = fail
     }
     func start(itemLimit: Int) { fail(host) }
-    func invoke(_ name: String, json: String) {}
+    /// The bridge actions this runtime was sent, in order.
+    var actions: [[String: Any]] { lock.withLock { sent } }
+    private var sent: [[String: Any]] = []
+    func invoke(_ name: String, json: String) {
+        guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return }
+        lock.withLock { sent.append(value) }
+    }
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopped = completion } }
     func finishShutdown() {

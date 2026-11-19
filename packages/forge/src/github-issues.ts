@@ -1,5 +1,5 @@
 import { ForgeMutationOutcome } from "./mutation.ts";
-import type { WriteDispatch } from "./write-dispatch.ts";
+import { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import {
@@ -13,6 +13,7 @@ import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { viewerLogin } from "./github-browser-enrichment.ts";
 import { avatars, labelColors } from "./github-row-facts.ts";
+import { issueWriteLanded, planIssueWrite, type IssueWritePlan } from "./issue-write-plan.ts";
 
 const user = z.looseObject({ login: z.string().max(256) });
 export const GitHubIssueRecord = z.looseObject({
@@ -24,7 +25,10 @@ export const GitHubIssueRecord = z.looseObject({
   state: z.enum(["open", "closed"]),
   labels: z.array(z.looseObject({ name: z.string().max(256) })).max(100),
   assignees: z.array(user).max(100),
-  milestone: z.looseObject({ title: z.string().max(256) }).nullable(),
+  milestone: z
+    .looseObject({ title: z.string().max(256), number: z.number().int().positive().optional() })
+    .nullable(),
+  state_reason: z.string().max(64).nullable().optional().catch(undefined),
   created_at: z.string(),
   updated_at: z.string(),
   locked: z.boolean().optional(),
@@ -53,6 +57,64 @@ export function issueSearchQuery(repo: ForgeRepository, query: ForgeIssueSearch)
   ].join(" ");
 }
 const count = z.object({ issueCount: z.number().int().nonnegative() });
+const reasons = ["completed", "not_planned", "reopened"] as const;
+function stateReason(value: string | null | undefined) {
+  return reasons.find((reason) => reason === value) ?? null;
+}
+const SearchPage = z.object({
+  total_count: z.number().int().nonnegative(),
+  incomplete_results: z.boolean(),
+  items: z.array(GitHubIssueRecord).max(25),
+});
+const StateCounts = z.object({ data: z.object({ open: count, closed: count }) });
+const RepoIssueSettings = z.looseObject({ archived: z.boolean(), has_issues: z.boolean() });
+const IssuePermissions = z.object({
+  data: z.object({
+    repository: z.object({
+      isArchived: z.boolean(),
+      viewerPermission: z.string().nullable(),
+      issue: z.object({
+        updatedAt: z.string(),
+        viewerCanUpdate: z.boolean(),
+        viewerCanClose: z.boolean(),
+        viewerCanReopen: z.boolean(),
+      }),
+    }),
+  }),
+});
+const TimelineEvents = z
+  .array(
+    z.looseObject({
+      id: z.union([z.string(), z.number()]).optional(),
+      node_id: z.string().optional(),
+      event: z.string().max(256),
+      actor: user.nullable().optional(),
+      user: user.nullable().optional(),
+      created_at: z.string().nullable().optional(),
+      body: z.string().max(65_536).nullable().optional(),
+      html_url: z.string().max(4096).optional(),
+      source: z
+        .looseObject({
+          issue: z
+            .looseObject({
+              pull_request: z.looseObject({ html_url: z.string().max(4096) }).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    }),
+  )
+  .max(25);
+const CreatedComment = z.looseObject({ id: z.number().int().positive() });
+const MarkedRecords = z
+  .array(
+    z.looseObject({
+      body: z.string().nullable().optional(),
+      number: z.number().int().positive().optional(),
+      pull_request: z.unknown().optional(),
+    }),
+  )
+  .max(100);
 export class GitHubIssues {
   readonly #api: GhApi;
   readonly #repo: ForgeRepository;
@@ -98,14 +160,7 @@ export class GitHubIssues {
       per_page: "25",
       page: String(query.page),
     });
-    const page = decode(
-      z.object({
-        total_count: z.number().int().nonnegative(),
-        incomplete_results: z.boolean(),
-        items: z.array(GitHubIssueRecord).max(25),
-      }),
-      (await this.#request(`search/issues?${params}`, signal)).body,
-    );
+    const page = decode(SearchPage, (await this.#request(`search/issues?${params}`, signal)).body);
     const fields = ["open", "closed"].map(
       (state) =>
         `${state}: search(type:ISSUE,query:${JSON.stringify(issueSearchQuery(this.#repo, ForgeIssueSearch.parse({ ...query, state })))},first:1) { issueCount }`,
@@ -115,15 +170,9 @@ export class GitHubIssues {
         query: `query { viewer { login } ${fields.join(" ")} }`,
       })
     ).body;
-    const counts = decode(
-      z.object({ data: z.object({ open: count, closed: count }) }),
-      answer,
-    ).data;
+    const counts = decode(StateCounts, answer).data;
     const viewer = viewerLogin(answer);
-    const repository = decode(
-      z.looseObject({ archived: z.boolean(), has_issues: z.boolean() }),
-      (await this.#request(this.#root, signal)).body,
-    );
+    const repository = decode(RepoIssueSettings, (await this.#request(this.#root, signal)).body);
     const canCreate = !repository.archived && repository.has_issues;
     return {
       repository: this.#repo,
@@ -138,37 +187,31 @@ export class GitHubIssues {
       truncated: page.total_count > 1000,
     };
   }
-  async detail(number: number, signal: AbortSignal): Promise<ForgeIssueDetail> {
-    z.number().int().positive().parse(number);
+  async #record(number: number, signal: AbortSignal) {
     const record = decode(
       GitHubIssueRecord,
       (await this.#request(`${this.#root}/issues/${number}`, signal)).body,
     );
     if (record.number !== number) throw new ForgeError("invalid_data");
+    return record;
+  }
+  async detail(number: number, signal: AbortSignal): Promise<ForgeIssueDetail> {
+    z.number().int().positive().parse(number);
+    let record = await this.#record(number, signal);
     const { owner, name } = this.#repo;
     const response = await this.#request("graphql", signal, {
       query: `query($owner:String!,$name:String!,$number:Int!) { repository(owner:$owner,name:$name) { isArchived viewerPermission issue(number:$number) { updatedAt viewerCanUpdate viewerCanClose viewerCanReopen } } }`,
       variables: { owner, name, number },
     });
-    const permissions = decode(
-      z.object({
-        data: z.object({
-          repository: z.object({
-            isArchived: z.boolean(),
-            viewerPermission: z.string().nullable(),
-            issue: z.object({
-              updatedAt: z.string(),
-              viewerCanUpdate: z.boolean(),
-              viewerCanClose: z.boolean(),
-              viewerCanReopen: z.boolean(),
-            }),
-          }),
-        }),
-      }),
-      response.body,
-    ).data.repository;
-    if (permissions.issue.updatedAt !== record.updated_at) throw new ForgeError("conflict");
+    const permissions = decode(IssuePermissions, response.body).data.repository;
+    // On a busy issue the two reads can land either side of someone's change. The record is
+    // read once more so the page shows the later one; the permissions don't depend on it.
+    if (permissions.issue.updatedAt > record.updated_at)
+      record = await this.#record(number, signal);
     const writable = !permissions.isArchived;
+    const triage = ["ADMIN", "MAINTAIN", "WRITE", "TRIAGE"].includes(
+      permissions.viewerPermission ?? "",
+    );
     const comment =
       writable &&
       (!record.locked ||
@@ -181,12 +224,15 @@ export class GitHubIssues {
         close: writable && permissions.issue.viewerCanClose,
         reopen: writable && permissions.issue.viewerCanReopen,
         comment,
+        triage: writable && triage,
         reason: permissions.isArchived
           ? "This repository is archived."
           : record.locked
             ? "This conversation is locked. GitHub restricts who can comment."
             : "Your gh account's GitHub permissions determine the available actions.",
       },
+      stateReason: stateReason(record.state_reason),
+      milestoneNumber: record.milestone?.number ?? null,
       relatedThreads: [],
       relatedThreadsTruncated: false,
     };
@@ -196,33 +242,9 @@ export class GitHubIssues {
     z.number().int().min(1).max(120).parse(page);
     const path = `${this.#root}/issues/${number}/timeline?per_page=25&page=${page}`;
     const response = await this.#request(path, signal);
-    const events = decode(
-      z
-        .array(
-          z.looseObject({
-            id: z.union([z.string(), z.number()]).optional(),
-            node_id: z.string().optional(),
-            event: z.string().max(256),
-            actor: user.nullable().optional(),
-            user: user.nullable().optional(),
-            created_at: z.string().nullable().optional(),
-            body: z.string().max(65_536).nullable().optional(),
-            html_url: z.string().max(4096).optional(),
-            source: z
-              .looseObject({
-                issue: z
-                  .looseObject({
-                    pull_request: z.looseObject({ html_url: z.string().max(4096) }).optional(),
-                  })
-                  .optional(),
-              })
-              .optional(),
-          }),
-        )
-        .max(25),
-      response.body,
-    );
+    const events = decode(TimelineEvents, response.body);
     const next = this.#api.next(response, path);
+    const last = next ? this.#api.lastPage(response, path) : page;
     return {
       events: events
         .map((record, index) => ({
@@ -238,6 +260,7 @@ export class GitHubIssues {
         }))
         .toSorted((a, b) => (a.at ?? "").localeCompare(b.at ?? "")),
       ...(next && page < 120 ? { nextPage: page + 1 } : {}),
+      ...(last ? { lastPage: Math.min(last, 120) } : {}),
       truncated: Boolean(next && page === 120),
     };
   }
@@ -251,10 +274,7 @@ export class GitHubIssues {
     z.string().min(1).max(256).parse(actionId);
     const marker = `<!-- ace-issue-action:${encodeURIComponent(actionId)} -->`;
     if (value.action === "create") {
-      const repo = decode(
-        z.looseObject({ archived: z.boolean(), has_issues: z.boolean() }),
-        (await this.#request(this.#root, signal)).body,
-      );
+      const repo = decode(RepoIssueSettings, (await this.#request(this.#root, signal)).body);
       if (repo.archived || !repo.has_issues) throw new ForgeError("forbidden");
       signal.throwIfAborted();
       const record = decode(
@@ -279,7 +299,7 @@ export class GitHubIssues {
       if (!current.permissions.comment) throw new ForgeError("forbidden");
       signal.throwIfAborted();
       decode(
-        z.looseObject({ id: z.number().int().positive() }),
+        CreatedComment,
         (
           await this.#request(
             `${this.#root}/issues/${value.number}/comments`,
@@ -293,25 +313,22 @@ export class GitHubIssues {
         ).body,
       );
     } else {
-      if (current.updatedAt !== value.expectedUpdatedAt) throw new ForgeError("conflict");
-      if (
-        value.action === "edit"
-          ? !current.permissions.edit
-          : value.state === "closed"
-            ? !current.permissions.close
-            : !current.permissions.reopen
-      )
-        throw new ForgeError("forbidden");
-      const body =
-        value.action === "edit" ? { title: value.title, body: value.body } : { state: value.state };
+      const plan = planIssueWrite(current, value);
+      if (plan.kind === "conflict") throw new ForgeError("conflict");
+      if (plan.kind === "forbidden") throw new ForgeError("forbidden");
+      if (plan.kind === "done") return current.ref;
       signal.throwIfAborted();
+      if (plan.kind === "members") {
+        await this.#members(value.number, plan, signal, dispatch);
+        return current.ref;
+      }
       const record = decode(
         GitHubIssueRecord,
         (
           await this.#request(
             `${this.#root}/issues/${value.number}`,
             signal,
-            body,
+            plan.body,
             "PATCH",
             dispatch,
           )
@@ -321,17 +338,44 @@ export class GitHubIssues {
     }
     return current.ref;
   }
+  /**
+   * The add and remove calls for labels or assignees, one after another. Only the first is
+   * journaled through `dispatch`: once it has gone, any later failure leaves the write
+   * uncertain (part of it landed), never failed, and recovery reads what GitHub shows.
+   */
+  async #members(
+    number: number,
+    plan: Extract<IssueWritePlan, { kind: "members" }>,
+    signal: AbortSignal,
+    dispatch: WriteDispatch | undefined,
+  ) {
+    const path = `${this.#root}/issues/${number}/${plan.field}`;
+    const calls: [string, unknown, "POST" | "DELETE"][] = [];
+    if (plan.add.length) calls.push([path, { [plan.field]: plan.add }, "POST"]);
+    if (plan.remove.length && plan.field === "assignees")
+      calls.push([path, { assignees: plan.remove }, "DELETE"]);
+    if (plan.field === "labels")
+      for (const name of plan.remove)
+        calls.push([`${path}/${encodeURIComponent(name)}`, undefined, "DELETE"]);
+    let first = true;
+    for (const [target, body, method] of calls) {
+      signal.throwIfAborted();
+      try {
+        await this.#request(target, signal, body, method, first ? dispatch : new WriteDispatch());
+      } catch (error) {
+        if (first) throw error;
+        throw new ForgeMutationOutcome({ dispatched: true });
+      }
+      first = false;
+    }
+  }
   /** Read-only recovery. Absence within the bounded window never authorizes another POST. */
   async reconcile(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
     const value = ForgeIssueWrite.parse(input);
     const marker = `<!-- ace-issue-action:${encodeURIComponent(actionId)} -->`;
-    if (value.action === "edit" || value.action === "state") {
+    if (value.action !== "create" && value.action !== "comment") {
       const current = await this.detail(value.number, signal);
-      const matches =
-        value.action === "edit"
-          ? current.title === value.title && current.body === value.body
-          : current.state === value.state;
-      return matches ? current.ref : null;
+      return issueWriteLanded(current, value) ? current.ref : null;
     }
     for (let page = 1; page <= 10; page++) {
       const path =
@@ -339,18 +383,7 @@ export class GitHubIssues {
           ? `${this.#root}/issues?state=all&sort=created&direction=desc&per_page=100&page=${page}`
           : `${this.#root}/issues/${value.number}/comments?per_page=100&page=${page}`;
       const response = await this.#request(path, signal);
-      const records = decode(
-        z
-          .array(
-            z.looseObject({
-              body: z.string().nullable().optional(),
-              number: z.number().int().positive().optional(),
-              pull_request: z.unknown().optional(),
-            }),
-          )
-          .max(100),
-        response.body,
-      );
+      const records = decode(MarkedRecords, response.body);
       const found = records.find(
         (record) => record.pull_request === undefined && record.body?.includes(marker),
       );

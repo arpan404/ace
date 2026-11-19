@@ -10,6 +10,11 @@ const choice = <T extends string>(values: readonly [T, ...T[]]) =>
 
 /** `/issues?state=closed&who=assigned`: the filters, sort and search, kept in the address. */
 const Search = z.object({
+  /** The projects picked; absent is the last choice made, or every project. */
+  projects: z.catch(
+    z.optional(z.array(z.string().check(z.minLength(1), z.maxLength(512))).check(z.maxLength(200))),
+    undefined,
+  ),
   project: text(512),
   who: choice(["all", "assigned", "created"]),
   state: choice(["open", "closed"]),

@@ -128,9 +128,11 @@ export function renderChat(state: ChatRenderState, record: ChatRecord): string {
               failed: "Work failed or was cancelled",
               "needs-human": "Needs human input",
               uncertain: "Work state is uncertain",
+              usage: "The command line was wrong",
               timeout: "Observation timed out",
               refused: "Operation refused",
               "address-in-use": "Another process is using the daemon's port",
+              "lock-held": "Another ace daemon is using this data",
               "newer-data": "A newer ace already uses this data",
               "incompatible-data": "Saved data from a different ace build cannot be read",
             }[record.status];

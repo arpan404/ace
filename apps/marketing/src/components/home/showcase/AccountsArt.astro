@@ -1,0 +1,126 @@
+---
+/* An account at its limit, and the one the thread moves to: the meter fills, then the thread moves. */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import BrandMark from "../../BrandMark.astro";
+
+const claude = providerIcon({ provider: "claude" }).brand;
+---
+
+<div class="win accounts">
+  <div class="limit">
+    <b>Claude · Personal hit its limit</b>
+    <span>resets 4:20 PM</span>
+  </div>
+  <div class="account">
+    <span class="who">
+      {claude && <BrandMark brand={claude} size={16} />}Personal
+    </span>
+    <span class="meter full">
+      <i></i>
+    </span>
+  </div>
+  <div class="account">
+    <span class="who">
+      {claude && <BrandMark brand={claude} size={16} />}Work
+    </span>
+    <span class="meter">
+      <i></i>
+    </span>
+  </div>
+  <span class="move">Move to Work</span>
+</div>
+
+<style>
+  .accounts {
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    gap: 14px;
+    padding: 16px 16px 18px;
+  }
+
+  .limit {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .limit b {
+    font-weight: 600;
+  }
+
+  .limit span {
+    color: var(--status-needs-you);
+  }
+
+  .account {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+  }
+
+  .meter {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--raised);
+  }
+
+  .meter i {
+    display: block;
+    width: 28%;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--status-working);
+  }
+
+  .meter.full i {
+    width: 100%;
+    background: var(--status-needs-you);
+  }
+
+  .move {
+    justify-self: end;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 600;
+    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  :global(html.motion .piece.is-in) .meter.full i {
+    animation: fill 1s var(--ease-out) 0.4s both;
+  }
+
+  :global(html.motion .piece.is-in) .move {
+    animation: press 0.3s var(--ease-out) 1.5s both;
+  }
+
+  :global(html.motion .piece.is-in) .meter:not(.full) i {
+    animation: start 0.8s var(--ease-out) 1.8s both;
+  }
+
+  @keyframes fill {
+    from {
+      width: 58%;
+    }
+  }
+
+  @keyframes start {
+    from {
+      width: 0;
+    }
+  }
+</style>

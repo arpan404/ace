@@ -1,6 +1,12 @@
 import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
-import { homeSortOptions, providerChoiceLabel, providerNames } from "@ace/ui-core";
+import {
+  autoSettleChoices,
+  homeSortOptions,
+  providerChoiceLabel,
+  providerNames,
+  sortByChoices,
+} from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
@@ -17,23 +23,15 @@ import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
 import { settingRow } from "./settings-index.ts";
 import { GenerationSettings } from "./utility-model.tsx";
+import { WorktreeSettings } from "./worktree-settings.tsx";
 
-const autoSettleOptions: { value: AutoSettle; label: string }[] = [
-  { value: "1d", label: "After a day" },
-  { value: "2d", label: "After 2 days" },
-  { value: "1w", label: "After a week" },
-  { value: "never", label: "Never" },
-];
-
-const sortByOptions: { value: SortBy; label: string }[] = homeSortOptions.map((option) => ({
-  value: option.id,
-  label: option.label,
-}));
+const autoSettleOptions: readonly { value: AutoSettle; label: string }[] = autoSettleChoices;
+const sortByOptions: readonly { value: SortBy; label: string }[] = sortByChoices;
 const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.id === sortBy)?.note;
 
 /**
- * How agents run on the machine picked in Settings: what new threads start with, what happens
- * while they work and at a usage limit, the roles Offshift hands work to, how the thread list
+ * How agents run on the machine picked in Settings: what new threads start with, their worktrees, what happens
+ * while they work and at a usage limit, the roles used for delegated work, how the thread list
  * keeps itself tidy, the model behind titles and commit messages, automations and the folders
  * new projects come from. Every device that uses the machine follows these.
  */
@@ -45,12 +43,10 @@ export function AgentsSettings() {
       <SettingSection label="New threads" card scope="daemon" note={note}>
         <DefaultProvider />
         <AccessDefaultRow />
-        <SettingSwitch setting={settingKeys.worktree} entry="threads.useWorktree" />
-        <SettingSwitch
-          setting={settingKeys.forkOnSwitch}
-          entry="threads.forkOnSwitch"
-          description="The thread you switch from stays as it was."
-        />
+      </SettingSection>
+      <WorktreeSettings />
+      <SettingSection label="Switching providers" scope="daemon">
+        <SettingSwitch setting={settingKeys.forkOnSwitch} entry="threads.forkOnSwitch" />
       </SettingSection>
       <RecoverySettings />
       <RoleSettings />
@@ -87,7 +83,7 @@ function ThreadListSettings() {
       </SettingRow>
       <SettingRow
         {...settingRow("threads.autoSettleAfter")}
-        description="Threads that need you never settle."
+        description="Threads that need you stay."
       >
         <DaemonSlot control={autoSettle}>
           <Select
@@ -130,7 +126,7 @@ function DefaultProvider() {
       label: providerChoiceLabel({ name: providerNames[value], state: "not_installed" }),
     });
   return (
-    <SettingRow {...row} description="Change it in any thread.">
+    <SettingRow {...row} description={row.description}>
       {error.providers ? (
         <ProviderReadError message={error.providers} retry={error.retry} />
       ) : (

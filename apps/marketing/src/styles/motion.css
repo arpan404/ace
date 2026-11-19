@@ -1,0 +1,192 @@
+/*
+ * The site's motion. Text never slides or blurs in: headings rise word by word from behind a
+ * mask and everything else simply fades. The motion that matters is the drawn Mac
+ * (components/mac, scripts/stage-story.ts), which acts out what ace does. Hover answers the
+ * pointer with a spotlight. Nothing loops for show.
+ *
+ * scripts/motion.ts drives it. Base.astro tags <html class="motion"> only when scripts run and
+ * reduced motion is off; without it, nothing is hidden.
+ */
+
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --spot: rgb(255 255 255 / 0.045);
+  --spot-edge: rgb(255 255 255 / 0.22);
+}
+
+html[data-theme="light"] {
+  --spot: rgb(40 30 20 / 0.035);
+  --spot-edge: rgb(40 30 20 / 0.22);
+}
+
+/* ---------- Arrival ---------- */
+
+/* Text blocks: a quiet fade, siblings a beat apart. No travel, no blur. */
+html.motion .reveal {
+  opacity: 0;
+  transition: opacity 900ms var(--ease-out-quint);
+  transition-delay: calc(var(--i, 0) * 90ms);
+}
+
+html.motion .reveal.is-in {
+  opacity: 1;
+}
+
+/*
+ * Product visuals unmask from the top down, as if a screen were switching on. The mask goes on
+ * the visual inside, not the observed element, so the observer still sees it come into view.
+ */
+html.motion .reveal:is(.visual, .frame, .board-reveal) > * {
+  clip-path: inset(0 0 100% 0 round var(--clip-r, 16px));
+  transition: clip-path 1300ms var(--ease-out-expo);
+}
+
+html.motion .reveal.is-in:is(.visual, .frame, .board-reveal) > * {
+  clip-path: inset(0 0 0 0 round var(--clip-r, 16px));
+}
+
+/* Headings rise word by word from behind a mask (motion.ts wraps each word). */
+html.motion .section-title .w {
+  display: inline-block;
+  overflow: hidden;
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+  vertical-align: top;
+}
+
+html.motion .section-title .w > span {
+  display: inline-block;
+  transform: translate3d(0, 110%, 0);
+  transition: transform 1100ms var(--ease-out-expo);
+  transition-delay: calc(var(--w) * 40ms);
+}
+
+html.motion :is(.reveal.is-in .section-title, .section-title.reveal.is-in) .w > span {
+  transform: none;
+}
+
+/* Lists marked data-stagger deal out their items once their section is in. */
+html.motion :is(.reveal[data-stagger], .reveal [data-stagger]) > * {
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out-quint);
+  transition-delay: calc(200ms + var(--row, 0) * 70ms);
+}
+
+html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
+  opacity: 1;
+}
+
+/* ---------- Hover ---------- */
+
+/*
+ * Tiles and cards marked .spot carry a soft light under the pointer, with their edge lit nearest
+ * to it (motion.ts tracks --mx and --my).
+ */
+.spot {
+  position: relative;
+  isolation: isolate;
+}
+
+.spot::before,
+.spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 500ms var(--ease-out-quint);
+}
+
+.spot::before {
+  background: radial-gradient(
+    560px circle at var(--mx, 50%) var(--my, 0%),
+    var(--spot),
+    transparent 45%
+  );
+}
+
+.spot::after {
+  z-index: 1;
+  padding: 1px;
+  background: radial-gradient(
+    320px circle at var(--mx, 50%) var(--my, 0%),
+    var(--spot-edge),
+    transparent 60%
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+@media (hover: hover) {
+  .spot:hover::before,
+  .spot:hover::after {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .button {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      box-shadow 300ms var(--ease-out-expo),
+      transform 300ms var(--ease-out-expo);
+  }
+
+  .button-primary:hover {
+    transform: translate3d(0, -1px, 0);
+  }
+
+  .button:active {
+    transform: scale(0.98);
+    transition-duration: 80ms;
+  }
+
+  .more svg {
+    transition: transform 300ms var(--ease-out-expo);
+  }
+
+  .more:hover svg {
+    transform: translate3d(3px, 0, 0);
+  }
+}
+
+/* ---------- Between pages ---------- */
+
+/* Pages cross-fade into each other; the header stays put. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: 160ms ease-in both page-out;
+  }
+
+  ::view-transition-new(root) {
+    animation: 420ms var(--ease-out-expo) both page-in;
+  }
+}
+
+@keyframes page-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}

@@ -5,6 +5,26 @@ import XCTest
 @MainActor final class NewThreadUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testNewThreadsChoicesAndSendStayOnScreenWithLargeText() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let compose = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "inbox.compose", "New thread")).firstMatch
+        XCTAssertTrue(compose.waitForExistence(timeout: 25))
+        compose.tap()
+        let start = app.buttons["newThread.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        let screen = app.windows.firstMatch.frame
+        // The pills wrap rather than run off the edge; Send stays reachable.
+        for identifier in ["newThread.project", "newThread.access", "newThread.agent", "newThread.start"] {
+            let button = app.buttons[identifier]
+            if button.exists {
+                XCTAssertGreaterThanOrEqual(button.frame.minX, screen.minX, identifier)
+                XCTAssertLessThanOrEqual(button.frame.maxX, screen.maxX, identifier)
+            }
+        }
+        XCTAssertTrue(start.isHittable)
+        screenshot("newthread-large-text-fit")
+    }
+
     func testStartingAThreadWithAMentionOpensIt() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
@@ -21,22 +41,27 @@ import XCTest
         // The sheet opens where the draft runs; Claude's first account is one tap away.
         showTab(app, "claude:claude-personal")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude.")).firstMatch.waitForExistence(timeout: 15))
-        // An agent whose sign-in expired says why in one line, and its models can't be picked.
-        XCTAssertTrue(app.buttons["tab.favorites"].exists)
+        // The account picker lists Favorites and every account. An agent whose sign-in expired
+        // says why in one line, and its models can't be picked.
+        app.buttons["modelSheet.account"].tap()
+        XCTAssertTrue(app.buttons["tab.favorites"].waitForExistence(timeout: 5))
+        screenshot("newthread-accounts")
         let cursor = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tab.cursor")).firstMatch
-        if cursor.exists {
-            showTab(app, String(cursor.identifier.dropFirst("tab.".count)))
+        if !cursor.exists { app.buttons["tab.claude:claude-personal"].tap() }
+        else {
+            cursor.tap()
             XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "tab.cursor", ".reason")).firstMatch.waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.cursor.")).firstMatch.isEnabled)
         }
         screenshot("newthread-agents")
         showTab(app, "claude:claude-personal")
-        // Pick a ready agent's model on screen; the sheet returns to the form with it.
+        // A tap on a ready agent's model picks it; Done returns to the form.
         let models = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model."))
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
         XCTAssertNotNil(visible)
         visible?.tap()
         app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         // The strip's Worktree box turns a worktree on; its base shows beside it.
         let worktree = app.buttons["newThread.worktree"]
         if worktree.waitForExistence(timeout: 10), worktree.isEnabled, worktree.value as? String == "Off" {
@@ -74,7 +99,8 @@ import XCTest
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         screenshot("chat-picker")
         app.buttons["project.chat"].tap()
-        XCTAssertTrue(app.buttons["Project, none"].waitForExistence(timeout: 10))
+        // The pill reads "Project" with what's chosen as its value: VoiceOver says "Project, No project".
+        XCTAssertTrue(projectPill(app, "No project").waitForExistence(timeout: 10))
         // A chat runs in its own folder: no worktree strip, no project files to mention.
         XCTAssertFalse(app.buttons["newThread.worktree"].exists)
         let message = element(app, "newThread.message")
@@ -85,8 +111,13 @@ import XCTest
         screenshot("chat-ready")
         app.buttons["newThread.start"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.staticTexts["Chat"].waitForExistence(timeout: 15))
         screenshot("chat-started")
+        // The header shows the model alone; the title menu's first row says where it runs: "Chat · <machine>".
+        app.threadTitle().tap()
+        let place = app.titleMenuItem("thread.title.work", label: "Chat")
+        XCTAssertTrue(place.waitForExistence(timeout: 10))
+        XCTAssertTrue(place.label.hasPrefix("Chat"), place.label)
+        screenshot("chat-place")
     }
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
@@ -153,16 +184,24 @@ import XCTest
         // The demonstration model offers faster tiers.
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
+        // A tap picks the model and keeps the sheet open: the rows at the top switch to its levels
+        // and come into view. It offers faster tiers, set right there.
         tuned.tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].exists)
+        // The message's keyboard went down as the sheet opened, leaving the models in view.
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        let fast = app.buttons["tune.speed.fast"]
+        XCTAssertTrue(fast.waitForExistence(timeout: 15))
+        XCTAssertTrue(fast.isHittable)
+        fast.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: fast)
+        waitForExpectations(timeout: 10)
+        screenshot("newthread-tuning")
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
-        // Effort and speed have their own panel from the model chip's effort part.
-        XCTAssertTrue(app.buttons["newThread.tune"].waitForExistence(timeout: 10))
-        app.buttons["newThread.tune"].tap()
-        XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
-        screenshot("newthread-tuning")
-        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
-        XCTAssertTrue(element(app, "newThread.speed").waitForNonExistence(timeout: 10))
+        // The pill names the pick with the model.
+        expectation(for: NSPredicate(format: "value CONTAINS 'Fast'"), evaluatedWith: app.buttons["newThread.agent"])
+        waitForExpectations(timeout: 10)
         // Access sits beside +: its menu lists each mode with what it does.
         let access = app.buttons["newThread.access"]
         XCTAssertTrue(access.waitForExistence(timeout: 15))
@@ -178,7 +217,7 @@ import XCTest
         XCTAssertTrue(element(app, "newThread.attach").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newThread.attach").isHittable)
         element(app, "newThread.attach").tap()
-        XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose file"].waitForExistence(timeout: 5))
         screenshot("newthread-attach-menu")
     }
 
@@ -197,7 +236,7 @@ import XCTest
         screenshot("addproject-search")
         app.buttons["folder.notes"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "newThread.project", "notes")).firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(projectPill(app, "notes").waitForExistence(timeout: 15))
         screenshot("addproject-selected")
     }
 
@@ -256,7 +295,9 @@ import XCTest
         screenshot("newthread-files-folder")
         app.buttons["file.docs/runbook.md"].tap()
         XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Relay runbook"].exists)
+        // markit draws each block as a text view whose value is its words, not as a static text.
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Relay runbook", "Relay runbook")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
         // A project's own folder is read-only before the thread exists.
         XCTAssertFalse(app.buttons["file.edit"].exists)
         screenshot("newthread-files-preview")
@@ -269,11 +310,98 @@ import XCTest
         screenshot("newthread-files-mentioned")
     }
 
+    // MARK: A worktree start that stops (fixture project `setup-script`: its setup script fails)
+
+    func testAWorktreeCardPutAwayOpensAgainFromItsUnsentRowAndContinueOpensTheThread() {
+        let app = launch()
+        let words = "Run the setup and start \(UUID().uuidString.prefix(4))"
+        sendInWorktree(app, project: "setup-script", text: words)
+        // Setup fails: the card stays with its way on.
+        let card = element(app, "worktree.card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 30))
+        screenshot("worktree-setup-failed")
+        // The card's own close, never New thread's.
+        app.buttons["worktree.close"].tap()
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForNonExistence(timeout: 10))
+        // The start waits in Unsent; its row opens the same card again.
+        // Picked by its words: earlier runs' starts may wait in Unsent too.
+        // Unsent sits under the fixture's pinned, needs-you and working rows: scroll to it.
+        let unsent = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "unsent.", words)).firstMatch
+        XCTAssertTrue(app.waitForInbox(timeout: 15))
+        app.bringToMiddle(unsent, attempts: 40)
+        XCTAssertTrue(unsent.isHittable, "the start's Unsent row never showed")
+        unsent.tap()
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 10))
+        screenshot("worktree-card-reopened")
+        app.buttons["worktree.continue"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        screenshot("worktree-continued")
+    }
+
+    func testRetryRunsTheWorktreeAgainAndDontUseWorktreeOpensTheThreadOnTheLocalCheckout() {
+        let app = launch()
+        sendInWorktree(app, project: "setup-script", text: "Retry the setup, then go local")
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
+        app.buttons["worktree.retry"].tap()
+        // It runs again (the fixture paces each step), then stops at the same script again.
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["worktree.cancel"].exists)
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["worktree.local"].exists)
+        app.buttons["worktree.local"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        screenshot("worktree-local")
+    }
+
+    func testBackToNewThreadReopensNewThreadWithTheWords() {
+        let app = launch()
+        let words = "Give these words back \(UUID().uuidString.prefix(4))"
+        sendInWorktree(app, project: "setup-script", text: words)
+        let back = app.buttons["worktree.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 30))
+        back.tap()
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.value as? String, words)
+        screenshot("worktree-back")
+    }
+
+    /// Starts a thread in a worktree of `project` with `text`, from the inbox's New thread.
+    private func sendInWorktree(_ app: XCUIApplication, project: String, text: String) {
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        let row = app.buttons["project.\(project)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        let worktree = app.buttons["newThread.worktree"]
+        XCTAssertTrue(worktree.waitForExistence(timeout: 10))
+        if (worktree.value as? String)?.hasPrefix("Worktree") != true {
+            worktree.tap()
+            let choice = app.buttons["New worktree"].firstMatch
+            XCTAssertTrue(choice.waitForExistence(timeout: 5))
+            choice.tap()
+        }
+        XCTAssertTrue((worktree.value as? String)?.hasPrefix("Worktree") == true)
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        message.typeText(text)
+        XCTAssertTrue(app.buttons["newThread.start"].waitForExistence(timeout: 15))
+        app.buttons["newThread.start"].tap()
+    }
+
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
-    private func launch() -> XCUIApplication {
+    /// The project pill once it shows `project`: its label stays "Project", the choice is its value.
+    private func projectPill(_ app: XCUIApplication, _ project: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ AND value == %@", "newThread.project", project)).firstMatch
+    }
+    private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {
@@ -283,16 +411,14 @@ import XCTest
         add(attachment)
     }
 
-    /// Shows one account's models from the model sheet's tab bar, scrolling the bar to its tab.
+    /// Shows one account's models: the model sheet's account picker, then that account.
     private func showTab(_ app: XCUIApplication, _ id: String) {
-        let chip = app.buttons["tab.\(id)"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 10))
-        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tab."))
-        for _ in 0..<6 where !chip.isHittable {
-            let visible = (0..<chips.count).map { chips.element(boundBy: $0) }.first { $0.isHittable }
-            if chip.frame.minX > app.frame.midX { visible?.swipeLeft() } else { visible?.swipeRight() }
-        }
-        chip.tap()
-        XCTAssertTrue(chip.isSelected)
+        let picker = app.buttons["modelSheet.account"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.tap()
+        let entry = app.buttons["tab.\(id)"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(entry.waitForNonExistence(timeout: 5))
     }
 }

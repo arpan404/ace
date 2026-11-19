@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseErrorCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "forbidden",
+    "busy",
+    "unavailable",
+    "failed"
+  ],
+  "type": "string"
+}

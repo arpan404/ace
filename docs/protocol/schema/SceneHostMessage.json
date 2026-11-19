@@ -1,0 +1,211 @@
+{
+  "$id": "https://ace.local/protocol/v1/SceneHostMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "height": {
+          "type": "number"
+        },
+        "pixelRatio": {
+          "type": "number"
+        },
+        "reduceMotion": {
+          "type": "boolean"
+        },
+        "region": {
+          "$ref": "https://ace.local/protocol/v1/SuitSceneRegion.json"
+        },
+        "scheme": {
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "init",
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "scheme",
+        "width",
+        "height",
+        "pixelRatio",
+        "reduceMotion"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "height": {
+          "type": "number"
+        },
+        "pixelRatio": {
+          "type": "number"
+        },
+        "type": {
+          "const": "resize",
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "width",
+        "height",
+        "pixelRatio"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "scheme": {
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "scheme",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "scheme"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reduceMotion": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "motion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reduceMotion"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "time": {
+          "type": "number"
+        },
+        "type": {
+          "const": "tick",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "time"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "pause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "resume",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "signal": {
+          "$ref": "https://ace.local/protocol/v1/SceneSignal.json"
+        },
+        "type": {
+          "const": "signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "signal"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "columns": {
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "id": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "sample",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "rects": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SceneGlassRect.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "type": {
+          "const": "glass",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "rects"
+      ],
+      "type": "object"
+    }
+  ]
+}

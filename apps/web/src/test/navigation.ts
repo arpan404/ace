@@ -1,18 +1,22 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-/** Open a profile view, returning from a section and opening the phone drawer when needed. */
-export async function openProfileView(name: "Automations" | "Skills") {
-  const back = screen.queryByRole("link", { name: "Back to app" });
-  if (back) {
-    await userEvent.click(back);
-    await screen.findByRole("heading", { level: 1, name: "New thread" });
+/** Open a place from the sidebar's rail, opening the phone's sidebar sheet first when needed. */
+export async function openProfileView(name: "Automations" | "Skills" | "Usage") {
+  if (!screen.queryByRole("navigation", { name: "App" })) {
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^(Back to projects|Show sidebar)$/ }),
+    );
   }
-  if (!screen.queryByRole("button", { name: /, account/ })) {
-    await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
-  }
-  await openProfileMenu();
-  await userEvent.click(await screen.findByRole("menuitem", { name }));
+  const rail = await screen.findByRole("navigation", { name: "App" });
+  // Usage's place names its session bars after the word.
+  await userEvent.click(within(rail).getByRole("link", { name: new RegExp(`^${name}`) }));
+}
+
+/** Go back to Threads from the sidebar's rail: the thread (or New thread) the person left. */
+export async function openThreads() {
+  const rail = await screen.findByRole("navigation", { name: "App" });
+  await userEvent.click(within(rail).getByRole("link", { name: /^Projects/ }));
 }
 
 /** Wait for the popup's entrance before trying to select an item. */
@@ -24,4 +28,14 @@ export async function openProfileMenu() {
       throw new Error("Profile menu is entering");
   });
   return menu;
+}
+
+/**
+ * Settings' own General page in the pages list, under "This device". Spade's first page is also
+ * named General, under its "Spade" label, so a bare "General" link is ambiguous.
+ */
+export async function findSettingsGeneral() {
+  const pages = await screen.findByRole("navigation", { name: "Settings pages" });
+  const device = within(pages).getByRole("region", { name: "This device" });
+  return within(device).getByRole("link", { name: "General" });
 }

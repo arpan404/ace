@@ -9,7 +9,7 @@ import {
   notebookCells,
   type NotebookCell,
   type RenderedChange,
-} from "./pr-rendered-model.ts";
+} from "@ace/ui-core";
 
 /** Past this many blocks only those near the viewport mount. */
 const virtualAbove = 200;

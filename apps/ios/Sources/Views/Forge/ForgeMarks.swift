@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A GitHub label in its own colour, as the web's pill draws it: a fifth of the colour behind,
-/// a stronger edge, and the name mixed toward the page's ink so it reads in either appearance.
+/// A GitHub label in its own colour: a fifth of the colour behind, no edge, and the name mixed
+/// toward the page's ink so it reads in either appearance.
 /// Labels are the one place a non-status hue appears (DESIGN.md allows GitHub's colours). A
 /// capsule, like every iOS 26 control and pill.
 struct ForgeLabelPill: View {
@@ -11,13 +11,12 @@ struct ForgeLabelPill: View {
 
     var body: some View {
         Text(label.name)
-            .font(.system(size: 11, weight: .medium))
+            .font(AceDesign.Typeface.caption)
             .lineLimit(1)
-            .padding(.horizontal, 7)
-            .frame(height: 18)
-            .foregroundStyle(hue.map { $0.mix(with: AceTheme.Colours.foreground, by: 0.45) } ?? AceTheme.Colours.mutedForeground)
-            .background(AceShape.capsule.fill(hue?.opacity(0.2) ?? .clear))
-            .overlay(AceShape.capsule.strokeBorder(hue?.opacity(0.45) ?? AceTheme.Colours.separator, lineWidth: 1))
+            .padding(.horizontal, AceDesign.Space.related)
+            .frame(height: AceDesign.Size.label)
+            .foregroundStyle(hue.map { $0.mix(with: AceTheme.Colours.foreground, by: AceDesign.Ink.labelInkMix) } ?? AceTheme.Colours.mutedForeground)
+            .background(AceShape.capsule.fill(hue?.opacity(AceDesign.Ink.labelFillOpacity) ?? AceTheme.Colours.fill))
             .accessibilityLabel("Label \(label.name)")
     }
 }
@@ -43,16 +42,16 @@ struct ForgePullGlyph: View {
     let state: ForgeMark
     let merged: Bool
     var conflicting = false
-    var size: CGFloat = 16
+    var size: CGFloat = AceDesign.Size.icon
 
     var body: some View {
         AceIcon(merged ? .gitMerge : .gitPullRequest, size: size, relativeTo: .body)
             .foregroundStyle(AceTone(state.tone).mark)
             .overlay(alignment: .bottomTrailing) {
                 if conflicting {
-                    Circle().fill(AceTone.failed.mark).frame(width: 7, height: 7)
-                        .overlay(Circle().stroke(AceTheme.Colours.background, lineWidth: 1.5))
-                        .offset(x: 2, y: 2)
+                    Circle().fill(AceTone.failed.mark).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+                        .overlay(Circle().stroke(AceTheme.Colours.background, lineWidth: AceDesign.Size.glyphStroke))
+                        .offset(x: AceTheme.Spacing.xxs, y: AceTheme.Spacing.xxs)
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -63,7 +62,7 @@ struct ForgePullGlyph: View {
 /// An issue's state glyph: open green, closed in the merged hue.
 struct ForgeIssueGlyph: View {
     let state: ForgeMark
-    var size: CGFloat = 16
+    var size: CGFloat = AceDesign.Size.icon
     var body: some View {
         AceIcon(state.tone == "done" ? .record : .checkCircle, size: size, relativeTo: .body)
             .foregroundStyle(AceTone(state.tone).mark)
@@ -91,7 +90,7 @@ struct ForgeStateMark: View {
     }
 
     var body: some View {
-        AceIcon(icon, size: 14, weight: kind == .checks && mark.tone != "working" ? .bold : .regular, relativeTo: .footnote)
+        AceIcon(icon, size: AceDesign.Size.metaIcon, weight: kind == .checks && mark.tone != "working" ? .bold : .regular, relativeTo: .footnote)
             .foregroundStyle(mark.tone == "idle" ? AceTheme.Colours.mutedForeground : AceTone(mark.tone).mark)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(mark.word)
@@ -104,7 +103,7 @@ struct ForgeGroupHeader: View {
     let count: Int?
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Text(label).fontWeight(.medium)
+            Text(label)
             if let count { Text(count.formatted()).monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground) }
             Spacer(minLength: AceTheme.Spacing.none)
         }

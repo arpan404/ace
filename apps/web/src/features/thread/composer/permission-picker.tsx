@@ -8,6 +8,7 @@ import { chipControl } from "./composer-styles.ts";
 import { DeferredPermissionMenu, MenuPending } from "./deferred-menus.tsx";
 import { accessIcons, agentDefaultIcon, customIcon } from "./permission-icons.ts";
 import type { PermissionMenuView } from "./permission-view.ts";
+import { part } from "@/lib/suit-part.ts";
 
 export type { PermissionMenuView } from "./permission-view.ts";
 
@@ -57,10 +58,13 @@ export function PermissionPicker(props: PermissionPickerProps) {
       <Tip label={menu.unavailable ?? tip} side="top">
         <MenuTrigger
           aria-label={`Access: ${label}${waits ? `, ${waits}` : ""}`}
+          {...part("select", undefined, "access")}
           // Full access gates nothing; it reads in the attention colour.
           className={cn(
             chipControl,
             "w-fit max-w-40 shrink-0 justify-start text-ui",
+            // In a narrow composer only the icon shows; the name stays in its tooltip and label.
+            "@max-md/composer-footer:size-(--composer-control) @max-md/composer-footer:justify-center @max-md/composer-footer:px-0",
             attention &&
               "text-status-needs-you hover:text-status-needs-you focus-visible:text-status-needs-you aria-expanded:text-status-needs-you",
           )}
@@ -71,7 +75,7 @@ export function PermissionPicker(props: PermissionPickerProps) {
             size={16}
             weight={attention ? "fill" : "regular"}
           />
-          <span className="min-w-0 truncate">{label}</span>
+          <span className="min-w-0 truncate @max-md/composer-footer:hidden">{label}</span>
         </MenuTrigger>
       </Tip>
       <MenuContent

@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import {
   ciLine,
   mergeGate,
@@ -12,7 +13,7 @@ import { usePrLifecycle } from "./pr-lifecycle.ts";
 import { usePrMergeState } from "./pr-merge-state.ts";
 import { usePrLinkWrites } from "./pr-link-writes.ts";
 import { usePrWorktree } from "./pr-worktree.ts";
-import { useMergeMethod } from "./pr-merge-method.ts";
+import { allowedMergeMethod, mergeMethodChoices, useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { useFollowPrReviewers, useReviewOutcomes } from "./pr-reviewers-query.ts";
 import { usePrLocalCheck } from "./pr-local-check.ts";
@@ -40,7 +41,7 @@ export function usePrActions(props: {
   const related = detail.relatedThreads;
   // Writes go through the task showing the PR when it's linked, else the first linked task.
   const threadId = (related.find((t) => t.id === props.hostThreadId) ?? related[0])?.id;
-  const [method, setMethod] = useMergeMethod(workspaceId);
+  const [chosenMethod, setMethod] = useMergeMethod(workspaceId);
   const onRefresh = () => void context.refresh();
   const lifecycle = usePrLifecycle({
     workspaceId,
@@ -56,6 +57,9 @@ export function usePrActions(props: {
     writeDisabled: context.disabled,
     onRefresh,
   });
+  // A repository that forbids the chosen method merges with one it allows.
+  const methods = mergeMethodChoices(mergeState.state?.methods);
+  const method = allowedMergeMethod(chosenMethod, mergeState.state?.methods);
   // Outside a thread (the Pull requests page) a PR merges through its project, linked or not.
   const projectMerge = threadId === undefined && props.hostThreadId === undefined;
   const writes = usePrLinkWrites({
@@ -66,7 +70,11 @@ export function usePrActions(props: {
     onRefresh: context.refresh,
   });
   const worktree = usePrWorktree({ workspaceId, detail, newId: newCommandId, onRefresh });
-  const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
+  const membership = useStackMemberships(
+    workspaceId,
+    status.ref.repository,
+    can(detail, "reviews.stacks") ? [status.ref.number] : [],
+  );
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
   const local = usePrLocalCheck(workspaceId, status);
   // The PR view is mounted whichever tab shows: here the reviewers follow the PR, so the gates
@@ -140,6 +148,8 @@ export function usePrActions(props: {
     context,
     threadId,
     method,
+    /** The merge methods this repository allows, as menu choices. */
+    methods,
     setMethod,
     lifecycle,
     mergeState,

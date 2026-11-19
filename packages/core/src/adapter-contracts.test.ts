@@ -57,6 +57,20 @@ test("a thread whose queue holds a send that failed reads failed, not waiting to
   h.send({ type: "queue.changed", count: 0, source: "engine" });
   expect(h.state.status.state).not.toBe("failed");
 });
+test("input a Stop kept for the person's Resume is at rest: the thread doesn't read waiting to send", () => {
+  const h = harness();
+  h.send({ type: "process.exited", deliberate: true, message: "stopped" });
+  h.send({ type: "queue.changed", count: 1, source: "engine", stopped: true });
+  expect(h.state.status.state).not.toBe("waiting");
+  expect(h.state.status.state).not.toBe("working");
+  // Resume releases the Stop's pause: the message is queued work again until it is sent.
+  h.send({ type: "queue.changed", count: 1, source: "engine" });
+  expect(h.state.status).toEqual({ state: "waiting", on: "queue" });
+  // A provider's own queue is never at rest because of an engine Stop.
+  h.send({ type: "queue.changed", count: 1, source: "engine", stopped: true });
+  h.send({ type: "queue.changed", count: 2, source: "provider" });
+  expect(h.state.status).toEqual({ state: "waiting", on: "queue" });
+});
 test("an invalid queue source cannot discard held engine input", () => {
   const h = harness();
   h.send({ type: "queue.changed", count: 2 });

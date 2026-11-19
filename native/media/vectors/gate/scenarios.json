@@ -1,0 +1,62 @@
+[
+  {
+    "input": {
+      "key": true,
+      "accept": true
+    },
+    "output": {
+      "sent": true,
+      "keyframe": false
+    }
+  },
+  {
+    "input": {
+      "key": false,
+      "accept": false
+    },
+    "output": {
+      "sent": false,
+      "keyframe": true
+    }
+  },
+  {
+    "input": {
+      "key": false,
+      "accept": true
+    },
+    "output": {
+      "sent": false,
+      "keyframe": false
+    }
+  },
+  {
+    "input": {
+      "key": true,
+      "accept": false
+    },
+    "output": {
+      "sent": false,
+      "keyframe": true
+    }
+  },
+  {
+    "input": {
+      "key": true,
+      "accept": true
+    },
+    "output": {
+      "sent": true,
+      "keyframe": false
+    }
+  },
+  {
+    "input": {
+      "key": false,
+      "accept": true
+    },
+    "output": {
+      "sent": true,
+      "keyframe": false
+    }
+  }
+]

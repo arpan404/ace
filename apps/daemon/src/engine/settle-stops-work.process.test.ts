@@ -24,7 +24,7 @@ function settle(store: Store, id: ThreadId, at: number) {
   );
 }
 
-/** A thread whose turn ended while a background shell it started still runs. */
+/** A thread whose turn ended while a background shell it started still runs (done, ADR 0116). */
 async function waitingOnShell() {
   const logged: [ThreadId, unknown][] = [];
   const frames = scriptFrames();
@@ -32,7 +32,10 @@ async function waitingOnShell() {
     onSettleCleanupFailure: (thread, error) => logged.push([thread, error]),
   });
   const id = await h.create();
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(Object.values(h.store.snapshotThread(id).backgroundTasks)).toMatchObject([
+    { status: "running" },
+  ]);
   return { h, id, logged };
 }
 

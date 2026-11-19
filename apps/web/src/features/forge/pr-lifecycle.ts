@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import type { z } from "zod";
 import { useClient, useConnectionState } from "@ace/client-react";
@@ -6,7 +7,7 @@ import {
   type ForgeLifecycleAction,
   type ForgePrDetail,
 } from "@ace/protocol";
-import { actionErrorText, lifecycleLabels } from "@ace/ui-core";
+import { forgeErrorText, lifecycleLabels } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
@@ -41,6 +42,7 @@ export function usePrLifecycle(props: {
       props.detail.status.state,
       props.detail.status.title,
     ],
+    enabled: can(props.detail, "reviews.edit"),
     retry: false,
     gcTime: keptForgeMs,
     staleTime: 0,
@@ -94,7 +96,7 @@ export function usePrLifecycle(props: {
         title: `Couldn't ${label.toLowerCase()}`,
         description:
           error instanceof CommandRefused
-            ? actionErrorText(error.code)
+            ? forgeErrorText(error.code, pr.repository.forge)
             : "Check the result before trying again. Your edit is kept.",
       });
       void query.refetch();
@@ -103,7 +105,7 @@ export function usePrLifecycle(props: {
       setPending(false);
     }
   };
-  const snapshot = query.data?.snapshot;
+  const snapshot = can(props.detail, "reviews.edit") ? query.data?.snapshot : undefined;
   const unresolved = (query.data?.operations ?? []).filter(
     (op) => op.state === "pending" || op.state === "uncertain",
   );

@@ -6,6 +6,12 @@ import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { notificationTitle } from "@/lib/notification-title.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
+import { isSnoozedToTime } from "@ace/ui-core";
+import type { ThreadListEntry } from "@ace/protocol";
+
+/** The person snoozed the thread to a time: its agent's words wait with it. */
+const snoozedToTime = (thread: ThreadListEntry | undefined) =>
+  thread !== undefined && isSnoozedToTime(thread, Date.now());
 
 /** Agent notices already passed delivery policy; use their stable id to replace retries. */
 export function AgentNotifier() {
@@ -48,7 +54,7 @@ export function AgentNotifier() {
       if (
         !current.prefs.agentSays ||
         seen.has(notice.id) ||
-        (sidebar?.thread(notice.threadId)?.snoozedUntil ?? 0) > Date.now()
+        snoozedToTime(sidebar?.thread(notice.threadId))
       )
         return;
       seen.add(notice.id);

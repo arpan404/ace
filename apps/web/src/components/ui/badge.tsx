@@ -38,7 +38,9 @@ function Badge({
       props,
     ),
     render,
+    // Each state key is drawn as a `data-*` attribute: `data-part` names the Suit part.
     state: {
+      part: "badge",
       slot: "badge",
       variant,
     },

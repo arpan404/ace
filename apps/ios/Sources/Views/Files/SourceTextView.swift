@@ -1,14 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// What a file screen hands its source view: the text with the web's grammar colours (runs over
-/// UTF-16 units, colour N is `colours[N - 1]`) and the lines changed since the last commit.
+/// What a file screen hands its source view: the text, the language markit colours it in (nil
+/// shows it plain) and the lines changed since the last commit.
 struct SourceDocument: Equatable {
     /// Changes when a different text loads (another file, version or an edit session).
     let key: String
     let text: String
-    let colours: [[String]]
-    let runs: [Int]
+    let language: String?
     let marks: [Int: String]
 }
 
@@ -32,6 +31,10 @@ struct SourceTextView: UIViewRepresentable {
     let handle: SourceHandle
     /// Called once the edited text first differs from what was loaded, and again if it returns.
     var dirty: ((Bool) -> Void)?
+    /// The lines (1-based) the person selected while reading, nil once nothing is; with `mention`,
+    /// the selection's edit menu also offers Mention in message.
+    var selected: ((ClosedRange<Int>?) -> Void)? = nil
+    var mention: ((ClosedRange<Int>) -> Void)? = nil
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
@@ -66,6 +69,25 @@ struct SourceTextView: UIViewRepresentable {
             (textView.superview?.superview as? SourceContainer)?.textChanged()
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard let selected = parent.selected else { return }
+            selected(lines(textView))
+        }
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let mention = parent.mention, !textView.isEditable, let lines = lines(textView) else { return nil }
+            let action = UIAction(title: "Mention in message", image: UIImage(systemName: "at")) { _ in mention(lines) }
+            return UIMenu(children: [action] + suggestedActions)
+        }
+        /// The 1-based lines a non-empty selection touches while reading.
+        private func lines(_ textView: UITextView) -> ClosedRange<Int>? {
+            let range = textView.selectedRange
+            guard range.length > 0, !textView.isEditable,
+                  let container = textView.superview?.superview as? SourceContainer else { return nil }
+            let first = container.line(at: range.location)
+            // A selection ending just after a line break stays on the line before it.
+            let last = container.line(at: max(range.location, range.location + range.length - 1))
+            return first...max(first, last)
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             (scrollView.superview?.superview as? SourceContainer)?.gutter.setNeedsDisplay()
@@ -124,6 +146,15 @@ final class SourceContainer: UIView {
     }
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
+    /// The 1-based line holding UTF-16 offset `offset`.
+    func line(at offset: Int) -> Int {
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
+        }
+        return low + 1
+    }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {
@@ -136,27 +167,27 @@ final class SourceContainer: UIView {
         return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
     }
 
+    /// Colours being read for the text on screen, off the main thread.
+    private var colouring: Task<Void, Never>?
+
     func load(_ document: SourceDocument) {
         let base = attributes()
-        let attributed = NSMutableAttributedString(string: document.text, attributes: base)
-        let length = attributed.length
-        let palette = document.colours.map { pair in
-            let light = UIColor(hex: pair.first ?? ""), dark = UIColor(hex: pair.last ?? "")
-            return UIColor { $0.userInterfaceStyle == .dark ? dark : light }
-        }
-        var at = 0
-        attributed.beginEditing()
-        for index in stride(from: 0, to: document.runs.count - 1, by: 2) {
-            let run = document.runs[index], colour = document.runs[index + 1]
-            if at + run > length { break }
-            if colour > 0, colour <= palette.count {
-                attributed.addAttribute(.foregroundColor, value: palette[colour - 1], range: NSRange(location: at, length: run))
-            }
-            at += run
-        }
-        attributed.endEditing()
+        colouring?.cancel()
+        colouring = nil
         text.typingAttributes = base
-        text.attributedText = attributed
+        // The text shows plain at once; its colours land over the same glyphs when read.
+        text.attributedText = NSAttributedString(string: document.text, attributes: base)
+        if let language = document.language, !language.isEmpty, !document.text.isEmpty,
+           document.text.utf16.count <= SourceColours.limit {
+            // Cancelled by the next load: a file opened after it never waits on its colours.
+            colouring = Task { [weak self, theme = AceMarkdownTheme.current()] in
+                let colours = await SourceColours.read(document.text, language: language, theme: theme)
+                // Only over the text it was read for: not another file, nor one being edited since.
+                guard let self, !Task.isCancelled, let colours, self.text.text == document.text else { return }
+                let storage = self.text.textStorage
+                await colours.apply(to: storage) { [weak self] in self?.text.isEditable == false || self?.text.text == document.text }
+            }
+        }
         marks = document.marks
         countLines()
         highlight.isHidden = true
@@ -250,7 +281,7 @@ final class SourceContainer: UIView {
     private func refreshColours() {
         backgroundColor = UIColor(AceTheme.Colours.background)
         text.backgroundColor = UIColor(AceTheme.Colours.background)
-        highlight.backgroundColor = UIColor(AceTheme.Colours.foreground).withAlphaComponent(0.07)
+        highlight.backgroundColor = UIColor(AceDesign.Surface.lineHighlight)
         gutter.setNeedsDisplay()
     }
 }
@@ -295,10 +326,10 @@ final class SourceGutter: UIView {
             switch host.marks[line] {
             case "added", "modified":
                 UIColor(AceTheme.StatusText.done).setFill()
-                UIRectFill(CGRect(x: width - 3, y: y, width: 3, height: frame.height))
+                UIRectFill(CGRect(x: width - FileDiffStyle.bar, y: y, width: FileDiffStyle.bar, height: frame.height))
             case "removed":
                 UIColor(AceTheme.StatusText.failed).setFill()
-                UIRectFill(CGRect(x: 0, y: y, width: width, height: 2))
+                UIRectFill(CGRect(x: 0, y: y, width: width, height: AceDesign.Size.rail))
             default: break
             }
             return true

@@ -5,8 +5,16 @@
  * provider's limit push updates the page live.
  */
 import type { ClientApi } from "@ace/client";
-import { UsageQuery, type UsageDimension, type UsageResult } from "@ace/protocol";
-import { accountView, type AccountView, type EnvironmentUsage } from "@ace/ui-core";
+import { UsageQuery, type UsageDimension, type UsageResult, type UsageRow } from "@ace/protocol";
+import {
+  accountView,
+  previousSpan,
+  usageCoverage,
+  type AccountView,
+  type EnvironmentUsage,
+  type UsageCoverage,
+  type UsageMachineReach,
+} from "@ace/ui-core";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import type { Machine } from "@/lib/machines.ts";
@@ -24,7 +32,30 @@ export interface EnvironmentAccounts {
   error: Error | null;
 }
 
+/** Whether a machine's read made it into the figures: offline, failed, loading or counted. */
+function reach(
+  environment: Machine,
+  read: { data: unknown; error: Error | null },
+): UsageMachineReach {
+  if (!environment.client) return "offline";
+  if (read.error && read.data === undefined) return "failed";
+  return read.data === undefined ? "loading" : "counted";
+}
+
+/** Which machines the limits count, in the shared words. */
+export function accountsCoverage(entries: readonly EnvironmentAccounts[]): UsageCoverage {
+  return usageCoverage(
+    entries.map((entry) => ({
+      id: entry.environment.id,
+      name: entry.environment.name,
+      reach: reach(entry.environment, { data: entry.accounts, error: entry.error }),
+    })),
+  );
+}
+
 const otherRefreshMs = 60_000;
+/** How often figures still being counted are read again, so the totals grow on screen. */
+const fillingRefreshMs = 5_000;
 
 /** Each environment's accounts; undefined for one still loading. */
 export function useEnvironmentAccounts(environments: readonly Machine[]): EnvironmentAccounts[] {
@@ -35,7 +66,7 @@ export function useEnvironmentAccounts(environments: readonly Machine[]): Enviro
       enabled: !environment.primary && environment.client !== undefined,
       refetchInterval: otherRefreshMs,
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const reply = await reach(environment).request({ type: "accounts.list" }, { signal });
+        const reply = await reachable(environment).request({ type: "accounts.list" }, { signal });
         return reply.accounts.map(accountView);
       },
     })),
@@ -46,70 +77,127 @@ export function useEnvironmentAccounts(environments: readonly Machine[]): Enviro
   });
 }
 
-function reach(environment: Machine): ClientApi {
+function reachable(environment: Machine): ClientApi {
   if (!environment.client) throw new Error(`${environment.name} is offline`);
   return environment.client;
 }
+
+/** The page's filters as usage queries take them: a dimension and its values. */
+export type UsageFilters = Partial<Record<UsageDimension, string[]>>;
 
 async function rows(
   client: ClientApi,
   kind: "summary" | "series",
   span: UsageSpan,
   groupBy: UsageDimension[],
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
   signal: AbortSignal,
+  limit = 1000,
 ): Promise<UsageResult> {
   const query = UsageQuery.parse({
     from: span.from,
     to: span.to,
     groupBy,
-    filters: providers ? { provider: [...providers] } : {},
+    filters,
     equivalentApiCost: true,
-    limit: 1000,
+    limit,
   });
   const type = kind === "series" ? "usage.series" : "usage.summary";
   return (await client.request({ type, query }, { signal })).result;
 }
 
-/** One environment's usage over the span: per day and provider, per model, per session. */
+/** One environment's usage over the span, and its days before, for growth. */
+export interface EnvironmentRead {
+  usage: EnvironmentUsage;
+  /** The same number of days just before the span, per day and provider. */
+  previous: readonly UsageRow[];
+  /** The daemon's price table: its version ("litellm-…") and the day its prices are from. */
+  prices: { priceVersion: string; priceAsOf: string | undefined };
+  /** The daemon is still counting older history into these figures: they will grow. */
+  filling: boolean;
+}
+
+/** One environment's usage over the span: per day and provider, and per model. */
 async function readUsage(
   client: ClientApi,
   span: UsageSpan,
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
   signal: AbortSignal,
-): Promise<EnvironmentUsage> {
-  const [daily, models, threads] = await Promise.all([
-    rows(client, "series", span, ["day", "provider"], providers, signal),
-    rows(client, "summary", span, ["model", "provider"], providers, signal),
-    rows(client, "summary", span, ["thread", "provider"], providers, signal),
+): Promise<EnvironmentRead> {
+  const before = { ...previousSpan(span.from, span.to), ready: span.ready };
+  const [daily, models, earlier] = await Promise.all([
+    rows(client, "series", span, ["day", "provider"], filters, signal),
+    rows(client, "summary", span, ["model", "provider"], filters, signal),
+    rows(client, "series", before, ["day", "provider"], filters, signal),
   ]);
   return {
-    daily: daily.rows,
-    models: models.rows,
-    threads: threads.rows,
-    threadsTruncated: threads.truncated,
+    // The page shows no per-thread figures, so threads aren't read.
+    usage: { daily: daily.rows, models: models.rows, threads: [], threadsTruncated: false },
+    previous: earlier.rows,
+    prices: { priceVersion: daily.priceVersion, priceAsOf: daily.priceAsOf },
+    filling: [daily, models, earlier].some((result) => result.filling !== undefined),
   };
 }
 
-/** Each environment's usage over the span, for the providers given (all when undefined). */
+/**
+ * Each environment's usage over the span, for the providers given (all when undefined), with
+ * the period before for growth. Ready once every machine in scope has answered, failed or is
+ * offline; `coverage` names each one that isn't counted.
+ */
 export function useEnvironmentUsage(
   environments: readonly Machine[],
   span: UsageSpan,
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
 ) {
   const reads = useQueries({
     queries: environments.map((environment) => ({
-      queryKey: ["usage-page", environment.id, "usage", span.from, span.to, providers ?? null],
+      queryKey: ["usage-page", environment.id, "usage", span.from, span.to, filters],
       enabled: span.ready && environment.client !== undefined,
+      // A new filter or range keeps the last figures on screen until the new ones arrive.
+      placeholderData: (previous: EnvironmentRead | undefined) => previous,
+      refetchInterval: (query: { state: { data: EnvironmentRead | undefined } }) =>
+        query.state.data?.filling ? fillingRefreshMs : false,
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        readUsage(reach(environment), span, providers, signal),
+        readUsage(reachable(environment), span, filters, signal),
     })),
   });
+  const reaches = environments.map((environment, index) => {
+    const read = reads[index];
+    return reach(environment, { data: read?.data, error: read?.error ?? null });
+  });
+  const coverage = usageCoverage(
+    environments.map((environment, index) => ({
+      id: environment.id,
+      name: environment.name,
+      reach: reaches[index] ?? "loading",
+    })),
+  );
+  const counted = reads.flatMap((read, index) => {
+    const environment = environments[index];
+    return reaches[index] === "counted" && read.data && environment
+      ? [{ ...read.data, environment }]
+      : [];
+  });
+  const settled = !reaches.includes("loading");
   return {
-    data: reads.every((read) => read.data !== undefined)
-      ? reads.flatMap((read) => (read.data ? [read.data] : []))
+    data: settled
+      ? {
+          current: counted.map((read) => read.usage),
+          previous: counted.map((read): EnvironmentUsage => ({
+            daily: read.previous,
+            models: [],
+            threads: [],
+            threadsTruncated: false,
+          })),
+          machines: counted,
+        }
       : undefined,
-    error: reads.find((read) => read.error)?.error ?? null,
+    coverage,
+    /** The counted machines whose daemon is still counting older history. */
+    filling: counted.filter((read) => read.filling).map((read) => read.environment.name),
+    // Nothing to show only when no machine could be read and at least one failed.
+    error:
+      settled && counted.length === 0 ? (reads.find((read) => read.error)?.error ?? null) : null,
     retry: () => {
       for (const read of reads) if (read.isError) void read.refetch();
     },
@@ -124,7 +212,7 @@ export function useRefreshUsage(environments: readonly Machine[]) {
     // still answers with the limits it last recorded.
     await Promise.allSettled(
       environments.map(async (environment) => {
-        const reply = await reach(environment).request({ type: "accounts.refreshLimits" });
+        const reply = await reachable(environment).request({ type: "accounts.refreshLimits" });
         queries.setQueryData(
           environment.primary ? ["accounts", "list"] : ["usage-page", environment.id, "accounts"],
           reply.accounts.map(accountView),

@@ -6,6 +6,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from "@ace/protocol";
+import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-deltas";
 
 /*
  * Decoding and encoding wire messages (ADR 0056). The core stream (hello, subscriptions,
@@ -13,6 +14,12 @@ import {
  * the client; the service families load on demand, so the client worker starts with a fraction
  * of the protocol's schemas. Every message is still parsed with its full schema before use.
  */
+
+/**
+ * Frame shapes this client reads (hello `framing`): several messages per frame, one per line,
+ * and streamed deltas in short form (`short-deltas`), made whole by `decode`.
+ */
+export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming];
 
 export type ServiceWire = typeof import("./service-wire.ts");
 
@@ -44,6 +51,7 @@ export class WireCodec {
    * service schemas loaded: the caller holds it (and what follows) until `load()` settles.
    */
   decode(value: unknown): ServerMessage | undefined {
+    value = expandShortDeltas(value);
     const type = typeOf(value);
     if (type !== undefined && coreServerTypes.has(type)) return CoreServerMessage.parse(value);
     return this.#service?.ServerMessage.parse(value);

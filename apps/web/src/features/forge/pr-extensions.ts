@@ -7,6 +7,8 @@ export interface PrWorkspaceContext {
   detail: ForgePrDetail;
   disabled: boolean;
   refresh(): Promise<boolean>;
+  /** Reads again what a review write changed, without holding other writes. */
+  reread?: ((scope: "threads" | "all") => Promise<unknown>) | undefined;
 }
 /** The exact hosted range displayed, including historical commit and its first parent. */
 export interface PrDiffContext extends PrWorkspaceContext {

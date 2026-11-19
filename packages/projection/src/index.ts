@@ -1,3 +1,5 @@
+import { structuredCopy } from "./structured-copy.ts";
+
 export {
   MissingSequenceError,
   inRootLane,
@@ -6,20 +8,29 @@ export {
   retainedTail,
 } from "./item-order.ts";
 export type { RetainedTail, TailEntry } from "./item-order.ts";
+export { applyItemChange, changedItemId, isItemChange } from "./item-changes.ts";
+export type { ItemChange } from "./item-changes.ts";
 export {
   isRawHistoryItem,
   historyMessageIdentity,
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
-export { queueWakesSnooze, threadAttention } from "./thread-attention.ts";
+export { queueWakesSnooze, stoppedByPerson, threadAttention } from "./thread-attention.ts";
+export {
+  snoozedPullRequests,
+  snoozeWakeDue,
+  snoozeWakeFor,
+  threadLive,
+  type WakeFacts,
+} from "./snooze-wake.ts";
+export { snoozeWokeByQueue, snoozeWokeFor } from "./snooze-woke.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
 export { agentMessageBody, isAgentProse, providerNotice } from "./provider-notices.ts";
 export type { ProviderNoticeKind } from "./provider-notices.ts";
 import { usageSnapshotKey } from "./usage.ts";
-import { runMark } from "./offshift-mark.ts";
 export {
   emptyTurnDigest,
   itemMessagePreview,
@@ -31,17 +42,12 @@ export {
 } from "./long-thread.ts";
 export type { DigestContribution } from "./long-thread.ts";
 export { usageSnapshotKey } from "./usage.ts";
-export {
-  runMark,
-  runNotice,
-  offshiftPhaseNames,
-  offshiftPlaybookNames,
-  type RunNotice,
-} from "./offshift-mark.ts";
 import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
   applyDelta,
+  deltaChanges,
+  holdsTail,
   outputDeltas,
   outputStreamId,
   summarizeOutput,
@@ -89,7 +95,8 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
     seq,
     threads: Object.fromEntries(
       threads
-        .filter((thread) => thread.deletedAt === undefined)
+        // A host thread (ADR 0121) is the daemon's own, never listed.
+        .filter((thread) => thread.deletedAt === undefined && thread.host === undefined)
         .map((thread) => [thread.id, sidebarEntry(thread)]),
     ),
   };
@@ -97,10 +104,6 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
 function sidebarEntry(thread: Thread): ThreadListEntry {
   const { rootAgentId: _root, ...entry } = structuredCopy(thread);
   return entry;
-}
-// JSON copy keeps the package usable on runtimes without structuredClone.
-function structuredCopy<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 function get<T>(record: Record<string, T>, id: string): T | undefined {
   return Object.hasOwn(record, id) ? record[id] : undefined;
@@ -183,6 +186,11 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.provider !== undefined) thread.provider = payload.provider;
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
     if (payload.delegatedBy !== undefined) thread.delegatedBy = payload.delegatedBy;
+    if (payload.delegatedFrom !== undefined)
+      thread.delegatedFrom = structuredCopy(payload.delegatedFrom);
+    if (payload.startedBy !== undefined) thread.startedBy = payload.startedBy;
+    if (payload.startedByClient !== undefined)
+      thread.startedByClient = structuredCopy(payload.startedByClient);
     if (payload.queuedLaunch === null) delete thread.queuedLaunch;
     else if (payload.queuedLaunch !== undefined)
       thread.queuedLaunch = structuredCopy(payload.queuedLaunch);
@@ -209,13 +217,10 @@ export function updateThread(thread: Thread, event: Event): void {
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;
-  // The row carries where the latest run stands; a run write is not thread activity.
-  if (payload.type === "offshift.updated") thread.run = runMark(payload.card);
-  else if (isSidebarEvent(event)) thread.updatedAt = event.at;
+  if (isSidebarEvent(event)) thread.updatedAt = event.at;
 }
 export function isSidebarEvent(event: Event): boolean {
-  if (event.payload.type === "queue.updated" || event.payload.type === "offshift.updated")
-    return true;
+  if (event.payload.type === "queue.updated") return true;
   return (
     event.payload.type === "thread.created" ||
     event.payload.type === "thread.updated" ||
@@ -233,7 +238,8 @@ function foldThreadList(view: ThreadListView, event: DeliveryEvent): void {
     put(view.threads, event.threadId, sidebarEntry(event.payload.thread));
   const thread = get(view.threads, event.threadId);
   if (thread && isSidebarEvent(event)) updateThread(thread, event);
-  if (thread?.deletedAt !== undefined) delete view.threads[event.threadId];
+  if (thread?.deletedAt !== undefined || thread?.host !== undefined)
+    delete view.threads[event.threadId];
 }
 
 export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult {
@@ -356,11 +362,6 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.queue = queue;
       break;
     }
-    case "offshift.updated":
-      // Only the latest-updated run is kept so a snapshot stays bounded however many runs a
-      // thread starts; the agent reads the others through its tool.
-      view.offshift = structuredCopy(p.card);
-      break;
     case "context_meter.updated":
       view.contextMeters ??= {};
       put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
@@ -376,6 +377,8 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")
         put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
       else put(view.usage, p.agentId, structuredCopy(p));
+      break;
+    case "unknown":
       break;
     default: {
       const exhaustive: never = p;
@@ -422,7 +425,12 @@ export {
 } from "./organization.ts";
 export type { SettlePolicy } from "./organization.ts";
 
-export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";
+export {
+  liveMetadata,
+  boundedLiveModel,
+  namedRunningShell,
+  treeOnlyWaits,
+} from "./live-metadata.ts";
 export { isTestCommand } from "./step-purpose.ts";
 export {
   isInternalTask,

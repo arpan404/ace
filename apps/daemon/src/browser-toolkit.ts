@@ -42,7 +42,11 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
   return {
     async open(caller, signal) {
       const threadId = await ensure(caller, signal);
-      return service.claimTab(threadId, agentOf(caller));
+      signal.throwIfAborted();
+      const claimed = await service.claimTab(threadId, agentOf(caller));
+      // Stopped while the tab opened: the caller does nothing with it.
+      signal.throwIfAborted();
+      return claimed;
     },
     async tab(caller, tabId, signal) {
       const threadId = await ensure(caller, signal);

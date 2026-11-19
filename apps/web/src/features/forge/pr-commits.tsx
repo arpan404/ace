@@ -1,7 +1,8 @@
+import { can } from "@ace/ui-core";
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { readForge } from "@/lib/forge-read.ts";
-import { readCommitHistory, type CommitHistory } from "./pr-history-pages.ts";
+import { readCommitHistory, type CommitHistory } from "@ace/ui-core";
 import { useHistoryQuery } from "./pr-history-query.ts";
 
 /** Every commit of a PR, read newest page first, oldest first in the list. */
@@ -13,6 +14,7 @@ export function usePrCommits(props: {
   const ref = props.detail.status.ref;
   return useHistoryQuery<CommitHistory>({
     queryKey: ["forge", props.workspaceId, ref, "workspace-commits", props.detail.status.headSha],
+    enabled: can(props.detail, "reviews.commits"),
     gcTime: keptForgeMs,
     read: (client, signal, progress) =>
       readCommitHistory(async (before) => {

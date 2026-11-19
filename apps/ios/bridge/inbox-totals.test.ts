@@ -96,7 +96,7 @@ describe("inbox section totals", () => {
     expect(settled(sink)?.total).toBe(25);
   });
 
-  test("the launch checkpoint reads its settled copies as Syncing and claims no Settled total", async () => {
+  test("the launch checkpoint keeps its settled copies in Settled, counting only the rows it holds", async () => {
     const { client, sink } = await following((daemon) => settledThreads(daemon, 25));
     await until(() => settled(sink)?.total === 25, "25 settled");
     const patches = inboxCheckpoint(client.threads().store, {
@@ -106,9 +106,11 @@ describe("inbox section totals", () => {
       accounts: [],
     });
     const layout = patches.find((patch) => patch.type === "inbox.sections");
-    // Until the daemon confirms them, the kept rows wait under Syncing; counting the daemon's
-    // total under Settled as well would show those threads twice.
-    expect(section(layout, "settled")).toBeUndefined();
-    expect(section(layout, "syncing")?.ids.length).toBe(settled(sink)?.ids.length);
+    // The kept copy lists its tabs as the daemon placed them, so the first frame shows Settled
+    // where it was. It claims only the rows it holds, not the daemon's total of 25.
+    const held = settled(sink)?.ids.length;
+    expect(section(layout, "settled")?.ids.length).toBe(held);
+    expect(section(layout, "settled")?.total).toBe(held);
+    expect(section(layout, "syncing")).toBeUndefined();
   });
 });

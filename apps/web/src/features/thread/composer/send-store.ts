@@ -36,9 +36,12 @@ export interface StagedSend {
   mentions: string[];
   input?: ContentPart[] | undefined;
   context?: MessageContext | undefined;
-  attachments: (LocalAttachment & { sha256?: string | undefined })[];
+  /** Each with where the person put it in the words (`at`), when they did. */
+  attachments: (LocalAttachment & { sha256?: string | undefined; at?: number | undefined })[];
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
+  /** The root run a steer is aimed at. */
+  runId?: string | null | undefined;
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
   /** View-only: a predecessor still owns this submission's place. */
@@ -92,6 +95,8 @@ export interface ReturnedDraft {
   attachments: readonly { sha256: string; name: string }[];
   /** Browser annotations the message carried (ADR 0082). */
   annotations?: import("@ace/ui-core").DraftAnnotations | undefined;
+  /** Passages of the agent's messages it replied to. */
+  quotes?: readonly import("@ace/ui-core").MessageQuote[] | undefined;
   options?: import("@ace/protocol").TurnOptions | undefined;
 }
 

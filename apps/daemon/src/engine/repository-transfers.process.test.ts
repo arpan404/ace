@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
@@ -173,7 +174,7 @@ test("an agent in a linked worktree starts its turn while a push from the main c
       }),
     ).toMatchObject({ ok: true });
     await f.h.engine.flush();
-    await expect(access(marker)).resolves.toBeUndefined();
+    expect(existsSync(marker)).toBe(true);
     release.resolve();
     expect(await pending).toMatchObject({ ok: true });
     expect(await git(f.remote, "rev-parse", "refs/heads/main")).toBe(

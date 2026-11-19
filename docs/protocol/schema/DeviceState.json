@@ -2,8 +2,14 @@
   "$id": "https://ace.local/protocol/v1/DeviceState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acceleration": {
+      "$ref": "https://ace.local/protocol/v1/MediaAcceleration.json"
+    },
     "activity": {
       "$ref": "https://ace.local/protocol/v1/DeviceActivity.json"
+    },
+    "agentPointer": {
+      "$ref": "https://ace.local/protocol/v1/AgentPointer.json"
     },
     "booting": {
       "type": "boolean"
@@ -63,6 +69,9 @@
     "ownedHere": {
       "type": "boolean"
     },
+    "personActive": {
+      "type": "boolean"
+    },
     "posture": {
       "$ref": "https://ace.local/protocol/v1/DevicePosture.json"
     },
@@ -72,6 +81,9 @@
     "recordingNotice": {
       "maxLength": 256,
       "type": "string"
+    },
+    "sharing": {
+      "$ref": "https://ace.local/protocol/v1/CoworkSharing.json"
     },
     "streamId": {
       "$ref": "https://ace.local/protocol/v1/ScreenId.json"

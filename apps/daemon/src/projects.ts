@@ -14,17 +14,20 @@ import { ProjectDirectory } from "./project-directory.ts";
 import {
   GitService,
   GitError,
+  gitAbove,
   validateCloneUrl,
   type GitOptions,
   type ProjectGitPolicy,
 } from "@ace/git";
 import {
+  CommandId,
   ProjectCommand,
   WorkspaceId,
   ProjectInspection,
   ProjectsRequest,
   type Command,
   type CommandResult,
+  type Project,
   type ProjectsResult,
   type ThreadId,
   type WorkspaceChanged,
@@ -32,22 +35,22 @@ import {
 } from "@ace/protocol";
 import { AsyncCommands } from "./async-commands.ts";
 import { makeFolders, planFolders, type MadeFolders } from "./project-folders.ts";
-import {
-  ProjectPaths,
-  ProjectError,
-  assertOrdinaryPath,
-  assertProjectPath,
-  canonicalProjectRoots,
-} from "./project-policy.ts";
+import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.ts";
 import { applyNoteEdits } from "./project-notes.ts";
-import { ProjectStorage } from "./project-storage.ts";
+import { ProjectRoots } from "./project-roots.ts";
+import { ProjectStorage, isSpadeProject } from "./project-storage.ts";
+import { RemoteKeyReader } from "./project-remote-key-reader.ts";
+import { readMarker, writeMarker } from "./project-marker.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
+import type { DeletionPolicy } from "./thread-gone.ts";
 
 export interface ProjectsOptions {
   /** Ids for project notes the person adds in Edit project. */
   noteId?: () => string;
+  /** Logical project ids (ADR 0180) for new registrations and unlinks. */
+  identityId?: () => string;
   sourceControl?: SourceControl;
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
@@ -60,12 +63,16 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
+  /** The deletion policy every thread the project's removal deletes goes through (ADR 0183). */
+  deletionPolicy?: DeletionPolicy;
   /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
   chatsRoot?: string;
   /** Folder names for new chats. */
   chatId?: () => string;
   /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
   clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
+  /** How remote-key sweeps (ADR 0189) wait between batches; a timer unless a test injects one. */
+  remoteKeyWait?: (ms: number) => Promise<void>;
 }
 type CloneFlight = {
   committed: boolean;
@@ -75,6 +82,8 @@ type CloneFlight = {
 };
 export class Projects {
   readonly catalog: ProjectStorage;
+  /** Edits to the allowed roots, one at a time; a `projects.roots` write takes a turn too. */
+  readonly roots: ProjectRoots;
   readonly ready: Promise<void>;
   private paths: ProjectPaths;
   private picker: ProjectPicker;
@@ -93,16 +102,24 @@ export class Projects {
   private now: () => number;
   private noteId: () => string;
   private chats: ChatProjects | undefined;
+  private deleteThread: ((command: Command) => Promise<CommandResult>) | undefined;
+  /** Registrations' remote keys, read in idle batches once a client is here (ADR 0189). */
+  private remoteKeys: RemoteKeyReader;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
     this.now = now;
     this.noteId = options.noteId ?? randomUUID;
     this.options = options;
     this.home = options.home ?? homedir();
+    this.roots = new ProjectRoots({
+      home: this.home,
+      ...(options.roots ? { roots: options.roots } : {}),
+      ...(options.saveRoots ? { saveRoots: options.saveRoots } : {}),
+    });
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
     this.metadataGit = new GitService({ ...options.git, timeoutMs: 10_000 });
-    this.catalog = new ProjectStorage(store, now);
+    this.catalog = new ProjectStorage(store, now, options.identityId);
     this.picker = new ProjectPicker(
       this.paths,
       this.catalog,
@@ -117,8 +134,20 @@ export class Projects {
     this.chats = options.chatsRoot
       ? new ChatProjects(store, this.catalog, options.chatsRoot, now, options.chatId ?? randomUUID)
       : undefined;
+    this.remoteKeys = new RemoteKeyReader({
+      atomic: (work) => store.atomic(work),
+      read: (path) => this.metadataGit.transfer.checkoutFacts(path),
+      announce: (id) => this.catalog.announce(id),
+      now,
+      wait: options.remoteKeyWait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    });
+    // A project added here gets its key soon after, so other machines group it.
+    this.catalog.subscribe((change) => {
+      if (change.change === "added") void this.remoteKeys.poke();
+    });
     this.ready = Promise.all([
       this.restoreIcons().catch(() => undefined),
+      this.deleteLeftoverThreads().catch(() => undefined),
       this.chats?.sweep().catch(() => undefined),
     ]).then(() => undefined);
   }
@@ -157,6 +186,16 @@ export class Projects {
       }
     }
   }
+  /** Once per daemon start: threads removed projects kept from before removal deleted them. */
+  private async deleteLeftoverThreads(): Promise<void> {
+    const hasOwnedWork = this.options.hasOwnedWork ?? (() => false);
+    let after: string | undefined = "";
+    while (after !== undefined && !this.closed) {
+      await this.store.writable();
+      if (this.closed) return;
+      after = this.catalog.deleteLeftoverThreads(after, hasOwnedWork, this.options.deletionPolicy);
+    }
+  }
   private async favicon(path: string): Promise<string | null | undefined> {
     let directory: ProjectDirectory | undefined;
     try {
@@ -172,6 +211,13 @@ export class Projects {
   }
   subscribe(listener: (change: WorkspaceChanged) => void): () => void {
     return this.catalog.subscribe(listener);
+  }
+  /**
+   * A client connected: read every registration's remote key that is unread or stale, in the
+   * background (ADR 0189). Resolves when that sweep ends.
+   */
+  readRemoteKeys(): Promise<void> {
+    return this.remoteKeys.poke();
   }
   onProgress(listener: (device: string, progress: WorkspaceCloneProgress) => void): () => void {
     this.progressListeners.add(listener);
@@ -191,6 +237,11 @@ export class Projects {
   private check(allowed: () => boolean): void {
     if (this.closed) throw new ProjectError("projects_closed");
     if (!allowed()) throw new ProjectError("forbidden");
+  }
+  /** A fresh hidden chat project (ADR 0099); guest sessions live in one each (ADR 0105). */
+  async createChat(): Promise<Project> {
+    if (!this.chats) throw new ProjectError("projects_unavailable");
+    return this.chats.create();
   }
   async inspect(input: string, signal?: AbortSignal) {
     const directory = await ProjectDirectory.open(this.paths, input);
@@ -227,10 +278,13 @@ export class Projects {
         throw error;
     }
     const defaultIcon = await discoverProjectFavicon(directory.handle);
+    // A hint the person confirms (ADR 0181); anything odd about it reads as none.
+    const marker = await readMarker(directory.handle);
     directory.verify();
     return ProjectInspection.parse({
       path,
       ...(defaultIcon == null ? {} : { defaultIcon }),
+      ...(marker ? { marker } : {}),
       git,
       ...(gitUnavailable ? { gitUnavailable } : {}),
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
@@ -281,45 +335,39 @@ export class Projects {
     }
   }
   /**
-   * Allow a folder as a project root, keeping home allowed when it is the first. With
-   * `create`, a missing folder is made first and removed again if saving fails.
+   * "Share identity with clones" (ADR 0181): the project's marker, written through its held
+   * folder. Refused as `marker_conflict` when one names another id, unless `replace`.
    */
-  private async addRoot(
-    p: Extract<ProjectCommand, { type: "workspace.root.add" }>,
+  private async shareIdentity(
+    p: Extract<ProjectCommand, { type: "workspace.identity.marker.write" }>,
     allowed: () => boolean,
   ) {
-    const save = this.options.saveRoots;
-    if (!save) throw new ProjectError("projects_unavailable");
-    const plan = await planFolders(p.path);
-    if (plan.missing.length && !p.create) throw new ProjectError("directory_missing");
-    assertOrdinaryPath(plan.path);
-    this.check(allowed);
-    const made = plan.missing.length ? await makeFolders(plan) : undefined;
+    const project = this.catalog.get(p.workspaceId);
+    if (project.kind === "chat") throw new ProjectError("chat_project");
+    const directory = await ProjectDirectory.open(this.paths, project.path);
     try {
-      const configured = (await this.options.roots?.()) ?? [];
-      let roots: string[];
-      try {
-        roots = await canonicalProjectRoots([
-          ...(configured.length ? configured : [this.home]),
-          plan.path,
-        ]);
-      } catch (error) {
-        throw error instanceof ProjectError ? error : new ProjectError("directory_unavailable");
-      }
+      assertProjectPath(directory.path, await this.paths.roots());
       this.check(allowed);
-      await save(roots);
-      return { ok: true };
-    } catch (error) {
-      made?.undo();
-      throw error;
+      directory.verify();
+      const id = this.catalog.ensureIdentity(p.workspaceId);
+      const written = await writeMarker(
+        directory.handle,
+        { version: 1, id, ...(project.name ? { name: project.name } : {}) },
+        p.replace === true,
+        (other) => this.catalog.sameIdentity(other, id),
+      );
+      if (written === "marker_conflict" || written === "marker_unreadable")
+        return { ok: false, error: written };
+      return { ok: true, workspace: this.catalog.get(p.workspaceId) };
     } finally {
-      await made?.close();
+      await directory.close();
     }
   }
   /**
    * A canonical folder inside the allowed roots that a project may be made in (ADR 0101):
-   * `requested`, or else the folder of the newest project, or else home. It comes back open, so
-   * the transfer makes and fills its folder through that descriptor; the caller closes it.
+   * `requested`, or else the folder of the newest project when it isn't inside a Git work tree,
+   * or else home. It comes back open, so the transfer makes and fills its folder through that
+   * descriptor; the caller closes it.
    */
   async transferParent(requested: string | undefined): Promise<ProjectDirectory> {
     const allowed = async (path: string) => {
@@ -339,11 +387,49 @@ export class Projects {
       )
       .get();
     const newest = typeof latest?.["path"] === "string" ? latest["path"] : undefined;
-    if (newest) {
+    // A newest project inside a monorepo would put the copy inside that work tree: skip it.
+    if (newest && !(await gitAbove(dirname(newest)).catch(() => true))) {
       const parent = await allowed(dirname(newest)).catch(() => undefined);
       if (parent) return parent;
     }
     return allowed(this.home);
+  }
+  /**
+   * Thread deletion from the host's thread lifecycle, which stops a thread's agents, terminals
+   * and previews before marking it deleted. Returns the detach.
+   */
+  useThreadDeletion(deleteThread: (command: Command) => Promise<CommandResult>): () => void {
+    this.deleteThread = deleteThread;
+    return () => {
+      if (this.deleteThread === deleteThread) this.deleteThread = undefined;
+    };
+  }
+  /** Delete every thread in the project, then stop listing it. */
+  private async removeProject(
+    input: Command,
+    workspaceId: WorkspaceId,
+    stopRunning: boolean,
+    allowed: () => boolean,
+  ): Promise<void> {
+    const hasOwnedWork = this.options.hasOwnedWork ?? (() => false);
+    const threads = this.catalog.threadsToDelete(workspaceId, stopRunning, hasOwnedWork);
+    const deleteThread = this.deleteThread;
+    if (deleteThread)
+      for (const threadId of threads) {
+        this.check(allowed);
+        // One id per thread, derived from the removal's, so a retried removal reuses receipts.
+        const result = await deleteThread({
+          id: CommandId.parse(`${input.id}:delete:${threadId}`),
+          deviceId: input.deviceId,
+          payload: { type: "thread.delete", threadId, force: stopRunning },
+        });
+        if (!result.ok && result.error !== "thread_not_found")
+          throw new ProjectError(
+            result.error === "thread_busy" ? "workspace_threads_running" : "thread_delete_failed",
+          );
+      }
+    this.check(allowed);
+    this.catalog.remove(workspaceId, stopRunning, hasOwnedWork, this.options.deletionPolicy);
   }
   execute(
     input: Command,
@@ -380,9 +466,13 @@ export class Projects {
           if (!this.chats) throw new ProjectError("projects_unavailable");
           return { ok: true, workspace: await this.chats.create() };
         }
-        if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
+        if (p.type === "workspace.root.add")
+          return await this.roots.add(p, () => this.check(allowed));
+        if (p.type === "workspace.root.remove")
+          return await this.roots.remove(p, () => this.check(allowed));
         if (
           p.type === "workspace.rename" ||
+          p.type === "workspace.repositories.set" ||
           p.type === "workspace.update" ||
           p.type === "workspace.remove"
         ) {
@@ -409,15 +499,39 @@ export class Projects {
               }),
             };
           }
+          if (p.type === "workspace.repositories.set")
+            return {
+              ok: true,
+              workspace: this.catalog.setRepositories(p.workspaceId, p.repositories, p.expected),
+            };
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
-          this.catalog.remove(
-            p.workspaceId,
-            p.archiveThreads,
-            this.options.hasOwnedWork ?? (() => false),
-          );
+          await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);
           return { ok: true };
         }
+        if (p.type === "workspace.identity.merge") {
+          this.check(allowed);
+          this.catalog.merge(p.from, p.into);
+          return { ok: true };
+        }
+        if (p.type === "workspace.identity.link" || p.type === "workspace.identity.unlink") {
+          // Authority first, so a refused device learns nothing of which projects exist.
+          this.check(allowed);
+          // Spade's hidden project is never a project anyone links (ADR 0121).
+          if (isSpadeProject(this.store, p.workspaceId))
+            throw new ProjectError("workspace_not_found");
+          const project = this.catalog.get(p.workspaceId);
+          if (project.kind === "chat") throw new ProjectError("chat_project");
+          return {
+            ok: true,
+            workspace:
+              p.type === "workspace.identity.link"
+                ? this.catalog.link(p.workspaceId, p.identityId, p.viaMarker ? "marker" : "linked")
+                : this.catalog.unlink(p.workspaceId),
+          };
+        }
+        if (p.type === "workspace.identity.marker.write")
+          return await this.shareIdentity(p, allowed);
         if (p.type === "workspace.publish") {
           if (!this.publications) throw new ProjectError("publication_unavailable");
           const project = this.catalog.get(p.workspaceId);
@@ -705,6 +819,7 @@ export class Projects {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.remoteKeys.close();
     this.publications?.close();
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();

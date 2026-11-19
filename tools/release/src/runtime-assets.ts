@@ -1,14 +1,13 @@
 import { stageSharpRuntime } from "./sharp-runtime-assets.ts";
 import { stageCursorRuntime } from "./cursor-runtime-assets.ts";
 import { readFile, realpath } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { z } from "zod";
 
 /** These packages locate runtime files relative to their installed package roots. */
 export const runtimePackages = [
-  { name: "sharp", workspace: "packages/context" },
-  { name: "koffi", workspace: "packages/files" },
+  { name: "sharp", workspace: "packages/devices" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
   { name: "@cursor/sdk", workspace: "packages/adapter-cursor" },
 ];
@@ -42,23 +41,6 @@ export async function stageRuntimePackages(
     const destination = join(root, "node_modules", pkg.name);
     await copyRuntimePackage(source, destination);
     manifests.push(manifest);
-    if (pkg.name === "koffi") {
-      const name = `@koromix/koffi-${target}`;
-      if (parsed.optionalDependencies?.[name] !== parsed.version)
-        throw new Error(`Missing Koffi native dependency for ${target}`);
-      const native = await realpath(join(dirname(source), name));
-      const nativeManifest = join(native, "package.json");
-      const info = Manifest.parse(JSON.parse(await readFile(nativeManifest, "utf8")));
-      if (
-        info.name !== name ||
-        info.version !== parsed.version ||
-        Object.keys(info.dependencies ?? {}).length ||
-        Object.keys(info.optionalDependencies ?? {}).length
-      )
-        throw new Error(`Runtime package dependency closure changed: ${name}`);
-      await copyRuntimePackage(native, join(root, "node_modules", name));
-      manifests.push(nativeManifest);
-    }
   }
   return manifests;
 }

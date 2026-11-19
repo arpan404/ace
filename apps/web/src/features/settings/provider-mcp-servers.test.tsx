@@ -8,7 +8,7 @@ beforeEach(() => localStorage.clear());
 async function claudeServers() {
   if (!screen.queryByRole("list", { name: "Claude Code MCP servers" }))
     await userEvent.click(
-      await screen.findByText("Advanced", { selector: "summary" }, { timeout: 10_000 }),
+      await screen.findByText("MCP servers", { selector: "summary span" }, { timeout: 10_000 }),
     );
   return screen.findByRole("list", { name: "Claude Code MCP servers" });
 }

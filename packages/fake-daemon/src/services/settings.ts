@@ -7,7 +7,9 @@ import {
   type SettingsScope,
   type ServerMessage,
 } from "@ace/protocol";
+import { setOnItsOwn } from "@ace/settings/batch";
 import { defaults } from "@ace/settings/defaults";
+import { remoteNetworksMigration } from "@ace/settings/remote-networks";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
 export type Push = (message: ServerMessage) => void;
@@ -49,6 +51,31 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
+    this.migrateNetworks();
+  }
+  /** A saved `remote.transport` becomes the networks it meant, as the daemon's file does. */
+  private migrateNetworks(): SettingsKey[] {
+    const keys = [
+      "remote.transport",
+      "remote.relayUrl",
+      "remote.lan",
+      "remote.tailscale",
+      "remote.relay",
+    ] as const;
+    const read = SettingsValues.pick({
+      "remote.transport": true,
+      "remote.relayUrl": true,
+      "remote.lan": true,
+      "remote.tailscale": true,
+      "remote.relay": true,
+    })
+      .partial()
+      .safeParse(Object.fromEntries(keys.map((key) => [key, this.global.get(key)])));
+    const migration = read.success ? remoteNetworksMigration(read.data) : undefined;
+    if (!migration) return [];
+    for (const [key, value] of Object.entries(migration.networks)) this.global.set(key, value);
+    if (migration.dropTransport) this.global.delete("remote.transport");
+    return ["remote.lan", "remote.tailscale", "remote.relay", "remote.transport"];
   }
   /** Write a global value as the daemon does for its own commands, telling subscribers. */
   write(key: SettingsKey, value: unknown): void {
@@ -137,6 +164,30 @@ export class FakeSettings {
           if (subscriber.push === push && subscriber.id === message.subscriptionId)
             this.subscribers.delete(subscriber);
         return reply(true);
+      case "settings.setMany": {
+        // All or none, as the daemon: every entry is checked before any is kept.
+        const checked: [SettingsKey, unknown][] = [];
+        for (const entry of message.entries) {
+          const key = SettingsKey.safeParse(entry.key);
+          if (!key.success) return reply(false, [], "Unknown setting");
+          if (setOnItsOwn(key.data))
+            return reply(false, [], `Set ${key.data} on its own, not with others`);
+          const value = SettingsValues.shape[key.data].safeParse(entry.value);
+          if (!value.success) return reply(false, [], "Invalid setting value");
+          checked.push([key.data, value.data]);
+        }
+        if (message.layer.kind !== "global")
+          return reply(false, [], "The fake daemon writes batches to the global layer only");
+        for (const [key, value] of checked) this.global.set(key, value);
+        this.notifyMany(checked.map(([key]) => key));
+        return reply(
+          true,
+          this.entries(
+            checked.map(([key]) => key),
+            {},
+          ),
+        );
+      }
       case "settings.set": {
         const key = SettingsKey.safeParse(message.key);
         if (!key.success) return reply(false, [], "Unknown setting");
@@ -175,6 +226,7 @@ export class FakeSettings {
         }
         values.set(key.data, value.data);
         this.notify(key.data);
+        if (values === this.global) this.notifyMany(this.migrateNetworks());
         const scope: SettingsScope =
           layer.kind === "thread"
             ? { threadId: layer.threadId }
@@ -185,7 +237,14 @@ export class FakeSettings {
       }
     }
   }
+  private changes = new Set<(keys: readonly string[]) => void>();
+  /** Hear every change of global values, as the daemon's own services do. */
+  onChange(listener: (keys: readonly string[]) => void): () => void {
+    this.changes.add(listener);
+    return () => this.changes.delete(listener);
+  }
   private notify(key: string): void {
+    for (const listener of this.changes) listener([key]);
     for (const subscriber of this.subscribers)
       if (subscriber.keys.has(key))
         subscriber.push({
@@ -193,6 +252,19 @@ export class FakeSettings {
           subscriptionId: subscriber.id,
           entries: this.entries([key], subscriber.scope),
         });
+  }
+  /** One `settings.changed` per subscriber for everything a batch changed. */
+  private notifyMany(keys: readonly string[]): void {
+    for (const listener of this.changes) listener(keys);
+    for (const subscriber of this.subscribers) {
+      const seen = keys.filter((key) => subscriber.keys.has(key));
+      if (seen.length)
+        subscriber.push({
+          type: "settings.changed",
+          subscriptionId: subscriber.id,
+          entries: this.entries(seen, subscriber.scope),
+        });
+    }
   }
   release(push: Push): void {
     for (const subscriber of this.subscribers)

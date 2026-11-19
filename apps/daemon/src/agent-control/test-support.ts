@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterEach } from "vitest";
+import { afterAll, afterEach, expect } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { scriptedModelInstance, scriptedModelDiscovery } from "../testing/models.ts";
@@ -19,12 +19,18 @@ import {
 import { Store, Engine, AdapterRegistry, DelegationService } from "@ace/daemon";
 import { ManualClock, scriptFrames, start, end } from "../engine/test-support.ts";
 
-const homes: string[] = [];
-const cleanup: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const close of cleanup.splice(0).toReversed()) await close();
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
-});
+/** What one scope created: closed in reverse order, then its homes removed. */
+type Scope = { homes: string[]; cleanup: (() => Promise<void>)[] };
+const perTest: Scope = { homes: [], cleanup: [] };
+const perFile: Scope = { homes: [], cleanup: [] };
+async function release(scope: Scope) {
+  for (const close of scope.cleanup.splice(0).toReversed()) await close();
+  for (const home of scope.homes.splice(0)) rmSync(home, { recursive: true, force: true });
+}
+afterEach(() => release(perTest));
+afterAll(() => release(perFile));
+/** A fixture made in a test lasts for that test; one made in `beforeAll` lasts for the file. */
+const scope = () => (expect.getState().currentTestName === undefined ? perFile : perTest);
 export function setup(
   policy: Partial<DelegationPolicy> = {},
   path?: string,
@@ -39,9 +45,18 @@ export function setup(
   steer = false,
   /** The scripted providers' steering, as Cursor's restarts the running turn. */
   steeringMode?: "interrupt-restart",
+  /** Engine recovery settings, e.g. a thread's limit policy, read at once or loaded later. */
+  recovery?: Pick<import("../engine/index.ts").EngineOptions, "preferences" | "recovery">,
+  /** The provider boundary: rediscovery of a CLI, and what admission refreshes first. */
+  providers: {
+    waitForProvider?: import("../engine/index.ts").EngineOptions["waitForProvider"];
+    refreshProvider?(
+      engine: Engine,
+    ): import("./delegations.ts").DelegationDependencies["refreshProvider"];
+  } = {},
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
-  if (!path) homes.push(home);
+  if (!path) scope().homes.push(home);
   const dbPath = path ?? join(home, "events.sqlite");
   const store = new Store(dbPath);
   const workspace = store.createWorkspace(home, "workspace");
@@ -57,18 +72,29 @@ export function setup(
   });
   const frames = scriptFrames();
   let admitting = true;
+  /** The machine's `storage` hold (ADR 0176): its disk too full for new work. */
+  let storageFull = false;
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();
   const inputs = new Map<ThreadId, string[]>();
   const inputMessages = new Map<
     ThreadId,
-    { commandId: string; nativeId: string; origin?: "ace"; delivery?: "steer" | "queue" }[]
+    {
+      commandId: string;
+      nativeId: string;
+      origin?: import("@ace/engine-api").InputSource;
+      delivery?: "steer" | "queue";
+    }[]
   >();
   const contexts = new Map<ThreadId, SessionContext>();
   /** Native keys of background tasks ace asked a provider to stop. */
   const stoppedTasks: string[] = [];
   /** How many of the next task stops the provider fails, as a dropped RPC would. */
   let stopTaskFailures = 0;
+  /** How many of the next interrupts the provider ignores, as a wedged CLI would. */
+  let ignoredInterrupts = 0;
+  /** Interrupts that reached the provider. */
+  const interrupts: ThreadId[] = [];
   /** How the provider fails its next sends: refused unread, or lost with no answer. */
   const sendFailures: { how: "rejected" | "lost"; on: "steer" | "queue" }[] = [];
   /** Every input the providers were asked to take, failed attempts included. */
@@ -177,6 +203,11 @@ export function setup(
               if (provider === "claude") ctx.onFrame(frames.frame(start));
             },
             async interrupt(target) {
+              interrupts.push(ctx.threadId);
+              if (ignoredInterrupts > 0) {
+                ignoredInterrupts--;
+                return;
+              }
               await session.interrupt(target);
               // Claude ends the turn of the agent it was asked to stop.
               if (provider === "claude")
@@ -206,13 +237,16 @@ export function setup(
   }
   const errors: unknown[] = [];
   const engine = new Engine(store, {
+    ...recovery,
     ...(engineLimits ? { limits: engineLimits } : {}),
     registry,
     clock,
     idleMs: 100000,
     silenceMs: 100000,
+    ...(providers.waitForProvider ? { waitForProvider: providers.waitForProvider } : {}),
     onError: (error) => errors.push(error),
   });
+  const refreshProvider = providers.refreshProvider?.(engine);
   let service = new DelegationService({
     store,
     engine,
@@ -223,7 +257,9 @@ export function setup(
     ...(accounts ? { accounts } : {}),
     models: models ?? catalog,
     ...(providerEnabled ? { providerEnabled } : {}),
+    ...(refreshProvider ? { refreshProvider } : {}),
     admitsWork: () => admitting,
+    storageFull: () => storageFull,
     onError: (error) => errors.push(error),
   });
   const events: Event[] = [];
@@ -236,9 +272,9 @@ export function setup(
     unsubscribe();
     await engine.close();
     await catalog.close();
-    store.close();
+    await store.close();
   }
-  cleanup.push(close);
+  scope().cleanup.push(close);
   function caller(threadId: ThreadId): McpAttribution {
     const agentId = store.getThread(threadId)?.rootAgentId;
     if (!agentId) throw new Error("Root not materialized");
@@ -302,6 +338,10 @@ export function setup(
     failNextTaskStops(count: number) {
       stopTaskFailures = count;
     },
+    interrupts,
+    ignoreNextInterrupts(count: number) {
+      ignoredInterrupts = count;
+    },
     nativeHistories,
     inputs,
     inputMessages,
@@ -310,6 +350,12 @@ export function setup(
     },
     openAdmission: () => {
       admitting = true;
+    },
+    /** The disk fills or frees, as the storage hold enters and leaves admission. */
+    setStorageFull(full: boolean) {
+      storageFull = full;
+      admitting = !full;
+      service.storageChanged();
     },
     registry,
     catalog,
@@ -342,7 +388,9 @@ export function setup(
         ...(accounts ? { accounts } : {}),
         models: models ?? catalog,
         ...(providerEnabled ? { providerEnabled } : {}),
+        ...(refreshProvider ? { refreshProvider } : {}),
         admitsWork: () => admitting,
+        storageFull: () => storageFull,
         onError: (error) => errors.push(error),
       });
     },

@@ -1,105 +1,118 @@
+import type { ThreadsTab } from "./organizer.ts";
+import type { ThreadsPanel } from "./thread-place.ts";
+
 /*
- * The Home list as the sidebar draws it: the Unsent block on top, where it's seen, then the
- * Pinned group under its heading, in the person's own order, then the work in hand in Home order
- * (what needs you, work in motion, trouble, most recent first within each), then threads at
- * rest, then the collapsible Snoozed and Settled sections at the foot. Pure: the caller passes
- * the arrangement.
+ * The Threads panel's rows as the sidebar draws them (ADR 0107): the open tab's threads, one
+ * flat list with no headings. The Inbox puts Unsent on top, then every thread band by band.
+ * Snoozed and Settled show a page at a time, the next one as the list nears its end, and end with
+ * a foot while more are left. Pure.
  */
+
+/** How many threads Snoozed and Settled show at first, and how many each page adds. */
+export const panelPage = 50;
+
+/** Where an Inbox row shows: among the pinned ones that lead it, or after them. */
+export type RowPlace = "pinned" | "active";
+
+/** The Chats panel's day groups, by last activity (`chatDayOf`). */
+export type ChatDay = "today" | "yesterday" | "week" | "earlier";
 
 export type HomeRow =
-  | { kind: "pinned-header"; count: number }
-  | { kind: "pinned"; id: string }
-  | { kind: "pinned-end" }
-  | { kind: "thread"; id: string }
   | { kind: "unsent" }
-  | { kind: "snoozed-header"; count: number }
+  /** A thread in the Inbox. */
+  | { kind: "thread"; id: string; place: RowPlace }
+  /** A thread in Snoozed. */
   | { kind: "snoozed"; id: string }
-  | { kind: "settled-header"; count: number }
+  /** A thread in Settled. */
   | { kind: "settled"; id: string }
-  | { kind: "settled-more"; count: number };
+  /** Snoozed's or Settled's last row while it shows part of its threads: the next page's foot. */
+  | { kind: "more" }
+  | { kind: "empty"; key: string; text: string }
+  /** The Chats panel's label over its Active chats. */
+  | { kind: "active-label" }
+  /** A chat in the Chats panel (`chatRows`); a settled one is dimmed. */
+  | { kind: "chat"; id: string; settled: boolean }
+  /** The Chats panel's day heading: Today, Yesterday, Previous 7 days, Earlier. */
+  | { kind: "day-label"; day: ChatDay };
 
-export interface HomeGroups {
-  pinned: readonly string[];
-  active: readonly string[];
-  recent: readonly string[];
-  snoozed: readonly string[];
-  settled: readonly string[];
+export interface PanelRowOptions {
+  /** Unsent sends, at the Inbox's top. */
+  includeUnsent?: boolean | undefined;
+  /** How many threads Snoozed or Settled shows (`panelPage` at first); unset, all of them. */
+  shown?: number | undefined;
+  /** The daemon holds older settled threads back: Settled can show more than it has loaded. */
+  moreOnDaemon?: boolean | undefined;
 }
 
-/** How many settled threads an opened Settled section shows at first. */
-export const settledFirstRows = 10;
-/** How many more each "Show more" reveals. */
-export const settledMoreRows = 25;
-
-export interface HomeRowOptions {
-  snoozedOpen?: boolean;
-  settledOpen: boolean;
-  pinZone?: boolean;
-  includeUnsent?: boolean;
-  /** How many settled threads the open section shows; every loaded one when left out. */
-  settledShown?: number | undefined;
-  /** Settled threads in all, loaded or not (the daemon's count); the loaded ones when left out. */
-  settledTotal?: number | undefined;
-  /** The open thread: kept in sight under its section's heading while the section is closed. */
-  current?: string | undefined;
-}
-
-/**
- * Every row of the list, top to bottom. The Pinned heading shows while anything is pinned, and
- * during a drag (`pinZone`) even when nothing is, as the place to drop a thread to pin it. A
- * rule closes the group. Unsettled tasks follow without a heading. Snoozed and Settled close the
- * list; a closed section still shows the open thread, so the thread in view never vanishes. An
- * open Settled section shows `settledShown` rows, then a "Show more" row while more remain.
- */
-export function homeRows(groups: HomeGroups, options: HomeRowOptions): HomeRow[] {
-  const rows: HomeRow[] = [];
-  if (options.includeUnsent) rows.push({ kind: "unsent" });
-  const pinnedGroup = groups.pinned.length > 0 || options.pinZone === true;
-  if (pinnedGroup) rows.push({ kind: "pinned-header", count: groups.pinned.length });
-  for (const id of groups.pinned) rows.push({ kind: "pinned", id });
-  if (pinnedGroup) rows.push({ kind: "pinned-end" });
-  for (const id of groups.active) rows.push({ kind: "thread", id });
-  for (const id of groups.recent) rows.push({ kind: "thread", id });
-  const kept = (ids: readonly string[]) =>
-    options.current !== undefined && ids.includes(options.current) ? [options.current] : [];
-  if (groups.snoozed.length) rows.push({ kind: "snoozed-header", count: groups.snoozed.length });
-  for (const id of options.snoozedOpen ? groups.snoozed : kept(groups.snoozed))
-    rows.push({ kind: "snoozed", id });
-  const total = Math.max(groups.settled.length, options.settledTotal ?? 0);
-  if (total) rows.push({ kind: "settled-header", count: total });
-  if (!options.settledOpen) {
-    for (const id of kept(groups.settled)) rows.push({ kind: "settled", id });
+/** The rows of one tab, top to bottom. */
+export function panelRows(
+  panel: ThreadsPanel,
+  tab: ThreadsTab,
+  options: PanelRowOptions = {},
+): HomeRow[] {
+  if (tab === "snoozed" || tab === "settled") {
+    const ids = panel[tab];
+    const shown = options.shown ?? ids.length;
+    const rows: HomeRow[] = ids
+      .slice(0, shown)
+      .map((id) => (tab === "snoozed" ? { kind: "snoozed", id } : { kind: "settled", id }));
+    if (ids.length > shown || (tab === "settled" && options.moreOnDaemon === true))
+      rows.push({ kind: "more" });
     return rows;
   }
-  const shown = groups.settled.slice(0, options.settledShown ?? groups.settled.length);
-  // The open thread stays in sight even when it is further down than the section shows.
-  const extra = kept(groups.settled).filter((id) => !shown.includes(id));
-  for (const id of [...shown, ...extra]) rows.push({ kind: "settled", id });
-  const hidden = total - shown.length - extra.length;
-  if (hidden > 0) rows.push({ kind: "settled-more", count: Math.min(hidden, settledMoreRows) });
+  const pinned = new Set(panel.pinned);
+  const rows: HomeRow[] = options.includeUnsent ? [{ kind: "unsent" }] : [];
+  for (const id of panel.inbox)
+    rows.push({ kind: "thread", id, place: pinned.has(id) ? "pinned" : "active" });
   return rows;
 }
 
-/**
- * Where the foot sections begin: the first Snoozed or Settled row. When the list is shorter
- * than the sidebar, rows from here on sit at its bottom, below the free space, as in a shelf.
- */
-export function homeFootStart(rows: readonly { item: HomeRow }[]): number {
-  return rows.findIndex(
-    (row) => row.item.kind === "snoozed-header" || row.item.kind === "settled-header",
-  );
+/** The threads a tab lists, top to bottom: what J and K move through and its count. */
+export function tabThreads(panel: ThreadsPanel, tab: ThreadsTab): readonly string[] {
+  return tab === "inbox" ? panel.inbox : panel[tab];
 }
 
 /**
- * A stable key per row, for the virtualizer and the list's motion. Threads and headings have
- * their own prefixes, so no thread id (ids are any string) can take a heading's key. A thread
- * keeps one key whether it shows pinned, active or settled, so moving between them slides.
+ * An empty tab's title: "No threads yet" while there is no thread anywhere, else "Inbox zero",
+ * "Nothing snoozed" or "Nothing settled", each narrowed to the filter ("in docs") when one is on.
+ */
+export function emptyTabTitle(
+  tab: ThreadsTab,
+  narrowed: string | undefined,
+  none: boolean,
+): string {
+  const where = narrowed ? ` ${narrowed}` : "";
+  if (none) return narrowed ? `No threads ${narrowed}` : "No threads yet";
+  if (tab === "inbox") return `Inbox zero${where}`;
+  return tab === "snoozed" ? `Nothing snoozed${where}` : `Nothing settled${where}`;
+}
+
+/** The line under an empty Inbox while other threads exist (snoozed, settled or filtered out). */
+export const emptyInboxLine = "Nothing needs you, and nothing is running.";
+
+/**
+ * A stable key per row, for the virtualizer and the list's motion. Threads and other rows have
+ * their own prefixes, so no thread id (ids are any string) can take another row's key. A thread
+ * keeps one key wherever it shows, so a row that changes place slides rather than jumps.
  */
 export function homeRowKey(row: HomeRow): string {
-  return "id" in row ? `thread:${row.id}` : `section:${row.kind}`;
+  if ("id" in row) return `thread:${row.id}`;
+  switch (row.kind) {
+    case "empty":
+      return `section:empty:${row.key}`;
+    case "day-label":
+      return `section:day:${row.day}`;
+    default:
+      return `section:${row.kind}`;
+  }
 }
 
 /** The thread a row shows, if it shows one. */
 export function homeRowThread(row: HomeRow): string | undefined {
   return "id" in row ? row.id : undefined;
+}
+
+/** Where a row's thread shows (Pinned, Snoozed…): a change moves it even while rows hold. */
+export function homeRowPlace(row: HomeRow): string {
+  return row.kind === "thread" ? row.place : row.kind;
 }

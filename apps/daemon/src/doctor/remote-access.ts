@@ -12,7 +12,7 @@ const day = 24 * 60 * 60 * 1000;
 const renewWithinMs = 14 * day;
 const accessFix = "Change remote access in Settings › Remote.";
 const tailscaleFix =
-  "Install Tailscale, sign in and connect, or switch remote access to LAN in Settings › Remote.";
+  "Install Tailscale, sign in and connect, or turn Tailscale off in Settings › Remote.";
 const BackendState = z.object({ BackendState: z.string().max(64) });
 const CertificateNames = z.object({
   Self: z.object({ DNSName: z.string().max(512) }),
@@ -21,8 +21,13 @@ const CertificateNames = z.object({
 const httpsFix =
   "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console. ace picks the certificate up on its own.";
 
-/** The daemon's plan, plus whether the relay was chosen without an address to reach it. */
-type Plan = ReturnType<typeof remotePlan> & { relayMissing: boolean };
+/**
+ * The daemon's plan for the networks doctor can see. Doctor runs without the daemon, so ace's
+ * relay appears only when the person turned the relay on without an address of their own.
+ */
+type Plan = ReturnType<typeof remotePlan>;
+type Network = "lan" | "tailscale";
+const directOn = (plan: Plan) => plan.direct.lan || plan.direct.tailscale;
 type Verdict = Omit<CheckResult, "id">;
 
 /**
@@ -36,12 +41,9 @@ export function remoteAccessFeature(ports: RemoteAccessPorts = remoteAccessPorts
     checks(context) {
       let plan: Promise<Plan> | undefined;
       const load = () =>
-        (plan ??= ports.preferences(context).then((saved) => {
-          const planned = remotePlan(context.config, saved);
-          const relayMissing =
-            saved["remote.enabled"] && saved["remote.transport"] === "relay" && !planned.relayUrl;
-          return { ...planned, relayMissing };
-        }));
+        (plan ??= ports
+          .preferences(context)
+          .then((saved) => remotePlan(context.config, saved, undefined)));
       return [
         accessCheck(context, ports, load),
         certificateCheck(context, load),
@@ -63,25 +65,22 @@ function accessCheck(
     fix: accessFix,
     async run() {
       const plan = await load();
-      if (plan.listen === "local" && !plan.relayUrl)
+      if (!directOn(plan) && !plan.relays.length)
         return { status: "ok", message: "Remote access is off", fix: accessFix };
-      if (plan.relayMissing)
-        return {
-          status: "warn",
-          message: "Remote access is set to use a relay, but no relay address is saved",
-          fix: "Enter your self-hosted relay address in Settings › Remote, or pick another transport.",
-        };
       const extras = [
-        ...(plan.relayUrl ? [`relay ${relayHost(plan.relayUrl)}`] : []),
+        ...plan.relays.map((relay) =>
+          relay.hosted ? `ace's relay ${relayHost(relay.url)}` : `relay ${relayHost(relay.url)}`,
+        ),
         ...devices(ports.pairedDevices(context)),
       ];
-      const direct =
-        plan.listen === "local" ? undefined : await directListener(context, ports, plan);
-      if (direct && direct.status !== "ok")
-        return { ...direct, message: [direct.message, ...extras].join(" · ") };
+      const direct: Verdict[] = [];
+      for (const network of ["lan", "tailscale"] as const)
+        if (plan.direct[network]) direct.push(await directListener(context, ports, network));
+      const failed = direct.find((verdict) => verdict.status !== "ok");
+      if (failed) return { ...failed, message: [failed.message, ...extras].join(" · ") };
       return {
         status: "ok",
-        message: `Remote access is on: ${[...(direct ? [direct.message] : []), ...extras].join(" · ")}`,
+        message: `Remote access is on: ${[...direct.map((verdict) => verdict.message), ...extras].join(" · ")}`,
         fix: accessFix,
       };
     },
@@ -92,9 +91,9 @@ function accessCheck(
 async function directListener(
   context: DoctorContext,
   ports: RemoteAccessPorts,
-  plan: Plan,
+  network: Network,
 ): Promise<Verdict> {
-  if (plan.listen === "tailscale" && !(await ports.tailscale(context)))
+  if (network === "tailscale" && !(await ports.tailscale(context)))
     return {
       status: "warn",
       message: "Remote access uses Tailscale, but the tailscale command isn't installed",
@@ -102,7 +101,7 @@ async function directListener(
     };
   try {
     const listener = await remoteListener(
-      { ...context.config, listen: plan.listen },
+      { ...context.config, listen: network },
       // The identity is only handed back with the address; doctor discards it unread.
       {
         ...ports.network,
@@ -113,11 +112,11 @@ async function directListener(
     const where = `${urlHost(listener.advertisedHost)}:${listener.port}`;
     return {
       status: "ok",
-      message: plan.listen === "lan" ? `LAN at ${where}` : `Tailscale at ${where}`,
+      message: network === "lan" ? `LAN at ${where}` : `Tailscale at ${where}`,
       fix: accessFix,
     };
   } catch (error) {
-    if (plan.listen === "tailscale")
+    if (network === "tailscale")
       return {
         status: "warn",
         message: `Remote access uses Tailscale, but it isn't connected${await tailscaleState(ports)}`,
@@ -147,7 +146,7 @@ function tailscaleHttpsCheck(ports: RemoteAccessPorts, load: () => Promise<Plan>
     id: "remote.tailscale-https",
     fix: httpsFix,
     async run() {
-      if ((await load()).listen !== "tailscale")
+      if (!(await load()).direct.tailscale)
         return {
           status: "ok",
           message: "Not used: remote access isn't on Tailscale",
@@ -184,10 +183,10 @@ function certificateCheck(context: DoctorContext, load: () => Promise<Plan>): Ch
     fix: renewFix,
     async run() {
       const plan = await load();
-      if (plan.listen === "local")
+      if (!directOn(plan))
         return {
           status: "ok",
-          message: plan.relayUrl
+          message: plan.relays.length
             ? "Not used: devices connect through the relay"
             : "Not checked: remote access is off",
           fix: renewFix,

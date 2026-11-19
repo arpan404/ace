@@ -50,10 +50,16 @@ export function codexLoginDriver(options: {
         new Promise<{ success: boolean }>((resolve, reject) => {
           const abort = () => reject(new Error("Cancelled"));
           signal.addEventListener("abort", abort, { once: true });
-          void started.completed.then((result) => {
-            signal.removeEventListener("abort", abort);
-            resolve(result);
-          });
+          void started.completed.then(
+            (result) => {
+              signal.removeEventListener("abort", abort);
+              resolve(result);
+            },
+            (error: unknown) => {
+              signal.removeEventListener("abort", abort);
+              reject(error);
+            },
+          );
         });
       try {
         // The server outlives a cancelled sign-in long enough to cancel it in Codex; only a

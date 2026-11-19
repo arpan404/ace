@@ -3,9 +3,9 @@
 // a PR are durable commands with receipts. The fake daemon serves the same messages.
 import type { ClientApi } from "@ace/client";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
+import { readPushRemote } from "@/lib/project-repositories.ts";
 import {
   ThreadId,
-  SourceControlPreferences,
   type SourceControlContext,
   type SourceControlDraftInput,
   type SourceControlSelection,
@@ -281,18 +281,12 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       return result.commit ?? "";
     },
     async push(thread, target, force) {
-      const response = await client.request({
-        type: "settings.get",
-        key: "sourceControl.preferences",
-        scope: {},
-      });
-      const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
-      if (!response.ok || !entry) throw new WorkspaceError("forge_preferences_changed");
-      const preferences = SourceControlPreferences.parse(entry.value);
+      const remote = await readPushRemote(client);
+      if (remote === undefined) throw new WorkspaceError("forge_preferences_changed");
       await run({
         type: "git.push",
         threadId: id(thread),
-        remote: preferences.remote,
+        remote,
         ...(target ? { target } : {}),
         ...(force ? { force } : {}),
       });
@@ -365,8 +359,9 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     async resolveSetup(thread, action) {
       const threadId = id(thread);
       await run({ type: "thread.workspace.setup", threadId, action });
-      const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
-      await run({ type: "queue.resume", threadId, expectedRevision: queue.revision });
+      // At the queue's current revision, and only while the thread's copy is current.
+      const { resumeQueue } = await import("@/lib/live-actions.ts");
+      await resumeQueue(client, threadId);
     },
   };
 }

@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness } from "@/test/harness.tsx";
 import { uploadTimeoutMs } from "./composer/upload-interruption.ts";
 import { resetSendStore } from "./composer/send-store.ts";
@@ -219,7 +220,7 @@ test("offline queued attachments survive replacing the client and arrive once in
   await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  await userEvent.type(message, "First with image{Enter}Then second{Enter}");
+  await typeAtEnd(message, "First with image{Enter}Then second{Enter}");
   await waitFor(() =>
     expect(
       app.client
@@ -252,16 +253,16 @@ test("offline queued attachments survive replacing the client and arrive once in
 test("an edit keeps unsaved wording when the turn ends and its original attachments dispatch", async () => {
   const { app, message } = await openBusy();
   await userEvent.upload(screen.getByLabelText("Files to attach"), image());
-  await userEvent.type(message, "Original wording{Enter}");
+  await typeAtEnd(message, "Original wording{Enter}");
   const edit = await screen.findByRole("button", { name: "Edit queued message" });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
-  await waitFor(() => expect(composer().textContent).toBe("Original wording"));
+  await waitFor(() => expect(composerWords(composer())).toBe("Original wording"));
   await userEvent.clear(composer());
   await userEvent.type(composer(), "Keep my revision");
   act(() => app.daemon.apply(threadId, [facts.endTurn("root")]));
   await screen.findByText("The message you're editing has left the queue.");
-  expect(composer().textContent).toBe("Keep my revision");
+  expect(composerWords(composer())).toBe("Keep my revision");
   const view = app.daemon.snapshot({ kind: "thread", threadId });
   if (!view || !("items" in view)) throw new Error("Missing transcript");
   const sent = Object.values(view.items).filter(
@@ -355,7 +356,7 @@ test.each(["text-only", "uploaded attachment"])(
       if (!uploadedHash) throw new Error("Image did not finish uploading");
     }
     refuse = true;
-    await userEvent.type(message, "First waiting on device storage{Enter}");
+    await typeAtEnd(message, "First waiting on device storage{Enter}");
     await screen.findByRole("button", { name: "Retry" });
     await userEvent.type(message, "Second behind the first{Enter}");
     await screen.findByText("Waiting for an earlier message…");
@@ -378,7 +379,7 @@ test.each(["text-only", "uploaded attachment"])(
       ]);
       expect(queue.messages.map((entry) => entry.id)).toEqual(ids);
       expect(queue.messages[0]?.context?.attachments).toEqual(
-        uploadedHash ? [{ sha256: uploadedHash }] : [],
+        uploadedHash ? [{ sha256: uploadedHash, at: 0 }] : [],
       );
     });
     expect(screen.queryByText(/Upload interrupted$/)).toBeNull();

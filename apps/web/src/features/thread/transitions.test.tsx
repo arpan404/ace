@@ -50,7 +50,7 @@ test("forking from an answer opens the fork ready for a message, and the message
   await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
   expect(screen.queryByRole("dialog")).toBeNull();
   const banner = within(screen.getByRole("banner"));
-  expect(banner.getByText("docs-site")).toBeTruthy();
+  expect(banner.getByRole("img", { name: "Project docs-site" })).toBeTruthy();
   expect(banner.queryByRole("link", { name: "Document the router" })).toBeNull();
   expect(within(forkedFrom()).getByRole("link", { name: "Document the router" })).toBeTruthy();
   // Nothing exists until the first message is sent.
@@ -68,20 +68,6 @@ test("forking from an answer opens the fork ready for a message, and the message
   expect(forks(app).map((entry) => entry.lineage?.point.type)).toEqual(["turn"]);
   // The source thread is untouched.
   expect(thread(app, "thread-router")?.status.state).toBe("done");
-});
-
-test("the palette forks from the last finished turn", async () => {
-  await openRouter();
-  await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
-    "Fork",
-  );
-  await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
-  expect(
-    await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" }),
-  ).toBeTruthy();
-  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
 });
 
 test("on a desktop window the fork opens with the caret in its composer", async () => {

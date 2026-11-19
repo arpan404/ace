@@ -1,5 +1,6 @@
 import { sanitizeUserText } from "./user-text.ts";
 import { historyToolDetail } from "./tool-detail.ts";
+import type { CompactSummary } from "./compact-summary.ts";
 import { Item, ItemId, type AgentId, type RawPayload } from "@ace/protocol/entities";
 import { object, string, timestamp } from "@ace/native-session";
 import type { HistoryProvider } from "@ace/protocol/history";
@@ -11,8 +12,15 @@ export type MappingContext = {
   at: number;
   raw: RawPayload;
   resultCall?: (id: string) => ItemId | undefined;
+  /** The compaction summary that continues a boundary (by its uuid), found ahead of it. */
+  compactSummary?: (boundaryUuid: string) => CompactSummary | undefined;
+  /** Whether a summary record (by its uuid) is already kept on its boundary's compaction. */
+  foldsSummary?: (uuid: string) => boolean;
 };
 export type Mapped = { item: Item; message: boolean };
+/** A token count a transcript reports, when it is one. */
+const tokenCount = (count: unknown): number | undefined =>
+  typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : undefined;
 /** File transcripts differ from live notifications. Keep unmapped records as hidden raw entries. */
 export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapped> {
   const r = object(value);
@@ -182,7 +190,18 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     if (p.synthetic !== true) yield* texts("message", string(p.text) ?? "", false);
     return;
   }
-  if (role === "user" && (p.isMeta === true || p.synthetic === true)) {
+  // Claude's compaction summary is provider-internal text, never the person's words: kept on its
+  // boundary's compaction when that holds its record, else as a hidden raw entry.
+  if (
+    role === "user" &&
+    p.isCompactSummary === true &&
+    ctx.foldsSummary?.(string(p.uuid) ?? "") === true
+  )
+    return;
+  if (
+    role === "user" &&
+    (p.isMeta === true || p.synthetic === true || p.isCompactSummary === true)
+  ) {
     yield rawOnly();
     return;
   }
@@ -296,7 +315,25 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     return;
   }
   if (ctx.provider === "claude" && p.type === "system" && p.subtype === "compact_boundary") {
-    yield { item: Item.parse({ ...base(), type: "compaction" }), message: false };
+    const uuid = string(p.uuid);
+    const summary = uuid ? ctx.compactSummary?.(uuid) : undefined;
+    const meta = object(p.compactMetadata);
+    const before = tokenCount(meta.preTokens);
+    const after = tokenCount(meta.postTokens);
+    yield {
+      item: Item.parse({
+        ...base(),
+        type: "compaction",
+        ...(before === undefined ? {} : { tokensBefore: before }),
+        ...(after === undefined ? {} : { tokensAfter: after }),
+        ...(summary ? { summary: summary.text } : {}),
+        raw: [
+          ...raw(),
+          ...(summary && summary.data !== undefined ? [{ type: "user", data: summary.data }] : []),
+        ],
+      }),
+      message: false,
+    };
     return;
   }
   yield rawOnly();

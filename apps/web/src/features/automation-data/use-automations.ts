@@ -1,4 +1,9 @@
-import type { Automation, AutomationRun, AutomationSource } from "@ace/protocol";
+import type {
+  Automation,
+  AutomationRun,
+  AutomationSource,
+  AutomationWebhookRequest,
+} from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -12,6 +17,7 @@ import {
   retryAutomation,
   runAutomation,
   setEnabledAutomation,
+  webhookSecret,
   type AutomationEntry,
   type RunRequest,
 } from "./automations-source.ts";
@@ -27,6 +33,8 @@ const keys = {
   list: ["automations", "list"] as const,
   inbox: ["automations", "inbox"] as const,
 };
+/** Every automation read, for a change elsewhere (a setting) that alters what they show. */
+export const automationsQueryKey = keys.all;
 export const inboxLimit = 50;
 /** How often a running run's outcome is checked for, and how often new runs are. */
 const runningPollMs = 5_000;
@@ -120,6 +128,11 @@ export function useAutomationActions() {
       retry: (id: string, expectedRevision?: number | undefined) =>
         refreshed(retryAutomation(client, id, expectedRevision)),
       runNow: (id: string, request?: RunRequest) => refreshed(runAutomation(client, id, request)),
+      webhookSecret: (
+        id: string,
+        action: AutomationWebhookRequest["action"],
+        source?: AutomationSource,
+      ) => refreshed(webhookSecret(client, id, action, source)),
     };
   }, [client, queries]);
 }

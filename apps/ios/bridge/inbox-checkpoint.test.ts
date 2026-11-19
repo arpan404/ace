@@ -8,8 +8,10 @@ await vi.hoisted(async () => {
 });
 
 import { FakeDaemon, facts } from "@ace/fake-daemon";
+import { CommandId, DeviceId, ThreadId, ThreadListEntry } from "@ace/protocol";
+import type { SidebarReader } from "@ace/client";
 import { followInbox, type InboxClock } from "./inbox.ts";
-import { checkpointDelayMs } from "./inbox-checkpoint.ts";
+import { checkpointDelayMs, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -51,8 +53,10 @@ function working(daemon: FakeDaemon, id: string, title: string) {
   daemon.apply(id, [facts.rootAgent("codex"), facts.turn("root")]);
 }
 
+type Tabs = { inbox: string[]; snoozed: string[]; settled: string[] };
 type Patch = {
   type: string;
+  tabs?: Tabs;
   id?: string;
   ids?: string[];
   row?: { confirmed: boolean; status: { label: string } } | null;
@@ -144,5 +148,91 @@ describe("inbox checkpoint", () => {
     );
     clock.advance(checkpointDelayMs);
     expect(saved).toEqual([]);
+  });
+});
+
+function organize(daemon: FakeDaemon, id: string, payload: Record<string, unknown>) {
+  daemon.command({
+    id: CommandId.parse(`${String(payload.type)}-${id}`),
+    deviceId: DeviceId.parse("seed"),
+    // Parsed by the fake daemon as the real one parses commands.
+    payload: { threadId: ThreadId.parse(id), ...payload } as never,
+  });
+}
+
+describe("inbox checkpoint tabs", () => {
+  test("the kept copy holds the daemon's Inbox, Snoozed and Settled, so the first frame lists them as placed", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "open", "Open thread");
+    finished(daemon, "nap", "Napping thread");
+    finished(daemon, "rest", "Resting thread");
+    organize(daemon, "nap", { type: "thread.snooze", until: 9_000_000_000_000 });
+    organize(daemon, "rest", { type: "thread.settle" });
+    await client.start();
+    const clock = new TestClock();
+    const sink = new RecordingSink();
+    const saved: string[] = [];
+    closers.push(
+      followInbox(client, "mac", sink, clock, undefined, (checkpoint) => saved.push(checkpoint)),
+    );
+    await until(
+      () => (sink.read("inbox:open") as Patch | undefined)?.row?.confirmed === true,
+      "confirmed list",
+    );
+    const live = (sink.read("inbox:sections") as Patch).tabs;
+    expect(live).toEqual({ inbox: ["open"], snoozed: ["nap"], settled: ["rest"] });
+    clock.advance(checkpointDelayMs);
+    const kept = (JSON.parse(saved[0] ?? "[]") as Patch[]).at(-1);
+    expect(kept?.tabs).toEqual(live);
+    expect(kept?.sections?.find((section) => section.key === "settled")?.ids).toEqual(["rest"]);
+    expect(kept?.sections?.find((section) => section.key === "snoozed")?.ids).toEqual(["nap"]);
+  });
+
+  test("a copy kept before places existed still lists its tabs by the shared rule", () => {
+    // Entries as an older daemon sent them, and an older SDK saved them: no place on any.
+    const base = {
+      workspaceId: "ace",
+      provider: "codex",
+      createdAt: 1,
+      updatedAt: 10,
+      activityAt: 10,
+      hasSentMessage: true,
+    } as const;
+    const entries = [
+      { ...base, id: "open", title: "Open", status: { state: "done" }, readAt: 20 },
+      {
+        ...base,
+        id: "rest",
+        title: "Rest",
+        status: { state: "done" },
+        readAt: 20,
+        settledAt: 20,
+        settledReason: "manual",
+      },
+      {
+        ...base,
+        id: "nap",
+        title: "Nap",
+        status: { state: "done" },
+        snoozedUntil: 9_000_000_000_000,
+      },
+    ].map((entry) => ThreadListEntry.parse(entry));
+    const byId = new Map(entries.map((entry) => [entry.id as string, entry]));
+    const store = {
+      ids: [...byId.keys()],
+      thread: (id: string) => byId.get(id),
+      homeWindow: undefined,
+      window: undefined,
+    } as unknown as SidebarReader;
+    const patches = inboxCheckpoint(store, {
+      machineId: "mac",
+      now: 5_000_000,
+      baseline: 0,
+      accounts: [],
+    });
+    const layout = patches.at(-1) as Patch;
+    // Unconfirmed, the Inbox's live bands read Syncing; Snoozed and Settled stay where they were.
+    expect(layout.tabs).toEqual({ inbox: ["open"], snoozed: ["nap"], settled: ["rest"] });
   });
 });

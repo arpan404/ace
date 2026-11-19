@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/PairingLinkProof.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "deviceId": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "proof": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "deviceId",
+    "proof"
+  ],
+  "type": "object"
+}

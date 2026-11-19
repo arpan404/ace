@@ -12,6 +12,9 @@ import {
 } from "@ace/protocol";
 import { admission, canPromote } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
+import { WebhookKeys } from "./webhook-store.ts";
+import type { SecretBox } from "./webhook-secret-box.ts";
+import { webhookToleranceMs } from "./webhook-signature.ts";
 
 const JobMetadata = z.object({
   automation: z.unknown().transform(normalizeAutomation),
@@ -39,15 +42,24 @@ const Input = z.object({
   effort: z.string().optional(),
   instance: z.string().optional(),
   access: Automation.shape.access,
+  accessCeiling: Automation.shape.access,
   workspace: z.string(),
   prompt: z.string().max(maxMessageBytes),
   worktree: z.boolean(),
 });
+/** Where a run still going sorts in `automation_finished`: after every real finish time. */
+const notFinished = Number.MAX_SAFE_INTEGER;
+
+/** Told of a stored row this build can't read, by its id; the row is kept. */
+type Unreadable = (id: string, error: unknown) => void;
+
 export class AutomationStore {
   private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
-  constructor(path: string) {
+  /** Webhook automations' hook ids and secrets (ADR 0173). */
+  readonly webhooks: WebhookKeys;
+  constructor(path: string, options: { webhookSecrets?: SecretBox } = {}) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;
@@ -69,7 +81,23 @@ export class AutomationStore {
       this.db.exec(`INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
         UPDATE automation_jobs SET state='{}' WHERE state<>'{}';
         INSERT OR IGNORE INTO automation_revisions SELECT id,1 FROM automation_jobs;`);
+      // Each run's finish time in its own column, so the inbox leaves out settled runs by an index
+      // instead of reading every run's record. Filled on every open, not only when the column is
+      // added: an older build that opens this store finishes runs without it. Only rows without a
+      // finish time are looked at (`automation_unfinished`): runs still going, and those.
+      const columns = this.db.prepare("PRAGMA table_info(automation_runs)").all();
+      if (!columns.some((column) => column.name === "finished_at"))
+        this.db.exec("ALTER TABLE automation_runs ADD COLUMN finished_at INTEGER");
+      this.db
+        .exec(`CREATE INDEX IF NOT EXISTS automation_unfinished ON automation_runs(seq) WHERE finished_at IS NULL;
+        UPDATE automation_runs SET finished_at=json_extract(body,'$.finishedAt')
+          WHERE finished_at IS NULL AND json_extract(body,'$.finishedAt') IS NOT NULL;`);
+      // Runs still going sort after every finish, so "finished after T, or still going" is one range.
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, ${notFinished}))`,
+      );
     });
+    this.webhooks = new WebhookKeys(this.db, (sql) => this.sql(sql), options.webhookSecrets);
   }
   close(): void {
     this.statements.clear();
@@ -133,6 +161,8 @@ export class AutomationStore {
         "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
       ).run(automation.id, body, nominal ?? null, due ?? null, "{}");
       if (automation.trigger.kind !== "github") this.clearPollError(automation.id);
+      // A webhook's URL and secret belong to its trigger: changing the trigger retires both.
+      if (automation.trigger.kind !== "webhook") this.webhooks.forget(automation.id);
       // File trigger health survives saves until the watcher reports readiness;
       // other triggers are healthy immediately after a successful save.
       if (automation.trigger.kind !== "file") this.clearTriggerError(automation.id);
@@ -160,6 +190,7 @@ export class AutomationStore {
       } else if (!live) return false;
       this.clearPollError(id);
       this.clearTriggerError(id);
+      this.webhooks.forget(id);
       this.sql("DELETE FROM automation_state WHERE id=?").run(id);
       this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
       this.sql(
@@ -215,28 +246,39 @@ export class AutomationStore {
     const state: unknown = JSON.parse(String(row.state));
     return state;
   }
-  *jobs(): Iterable<JobMetadata> {
+  /**
+   * Every automation this build can read. One it can't (a trigger or provider another build
+   * wrote, say) is kept, told to `unreadable`, and passed over, so it never takes down the rest.
+   */
+  *jobs(unreadable?: Unreadable): Iterable<JobMetadata> {
     let count = 0;
     for (const row of this.sql(
-      "SELECT j.body,j.nominal,j.due,r.revision,e.body AS pollError,t.body AS triggerError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id ORDER BY j.id LIMIT 1001",
+      "SELECT j.id,j.body,j.nominal,j.due,r.revision,e.body AS pollError,t.body AS triggerError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id ORDER BY j.id LIMIT 1001",
     ).iterate()) {
       if (++count > 1000) throw new Error("Automation limit exceeded");
-      yield JobMetadata.parse({
-        automation: JSON.parse(String(row.body)),
-        nominal: row.nominal,
-        due: row.due,
-        revision: Number(row.revision ?? 1),
-        lastPollError: row.pollError
-          ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
-          : undefined,
-        triggerError: row.triggerError
-          ? AutomationTriggerError.parse(JSON.parse(String(row.triggerError)))
-          : undefined,
-      });
+      let job: JobMetadata;
+      try {
+        job = JobMetadata.parse({
+          automation: JSON.parse(String(row.body)),
+          nominal: row.nominal,
+          due: row.due,
+          revision: Number(row.revision ?? 1),
+          lastPollError: row.pollError
+            ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
+            : undefined,
+          triggerError: row.triggerError
+            ? AutomationTriggerError.parse(JSON.parse(String(row.triggerError)))
+            : undefined,
+        });
+      } catch (error) {
+        unreadable?.(String(row.id), error);
+        continue;
+      }
+      yield job;
     }
   }
-  list(): JobMetadata[] {
-    return [...this.jobs()];
+  list(unreadable?: Unreadable): JobMetadata[] {
+    return [...this.jobs(unreadable)];
   }
   /** Catalog reads need names, never prompt bodies, scheduling state or run history. */
   catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
@@ -245,24 +287,52 @@ export class AutomationStore {
       json_extract(body,'$.workspace') AS workspace, json_extract(body,'$.provider') AS provider
       FROM automation_jobs ORDER BY id LIMIT 1000`)
       .all()
-      .map((row) => CatalogMetadata.parse(row));
+      .flatMap((row) => {
+        // An automation this build can't read has no catalog entry; the rest still do.
+        const parsed = CatalogMetadata.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      });
     return this.catalogCache
       .filter((a) => a.enabled && a.provider === provider && a.workspace === workspace)
       .slice(0, 128)
       .map(({ id, title }) => ({ id, title }));
   }
-  next(excluded: readonly string[] = []): JobMetadata | undefined {
+  /**
+   * The readable automation due first. One this build can't read is told to `unreadable`, kept
+   * and passed over, so it never keeps the next one from its deadline; the scan is bounded by
+   * the automation limit.
+   */
+  next(excluded: readonly string[] = [], unreadable?: Unreadable): JobMetadata | undefined {
     if (excluded.length > 4) throw new Error("Too many excluded polls");
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1",
-    ).get(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? "");
-    return row ? this.metadata(String(row.id)) : undefined;
+    return this.firstReadable(
+      this.sql(
+        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1001",
+      ).iterate(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? ""),
+      unreadable,
+    );
   }
-  nextScheduled(): JobMetadata | undefined {
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1",
-    ).get();
-    return row ? this.metadata(String(row.id)) : undefined;
+  nextScheduled(unreadable?: Unreadable): JobMetadata | undefined {
+    return this.firstReadable(
+      this.sql(
+        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1001",
+      ).iterate(),
+      unreadable,
+    );
+  }
+  private firstReadable(
+    rows: Iterable<Record<string, unknown>>,
+    unreadable: Unreadable | undefined,
+  ): JobMetadata | undefined {
+    for (const row of rows) {
+      const id = String(row.id);
+      try {
+        const job = this.metadata(id);
+        if (job) return job;
+      } catch (error) {
+        unreadable?.(id, error);
+      }
+    }
+    return undefined;
   }
   advance(id: string, nominal: number | undefined, due: number | undefined): void {
     this.sql("UPDATE automation_jobs SET nominal=?,due=? WHERE id=?").run(
@@ -306,7 +376,12 @@ export class AutomationStore {
         FROM automation_jobs j ORDER BY j.id LIMIT 1001`,
     ).iterate()) {
       if (row.runBody === null || row.runBody === undefined) continue;
-      runs.set(String(row.aid), AutomationRun.parse(JSON.parse(String(row.runBody))));
+      // A latest run this build can't read shows as none, never failing the whole list.
+      try {
+        runs.set(String(row.aid), AutomationRun.parse(JSON.parse(String(row.runBody))));
+      } catch {
+        continue;
+      }
     }
     return runs;
   }
@@ -330,6 +405,7 @@ export class AutomationStore {
     now: number,
     input: ExecutionInput | undefined,
     failure?: string,
+    skip?: string,
   ): { run: AutomationRun; admitted: boolean; created: boolean } {
     const existing = this.sql(
       "SELECT body FROM automation_runs WHERE automation_id=? AND event_key=?",
@@ -352,7 +428,7 @@ export class AutomationStore {
     const status =
       failure !== undefined
         ? "failed"
-        : input === undefined
+        : input === undefined || skip !== undefined
           ? "skipped"
           : admission({ active, waiting, total, file: trigger === "file" });
     const admitted = status === "running";
@@ -370,12 +446,14 @@ export class AutomationStore {
         : {
             finishedAt: now,
             result:
-              failure ?? (waiting ? "A run was already waiting" : "Too many automations running"),
+              failure ??
+              skip ??
+              (waiting ? "A run was already waiting" : "Too many automations running"),
           }),
     });
     if (trigger === "file" && status === "skipped") return { run, admitted: false, created: false };
     this.sql(
-      "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input) VALUES(?,?,?,?,?,?)",
+      "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,?,?)",
     ).run(
       id,
       automation.id,
@@ -383,7 +461,12 @@ export class AutomationStore {
       status,
       JSON.stringify(run),
       input ? JSON.stringify(input) : null,
+      run.finishedAt ?? null,
     );
+    // A webhook delivery's receipt commits with its run (ADR 0173, decision 6). A timestamp is
+    // accepted up to the tolerance either side of now, so twice it covers every replay.
+    if (trigger === "webhook")
+      this.webhooks.deliver(automation.id, event.key, id, now + 2 * webhookToleranceMs, now);
     this.prune(automation.id);
     return { run, admitted, created: true };
   }
@@ -476,8 +559,8 @@ export class AutomationStore {
         result: reason,
       });
       this.sql(
-        "UPDATE automation_runs SET status='skipped',body=? WHERE id=? AND status='queued'",
-      ).run(JSON.stringify(run), String(row.id));
+        "UPDATE automation_runs SET status='skipped',body=?,finished_at=? WHERE id=? AND status='queued'",
+      ).run(JSON.stringify(run), now, String(row.id));
       return run;
     });
   }
@@ -496,36 +579,62 @@ export class AutomationStore {
         ...outcome,
         finishedAt: now,
       });
-      this.sql("UPDATE automation_runs SET status=?,body=? WHERE id=? AND status='running'").run(
-        run.status,
-        JSON.stringify(run),
-        id,
-      );
+      this.sql(
+        "UPDATE automation_runs SET status=?,body=?,finished_at=? WHERE id=? AND status='running'",
+      ).run(run.status, JSON.stringify(run), now, id);
       // A finished run's cancellation, if it had one, is done with.
       this.sql("DELETE FROM automation_cancellations WHERE run_id=?").run(id);
       this.prune(run.automationId);
       return run;
     });
   }
-  active(): { run: AutomationRun; input: ExecutionInput }[] {
-    return this.sql("SELECT body,input FROM automation_runs WHERE status='running' LIMIT 256")
+  /** Running runs this build can read; one it can't is told to `unreadable` and kept. */
+  active(unreadable?: Unreadable): { run: AutomationRun; input: ExecutionInput }[] {
+    return this.sql("SELECT id,body,input FROM automation_runs WHERE status='running' LIMIT 256")
       .all()
-      .map((row) => ({
-        run: AutomationRun.parse(JSON.parse(String(row.body))),
-        input: Input.parse(JSON.parse(String(row.input))),
-      }));
+      .flatMap((row) => {
+        try {
+          return [
+            {
+              run: AutomationRun.parse(JSON.parse(String(row.body))),
+              input: Input.parse(JSON.parse(String(row.input))),
+            },
+          ];
+        } catch (error) {
+          unreadable?.(String(row.id), error);
+          return [];
+        }
+      });
   }
-  inbox(limit = 50, before?: number, automationId?: string): AutomationInbox {
+  inbox(
+    limit = 50,
+    before?: number,
+    automationId?: string,
+    finishedAfter?: number,
+  ): AutomationInbox {
     z.number().int().min(1).max(100).parse(limit);
     if (before !== undefined) z.number().int().positive().parse(before);
-    const rows =
-      automationId === undefined
-        ? this.sql(
-            "SELECT seq,body FROM automation_runs WHERE seq < ? ORDER BY seq DESC LIMIT ?",
-          ).all(before ?? Number.MAX_SAFE_INTEGER, limit + 1)
-        : this.sql(
-            "SELECT seq,body FROM automation_runs WHERE automation_id=? AND seq < ? ORDER BY seq DESC LIMIT ?",
-          ).all(automationId, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
+    if (finishedAfter !== undefined) z.number().int().nonnegative().parse(finishedAfter);
+    const where = ["seq < ?"];
+    const values: (string | number)[] = [before ?? Number.MAX_SAFE_INTEGER];
+    if (automationId !== undefined) {
+      where.push("automation_id=?");
+      values.push(automationId);
+    }
+    if (finishedAfter !== undefined) {
+      // Runs still going have no finish time yet, and stay in: one range of `automation_finished`.
+      where.push(`coalesce(finished_at, ${notFinished}) > ?`);
+      values.push(finishedAfter);
+    }
+    // With a finish time, read only the runs past it and those going, however long the history:
+    // left to itself the planner walks seq backwards over every settled run.
+    const from =
+      finishedAfter === undefined
+        ? "automation_runs"
+        : "automation_runs INDEXED BY automation_finished";
+    const rows = this.sql(
+      `SELECT seq,body FROM ${from} WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+    ).all(...values, limit + 1);
     const page = rows.slice(0, limit);
     return AutomationInbox.parse({
       runs: page.map((row) => AutomationRun.parse(JSON.parse(String(row.body)))),

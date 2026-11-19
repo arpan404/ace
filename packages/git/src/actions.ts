@@ -35,6 +35,7 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
   const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
@@ -70,6 +71,7 @@ export async function commitChanges(
     if (staging.length)
       await repository.cli.call(root, ["add", "--all", "--", ...staging], {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         captureBytes: 65536,
         env: literal,
@@ -79,6 +81,7 @@ export async function commitChanges(
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
       {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         input: message,
         captureBytes: 65536,
@@ -94,18 +97,16 @@ const remoteName = z
   .max(128)
   .regex(/^[\w./-]+$/)
   .refine((value) => !value.startsWith("-"));
+const ExpectedPushTarget = z.object({
+  branch: z.string().min(1).max(1024),
+  head: head.nullable(),
+  pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
+});
+const BranchNames = z.array(z.string().min(1).max(1024)).max(1001);
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = remoteName.parse(options.remote);
   const expected =
-    options.expected === undefined
-      ? undefined
-      : z
-          .object({
-            branch: z.string().min(1).max(1024),
-            head: head.nullable(),
-            pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
-          })
-          .parse(options.expected);
+    options.expected === undefined ? undefined : ExpectedPushTarget.parse(options.expected);
   const lease = options.force === undefined ? undefined : head.parse(options.force.lease);
   // ace's own reads keep the checkout's protections; only `push` is the person's.
   const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
@@ -134,7 +135,6 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
     const ref = `refs/heads/${destination}`;
-    options.beforePush?.();
     try {
       await repository.cli.push(
         root,
@@ -149,6 +149,7 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         ],
         {
           write: true,
+          beforeSpawn: options.beforePush,
           timeoutMs: 600_000,
           captureBytes: 65536,
           env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },
@@ -234,9 +235,8 @@ export async function listBranches(
     ["for-each-ref", "--count=1001", "--format=%(refname:short)", "refs/heads", "refs/remotes"],
     { captureBytes: 1_048_576 },
   );
-  const branches = z
-    .array(z.string().min(1).max(1024))
-    .max(1001)
-    .parse(result.stdout.toString("utf8").trim().split("\n").filter(Boolean));
+  const branches = BranchNames.parse(
+    result.stdout.toString("utf8").trim().split("\n").filter(Boolean),
+  );
   return { branches: branches.slice(0, 1000), truncated: branches.length > 1000 };
 }

@@ -28,26 +28,41 @@ struct ForgeHome: View {
     let actions: ForgeTabActions
     /// Opens Machines from the connection problem under the title.
     var openMachines: () -> Void = {}
+    /// Opens pairing while no computer is paired; nil while that isn't known yet.
+    var pair: (() -> Void)?
+    @State private var features: ForgeFeatures?
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
-    @State private var pullsFilter = PullsFilter()
-    @State private var issuesFilter = IssuesFilter()
-    @State private var notificationsFilter = NotificationsFilter()
+    /// Each list's filters, kept by the page that shows this one so they outlive it.
+    @Binding var filters: ForgeListFilters
     @State private var creating = false
+    /// New issue's place, captured with the list that named its repository.
+    @State private var creatingIssue: ForgeNewIssueTarget?
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
+    private var pullsFilter: PullsFilter {
+        get { filters.pulls }
+        nonmutating set { filters.pulls = newValue }
+    }
+    private var issuesFilter: IssuesFilter {
+        get { filters.issues }
+        nonmutating set { filters.issues = newValue }
+    }
+    private var notificationsFilter: NotificationsFilter { filters.notifications }
 
     /// Opens on the projects and lists this phone last saw on the machine, read again behind
     /// them, so coming back to Pulls never starts from a spinner.
-    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions,
-         openMachines: @escaping () -> Void = {}) {
+    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>,
+         filters: Binding<ForgeListFilters>, actions: ForgeTabActions, openMachines: @escaping () -> Void = {}, pair: (() -> Void)? = nil) {
         self.inbox = inbox
         self.openMachines = openMachines
+        self.pair = pair
         _machine = machine
         _project = project
         self.query = query
         _kind = kind
+        _filters = filters
         self.actions = actions
         guard let session = Self.session(inbox, machine.wrappedValue) else { return }
         let client = session.client
@@ -55,11 +70,12 @@ struct ForgeHome: View {
         _projects = State(initialValue: projects)
         let remembered = UserDefaults.standard.string(forKey: ForgeProjectChoice.key) ?? ""
         guard let chosen = ForgeProjectChoice.pick(chip: project.wrappedValue, remembered: remembered, projects: projects) else { return }
-        let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: PullsFilter(), query: query), as: ForgePullList.self)
-        let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: IssuesFilter(), query: query), as: ForgeIssueList.self)
-        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: PullsFilter()), query),
+        let (pullsFilter, issuesFilter) = (filters.wrappedValue.pulls, filters.wrappedValue.issues)
+        let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
+        let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
+        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: pullsFilter), query),
                                                     scope: ForgeListScope(machineId: session.hostId, project: chosen)))
-        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: IssuesFilter()), query),
+        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: issuesFilter), query),
                                                      scope: ForgeListScope(machineId: session.hostId, project: chosen)))
     }
 
@@ -73,16 +89,28 @@ struct ForgeHome: View {
 
     var body: some View {
         content
-            .inboxTopBar { chips }
-            .toolbar {
-                if #available(iOS 26, *) {
-                    ToolbarItem(placement: .topBarLeading) { heading }.sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarLeading) { heading }
+            // The chips pinned under the title, in the navigation bar's own region.
+            .pinnedTopBar(resetOn: shownList) { chips }
+            // The system's large title (Pulls, Issues or Inbox), the project under it and the
+            // machine and project pickers in its menu.
+            .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
+                         hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
+            .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
+            .task(id: "\(listKey)|\(listGeneration)|\(features?.issues == true)|\(features?.inbox == true)") { await load(fresh: false) }
+            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(listGeneration)") {
+                features = nil
+                guard let client = session?.client, let chosen else { return }
+                features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
+                if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
+            }
+            .sheet(item: $creatingIssue) { target in
+                if let client = inbox.client(target.scope.machineId) {
+                    ForgeNewIssueSheet(client: client, project: target.scope.project, repository: target.repository) { number in
+                        actions.open(ForgeRoute(kind: .issue, machineId: target.scope.machineId, project: target.scope.project,
+                                                number: number, repository: target.repository))
+                    }
                 }
             }
-            .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
             .sheet(isPresented: $creating) {
                 if let session, let chosen {
                     ForgeNewPullSheet(client: session.client, project: chosen) { number in
@@ -90,6 +118,13 @@ struct ForgeHome: View {
                     }
                 }
             }
+    }
+
+    /// The list on the page: another machine, project or list, or another Inbox filter (the
+    /// notifications read again from the top), puts the pinned bar's edge away.
+    private var shownList: String {
+        let base = "\(session?.hostId ?? "")|\(chosen ?? "")|\(kind)"
+        return kind == .inbox ? "\(base)|\(notificationsFilter)" : base
     }
 
     private var listKey: String {
@@ -111,68 +146,131 @@ struct ForgeHome: View {
         if let session, let chosen {
             switch kind {
             case .pulls:
-                ForgePullsList(model: pulls,
-                               open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
+                ForgePullsList(client: session.client, model: pulls,
+                               open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() },
+                               pair: pair, openMachines: openMachines)
             case .issues:
-                ForgeIssuesList(model: issues,
+                ForgeIssuesList(model: issues, machine: recovery(session.client),
                                 open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .inbox:
                 ForgeNotificationsList(client: session.client, machineId: session.hostId, project: chosen, filter: notificationsFilter, query: query, open: actions.open)
                     .id("\(session.hostId)|\(chosen)|\(notificationsFilter)")
             }
+        } else if inbox.sessions.isEmpty, let pair {
+            ForgeEmpty { NoComputerPaired(pair: pair) }
+        } else if let session, ForgeListState.out(session.client.connection) != nil {
+            // Projects read nothing while the machine is out, and a read that failed as it went
+            // can't be tried again until it's back: say so first.
+            ForgeEmpty { ForgeMachineOut(machine: recovery(session.client), noun: "Pull requests") { await loadProjects() } }
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {
-            ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a GitHub remote to see its pull requests and issues.") { EmptyView() } }
+            ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a Git remote to see its pull requests and issues.") { EmptyView() } }
         } else {
-            ForgeEmpty { ProgressView().controlSize(.regular) }
+            SkeletonRows(label: "Loading pull requests")
         }
     }
 
-    /// "Pull requests ⌄": the machine (while several are paired) and the project the lists read,
-    /// with the project under the title. One machine with one project needs no menu.
-    private var heading: some View {
-        let several = inbox.showsMachineNames || projects.count > 1
-        return InboxHeading(title: "Pull requests", scope: projects.first { $0.id == chosen }?.name,
-                            problem: InboxConnectionProblem.of(inbox), openMachines: openMachines, identifier: "forge.project") {
-            if several {
-                if inbox.showsMachineNames {
-                    Picker("Machine", selection: Binding(get: { session?.hostId ?? "" }, set: { machine = $0 })) {
-                        ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
-                    }
-                }
-                Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
-                    ForEach(projects) { Text($0.name).tag($0.id) }
-                }
+    /// How the page gets `client`'s machine back when it's out.
+    private func recovery(_ client: ClientModel) -> ForgeMachineRecovery {
+        ForgeMachineRecovery(client: client, pair: pair, openMachines: openMachines)
+    }
+
+    /// The title's menu: the machine (several only) and the project the lists follow.
+    @ViewBuilder private var titleMenu: some View {
+        if inbox.showsMachineNames {
+            Picker("Machine", selection: Binding(get: { session?.hostId ?? "" }, set: { machine = $0 })) {
+                ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
             }
         }
-        .modifier(HeaderLead())
+        Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
+            ForEach(projects) { Text($0.name).tag($0.id) }
+        }
     }
 
-    /// The list switch on glass, filling the row, and the state filter beside it.
+    /// Where New issue opens: only from a list read for the machine and project now chosen (a list
+    /// kept from the last project while the next one loads names another repository).
+    private var newIssueTarget: ForgeNewIssueTarget? {
+        guard let scope = issues.scope, let repository = issues.list?.createOn,
+              scope.machineId == session?.hostId, scope.project == chosen else { return nil }
+        return ForgeNewIssueTarget(scope: scope, repository: repository)
+    }
+
+    /// The heading names the list showing, as the tab bar and the switch below it do.
+    private var headingTitle: String {
+        switch kind {
+        case .pulls: "Pulls"
+        case .issues: "Issues"
+        case .inbox: "Inbox"
+        }
+    }
+
+    private var kinds: [GlassSwitch<ForgeKind>.Choice] {
+        var choices: [GlassSwitch<ForgeKind>.Choice] = [.init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls")]
+        if features?.issues == true { choices.append(.init(value: .issues, title: "Issues", identifier: "forge.kind.issues")) }
+        if features?.inbox == true { choices.append(.init(value: .inbox, title: "Inbox", identifier: "forge.kind.inbox")) }
+        return choices
+    }
+
+    /// The list switch, then New pull request or New issue and the state filter beside it, on one
+    /// row while every word fits whole. Narrower, the switch says Pulls; narrower still (a phone
+    /// with Issues and Inbox, or large text), the switch takes a row of its own over the actions,
+    /// each row scrolling rather than cutting a word short.
     private var chips: some View {
+        ViewThatFits(in: .horizontal) {
+            chipsRow(kinds)
+            chipsRow(shortKinds)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                chipsScroller { GlassSwitch(selection: $kind, choices: shortKinds) }
+                chipsScroller { HStack(spacing: AceTheme.Spacing.sm) { chipActions } }
+            }
+        }
+        .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// Each choice by its short name where it has one ("Pulls" for Pull requests).
+    private var shortKinds: [GlassSwitch<ForgeKind>.Choice] {
+        kinds.map { .init(value: $0.value, title: $0.short ?? $0.title, identifier: $0.identifier) }
+    }
+
+    private func chipsRow(_ choices: [GlassSwitch<ForgeKind>.Choice]) -> some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            GlassSwitch(selection: $kind, choices: [
-                .init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls"),
-                .init(value: .issues, title: "Issues", identifier: "forge.kind.issues"),
-                .init(value: .inbox, title: "Inbox", identifier: "forge.kind.inbox"),
-            ])
-            if kind == .pulls, session?.client.canOperate == true, chosen != nil {
-                Button { creating = true } label: {
-                    Image(ace: .plus).frame(width: 36, height: 36).contentShape(Rectangle())
-                }
-                .accessibilityLabel("New pull request")
-                .accessibilityIdentifier("forge.newpr")
-            }
-            if kind == .inbox {
-                ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
-            } else {
-                ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
-                                 pullList: pulls.list, issueList: issues.list)
-            }
+            GlassSwitch(selection: $kind, choices: choices)
+            chipActions
+            // The switch hugs its tabs; the row keeps to the leading edge.
+            Spacer(minLength: AceTheme.Spacing.none)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// A row that scrolls sideways only when its words are wider than the page.
+    private func chipsScroller<Row: View>(@ViewBuilder _ row: () -> Row) -> some View {
+        ScrollView(.horizontal) {
+            row().padding(.horizontal, AceTheme.Spacing.lg)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// New pull request or New issue, where the person can make one, then the list's filter.
+    @ViewBuilder private var chipActions: some View {
+        if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
+            Button("New pull request") { creating = true }
+                .buttonStyle(.secondaryAction).controlSize(.small)
+                .accessibilityLabel("New pull request")
+                .accessibilityIdentifier("forge.newpr")
+        }
+        if kind == .issues, session?.client.canOperate == true, let target = newIssueTarget {
+            Button("New issue") { creatingIssue = target }
+                .buttonStyle(.secondaryAction).controlSize(.small)
+                .accessibilityIdentifier("forge.newissue")
+        }
+        if kind == .inbox {
+            ForgeNotificationsFilterMenu(filter: $filters.notifications, reasons: notificationReasons)
+        } else {
+            ForgeFiltersMenu(kind: kind, pulls: $filters.pulls, issues: $filters.issues,
+                             pullList: pulls.list, issueList: issues.list)
+        }
     }
 
     /// The reasons the inbox last named, for its filter.
@@ -198,6 +296,7 @@ struct ForgeHome: View {
 
     private func load(fresh: Bool) async {
         guard let client = session?.client, let chosen, client.connection == "ready" else { return }
+        if kind == .issues && features?.issues != true || kind == .inbox && features?.inbox != true { return }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         let scope = ForgeListScope(machineId: session?.hostId ?? "", project: chosen)
         switch kind {
@@ -242,7 +341,7 @@ struct ForgeEmpty<Content: View>: View {
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     var body: some View {
-        ScrollView { content().padding(.top, 120).frame(maxWidth: .infinity) }
+        ScrollView { content().padding(.top, AceDesign.Space.pageState).frame(maxWidth: .infinity) }
             .background(surface)
     }
 }

@@ -1,4 +1,5 @@
 import { applyDelta } from "@ace/projection";
+import { dropFront } from "./item-window.ts";
 import type { Item, ContentPart } from "@ace/protocol";
 type Message = Extract<Item, { type: "message" }>;
 type Text = Extract<ContentPart, { type: "text" }>;
@@ -6,6 +7,8 @@ interface Tail {
   prefix: ContentPart[];
   tail: Text | undefined;
   prefixUnits: number;
+  /** Units this run has dropped from the front of its tail text so far. */
+  dropped: number;
 }
 function shell(item: Message, parts: ContentPart[]): Message {
   // Copy descriptors so replacing a lazy parts getter never materializes the old prefix.
@@ -47,13 +50,14 @@ export class MessageDeltas {
           (sum, part) => sum + (part.type === "text" ? part.text.length : 0),
           0,
         ),
+        dropped: 0,
       };
     }
     const temporary = shell(item, previous.tail ? [{ ...previous.tail }] : []);
     applyDelta(temporary, "text", append);
     const last = temporary.parts.at(-1);
     if (last?.type !== "text") throw new Error("Projection did not append text");
-    let { prefix, prefixUnits } = previous;
+    let { prefix, prefixUnits, dropped } = previous;
     if (prefix.length + 1 > partLimit) {
       prefix = prefix.slice(-(partLimit - 1 || 0));
       if (partLimit === 1) prefix = [];
@@ -63,10 +67,18 @@ export class MessageDeltas {
       );
       clipped();
     }
-    if (prefixUnits + last.text.length > textLimit) {
+    if (prefixUnits && prefixUnits + last.text.length > textLimit) {
+      // Earlier text parts go first, once; a new prefix starts a new run.
       prefix = prefix.filter((part) => part.type !== "text" || part.text.length === 0);
       prefixUnits = 0;
-      last.text = last.text.slice(-Math.max(1, Math.floor(textLimit / 2)));
+      dropped = 0;
+      clipped();
+    }
+    const over = last.text.length - Math.max(1, textLimit);
+    if (over > 0) {
+      // Slide: drop only what this delta pushed past the bound, so the newest text always shows.
+      const cut = dropFront(last, over);
+      dropped += cut;
       clipped();
     }
     const next = shell(item, []);
@@ -76,16 +88,19 @@ export class MessageDeltas {
       configurable: true,
       get: () => (parts ??= [...prefix, last]),
     });
-    this.#tails.set(next, { prefix, tail: last, prefixUnits });
+    this.#tails.set(next, { prefix, tail: last, prefixUnits, dropped });
     return next;
   }
   /**
-   * Whether appends alone made `next` from `previous`, so its last text part is the earlier
-   * one's text plus what was appended. A run of appends shares one prefix array; every clip
-   * makes a new one.
+   * How `next` was made from `previous` by appends alone: its last text part is the earlier one's
+   * with `dropped` units removed from the front and `append` added. A run of appends shares one
+   * prefix array; dropping earlier parts makes a new one. Undefined for any other change.
    */
-  appended(previous: object, next: object): boolean {
-    const run = this.#tails.get(previous)?.prefix;
-    return !!run && run === this.#tails.get(next)?.prefix;
+  edit(previous: object, next: object): { dropped: number } | undefined {
+    const before = this.#tails.get(previous);
+    const after = this.#tails.get(next);
+    if (!before || !after || before.prefix !== after.prefix || after.dropped < before.dropped)
+      return undefined;
+    return { dropped: after.dropped - before.dropped };
   }
 }

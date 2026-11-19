@@ -3,10 +3,11 @@ import { isWorkStoppedNotice, visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
-import { isContinueInput, isPersonMessage } from "./person-message.ts";
+import { isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
-import { interruptionNotice } from "./system-events.ts";
+import { interruptionNotice, settledResults } from "./system-events.ts";
+import { momentOf, type MomentKind } from "./turn-moments.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
 
@@ -21,8 +22,11 @@ export { isInlineInteraction } from "./thread-ledger.ts";
  * happened, and the steps after them continue in a segment below them, never above (one head
  * once the turn settles). A run the agent starts by itself when its background work finishes
  * carries the same log on. Once a turn's whole tree has settled, one changed-files card follows its
- * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
- * its last block. Blocks
+ * last answer, and a turn that failed or was stopped says so after its last block. A turn a usage
+ * limit holds reads as a complete turn (its "Worked for" head, its last message as its answer);
+ * the limit is said only in the composer's strip. A restart or limit resume never starts a turn:
+ * the turn carries on, and each restart or wait is one quiet moment row where it happened, which
+ * folds into "Worked for" with the steps once the turn completes. Blocks
  * depend on item order, kinds and links, background calls, inline questions and how turns
  * ended, never on a streamed delta, so streaming never regroups the transcript.
  *
@@ -55,7 +59,7 @@ export type Block =
        */
       idle?: number | undefined;
       startedAt?: number | undefined;
-      outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+      outcome?: "completed" | "interrupted" | "failed" | undefined;
       /**
        * An interrupted turn that a restart (the app quit, the daemon restarted), not the
        * person, cut short: it reads "Interrupted after", never "Stopped after".
@@ -68,12 +72,37 @@ export type Block =
       folded?: Block[] | undefined;
       /** The completed turn's answer (every message after its last step), below its head. */
       answerIds?: string[] | undefined;
+      /** Nothing behind the head to open (a paused turn that took no step): plain text. */
+      bare?: boolean | undefined;
     }
   /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
-  | { kind: "subagents"; key: string; itemIds: string[] }
+  /**
+   * Subagents launched together (`itemIds`, their launches). Once a turn completes, every
+   * subagent row it showed reads as one: its launches, and in `receiptIds` the receipts of
+   * delegated work it was handed (children launched before it, or messaged again).
+   */
+  | { kind: "subagents"; key: string; itemIds: string[]; receiptIds?: string[] | undefined }
   | { kind: "files"; key: string; itemIds: string[] }
-  | { kind: "item"; key: string; itemId: string }
+  /**
+   * Something that happened to the turn rather than in it, as one quiet row: ace restarted and
+   * continued it (restarts back to back read as one), it waited out a usage limit, or delegated
+   * work came back (`turn-moments.ts`). `at` is when it began, to place it among the turn's
+   * steps once they open from "Worked for"; `since` when a limit's wait began.
+   */
+  | {
+      kind: "moment";
+      key: string;
+      moment: MomentKind;
+      itemIds: string[];
+      at: number;
+      since?: number | undefined;
+    }
+  /**
+   * A row of its own for one item. `also`: receipts of delegated work delivered right after it,
+   * shown with it as one row (`mergeReceipts`).
+   */
+  | { kind: "item"; key: string; itemId: string; also?: string[] | undefined }
   /**
    * A conversation the agent started with ace's `thread_start`: a card that opens it, where
    * it was started, updated in place and never folded; not a step of the work log.
@@ -102,7 +131,7 @@ export type Block =
   | { kind: "event"; key: string; itemId: string }
   /**
    * How a turn that didn't simply complete ended, kept in history: "Turn failed" with its
-   * reason, "Stopped", or a usage-limit pause. `runId` is the root turn's run, when known;
+   * reason, or "Stopped". `runId` is the root turn's run, when known;
    * `askId` the person's message that started it; `automatic` that ace, not the person, stopped
    * it (a restart or limit resume followed); `latest` that it is the newest turn in view.
    * `errorId` is the error notice that reported the failure: the ending shows it, and the notice
@@ -111,7 +140,7 @@ export type Block =
   | {
       kind: "end";
       key: string;
-      ending: "failed" | "interrupted" | "paused";
+      ending: "failed" | "interrupted";
       runId: string | undefined;
       askId: string | undefined;
       automatic?: boolean | undefined;
@@ -166,11 +195,14 @@ export interface BlockSource {
   turnIdle?(runId: string): number | undefined;
   turnStartedAt?(runId: string): number | undefined;
   turnEnding?: ((runId: string) => (RunFacts & { runId: string }) | undefined) | undefined;
-  /** The turn a usage limit holds right now, and turns seen held earlier. */
+  /**
+   * The root run a usage limit holds right now, and runs seen held earlier. A turn reads paused
+   * only while its newest run is one of them: once the limit's resume runs, it works again.
+   */
   heldTurn?: string | undefined;
   pausedTurns?: ReadonlySet<string>;
   /** The agent stopped or failed in a turn none of whose output is loaded. */
-  stoppedTail?: "failed" | "interrupted" | "paused" | undefined;
+  stoppedTail?: "failed" | "interrupted" | undefined;
   /**
    * A restart cut the newest turn short and nothing has run since: the queue holds for it
    * (`reason: "restart"`) until ace's Continue or the person's next message.
@@ -231,8 +263,8 @@ interface TurnMark {
   id: string;
   /**
    * The root turns, as the turn tree counts them, that it spans, oldest first: its own, then
-   * each run the daemon numbered into the same turn (ace's Continue after a restart). It is
-   * settled only once all of them are, and ends as the last one did (ADR 0062).
+   * each run the daemon numbered into the same turn that the tree keeps apart. It is settled
+   * only once all of them are, and ends as the last one did (ADR 0062).
    */
   heads: string[];
   /**
@@ -255,9 +287,9 @@ interface TurnMark {
   /** Its work log still open when it ended, to freeze at the turn's end. */
   openWork: Extract<Block, { kind: "work" }> | undefined;
   work: WorkBlock[];
-  /** A usage limit paused it (the next turn resumed after the limit, or it was seen held). */
+  /** A usage limit holds it: its newest run is held now, or was seen held and nothing ran since. */
   paused: boolean;
-  /** The turn after it started by itself (a restart or limit resume). */
+  /** A restart cut it short and the queue holds it for ace's Continue, with nothing run since. */
   automatic: boolean;
   /** Its last error notice with a row of its own, with no answer after it: what a failure says. */
   failure: { index: number; itemId: string } | undefined;
@@ -297,11 +329,17 @@ const isLaunch = (item: Item) =>
  */
 function continues(source: BlockSource, previous: string, next: string): boolean {
   const run = source.run?.(next);
+  // ace's own continuation after a restart or a usage limit carries the turn on too.
   if (carriesOnStretch(run?.trigger)) return true;
-  // A run resumed after a usage limit shares its turn number, but the person waited through the
-  // pause: it reads after where the limit stopped the turn, and `markOf` marks the pause there.
-  if (run?.trigger === "limit_resume") return false;
   return run?.turn !== undefined && run.turn === source.run?.(previous)?.turn;
+}
+
+/** Whether a usage limit holds the turn whose root turns are `heads`: its newest run is held. */
+function heldAtLimit(source: BlockSource, heads: readonly string[]): boolean {
+  const head = heads.at(-1);
+  if (head === undefined) return false;
+  const run = source.turnEnding?.(head)?.runId ?? head;
+  return run === source.heldTurn || !!source.pausedTurns?.has(run);
 }
 
 /** Whether an item goes into a work log (when it is not shown as a question instead). */
@@ -368,12 +406,53 @@ const isAsk = (item: Item) => item.type === "tool_call" && item.call.detail.kind
  */
 function stillWorking(source: BlockSource, turn: TurnMark, lastStretch: boolean): boolean {
   if (isPseudoTurn(turn.id)) return lastStretch && !!source.unsettledTail;
+  // A turn a usage limit paused does nothing more: it reads as complete as it stands.
+  if (turn.paused) return false;
   const { turnSettled } = source;
   if (turnSettled) return turn.heads.some((id) => !turnSettled(id));
   return turn.heads.some((id) => {
     const run = source.run?.(id);
     return !run || run.state === "active";
   });
+}
+
+/**
+ * Turns a usage limit holds (held now, or seen held with nothing run since), and the order index
+ * of each one's last agent message: a held turn reads as a complete turn, and that message is
+ * its answer however many steps followed it. Its resume carries the same turn on.
+ */
+function pausedTurnsOf(
+  order: readonly string[],
+  source: BlockSource,
+): { turns: Set<string>; answers: Set<number> } {
+  const list: { heads: string[]; last: number }[] = [];
+  let open: (typeof list)[number] | undefined;
+  for (const [index, id] of order.entries()) {
+    const item = source.item(id);
+    if (!item) continue;
+    if (isPerson(item)) {
+      open = undefined;
+      continue;
+    }
+    const run = source.turnOf?.(id);
+    if (run !== undefined && !isPseudoTurn(run) && !open?.heads.includes(run)) {
+      if (open && continues(source, open.heads.at(-1) ?? run, run)) open.heads.push(run);
+      else {
+        open = { heads: [run], last: -1 };
+        list.push(open);
+      }
+    }
+    if (open && item.type === "message" && item.role === "assistant" && !item.synthetic)
+      open.last = index;
+  }
+  const turns = new Set<string>();
+  const answers = new Set<number>();
+  for (const turn of list) {
+    if (!heldAtLimit(source, turn.heads)) continue;
+    for (const id of turn.heads) turns.add(id);
+    if (turn.last >= 0) answers.add(turn.last);
+  }
+  return { turns, answers };
 }
 
 /**
@@ -419,6 +498,7 @@ export function buildBlocks(source: BlockSource): Block[] {
   let lastAnswer: string | undefined;
   const order = visibleHistoryOrder(source.order, source.item);
   const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, standsIn);
+  const paused = pausedTurnsOf(order, source);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
   // `work` is the stretch's open log segment. `earlier` is its segment above a row outside the
@@ -429,12 +509,11 @@ export function buildBlocks(source: BlockSource): Block[] {
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const branches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
-  // Children whose ace launch row is in view: it turns into their outcome and result in place.
-  const delegated = new Set<string>();
+  // Children whose ace launch row is in view, by the turn that launched them: the launch row
+  // turns into their outcome and result in place.
+  const delegated = new Map<string, TurnMark | undefined>();
   let turnId: string | undefined;
   let askId: string | undefined;
-  /** Where the person's latest Continue ("Continue where you left off.") was placed. */
-  let continueAt: number | undefined;
   let mark: TurnMark | undefined;
   const keys = new Set<string>();
   const keyFor = (id: string, ask: string | undefined) => {
@@ -448,18 +527,6 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!isPseudoTurn(id)) source.turnKeys?.set(id, key);
     return key;
   };
-  /**
-   * The turn before a run ace started after it stopped (a restart, a limit resume) says so: the
-   * newest real turn, past the person's Continue still waiting on its run.
-   */
-  const stoppedBefore = (id: string, newer?: TurnMark) => {
-    const trigger = source.run?.(id)?.trigger;
-    if (trigger !== "limit_resume" && trigger !== "restart") return;
-    const before = ordered.findLast((turn) => turn !== newer && !isPseudoTurn(turn.id));
-    if (!before) return;
-    before.automatic = true;
-    if (trigger === "limit_resume") before.paused = true;
-  };
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
@@ -472,16 +539,9 @@ export function buildBlocks(source: BlockSource): Block[] {
         admitted.heads = [id];
         source.turnKeys?.set(id, admitted.key);
         turns.set(id, admitted);
-        stoppedBefore(id, admitted);
         return admitted;
       }
-      // A restart's continuation shares its turn number too, but once it answers the person's
-      // Continue ("Continue where you left off.") it is a turn of its own under that message.
-      const continued =
-        source.run?.(id)?.trigger === "restart" &&
-        continueAt !== undefined &&
-        continueAt >= (previous?.lastBlock ?? -1);
-      if (previous && !continued && continues(source, previous.id, id)) {
+      if (previous && continues(source, previous.id, id)) {
         // A run the agent started by itself is already its turn's in the tree; one the daemon
         // numbered into this turn is a turn of its own there, which this one now waits on.
         if (!carriesOnStretch(source.run?.(id)?.trigger) && !isPseudoTurn(previous.id))
@@ -503,12 +563,11 @@ export function buildBlocks(source: BlockSource): Block[] {
         tasks: new Set(),
         openWork: undefined,
         work: [],
-        paused: false,
+        paused: paused.turns.has(id),
         automatic: false,
         failure: undefined,
         stops: { own: [], adapter: [] },
       };
-      stoppedBefore(id);
       turns.set(id, found);
       ordered.push(found);
     }
@@ -607,6 +666,35 @@ export function buildBlocks(source: BlockSource): Block[] {
     blocks.push(block);
     placed(blocks.length - 1, message);
   };
+  /**
+   * A restart, a limit's wait or delegated work coming back: one quiet row where it happened. The
+   * same moment again with nothing between (restarts back to back, results landing together)
+   * joins the row before it.
+   */
+  const addMoment = (moment: MomentKind, id: string, at: number, index: number) => {
+    const previous = blocks.at(-1);
+    if (
+      previous?.kind === "moment" &&
+      previous.moment === moment &&
+      mark?.blocks.has(blocks.length - 1)
+    ) {
+      previous.itemIds.push(id);
+      return;
+    }
+    // A limit's wait began with the last thing the turn did before it.
+    const before = index > 0 ? source.item(order[index - 1] ?? "")?.createdAt : undefined;
+    push(
+      {
+        kind: "moment",
+        key: `moment:${id}`,
+        moment,
+        itemIds: [id],
+        at,
+        ...(moment === "limit" && before !== undefined ? { since: before } : {}),
+      },
+      false,
+    );
+  };
   const reviewsPlaced = new Map<string, number>();
   // Calls a failure report already joined, so two reports never claim one step.
   const reported = new Set<string>();
@@ -668,11 +756,13 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          if (person) {
-            push({ kind: "user", key: id, itemId: id }, item.createdAt);
-            if (isContinueInput(item)) continueAt = blocks.length - 1;
-          } else if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
-          else {
+          if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
+          else if (item.synthetic || item.role === "user") {
+            // Written for the person, never by them: an event, or the turn's moment.
+            const moment = momentOf(item);
+            if (moment) addMoment(moment, id, item.createdAt, index);
+            else push({ kind: "event", key: id, itemId: id }, false);
+          } else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log. Which one it is only shows once the turn has settled, so
             // while it works the row is decided by what came before it alone: after a step it
@@ -682,6 +772,7 @@ export function buildBlocks(source: BlockSource): Block[] {
             const working = !!mark && stillWorking(source, mark, at === lastStretch);
             const between =
               !launchNarration &&
+              !paused.answers.has(index) &&
               (working ? !!(stretch.work || stretch.earlier) : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
             else
@@ -719,13 +810,18 @@ export function buildBlocks(source: BlockSource): Block[] {
           break;
         case "delegation.started":
           group("subagents", id);
-          delegated.add(item.childThreadId);
+          delegated.set(item.childThreadId, mark);
           break;
         case "delegation.settled":
           // Each launch row turns into its child's outcome and result in place, so a receipt
-          // whose children all launched in view would show them twice. One whose launch isn't
-          // loaded (paged out, another agent's) keeps its row.
-          if (!item.results.every((result) => delegated.has(result.threadId)))
+          // whose children all launched earlier in its own turn would show them twice. Any other
+          // keeps its row, wherever its launches are: a turn shows the same rows however much
+          // history before it is loaded.
+          if (
+            !item.results.every(
+              (result) => delegated.has(result.threadId) && delegated.get(result.threadId) === mark,
+            )
+          )
             push({ kind: "item", key: id, itemId: id }, false);
           break;
         case "notice": {
@@ -739,6 +835,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           // of a step that failed, which the step itself shows (one failure, one row).
           const callId = item.toolCallId ?? reportedStep(index);
           const host = callId ? groupOf.get(callId) : undefined;
+          const moment = momentOf(item);
           if (callId && host) {
             const after = (reviewsPlaced.get(callId) ?? 0) + 1;
             host.itemIds.splice(host.itemIds.indexOf(callId) + after, 0, id);
@@ -746,6 +843,7 @@ export function buildBlocks(source: BlockSource): Block[] {
             groupOf.set(id, host);
             placed(host.at);
           } else if (callId) group("work", id);
+          else if (moment) addMoment(moment, id, item.createdAt, index);
           else {
             push({ kind: "item", key: id, itemId: id }, false);
             if (mark && interruptionNotice(item) && item.code === "agent_stopped")
@@ -836,35 +934,36 @@ export function buildBlocks(source: BlockSource): Block[] {
     const lastFacts = lastHead === turn.id ? facts : source.run?.(lastHead);
     const ending =
       source.turnEnding?.(lastHead) ?? (lastFacts ? { ...lastFacts, runId: lastHead } : undefined);
-    const heldNow = source.heldTurn !== undefined && turn.heads.includes(source.heldTurn);
-    const held = !pseudo && (heldNow || turn.heads.some((id) => source.pausedTurns?.has(id)));
-    if (held) turn.paused = true;
-    // A restart, not the person, cut it short: ace's Continue started a turn after it, or the
-    // queue still holds for the restart with nothing run since.
+    if (!pseudo && heldAtLimit(source, turn.heads)) turn.paused = true;
+    // A restart, not the person, cut it short: the queue still holds for the restart with
+    // nothing run since.
     if (newest === turn && source.restartedTail) turn.automatic = true;
+    // A turn a usage limit paused is a complete turn, held or not: it settles here as it
+    // stands, and the limit is said only in the composer's strip (ADR 0053).
     if (
-      (pseudo && newest === turn && source.unsettledTail) ||
-      (!pseudo && !settled(source, turn, newestRun === turn))
+      !turn.paused &&
+      ((pseudo && newest === turn && source.unsettledTail) ||
+        (!pseudo && !settled(source, turn, newestRun === turn)))
     ) {
       for (const block of turn.work) block.ongoing = true;
       // The newest turn says what it is doing in one line at the top of its flow, under its
       // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
-      if (newest === turn && !heldNow) {
+      if (newest === turn) {
         const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
-        const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
+        // ace's own inputs that open a turn with no ask of the person's (a context handoff
+        // before a resume) read as its ask: the line goes under them.
+        const own = [...turn.blocks].toSorted((a, b) => a - b);
+        const first = own.find((index) => blocks[index]?.kind !== "event");
         if (first === undefined) place(turn.lastBlock, live);
         else before.set(first, [live, ...(before.get(first) ?? [])]);
       }
-      // A pause shows while the turn waits on the limit, before anything settles.
-      if (heldNow) {
-        place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
-        for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
-      }
       continue;
     }
-    const endedAt = lastFacts?.endedAt;
+    // A turn still held at a limit has no end yet: its time stops at the last thing it said.
+    const endedAt =
+      lastFacts?.endedAt ?? (turn.paused ? lastSaid(source, blocks, turn) : undefined);
     if (turn.openWork && endedAt !== undefined) turn.openWork.until = endedAt;
-    if (facts && endedAt !== undefined && startedAt !== undefined && !turn.paused) {
+    if (facts && endedAt !== undefined && startedAt !== undefined) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
       const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
       const until = Math.max(
@@ -879,7 +978,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       // A turn a restart cut short reads interrupted, even while the continuation the daemon
       // numbered into the same turn still runs.
       const outcome = turn.paused
-        ? "paused"
+        ? "completed"
         : turn.automatic && state !== "failed"
           ? "interrupted"
           : state === "active"
@@ -922,6 +1021,10 @@ export function buildBlocks(source: BlockSource): Block[] {
         // Everything the agent said after its last step is the answer: it all stays in view.
         const finalStep = Math.max(-1, ...turn.work.map((work) => workAt.get(work) ?? -1));
         const answers: string[] = [];
+        // Its subagent rows (launch batches, receipts) gather into the first of them.
+        let crew: Extract<Block, { kind: "subagents" }> | undefined;
+        let crewAt = -1;
+        let crewRows = 0;
         for (const index of [...turn.blocks].toSorted((a, b) => a - b)) {
           const block = blocks[index];
           if (!block) continue;
@@ -930,14 +1033,40 @@ export function buildBlocks(source: BlockSource): Block[] {
             blocks[index] = { ...block, headed: true };
             continue;
           }
+          const launches = block.kind === "subagents" ? block.itemIds : undefined;
+          const receipt =
+            block.kind === "item" && settledResults(source.item(block.itemId))?.length
+              ? block.itemId
+              : undefined;
+          if (launches || receipt !== undefined) {
+            crewRows++;
+            if (crew) {
+              crew.itemIds.push(...(launches ?? []));
+              if (receipt !== undefined) (crew.receiptIds ??= []).push(receipt);
+              absorbed.add(index);
+            } else {
+              crewAt = index;
+              crew = {
+                kind: "subagents",
+                key: block.key.startsWith("subagents:") ? block.key : `subagents:${block.key}`,
+                itemIds: [...(launches ?? [])],
+                receiptIds: receipt === undefined ? undefined : [receipt],
+              };
+            }
+            continue;
+          }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
           else if (foldable(block, closedQuestion)) {
             folded.push(block);
             absorbed.add(index);
           }
         }
+        if (crew && crewRows > 1) blocks[crewAt] = crew;
         if (folded.length) head.folded = folded;
         if (answers.length) head.answerIds = answers;
+        // A paused turn that took no step and said nothing before the limit has nothing behind
+        // its head: the line stands alone, as plain text.
+        if (turn.paused && !first && !folded.length) head.bare = true;
       }
     }
     if (turn.edits.length)
@@ -946,13 +1075,8 @@ export function buildBlocks(source: BlockSource): Block[] {
         key: `files:${turn.key}`,
         itemIds: turn.edits,
       });
-    const quota = ending?.failedOn === "quota";
-    if (turn.paused && !quota) {
-      place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
-      for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
-    }
     for (const index of stopRows(turn, ending?.state === "failed")) absorbed.add(index);
-    // A limit resume interrupts the paused turn: the pause already says why it stopped.
+    // A limit resume interrupts the paused turn, which reads complete: no ending of its own.
     if (ending?.state === "failed") {
       const end = endBlock(turn, "failed", newest === turn, ending.runId);
       if (newest === turn && source.restartedTail) end.held = true;
@@ -997,12 +1121,12 @@ export function buildBlocks(source: BlockSource): Block[] {
         outcome: ending.state,
       });
   }
-  // A turn that stopped, failed or paused before any of its output (or its run) is known.
+  // A turn that stopped or failed before any of its output (or its run) is known.
   const last = result.at(-1);
   if (source.stoppedTail && last?.kind === "user")
     result.push({
       kind: "end",
-      key: `${source.stoppedTail === "paused" ? "pause" : "end"}:${last.itemId}`,
+      key: `end:${last.itemId}`,
       ending: source.stoppedTail,
       runId: undefined,
       askId: last.itemId,
@@ -1024,24 +1148,25 @@ function stopRows(turn: TurnMark, failed: boolean): number[] {
 
 /**
  * Whether a settled turn's block folds behind its "Worked for": its steps (background commands
- * among them), what it said between them and the questions it asked once closed. Never a notice, an
+ * among them), what it said between them, its moments (restarts, a limit's wait, delegated work
+ * coming back) and the questions it asked once closed. Never a notice, an
  * ending, a question still waiting, an approval, a record such as a saved file, or the
  * subagents it started: those stay where they happened.
  */
 function foldable(block: Block, closedQuestion: (interactionId: string) => boolean): boolean {
   if (block.kind === "question") return closedQuestion(block.interactionId);
-  return block.kind === "work" || block.kind === "message";
+  return block.kind === "work" || block.kind === "message" || block.kind === "moment";
 }
 
 function endBlock(
   turn: TurnMark,
-  ending: "failed" | "interrupted" | "paused",
+  ending: "failed" | "interrupted",
   latest: boolean,
   runId = turn.id,
 ): Extract<Block, { kind: "end" }> {
   return {
     kind: "end",
-    key: `${ending === "paused" ? "pause" : "end"}:${turn.key}`,
+    key: `end:${turn.key}`,
     ending,
     runId,
     askId: turn.askId,
@@ -1049,6 +1174,24 @@ function endBlock(
     latest,
     itemIds: turn.work.flatMap((block) => block.itemIds),
   };
+}
+
+/** When a turn last said or did something in view: the newest of its items. */
+function lastSaid(
+  source: BlockSource,
+  blocks: readonly Block[],
+  turn: TurnMark,
+): number | undefined {
+  let at: number | undefined;
+  for (const index of turn.blocks) {
+    const block = blocks[index];
+    if (!block) continue;
+    for (const id of blockItems(block)) {
+      const created = source.item(id)?.createdAt;
+      if (created !== undefined && (at === undefined || created > at)) at = created;
+    }
+  }
+  return at;
 }
 
 /**
@@ -1104,6 +1247,8 @@ export function blockItems(block: Block): readonly string[] {
   // A folded head holds its turn in order: each item once, as the turn said it.
   if (block.kind === "work" && block.folded)
     return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
+  if (block.kind === "subagents" && block.receiptIds?.length)
+    return [...block.itemIds, ...block.receiptIds];
   if ("itemIds" in block) return block.itemIds ?? [];
   if (block.kind === "live") return [];
   if (block.kind === "question") {
@@ -1111,6 +1256,7 @@ export function blockItems(block: Block): readonly string[] {
     return shown === undefined ? [] : [shown];
   }
   if (block.kind === "end" || block.kind === "forked") return [];
+  if (block.kind === "item" && block.also?.length) return [block.itemId, ...block.also];
   return [block.itemId];
 }
 

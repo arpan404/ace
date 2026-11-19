@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { ForgeComment, ForgeMergeState, type ForgeCheck } from "@ace/protocol";
-import { mergeBlockers, prGates, reviewerOutcomes, type GateFacts } from "./pr-gates.ts";
+import { mergeBlockers, prFacts, prGates, reviewerOutcomes, type GateFacts } from "./pr-gates.ts";
 
 const check = (name: string, status: ForgeCheck["status"]): ForgeCheck => ({
   id: name,
@@ -99,6 +99,32 @@ test("running checks and an outstanding review read as waiting, not done", () =>
   expect(gates.conflicts).toBe("Checking (working)");
 });
 
+test("a host that can't say whether its review rules are met shows approvals so far, never done", () => {
+  const unknown = facts({ reviewDecision: "UNKNOWN" });
+  expect(said(unknown).reviews).toBe("Unavailable (idle)");
+  expect(prFacts(unknown).find((gate) => gate.key === "reviews")?.value).toBe(
+    "Review status unavailable",
+  );
+  const approvedSoFar = facts({
+    reviewDecision: "UNKNOWN",
+    outcomes: new Map([["mira", "approved" as const]]),
+  });
+  expect(said(approvedSoFar).reviews).toBe("1 approved (idle)");
+  expect(prFacts(approvedSoFar).find((gate) => gate.key === "reviews")?.value).toBe(
+    "Approved by mira",
+  );
+});
+
+test("an approved decision with no approving reviewer known says approved, never a made-up count", () => {
+  expect(said(facts({ reviewDecision: "APPROVED" })).reviews).toBe("Approved (done)");
+});
+
+test("a GitLab branch that must be rebased shows as behind its base", () => {
+  const behind = facts({ mergeState: mergeState("BEHIND") });
+  expect(said(behind).branch).toBe("Behind (needs-you)");
+  expect(prFacts(behind).find((gate) => gate.key === "branch")?.value).toBe("Behind main");
+});
+
 test("a merged PR shows who merged it, where it went and what became of the branch", () => {
   expect(
     said(
@@ -183,4 +209,48 @@ test("a comment-only review after a verdict leaves the verdict standing, as GitH
   ]);
   expect(outcomes.get("mira")).toBe("approved");
   expect(outcomes.get("sam")).toBe("commented");
+});
+
+const sentences = (input: GateFacts) => prFacts(input).map((gate) => gate.value);
+
+test("the facts line says each gate as a sentence, naming who asked for changes", () => {
+  expect(
+    sentences(
+      facts({
+        status: {
+          state: "open",
+          mergeability: "mergeable",
+          ci: "failure",
+          checks: [check("lint", "success"), check("test", "failure"), check("build", "success")],
+        },
+        reviewDecision: "CHANGES_REQUESTED",
+        outcomes: new Map([
+          ["mira", "changes"],
+          ["dana", "approved"],
+        ]),
+        mergeState: mergeState("CLEAN"),
+      }),
+    ),
+  ).toEqual([
+    "1 of 3 checks failing",
+    "mira requested changes",
+    "No conflicts",
+    "Up to date with main",
+  ]);
+  expect(
+    sentences(
+      facts({
+        status: {
+          state: "open",
+          mergeability: "conflicting",
+          ci: "pending",
+          checks: [check("e2e", "pending")],
+        },
+        reviewDecision: "APPROVED",
+        outcomes: new Map([["dana", "approved"]]),
+        mergeState: mergeState("BEHIND"),
+        local: "passed",
+      }),
+    ),
+  ).toEqual(["1 of 2 checks running", "Approved by dana", "Conflicts with main", "Behind main"]);
 });

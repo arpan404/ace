@@ -1,19 +1,47 @@
+import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { HostId, MachineDescription, ThreadId } from "@ace/protocol";
+import {
+  Command,
+  CommandId,
+  DeviceId,
+  HostId,
+  MachineAgentAccess,
+  MachineDescription,
+  ThreadId,
+} from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { createMachineTarget } from "../machines/target.ts";
+import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
+import { registeredAccounts } from "../agent-control/account-names.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
+import { TargetDevices } from "../machines/target-devices.ts";
+import { TargetScreen } from "../machines/target-screen.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
+import { GuestSessions } from "../machines/guest-sessions.ts";
+import { MachineGrantStore } from "../machines/grant-store.ts";
+import { switchRevocation } from "../machines/grant-rules.ts";
+import { commandHost } from "../machines/command-host-shell.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
+import type { SettledChild } from "../machines/child-results.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
+import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
-import { TransferClient, transferTransport } from "../transfers/client.ts";
+import { withRelayFallback } from "../machines/relay-fallback.ts";
+import { answersDirectly, redeemPairingThroughRelay } from "../machines/relay-pairing.ts";
+import { MachineConnections } from "../machines/connections.ts";
+import { SavedPairings } from "../machines/saved-pairings.ts";
+import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
+import { routedTransfers } from "../transfers/routes.ts";
+import { findHostThread } from "../spade/host-thread.ts";
+import { SpadeRemote } from "../spade/remote.ts";
+import { readLocalToken } from "../local-token.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The shell's timers for polls; nothing waits on them at exit. */
@@ -28,7 +56,9 @@ function schedule(ms: number, run: () => void) {
  * elsewhere, and agents here using other machines through this daemon's own device tokens.
  */
 export function startMachines(context: ServiceContext): void {
-  const { services, store, config, options, log, resources, now } = context;
+  const { services, store, config, options, log, resources, now, onListen } = context;
+  // Admission, as for local children: the server's gate once it listens (ADR 0041).
+  let maintenance = context.maintenance;
   const engine = () => services.engine;
   const hostId = loadHostId(config.dataDir);
   const fallbackName = computerName();
@@ -38,25 +68,144 @@ export function startMachines(context: ServiceContext): void {
     log.log(level, message, logFields(Object.entries(fields)));
 
   const threads = new TargetThreads({
+    registry: () => services.accountRegistry,
+    accountEnabled: (provider, id) =>
+      services.providerConfigurations?.for(provider, id).enabled !== false,
     store,
     engine,
     models: () => services.models,
+    accounts: () => registeredAccounts(services.accountRegistry),
+    hostName,
     journal: () => services.agentControl?.delegations.journal,
     now,
     limit: () => services.childLimit?.current(),
     schedule,
-    report: (error) => log.log("warn", "Machine child not started", logError(error)),
+    report: (error) => {
+      // A full disk is the daemon's condition (ADR 0176), said once by the storage watch.
+      if (!context.diskFull?.observe(error))
+        log.log("warn", "Machine child not started", logError(error));
+    },
+    admitsWork: () => maintenance?.admit() ?? true,
+    storageFull: () => maintenance?.held("storage") ?? false,
   });
   resources.own(() => threads.close());
+  services.machineThreads = threads;
+  // Children held while admission was closed start as soon as it reopens.
+  // Queued tasks first, then the messages held behind them, in the order they came.
+  const reopened = () => {
+    threads.launches.pump();
+    threads.resumeHeld();
+  };
+  let stopReopen = maintenance?.onReopen(reopened);
+  onListen.push((server) => {
+    if (server.maintenance === maintenance) return;
+    stopReopen?.();
+    maintenance = server.maintenance;
+    stopReopen = maintenance.onReopen(reopened);
+  });
+  // Messages held when the daemon last stopped are delivered once the engine is up.
+  void services.engine
+    ?.ready()
+    .then(() => threads.resumeHeld())
+    .catch((error: unknown) =>
+      log.log("warn", "Held machine messages not resumed", logError(error)),
+    );
+  resources.own(() => stopReopen?.());
   // A raised or cleared limit starts children other machines left waiting here at once.
   const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
   if (stopFollowing) resources.own(stopFollowing);
-  const browser = new TargetBrowser({
+  const guests = new GuestSessions({
     store,
     engine,
-    browser: () => services.browser,
     threads,
+    chat: async () => {
+      if (!services.projects)
+        throw new TargetRefusal("unavailable", "Projects are starting on this machine.");
+      const project = await services.projects.createChat();
+      return { id: project.id, path: project.path };
+    },
+    newId: randomUUID,
+    // Making room for a new session deletes an idle one exactly as the person's Delete does.
+    async remove(threadId) {
+      const result = await services.threadDeletion?.(
+        Command.parse({
+          id: `guest-session-evicted:${threadId}`,
+          deviceId: "machines",
+          payload: { type: "thread.delete", threadId, force: true },
+        }),
+      );
+      if (!result || (!result.ok && result.error !== "thread_not_found"))
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine couldn't make room for a new session.",
+        );
+    },
   });
+  void services.engine
+    ?.ready()
+    .then(() => guests.recover())
+    .catch((error: unknown) => log.log("warn", "Guest sessions not recovered", logError(error)));
+  const grants = new MachineGrantStore(store, now);
+  // Turning a capability down stops what it no longer allows at once (ADR 0105).
+  resources.own(
+    grants.onChange(({ deviceId, capability, level }) => {
+      if (level !== "operate") guests.revoke({ deviceId, capability, level });
+    }),
+  );
+  resources.own(store.devices.onRevoke((deviceId) => guests.revoke({ deviceId })));
+  void services.settings
+    ?.subscribe({ keys: ["remote.agentAccess"], scope: {} }, (event) => {
+      if (event.type !== "changed") return;
+      const entry = event.entries.find((candidate) => candidate.key === "remote.agentAccess");
+      const access = MachineAgentAccess.safeParse(entry?.value);
+      const scope = access.success ? switchRevocation(access.data) : undefined;
+      if (scope) guests.revoke(scope);
+    })
+    .then((release) => resources.own(release))
+    .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
+  services.engine?.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
+  const commands = commandHost({
+    store,
+    engine,
+    guests,
+    threads,
+    dataDir: config.dataDir,
+    now,
+    log,
+  });
+  // A closing daemon ends the commands it runs: nothing would own them after the restart.
+  resources.own(() => commands.close(), "machine commands");
+  // Deleting a guest session stops the calls it holds; their callers hear why.
+  resources.own(
+    store.subscribe((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.deletedAt === "number" &&
+          guests.guest(event.threadId)
+        ) {
+          guests.stopThread(event.threadId);
+          commands.forget(event.threadId);
+        }
+    }),
+  );
+  const browser = new TargetBrowser({
+    store,
+    browser: () => services.browser,
+    guests,
+    help: () => services.browserHelp,
+  });
+  const devices = new TargetDevices({
+    devices: () => services.devices,
+    guestMachine: (threadId) => store.getThread(ThreadId.parse(threadId))?.details?.guest?.name,
+  });
+  resources.own(devices.follow(guests));
+  const screen = new TargetScreen({
+    computer: () => services.computer,
+    enabled: () => services.screen?.isEnabled() ?? false,
+    toolkit: (computer) => daemonComputerToolkit(services, computer),
+  });
+  resources.own(screen.follow(guests));
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -64,45 +213,105 @@ export function startMachines(context: ServiceContext): void {
     engine,
     threads,
     browser,
-    log: record("info"),
-  });
-
-  const directory = new MachineDirectory({
-    profiles: () => {
-      const profiles = new Profiles(config.dataDir);
+    guests,
+    grants,
+    commandJobs: (session, jobIds) => commands.states(session, jobIds),
+    spade: () => services.spade?.ready()?.connection,
+    inboxKey: () => {
       try {
-        return profiles.list();
-      } finally {
-        profiles.close();
+        return readLocalToken(config.dataDir);
+      } catch {
+        return undefined;
       }
     },
-    transport: options.machines?.transport ?? machineRequest,
-    transfers: async (profile) =>
-      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
+    now,
+    hosts: {
+      devices,
+      screen,
+      commands,
+    },
     log: record("info"),
+    parcels: () => services.parcels?.target,
+    paths: () => services.servedPaths?.() ?? [],
+  });
+
+  // Bound once the children exist below: a machine answering again ends their wait on it.
+  let machineReachable: ((machine: string, sentAt?: number) => void) | undefined;
+  // One kept-open, pinned connection per paired machine, so a call costs one round trip.
+  // Every socket hand-over checks the pairing is still saved, through one kept-open reader.
+  const saved = new SavedPairings(config.dataDir, record("warn"));
+  resources.own(() => saved.close());
+  const connections = new MachineConnections({ schedule, saved });
+  resources.own(() => connections.close());
+  // A transfer probe goes by every route a transfer may (ADR 0192).
+  const probes: TransferTransport = routedTransfers({
+    direct: options.transfers?.transport ?? transferTransport,
+    connections,
+    links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
+    now,
+  });
+  const directory = new MachineDirectory({
+    connections,
+    now,
+    reachable: (machine, sentAt) => machineReachable?.(machine, sentAt),
+    // The one reader of the pairings the connection pool checks too: read again only when the
+    // file is replaced or any connection (Settings here, the CLI elsewhere) commits to it.
+    profiles: () => {
+      const list = saved.list();
+      if (!list) throw new Error("The saved pairings can't be read just now");
+      return list;
+    },
+    // A machine its direct address doesn't reach is called through its relay (ADR 0182).
+    transport: withRelayFallback(
+      options.machines?.transport ?? machineRequest,
+      () => services.parcels?.relayCalls,
+      now,
+    ),
+    transfers: async (profile) => new TransferClient(probes, profile).probe(),
+    log: record("info"),
+    described: (profile, description) => services.parcels?.described(profile, description),
+    // Sim tools are offered here while a linked machine lends its devices, even with ours off.
+    served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
-  services.fleet = new FleetLinks({
+  const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
-    describe: async (profile) =>
-      MachineDescription.parse(
-        await directory.call(
-          profile,
-          {
-            hostId: HostId.parse(hostId),
-            hostName: ((await hostName()) || "ace").slice(0, 256),
-            threadId: ThreadId.parse("settings"),
-            threadTitle: "Settings",
-          },
-          { op: "describe" },
-          { timeoutMs: 4000 },
-        ),
-      ),
-    redeem: options.machines?.redeem ?? redeemPairing,
+    describe: async (profile) => {
+      const sent = await directory.callAs(
+        profile,
+        {
+          hostId: HostId.parse(hostId),
+          hostName: ((await hostName()) || "ace").slice(0, 256),
+          threadId: ThreadId.parse("settings"),
+          threadTitle: "Settings",
+          ceiling: "operate",
+        },
+        { op: "describe" },
+        { timeoutMs: 4000 },
+      );
+      const description = MachineDescription.parse(sent.answer);
+      // Kept for the pairing the describe went as; never looked up again by name (ADR 0192).
+      services.parcels?.described(sent.profile, description);
+      return description;
+    },
+    // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
+    redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
+    // A machine reached only through a relay is linked through it (ADR 0182).
+    redeemRelay: (url, name) => redeemPairingThroughRelay(url, name, hostId),
+    answersDirectly,
     hostName,
-    transfers: (profile) =>
-      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
+    transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
+  // Linking again or unlinking ends that machine's old connections before it reports done.
+  resources.own(
+    fleet.onChange((profiles) => {
+      connections.retain(profiles);
+      // Children on a machine paired again, or no longer, are planned again at once.
+      children.pairingsChanged();
+    }),
+  );
+  services.fleet = fleet;
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;
   const mirror = new RequestMirror({
@@ -114,12 +323,36 @@ export function startMachines(context: ServiceContext): void {
     },
     log: record("warn"),
   });
+  /**
+   * A remote child's result as a local child's: a receipt row in the parent, and the injected
+   * text registered as ace's so its echo folds into that row. A parent agent the engine no longer
+   * knows only loses the row: the result is still sent, so the parent is never left waiting.
+   */
+  const recordSettled = (parent: ThreadId, id: string, settled: SettledChild, text: string) => {
+    try {
+      services.engine?.delegationSettled(
+        parent,
+        settled.parentAgentId,
+        id,
+        [settled.outcome],
+        "ace-input",
+        text,
+      );
+    } catch (error) {
+      record("warn")("Remote child result sent without its receipt row", {
+        id: settled.outcome.threadId,
+        error: String(error),
+      });
+    }
+  };
   const children = new MachineChildren({
     store,
     engine,
     now,
     schedule,
     pollMs,
+    ...(options.machines?.stopPlan ? { stopPlan: options.machines.stopPlan } : {}),
+    ...(options.machines?.leaseMs ? { leaseMs: options.machines.leaseMs } : {}),
     status: async (machine, parent, ids) => {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.status(machine, parent, ids);
@@ -128,23 +361,66 @@ export function startMachines(context: ServiceContext): void {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.resend(machine, parent, child, message);
     },
+    cancel: async (_machine, _parent, id) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      await caller.sendCancel(id);
+    },
     mirror,
     label: (machine) => directory.label(machine),
-    deliver: (parentThreadId, key, text) => {
+    host: (machine) => directory.host(machine),
+    deliver: (parentThreadId, key, body, settled) => {
       const parent = store.getThread(parentThreadId);
-      if (!parent || parent.deletedAt !== undefined) return;
+      // Deleted for good: nothing can take it, so it ends here, never retried.
+      if (!parent || parent.deletedAt !== undefined) return "gone";
       // Not ready yet is a failure the poll retries, never a delivery.
       const delegations = services.agentControl?.delegations;
       if (!delegations) throw new Error("Agent control is not ready");
-      const result = delegations.command(`machine-result:${key}`, {
-        type: "thread.send",
-        threadId: parentThreadId,
-        input: [{ type: "text", text }],
-        delivery: "queue",
-        trigger: "subagent_result",
-        origin: { kind: "subagent_result" },
+      const id = `machine-result:${key}`;
+      const text = `[ace-origin:delegation.${settled ? "settled" : "message_notice"}:${id}]\n${body}`;
+      // A result is recorded as a local child's is: one receipt row in the parent's transcript,
+      // with the injected text kept for the provider only. The receipt, the send and its
+      // acceptance commit together: a parent that refuses the send (stopped, say) keeps no
+      // receipt and no cached refusal, so the next poll tries it again.
+      store.atomic(() => {
+        // A refusal saved before refusals rolled back (a parent stopped then) is not final:
+        // left in place, its cached answer would stop this result for good.
+        store.releaseRefusedCommand(CommandId.parse(id), DeviceId.parse("ace-agent"));
+        if (settled) recordSettled(parentThreadId, id, settled, text);
+        const delivery = engine()?.supportsSteering(parentThreadId) ? "steer" : "queue";
+        const result = delegations.command(id, {
+          type: "thread.send",
+          threadId: parentThreadId,
+          input: [{ type: "text", text }],
+          delivery,
+          trigger: "subagent_result",
+          origin: {
+            kind: "subagent_result",
+            ...(settled ? { threadIds: [settled.outcome.threadId] } : {}),
+          },
+        });
+        if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
+        // Moving it ahead is best effort: failing it never undoes the delivered result.
+        if (delivery === "queue")
+          try {
+            engine()?.prioritizeSubagentResult(parentThreadId, result.commandId);
+          } catch (error) {
+            record("warn")("Remote child result not moved ahead of the queue", {
+              id,
+              error: String(error),
+            });
+          }
       });
-      if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
+    },
+    // A stopped or settled parent's results wait for its next input, as a local child's do:
+    // delivered, a result would start a turn and take a settled thread back out of Settled.
+    // Unsettling writes to the parent, which asks about them again. A deleted one is never
+    // held: delivery finds it gone and ends what it was owed.
+    held: (parent) => {
+      const thread = store.getThread(parent);
+      if (!thread || thread.deletedAt !== undefined) return false;
+      if (thread.settledAt !== undefined) return true;
+      const journal = services.agentControl?.delegations.journal;
+      return !!journal && (journal.stopped(parent) || journal.fenced(parent));
     },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>
@@ -156,7 +432,37 @@ export function startMachines(context: ServiceContext): void {
     log: record("warn"),
   });
   resources.own(() => children.close());
+  machineReachable = (machine, sentAt) => children.machineReachable(machine, sentAt);
+  // New input on a stopped parent may resume it: what waits for it is tried at once.
+  resources.own(
+    store.subscribe((events) => {
+      for (const thread of new Set(events.map((event) => event.threadId)))
+        children.threadChanged(thread);
+    }),
+  );
   resources.onShutdown(() => children.close());
+  const jobs = new RemoteJobs({
+    store,
+    engine,
+    now,
+    schedule,
+    pollMs,
+    poll: async (machine, thread, ids) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.commandJobs(machine, thread, ids);
+    },
+    stop: async (machine, thread, agent, jobId) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      await caller.stopCommandJob(machine, thread, agent, jobId);
+    },
+    device: (machine) => directory.device(machine),
+    label: (machine) => directory.label(machine),
+    log: record("warn"),
+  });
+  resources.own(() => jobs.close());
+  resources.onShutdown(() => jobs.close());
+  // The person's Stop on a remote job's row stops it on its machine.
+  services.engine?.bindExternalTaskStop(remoteJobPrefix, (task) => jobs.stop(task));
   caller = new MachineCaller({
     store,
     hostId,
@@ -166,14 +472,17 @@ export function startMachines(context: ServiceContext): void {
     mirror,
     schedule,
     pollMs,
+    jobs: () => jobs,
+    ceiling: (threadId) => (services.engine?.access(threadId) === "read-only" ? "read" : "operate"),
   });
-  const machines = caller;
+  // Stop is final (ADR 0052): the children's ledger sends the cancel, again until confirmed, and
+  // calls it stopped after the last attempt either way.
   const cancel = (id: string) => {
-    const child = children.child(id);
-    if (!child || child.settled) return;
-    void machines
-      .cancel(ThreadId.parse(id))
-      .catch((error: unknown) => log.log("warn", "Machine child not stopped", logError(error)));
+    try {
+      children.stop(ThreadId.parse(id));
+    } catch (error) {
+      log.log("warn", "Machine child not stopped", logError(error));
+    }
   };
   services.engine?.bindHostInteractions(
     (command) => mirror.resolve(command) ?? children.resolve(command),
@@ -188,7 +497,23 @@ export function startMachines(context: ServiceContext): void {
     // The person's Stop on a thread another machine delegated here cancels its waiting launch.
     delegations.onStopped = (thread) => {
       threads.launches.cancel(thread);
+      guests.stopThread(thread);
     };
   }
   services.machines = { caller, children };
+  // Spade calls as its host thread, the parent of everything it starts (ADR 0121, 0132).
+  services.spadeRemote = new SpadeRemote({
+    directory,
+    origin: async () => {
+      const thread = findHostThread(store);
+      return {
+        hostId: HostId.parse(hostId),
+        hostName: ((await hostName()) || "ace").slice(0, 256),
+        threadId: thread?.threadId ?? ThreadId.parse("spade"),
+        threadTitle: "Spade",
+        ...(thread ? { agentId: thread.agentId } : {}),
+        ceiling: "operate",
+      };
+    },
+  });
 }

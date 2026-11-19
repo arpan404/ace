@@ -2,14 +2,23 @@ import { expect, test } from "vitest";
 import { formatKeys } from "@/lib/keymap.ts";
 import { memoryKeyValue } from "@/test/harness.tsx";
 import { defaultAppearance, loadAppearance, resolveAppearance } from "./appearance.ts";
-import { worstContrast } from "./colour.ts";
+import {
+  worstContrast,
+  accentIds,
+  themedPalette,
+  type AccentChoice,
+  nearStatus,
+  statusDistance,
+  statusGap,
+  deltaE,
+  rgbToOklch,
+  sharedStatus,
+  themeIds,
+  themes,
+  paletteSurfaces,
+} from "@ace/themes";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
-import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
-import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
-import { deltaE, rgbToOklch } from "./colour.ts";
-import { sharedStatus, themeIds, themes } from "./palettes.ts";
-import { paletteSurfaces } from "./surfaces.ts";
 
 const schemes = ["light", "dark"] as const;
 const rgb = (value: string | undefined) => {
@@ -156,7 +165,12 @@ test("a theme rule themes any element carrying both attributes, so swatches prev
   expect(rule).toContain("color-scheme:dark");
 });
 
-const os = { dark: false, reducedMotion: false, reducedTransparency: false };
+const os = {
+  dark: false,
+  reducedMotion: false,
+  reducedTransparency: false,
+  softwareRendering: false,
+};
 
 test("System mode follows the OS's light or dark; Light and Dark ignore it", () => {
   expect(resolveAppearance(defaultAppearance, { ...os, dark: true }).scheme).toBe("dark");
@@ -197,7 +211,9 @@ test("a stored Surfaces choice carries over to the slider: Solid is 0, Transluce
   expect(stored({ theme: "midnight" })).toBe(defaultAppearance.translucency);
   // Once the slider has been set, its value wins over a leftover Surfaces field.
   expect(stored({ surface: "solid", translucency: 60 })).toBe(60);
-  expect(stored({ translucency: 130 })).toBe(130);
+  // Values saved past 100% (from when the slider ran higher) read as 100%.
+  expect(stored({ translucency: 130 })).toBe(100);
+  expect(stored({ translucency: 150 })).toBe(100);
   expect(stored({ translucency: 250 })).toBe(defaultAppearance.translucency);
 });
 
@@ -240,4 +256,19 @@ test("shortcuts read as platform glyphs", () => {
   expect(formatKeys("shift+mod+n", false)).toBe("Shift+Ctrl+N");
   expect(formatKeys("ctrl+`", true)).toBe("⌃`");
   expect(formatKeys("g h", true)).toBe("G H");
+});
+
+test("a scene moves as Backdrop motion says, and is still whenever motion is reduced", () => {
+  const motion = (backdropMotion: "full" | "reduced" | "still", reducedMotion = false) =>
+    resolveAppearance({ ...defaultAppearance, backdropMotion }, { ...os, reducedMotion })
+      .backdropMotion;
+  expect(motion("full")).toBe("full");
+  expect(motion("reduced")).toBe("reduced");
+  expect(motion("still")).toBe("still");
+  expect(motion("full", true)).toBe("still");
+  expect(motion("reduced", true)).toBe("still");
+  expect(
+    resolveAppearance({ ...defaultAppearance, reduceMotion: "on", backdropMotion: "full" }, os)
+      .backdropMotion,
+  ).toBe("still");
 });

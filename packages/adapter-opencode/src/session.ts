@@ -1,15 +1,15 @@
-import { waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
 import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
 import { openCodeNativeToolGuidance } from "./native-tools.ts";
-import { registerAceMcp } from "./mcp-registration.ts";
+import { AceMcpLocations } from "./mcp-locations.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { opencodePolicy } from "./permission-policy.ts";
+import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
+import { settleEnvironment } from "./agent-env.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
-import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import type { Frame, InputSource, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
 import { object, string } from "./data.ts";
@@ -25,8 +25,20 @@ import { AncestryProbe } from "./ancestry.ts";
 import { cleanupOwned } from "./cleanup.ts";
 import { SessionOwnership } from "./ownership.ts";
 import { RecoveryEvidence } from "./recovery-evidence.ts";
+const PreviousModel = z.object({
+  providerID: z.string(),
+  id: z.string(),
+  variant: z.string().optional(),
+});
+const InterruptResult = z.object({ interrupted: z.boolean() });
+/** Lifecycle notes that still reach the thread after the session closed. */
+function endingNote(type: unknown): boolean {
+  return type === "exited" || type === "stop-failed";
+}
+
 export class OpenCodeSession implements ProviderSession {
-  private mcpDirectories = new Set<string>();
+  /** ace's MCP server in each location this session uses; absent without ace's tools. */
+  private aceLocations: AceMcpLocations | undefined;
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
@@ -39,6 +51,9 @@ export class OpenCodeSession implements ProviderSession {
   private started: number;
   private opening = true;
   private closed = false;
+  /** The one close: every caller, voided or awaited, settles with its outcome. */
+  private closing: Promise<void> | undefined;
+  private stopFailureNoted = false;
   private exitReported = false;
   private recovering = false;
   private openingBuffer: unknown[] = [];
@@ -57,6 +72,8 @@ export class OpenCodeSession implements ProviderSession {
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
   private recoveryStarted = 0;
+  /** What this thread's sessions' shell commands run with; absent without ace's variables. */
+  private shellEnvironment: Record<string, string> | undefined;
   get mcp() {
     return openCodeMcpControls(
       this.client,
@@ -74,8 +91,21 @@ export class OpenCodeSession implements ProviderSession {
       threadId: ctx.threadId,
       rootKey: ctx.rootKey ?? "root",
     });
-    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
+    this.shellEnvironment = server.shellEnvironment(ctx.agentEnv ?? {});
+    // A subagent's session is created and prompted before ace hears of it; the gate holds its
+    // tools until this sets its environment, and refuses them if it can't (agent-env.ts).
+    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "", (id) => {
+      // admitEnvironment notes its own failure.
+      void this.admitEnvironment(id).catch(() => {});
+    });
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
+    if (ctx.aceMcp)
+      this.aceLocations = new AceMcpLocations({
+        client: this.client,
+        connection: ctx.aceMcp,
+        runtime: server.runtime,
+        unconfirmed: () => this.emit("note", "mcp.readiness", { type: "unconfirmed" }),
+      });
     this.catalog = createExtensionCatalog(this.client, ctx.cwd, this.emit, () => this.closed);
     this.prompts = new SessionPrompts({
       client: this.client,
@@ -85,12 +115,13 @@ export class OpenCodeSession implements ProviderSession {
       directory: () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? ctx.cwd,
       frame: this.emit,
       correlate: ctx.onInputMessage,
-      barrier: () => this.barrier(),
+      barrier: () => this.admissionBarrier(),
       uncertain: () => {
         if (this.closed) return;
         this.recovering = true;
         this.emit("note", "lifecycle", { type: "disconnected" });
-        void this.server.reconcileNow();
+        // Recovery retries on its own; a rejection here has no reporter.
+        void this.server.reconcileNow().catch(() => {});
       },
     });
     this.ancestry = new AncestryProbe({
@@ -116,11 +147,12 @@ export class OpenCodeSession implements ProviderSession {
           type: "disconnected",
           reason: "ancestry verification incomplete",
         });
-        void this.server.reconcileNow();
+        // Recovery retries on its own; a rejection here has no reporter.
+        void this.server.reconcileNow().catch(() => {});
       },
     });
     this.abortListener = () => {
-      void this.close("shutdown");
+      void this.close("shutdown").catch((error: unknown) => this.noteStopFailure(error));
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
@@ -160,13 +192,15 @@ export class OpenCodeSession implements ProviderSession {
       },
       exited: (deliberate, message) => {
         s.reportExit(deliberate, message);
-        void s.close("shutdown");
+        void s.close("shutdown").catch((error: unknown) => s.noteStopFailure(error));
       },
     });
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
     try {
       s.emit("note", "lifecycle", { type: "started" });
-      const policy = ctx.permissionMode ? opencodePolicy(ctx.permissionMode) : undefined;
+      const native = ctx.permissionMode ? opencodePolicy(ctx.permissionMode) : undefined;
+      const policy =
+        native && ctx.spadeBot ? withSpadeBot(native, ctx.spadeBot.allowAceTools) : native;
       const info = SessionInfo.parse(
         ctx.resume
           ? await s.client.session.get({ sessionID: ctx.resume.nativeSessionId })
@@ -186,9 +220,7 @@ export class OpenCodeSession implements ProviderSession {
       }
       if (ctx.resume) {
         const model = selectedModel(ctx.model, ctx.options);
-        const previous = z
-          .object({ providerID: z.string(), id: z.string(), variant: z.string().optional() })
-          .safeParse(info.model);
+        const previous = PreviousModel.safeParse(info.model);
         if (
           model &&
           (!previous.success ||
@@ -208,7 +240,10 @@ export class OpenCodeSession implements ProviderSession {
           value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
-      await s.ensureMcp(info.location.directory);
+      // Before any input: the server keeps it in memory only, so every open (a resume on a
+      // restarted daemon too) sets it again.
+      await s.applyEnvironment(info.id);
+      await s.aceLocations?.ensure(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
       for (const event of s.openingBuffer.splice(0)) s.receive(event);
@@ -238,8 +273,56 @@ export class OpenCodeSession implements ProviderSession {
       throw failure;
     }
   }
+  /**
+   * Gives one of the thread's sessions its shell environment (agent-env.ts), then lets the gate
+   * run its tools. Throws when either fails.
+   */
+  private async applyEnvironment(sessionID: string): Promise<void> {
+    if (!this.shellEnvironment) return;
+    await this.client.session.environment({ sessionID, variables: this.shellEnvironment });
+    await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+      sessionID,
+      ok: true,
+    });
+  }
+  private directoryOf(sessionID: string): string {
+    return this.ownership.sessions.get(sessionID)?.directory ?? this.ctx.cwd;
+  }
+  /**
+   * A subagent joining the tree gets its thread's environment. When that fails it never runs a
+   * command with another: the gate refuses its tools (told so, or after its wait runs out), and
+   * ace stops it, saying why.
+   */
+  private async admitEnvironment(sessionID: string): Promise<void> {
+    try {
+      await this.applyEnvironment(sessionID);
+      return;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+        sessionID,
+        ok: false,
+        message: reason.slice(0, 1024),
+      }).catch(() => {});
+      await this.client.session.interrupt({ sessionID }).catch(() => {});
+      this.emit("note", "agent.environment", { type: "stopped", sessionID, message: reason });
+    }
+  }
+  /**
+   * A stop nobody awaits (this session's voided close, or the adapter's server release on exit)
+   * failed: noted once per session, after close too. Awaited closes still reject with it.
+   */
+  noteStopFailure(error: unknown): void {
+    if (this.stopFailureNoted) return;
+    this.stopFailureNoted = true;
+    this.emit("note", "lifecycle", {
+      type: "stop-failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
-    if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;
+    // Once closed, only the session's own ending is recorded: its exit, and a stop that failed.
+    if (this.closed && !(channel === "lifecycle" && endingNote(object(data).type))) return;
     const t = Math.round(this.server.runtime.monotonic() - this.started);
     const encoded = JSON.stringify(this.server.redact(data));
     const bearer = this.ctx.aceMcp?.bearer;
@@ -273,9 +356,12 @@ export class OpenCodeSession implements ProviderSession {
           this.emit("recv", "snapshot.info", { info });
         })
         .catch(() => {
-          void this.server.reconcileNow();
+          // Recovery retries on its own; a rejection here has no reporter.
+          void this.server.reconcileNow().catch(() => {});
         })
-        .finally(() => this.moves.delete(id));
+        .finally(() => this.moves.delete(id))
+        // A failed read already reconciles above.
+        .catch(() => {});
     }
     return accepted;
   }
@@ -292,6 +378,8 @@ export class OpenCodeSession implements ProviderSession {
       p = e.data;
     this.catalog.changed(e.type);
     if (e.type === "location.shutdown" && e.location) {
+      // OpenCode's rebuilt location no longer has ace's runtime MCP server.
+      this.aceLocations?.forget(e.location.directory);
       const owners = this.ownership.atLocation(e.location.directory);
       for (const [key, pending] of this.pending)
         if (owners.has(pending.session)) this.pending.delete(key);
@@ -328,7 +416,8 @@ export class OpenCodeSession implements ProviderSession {
     if (this.closed) return;
     this.recovering = true;
     this.emit("note", "lifecycle", { type: "disconnected", reason: "location rebuilt" });
-    void this.server.reconcileNow();
+    // Recovery retries on its own; a rejection here has no reporter.
+    void this.server.reconcileNow().catch(() => {});
   }
   private async barrier(): Promise<void> {
     if (this.closed) throw new Error("OpenCode session is closed");
@@ -337,21 +426,37 @@ export class OpenCodeSession implements ProviderSession {
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    await this.ensureMcp(
-      this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
-    );
+  }
+  /**
+   * Before new input or a model change, ace's tools are set up in the session's location (or,
+   * if unconfirmed, looked for once more). Stop, task cancellation and interaction answers use
+   * `barrier` alone: they need none of ace's tools, so MCP set-up can never delay or fail them,
+   * even in a location ace has not set up yet (after a move or a rebuild).
+   */
+  private async admissionBarrier(): Promise<void> {
+    await this.barrier();
+    await this.aceLocations?.admit(this.directory());
+  }
+  private directory(): string {
+    return this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd;
   }
   async configure(selection: ExecutionSelection): Promise<void> {
     if (selection.provider !== "opencode" || !selection.model)
       throw new Error("Invalid OpenCode selection");
-    await this.barrier();
+    await this.admissionBarrier();
     const model = selectedModel(selection.model, selection.options);
     if (!model) throw new Error("Missing OpenCode model");
     await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
     this.ctx = { ...this.ctx, model: selection.model, options: selection.options };
   }
-  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
-    return this.prompts.send(input, delivery, commandId);
+  send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    _origin?: InputSource,
+    fence?: import("@ace/engine-api").SteerFence,
+  ): Promise<void> {
+    return this.prompts.send(input, delivery, commandId, fence);
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     await this.barrier();
@@ -363,11 +468,9 @@ export class OpenCodeSession implements ProviderSession {
     const ids = target.cascade ? this.ownership.descendants(root).concat(root) : [root];
     let stopped = false;
     for (const sessionID of ids) {
-      const result = z
-        .object({ interrupted: z.boolean() })
-        .parse(
-          await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
-        );
+      const result = InterruptResult.parse(
+        await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
+      );
       stopped ||= result.interrupted;
     }
     // A Stop also ends the tree's shells, including ones still running after every turn ended.
@@ -409,13 +512,6 @@ export class OpenCodeSession implements ProviderSession {
       this.recoveryRead = undefined;
     });
     await this.recoveryRead;
-  }
-  private async ensureMcp(directory: string): Promise<void> {
-    if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
-    if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
-    await registerAceMcp(this.client, directory, this.ctx.aceMcp);
-    await waitForAceTools(this.client, directory, this.server.runtime);
-    this.mcpDirectories.add(directory);
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;
@@ -482,10 +578,14 @@ export class OpenCodeSession implements ProviderSession {
     this.emit("note", "lifecycle", { type: "exited", deliberate, message });
     this.ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   }
-  async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
-    if (this.closed) return;
+  close(reason: "idle" | "user" | "shutdown"): Promise<void> {
+    if (this.closing) return this.closing;
     if (reason === "idle" && !this.translator.isSettled())
-      throw new Error("Cannot idle-close unsettled OpenCode session");
+      return Promise.reject(new Error("Cannot idle-close unsettled OpenCode session"));
+    this.closing = this.shutdown(reason);
+    return this.closing;
+  }
+  private async shutdown(reason: "idle" | "user" | "shutdown"): Promise<void> {
     this.closed = true;
     this.controller.abort();
     this.unsubscribe();

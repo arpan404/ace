@@ -1,11 +1,20 @@
-import { existsSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, test } from "vitest";
-import { Agent, Item, type EventPayload } from "@ace/protocol";
+import { pairingLinkProof } from "@ace/client/link-proof";
+import { Agent, DeviceId, InstallId, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
+import { schemaVersion } from "./migrations.ts";
+import {
+  beforeInstalls,
+  beforeOutsideClients,
+  undoInstalls,
+  undoMachineCode,
+  undoOutsideClients,
+} from "./upgrade-test-support.ts";
 
 test.each([1, 9, 13])(
   "a daemon database at older schema %s is refused untouched instead of upgraded",
@@ -81,10 +90,13 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     const before = store.snapshotThread(thread.id).itemOrder;
     expect(before.slice(0, 2)).toEqual(["ask", "reply"]);
     store.close();
-    // Schema 14 had no per-item agent column, no device expiry and no thread_cold.
+    // Schema 14 had no per-item agent column, no device expiry, no thread_cold, no machine code
+    // and no install ids.
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
+      // Newest steps first: dropping a column rechecks triggers on tables already gone.
+      undoMachineCode +
+        " DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -95,58 +107,161 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(21);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(
+        schemaVersion,
+      );
     } finally {
       after.close();
     }
-    // The pre-upgrade copy is kept beside the database and opens at its old version.
-    const backup = new DatabaseSync(`${path}.schema-14.backup`, { readOnly: true });
+    // Upgrading never copies the whole database first: that copy blocked startup.
+    expect(readdirSync(home).filter((name) => name.includes(".backup"))).toEqual([]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a thread an agent opened before startedBy existed names its starter after the upgrade", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-started-by-"));
+  const path = join(home, "events.sqlite");
+  try {
+    const store = new Store(path);
+    const workspace = store.createWorkspace(home, "Existing project");
+    const starter = createDevThread(store, workspace);
+    const started = createDevThread(store, workspace);
+    const person = createDevThread(store, workspace);
+    store.close();
+    // Schema 23 recorded thread_start's caller only in the conversation journal.
+    const db = new DatabaseSync(path);
+    db.prepare("INSERT INTO agent_conversations VALUES (?,?,?,?,?,?)").run(
+      started.id,
+      starter.id,
+      "root",
+      starter.id,
+      "request-1",
+      "{}",
+    );
+    // The remote-child liveness step and every step after it came later, so they go too.
+    db.exec(
+      undoMachineCode +
+        "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; UPDATE schema_version SET version=23 WHERE id=1",
+    );
+    db.close();
+    const upgraded = new Store(path);
     try {
-      expect(backup.prepare("SELECT version FROM schema_version").get()?.version).toBe(14);
-      expect(backup.prepare("SELECT COUNT(*) AS n FROM items").get()?.n).toBe(302);
+      expect(upgraded.getThread(started.id)?.startedBy).toBe(starter.id);
+      expect(upgraded.getThread(person.id)?.startedBy).toBeUndefined();
     } finally {
-      backup.close();
+      upgraded.close();
     }
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-test("a current database opens without writing an upgrade backup", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-current-schema-"));
+test("copies older builds left beside the database are deleted when it opens", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-old-backups-"));
   const path = join(home, "events.sqlite");
   try {
     new Store(path).close();
+    await writeFile(`${path}.schema-14.backup`, "old copy");
+    await writeFile(`${path}.schema-20.backup`, "old copy");
+    // A copy cut short by a crash or a forced quit.
+    await writeFile(`${path}.schema-16.backup.partial`, "truncated");
+    // Files that only look similar are not ours to delete.
+    await writeFile(join(home, "usage.sqlite.schema-14.backup"), "keep");
+    await writeFile(join(home, "notes.backup"), "keep");
     new Store(path).close();
-    expect(existsSync(`${path}.schema-20.backup`)).toBe(false);
-    expect(existsSync(`${path}.schema-14.backup`)).toBe(false);
+    expect(
+      readdirSync(home)
+        .filter((name) => name.includes("backup"))
+        .toSorted(),
+    ).toEqual(["notes.backup", "usage.sqlite.schema-14.backup"]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-test("an interrupted upgrade backup is redone instead of being kept as the backup", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-partial-"));
+test("paired devices keep working credentials through the upgrade to install ids and every reopen after it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-installs-"));
   const path = join(home, "events.sqlite");
   try {
     const store = new Store(path);
-    store.createWorkspace(home, "Existing project");
+    const phone = store.devices.create("Phone", ["read", "operate"], 1000);
+    const tablet = store.devices.create("Tablet", ["read"], 1000, 5000);
     store.close();
+    // The release before installs had ids: no install, fold or account link columns.
+    const db = new DatabaseSync(path);
+    db.exec(`${undoInstalls} UPDATE schema_version SET version=${beforeInstalls} WHERE id=1`);
+    db.close();
+
+    for (let open = 0; open < 2; open++) {
+      const reopened = new Store(path);
+      try {
+        expect(reopened.devices.authenticate(phone.token, 2000)).toMatchObject({
+          id: phone.device.id,
+          scopes: ["read", "operate"],
+        });
+        expect(reopened.devices.authenticate(tablet.token, 2000)).toMatchObject({
+          id: tablet.device.id,
+          expiresAt: 5000,
+        });
+        expect(reopened.devices.list().map((device) => device.id)).toEqual([
+          phone.device.id,
+          tablet.device.id,
+        ]);
+        // Nothing older is linked to an account device: that takes a proof.
+        expect(reopened.devices.sameInstall(phone.device.id, tablet.device.id)).toBe(false);
+      } finally {
+        reopened.close();
+      }
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a populated schema 28 database keeps credentials, install ids and folded records through the account link upgrade", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-account-link-"));
+  const path = join(home, "events.sqlite");
+  const install = InstallId.parse("01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e");
+  try {
+    const store = new Store(path);
+    // A record the install left before it had an id, then the install pairing again.
+    const left = store.devices.create("Phone", ["read"], 1000);
+    const phone = store.devices.create("Phone", ["read", "operate"], 1100, null, install);
+    store.devices.recognize(phone.device.id, install, 1200);
+    expect(store.devices.list().map((device) => device.id)).toEqual([phone.device.id]);
+    store.close();
+    // The release before account links: schema 28, with installs and folds but no link column.
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
+      `${undoOutsideClients}ALTER TABLE devices DROP COLUMN account_link; UPDATE schema_version SET version=${beforeOutsideClients - 1} WHERE id=1`,
     );
     db.close();
-    // A copy cut short by a crash or a full disk.
-    await writeFile(`${path}.schema-14.backup.partial`, "truncated");
-    new Store(path).close();
-    expect(existsSync(`${path}.schema-14.backup.partial`)).toBe(false);
-    const backup = new DatabaseSync(`${path}.schema-14.backup`, { readOnly: true });
+
+    const reopened = new Store(path);
     try {
-      expect(backup.prepare("SELECT version FROM schema_version").get()?.version).toBe(14);
-      expect(backup.prepare("SELECT COUNT(*) AS n FROM workspaces").get()?.n).toBe(1);
+      expect(reopened.devices.authenticate(phone.token, 2000)).toMatchObject({
+        id: phone.device.id,
+        scopes: ["read", "operate"],
+      });
+      expect(reopened.devices.heldBy(install, 2000)).toBe(phone.device.id);
+      // The folded record stays under the install's record and comes back when it is used.
+      expect(reopened.devices.list().map((device) => device.id)).toEqual([phone.device.id]);
+      expect(reopened.devices.authenticate(left.token, 2000)).toMatchObject({ id: left.device.id });
+      // Nothing is linked by the upgrade; a proof made with the current credential links.
+      const account = DeviceId.parse(install);
+      expect(reopened.sameDevice(phone.device.id, account)).toBe(false);
+      expect(
+        reopened.devices.link(
+          account,
+          await pairingLinkProof(phone.token, phone.device.id, account, crypto.subtle),
+          2000,
+        ),
+      ).toBe(true);
+      expect(reopened.sameDevice(phone.device.id, account)).toBe(true);
     } finally {
-      backup.close();
+      reopened.close();
     }
   } finally {
     await rm(home, { recursive: true, force: true });

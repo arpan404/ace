@@ -37,12 +37,15 @@ export class DeviceLogs {
     this.process = proc;
     proc.stdout.on("line", (line: string) => this.push(line));
     proc.stderr.on("line", (line: string) => this.push(line));
-    void proc.exited.then((exit) => {
-      if (this.process === proc) {
-        this.process = undefined;
-        this.push(`[log stream ended: ${exit.reason}]`);
-      }
-    });
+    // `exited` reports the stream's exit and does not reject.
+    void proc.exited
+      .then((exit) => {
+        if (this.process === proc) {
+          this.process = undefined;
+          this.push(`[log stream ended: ${exit.reason}]`);
+        }
+      })
+      .catch(() => {});
   }
   push(line: string): void {
     line = deviceLogLine(line);

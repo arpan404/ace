@@ -19,8 +19,32 @@ import { remoteWorkProject } from "./projects.ts";
 import { approval } from "./approval.ts";
 import { CliFailure, treeOutcome } from "./output.ts";
 import { chatAction } from "./chat-input.ts";
+import { agentShell, personOnlyRefusal } from "./person-gate.ts";
 import { chatIO, type ChatIO } from "./chat-io.ts";
 import type { ChatRecord } from "./chat-render.ts";
+
+async function attachInteractive(args: Args, config: Config): Promise<void> {
+  const [{ runApp }, { commandTable }] = await Promise.all([
+    import("./interactive/app.ts"),
+    import("./commands/table.ts"),
+  ]);
+  const provider = option(args, "provider");
+  await runApp({
+    args,
+    dataDir: config.dataDir,
+    env: process.env,
+    table: commandTable(),
+    startDaemon: !selectedProfile(config.dataDir, option(args, "remote")),
+    attach: {
+      threadId: option(args, "thread"),
+      fresh: {
+        project: option(args, "project"),
+        provider: provider ? ProviderKind.parse(provider) : undefined,
+        model: option(args, "model"),
+      },
+    },
+  });
+}
 
 export async function chatCommand(
   args: Args,
@@ -30,6 +54,8 @@ export async function chatCommand(
   validateArgs(args, ["project", "provider", "thread", "model", "idempotency-key", "stream"], 1);
   if (args.flags.stream && args.flags.stream !== "jsonl")
     throw new CliFailure("refused", "Chat streams use jsonl");
+  // A person at a terminal gets attach as the app shows it (ADR 0178 §9); scripts keep JSONL.
+  if (args.interactive && makeIO === chatIO) return attachInteractive(args, config);
   if (!selectedProfile(config.dataDir, option(args, "remote")))
     await ensureDaemon(config.dataDir, args, systemOpenRuntime());
   const session = await connectChat(config.dataDir, args);
@@ -346,6 +372,13 @@ export async function chatCommand(
             expectedRevision: response.queue.revision,
           });
         } else if (action.kind === "approve" || action.kind === "deny") {
+          // This path runs only off a terminal (a person there gets attach's own strip): nobody
+          // is there to confirm, and an agent's shell never answers (ADR 0178 §12.5).
+          const refused = personOnlyRefusal("answer", {
+            agent: agentShell(process.env),
+            interactive: false,
+          });
+          if (refused) throw refused;
           const selectedInteraction = action.interaction;
           const interaction = selectedInteraction
             ? pending.find((value) => value.id === selectedInteraction)

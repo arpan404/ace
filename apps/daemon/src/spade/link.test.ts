@@ -1,0 +1,350 @@
+import { expect, test } from "vitest";
+import { ThreadId, type SpadeStatus } from "@ace/protocol";
+import { SpadeLink } from "./link.ts";
+import { spadeProof } from "@ace/service/spade";
+import { spadeStartGraceMs, type SpadeServiceState } from "./rules.ts";
+
+/** A machine with a service manager, Spade's files and a clock, all under the test's control. */
+function machine(report?: (error: unknown) => void) {
+  const files = new Map<string, string>();
+  const world = {
+    service: "absent" as SpadeServiceState,
+    /**
+     * Ports whose `/health` answers `ok`, with the key each proves nonces with: a Spade proves
+     * with its token file's token; null answers with no proof at all.
+     */
+    answering: new Map<number, string | null>(),
+    /** Pids of running processes. */
+    alive: new Set<number>(),
+    now: 0,
+    files,
+    watched: undefined as (() => void) | undefined,
+    nonces: 1,
+    /** What `/health` says Spade is still setting up, if anything. */
+    setup: undefined as string | undefined,
+    /** How many times the service manager was asked. */
+    serviceReads: 0,
+    /** Each wait before the next look, as the link scheduled it. */
+    waits: [] as number[],
+    /** The next read of Spade's files fails, as a disk error would. */
+    unreadable: false,
+  };
+  const link = new SpadeLink({
+    dataDir: "/ace/spade",
+    runtime: {
+      readText: async (path) => {
+        if (world.unreadable) {
+          world.unreadable = false;
+          throw new Error("EIO: i/o error, read");
+        }
+        return files.get(path);
+      },
+      health: async (endpoint, nonce) => {
+        const key = world.answering.get(endpoint.port);
+        if (key === undefined) return undefined;
+        return {
+          version: "0.4.0",
+          api: 1,
+          proof: key === null ? undefined : spadeProof(key, nonce),
+          setup: world.setup,
+        };
+      },
+      alive: (pid) => world.alive.has(pid),
+      nonce: () => (world.nonces++).toString(16).padStart(32, "0"),
+      serviceState: async () => {
+        world.serviceReads++;
+        return world.service;
+      },
+      watch: (_directory, changed) => {
+        world.watched = changed;
+        return () => {
+          world.watched = undefined;
+        };
+      },
+      now: () => world.now,
+      platform: "darwin",
+      after: (ms) => {
+        world.waits.push(ms);
+        return () => {};
+      },
+    },
+    ...(report ? { report } : {}),
+  });
+  const seen: SpadeStatus[] = [];
+  link.subscribe((status) => seen.push(status));
+  /** Spade starts: token, then server.json, as the contract orders them. */
+  const spadeStarts = (pid: number, port: number, version = "0.4.0") => {
+    const token = `token-for-${pid}-xxxxxxxx`;
+    files.set("/ace/spade/token", token);
+    files.set(
+      "/ace/spade/server.json",
+      JSON.stringify({ address: `127.0.0.1:${port}`, pid, version, api: 1 }),
+    );
+    world.alive.add(pid);
+    world.answering.set(port, token);
+  };
+  return { link, world, seen, spadeStarts, state: () => link.status().state };
+}
+
+test("spade.status reads off, starting, ready and failed from the registration and Spade's files", async () => {
+  const { link, world, spadeStarts, state } = machine();
+  // Turned off: off, whatever is registered.
+  world.service = "running";
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "off" });
+
+  // Turned on with no service registered: still off, saying why.
+  world.service = "absent";
+  link.setEnabled(true);
+  await link.refresh();
+  expect(link.status()).toMatchObject({
+    state: "off",
+    reason: expect.stringContaining("isn't registered"),
+  });
+
+  // Registered and running, not yet listening: starting.
+  world.service = "running";
+  await link.refresh();
+  expect(state()).toBe("starting");
+
+  // server.json appears and /health answers: ready, with Spade's version.
+  spadeStarts(41, 4100);
+  world.watched?.();
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
+  expect(link.ready()?.connection).toEqual({
+    host: "127.0.0.1",
+    port: 4100,
+    token: "token-for-41-xxxxxxxx",
+  });
+
+  // Spade stops answering but stays registered: starting, then failed past the grace period.
+  world.answering.clear();
+  await link.refresh();
+  expect(state()).toBe("starting");
+  expect(link.ready()).toBeUndefined();
+  world.now += spadeStartGraceMs;
+  await link.refresh();
+  expect(link.status()).toMatchObject({
+    state: "failed",
+    reason: expect.stringContaining("isn't answering"),
+  });
+
+  // The service manager has it stopped: failed, saying so.
+  world.service = "stopped";
+  await link.refresh();
+  expect(link.status()).toMatchObject({
+    state: "failed",
+    reason: expect.stringContaining("not running"),
+  });
+
+  // Turned off again: off, and the files are no longer watched.
+  link.setEnabled(false);
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "off" });
+  expect(world.watched).toBeUndefined();
+});
+
+test("each Spade that answers is a new instance: streams to the last one end and arrivals are told", async () => {
+  const { link, world, spadeStarts } = machine();
+  const ended: number[] = [];
+  const arrived: number[] = [];
+  link.onRunEnded((generation) => ended.push(generation));
+  link.onReady((ready) => arrived.push(ready.connection.port));
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+  await link.refresh();
+  const first = link.ready()?.generation;
+  expect(arrived).toEqual([4100]);
+
+  // Looking again at the same Spade changes nothing.
+  await link.refresh();
+  expect(link.ready()?.generation).toBe(first);
+  expect(ended).toEqual([]);
+
+  // Restarted by its service manager on another port: the old instance ends, the new arrives.
+  world.answering.clear();
+  spadeStarts(42, 4200);
+  await link.refresh();
+  expect(ended).toEqual([first]);
+  expect(arrived).toEqual([4100, 4200]);
+  expect(link.ready()?.generation).not.toBe(first);
+
+  // A failed turn-on is reported even with an old Spade answering.
+  link.setSwitch({ problem: "Spade couldn't be registered as a service: no binary" });
+  await link.refresh();
+  expect(link.status()).toMatchObject({
+    state: "failed",
+    reason: expect.stringContaining("no binary"),
+  });
+});
+
+test("a Spade still waiting for the keychain is ready and says so until it is done", async () => {
+  const { link, world, seen, spadeStarts } = machine();
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+  world.setup = "waiting for the keychain";
+  await link.refresh();
+  expect(link.status()).toEqual({
+    state: "ready",
+    version: "0.4.0",
+    setup: { reason: "waiting for the keychain", platform: "darwin" },
+  });
+  world.setup = undefined;
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
+  expect(seen.at(-1)).toEqual({ state: "ready", version: "0.4.0" });
+});
+
+test("the host thread rides along with every status, on or off", async () => {
+  const { link, seen } = machine();
+  link.setThread({ id: ThreadId.parse("thread-spade"), busy: true });
+  expect(link.status()).toEqual({ state: "off", thread: { id: "thread-spade", busy: true } });
+  expect(seen.at(-1)).toEqual(link.status());
+});
+
+test("nothing but the registered, running Spade that proves its token is ready or handed anything", async () => {
+  const { link, world, spadeStarts } = machine();
+  const arrived: number[] = [];
+  link.onReady((ready) => arrived.push(ready.connection.port));
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+
+  // Another program now listens at server.json's port: it answers ok but can't prove the token.
+  for (const impostor of [null, "some-other-key-xxxxxxxx"]) {
+    world.answering.set(4100, impostor);
+    await link.refresh();
+    expect(link.status()).toMatchObject({
+      state: "failed",
+      reason: expect.stringContaining("can't prove it is Spade"),
+    });
+    expect(link.ready()).toBeUndefined();
+  }
+
+  // server.json's pid is gone, though its port answers as Spade did: not ready.
+  spadeStarts(41, 4100);
+  world.alive.delete(41);
+  await link.refresh();
+  expect(link.ready()).toBeUndefined();
+  expect(link.status().state).toBe("starting");
+
+  // A Spade proving itself, while the service is stopped or not registered: not ready either.
+  world.alive.add(41);
+  for (const service of ["stopped", "absent"] as const) {
+    world.service = service;
+    await link.refresh();
+    expect(link.ready()).toBeUndefined();
+    expect(link.status().state).toBe(service === "stopped" ? "failed" : "off");
+  }
+  expect(arrived).toEqual([]);
+
+  // Registered and running again: now it is Spade, and only now is it told of.
+  world.service = "running";
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
+  expect(arrived).toEqual([4100]);
+});
+
+test("a running Spade that keeps proving itself is not asked of the service manager again", async () => {
+  const { link, world, spadeStarts } = machine();
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+  await link.refresh();
+  expect(link.status().state).toBe("ready");
+  const reads = world.serviceReads;
+  for (let look = 0; look < 10; look++) await link.refresh();
+  expect(world.serviceReads).toBe(reads);
+  expect(link.status().state).toBe("ready");
+
+  // It stops answering: the service manager is asked again and its answer counts.
+  world.answering.clear();
+  world.service = "stopped";
+  await link.refresh();
+  expect(world.serviceReads).toBe(reads + 1);
+  expect(link.status()).toMatchObject({
+    state: "failed",
+    reason: expect.stringContaining("not running"),
+  });
+});
+
+test("a Spade that stays down is looked at less and less, up to a minute, and its files wake the link", async () => {
+  const { link, world, spadeStarts } = machine();
+  world.service = "stopped";
+  // Turning on looks once; then nine more looks.
+  link.setEnabled(true);
+  for (let look = 0; look < 9; look++) await link.refresh();
+  expect(world.waits).toEqual([
+    1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000, 60_000,
+  ]);
+
+  // A change in Spade's directory looks at once, and the waits start short again.
+  world.waits.length = 0;
+  world.service = "running";
+  world.watched?.();
+  await link.refresh();
+  expect(world.waits[0]).toBe(1000);
+
+  // Running but silent within its start grace: looked at every second until it answers.
+  world.waits.length = 0;
+  for (let look = 0; look < 3; look++) await link.refresh();
+  expect(world.waits).toEqual([1000, 1000, 1000]);
+  spadeStarts(41, 4100);
+  await link.refresh();
+  expect(link.status().state).toBe("ready");
+  expect(world.waits.at(-1)).toBe(5000);
+});
+
+test("a listener that throws is reported, and every other listener is still told", async () => {
+  const reported: unknown[] = [];
+  const { link, world, spadeStarts } = machine((error) => reported.push(error));
+  const statuses: string[] = [];
+  const arrived: number[] = [];
+  const ended: number[] = [];
+  link.subscribe(() => {
+    throw new Error("subscriber broke");
+  });
+  link.subscribe((status) => statuses.push(status.state));
+  link.onReady(() => {
+    throw new Error("arrival broke");
+  });
+  link.onReady((ready) => arrived.push(ready.connection.port));
+  link.onRunEnded(() => {
+    throw new Error("ending broke");
+  });
+  link.onRunEnded((generation) => ended.push(generation));
+  world.service = "running";
+  spadeStarts(41, 4100);
+  link.setEnabled(true);
+  await link.refresh();
+  const first = link.ready()?.generation;
+  expect(statuses.at(-1)).toBe("ready");
+  expect(arrived).toEqual([4100]);
+
+  // Restarted on another port: the old instance's end reaches the listener after the broken one.
+  world.answering.clear();
+  spadeStarts(42, 4200);
+  await link.refresh();
+  expect(ended).toEqual([first]);
+  expect(arrived).toEqual([4100, 4200]);
+  expect(reported).toContainEqual(new Error("subscriber broke"));
+  expect(reported).toContainEqual(new Error("arrival broke"));
+  expect(reported).toContainEqual(new Error("ending broke"));
+});
+
+test("a look that fails is reported, and the link looks again a second later", async () => {
+  const reported: unknown[] = [];
+  const { link, world, spadeStarts } = machine((error) => reported.push(error));
+  world.service = "running";
+  spadeStarts(41, 4100);
+  world.unreadable = true;
+  // Turning on looks once and that look fails; the look asked for meanwhile runs.
+  link.setEnabled(true);
+  await link.refresh();
+  expect(reported).toEqual([new Error("EIO: i/o error, read")]);
+  expect(world.waits).toEqual([1000, 5000]);
+  expect(link.status().state).toBe("ready");
+});

@@ -8,24 +8,14 @@ import type { Config } from "../config.ts";
 import { validateArgs, type Args } from "./args.ts";
 import { result } from "./io.ts";
 import { CliFailure } from "./output.ts";
+import { startedJson, startedText } from "./render/daemon.ts";
+/** `ace start` and `ace serve` (`ace daemon start|serve`): the daemon, in the foreground. */
 export async function runtimeCommand(args: Args, config: Config) {
   const command = args.words[0] ?? "start";
-  if (command === "service") {
-    validateArgs(args, ["linger"], 2, 3);
-    await result(
-      args,
-      await (
-        await import("@ace/service")
-      ).serviceCommand(config.dataDir, [
-        ...args.words.slice(1),
-        ...(args.flags.linger ? ["--linger"] : []),
-      ]),
-    );
-    return;
-  }
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
-  const { startDaemon, runDaemonProcess, NewerDataError } = await import("../index.ts");
+  const { startDaemon, runDaemonProcess, NewerDataError, DaemonLockHeldError } =
+    await import("../index.ts");
   // Before startup, so a loaded machine schedules the startup work too.
   const priority = raiseDaemonPriority({
     platform: process.platform,
@@ -47,16 +37,18 @@ export async function runtimeCommand(args: Args, config: Config) {
     history: { instances: readHistoryInstances() },
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Daemon start failed";
-    // Their own exit codes, so whatever started the daemon can name the port conflict
-    // or tell the person a newer ace already uses this data.
+    // Their own exit codes, so whatever started the daemon can name the port conflict, wait
+    // for another daemon that holds the lock, or tell the person a newer ace uses this data.
     throw new CliFailure(
       error instanceof NewerDataError
         ? "newer-data"
         : incompatibleData(error)
           ? "incompatible-data"
-          : addressInUse(error)
-            ? "address-in-use"
-            : "failed",
+          : error instanceof DaemonLockHeldError
+            ? "lock-held"
+            : addressInUse(error)
+              ? "address-in-use"
+              : "failed",
       message,
     );
   });
@@ -69,18 +61,37 @@ export async function runtimeCommand(args: Args, config: Config) {
     await daemon.close();
     throw error;
   }
+  // The daemon listens before remote access starts. The LAN or Tailscale address this prints
+  // is local and quick to start; a network that takes longer than this is left out, as one that
+  // failed is, and status shows it once it serves.
+  await settledWithin(daemon.remoteStarted.direct, remoteLineWaitMs);
+  const started = {
+    running: true as const,
+    url: daemon.url,
+    tokenPath: daemon.tokenPath,
+    remoteUrl: daemon.remoteUrl,
+    fingerprint: daemon.fingerprint,
+  };
+  // The desktop app, the login service and `ace chat` read these bytes: they never change.
   await result(
     args,
-    args.flags.json || args.flags.jq
-      ? {
-          running: true,
-          url: daemon.url,
-          tokenPath: daemon.tokenPath,
-          remoteUrl: daemon.remoteUrl,
-          fingerprint: daemon.fingerprint,
-        }
-      : `ace daemon: ${daemon.url}\nToken file: ${daemon.tokenPath}${daemon.remoteUrl ? `\nRemote: ${daemon.remoteUrl}\nPublic-key SHA-256: ${daemon.fingerprint}` : ""}`,
+    args.flags.json || args.flags.jq ? startedJson(started) : startedText(started),
   );
+}
+
+/** How long `ace start` waits on the LAN or Tailscale listener before it prints. */
+const remoteLineWaitMs = 5_000;
+
+async function settledWithin(task: Promise<void>, milliseconds: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => (timer = setTimeout(resolve, milliseconds))),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Node's listen error for a port another process holds, however the startup wrapped it. */

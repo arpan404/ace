@@ -21,6 +21,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticsRun.json"
+    },
     "toolchains": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/Toolchain.json"

@@ -1,0 +1,78 @@
+---
+/* Home › Section › Page, from routes.ts; the last step is the current page and isn't a link. */
+import { trail } from "../../content/routes.ts";
+
+interface Props {
+  path: string;
+}
+
+const steps = trail(Astro.props.path);
+---
+
+<nav class="page crumbs" aria-label="Breadcrumb">
+  <ol>
+    {
+      steps.map((step, index) => (
+        <li>
+          {index < steps.length - 1 ? (
+            <a href={step.path}>{step.name}</a>
+          ) : (
+            <span aria-current="page">{step.name}</span>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</nav>
+
+<style>
+  /* A quiet line under the header: it sits in the page's flow, so the floating bar never covers it. */
+  .crumbs {
+    padding-top: clamp(18px, 2.4vw, 28px);
+  }
+
+  ol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--subtle);
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  /* The current page gives way first when the line is too long for the screen. */
+  li:last-child {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  li:not(:last-child)::after {
+    content: "/";
+    color: var(--faint);
+  }
+
+  a {
+    color: var(--subtle);
+    text-decoration: none;
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover {
+    color: var(--foreground);
+  }
+
+  [aria-current] {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+  }
+</style>

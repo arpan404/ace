@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { ACE_CLIENT_PARAM } from "@ace/protocol/ace-client";
 import { watchLiveness } from "./liveness.ts";
 import { setMaxListeners } from "node:events";
 import type { KeyPair } from "@ace/secure-channel";
@@ -6,6 +7,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import type WebSocket from "ws";
 import { hostMessageChannel } from "./channel.ts";
 import type { HostChannel } from "./channel.ts";
+import type { ClientMessage } from "@ace/protocol";
 import { dial, relayAddress, sendFrame } from "./socket.ts";
 import {
   initiateHandshake,
@@ -13,12 +15,37 @@ import {
   CONTROL_PROLOGUE,
   STREAM_PROLOGUE,
 } from "./handshake.ts";
-import { ControlMessage, HostOptionsSchema } from "./config.ts";
+import { ControlMessage, HTTP_FEATURE, HostOptionsSchema } from "./config.ts";
+import { MEDIA_FEATURE } from "./purpose.ts";
+import { serveHttpExchange } from "./http-host.ts";
+import type { HostHttpOptions } from "./http-host.ts";
 import { ClientSlots } from "./admission.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
+import { RelayRefusedError } from "./refusal.ts";
+import {
+  XX_FIRST_MESSAGE,
+  answerNk,
+  refusalDeadline,
+  type NkAccepted,
+  type NkHost,
+} from "./nk-stream.ts";
 import type { z } from "zod";
 const noop = () => {};
+/** The `type` of a channel's first message, read without trusting the rest of it. */
+function firstMessageType(message: ClientMessage | Uint8Array | string): string | undefined {
+  if (message instanceof Uint8Array) return undefined;
+  if (typeof message !== "string") return message.type;
+  try {
+    const parsed: unknown = JSON.parse(message);
+    return typeof parsed === "object" && parsed !== null && "type" in parsed
+      ? String(parsed.type)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export type HostRelayConnection = {
   readonly hostId: string;
   readonly generation: number;
@@ -34,6 +61,40 @@ export async function connectHostToRelay(options: {
   clock?: Clock;
   random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
+  /**
+   * ace's hosted relay admits a host only with an account `machine` grant (ADR 0111). `grant`
+   * is called before every registration, since grants live five minutes. `name` and
+   * `platform` label the machine in the account's machine list.
+   */
+  account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
+  /** The relay refused a host that had registered before; the connection has stopped. */
+  onRefused?: (error: RelayRefusedError) => void;
+  /**
+   * Registration came or went: `true` each time the relay confirms this host, `false` once when
+   * a confirmed registration is lost and the connection starts registering again.
+   */
+  onRegistration?: (registered: boolean) => void;
+  /**
+   * Serves HTTP requests ace's hosted relay forwards from `/m/<hostId>/…` (ADR 0122). Given,
+   * the host registers with the `http` feature, so the relay sends it `http` tickets.
+   */
+  http?: HostHttpOptions;
+  /**
+   * Takes media streams (ADR 0147 §5.2): the host registers with the `media` feature, and each
+   * `purpose=media` ticket goes to `offer` with the `/join` address to dial, instead of being
+   * joined here. `offer` returns false to turn it down (the client hears "Host busy"), and may
+   * call `reject` later, while the ticket is unjoined, to turn it down then (a failed dial), so
+   * the client falls back at once instead of waiting out the ticket.
+   */
+  media?: { offer(ticket: string, joinUrl: string, reject: () => void): boolean };
+  /**
+   * Takes client streams opened with Noise NK (ADR 0155, step 2): the daemon admits each first
+   * message's early hello. Without it, an NK first message fails the XX handshake, as on an
+   * older daemon, and the client falls back to XX.
+   */
+  nk?: NkHost;
+  /** This app's `ace-client` name (ADR 0189), sent on every upgrade this host makes. */
+  aceClient?: string;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -48,51 +109,116 @@ export async function connectHostToRelay(options: {
   const tasks = new Set<Promise<void>>();
   const slots = new ClientSlots(limits.maxClientChannels);
   const pending = new Map<string, AbortController>();
+  let httpActive = 0;
   let generation = 0;
   const waiters: { after: number; resolve(value: number): void; reject(error: Error): void }[] = [];
   const id = hostId(options.hostKeys.publicKey);
-  const cancel = () => {
+  const cancel = (reason: Error = new Error("Host connection closed")) => {
     controller.abort();
     for (const socket of sockets) socket.terminate();
     for (const channel of channels) channel.close();
-    for (const waiter of waiters.splice(0)) waiter.reject(new Error("Host connection closed"));
+    for (const waiter of waiters.splice(0)) waiter.reject(reason);
   };
-  options.signal?.addEventListener("abort", cancel, { once: true });
+  // A refusal ends the connection: the same credentials would be refused again.
+  let refused = false;
+  const refuse = (error: RelayRefusedError) => {
+    if (refused || controller.signal.aborted) return;
+    refused = true;
+    if (generation > 0) options.onRefused?.(error);
+    cancel(error);
+  };
+  const abort = () => cancel();
+  options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) cancel();
   async function openClient(ticket: string, owned: AbortController): Promise<void> {
     const signal = AbortSignal.any([controller.signal, owned.signal]);
     let channel: HostChannel | undefined;
     let seenHello = false;
+    let redeeming = false;
     const expire = clock.schedule(limits.helloTimeoutMs, () => {
       channel?.close();
       owned.abort();
     });
     try {
       const { socket, reader } = await dial(
-        relayAddress(options.relayUrl, "/join", { ticket }),
+        relayAddress(options.relayUrl, "/join", { ticket, hostId: id }),
         signal,
         clock,
         limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
       );
       watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
-      const transport = await respondHandshake(socket, reader, {
-        staticKey: options.hostKeys,
-        prologue: STREAM_PROLOGUE,
-        clock,
-        timeoutMs: limits.handshakeTimeoutMs,
-      });
+      const handshakeDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+      let first: Uint8Array;
+      try {
+        first = await reader.next();
+      } finally {
+        handshakeDeadline();
+      }
+      const arrivedAt = clock.now();
+      // An XX first message is exactly 32 bytes; anything else is NK. A daemon that doesn't
+      // take NK refuses it as one that does: closed with nothing sent at the refusal time.
+      if (first.length !== XX_FIRST_MESSAGE && !options.nk) {
+        await refusalDeadline(clock, arrivedAt, signal).reached;
+        socket.terminate();
+        return;
+      }
+      let accepted: NkAccepted | undefined;
+      let transport: Parameters<typeof hostMessageChannel>[2];
+      if (options.nk && first.length !== XX_FIRST_MESSAGE) {
+        const nkDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+        let answer: Awaited<ReturnType<typeof answerNk>>;
+        try {
+          answer = await answerNk(socket, first, {
+            host: options.nk,
+            staticKey: options.hostKeys,
+            clock,
+            signal,
+            arrivedAt,
+          });
+        } finally {
+          nkDeadline();
+        }
+        if (!answer) return;
+        accepted = answer.accepted;
+        transport = answer.keys;
+      } else
+        transport = await respondHandshake(
+          socket,
+          reader,
+          {
+            staticKey: options.hostKeys,
+            prologue: STREAM_PROLOGUE,
+            clock,
+            timeoutMs: limits.handshakeTimeoutMs,
+          },
+          first,
+        );
+      const nkSession = accepted;
       channel = hostMessageChannel(
         socket,
         reader,
         transport,
         (message) => {
-          if (!seenHello) {
-            if (message instanceof Uint8Array || message.type !== "hello")
-              throw new Error("First message must be hello");
+          if (seenHello) return;
+          const type = firstMessageType(message);
+          // After an NK answer the client's first message is its confirmation; its hello came
+          // in the handshake.
+          if (nkSession) {
+            if (type !== "hello.confirm") throw new Error("First message must be hello.confirm");
             seenHello = true;
+            return;
           }
+          // A pairing redemption is answered and closed by the daemon; it never authorizes.
+          if (type === "pair.redeem" && !redeeming) {
+            redeeming = true;
+            return;
+          }
+          if (type !== "hello" || redeeming) throw new Error("First message must be hello");
+          seenHello = true;
         },
         () => {
           if (!seenHello) throw new Error("Device hello has not been received");
@@ -104,7 +230,7 @@ export async function connectHostToRelay(options: {
       const opened = channel;
       channels.add(opened);
       void Promise.resolve()
-        .then(() => options.onClientChannel(opened))
+        .then(() => (nkSession ? nkSession.open(opened) : options.onClientChannel(opened)))
         .catch(() => opened.close());
       await opened.closed;
     } finally {
@@ -115,25 +241,82 @@ export async function connectHostToRelay(options: {
       if (channel) channels.delete(channel);
     }
   }
+  async function openHttp(ticket: string): Promise<void> {
+    const http = options.http;
+    if (!http) return;
+    httpActive++;
+    try {
+      const { socket, reader } = await dial(
+        relayAddress(options.relayUrl, "/serve", { ticket, hostId: id }),
+        controller.signal,
+        clock,
+        limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
+      );
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      const stopLiveness = watchLiveness(
+        socket,
+        clock,
+        limits.idleTimeoutMs,
+        limits.pingIntervalMs,
+      );
+      try {
+        await serveHttpExchange(socket, reader, http.handle, { clock, signal: controller.signal });
+      } finally {
+        stopLiveness();
+      }
+    } finally {
+      httpActive--;
+    }
+  }
+  /** Whether to take an `http` ticket, or why not. */
+  async function httpAnswer(): Promise<"open" | "off" | "busy"> {
+    const http = options.http;
+    if (!http || !(await Promise.resolve(http.enabled()).catch(() => false))) return "off";
+    return httpActive >= (http.maxConcurrent ?? 32) ? "busy" : "open";
+  }
   const run = (async () => {
     let retryMs = limits.retryInitialMs;
     while (!controller.signal.aborted) {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
+      let registeredHere = false;
       try {
+        const account = options.account;
+        const grant = account ? await account.grant(controller.signal) : undefined;
         const connection = await dial(
-          relayAddress(options.relayUrl, "/host"),
+          // The id only selects where a relay routes this host (a Durable Object); the
+          // handshake below still proves it.
+          relayAddress(options.relayUrl, "/host", {
+            hostId: id,
+            ...(account?.name ? { name: account.name } : {}),
+            ...(account?.platform ? { platform: account.platform } : {}),
+            ...(options.http || options.media
+              ? {
+                  features: [
+                    ...(options.http ? [HTTP_FEATURE] : []),
+                    ...(options.media ? [MEDIA_FEATURE] : []),
+                  ].join(","),
+                }
+              : {}),
+          }),
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
+          grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
+          options.aceClient,
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
         sockets.add(socket);
         const owned = socket;
-        socket.once("close", (code) => {
+        socket.once("close", (code, reason) => {
           sockets.delete(owned);
-          if (code === 4001 || code === 1008) cancel();
+          // 1008: the relay refused this host. 4001: a newer registration replaced this one.
+          if (code === 1008) refuse(new RelayRefusedError(code, reason.toString()));
+          else if (code === 4001) cancel();
         });
         expire = clock.schedule(limits.handshakeTimeoutMs, () => owned.terminate());
         const transport = await initiateHandshake(socket, connection.reader, {
@@ -152,7 +335,9 @@ export async function connectHostToRelay(options: {
             throw new Error("Invalid registration");
           expire();
           generation++;
+          registeredHere = true;
           retryMs = limits.retryInitialMs;
+          options.onRegistration?.(true);
           for (const waiter of waiters.splice(0)) {
             if (generation > waiter.after) waiter.resolve(generation);
             else waiters.push(waiter);
@@ -163,7 +348,51 @@ export async function connectHostToRelay(options: {
                 new TextDecoder().decode(transport.receive.decrypt(await connection.reader.next())),
               ),
             );
+            if (message.type === "http") {
+              const ticket = message.ticket;
+              const control = socket;
+              const task = httpAnswer().then((answer) => {
+                if (answer === "open") return openHttp(ticket);
+                // The session may have ended while the setting was read; the relay's own
+                // deadline answers the caller then.
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
+                  transport.send.encrypt(
+                    new TextEncoder().encode(
+                      JSON.stringify({ type: "reject", ticket, reason: answer }),
+                    ),
+                  ),
+                ).catch(() => {});
+              });
+              const settled = task.catch(() => {});
+              tasks.add(settled);
+              void settled.finally(() => tasks.delete(settled));
+              continue;
+            }
             if (message.type !== "client") throw new Error("Invalid client ticket");
+            if (message.purpose === "media") {
+              // ace-media dials this itself with its own minimal upgrade, so the daemon's
+              // name rides on the URL (ADR 0189).
+              const joinUrl = relayAddress(options.relayUrl, "/join", {
+                ticket: message.ticket,
+                hostId: id,
+                ...(options.aceClient ? { [ACE_CLIENT_PARAM]: options.aceClient } : {}),
+              });
+              const ticket = message.ticket;
+              const control = socket;
+              const reject = () => {
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
+                  transport.send.encrypt(
+                    new TextEncoder().encode(JSON.stringify({ type: "reject", ticket })),
+                  ),
+                ).catch(() => {});
+              };
+              if (!options.media?.offer(ticket, joinUrl, reject)) reject();
+              continue;
+            }
             const reservation = slots.reserve(message.ticket);
             if (!reservation.accepted) {
               await sendFrame(
@@ -186,11 +415,14 @@ export async function connectHostToRelay(options: {
         } finally {
           transport.destroy();
         }
-      } catch {
-        /* Re-register with fresh ephemerals after network or relay failure. */
+      } catch (error) {
+        // Re-register with fresh ephemerals (and a fresh grant) after a network or relay
+        // failure; a refusal stops instead.
+        if (error instanceof RelayRefusedError) refuse(error);
       } finally {
         expire();
         socket?.terminate();
+        if (registeredHere && !controller.signal.aborted) options.onRegistration?.(false);
       }
       await delay(clock, Math.round(retryMs * (0.5 + random() * 0.5)), controller.signal);
       retryMs = Math.min(retryMs * 2, limits.retryMaxMs);
@@ -209,7 +441,7 @@ export async function connectHostToRelay(options: {
     },
     async close() {
       cancel();
-      options.signal?.removeEventListener("abort", cancel);
+      options.signal?.removeEventListener("abort", abort);
       await run;
       await Promise.all(tasks);
     },

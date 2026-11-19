@@ -11,58 +11,13 @@ enum ComposerControlRow {
     static let height: CGFloat = 36
 }
 
-/// The composer's model controls, two taps: the model's name opens the model sheet; the effort
-/// ("Med", "Med · Fast") opens effort and speed. The effort shows only when the model has levels or speeds.
-struct ModelEffortChip: View {
-    let provider: String?
-    let model: String
-    /// "Med", "Med · Fast"; nil when the model has nothing to tune.
-    let effort: String?
-    var loading = false
-    var queued = false
-    let modelID: String
-    let effortID: String
-    let openModel: () -> Void
-    let openEffort: () -> Void
-
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            Button(action: openModel) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 14) }
-                    if loading { ProgressView().controlSize(.mini) }
-                    Text(model).lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading).fixedSize()
-                    caret
-                }
-                .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: ComposerControlRow.height)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Model").accessibilityValue(model)
-            .accessibilityIdentifier(modelID)
-            if let effort {
-                Button(action: openEffort) {
-                    HStack(spacing: AceTheme.Spacing.xs) {
-                        Text(effort).lineLimit(1).fixedSize()
-                        caret
-                    }
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .frame(minHeight: ComposerControlRow.height)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Effort and speed").accessibilityValue(effort)
-                .accessibilityIdentifier(effortID)
-            }
-        }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-    }
-    private var caret: some View {
-        AceIcon(queued ? .clock : .caretDown, size: 11, relativeTo: .caption)
-            .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+/// The model's tuning in brief for the title's line: the level, and the speed when it isn't the
+/// standard one ("Med · Fast"); nil when the model has nothing to tune.
+enum TuneSummary {
+    static func text(effort: String?, speed: String?, hasLevels: Bool, hasSpeeds: Bool) -> String? {
+        guard hasLevels || hasSpeeds else { return nil }
+        let parts = [effort ?? (hasLevels ? "Default" : nil), speed].compactMap { $0 }
+        return parts.isEmpty ? "Standard" : parts.joined(separator: " · ")
     }
 }
 
@@ -73,12 +28,23 @@ struct AccessItem: Identifiable, Equatable {
     let description: String
     let attention: Bool
     var id: String { mode }
+    /// Match the web composer's access glyphs in both the chip and its choices.
+    static func icon(for mode: String?) -> AceIcon.Name {
+        switch mode {
+        case "read-only": .eye
+        case "ask": .handPalm
+        case "auto-review": .shieldCheck
+        case "full-access": .shieldWarning
+        case nil: .shield
+        default: .slidersHorizontal
+        }
+    }
     /// The riskier mode says so in words, never by colour alone.
     var detail: String { attention ? "Riskier: " + description.prefix(1).lowercased() + description.dropFirst() : description }
 }
 
-/// The composer's access control beside +: a shield and the mode's name ("⛨ Auto review ⌄"), the
-/// shield alone where there is no room for the name. It opens the short access list.
+/// The access control uses the web's glyph for its selected mode, with its name when there is
+/// room. Its icon remains distinct in compact layouts. It opens the short access list.
 struct AccessChip: View {
     let label: String
     let selected: String?
@@ -89,16 +55,15 @@ struct AccessChip: View {
     let select: (String) -> Void
     @Environment(\.composerRoomy) private var roomy
     @State private var choosing = false
-    private var risky: Bool { items.first { $0.mode == selected }?.attention == true }
 
     var body: some View {
         Button { choosing = true } label: {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if loading { ProgressView().controlSize(.mini) }
-                else { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.small) }
+                else { AceIcon(AccessItem.icon(for: selected), size: AceDesign.Size.metaIcon, relativeTo: .subheadline) }
                 if roomy {
                     Text(label).lineLimit(1).fixedSize()
-                    AceIcon(.caretDown, size: 11, relativeTo: .caption)
+                    AceIcon(.caretDown, size: AceDesign.Size.caret, relativeTo: .caption)
                         .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }
@@ -156,6 +121,7 @@ struct AccessRows: View {
         ForEach(items) { item in
             Button { choose(item.mode) } label: {
                 HStack(spacing: AceTheme.Spacing.md) {
+                    AceIcon(AccessItem.icon(for: item.mode), size: AceDesign.Size.barIcon)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(item.label).aceFont(InsetStyle.label, relativeTo: .body)
                             .foregroundStyle(AceTheme.Colours.foreground)

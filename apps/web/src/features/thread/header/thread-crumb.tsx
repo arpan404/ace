@@ -1,56 +1,83 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
+import type { DelegatedFrom } from "@ace/protocol";
 import { agentName, projectBadge } from "@ace/ui-core";
+import { ChatCircleIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
+import { Icon } from "@/components/icon.tsx";
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/projects.ts";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
- * Where a thread sits, before its title in the header: its project's badge and name, or, for a
- * child ace delegated, the parent thread as a link. A fork is a thread of its own: it names its
- * project, and its transcript says where it was forked from.
+ * A child ace delegated names its parent thread before its title, as a link back. Any other
+ * thread has no parent crumb: its project shows as its badge and name before its title.
+ * A fork is a thread of its own; its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
-  const parent = meta?.delegatedBy;
-  if (parent)
-    return (
-      <>
-        <MachineCrumb />
-        <ParentCrumb threadId={parent} />
-      </>
-    );
-  return meta ? <ProjectCrumb workspaceId={meta.workspaceId} /> : null;
+  const parent = useVisibleParent(meta?.delegatedBy);
+  if (parent) return <ParentCrumb threadId={parent} />;
+  if (meta?.delegatedFrom) return <RemoteParentCrumb from={meta.delegatedFrom} />;
+  return null;
 }
 
-/** A thread's project, before its title: its badge and name, after its machine when not this one. */
-export function ProjectCrumb(props: { workspaceId: string }) {
-  const name = useProjectName()(props.workspaceId);
+/** Whether the thread's header shows a parent before its title (`ThreadCrumb`). */
+export function useHasParentCrumb(threadId: string): boolean {
+  const meta = useThreadMeta(threadId);
+  const parent = useVisibleParent(meta?.delegatedBy);
+  return parent !== undefined || meta?.delegatedFrom !== undefined;
+}
+
+/**
+ * A child an agent on a paired machine delegated here: its parent lives on that machine, so the
+ * crumb names the machine rather than linking to a thread this machine doesn't have.
+ */
+function RemoteParentCrumb(props: { from: DelegatedFrom }) {
+  const machine = props.from.hostName ?? "another machine";
   return (
-    <>
-      <MachineCrumb />
-      <ProjectMark id={props.workspaceId} badge={projectBadge({ id: props.workspaceId, name })} />
-      <span className="truncate">{name}</span>
-    </>
+    <Tip label={`Delegated by a thread on ${machine}`}>
+      <span className="truncate">{machine}</span>
+    </Tip>
   );
 }
 
 /**
- * Work on another machine (ADR 0102) names that machine first, the way every machine is named:
- * its mark and name. Nothing on this window's own machine, so a single machine never shows one.
+ * The project's badge and name before a thread's title, visible even with the sidebar hidden.
+ * The tooltip also names a remote computer (ADR 0102). A chat has no project (ADR 0099), so it
+ * keeps only its chat bubble.
  */
-function MachineCrumb() {
+export function ProjectGlyph(props: { thread: ChatTestEntry }) {
+  const name = useProjectName()(props.thread.workspaceId);
+  const chat = useIsChatThread()(props.thread);
   const machine = useScopedMachine();
-  if (!machine) return null;
+  const what = chat ? "Chat" : name;
+  const said = machine ? `${machine.name} / ${what}` : what;
   return (
-    <>
-      <MachineLabel name={machine.name} icon={machine.icon} primary={false} />
-      <span aria-hidden className="text-subtle-foreground">
-        /
+    <Tip label={said}>
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <span role="img" aria-label={chat ? said : `Project ${said}`} className="inline-flex">
+          {chat ? (
+            <Icon icon={ChatCircleIcon} />
+          ) : (
+            <ProjectMark
+              id={props.thread.workspaceId}
+              badge={projectBadge({ id: props.thread.workspaceId, name })}
+            />
+          )}
+        </span>
+        {!chat && (
+          <>
+            <span className="max-w-32 truncate text-ui">{name}</span>
+            <span aria-hidden className="text-subtle-foreground">
+              /
+            </span>
+          </>
+        )}
       </span>
-    </>
+    </Tip>
   );
 }
 
@@ -61,9 +88,9 @@ function MachineCrumb() {
 export function SubagentCrumb(props: { threadId: string; parentAgentId: string }) {
   const parent = useAgent(props.threadId, props.parentAgentId);
   const search = useMachineSearch();
+  // A subagent reads `thread / subagent`, wherever it runs: never a machine first.
   return (
     <>
-      <MachineCrumb />
       {!parent || parent.origin === "root" ? (
         <ParentCrumb threadId={props.threadId} />
       ) : (
@@ -88,13 +115,31 @@ export function ParentCrumb(props: { threadId: string }) {
   const parent = useSidebarThread(props.threadId);
   const search = useMachineSearch();
   return (
+    <ParentCrumbLink
+      threadId={props.threadId}
+      title={parent?.title ?? "Parent thread"}
+      search={search}
+    />
+  );
+}
+
+/**
+ * The link back to a parent thread, from what was read about it: it reads no machine itself, so
+ * a view on another machine (a child delegated there) can show its parent on this one.
+ */
+export function ParentCrumbLink(props: {
+  threadId: string;
+  title: string;
+  search: { machine?: string };
+}) {
+  return (
     <Link
       to="/t/$threadId"
       params={{ threadId: props.threadId }}
-      search={search}
+      search={props.search}
       className={crumbLink}
     >
-      {parent?.title ?? "Parent thread"}
+      {props.title}
     </Link>
   );
 }

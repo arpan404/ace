@@ -35,13 +35,11 @@ try {
     await page.waitForTimeout(1500);
     const variants =
       fixture === "thread-worktree-cleanup"
-        ? ["default", "spinner-static", "all-static", "all-static-no-blur", "hidden"]
+        ? ["default", "all-static", "all-static-no-blur", "hidden"]
         : ["default"];
     for (const variant of variants) {
       let style;
       let front;
-      if (variant === "spinner-static")
-        style = await page.addStyleTag({ content: ".spin-ring { animation: none !important; }" });
       if (variant.startsWith("all-static"))
         style = await page.addStyleTag({
           content: `*,*::before,*::after { animation: none !important; } ${variant.endsWith("no-blur") ? "* { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }" : ""}`,

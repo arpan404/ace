@@ -75,7 +75,10 @@ test("a goal shows on the pill between turns, and its sheet pauses and clears it
     () => pill()?.segments.length && pill()?.segments,
     "the goal on the pill",
   );
-  expect(segments).toEqual([{ kind: "goal", label: "Pursuing goal", opens: "goal", live: false }]);
+  // Its progress rides on the pill, as the web's goal strip shows it beside the status.
+  expect(segments).toEqual([
+    { kind: "goal", label: "Pursuing goal", detail: "2 checks", opens: "goal", live: false },
+  ]);
   expect(goal()).toMatchObject({
     title: "Pursuing goal",
     objective: "all tests pass",
@@ -152,4 +155,114 @@ test("a request card takes the pill's place while it is open, and the pill comes
     "the pill coming back",
   );
   expect(back?.segments.map((segment) => segment.kind)).toEqual(["goal"]);
+});
+
+const leftRunning = () =>
+  latest("thread.pill")?.leftRunning as
+    | { strip: { sentence: string; payload: string; lead: unknown }; taskIds: string[] }
+    | null
+    | undefined;
+
+function relay(stopped: boolean) {
+  return [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Start the relay."),
+    facts.tool("root", "relay", {
+      kind: "shell",
+      title: "bun run dev:relay",
+      detail: { kind: "shell", command: "bun run dev:relay" },
+    }),
+    {
+      type: "background.started" as const,
+      agent: "root",
+      task: "relay",
+      kind: "shell" as const,
+      title: "bun run dev:relay",
+      item: "relay",
+      stoppable: true,
+    },
+    ...(stopped ? [facts.endTurn("root", "interrupted")] : []),
+  ];
+}
+
+test("a command a stopped turn left running shows on the strip with its command and one Stop", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "stopped", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("stopped", relay(true));
+  open(connect(fake), "stopped");
+  const left = await until(() => leftRunning() ?? undefined, "what the stop left running");
+  expect(left.strip).toMatchObject({
+    lead: { icon: "background", tone: "background" },
+    sentence: "Running",
+    payload: "bun run dev:relay",
+  });
+  expect(left.taskIds).toHaveLength(1);
+});
+
+test("while the turn still works, nothing is said to be left running", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "busy", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("busy", relay(false));
+  open(connect(fake), "busy");
+  await until(() => pill()?.status ?? undefined, "the pill");
+  expect(leftRunning()).toBeNull();
+});
+
+const covers = () =>
+  (
+    latest("thread.pill")?.pill as
+      | { covers?: { subagents: boolean; commands: boolean } }
+      | null
+      | undefined
+  )?.covers;
+
+test("the pill says which live facts it names, so the transcript can leave them to it", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "tree", workspaceId: "ace", title: "Tree", provider: "codex" });
+  fake.apply("tree", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review it."),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Review PID reuse",
+      detail: { kind: "agent.spawn", description: "Review PID reuse", childAgent: "reviewer" },
+    }),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  open(connect(fake), "tree");
+  // "Waiting on 1" names the subagent; no command runs.
+  expect(await until(() => covers(), "what the pill names")).toEqual({
+    subagents: true,
+    commands: false,
+  });
+});
+
+test("a command running beside the work is named by the pill", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "relay", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("relay", relay(false));
+  open(connect(fake), "relay");
+  expect(
+    await until(() => (covers()?.commands ? covers() : undefined), "the command on the pill"),
+  ).toEqual({
+    subagents: false,
+    commands: true,
+  });
+});
+
+test("a pill that only says the turn works names no subagent or command", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "run", workspaceId: "ace", title: "Run", provider: "codex" });
+  fake.apply("run", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Go"),
+  ]);
+  open(connect(fake), "run");
+  await until(() => pill()?.status ?? undefined, "the pill");
+  expect(covers()).toEqual({ subagents: false, commands: false });
 });

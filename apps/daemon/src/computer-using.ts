@@ -13,12 +13,14 @@ export interface ComputerUsingOptions {
 }
 
 interface Use {
+  name: string;
+  appId: string | undefined;
   calls: number;
   stopLinger: (() => void) | undefined;
 }
 
 /**
- * The threads whose agent is using Mac apps now (computer use), from the calls in flight: an
+ * The threads whose agent is using desktop apps now (computer use), from the calls in flight: an
  * app joins when a look or action starts and leaves a short while after the last one ends.
  * Listeners hear the whole set, and only when it changes.
  */
@@ -33,16 +35,17 @@ export class ComputerUsingThreads {
   }
 
   /** A call by `threadId`'s agent in `app` started; the returned function ends it. */
-  begin(threadId: ThreadId, app: string): () => void {
+  begin(threadId: ThreadId, app: string, appId?: string): () => void {
     const apps = this.uses.get(threadId) ?? new Map<string, Use>();
     this.uses.set(threadId, apps);
-    const existing = apps.get(app);
-    const use = existing ?? { calls: 0, stopLinger: undefined };
+    const key = appId ?? app;
+    const existing = apps.get(key);
+    const use = existing ?? { name: app, appId, calls: 0, stopLinger: undefined };
     use.calls++;
     use.stopLinger?.();
     use.stopLinger = undefined;
     if (!existing) {
-      apps.set(app, use);
+      apps.set(key, use);
       this.changed();
     }
     let ended = false;
@@ -51,12 +54,19 @@ export class ComputerUsingThreads {
       ended = true;
       if (--use.calls > 0) return;
       use.stopLinger = this.options.after(this.options.lingerMs ?? 8_000, () => {
-        if (use.calls > 0 || apps.get(app) !== use) return;
-        apps.delete(app);
+        if (use.calls > 0 || apps.get(key) !== use) return;
+        apps.delete(key);
         if (!apps.size) this.uses.delete(threadId);
         this.changed();
       });
     };
+  }
+
+  /** Stable helper identities for cowork; display names stay in `threads()`. */
+  appIds(threadId: ThreadId): string[] {
+    return [...(this.uses.get(threadId)?.values() ?? [])]
+      .map((use) => use.appId)
+      .filter((id): id is string => id !== undefined);
   }
 
   threads(): readonly ThreadApps[] {
@@ -69,7 +79,10 @@ export class ComputerUsingThreads {
   }
 
   private changed(): void {
-    this.current = [...this.uses].map(([threadId, apps]) => ({ threadId, apps: [...apps.keys()] }));
+    this.current = [...this.uses].map(([threadId, apps]) => ({
+      threadId,
+      apps: [...apps.values()].map((use) => use.name),
+    }));
     for (const listener of this.listeners) listener(this.current);
   }
 }

@@ -5,15 +5,16 @@ import { fileURLToPath } from "node:url";
 
 test("an asynchronous daemon spawn failure closes logs and lets the supervisor process terminate", async () => {
   const api = fileURLToPath(new URL("./index.ts", import.meta.url));
+  // The daemon that never started is a bare emitter: Bun's ChildProcess can't be built unspawned.
   const script = `
     const {runSupervisor}=await import(${JSON.stringify(api)});
-    const {ChildProcess}=await import('node:child_process');
+    const {EventEmitter}=await import('node:events');
     const {Writable}=await import('node:stream');
     const output=new Writable({write(c,e,cb){cb()},final(cb){process.stdout.write('output closed\\n');cb()}});
     const errors=new Writable({write(c,e,cb){cb()},final(cb){process.stdout.write('errors closed\\n');cb()}});
     try {
       await runSupervisor({output,errors,dailyUpdates:true,
-        spawnDaemon(){const child=new ChildProcess();queueMicrotask(()=>child.emit('error',Object.assign(new Error('EAGAIN'),{code:'EAGAIN'})));return child},
+        spawnDaemon(){const child=Object.assign(new EventEmitter(),{pid:undefined,exitCode:null,signalCode:null,stdout:null,stderr:null,kill:()=>false});queueMicrotask(()=>child.emit('error',Object.assign(new Error('EAGAIN'),{code:'EAGAIN'})));return child},
         launchUpdate(){throw new Error('unexpected updater')},journalPending:()=>false,
         schedule(ms,callback){const t=setTimeout(callback,ms);return()=>clearTimeout(t)},
         subscribeStop:()=>()=>{},report:()=>{}

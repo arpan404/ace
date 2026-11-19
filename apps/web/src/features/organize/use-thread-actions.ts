@@ -1,14 +1,33 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
-import { ThreadId, WorkspaceId } from "@ace/protocol";
+import { RunId, ThreadId, WorkspaceId } from "@ace/protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
-import type { OrganizePatch } from "@ace/ui-core";
-import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
-import { runningWork } from "./running-work.ts";
+import {
+  deleteQuestion,
+  isChatEntry,
+  leftRunningCommands,
+  runningWork,
+  stopAndDeleteQuestion,
+  type OrganizePatch,
+} from "@ace/ui-core";
+import {
+  askBeforeArchive,
+  useArchiveConfirmation,
+  useDeleteConfirmation,
+} from "./delete-confirmation.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
+import { currentNow } from "@/lib/live-connection.ts";
+import {
+  archiveAction,
+  decide,
+  deleteAction,
+  type Decided,
+  type ListAction,
+} from "@/lib/list-actions.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -21,12 +40,17 @@ export interface ThreadTarget {
   title: string;
   workspaceId: string;
   snoozedUntil?: number | null | undefined;
+  /** What its current snooze waits for, so Undo puts it back as it was. */
+  snoozeWake?: { on: SnoozeWakeOn } | undefined;
   pinned?: boolean | undefined;
   /** Its place among pinned threads, so Undo puts an unpinned thread back where it was. */
   pinOrder?: number | undefined;
   /** False when the thread never settles by itself. */
   autoSettle?: false | undefined;
 }
+
+/** The event a snooze waits for, besides its time: a request or finish, or a PR change. */
+export type SnoozeWakeOn = "needs_you" | "pr";
 
 /** A pinned thread's new place, from a drag or a keyboard move (`placePinned`). */
 export interface PinPlacement {
@@ -35,12 +59,17 @@ export interface PinPlacement {
 }
 
 export interface ThreadActions {
+  /** Settle, with a toast offering Undo, which takes back only the settle. */
   settle(entry: ThreadTarget): void;
   /** Unsettle, which also keeps it from settling by itself again. */
   unsettle(entry: ThreadTarget): void;
   /** Let the thread settle by itself again, or keep it until settled by hand. */
   setAutoSettle(entry: ThreadTarget, enabled: boolean): void;
-  snooze(entry: ThreadTarget, until: number): void;
+  /**
+   * Snooze until `until`, or sooner on `wake`'s event (then `until` is only a backstop), with a
+   * toast offering Undo. `label` says how ("until it needs you", "until tomorrow 9:00 AM").
+   */
+  snooze(entry: ThreadTarget, until: number, wake?: SnoozeWakeOn, label?: string): void;
   wake(entry: ThreadTarget): void;
   /** Pin (leading the group) or unpin. */
   setPinned(entry: ThreadTarget, pinned: boolean): void;
@@ -50,8 +79,21 @@ export interface ThreadActions {
   placeListed(placements: readonly PinPlacement[]): void;
   /** Pin (leading the group, in list order) or unpin several at once. */
   setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
-  /** Archive several threads at once, with one Undo. */
-  archiveMany(entries: readonly ThreadTarget[]): void;
+  /**
+   * Archive several threads at once, with one Undo. When any left commands running, which
+   * archiving stops, it asks first; `archived` runs once the archive goes ahead (not on Cancel).
+   */
+  archiveMany(entries: readonly ThreadTarget[], archived?: () => void): void;
+  /** Archive several threads at once, with one Undo, without asking: the caller asked. */
+  /**
+   * Archive now. `decided` (from `decisions`, taken when the person was asked) is what the
+   * daemon fences each archive to; without it, the decision is now.
+   */
+  archiveManyNow(entries: readonly ThreadTarget[], decided?: ReadonlyMap<string, Decided>): void;
+  /** What the person sees of `entries` as they are asked: carried to the archive or delete. */
+  decisions(entries: readonly ThreadTarget[]): ReadonlyMap<string, Decided>;
+  /** How many commands each thread left running, which archiving it would stop. */
+  leftRunning(entries: readonly ThreadTarget[]): { title: string; leftRunning: number }[];
   /** Delete several threads at once, for good: no Undo, so ask first. */
   removeMany(entries: readonly ThreadTarget[]): void;
   /** Move threads to another project, with one Undo back to where each was. */
@@ -60,7 +102,8 @@ export interface ThreadActions {
   rename(entry: ThreadTarget, title: string): void;
   /**
    * Archive with Undo, which opens the thread again. A thread still working or waiting on the
-   * person asks first: stop it too, or keep it running. `leave` runs once it is archived.
+   * person asks first: stop it too, or keep it running. A done thread that left commands
+   * running asks too, since archiving stops them. `leave` runs once it is archived.
    */
   archive(entry: ThreadTarget, leave?: () => void): void;
   /** Back from the archive to Home. */
@@ -84,9 +127,7 @@ type Organize = Extract<
       | "thread.pin"
       | "thread.read"
       | "thread.rename"
-      | "thread.archive"
       | "thread.unarchive"
-      | "thread.delete"
       | "thread.place"
       | "thread.move";
   }
@@ -102,7 +143,8 @@ interface Refusal {
 /** One organize action: what it shows at once, the command, and words for its list and toast. */
 interface Action {
   patch: OrganizePatch;
-  payload: Organize;
+  /** Archive and delete decide on the list: built and checked as they send by `live-actions`. */
+  payload: Organize | ListAction;
   /** "Archive", for the list of what waits for the daemon. */
   verb: string;
   /** "archive the thread", after "Couldn't". */
@@ -178,6 +220,14 @@ const settle = (entry: ThreadTarget): Action => ({
   failed: "settle the thread",
 });
 
+/** Taking a settle back: only the settle goes (`thread.unsettle` with `undo`). */
+const undoSettle = (entry: ThreadTarget): Action => ({
+  patch: { undoSettle: true },
+  payload: { type: "thread.unsettle", threadId: id(entry), undo: true },
+  verb: "Undo settle",
+  failed: "take the settle back",
+});
+
 const unsettle = (entry: ThreadTarget): Action => ({
   patch: { settled: false, autoSettle: false },
   payload: { type: "thread.unsettle", threadId: id(entry) },
@@ -192,16 +242,17 @@ const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
   failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
 });
 
-const snooze = (entry: ThreadTarget, until: number | null): Action => ({
-  patch: { snoozedUntil: until },
-  payload: { type: "thread.snooze", threadId: id(entry), until },
+const snooze = (entry: ThreadTarget, until: number | null, wake?: SnoozeWakeOn): Action => ({
+  patch: { snoozedUntil: until, snoozeWake: wake ?? null },
+  payload: { type: "thread.snooze", threadId: id(entry), until, ...(wake ? { wake } : {}) },
   verb: until === null ? "Wake" : "Snooze",
   failed: until === null ? "wake the thread" : "snooze the thread",
 });
 
-const archive = (entry: ThreadTarget): Action => ({
+/** `decided`: what the person saw when asked; the daemon refuses it if newer work started. */
+const archive = (entry: ThreadTarget, decided: Decided): Action => ({
   patch: { archived: true },
-  payload: { type: "thread.archive", threadId: id(entry) },
+  payload: archiveAction(entry.id, decided),
   verb: "Archive",
   failed: "archive the thread",
 });
@@ -291,33 +342,91 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       return applied;
     });
   };
-  /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
-  const stopTree = (listed: ThreadListEntry) => {
+  /** How many commands each thread left running, as the list has it now. */
+  const leftRunning = (entries: readonly ThreadTarget[]) => {
+    const lease = client.threads();
+    const counts = entries.map((entry) => {
+      const listed = lease.store.thread(entry.id);
+      return { title: entry.title, leftRunning: listed ? leftRunningCommands(listed) : 0 };
+    });
+    lease.release();
+    return counts;
+  };
+  /** Decisions for `entries` as of now: taken when the person is asked, carried to the send. */
+  const decisions = (entries: readonly ThreadTarget[]) =>
+    new Map(entries.map((entry) => [entry.id, decide(client, entry.id)]));
+  /** Archive now; `decided` when a question asked earlier stands for the decision. */
+  const archiveManyNow = (
+    entries: readonly ThreadTarget[],
+    decided: ReadonlyMap<string, Decided> = decisions(entries),
+  ) =>
+    void reversibleAll(
+      entries.map((entry) => ({
+        entry,
+        action: archive(entry, decided.get(entry.id) ?? decide(client, entry.id)),
+        undo: unarchive(entry),
+      })),
+      `Archived ${count(entries.length)}`,
+    );
+  /**
+   * Archive and delete decide by whether a thread runs, so they wait for a confirmed list: a
+   * saved "done" may be working again, and a saved "working" may have ended.
+   */
+  const listCurrent = () => {
+    if (currentNow(client)) return true;
+    toast.add({
+      title: "Not changed yet",
+      description: "Try again once the thread list is up to date.",
+    });
+    return false;
+  };
+  /**
+   * Stop the whole tree and the commands it watches, as Stop & archive promises. The interrupt
+   * always names what it may stop: the root run the list says runs, else the thread's cursor
+   * (nothing started after it is stopped); with neither, nothing is stopped.
+   */
+  const stopTree = async (listed: ThreadListEntry, decided: Decided): Promise<boolean> => {
+    // Loaded on first use: the sidebar paints without the sender.
+    const { stopTask, stopThread } = await import("@/lib/live-actions.ts");
+    // Both from when the person was asked: the run the list showed, else what they had seen.
     const runId = listed.live?.rootRunId ?? undefined;
+    const cursor = decided.beforeSeq;
+    const fence = runId
+      ? { runId: RunId.parse(runId) }
+      : cursor === undefined
+        ? undefined
+        : { beforeSeq: cursor };
+    const enqueue = (payload: CommandPayload) => client.enqueue(payload, crypto.randomUUID());
+    // Decided on the list as it is now; refused without a fence or a current list.
+    const stop = stopThread(client, "list", listed.id, fence, enqueue);
+    if (!stop.ok) {
+      toast.error({
+        title: "Couldn't stop the thread",
+        description:
+          stop.refused === "unfenced"
+            ? "Open it and stop it there, then archive it."
+            : "Try again once the thread list is up to date.",
+      });
+      return false;
+    }
     const sends = [
-      client.enqueue(
-        {
-          type: "thread.interrupt",
-          threadId: listed.id,
-          cascade: true,
-          ...(runId ? { runId } : {}),
-        },
-        crypto.randomUUID(),
-      ),
-      ...(listed.live?.watching ?? []).map((task) =>
-        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
-      ),
+      stop.sent,
+      ...(listed.live?.watching ?? []).flatMap((task) => {
+        const sent = stopTask(client, "list", task.id, enqueue);
+        return sent.ok ? [sent.sent] : [];
+      }),
     ];
     void Promise.all(sends).catch((error: unknown) =>
       toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
     );
+    return true;
   };
-  const deleteOne = (entry: ThreadTarget, force: boolean) =>
+  const deleteOne = (entry: ThreadTarget, force: boolean, decided: Decided) =>
     overlay
       .run(
         entry.id,
         { deleted: true },
-        { type: "thread.delete", threadId: id(entry), ...(force ? { force } : {}) },
+        deleteAction(entry.id, force, decided),
         `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
         Date.now(),
       )
@@ -335,8 +444,26 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    * refused only because their agents or terminals are still running are offered together
    * as one Stop and delete, which stops that work on the daemon and then deletes.
    */
-  const removeAll = (entries: readonly ThreadTarget[], force = false) => {
-    void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
+  const removeAll = (
+    entries: readonly ThreadTarget[],
+    force = false,
+    // When the person was asked; a plain delete carries no fence, so now is as good.
+    decided: ReadonlyMap<string, Decided> = decisions(entries),
+  ) => {
+    // Read before the delete: a chat's hidden project goes with its last thread (ADR 0099).
+    const lease = client.threads();
+    const chats = new Set(
+      entries.flatMap((entry) => {
+        const listed = lease.store.thread(entry.id);
+        return listed && isChatEntry(listed) ? [entry.id] : [];
+      }),
+    );
+    lease.release();
+    void Promise.all(
+      entries.map((entry) =>
+        deleteOne(entry, force, decided.get(entry.id) ?? decide(client, entry.id)),
+      ),
+    ).then((outcomes) => {
       const refused = outcomes.filter((outcome) => outcome !== undefined);
       const removed = entries.length - refused.length;
       // The rows leaving the list are the confirmation.
@@ -349,10 +476,14 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
             (shown.machine ?? undefined) === machine.machine &&
             !refused.some((refusal) => refusal.entry.id === entry.id),
         );
+        // A deleted chat opens a new chat, not its hidden project, which may be gone.
         if (activeDeleted)
           void navigate({
             to: "/new",
-            search: { project: activeDeleted.workspaceId, ...machine },
+            search: {
+              project: chats.has(activeDeleted.id) ? chatChoice : activeDeleted.workspaceId,
+              ...machine,
+            },
             replace: true,
           });
       }
@@ -364,22 +495,39 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         });
       const only = live.length === 1 ? live[0] : undefined;
       if (!live.length) return;
+      // Asked now: Stop and delete stops what was running as of this question, nothing newer.
+      const asked = decisions(live.map((refusal) => refusal.entry));
       confirmation.open({
         title: only ? only.entry.title : count(live.length),
-        running: "Agents or terminals are still running. They will stop before deletion.",
+        running: stopAndDeleteQuestion(live.map((refusal) => refusal.entry.title)).running,
         confirm: () =>
           removeAll(
             live.map((refusal) => refusal.entry),
             true,
+            asked,
           ),
       });
     });
   };
   return {
-    settle: (entry) => void act(entry, settle(entry)),
+    settle: (entry) =>
+      void reversibleAll(
+        [{ entry, action: settle(entry), undo: undoSettle(entry) }],
+        `Settled · ${entry.title}`,
+      ),
     unsettle: (entry) => void act(entry, unsettle(entry)),
     setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
-    snooze: (entry, until) => void act(entry, snooze(entry, until)),
+    snooze: (entry, until, wake, label) => {
+      // Undo puts back the snooze it had, if one was still ahead, else wakes it.
+      const before =
+        entry.snoozedUntil != null && entry.snoozedUntil > Date.now()
+          ? snooze(entry, entry.snoozedUntil, entry.snoozeWake?.on)
+          : snooze(entry, null);
+      void reversibleAll(
+        [{ entry, action: snooze(entry, until, wake), undo: before }],
+        `Snoozed${label ? ` ${label}` : ""} · ${entry.title}`,
+      );
+    },
     wake: (entry) => void act(entry, snooze(entry, null)),
     setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),
     placePinned: (placements) => {
@@ -407,11 +555,17 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       }
       for (const entry of changing) void act(entry, unpin(entry));
     },
-    archiveMany: (entries) =>
-      void reversibleAll(
-        entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
-        `Archived ${count(entries.length)}`,
-      ),
+    archiveMany: (entries, archived) => {
+      if (!listCurrent()) return;
+      const asked = decisions(entries);
+      askBeforeArchive(archiving, leftRunning(entries), () => {
+        archiveManyNow(entries, asked);
+        archived?.();
+      });
+    },
+    archiveManyNow,
+    decisions,
+    leftRunning,
     removeMany: (entries) => removeAll(entries),
     moveMany: (entries, to) => {
       const moving = entries.filter((entry) => entry.workspaceId !== to.id);
@@ -442,9 +596,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       });
     },
     archive: (entry, leave) => {
+      // What the person sees as they are asked (or as they archive, when nothing asks).
+      const asked = decide(client, entry.id);
       const archiveNow = () => {
         void reversibleAll(
-          [{ entry, action: archive(entry), undo: unarchive(entry) }],
+          [{ entry, action: archive(entry, asked), undo: unarchive(entry) }],
           `Archived · ${entry.title}`,
           // Undo takes the person back to the thread they archived, wherever they went.
           () =>
@@ -452,18 +608,26 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         );
         leave?.();
       };
+      if (!listCurrent()) return;
       const lease = client.threads();
       const listed = lease.store.thread(entry.id);
       lease.release();
       const running = listed && runningWork(listed);
-      if (!listed || !running) return archiveNow();
+      if (!listed || !running) {
+        // Done, but with commands left running: Undo brings the thread back, not them.
+        return askBeforeArchive(archiving, leftRunning([entry]), archiveNow);
+      }
       archiving.open({
+        kind: "running",
         title: entry.title,
         running,
         archive: archiveNow,
         stopAndArchive: () => {
-          stopTree(listed);
-          archiveNow();
+          // Confirmed later than it was asked: the list must still be current, and the Stop safe.
+          if (!listCurrent()) return;
+          void stopTree(listed, asked).then((stopped) => {
+            if (stopped) archiveNow();
+          });
         },
       });
     },
@@ -473,13 +637,15 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       const lease = client.threads();
       const status = lease.store.thread(entry.id)?.status;
       lease.release();
-      const running = status && !["done", "failed", "stopped"].includes(status.state);
+      // Only a confirmed list may say it runs: otherwise the delete goes unforced, and the daemon
+      // refuses it if work still runs, offering Stop and delete from what is true now.
+      const question =
+        status && currentNow(client) ? deleteQuestion([{ title: entry.title, status }]) : undefined;
+      const asked = decisions([entry]);
       confirmation.open({
         title: entry.title,
-        running: running
-          ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
-          : "",
-        confirm: () => removeAll([entry], !!running),
+        running: question?.running ?? "",
+        confirm: () => removeAll([entry], question?.force === true, asked),
       });
     },
     newThreadOnMain: (entry) =>

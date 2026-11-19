@@ -66,7 +66,7 @@ try {
   const css = weigh([...initial].filter((file) => file.endsWith(".css")));
   const failures: string[] = [];
   const report = (label: string, size: number, limit: number) => {
-    const line = `${label.padEnd(56)} ${size.toFixed(2).padStart(7)} KB  (≤ ${limit})`;
+    const line = `${label.padEnd(56)} ${size.toFixed(0).padStart(4)} KB  (≤ ${limit})`;
     process.stdout.write(`${size > limit ? "✗" : " "} ${line}\n`);
     if (size > limit) failures.push(line);
   };
@@ -110,8 +110,8 @@ try {
     for (const next of imports(file).eager) workerClosure(next, into);
     return into;
   };
-  // A page chunk can have "worker" in its name too (`components/markdown/worker.ts`, the page's
-  // side of the markdown worker); it is in the manifest and weighed with the routes that load it.
+  // A page chunk can have "worker" in its name too; it is in the manifest and weighed
+  // with the routes that load it.
   const pageFiles = new Set(
     Object.values(manifest).map((chunk) => chunk.file.replace(/^assets\//, "")),
   );
@@ -132,12 +132,18 @@ try {
             lazy.add(chunk);
             queue.push(chunk);
           }
-    if (lazy.size)
+    if (lazy.size) {
       report(
         `${label} with its lazy chunks`,
         weighOf([...eager, ...lazy]),
         budgets.bundle.workerTotalKb,
       );
+      // No budget of its own: the total above bounds it, so moving bytes behind import()
+      // never buys room. Shown so growth in the later chunks is visible apart from startup.
+      process.stdout.write(
+        `  ${`${label} lazy chunks alone`.padEnd(56)} ${weighOf(lazy).toFixed(0).padStart(4)} KB\n`,
+      );
+    }
   }
   if (analyze) {
     process.stdout.write(initialBreakdown(out));

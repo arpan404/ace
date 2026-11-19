@@ -50,6 +50,8 @@ export async function readNativeMedia(
     };
     return {
       kind: "html",
+      /** The page as the agent wrote it, for Copy source. */
+      source: html,
       // The page's own sandboxed frame inside the trusted outer document, which reports the
       // page's content height through its title so the transcript can size it inline. WKWebView
       // uses a 980px desktop layout viewport without a viewport meta, shrinking content to about
@@ -59,6 +61,7 @@ export async function readNativeMedia(
         html,
         theme,
         resolveHtmlMode(html, item.visualization.mode),
+        item.visualization.kit,
       ).replace(
         "<head>",
         '<head><meta name="viewport" content="width=device-width, initial-scale=1">',

@@ -1,6 +1,6 @@
 import { stepHighlight } from "@ace/ui-core";
 import { compareRanked, rankCommand } from "@ace/ui-core/command-rank";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import {
   CommandOption,
@@ -9,12 +9,14 @@ import {
   commandStepField,
   stepFieldKey,
 } from "./command-step.tsx";
-import { backHint, escapeHint, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
+import { fieldHints, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
 
 export interface CommandChoice {
   id: string;
   label: string;
   icon: IconGlyph;
+  /** Drawn instead of the icon when set: a project's own badge. */
+  mark?: ReactNode;
   /** Muted text after the label; also searched. */
   detail?: string | undefined;
   /** Shown at the right (a machine's status). */
@@ -22,12 +24,15 @@ export interface CommandChoice {
   /** The row's accessible name when the aside adds to the label ("Studio, Offline"). */
   spoken?: string | undefined;
   disabled?: boolean;
+  /** A hairline above the row, separating it from the rows above (an action after items). */
+  separatorBefore?: boolean | undefined;
 }
 
 /**
  * A palette step that is one short list to choose from (Add project's sources, a machine, a
  * project): the field narrows it, ↑ ↓ move, Enter or a click chooses. The first row is
- * highlighted from the start.
+ * highlighted from the start. With `onSwitchMachines`, Ctrl+M flips between the project list
+ * and the machine list without leaving the keyboard; the chip stays Tab-reachable too.
  */
 export function CommandChoices(props: {
   fieldLabel: string;
@@ -38,6 +43,9 @@ export function CommandChoices(props: {
   onBack: (() => void) | undefined;
   empty: ReactNode;
   trailing?: ReactNode;
+  /** Flip to the other list (projects ↔ machines); shown as a ⌃M hint in the footer. */
+  onSwitchMachines?: (() => void) | undefined;
+  switchLabel?: string | undefined;
 }) {
   const [text, setText] = useState("");
   const [active, setActive] = useState<number | undefined>(0);
@@ -83,6 +91,18 @@ export function CommandChoices(props: {
             setActive(0);
           }}
           onKeyDown={(event) => {
+            // Ctrl+M flips between projects and machines (⌘M would minimize the window).
+            if (
+              props.onSwitchMachines &&
+              (event.key === "m" || event.key === "M") &&
+              event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              props.onSwitchMachines();
+              return;
+            }
             if (stepFieldKey(event, { text, onBack: props.onBack, onClear: () => setText("") }))
               return;
             if (event.key === "ArrowDown" || event.key === "ArrowUp")
@@ -97,24 +117,28 @@ export function CommandChoices(props: {
       </CommandStepRow>
       <CommandStepList id={listId} label={props.listLabel}>
         {rows.map((choice, at) => (
-          <CommandOption
-            key={choice.id}
-            id={`${listId}-${at}`}
-            active={at === current}
-            label={choice.spoken ?? choice.label}
-            disabled={choice.disabled}
-            onPoint={() => setActive(at)}
-            onPick={() => choose(choice)}
-          >
-            <Icon icon={choice.icon} />
-            <span className="min-w-0 flex-1 truncate">
-              {choice.label}
-              {choice.detail && (
-                <span className="ml-1.5 text-sm text-muted-foreground">{choice.detail}</span>
-              )}
-            </span>
-            {choice.aside}
-          </CommandOption>
+          <Fragment key={choice.id}>
+            {at > 0 && choice.separatorBefore ? (
+              <div aria-hidden="true" className="mx-2 my-1 border-t border-border" />
+            ) : null}
+            <CommandOption
+              id={`${listId}-${at}`}
+              active={at === current}
+              label={choice.spoken ?? choice.label}
+              disabled={choice.disabled}
+              onPoint={() => setActive(at)}
+              onPick={() => choose(choice)}
+            >
+              {choice.mark ?? <Icon icon={choice.icon} />}
+              <span className="min-w-0 flex-1 truncate">
+                {choice.label}
+                {choice.detail && (
+                  <span className="ml-1.5 text-sm text-muted-foreground">{choice.detail}</span>
+                )}
+              </span>
+              {choice.aside}
+            </CommandOption>
+          </Fragment>
         ))}
         {rows.length === 0 && (
           <div role="status" className="py-8 text-center text-ui text-muted-foreground">
@@ -125,8 +149,10 @@ export function CommandChoices(props: {
       <KeyHints
         hints={[
           ...(rows.length ? [navigateHint, selectHint] : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(text),
+          ...(props.onSwitchMachines
+            ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Machine" }]
+            : []),
+          ...fieldHints(text, props.onBack),
         ]}
       />
     </>

@@ -1,10 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { maxMessageBytes, type Device } from "@ace/protocol";
+import { maxMessageBytes, maxSpadeRequestBytes, type Device } from "@ace/protocol";
 import type { MachineTarget } from "./target.ts";
+import { keepTrusted } from "../sni-listener.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
-/** A delegated task is as long as a message; the call's other fields fit in the rest. */
-const maxBody = maxMessageBytes + 64 * 1024;
+/**
+ * A delegated task is as long as a message, and a request for Spade's inbox as long as any
+ * request to Spade; the call's other fields fit in the rest.
+ */
+const maxBody = Math.max(maxMessageBytes, maxSpadeRequestBytes) + 64 * 1024;
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -24,7 +28,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
  * revoked device or a turned-off opt-in stops the next call.
  */
 export function machineCallsHttp(
-  target: () => MachineTarget | undefined,
+  target: () => Pick<MachineTarget, "handle"> | undefined,
   authenticate: (token: string) => Device | undefined,
   next: Listener,
 ): Listener {
@@ -53,6 +57,8 @@ export function machineCallsHttp(
       reply(401, { error: "unauthorized" });
       return;
     }
+    // An authenticated paired machine keeps its connection open for its next call.
+    keepTrusted(request, response);
     if (!owner) {
       request.resume();
       reply(503, { error: "unavailable" });

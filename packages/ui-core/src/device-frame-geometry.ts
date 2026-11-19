@@ -92,10 +92,11 @@ function faceOf(kind: DeviceKind, name: string, short: number): Face {
       return appleFace(ipadFace(name), short, 0.006);
     case "watch":
       return plain(0.1, 0.22, 0.03);
+    // One thin, even bezel of glass and metal, as the daemon draws an emulator's body.
     case "android-phone":
-      return plain(0.035, 0.09, 0.01);
+      return plain(0.026, 0.09, 0.007);
     case "android-tablet":
-      return plain(0.045, 0.035, 0.006);
+      return plain(0.03, 0.035, 0.005);
     case "tv":
     case "vision":
       return plain(0.012, 0.008, 0);

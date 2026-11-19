@@ -1,3 +1,4 @@
+import { agentEnvPluginDirectory, sessionShellEnvironment } from "./agent-env.ts";
 import { aceConfigEnvironment } from "./mcp-ready.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
@@ -15,6 +16,8 @@ import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 import { waitForOutput } from "@ace/provider-kit/flow-control";
 import { transientFailure } from "./recovery-failure.ts";
+import type { LaunchedTree, TreeLeader } from "./launched-tree.ts";
+import type { WindowsTreeMember } from "@ace/provider-kit/process-identity";
 export { eventSession } from "./boundaries.ts";
 export type ServerConsumer = {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
@@ -61,6 +64,7 @@ class ConsumerFailure extends Error {
   }
 }
 const Identity = z.object({ version: z.string(), pid: z.number().int().positive() }).passthrough();
+const ServerSecrets = z.array(z.string().min(1).max(4096)).max(32);
 /** One process/stream/reconnect owner per adapter instance. */
 export class OpenCodeServer {
   readonly runtime: Runtime;
@@ -80,6 +84,15 @@ export class OpenCodeServer {
   private client: OpenCodeClient | undefined;
   private factory: typeof OpenCode | undefined;
   private identity: z.infer<typeof Identity> | undefined;
+  /** Windows: the launched tree and the member accepted as its server, per owned process. */
+  private launch:
+    | {
+        process: SupervisedProcess;
+        tree: LaunchedTree;
+        leader: TreeLeader;
+        member?: WindowsTreeMember;
+      }
+    | undefined;
   private deliberate = false;
   private recovering = false;
   private recoveryStarted = 0;
@@ -102,12 +115,35 @@ export class OpenCodeServer {
   constructor(options: ServerOptions = {}) {
     this.options = {
       ...options,
-      secrets: z
-        .array(z.string().min(1).max(4096))
-        .max(32)
-        .parse(options.secrets ?? []),
+      secrets: ServerSecrets.parse(options.secrets ?? []),
     };
     this.runtime = runtime(options.runtime);
+  }
+  /** The executable this server's process was started from, once discovery found it. */
+  get installedAs(): { path: string; identity: string | undefined } | undefined {
+    return this.installed;
+  }
+  private installed: { path: string; identity: string | undefined } | undefined;
+  /** What the owned process inherited: the spawn's own environment merged over ace's. */
+  private inherited: NodeJS.ProcessEnv | undefined;
+  /**
+   * The environment one session's shell commands run with, carrying its thread's variables
+   * (agent-env.ts). Undefined for an attached server: ace didn't start it, doesn't know what its
+   * shells inherit and installed no gate in it, so it never replaces their environment.
+   */
+  shellEnvironment(agentEnv: Readonly<Record<string, string>>): Record<string, string> | undefined {
+    return this.inherited && sessionShellEnvironment(this.inherited, agentEnv);
+  }
+  /**
+   * A spare started before its session gets that session's credential here, before any request
+   * can carry it. Clients made at startup share the array, so they redact it too.
+   */
+  addSecret(secret: string): void {
+    this.options = {
+      ...this.options,
+      secrets: ServerSecrets.parse([...(this.options.secrets ?? []), secret]),
+    };
+    if (!this.secrets.includes(secret)) this.secrets.push(secret);
   }
   subscribe(consumer: ServerConsumer): () => void {
     if (this.consumers.size >= 128) throw new Error("OpenCode session limit reached");
@@ -192,6 +228,11 @@ export class OpenCodeServer {
           throw Object.assign(new Error("OpenCode is not installed"), { code: "not_configured" });
         expected = cli.version ?? "";
         if (!version(expected)) throw versionRefusal(cli.version);
+        // Read before the spawn: a file replaced after this no longer matches what runs.
+        this.installed = {
+          path: cli.path,
+          identity: await this.runtime.installationIdentity(cli.path),
+        };
         const password = this.runtime.entropy(32);
         this.authorization = basicAuthorization(password);
         this.secrets = [
@@ -202,14 +243,21 @@ export class OpenCodeServer {
         ];
         this.controller.signal.throwIfAborted();
         const providerEnv = this.options.discovery?.env;
-        const env =
-          this.options.mcpReadyPlugin || this.options.skillDirectories?.length
-            ? aceConfigEnvironment(
-                providerEnv,
-                providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
-                { plugin: this.options.mcpReadyPlugin, skills: this.options.skillDirectories },
-              )
-            : providerEnv;
+        // The environment gate is always there: no session's command may run before ace has
+        // given that session its thread's variables (agent-env.ts).
+        const env = aceConfigEnvironment(
+          providerEnv,
+          providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
+          {
+            plugins: [
+              agentEnvPluginDirectory(),
+              ...(this.options.mcpReadyPlugin ? [this.options.mcpReadyPlugin] : []),
+            ],
+            skills: this.options.skillDirectories,
+          },
+        );
+        // The spawn merges its environment over ace's own the same way.
+        this.inherited = { ...process.env, ...env };
         const proc = spawnOwnedServer({
           spawn: this.runtime.spawn,
           command: cli.path,
@@ -217,15 +265,19 @@ export class OpenCodeServer {
           password,
         });
         this.process = proc;
+        if ((this.runtime.platform ?? process.platform) === "win32") await this.recordLaunch(proc);
         // stdout/stderr are intentionally not observed: startup/config logs may contain secrets.
         const generation = this.controller;
-        void proc.exited.then(() => {
-          if (this.process !== proc) return;
-          generation.abort();
-          if (generation !== this.controller) return;
-          for (const c of this.consumers)
-            c.exited(this.deliberate, "OpenCode owned process exited");
-        });
+        // exited never rejects; every consumer hears the exit through this handler.
+        void proc.exited
+          .then(() => {
+            if (this.process !== proc) return;
+            generation.abort();
+            if (generation !== this.controller) return;
+            for (const c of this.consumers)
+              c.exited(this.deliberate, "OpenCode owned process exited");
+          })
+          .catch(() => {});
         this.base = await ownedServerReady(proc, this.controller.signal);
       }
       if (!version(expected)) throw versionRefusal(expected);
@@ -280,6 +332,8 @@ export class OpenCodeServer {
   }
   private async verify(expected: string): Promise<void> {
     const info = Identity.parse(await this.client?.server.info({ signal: this.controller.signal }));
+    if ((this.runtime.platform ?? process.platform) === "win32")
+      return this.verifyShimmed(info, expected);
     if (
       info.version !== expected ||
       !version(info.version) ||
@@ -289,6 +343,40 @@ export class OpenCodeServer {
       // The binary changed between discovery and start (e.g. an update): rediscover and retry.
       throw new IdentityChanged("OpenCode process/version identity mismatch");
     this.identity = info;
+  }
+  /**
+   * Windows launches an npm install through its `.cmd` shim (cmd.exe, then Node's launcher), so
+   * the pid ace spawned is never the server's own. The server's pid must belong to the tree ace
+   * launched and keep its creation time across later checks.
+   */
+  private verifyShimmed(info: z.infer<typeof Identity>, expected: string): void {
+    if (
+      info.version !== expected ||
+      !version(info.version) ||
+      (this.identity && info.pid !== this.identity.pid)
+    )
+      throw new IdentityChanged("OpenCode process/version identity mismatch");
+    if (this.process) {
+      // Only a member of ace's own launch may answer: a stale URL can name another server.
+      const launch = this.launch;
+      if (launch?.process !== this.process)
+        throw new IdentityChanged("OpenCode launch identity unavailable");
+      const member = launch.tree.members(launch.leader).find((m) => m.pid === info.pid);
+      // A recorded member must keep its creation time, so a reused pid is someone else.
+      if (!member || (launch.member && launch.member.start !== member.start))
+        throw new IdentityChanged("OpenCode server is outside the process tree ace launched");
+      launch.member = member;
+    }
+    this.identity = info;
+  }
+  /** Windows: records the launched process's identity before anything can reuse its pid. */
+  private async recordLaunch(proc: SupervisedProcess): Promise<void> {
+    const tree =
+      this.runtime.launchedTree ??
+      (await (await import("./launched-tree.ts")).nativeLaunchedTree());
+    const leader = proc.pid === undefined ? undefined : tree.leader(proc.pid);
+    if (!leader) throw new IdentityChanged("OpenCode launch identity unavailable");
+    this.launch = { process: proc, tree, leader };
   }
   reconcileNow(): Promise<void> {
     this.beginRecovery();
@@ -329,7 +417,8 @@ export class OpenCodeServer {
           if (event.type === "server.connected") {
             established = true;
             connected();
-            if (this.recovering) void this.recover();
+            // recover() retries until the server closes; its failures stay inside recovery.
+            if (this.recovering) void this.recover().catch(() => {});
             continue;
           }
           const targets = this.routes.select(data, watermark, this.consumers);
@@ -340,7 +429,8 @@ export class OpenCodeServer {
             // The first seq may include an inherited fork prefix. Establish baseline first.
             if (previous !== undefined && durable.seq > previous + 1) {
               this.beginRecovery(watermark - 1);
-              void this.recover();
+              // recover() retries until the server closes; its failures stay inside recovery.
+              void this.recover().catch(() => {});
             }
             if (previous === undefined || durable.seq > previous)
               this.sequences.set(durable.aggregateID, durable.seq);

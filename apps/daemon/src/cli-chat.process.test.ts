@@ -92,7 +92,7 @@ test("terminal chat creates and resumes one shared daemon thread with its live t
   }
 });
 
-test("chat shows descendant human attention and resolves its approval inline without claiming completion", async () => {
+test("chat off a terminal shows descendant attention without claiming completion, and answers nothing", async () => {
   const f = await daemonFixture();
   const home = join(f.h.home, "daemon");
   const spawned = await invoke(home, [
@@ -134,10 +134,18 @@ test("chat shows descendant human attention and resolves its approval inline wit
     expect(session.records).not.toContainEqual(
       expect.objectContaining({ type: "status", status: "ok" }),
     );
+    // Off a terminal nobody is there to confirm: a piped `y` answers nothing (ADR 0178 §12.5).
     session.child.stdin.write("y\n");
-    await session.next((entry) => entry.type === "receipt");
-    const read = await invoke(home, ["thread", "read", child, "--json"]);
-    expect(JSON.parse(read.stdout).interactions).not.toContainEqual(
+    await session.next((entry) => entry.type === "error");
+    expect(session.records).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        status: "needs-human",
+        message: "Answering a request needs you at a terminal to confirm it.",
+      }),
+    );
+    const read = await invoke(home, ["thread", "show", child, "--json"]);
+    expect(JSON.parse(read.stdout).interactions).toContainEqual(
       expect.objectContaining({ state: "pending" }),
     );
     session.child.stdin.end("/quit\n");
@@ -172,7 +180,10 @@ test("chat stop and the next message use the shared queue and model selection ra
     await expect
       .poll(() => f.daemon.engine?.queue(threadId).reason, { timeout: 10000 })
       .toBe("stopped");
-    await session.next((entry) => entry.type === "status" && entry.status === "needs-human");
+    // The person's own Stop reads done, not needs-human (ADR 0052).
+    await session.next(
+      (entry) => entry.type === "status" && entry.status === "ok" && entry.working === false,
+    );
     // The person's next message is their go-ahead: it releases the stop and is delivered.
     session.child.stdin.write("Next chat input\n");
     await expect

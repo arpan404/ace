@@ -10,6 +10,7 @@
     "./preview": "./src/preview.ts",
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
+    "./forge-capabilities": "./src/forge-capabilities.ts",
     "./forge-worktree": "./src/forge-worktree.ts",
     "./forge-lifecycle": "./src/forge-lifecycle.ts",
     "./forge-issues": "./src/forge-issues.ts",
@@ -19,6 +20,7 @@
     "./forge-review": "./src/forge-review.ts",
     "./forge-checks": "./src/forge-checks.ts",
     "./forge-browser": "./src/forge-browser.ts",
+    "./workspace-actions": "./src/workspace-actions.ts",
     "./forge-new-pr": "./src/forge-new-pr.ts",
     "./forge-file-content": "./src/forge-file-content.ts",
     "./forge-people": "./src/forge-people.ts",
@@ -32,12 +34,18 @@
     "./handoff-read": "./src/handoff-read.ts",
     "./pi": "./src/pi.ts",
     "./ids": "./src/ids.ts",
+    "./ace-client": "./src/ace-client.ts",
     "./notifications": "./src/notifications.ts",
     "./thread-status": "./src/thread-status.ts",
     "./background": "./src/background.ts",
     "./agent-status": "./src/agent-status.ts",
     "./entities": "./src/entities.ts",
-    "./offshift": "./src/offshift.ts"
+    "./ace-account": "./src/ace-account.ts",
+    "./suits": "./src/suits.ts",
+    "./marketplace": "./src/marketplace.ts",
+    "./suit-parts": "./src/suit-parts.ts",
+    "./cli-output": "./src/cli-output.ts",
+    "./cli-outputs": "./src/cli-outputs.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

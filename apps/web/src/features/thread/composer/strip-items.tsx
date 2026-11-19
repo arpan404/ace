@@ -1,3 +1,4 @@
+import "@/styles/composer-strip.css";
 import { planCount, type PlanProgress } from "@ace/ui-core";
 import type { TodoEntry } from "@ace/protocol";
 import {
@@ -17,7 +18,7 @@ import {
   WarningIcon,
   WifiSlashIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -157,6 +158,8 @@ export function ConnectionStrip(props: {
   offline: boolean;
   /** Reconnecting because the daemon is another version than this app. */
   mismatch?: boolean;
+  /** The desktop is still starting its daemon: its step, said instead of "Reconnecting…". */
+  starting?: string | undefined;
   onRetry(): void;
   indicators: ReactNode;
 }) {
@@ -185,7 +188,7 @@ export function ConnectionStrip(props: {
             {versionMismatchWords}
           </span>
         ) : (
-          <span className="text-foreground">Reconnecting…</span>
+          <span className="text-foreground">{props.starting ?? "Reconnecting"}…</span>
         )}
       </span>
       <IconButton icon={ArrowClockwiseIcon} label="Retry now" size="sm" onClick={props.onRetry} />

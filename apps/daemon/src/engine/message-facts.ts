@@ -3,7 +3,8 @@ import type { Capabilities, CommandId, ThreadId } from "@ace/protocol";
 import type { InputFate } from "./input-fate.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
-import { rootRun } from "./steer-yield.ts";
+import { isPersonSteer, rootRun, steerRestartsTurn } from "./steer-yield.ts";
+import { runsProviderWork } from "./transition-history.ts";
 
 /**
  * What the engine knows about an accepted message that decides when it reaches the model. Read
@@ -24,9 +25,12 @@ export interface MessageFacts {
   turnRunning: boolean;
   /** Between turns, the queue would send it now (`readyForInput`). */
   acceptsInput: boolean;
-  /** The provider can put input into a running turn. */
+  /** The provider can put this input into a running turn without stopping it. */
   steers: boolean;
-  /** The provider's steer interrupts the running turn and restarts it with the input (Cursor). */
+  /**
+   * The provider's steer interrupts the running turn and restarts it with the input (Cursor);
+   * only ever for the person's steer, since anything else waits for the turn to end.
+   */
   restartsTurn: boolean;
 }
 
@@ -65,15 +69,18 @@ export function readyForInput(
   intent: IntentHeader,
 ): boolean {
   if (intent.trigger === "subagent_result") return readyForChildResults(state);
+  if (repo.quiescent(state)) return true;
+  // A replied thread reads done while the commands it left running still run (ADR 0116).
+  const selection = repo.pending.hasSelection(intent.id);
+  if (selection && runsProviderWork(state)) return false;
   const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
   return (
     ["new", "done", "failed"].includes(status.state) ||
-    repo.quiescent(state) ||
     (intent.kind === "thread.send" &&
       (intent.trigger === undefined ||
         intent.trigger === "user" ||
         intent.trigger === "parent_agent") &&
-      !repo.pending.hasSelection(intent.id) &&
+      !selection &&
       repo.acceptsPersonInput(state))
   );
 }
@@ -92,6 +99,8 @@ export function readMessageFacts(
   const header = [...repo.pending.headers(id)].find((entry) => entry.commandId === commandId);
   const waiting = repo.queue.snapshot(id).messages.map((message) => message.id);
   const at = waiting.indexOf(commandId);
+  const restarts = capabilities ? steerRestartsTurn(capabilities) : false;
+  const person = !header || isPersonSteer(header, repo.steerNotes.personChose(header.id));
   return {
     fate: fate.state,
     ...(fate.state === "failed" ? { error: fate.error } : {}),
@@ -105,7 +114,8 @@ export function readMessageFacts(
       repo.pending.recoveryAcknowledgement(id),
     turnRunning: state !== undefined && rootRun(state) !== undefined,
     acceptsInput: !state || !header || readyForInput(repo, state, header),
-    steers: capabilities?.steer ?? false,
-    restartsTurn: capabilities?.steeringMode === "interrupt-restart",
+    // A steer that would restart the turn goes in only for the person; any other waits for it.
+    steers: (capabilities?.steer ?? false) && (person || !restarts),
+    restartsTurn: restarts && person,
   };
 }

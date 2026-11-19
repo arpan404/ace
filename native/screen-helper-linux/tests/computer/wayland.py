@@ -1,6 +1,6 @@
 """Live check of `--computer` in a GNOME Wayland session (see run-wayland.sh).
 
-AT-SPI semantics work as on X11. Screenshots go through the ScreenCast portal: the first one
+Semantics come from AT-SPI. Screenshots go through the ScreenCast portal: the first one
 asks the person in the portal's dialog (approved here through the dialog's own accessibility
 tree, as a person would click it), later ones restore silently from the saved token. Raw input
 is unavailable and must say so in words the model can act on.
@@ -127,9 +127,12 @@ def main() -> None:
         ])
         check("buttons press by id on Wayland", "error" not in act, act)
 
-        raw = helper.result("act", app="Calculator", actions=[{"type": "click", "x": 10, "y": 10}])
+        unplaced = helper.result("act", app="Calculator", actions=[{"type": "click", "x": 10, "y": 10}])
+        check("an x,y click before any screenshot asks for one",
+              unplaced.get("error", {}).get("code") == "no_screenshot", unplaced)
+        raw = helper.result("act", app="Calculator", actions=[{"type": "drag", "from": [10, 10], "to": [40, 40]}])
         error = raw.get("error", {})
-        check("a raw click is not_supported and points to element ids",
+        check("a drag is not_supported and points to element ids",
               error.get("code") == "not_supported" and "element ids" in error.get("message", ""), raw)
 
         editor = helper.result("state", app="Text Editor")

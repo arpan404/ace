@@ -1,14 +1,10 @@
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
+import { toolchainInstallers, toolchainNames } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-/** Each tool's name as people know it. */
-export const toolchainNames = {
-  git: "Git",
-  xcode: "iOS Simulator",
-  "serve-sim": "Simulator streaming",
-  android: "Android emulators",
-};
+export { toolchainInstallers, toolchainNames } from "@ace/ui-core";
 
 /** The connected computer's tools (Git, Xcode, serve-sim, the Android SDK), read once. */
 export function useToolchains() {
@@ -42,11 +38,11 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
           </Button>
         </p>
       ) : (
-        <ul className="divide-y">
+        <ul {...part("list", undefined, "tools")} className="divide-y">
           {tools.data
             ?.filter((tool) => !devices || tool.id !== "git")
             .map((tool) => (
-              <li key={tool.id}>
+              <li key={tool.id} {...part("list-row", tool.available ? "done" : "disabled", "tool")}>
                 <div className="flex h-8 items-center justify-between gap-2 text-sm">
                   <span>{toolchainNames[tool.id]}</span>
                   <StatusLabel
@@ -55,7 +51,19 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
                   />
                 </div>
                 {!tool.available && (
-                  <p className="pb-2 text-sm text-muted-foreground break-words">{tool.hint}</p>
+                  <div className="pb-2 text-sm text-muted-foreground break-words">
+                    <p>{tool.hint}</p>
+                    {(tool.id === "xcode" || tool.id === "android") && (
+                      <a
+                        href={toolchainInstallers[tool.id].href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-link focus-ring hover:underline"
+                      >
+                        {toolchainInstallers[tool.id].label}
+                      </a>
+                    )}
+                  </div>
                 )}
               </li>
             ))}

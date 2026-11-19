@@ -1,22 +1,39 @@
 import {
   ComputerClient,
+  type ComputerClientOptions,
   graphicalSessionEnvironment,
   installScreenHelper,
   linuxComputerEnvironment,
   localScreenManager,
+  macPhysicalInput,
+  windowsPhysicalInput,
+  ScreenCowork,
+  type ScreenCoworkOptions,
   screenConnection,
   type Simulators,
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
-import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
+import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
+import { startMedia } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
+import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export async function startScreen({ config, options, resources, services, store }: ServiceContext) {
+export async function startScreen(
+  context: ServiceContext,
+  clock: ScreenCoworkOptions["clock"] = {
+    now: () => performance.now(),
+    set: nodeScheduler.after,
+  },
+) {
+  const { config, options, resources, services, store, now: epochNow } = context;
   const helper = resolveScreenHelper({
     platform: process.platform,
     configured: config.screenHelper,
@@ -27,6 +44,34 @@ export async function startScreen({ config, options, resources, services, store 
   // Linux: the desktop session is read from the user manager each time a helper starts.
   const session =
     process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
+  // Cowork (ADR 0143): one lease per app for the live view and the agent tools. On a Mac the
+  // person's own keyboard and mouse count while that app is frontmost. Windows uses filtered
+  // hooks seeded once from GetLastInputInfo. Linux counts only input routed through ace.
+  const cowork = new ScreenCowork({
+    clock,
+    epochNow,
+    // Injected screens and engines (tests) never read this machine's own input.
+    ...(process.platform === "darwin" && !options.screen && !options.computer
+      ? {
+          physical: macPhysicalInput({
+            now: clock.now,
+            ioreg: (args) => output("/usr/sbin/ioreg", args),
+            apps: async () => services.computer?.request("apps", {}),
+          }),
+        }
+      : process.platform === "win32" && !options.screen && !options.computer
+        ? {
+            physical: windowsPhysicalInput({
+              now: clock.now,
+              idle: async () => services.computer?.request("physical_input", {}),
+              apps: async () => services.computer?.request("apps", {}),
+            }),
+          }
+        : {}),
+  });
+  // ace-media (ADR 0147, phase 2): Mac screens stream into it while `media.encode` is `auto`.
+  const media =
+    process.platform === "darwin" && helper && !options.screen ? startMedia(context) : undefined;
   const manager =
     options.screen ??
     (helper
@@ -34,18 +79,33 @@ export async function startScreen({ config, options, resources, services, store 
           manifest: config.screenHelperManifest,
           inheritResponsibility: config.screenHelperInheritsResponsibility,
           session,
+          cowork,
+          media: media ? { add: (producer) => media.attach(producer) } : undefined,
         })
       : undefined);
   if (!manager) return;
+  services.screenCowork = cowork;
   const settings = new ScreenSettings(store);
+  // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
+  // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
+  // only a helper that has connected to the accessibility bus turns it on.
+  let wakeAccessibility: (() => void) | undefined;
   manager.configureAccess({
     enabled: () => settings.enabled(),
-    enable: (enabled) => settings.enable(enabled),
+    enable: (enabled) => {
+      settings.enable(enabled);
+      if (enabled) wakeAccessibility?.();
+    },
     // Agent MCP notices are emitted by the result observer, covering pre-dispatch failures too.
     audit() {},
   });
   resources.own(() => manager.close());
   services.screen = manager;
+  if (options.computer) {
+    services.computer = options.computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+    return;
+  }
   if (!helper || options.screen) return;
   // Opt-in per-action timings, written to stderr as JSON lines.
   const timings = config.computerUseTimings
@@ -57,6 +117,13 @@ export async function startScreen({ config, options, resources, services, store 
         },
       }
     : {};
+  if (process.platform === "win32") {
+    const computer = windowsComputerClient(helper, config.dataDir, timings);
+    resources.own(() => computer.close());
+    services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+    return;
+  }
   const computer =
     process.platform === "darwin"
       ? // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
@@ -73,14 +140,58 @@ export async function startScreen({ config, options, resources, services, store 
             environment: linuxComputerEnvironment(session),
             // Wayland screen-sharing approvals (portal restore tokens) outlive the helper.
             helperArgs: ["--data-dir", join(config.dataDir, "screen")],
+            // The helper restores a borrowed clipboard and releases held keys when stdin closes.
+            stopGraceMs: 1_000,
             ...timings,
           })
         : undefined;
   if (!computer) return;
+  if (session) {
+    wakeAccessibility = () => {
+      // No session yet, or none at all: the first look tries again.
+      computer.request("hello", {}).catch(() => {});
+    };
+    if (settings.enabled()) wakeAccessibility();
+  }
   resources.own(() => computer.close());
   services.computer = computer;
+  if (process.platform === "darwin") {
+    // Started only when a gated call needs it: with locked use off it never runs.
+    const lockedUse = new LockedUseRuntime({
+      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+      socketPath: lockedUseSocketPath(config.dataDir),
+      nextId: randomUUID,
+      attemptId: () => randomBytes(32).toString("base64url"),
+      scheduler: { after: nodeScheduler.after },
+    });
+    resources.own(() => lockedUse.close());
+    services.lockedUseRuntime = lockedUse;
+  }
   services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
 }
+/**
+ * Windows computer use: the session helper's executable, where `--computer` selects the
+ * background engine. Paths the agent names for executables outside the Start menu are
+ * remembered under the data dir. `extra` adds timings, or a test's spawner.
+ */
+export function windowsComputerClient(
+  helper: string,
+  dataDir: string,
+  extra: Partial<ComputerClientOptions> = {},
+): ComputerClient {
+  return new ComputerClient({
+    helper: async () => helper,
+    nextId: randomUUID,
+    helperArgs: ["--data-dir", join(dataDir, "screen")],
+    // The helper restores a borrowed clipboard and releases held keys when stdin closes.
+    stopGraceMs: 1_000,
+    // A console program started from a windowless daemon would open a console window.
+    spawnHelper: (command, args, env) =>
+      spawn(command, [...args], { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true }),
+    ...extra,
+  });
+}
+
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;
   return {
@@ -92,6 +203,12 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
         send: context.send,
         // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
         pictureEncoder: () => context.options.browser?.videoEncoder(),
+        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        delivery: {
+          owner: () => mediaOwner(context),
+          port: () => context.options.mediaDelivery?.(),
+        },
+        acceleration: context.options.mediaAcceleration,
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>
@@ -154,4 +271,20 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       return true;
     },
   };
+}
+
+/** A short command's standard output; it fails if the command does. */
+function output(command: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let text = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (text.length < 1_000_000) text += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0 ? resolve(text) : reject(new Error(`${command} ${code}`)),
+    );
+  });
 }

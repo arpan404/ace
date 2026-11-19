@@ -1,5 +1,11 @@
 import * as z from "zod/mini";
-import { readJson, rememberRecent, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import {
+  readJson,
+  rememberScoped,
+  writeJson,
+  type KeyValueStorage,
+  type ScopedLists,
+} from "@ace/ui-core";
 import { useCallback, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 
@@ -37,11 +43,11 @@ export class ScopedRecent {
   remember(scope: string, value: string) {
     const current = this.get(scope);
     if (current[0] === value && this.entries.keys().next().value === scope) return;
-    const next = [
-      [scope, rememberRecent(current, value, this.perScope)] as const,
-      ...[...this.entries].filter(([id]) => id !== scope),
-    ];
-    this.entries = new Map(next.slice(0, this.scopes));
+    const next: ScopedLists = rememberScoped([...this.entries], scope, value, {
+      perScope: this.perScope,
+      scopes: this.scopes,
+    });
+    this.entries = new Map(next);
     writeJson(this.storage, this.key, [...this.entries]);
     for (const listener of this.listeners) listener();
   }

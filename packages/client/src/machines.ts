@@ -4,6 +4,7 @@ export {
   MachineEntry,
   MachineTarget,
   machineSecretKey,
+  pinnedFingerprint,
 } from "./machine-directory.ts";
 export type { MachineSecretStore, PairedMachine } from "./machine-directory.ts";
 export { MachineThreads, machineThreadKey } from "./machine-threads.ts";

@@ -1,93 +1,140 @@
 import SwiftUI
 
 @MainActor enum FileDiffStyle {
-    static let path = AceTheme.TypeStyle(size: 13.5, lineHeight: 18, weight: 400, tracking: 0)
-    static let line = AceTheme.TypeStyle(size: 13, lineHeight: 24, weight: 400, tracking: 0)
+    /// Paths and diff lines are code.
+    static let path = AceTheme.Typography.code
+    static let line = AceTheme.Typography.code
+    /// Content geometry: one diff line's height, the line-number column, the change bar.
     static let rowHeight: CGFloat = 24
     static let gutter: CGFloat = 46
-    static let bar: CGFloat = 4
+    static let bar: CGFloat = AceDesign.Space.unit
 }
 
-/// One open file's unified diff under its header, in SF Mono: 24pt rows, a line-number gutter,
-/// and a 4pt bar in the change's colour. Colour marks only additions and deletions, never
-/// syntax. Lines wrap unless the ⋯ menu turns wrapping off, which keeps each to one line. Rows
-/// are direct children of the sheet's lazy stack, so a long diff builds only what shows; a cut
-/// diff says the rest is on the computer.
-struct FileDiffRows: View {
-    @Bindable var model: ClientModel
+extension EnvironmentValues {
+    /// Whether the scope shown takes line comments (Uncommitted only: a turn's line numbers
+    /// aren't the checkout's, so a comment there couldn't be anchored).
+    @Entry var changesCommentable = true
+    /// A line tapped where comments can't go: show this file on Uncommitted, where they can.
+    @Entry var changesToUncommitted: ((String) -> Void)? = nil
+}
+
+/// Lines picked for a comment: one side of one file, `start...end`.
+struct LineSelection: Equatable {
     let path: String
-    let wrap: Bool
-    private var diff: FileDiff? { model.sheets.file?.path == path ? model.sheets.file?.diff : nil }
-
-    var body: some View {
-        if let diff {
-            if diff.empty && !diff.truncated {
-                Text("No line changes to show. Binary files, mode changes and new untracked files show on your computer.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(AceTheme.Spacing.lg)
-                    .accessibilityIdentifier("diff.view")
-            } else {
-                ForEach(Array(diff.lines.enumerated()), id: \.offset) { index, line in
-                    DiffLineRow(line: line, wrap: wrap)
-                        .accessibilityIdentifier(index == 0 ? "diff.view" : "diff.line")
-                }
-                if diff.truncated {
-                    Text(truncation(diff)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .padding(AceTheme.Spacing.lg)
-                        .accessibilityIdentifier("diff.truncated")
-                }
-            }
-        } else {
-            ProgressView().frame(maxWidth: .infinity).padding(AceTheme.Spacing.lg)
-        }
-    }
-    private func truncation(_ diff: FileDiff) -> String {
-        if diff.hiddenLines > 0 { return "\(diff.hiddenLines.formatted()) more lines. View the full diff on your computer." }
-        if diff.lines.contains(where: \.clipped) { return "Some long lines are cut short. View the full diff on your computer." }
-        return "This diff is larger than the daemon sends. View the full diff on your computer."
+    let side: String
+    var start: Int
+    var end: Int
+    var label: String { start == end ? "Line \(start)" : "Lines \(start)–\(end)" }
+    func contains(_ row: ChangesRow, in path: String) -> Bool {
+        guard path == self.path, let anchor = row.anchor, anchor.side == side else { return false }
+        return (start...end).contains(anchor.line)
     }
 }
 
-private struct DiffLineRow: View {
-    let line: FileDiff.Line
+/// One unified diff row in SF Mono: a line-number gutter, a 4pt bar in the change's colour, and
+/// the text. Tapping a line picks it for a comment; a second tap on the same side extends the
+/// pick to a range. Colour marks only additions and deletions, never syntax.
+struct ChangesLineRow: View {
+    let row: ChangesRow
     let wrap: Bool
+    let selected: Bool
+    let tap: () -> Void
+    let wholeLine: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.changesCommentable) private var commentable
+
     var body: some View {
-        if line.kind == "hunk" {
-            // At accessibility sizes one line holds little more than the line numbers.
-            Text(line.text).aceMonospace(FileDiffStyle.line, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-                .padding(.leading, FileDiffStyle.gutter + AceTheme.Spacing.xs)
+        if row.kind == "fold" {
+            // A quiet note in the code's column, no band: the diff reads as one column.
+            Text(row.count.map { "\($0) unchanged \($0 == 1 ? "line" : "lines")" } ?? "Unchanged lines")
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceDesign.Ink.subtle)
+                .padding(.leading, FileDiffStyle.gutter)
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
         } else {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
-                Text(number).foregroundStyle(numberColour)
-                    .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
-                    .padding(.trailing, AceTheme.Spacing.md)
-                Text(line.clipped ? line.text + " …" : line.text)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .lineLimit(wrap ? nil : 1)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+            Button(action: tap) {
+                HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
+                    Text(number).foregroundStyle(numberColour)
+                        .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
+                        .padding(.trailing, AceTheme.Spacing.md)
+                    // The line's own indent stays put, so wrapped text hangs at the code's column.
+                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
+                        if !indent.isEmpty { Text(indent).fixedSize() }
+                        Text(code)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                            .lineLimit(wrap ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     .padding(.trailing, AceTheme.Spacing.lg)
+                    if row.clipped {
+                        Spacer(minLength: AceTheme.Spacing.none)
+                        Button("Whole line", action: wholeLine)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .padding(.trailing, AceTheme.Spacing.lg)
+                            .frame(minHeight: AceDesign.Size.tap)
+                    }
+                }
+                .aceMonospace(FileDiffStyle.line, relativeTo: .caption)
+                .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
+                .background(selected ? AceDesign.Surface.picked : background)
+                .overlay(alignment: .leading) {
+                    if let bar { Rectangle().fill(bar).frame(width: FileDiffStyle.bar) }
+                }
+                .contentShape(Rectangle())
             }
-            .aceMonospace(FileDiffStyle.line, relativeTo: .caption)
-            .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
-            .background(background)
-            .overlay(alignment: .leading) {
-                if let bar { Rectangle().fill(bar).frame(width: FileDiffStyle.bar) }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button(commentable ? "Comment on this line" : "Comment on Uncommitted", systemImage: "text.bubble", action: tap)
+                Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(line.kind == "add" ? "Added" : line.kind == "del" ? "Removed" : "Unchanged") line \(number): \(line.text)")
+            .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityHint(commentable ? "Select line to comment" : "Open file in Uncommitted")
         }
     }
-    private var number: String { String(line.kind == "del" ? line.old ?? 0 : line.new ?? line.old ?? 0) }
+    /// The line's leading whitespace (tabs as four spaces) and the code after it.
+    private var indent: String {
+        String(row.text.prefix { $0 == " " || $0 == "\t" }).replacingOccurrences(of: "\t", with: "    ")
+    }
+    private var code: String { String(row.text.drop { $0 == " " || $0 == "\t" }) }
+    private var number: String { String(row.kind == "del" ? row.old ?? 0 : row.new ?? row.old ?? 0) }
     private var bar: Color? {
-        line.kind == "add" ? AceTheme.StatusText.done : line.kind == "del" ? AceTheme.StatusText.failed : nil
+        row.kind == "add" ? AceTheme.StatusText.done : row.kind == "del" ? AceTheme.StatusText.failed : nil
     }
     private var numberColour: Color { bar ?? AceTheme.Colours.decoration }
     private var background: Color {
-        line.kind == "add" ? AceTheme.Colours.diffAdd : line.kind == "del" ? AceTheme.Colours.diffDelete : .clear
+        row.kind == "add" ? AceTheme.Colours.diffAdd : row.kind == "del" ? AceTheme.Colours.diffDelete : .clear
+    }
+}
+
+/// Split layout on wide screens: the old side on the left, the new on the right, removed lines
+/// beside the added lines that replaced them.
+struct ChangesSplitRow: View {
+    let pair: ChangesPair
+    let wrap: Bool
+    let selected: (ChangesRow) -> Bool
+    let tap: (ChangesRow) -> Void
+    let wholeLine: (ChangesRow) -> Void
+
+    var body: some View {
+        if pair.kind == "fold", let fold = pair.fold {
+            ChangesLineRow(row: fold, wrap: wrap, selected: false, tap: {}, wholeLine: {})
+        } else {
+            HStack(alignment: .top, spacing: AceTheme.Spacing.none) {
+                side(pair.left)
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
+                side(pair.right)
+            }
+        }
+    }
+    @ViewBuilder private func side(_ row: ChangesRow?) -> some View {
+        if let row {
+            ChangesLineRow(row: row, wrap: wrap, selected: selected(row), tap: { tap(row) }, wholeLine: { wholeLine(row) })
+                .frame(maxWidth: .infinity)
+        } else {
+            AceDesign.Surface.band.frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight)
+        }
     }
 }

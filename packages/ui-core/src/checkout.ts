@@ -1,3 +1,6 @@
+import { can, type ForgeCapabilitySource } from "./forge-capability.ts";
+import { forgeDisplayName } from "./forge-hosts.ts";
+import { reviewNoun } from "./hosted-reviews.ts";
 import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 
 /** A thread's pull request: the linked one from details, refined by the forge's live status. */
@@ -33,6 +36,11 @@ export interface Checkout {
   /** Commits the remote branch doesn't have (0 when there is no upstream yet). */
   ahead: number;
   behind: number;
+  /**
+   * The remote-tracking branch (`origin/fix`), null when the branch was never pushed, undefined
+   * when the daemon didn't say.
+   */
+  upstream?: string | null | undefined;
   repository: ForgeRepository | undefined;
   pr: CheckoutPr | undefined;
 }
@@ -63,6 +71,7 @@ export function checkoutOf(
     deletions: details.diff?.deletions ?? 0,
     ahead: details.ahead ?? 0,
     behind: details.behind ?? 0,
+    upstream: details.upstream,
     repository: details.repository,
     pr: linkedPr(details.linkedPrs?.[0], status),
   };
@@ -76,6 +85,8 @@ function linkedPr(
   // The forge's live status refines the link only when it describes the same PR.
   const same =
     status?.ref.number === linked.number &&
+    status.ref.repository.forge === linked.repo.forge &&
+    status.ref.repository.host === linked.repo.host &&
     status.ref.repository.owner === linked.repo.owner &&
     status.ref.repository.name === linked.repo.name;
   if (!same) return { ...linked };
@@ -88,13 +99,29 @@ function linkedPr(
 }
 
 /** Why a checkout can't open a pull request, or undefined when it can. */
-export function prBlocker(checkout: Checkout): string | undefined {
-  if (checkout.repository?.forge === "gitlab")
-    return "GitLab merge requests aren't supported yet: open one on GitLab.";
+export function prBlocker(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): string | undefined {
+  if (checkout.repository && !can(source, "reviews.create")) {
+    const provider = forgeDisplayName(checkout.repository.forge);
+    return `Creating ${provider} ${reviewNoun(checkout.repository.forge)}s isn't supported yet: open one on ${provider}.`;
+  }
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
-  if (!checkout.repository) return "ace found no GitHub or GitLab remote for this checkout.";
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  return undefined;
+}
+
+/** Linking an existing review only needs a read adapter, not a mutation backend. */
+export function linkPrBlocker(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): string | undefined {
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  if (!can(source, "reviews.read"))
+    return "Linking pull requests for this Git provider isn't supported yet.";
   return undefined;
 }
 
@@ -111,11 +138,14 @@ const live = (pr: CheckoutPr | undefined): pr is CheckoutPr =>
  * The next step towards a merged change: commit what is uncommitted, push what the remote
  * lacks, open a PR, then follow the open PR. A merged or closed PR starts the walk again.
  */
-export function nextGitStep(checkout: Checkout): GitStep {
+export function nextGitStep(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): GitStep {
   if (checkout.changed > 0) return { kind: "commit" };
   if (checkout.ahead > 0) return { kind: "push" };
   if (live(checkout.pr)) return { kind: "pr", pr: checkout.pr };
-  return { kind: "create-pr", blocked: prBlocker(checkout) };
+  return { kind: "create-pr", blocked: prBlocker(checkout, source) };
 }
 
 const commits = (count: number) => `${count} ${count === 1 ? "commit" : "commits"}`;
@@ -130,4 +160,26 @@ export function checkoutNote(checkout: Checkout): string | undefined {
   if (ahead > 0) return `${commits(ahead)} not pushed`;
   if (behind > 0) return `${commits(behind)} to pull`;
   return undefined;
+}
+
+/**
+ * The branch against its remote in words, for the details card's sync row: "Up to date with
+ * origin", "2 to push", "3 behind origin", "2 to push · 3 behind origin", "Not pushed yet".
+ */
+export function syncWords(checkout: Checkout): string {
+  if (!checkout.branch) return "Not on a branch";
+  if (checkout.upstream === null) return "Not pushed yet";
+  // A daemon that didn't name the upstream compared against origin, where the PR's remote is.
+  const remote = checkout.upstream?.split("/")[0] || "origin";
+  const { ahead, behind } = checkout;
+  if (ahead > 0 && behind > 0) return `${ahead} to push · ${behind} behind ${remote}`;
+  if (ahead > 0) return `${ahead} to push`;
+  if (behind > 0) return `${behind} behind ${remote}`;
+  return `Up to date with ${remote}`;
+}
+
+/** The uncommitted changes as a quiet value: "No changes", "1 file", "3 files". */
+export function uncommittedWords(checkout: Pick<Checkout, "changed">): string {
+  if (checkout.changed === 0) return "No changes";
+  return `${checkout.changed} ${checkout.changed === 1 ? "file" : "files"}`;
 }

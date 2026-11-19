@@ -1,0 +1,8 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.audio",
+    "source": "source-1",
+    "on": true
+  }
+}

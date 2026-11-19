@@ -1,4 +1,5 @@
 import type { WebSocket } from "ws";
+import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryRuntime } from "./delivery-runtime.ts";
 
 export interface PreAuthLimits {
@@ -43,7 +44,7 @@ export class PreAuthAdmission {
   private delay: DeliveryRuntime["delay"];
   private listeners = new Map<Listener, number>();
   private addresses = new Map<string, number>();
-  private pending = new Map<WebSocket, Pending>();
+  private pending = new Map<MainSocket, Pending>();
   constructor(limits: Partial<PreAuthLimits>, delay: DeliveryRuntime["delay"]) {
     this.limits = { ...defaultPreAuthLimits, ...limits };
     this.delay = delay;
@@ -66,10 +67,10 @@ export class PreAuthAdmission {
     socket.once("close", () => this.release(socket));
   }
   /** The socket proved a credential and no longer counts against the anonymous budget. */
-  authenticated(socket: WebSocket): void {
+  authenticated(socket: MainSocket): void {
     this.release(socket);
   }
-  private release(socket: WebSocket): void {
+  private release(socket: MainSocket): void {
     const entry = this.pending.get(socket);
     if (!entry) return;
     this.pending.delete(socket);

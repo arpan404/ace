@@ -16,6 +16,10 @@ const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "x
 export const SettingsValues = z.object({
   "storage.retention": StorageRetention,
   "storage.scheduledCleanup": z.boolean(),
+  /** Null disables automatic worktree removal. Age starts at the latest owner settlement. */
+  "storage.worktreeRetentionDays": RetentionDays.nullable(),
+  /** Commit non-ignored changes and push settled, unmerged worktrees to origin. */
+  "storage.backupWorktrees": z.boolean(),
   /** Automatic data retention window in days. Idle threads, unused attachments and logs older than it are removed. */
   "storage.retentionDays": RetentionDays,
   /** Disk cap in bytes for each log stream, rotated segments included. */
@@ -51,6 +55,27 @@ export const SettingsValues = z.object({
   "providers.verifier.model": name,
   "providers.verifier.tier": tier,
   "providers.verifier.reasoningEffort": effort,
+  /**
+   * Where Codex accounts take the person's tool setup from (ADR 0138): an absolute folder
+   * holding a Codex `config.toml`. Its `[marketplaces]`, `[plugins]` and `[mcp_servers]` are
+   * passed to every Codex account whose home is another folder, as launch overrides. Null is the
+   * default Codex home (`CODEX_HOME`, else `~/.codex`). A folder without a readable
+   * `config.toml` adds nothing, and the Codex status row says why. Global, admin only.
+   */
+  "providers.codex.toolSource": z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine((path) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path), "Absolute path")
+    .meta({
+      "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /.",
+    })
+    .nullable(),
+  /**
+   * Whether Claude Code starts with Claude in Chrome (`--chrome`): `auto` follows
+   * `claudeInChromeDefaultEnabled` in the person's Claude config. Global, admin only.
+   */
+  "providers.claude.chrome": z.enum(["auto", "on", "off"]),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
@@ -85,12 +110,67 @@ export const SettingsValues = z.object({
    */
   "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
   /**
+   * Let agents work while this Mac is locked: the person's intent, not the Mac's state. When
+   * on and the signed authorization component is installed and verified, an approved turn may
+   * briefly operate apps behind opaque covers on a locked Mac. Off by default: locked input is
+   * refused. The live install state comes from `lockedUse.subscribe`. Global, admin only.
+   */
+  "computer.lockedUse": z.boolean(),
+  /**
+   * Run Spade, ace's assistant, beside the daemon (ADR 0121). Off by default; it also needs the
+   * Spade binary, from the release bundle or `ACE_SPADE_BIN`. Global, admin only.
+   */
+  "spade.enabled": z.boolean(),
+  /**
+   * Settings › Beta: Spade is shown on this machine (ADR 0139, amended). Off by default: the app
+   * keeps only Spade's rail mark, as coming soon, and the daemon gives it no service, grant or
+   * forwarding whatever `spade.enabled` says. Off never deletes Spade's data. Replaces the old
+   * `features.json` flag, which a daemon moves here once. Global, admin only.
+   */
+  "beta.spade": z.boolean(),
+  /**
+   * Settings › Beta: ace's marketplace (ADR 0168). Off by default: the app hides every way into
+   * it and the daemon answers marketplace requests as turned off, but what was installed from it
+   * keeps working. Global, admin only.
+   */
+  "beta.marketplace": z.boolean(),
+  /**
+   * Ask me before agents publish (ADR 0178 owner decision 1). Off by default: an agent's publish
+   * through `market_publish` or `ace market` from its shell follows the provider's permissions.
+   * On, every agent publish becomes a request in the asking thread's strip that only a person's
+   * device answers. Global, admin only.
+   */
+  "market.askBeforeAgentPublish": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person
    * started themselves are never changed.
    */
   "devices.emulatorWindow": z.boolean(),
+  /**
+   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps today's
+   * encoders (the browser's WebCodecs over its CDP binding, the daemon's encoder Chrome for
+   * pictures, the Mac screen helper's own socket); `auto` streams through ace-media, which
+   * encodes picture-only sources on this computer's hardware encoder and hands every unit back
+   * to the daemon's legacy viewers, recordings and stills while those stay legacy. It falls
+   * back to `legacy` whenever ace-media isn't healthy.
+   * Global only; read live, so a change moves running producers at their next keyframe.
+   */
+  "media.encode": z.enum(["auto", "legacy"]),
+  /**
+   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps
+   * the daemon's own fanout on each client's main socket; `auto` lets clients open a media
+   * connection to ace-media, which paces, scales and sends every viewer's pictures itself. It
+   * falls back to `legacy` whenever ace-media isn't healthy. Global only; read live.
+   */
+  "media.delivery": z.enum(["auto", "legacy"]),
+  /**
+   * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
+   * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
+   * across restarts until turned on again.
+   */
+  "devices.enabled": z.boolean(),
   /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
@@ -113,8 +193,27 @@ export const SettingsValues = z.object({
    * threads first, then most recent), newest created first, or by hand (`thread.place`).
    */
   "threads.sortBy": z.enum(["activity", "created", "manual"]),
+  /**
+   * No longer read: settled threads always stay in their project (ADR 0107). Kept so settings
+   * files that set it still parse.
+   */
+  "threads.keepSettledFor": z.enum(["0d", "1d", "3d", "7d"]),
+  /** The switch for every remote network below: off, nothing but this computer connects. */
   "remote.enabled": z.boolean(),
+  /**
+   * Superseded by `remote.lan`, `remote.tailscale` and `remote.relay` (ADR 0112). Not stored:
+   * a write from an older app, or a saved value, becomes those three settings.
+   */
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
+  /** Remote access listens on this computer's local network. */
+  "remote.lan": z.boolean(),
+  /** Remote access listens on this computer's Tailscale address. */
+  "remote.tailscale": z.boolean(),
+  /**
+   * Remote access also runs through a relay: `remote.relayUrl` when set, otherwise ace's relay.
+   * A machine signed in to an ace account is on ace's relay whenever remote access is on.
+   */
+  "remote.relay": z.boolean(),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
   /**
@@ -133,6 +232,67 @@ export const SettingsValues = z.object({
    * matches its version; the hosted one may not.
    */
   "remote.hostedPairingLink": z.boolean(),
+  /**
+   * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
+   * relay at `https://cloud.acehq.dev/m/<hostId>/` (ADR 0122). Off by default. On this path the
+   * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
+   */
+  "remote.relayMcp": z.boolean(),
+  /**
+   * Whether automations' signed webhooks reach this machine through ace's relay at
+   * `https://cloud.acehq.dev/m/<hostId>/hooks/<hookId>` (ADR 0173). Off by default, and separate
+   * from `remote.relayMcp`. The relay carries the request bodies in plain text, never the secret.
+   */
+  "remote.relayWebhooks": z.boolean(),
+  /**
+   * Whether automations' signed webhooks reach this machine at its ts.net name on the Tailscale
+   * listener, `https://<name>/hooks/<hookId>` (ADR 0173). Off by default; for senders on the
+   * person's tailnet, or the internet through Tailscale Funnel. ace cloud carries none of it.
+   */
+  "remote.tailscaleWebhooks": z.boolean(),
+  /**
+   * Whether automations' signed webhooks reach this machine at the person's own public URL
+   * (`remote.mcpPublicUrl`), `<url>/hooks/<hookId>`, through the proxy or tunnel that forwards it
+   * to the loopback endpoint (ADR 0173). Off by default. TLS ends at the person's own proxy.
+   */
+  "remote.publicUrlWebhooks": z.boolean(),
+  /**
+   * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
+   * on the Tailscale listener (ADR 0122). Off by default; serves only while Tailscale has issued
+   * the machine's HTTPS certificate.
+   */
+  "remote.tailscaleMcp": z.boolean(),
+  /**
+   * The person's own public HTTPS address for outside MCP clients (Tailscale Funnel, a tunnel or
+   * a reverse proxy to the loopback endpoint), or null (ADR 0122). An origin only: no path,
+   * query, fragment or credentials. Requests whose Host names it are accepted on the loopback
+   * endpoint.
+   */
+  "remote.mcpPublicUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          url.pathname === "/" &&
+          !value.endsWith("/")
+        );
+      } catch {
+        return false;
+      }
+    }, "Use an https origin without a path, such as https://ace.example.com")
+    .meta({
+      "x-ace-constraint":
+        "Null, or an https origin without path, query, fragment, credentials or trailing slash.",
+      examples: [null, "https://ace.example.com"],
+    })
+    .nullable(),
   "remote.relayUrl": z
     .string()
     .max(2048)
@@ -156,6 +316,37 @@ export const SettingsValues = z.object({
       "x-ace-constraint":
         "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.",
       examples: ["", "wss://relay.example.invalid/"],
+    }),
+  /**
+   * Whether this machine wakes paired phones through ace's push gateway when their app is
+   * suspended or closed (ADR 0106). The gateway sees only encrypted alerts. Off: phones get
+   * alerts while the app runs and catch up when it opens.
+   */
+  "notifications.remotePush": z.boolean(),
+  /** The push gateway's HTTPS origin; ace's own by default. HTTP only on 127.0.0.1. */
+  "notifications.pushGatewayUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          (url.protocol === "https:" ||
+            (url.protocol === "http:" && url.hostname === "127.0.0.1")) &&
+          !url.username &&
+          !url.password &&
+          url.pathname === "/" &&
+          !url.search &&
+          !url.hash
+        );
+      } catch {
+        return false;
+      }
+    }, "Use an HTTPS origin without a path")
+    .meta({
+      "x-ace-constraint":
+        "An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.",
+      examples: ["https://push.acehq.dev"],
     }),
   "automations.enabled": z.boolean(),
   /**
@@ -227,6 +418,21 @@ export const SettingsSet = z.object({
   value: JsonValue,
   layer: SettingsLayer,
 });
+/**
+ * Several settings on one layer, all or none: every entry is validated before any is written,
+ * then they are written in one commit, so subscribers see them change together. Settings with
+ * their own handling (project folders, the downloads folder, host and remote) are set one at a
+ * time with `settings.set`.
+ */
+export const SettingsSetMany = z.object({
+  type: z.literal("settings.setMany"),
+  requestId,
+  entries: z
+    .array(z.object({ key: z.string().min(1).max(256), value: JsonValue }))
+    .min(1)
+    .max(32),
+  layer: SettingsLayer,
+});
 /** Reset global preferences atomically; host/remote preferences are local-only. */
 export const SettingsReset = z.object({ type: z.literal("settings.reset"), requestId });
 export const SettingsSubscribe = z.object({
@@ -244,6 +450,7 @@ export const SettingsUnsubscribe = z.object({
 export const SettingsRequest = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,

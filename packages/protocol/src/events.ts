@@ -12,10 +12,9 @@ import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { QueueUpdated } from "./queue.ts";
-import { OffshiftUpdated } from "./offshift.ts";
 import { ContextMeterUpdated, ContextSampled } from "./context-meter.ts";
 import { UsageMetadata } from "./usage-core.ts";
-import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
+import { Agent, AgentFidelity, AgentMachine, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import {
   AgentId,
@@ -59,6 +58,9 @@ export const EventPayload = z.discriminatedUnion("type", [
     provider: ExecutionSelection.shape.provider.optional(),
     lineage: ThreadLineage.optional(),
     delegatedBy: Thread.shape.delegatedBy,
+    delegatedFrom: Thread.shape.delegatedFrom,
+    startedBy: Thread.shape.startedBy,
+    startedByClient: Thread.shape.startedByClient,
     /** The queued launch began, or never will: null clears it. */
     queuedLaunch: QueuedLaunch.nullable().optional(),
     execution: ExecutionSelection.optional(),
@@ -84,6 +86,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     type: z.literal("agent.updated"),
     agentId: AgentId,
     childThreadId: ThreadId.optional(),
+    machine: AgentMachine.optional(),
     /** Placeholder agents are completed and re-parented after native linkage arrives. */
     parentId: AgentId.nullable().optional(),
     origin: AgentOrigin.optional(),
@@ -152,8 +155,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     status: BackgroundTask.shape.status,
     endedAt: Timestamp.optional(),
   }),
+  z.object({ type: z.literal("unknown"), raw: z.unknown() }),
   QueueUpdated,
-  OffshiftUpdated,
   ContextMeterUpdated,
   ContextSampled,
   UsageUpdated,

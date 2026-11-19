@@ -29,6 +29,19 @@ export const ChildRow = z.object({
   /** The approval its parent shows the person while it is lost: key and interaction id. */
   lost_key: z.string().nullable(),
   lost_ask: z.string().nullable(),
+  /** When its machine last reported it: the proof its lease runs from (ADR 0052). */
+  seen_at: z.number().nullable(),
+  /** Its lease lapsed: lost contact since then, no longer holding its parent. */
+  silent_since: z.number().nullable(),
+  /** A Stop in progress: when it began, cancels sent and when the last went. */
+  stop_started_at: z.number().nullable(),
+  stop_attempts: z.number(),
+  stop_last_at: z.number().nullable(),
+  /**
+   * Stopped here after every cancel went unconfirmed; a late report never revives it. 1: the
+   * cancel is still sent; 2: its machine confirmed late; 3: it can never confirm (unpaired).
+   */
+  stopped_unconfirmed: z.number(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
 
@@ -58,79 +71,20 @@ export class ChildLedger {
       .atomic((db) => db.prepare(sql).all(...values))
       .map((raw) => ChildRow.parse(raw));
   }
-  /** True while a child is unsettled or its settled result is not yet delivered. */
-  hasOpen(): boolean {
+  /** True while a child is unsettled. */
+  hasUnsettled(): boolean {
     return Boolean(
       this.store.atomic((db) =>
-        db
-          .prepare(
-            "SELECT 1 WHERE EXISTS(SELECT 1 FROM machine_children WHERE settled=0) OR EXISTS(SELECT 1 FROM machine_children WHERE settled=1 AND delivered=0)",
-          )
-          .get(),
+        db.prepare("SELECT 1 FROM machine_children WHERE settled=0 LIMIT 1").get(),
       ),
     );
   }
-  /** The machines to serve next, those served longest ago first, with where each stopped. */
-  machinesDue(limit: number): { machine: string; after: string | null }[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT machine, after FROM machine_child_cursors ORDER BY served, machine LIMIT ?",
-          )
-          .all(limit),
-      )
-      .map((row) => ({
-        machine: z.string().parse(row.machine),
-        after: z.string().nullable().parse(row.after),
-      }));
-  }
-  /**
-   * Up to `limit` of a machine's unsettled children after `after` in id order, continuing from
-   * the first once the last is passed, so the machine's children are read in a cycle.
-   */
-  unsettledAfter(machine: string, after: string | null, limit: number): ChildRow[] {
-    const next = this.all(
-      "SELECT * FROM machine_children WHERE settled=0 AND machine=? AND id>? ORDER BY id LIMIT ?",
-      machine,
-      after ?? "",
-      limit,
-    );
-    if (after === null || next.length >= limit) return next;
-    return [
-      ...next,
-      ...this.all(
-        "SELECT * FROM machine_children WHERE settled=0 AND machine=? AND id<=? ORDER BY id LIMIT ?",
-        machine,
-        after,
-        limit - next.length,
-      ),
-    ];
-  }
-  /** The machine was served in `turn`, reading up to `after`: one write per machine. */
-  markServed(machine: string, turn: number, after: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("UPDATE machine_child_cursors SET served=?, after=? WHERE machine=?")
-        .run(turn, after, machine),
-    );
-  }
-  /** Leaves the rotation once the machine has no unsettled child; a new one brings it back. */
-  untrack(machine: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "DELETE FROM machine_child_cursors WHERE machine=? AND NOT EXISTS(SELECT 1 FROM machine_children WHERE settled=0 AND machine=?)",
-        )
-        .run(machine, machine),
-    );
-  }
-  /** The latest turn a machine was served in. */
-  lastServedTurn(): number {
-    return Number(
+  /** True while a settled child's result is not yet delivered. */
+  hasUndelivered(): boolean {
+    return Boolean(
       this.store.atomic((db) =>
-        db.prepare("SELECT COALESCE(MAX(served),0) AS turn FROM machine_child_cursors").get(),
-      )?.turn ?? 0,
+        db.prepare("SELECT 1 FROM machine_children WHERE settled=1 AND delivered=0 LIMIT 1").get(),
+      ),
     );
   }
   /** Settled children whose result the parent has not taken yet. */
@@ -184,7 +138,7 @@ export class ChildLedger {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view,device_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view,device_id,seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .run(
           child.id,
@@ -198,14 +152,8 @@ export class ChildLedger {
           child.createdAt,
           child.view ? JSON.stringify(child.view) : null,
           child.device ?? null,
+          child.createdAt,
         ),
-    );
-    this.track(child.machine);
-  }
-  /** The machine may have unsettled children: it joins the polling rotation. */
-  private track(machine: string): void {
-    this.store.atomic((db) =>
-      db.prepare("INSERT OR IGNORE INTO machine_child_cursors (machine) VALUES (?)").run(machine),
     );
   }
   /** Status replies read before now no longer apply to the child. */
@@ -302,14 +250,11 @@ export class ChildLedger {
   }
   /** Open again, with no view until its machine is read. */
   markReopened(id: ThreadId): void {
-    this.store.atomic((db) => {
-      db.prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?").run(
-        id,
-      );
-      db.prepare(
-        "INSERT OR IGNORE INTO machine_child_cursors (machine) SELECT machine FROM machine_children WHERE id=?",
-      ).run(id);
-    });
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?")
+        .run(id),
+    );
   }
   /** The machine's latest view; a settle also starts the re-check window. */
   writeView(id: ThreadId, view: string, settled: boolean, now: number): void {
@@ -346,9 +291,146 @@ export class ChildLedger {
         .run(id),
     );
   }
+  /** Every child the person has (or had) a question open about: the poll checks each still stands. */
+  asked(): ChildRow[] {
+    return this.all("SELECT * FROM machine_children WHERE lost_ask IS NOT NULL");
+  }
+  /** Its question is closed, whatever else it is: nothing points at it any more. */
+  clearAsk(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET lost_key=NULL, lost_ask=NULL WHERE id=?").run(id),
+    );
+  }
+  /**
+   * Settled children whose machine was unpaired before a check after their 24 h mark: the
+   * person is asked about each, and none is re-checked until its machine is paired again.
+   */
+  settledLost(): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=1 AND lost_at IS NOT NULL AND settled_at IS NOT NULL",
+    );
+  }
+  /** The person stopped watching a settled lost child: it stays as it ended, for good. */
+  endWatch(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1").run(id),
+    );
+  }
   /** The lost child the parent's approval `ask` is about. */
   byLostAsk(ask: string): ChildRow | undefined {
     return this.all("SELECT * FROM machine_children WHERE lost_ask=?", ask)[0];
+  }
+  /** Its machine reported it at `at`: its lease runs from then, and it is in contact again. */
+  seen(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET seen_at=MAX(COALESCE(seen_at,0),?), silent_since=NULL WHERE id=?",
+        )
+        .run(at, id),
+    );
+  }
+  /** Its lease lapsed at `since`: lost contact until it reports again. */
+  markSilent(id: ThreadId, since: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET silent_since=? WHERE id=? AND silent_since IS NULL")
+        .run(since, id),
+    );
+  }
+  /** A Stop began at `at`; false when it was already stopping or settled. */
+  startStop(id: ThreadId, at: number): boolean {
+    return this.store.atomic(
+      (db) =>
+        Number(
+          db
+            .prepare(
+              "UPDATE machine_children SET stop_started_at=?, stop_attempts=0, stop_last_at=NULL WHERE id=? AND settled=0 AND stop_started_at IS NULL",
+            )
+            .run(at, id).changes,
+        ) > 0,
+    );
+  }
+  /** One more cancel went out at `at`. */
+  stopAttempted(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET stop_attempts=stop_attempts+1, stop_last_at=? WHERE id=?",
+        )
+        .run(at, id),
+    );
+  }
+  /** Unsettled children being stopped, by index. */
+  stopping(): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=0 AND stop_started_at IS NOT NULL ORDER BY stop_started_at",
+    );
+  }
+  /**
+   * Every cancel went out unconfirmed: settled here with `view`, for good. Its unanswered
+   * messages are dropped (none will be taken), and the re-check window opens so a late report
+   * can record how it really ended.
+   */
+  markStoppedUnconfirmed(id: ThreadId, view: string, now: number): void {
+    this.store.atomic((db) => {
+      db.prepare("DELETE FROM machine_child_messages WHERE child_id=?").run(id);
+      db.prepare(
+        "UPDATE machine_children SET view=?, settled=1, settled_at=?, stopped_unconfirmed=1, silent_since=NULL WHERE id=?",
+      ).run(view, now, id);
+    });
+  }
+  /** Its machine later reported how a child stopped here really ended: kept, still settled. */
+  recordLateEnd(id: ThreadId, view: string): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET view=? WHERE id=? AND settled=1").run(view, id),
+    );
+  }
+  /**
+   * Its machine reported that a child stopped here without confirmation has ended: its real
+   * end is kept, and its cancel stops being sent (`stopped_unconfirmed` 2: confirmed late).
+   */
+  confirmStop(id: ThreadId, view: string): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET view=?, stopped_unconfirmed=2 WHERE id=? AND settled=1 AND stopped_unconfirmed=1",
+        )
+        .run(view, id),
+    );
+  }
+  /**
+   * A child stopped here whose stop can never be confirmed (its pairing or its record there is
+   * gone): its end is kept and its cancel stops being sent (`stopped_unconfirmed` 3).
+   */
+  markStopUnconfirmable(id: ThreadId, view: string): boolean {
+    return this.store.atomic(
+      (db) =>
+        Number(
+          db
+            .prepare(
+              "UPDATE machine_children SET view=?, stopped_unconfirmed=3 WHERE id=? AND settled=1 AND stopped_unconfirmed=1",
+            )
+            .run(view, id).changes,
+        ) > 0,
+    );
+  }
+  /** Children stopped here whose machine hasn't confirmed it yet: their cancel is still sent. */
+  unconfirmedStops(limit: number): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=1 AND stopped_unconfirmed=1 ORDER BY stop_last_at LIMIT ?",
+      limit,
+    );
+  }
+  /** New work for it: any stop before no longer applies. */
+  clearStop(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET stop_started_at=NULL, stop_attempts=0, stop_last_at=NULL, stopped_unconfirmed=0, silent_since=NULL WHERE id=?",
+        )
+        .run(id),
+    );
   }
   /**
    * The person stopped tracking a lost child: settled with `view`, its unanswered messages
@@ -373,55 +455,60 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
     );
   }
-  /** True while any child settled at or after `since`. */
-  hasRecentlySettled(since: number): boolean {
-    return Boolean(
-      this.store.atomic((db) =>
-        db
-          .prepare("SELECT 1 FROM machine_children WHERE settled=1 AND settled_at>=? LIMIT 1")
-          .get(since),
-      ),
-    );
+  /** Every settled child the re-check tracks on one machine. */
+  recheckRows(machine: string): ChildRow[] {
+    return this.all(`SELECT * FROM machine_children WHERE ${tracked} AND machine=?`, machine);
   }
-  /** Machines with a child settled at or after `since`. */
-  recheckMachines(since: number): string[] {
+  /**
+   * Children whose answered read went out at or after their 24 h mark leave the re-check for
+   * good: their re-check window closes (`settled_at` null), unless they settled again since they
+   * were read, or their pairing went meanwhile (the person is asked about them; their answer, not
+   * this read, decides).
+   */
+  endRecheck(rows: readonly { id: string; settledAt: number }[]): void {
+    this.store.atomic((db) => {
+      const end = db.prepare(
+        "UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1 AND settled_at=? AND lost_at IS NULL",
+      );
+      for (const row of rows) end.run(row.id, row.settledAt);
+    });
+  }
+  /** Machines with a child to read: working there, or settled and still tracked. */
+  watchedMachines(): string[] {
     return this.store
       .atomic((db) =>
         db
-          .prepare(
-            "SELECT DISTINCT machine FROM machine_children WHERE settled=1 AND settled_at>=?",
-          )
-          .all(since),
+          .prepare(`SELECT DISTINCT machine FROM machine_children WHERE settled=0 OR (${tracked})`)
+          .all(),
       )
       .map((row) => z.string().parse(row.machine));
   }
-  /** One machine's settled children due a re-check, those checked longest ago first. */
-  recheckTurn(machine: string, since: number, limit: number): ChildRow[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT * FROM machine_children WHERE settled=1 AND machine=? AND settled_at>=? ORDER BY rechecked, id LIMIT ?",
-          )
-          .all(machine, since, limit),
-      )
-      .map((raw) => ChildRow.parse(raw));
+  /** Every child still working on one machine, lost ones included. */
+  unsettledOf(machine: string): ChildRow[] {
+    return this.all("SELECT * FROM machine_children WHERE settled=0 AND machine=?", machine);
   }
-  /** The latest re-check turn recorded. */
-  lastRecheckTurn(): number {
-    return Number(
-      this.store.atomic((db) =>
-        db.prepare("SELECT COALESCE(MAX(rechecked),0) AS turn FROM machine_children").get(),
-      )?.turn ?? 0,
-    );
-  }
-  markRechecked(ids: readonly string[], turn: number): void {
+  /**
+   * Saves whether each child is asked alone (its call failed or was refused beside others), so
+   * that outlives a restart. Kept in `rechecked`, which no longer counts re-check turns: -1 is
+   * alone; anything else, including a turn number from an older build, is not.
+   */
+  setAlone(ids: readonly string[], alone: boolean): void {
     this.store.atomic((db) => {
       const mark = db.prepare("UPDATE machine_children SET rechecked=? WHERE id=?");
-      for (const id of ids) mark.run(turn, id);
+      for (const id of ids) mark.run(alone ? -1 : 0, id);
     });
   }
 }
+
+/**
+ * Which settled children the re-check tracks: every one whose re-check window is still open
+ * (`settled_at` set; it closes only once a check answered at or after its 24 h mark), and every
+ * stop not yet confirmed. No time bound: an unreachable machine's children stay until it answers.
+ * One whose machine was unpaired and that the person is asked about waits outside it until the
+ * machine is paired again.
+ */
+const tracked =
+  "settled=1 AND lost_at IS NULL AND (settled_at IS NOT NULL OR stopped_unconfirmed=1)";
 
 /** SQLite caps bound values per statement; long id lists go in pieces. */
 function chunks(ids: readonly string[]): string[][] {

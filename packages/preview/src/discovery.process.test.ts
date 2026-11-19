@@ -3,6 +3,7 @@ import { createServer } from "node:net";
 import {
   discoverListeningPorts,
   parseListeningPorts,
+  parseNetstatListeningPorts,
   pollPorts,
   TerminalUrlScanner,
   loadLaunchFile,
@@ -22,6 +23,44 @@ test("OS listener snapshots ignore established sockets and deduplicate listeners
     ),
   ]).toEqual([3000]);
 });
+
+test.runIf(process.platform === "win32")(
+  "Windows netstat snapshots keep only TCP listeners across IPv4 and IPv6",
+  () => {
+    const table = [
+      "Active Connections",
+      "",
+      "  Proto  Local Address          Foreign Address        State           PID",
+      "  TCP    127.0.0.1:3000         0.0.0.0:0              LISTENING       1234",
+      "  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       1234",
+      "  TCP    [::]:5173              [::]:0                 LISTENING       5678",
+      "  TCP    [fe80::1%12]:8080      [::]:0                 LISTENING       9012",
+      "  TCP    127.0.0.1:4000         127.0.0.1:3000         ESTABLISHED     1234",
+      "  TCP    127.0.0.1:3000         127.0.0.1:4000         ESTABLISHED     1234",
+      "  UDP    0.0.0.0:5355           *:*                                    1234",
+    ].join("\r\n");
+    expect([...parseNetstatListeningPorts(table)]).toEqual([3000, 5173, 8080]);
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "Windows netstat snapshots ignore malformed rows and invalid ports",
+  () => {
+    const table = [
+      "  TCP    127.0.0.1:0            0.0.0.0:0              LISTENING       1",
+      "  TCP    127.0.0.1:99999        0.0.0.0:0              LISTENING       1",
+      "  TCP    broken                 0.0.0.0:0              LISTENING       1",
+      "  TCP    3000                   0.0.0.0:0              LISTENING       1",
+      "  TCPoops 127.0.0.1:3000        0.0.0.0:0              LISTENING       1",
+      "  TCP    127.0.0.1:3000         0.0.0.0:0              TIME_WAIT       1",
+      "  TCP    127.0.0.1:3000",
+      "  garbage line without columns",
+      "",
+      "  TCP    127.0.0.1:3001         0.0.0.0:0              LISTEN          1",
+    ].join("\n");
+    expect([...parseNetstatListeningPorts(table)]).toEqual([3001]);
+  },
+);
 
 test("discovery observes a real listening port", async () => {
   const server = createServer();

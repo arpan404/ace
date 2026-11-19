@@ -153,3 +153,30 @@ test("an old launch handle cannot stop a replacement with the same name", async 
     await manager.close();
   }
 });
+
+// Windows has no SIGKILL to report, and a launch that wrote its line could exit on its own
+// first. Here the launch keeps running after the oversized line, so only ace can end it.
+test.runIf(process.platform === "win32").each(["stdout", "stderr"])(
+  "Windows: an oversized %s line terminates its owned launch",
+  async (stream) => {
+    const manager = createLaunchManager({ root: process.cwd() });
+    try {
+      const handle = await manager.start(
+        PreviewLaunch.parse({
+          name: "noisy",
+          command: process.execPath,
+          args: [
+            "-e",
+            `process.${stream}.write('x'.repeat(4 * 1024 * 1024)); setInterval(() => {}, 1000)`,
+          ],
+        }),
+      );
+      const exited = await handle.process?.exited;
+      expect(exited).toBeDefined();
+      expect(manager.list()).toEqual([]);
+    } finally {
+      await manager.close();
+    }
+  },
+  30_000,
+);

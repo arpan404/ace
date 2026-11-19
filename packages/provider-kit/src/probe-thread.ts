@@ -1,10 +1,12 @@
 // MessagePort.postMessage has no browser targetOrigin argument.
 /* eslint-disable unicorn/require-post-message-target-origin */
-import { Worker } from "node:worker_threads";
+import { startWorker } from "./worker.ts";
 import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
+import { z } from "zod";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
 export interface ProbeThread {
@@ -12,14 +14,13 @@ export interface ProbeThread {
 }
 
 const runtime: IdleWorkerRuntime = {
-  spawn(entry, options) {
-    const worker = new Worker(entry, options);
-    // An idle isolate never keeps a CLI command or a stopping daemon alive.
-    worker.unref();
-    return worker;
-  },
+  spawn: (entry, options) => startWorker(entry, options),
+  // An idle isolate never keeps a CLI command or a stopping daemon alive. A probe in flight
+  // still does: its child process is ref'd.
+  background: true,
   delay(callback, milliseconds) {
-    const timer = setTimeout(callback, milliseconds);
+    // The idle timer is the thread's own, never the caller's that last used it.
+    const timer = unscoped(() => setTimeout(callback, milliseconds));
     timer.unref();
     return () => clearTimeout(timer);
   },
@@ -34,14 +35,23 @@ function stopGroup(pid: number): void {
   }
 }
 
+const ProbeAddress = z.object({
+  id: z.number().int().nonnegative(),
+  type: z.unknown().optional(),
+});
+
 type Flight = {
   id: number;
   pid?: number;
   stopping: boolean;
+  /** Set when the worker sent a reply this thread can't read; the probe fails with it. */
+  failure?: Error;
   done: PromiseWithResolvers<ProbeExit>;
   /** Settles once the worker confirms the process ended, or the worker itself is gone. */
   settled: Promise<void>;
   release(): void;
+  /** The context of the caller that asked: this probe's replies are handled in it. */
+  owner: RequestOwner;
 };
 
 /**
@@ -77,10 +87,38 @@ export function createProbeThread(
       end(flight);
       flight.done.reject(error);
     }
+    // No work is left for the process to stay alive for.
+    worker.idle();
   };
+  // One thread serves every caller. Each reply is handled in the context of the caller whose
+  // probe it answers, never the context of whoever first started the thread.
   worker.on("message", (input: unknown) => {
+    const addressed = ProbeAddress.safeParse(input);
+    const flight = addressed.success ? flights.get(addressed.data.id) : undefined;
+    if (flight) flight.owner(() => reply(input));
+  });
+  const reply = (input: unknown) => {
     const message = ProbeReply.safeParse(input);
-    if (!message.success) return;
+    if (!message.success) {
+      const addressed = ProbeAddress.safeParse(input);
+      const flight = addressed.success ? flights.get(addressed.data.id) : undefined;
+      if (!flight) return;
+      // A probe waiting on a reply it can't read would wait forever; it fails instead.
+      flight.failure ??= new Error("Probe worker sent an invalid reply");
+      if (addressed.data?.type === "exit") {
+        // The worker has seen this process close and will send nothing more. Its group may be
+        // reaped and its pid reused, so it is not signalled.
+        end(flight);
+        flight.done.reject(flight.failure);
+        if (!flights.size) worker.idle();
+        return;
+      }
+      // Still running, perhaps unrecorded: stop it and stay its owner until the worker confirms
+      // the exit (or dies), so a global stop keeps waiting for it.
+      // settled absorbs the probe's failure; the caller still sees it through done.
+      void stop(flight).catch(() => {});
+      return;
+    }
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
@@ -99,9 +137,10 @@ export function createProbeThread(
     }
     const { type: _type, id: _id, ...exit } = message.data;
     end(flight);
-    flight.done.resolve(exit);
+    if (flight.failure) flight.done.reject(flight.failure);
+    else flight.done.resolve(exit);
     if (!flights.size) worker.idle();
-  });
+  };
   worker.on("error", (error: Error) => fail(error));
   worker.on("exit", () => fail(new Error("Probe worker stopped")));
   return {
@@ -117,6 +156,7 @@ export function createProbeThread(
           () => {},
         ),
         release: () => {},
+        owner: requestOwner(),
       };
       flight.release = admitProcess(
         () => stop(flight),
@@ -131,6 +171,7 @@ export function createProbeThread(
       } catch (error) {
         end(flight);
         done.reject(error instanceof Error ? error : new Error("Probe worker unavailable"));
+        if (!flights.size) worker.idle();
       }
       return done.promise.finally(() => signal.removeEventListener("abort", abort));
     },
@@ -146,13 +187,15 @@ export async function probeOffThread(
   options: {
     timeoutMs: number;
     env: NodeJS.ProcessEnv;
+    cwd?: string | undefined;
     maxBytes: number;
     signal?: AbortSignal | undefined;
     schedule: (callback: () => void, milliseconds: number) => () => void;
     thread?: ProbeThread | undefined;
   },
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  const thread = options.thread ?? (shared ??= createProbeThread());
+  // Shared by every caller, so started in no caller's context.
+  const thread = options.thread ?? (shared ??= unscoped(() => createProbeThread()));
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries({ ...process.env, ...options.env }))
     if (value !== undefined) env[key] = value;
@@ -170,7 +213,13 @@ export async function probeOffThread(
   }, options.timeoutMs);
   try {
     const exit = await thread.run(
-      { command, args: [...args], env, maxBytes: options.maxBytes },
+      {
+        command,
+        args: [...args],
+        env,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        maxBytes: options.maxBytes,
+      },
       stop.signal,
     );
     if (failure) throw failure;

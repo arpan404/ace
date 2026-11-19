@@ -1,4 +1,7 @@
 import { sidebarPage, isSidebarEvent } from "@ace/projection";
+import { isChatEntry } from "@ace/ui-core/chat-list";
+import { placeWindow, type PlaceInput } from "@ace/ui-core/thread-place";
+import { omitRaw, wireTrims, WireTrimmer } from "@ace/projection/wire-trim";
 import {
   ThreadId,
   ClientMessage,
@@ -6,6 +9,7 @@ import {
   type CommandResult,
   type DeliveryEvent,
   type HostId,
+  type Interaction,
   type ItemsPage,
   type ServerMessage,
   type ThreadListView,
@@ -14,21 +18,45 @@ import {
 } from "@ace/protocol";
 import type { FakeWireSession } from "./services-wire.ts";
 import { CommandFlights } from "./command-status.ts";
+import { requestPage, summarizedOutgoing } from "./summarized-requests.ts";
 
 /** What a connection needs from the host. FakeDaemon implements it. */
 /** The daemon's default replay bound: further behind than this, a subscriber gets a snapshot. */
 const replayLimit = 5000;
 export interface Host {
   readonly hostId: HostId;
+  /** Names this run's event log in the welcome (ADR 0128). */
+  readonly databaseId?: string;
   readonly displayName?: string;
   readonly icon?: import("@ace/protocol").MachineIcon | undefined;
   readonly version?: string;
+  /** The release line its welcome names (ADR 0177); absent, as an older daemon's. */
+  readonly releaseLine?: string | undefined;
+  /** The OS host.identity reports; absent, as an older daemon's. */
+  readonly platform?: string | undefined;
+  /** How else the machine says it is reached (`host.identity` paths); absent, none said. */
+  readonly paths?: readonly import("@ace/protocol").MachinePath[] | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
+  /**
+   * What places listed threads (the daemon's `SidebarPlacement`); absent, the defaults at time 0.
+   * Undefined: a daemon from before placement, whose lists carry no places or dots.
+   */
+  placeInput?(): PlaceInput | undefined;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
+  /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
+  entities?(
+    threadId: string,
+    collection: import("@ace/protocol").EntityCollection,
+    before: number,
+    limit: number,
+    maxBytes?: number,
+  ): import("@ace/protocol").EntitiesPage | undefined;
+  /** A thread's interaction, whole as stored, for `interaction.read`. */
+  interactionOf?(threadId: string, interactionId: string): Interaction | undefined;
   /** Full shell output for `output.read`; a host without a stream store answers not_found. */
   output?(
     streamId: string,
@@ -85,6 +113,10 @@ export class Connection {
   private session: FakeWireSession;
   private device = "fake";
   private ready = false;
+  /** Leaves out what this client's hello said it can put back, as the daemon does. */
+  private trimmer = new WireTrimmer(undefined);
+  /** Live item events leave out shown-only raw too (`raw-on-demand`), as the daemon's do. */
+  private rawOnDemand = false;
   /** Past `hello`: the daemon's broadcasts reach it. */
   get authenticated(): boolean {
     return this.ready;
@@ -129,6 +161,8 @@ export class Connection {
         return;
       }
       this.ready = true;
+      this.trimmer = new WireTrimmer(message.trims);
+      this.rawOnDemand = message.trims?.includes(wireTrims.rawOnDemand) === true;
       this.device = message.deviceId;
       this.session.authenticated?.(this.device);
       this.send({
@@ -136,6 +170,8 @@ export class Connection {
         hostId: this.host.hostId,
         protocolVersion: 1,
         headSeq: this.host.head,
+        ...(this.host.databaseId ? { databaseId: this.host.databaseId } : {}),
+        ...(this.host.releaseLine ? { releaseLine: this.host.releaseLine } : {}),
       });
       return;
     }
@@ -171,7 +207,9 @@ export class Connection {
             displayName: this.host.displayName ?? "Fake machine",
             ...(this.host.icon ? { icon: this.host.icon } : {}),
             version: this.host.version ?? "fake",
+            ...(this.host.platform ? { platform: this.host.platform } : {}),
           },
+          ...(this.host.paths ? { paths: [...this.host.paths] } : {}),
         });
         return;
       }
@@ -203,6 +241,7 @@ export class Connection {
         );
         for (const entry of page.threads) subscription.selected?.add(entry.id);
         subscription.before = page.window.before;
+        const placed = this.placed(page.threads);
         subscription.limit =
           (subscription.limit ?? subscription.scope.window.limit) + page.threads.length;
         this.send({
@@ -210,15 +249,30 @@ export class Connection {
           requestId: message.requestId,
           subscriptionId: message.subscriptionId,
           seq: this.host.head,
-          threads: Object.fromEntries(page.threads.map((entry) => [entry.id, entry])),
+          threads: Object.fromEntries(placed.threads.map((entry) => [entry.id, entry])),
           removed: [],
-          window: page.window,
+          window: {
+            ...page.window,
+            attention: this.attention(view, subscription.scope.window, subscription.limit),
+          },
         });
         break;
       }
       case "unsubscribe":
         this.subscriptions.delete(message.subscriptionId);
         return;
+      case "entities.page": {
+        const page = this.host.entities?.(
+          message.threadId,
+          message.collection,
+          message.before,
+          message.limit,
+          message.maxBytes,
+        );
+        if (page) this.send({ type: "entities.page", requestId: message.requestId, page });
+        else this.error("not_found", { requestId: message.requestId });
+        return;
+      }
       case "items.page": {
         const page = this.host.page(message.threadId, message.before, message.limit);
         if (page) this.send({ type: "items.page", requestId: message.requestId, ...page });
@@ -268,6 +322,22 @@ export class Connection {
         this.send({ type: "command.status", requestId: message.requestId, commands });
         return;
       }
+      case "interaction.read": {
+        const interaction = this.host.interactionOf?.(message.threadId, message.interactionId);
+        if (!interaction) this.error("interaction_not_found", { requestId: message.requestId });
+        // A summary mirrored from elsewhere has no whole copy here.
+        else if (interaction.truncated)
+          this.error("request_not_whole_here", { requestId: message.requestId });
+        else
+          this.send({
+            type: "interaction.data",
+            requestId: message.requestId,
+            threadId: message.threadId,
+            interactionId: message.interactionId,
+            ...requestPage(interaction, message.offset),
+          });
+        return;
+      }
       case "output.read": {
         const page = this.host.output?.(message.streamId, message.offset, message.limit);
         if (!page) this.error("not_found", { requestId: message.requestId });
@@ -302,7 +372,8 @@ export class Connection {
         return;
       }
       const page = sidebarPage(Object.values(view.threads), scope.window);
-      const threads = Object.fromEntries(page.threads.map((entry) => [entry.id, entry]));
+      const placed = this.placed(page.threads);
+      const threads = Object.fromEntries(placed.threads.map((entry) => [entry.id, entry]));
       this.subscriptions.set(id, {
         scope,
         cursor: head,
@@ -314,21 +385,24 @@ export class Connection {
         type: "snapshot",
         subscriptionId: id,
         seq: head,
-        view: { ...view, threads, window: page.window },
+        view: { ...view, threads, window: { ...page.window, attention: placed.attention } },
       });
       if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
       return;
     }
     // Like the daemon (its replayLimit), a cursor too far behind gets a snapshot, not every event
-    // since: a client away for hours of streaming must not replay them all to paint.
-    if (
+    // since: a client away for hours of streaming must not replay them all to paint. A thread is
+    // judged by its own events, a list by the host's (ADR 0128).
+    const replay =
       afterSeq !== undefined &&
       afterSeq <= head &&
-      head - afterSeq <= replayLimit &&
+      (scope.kind === "thread" || head - afterSeq <= replayLimit) &&
       this.host.snapshot(scope)
-    ) {
+        ? this.host.replay(scope, afterSeq)
+        : undefined;
+    if (afterSeq !== undefined && replay && replay.length <= replayLimit) {
       this.subscriptions.set(id, { scope, cursor: head });
-      this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
+      this.deliver(id, afterSeq, head, replay);
     } else {
       const view = this.host.snapshot(scope);
       if (!view) {
@@ -341,6 +415,44 @@ export class Connection {
     // Like the daemon, a paced subscriber learns when initialization (snapshot or replay,
     // even an empty one) is complete, so its startup slot frees for the next scope.
     if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
+  }
+  /** A window placed by the daemon's rule (`placeWindow`), so clients see what the daemon sends. */
+  private placed(entries: readonly import("@ace/protocol").ThreadListEntry[]): {
+    threads: readonly import("@ace/protocol").ThreadListEntry[];
+    attention: import("@ace/protocol").ListAttention | undefined;
+  } {
+    const input = this.host.placeInput ? this.host.placeInput() : { baseline: 0, now: 0 };
+    if (!input) return { threads: entries, attention: undefined };
+    return placeWindow(entries, input, isChatEntry);
+  }
+  /** The dots for a window of `limit` threads: a page adds settled threads, never live ones. */
+  private attention(
+    view: ThreadListView,
+    window: NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>,
+    limit: number,
+  ) {
+    return this.placed(sidebarPage(Object.values(view.threads), { ...window, limit }).threads)
+      .attention;
+  }
+  /** What places threads changed (the sort): each open list gets its threads placed anew. */
+  replace(): void {
+    const view = this.host.snapshot({ kind: "threads" });
+    if (!view || view.kind !== "threads") return;
+    for (const [id, subscription] of this.subscriptions) {
+      const window = subscription.scope.kind === "threads" ? subscription.scope.window : undefined;
+      if (!window || !subscription.selected) continue;
+      const limit = subscription.limit ?? window.limit;
+      const current = sidebarPage(Object.values(view.threads), { ...window, limit });
+      const placed = this.placed(current.threads);
+      this.send({
+        type: "threads.patch",
+        subscriptionId: id,
+        seq: subscription.cursor,
+        threads: Object.fromEntries(placed.threads.map((entry) => [entry.id, entry])),
+        removed: [],
+        window: { ...current.window, attention: placed.attention },
+      });
+    }
   }
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {
@@ -365,7 +477,8 @@ export class Connection {
         const removed = [...subscription.selected]
           .filter((threadId) => !present.has(threadId))
           .map((threadId) => ThreadId.parse(threadId));
-        const rows = current.threads.filter(
+        const placed = this.placed(current.threads);
+        const rows = placed.threads.filter(
           (entry) => changed.has(entry.id) || !subscription.selected?.has(entry.id),
         );
         subscription.selected = new Set(present.keys());
@@ -376,7 +489,7 @@ export class Connection {
           seq: through,
           threads: Object.fromEntries(rows.map((entry) => [entry.id, entry])),
           removed,
-          window: current.window,
+          window: { ...current.window, attention: placed.attention },
         });
         subscription.cursor = through;
         continue;
@@ -402,7 +515,18 @@ export class Connection {
     this.send({ type: "error", code, message: code, ...scope });
   }
   private send(message: ServerMessage): void {
-    if (!this.closed) this.wire.send(JSON.stringify(message));
+    if (this.closed) return;
+    message = summarizedOutgoing(message);
+    if (this.rawOnDemand && message.type === "events")
+      message = {
+        ...message,
+        events: message.events.map((event) =>
+          event.payload.type === "item.created" || event.payload.type === "item.updated"
+            ? { ...event, payload: { ...event.payload, item: omitRaw(event.payload.item) } }
+            : event,
+        ),
+      };
+    for (const frame of this.trimmer.outgoing(message)) this.wire.send(JSON.stringify(frame));
   }
   close(code = 1000): void {
     if (this.closed) return;

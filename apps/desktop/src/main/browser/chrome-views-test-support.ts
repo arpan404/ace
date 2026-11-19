@@ -411,6 +411,15 @@ export async function chromeViews(executablePath: string) {
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // The desktop's views never throttle in the background (`backgroundThrottling: false`).
+      // A headless Chrome would otherwise run its renderers at background priority, and on a
+      // busy machine their tabs then answer commands only after seconds.
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-features=PMProcessPriorityPolicy",
+      // Windows: an elevated test would otherwise see Chrome relaunch unelevated and exit.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--window-size=1280,720",
       "about:blank",
     ],
@@ -447,6 +456,9 @@ export async function chromeViews(executablePath: string) {
       child.kill("SIGKILL");
       await exited;
     }
+    // Windows: the killed browser's helpers hold profile files open until they notice and exit.
+    if (process.platform === "win32")
+      await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     await rm(root, { recursive: true, force: true });
   };
   return { views, close };

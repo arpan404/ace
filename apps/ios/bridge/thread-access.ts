@@ -14,8 +14,8 @@ import { z } from "zod";
  * The open thread's access control, as the web composer's: the mode in effect (or the one picked
  * to replace it, which applies at the agent's next turn), the modes its provider supports
  * (`threadAccessSummary`, `accessChoices`), and the durable `thread.permission.set` that changes
- * it. The pick shows at once and stays until the thread's permission state moves; a choice also
- * becomes this daemon's default for new threads, as on the web.
+ * it. The pick shows at once and stays until the thread's permission state moves. It changes
+ * this thread only; the default for new threads is set in Settings, as on the web.
  */
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
@@ -67,15 +67,6 @@ export class ThreadAccessFollower {
     this.#chosen = { mode, against: JSON.stringify(this.#store.thread?.permission ?? null) };
     this.#emit();
     this.#dispatch({ type: "thread.permission.set", threadId: this.#threadId, access: mode }, id);
-    if (mode)
-      void this.#client
-        .request({
-          type: "settings.set",
-          key: "access.defaultMode",
-          value: mode,
-          layer: { kind: "global" },
-        })
-        .catch(() => undefined);
   }
 
   /** Live modes from the thread's capabilities, else the provider account's, read once. */
