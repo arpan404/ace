@@ -332,7 +332,8 @@ export class FilesProcess {
     this.#restoreTimer = this.#clock.setTimeout(() => {
       this.#restoreTimer = undefined;
       if (run !== this.#run || run.dead) return;
-      void this.#restore(run);
+      // The pass reports its own failures; this only keeps the timer's promise handled.
+      void this.#restore(run).catch(() => {});
     }, supervisionTimings.restoreRetryMs);
   }
 

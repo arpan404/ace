@@ -1,6 +1,5 @@
 {
-  "apps/daemon/src/cli/clean-options.ts": 2,
-  "apps/daemon/src/cli/control.ts": 1,
+  "apps/daemon/src/cli/clean-options.ts": 1,
   "apps/daemon/src/cli/sim-human.ts": 2,
   "apps/daemon/src/engine/permission-storage.ts": 2,
   "apps/daemon/src/history-instances.ts": 1,

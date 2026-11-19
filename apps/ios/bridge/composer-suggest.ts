@@ -305,19 +305,17 @@ export class ComposerSuggest {
 
   /** Wait before asking again; a newer query or `close` ends the wait early. */
   #pause(ms: number, seq: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      let stop = () => {};
-      const cancel = this.#ports.schedule(ms, () => {
-        if (this.#cancel === stop) this.#cancel = undefined;
-        resolve(seq === this.#seq);
-      });
-      stop = () => {
-        cancel();
-        if (this.#cancel === stop) this.#cancel = undefined;
-        resolve(false);
-      };
-      this.#cancel = stop;
+    const answer = Promise.withResolvers<boolean>();
+    const cancel = this.#ports.schedule(ms, () => {
+      this.#cancel = undefined;
+      answer.resolve(seq === this.#seq);
     });
+    this.#cancel = () => {
+      cancel();
+      this.#cancel = undefined;
+      answer.resolve(false);
+    };
+    return answer.promise;
   }
 
   async #complete(

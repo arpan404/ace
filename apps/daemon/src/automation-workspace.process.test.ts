@@ -45,6 +45,7 @@ async function fixture(): Promise<{ root: string; host: TrackingHost; tool: File
 }
 
 const pathsOf = (event: AutomationEvent) => (event.variables.paths ?? "").split("\n");
+const forPath = (path: string) => received.filter((event) => pathsOf(event).includes(path));
 
 function contextFor(root: string, tool: FilesTool): ServiceContext {
   return {
@@ -89,7 +90,6 @@ describe.skipIf(!binary)("automation file triggers over real ace-files", () => {
     await until(() => received.some((event) => pathsOf(event).includes("offline.txt")));
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const forPath = (path: string) => received.filter((event) => pathsOf(event).includes(path));
     expect(forPath("keep.txt")).toHaveLength(1);
     expect(forPath("keep.txt")[0]?.variables).toMatchObject({ kind: "changed", count: "1" });
     expect(forPath("offline.txt")).toHaveLength(1);

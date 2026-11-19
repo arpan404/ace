@@ -3,7 +3,6 @@ import { z } from "zod";
 import { matchesGlob } from "node:path";
 import { GitIgnore, SafeRoot } from "@ace/workspace";
 import type { WorkspaceChanges } from "@ace/automations";
-import type { WalkEntry } from "@ace/files";
 import type { EventPayload } from "@ace/files-native";
 import { aceFilesIo } from "./files-tool/io.ts";
 import { filesErrorCode, type FilesTool } from "./files-tool/tool.ts";
@@ -108,7 +107,9 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       /** The version the folder holds now, or undefined when the path is gone. */
       const currentVersion = async (tool: FilesTool, path: string): Promise<string | undefined> => {
         try {
-          const entry = await tool.run(workspace.path, (client, root) => client.stat(root, path));
+          const entry = await tool.run(workspace.path, (client, number) =>
+            client.stat(number, path),
+          );
           return version({
             type: entry.kind.type,
             size: entry.size,

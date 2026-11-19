@@ -242,8 +242,8 @@ test("a newer @ query cancels the wait on a building index", async () => {
   lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 2 });
   await until(() => held.length === 2, "the newer typing pause");
   held.pop()?.();
-  const ready = await until(() => list()?.seq === 2 && list(), "the newer list");
-  expect(ready?.state).toBe("ready");
+  const shown = await until(() => list()?.seq === 2 && list(), "the newer list");
+  expect(shown?.state).toBe("ready");
   expect(
     native.frames.some(
       (frame) =>
