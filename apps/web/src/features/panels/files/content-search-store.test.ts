@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { FilesServerMessage } from "@ace/protocol";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ContentSearchStore } from "./content-search-store.ts";
+import { contentSearchStore, ContentSearchStore, retainContentSearch } from "./content-search-store.ts";
 
 /** A client whose searches stay open until the test ends them, and whose pushes the test sends. */
 function fakeClient() {
@@ -53,4 +53,23 @@ test("editing the query drops the old results and the old search at once", () =>
 
   vi.advanceTimersByTime(250);
   expect(fake.requests).toHaveLength(2);
+});
+
+test("a thread's search is let go once its Files tabs close and other threads are searched", () => {
+  const fake = fakeClient();
+  const release = retainContentSearch(fake.client, "closed");
+  contentSearchStore(fake.client, "closed").update({ pattern: "kept" });
+  release();
+  for (let index = 0; index < 20; index++)
+    retainContentSearch(fake.client, `other-${index}`)();
+  expect(contentSearchStore(fake.client, "closed").state.query.pattern).toBe("");
+});
+
+test("a thread with a Files tab open keeps its search however many threads come after", () => {
+  const fake = fakeClient();
+  retainContentSearch(fake.client, "open");
+  contentSearchStore(fake.client, "open").update({ pattern: "kept" });
+  for (let index = 0; index < 20; index++)
+    retainContentSearch(fake.client, `other-${index}`)();
+  expect(contentSearchStore(fake.client, "open").state.query.pattern).toBe("kept");
 });
