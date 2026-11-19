@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  RunId,
   ThreadId,
   WorkspaceId,
   type PortableHandoff,
@@ -20,6 +21,8 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
+
+const runId = RunId.parse("run-1");
 
 /**
  * A target with a real store and account home. Each continue message has its own fate, by its
@@ -63,7 +66,7 @@ async function target(
     threadCwd: () => "/srv/app",
     threadStatus: () => options.status ?? { state: "new" },
     continueFate: (_thread, key) =>
-      options.fateAt?.(clock) ?? inputs.get(key) ?? { fate: "unknown", held: false },
+      options.fateAt?.(clock) ?? inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
     adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
@@ -74,13 +77,18 @@ async function target(
       }
       sent.push(text);
       const held = options.held && inputs.size === 0;
-      inputs.set(key, held ? { fate: "waiting", held: true } : { fate: "delivered", held: false });
+      inputs.set(
+        key,
+        held
+          ? { fate: { state: "waiting" }, held: true }
+          : { fate: { state: "delivered", runId }, held: false },
+      );
     },
     retryHeld: (_thread, key) => {
       retried.push(key);
       if (options.retryDispatches === false) return;
       for (const [input, facts] of inputs)
-        if (facts.held) inputs.set(input, { fate: "delivered", held: false });
+        if (facts.held) inputs.set(input, { fate: { state: "delivered", runId }, held: false });
     },
     atomic: (run) => store.atomic(run),
     notice: (_thread, text) => notices.push(text),
@@ -186,7 +194,9 @@ describe("a moved thread starting on this machine", () => {
     const t = await target(0, {
       status: { state: "working", agents: 1 },
       fateAt: (clock) =>
-        clock < 10 * 60_000 ? { fate: "waiting", held: false } : { fate: "delivered", held: false },
+        clock < 10 * 60_000
+          ? { fate: { state: "waiting" }, held: false }
+          : { fate: { state: "delivered", runId }, held: false },
     });
     const live = carried([]);
     await prep(t, live);
@@ -287,7 +297,9 @@ describe("a moved thread starting on this machine", () => {
     // Queued behind other work there for an hour before its turn starts.
     const t = await target(0, {
       fateAt: (clock) =>
-        clock < 60 * 60_000 ? { fate: "waiting", held: false } : { fate: "delivered", held: false },
+        clock < 60 * 60_000
+          ? { fate: { state: "waiting" }, held: false }
+          : { fate: { state: "delivered", runId }, held: false },
     });
     const live = carried([await staged(t.folder)]);
     await prep(t, live);

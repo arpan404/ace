@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cutoverStep, runsHere, type CutoverEvent } from "./cutover.ts";
+import { CommandId, RunId } from "@ace/protocol";
+import type { InputFate } from "../../engine/input-fate.ts";
 import { turnStart } from "./turn-start.ts";
 
 const step = (events: CutoverEvent[]) =>
@@ -72,12 +74,22 @@ describe("a working thread's switch-over, on the machine it leaves", () => {
   });
 });
 
-const facts = (fate: Parameters<typeof turnStart>[0]["fate"], held = false) => ({ fate, held });
+const facts = (
+  state: Exclude<InputFate["state"], "delivered" | "replaced" | "failed">,
+  held = false,
+) => ({ fate: { state }, held }) as const;
+const run = RunId.parse("run-1");
 
 describe("the moved thread's first turn on the target", () => {
-  it("counts the continue message as started once it reached its run", () => {
-    expect(turnStart(facts("delivered"))).toEqual({ kind: "running" });
+  it("counts the continue message as started once a run took it", () => {
+    expect(turnStart({ fate: { state: "delivered", runId: run }, held: false })).toEqual({
+      kind: "running",
+    });
     expect(turnStart(facts("uncertain"))).toEqual({ kind: "running" });
+  });
+
+  it("waits while the message is out of the queue but no turn has started on it", () => {
+    expect(turnStart({ fate: { state: "delivered" }, held: false })).toEqual({ kind: "wait" });
   });
 
   it("waits while the continue message is queued, on its way, or not yet recorded", () => {
@@ -87,11 +99,15 @@ describe("the moved thread's first turn on the target", () => {
 
   it("reads the message held unsent by a failure as failed, however long it took", () => {
     expect(turnStart(facts("waiting", true))).toEqual({ kind: "failed" });
-    expect(turnStart(facts("failed"))).toEqual({ kind: "failed" });
+    expect(turnStart({ fate: { state: "failed", error: "Not sent" }, held: false })).toEqual({
+      kind: "failed",
+    });
   });
 
   it("leaves the thread to the person once they resent or removed the message", () => {
-    expect(turnStart(facts("replaced"))).toEqual({ kind: "running" });
+    expect(
+      turnStart({ fate: { state: "replaced", by: CommandId.parse("again") }, held: false }),
+    ).toEqual({ kind: "running" });
     expect(turnStart(facts("removed"))).toEqual({ kind: "running" });
   });
 });

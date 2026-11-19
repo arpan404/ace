@@ -192,7 +192,7 @@ export function liveTargetPorts(
       const engine = engineOf(context);
       const queue = engine.queue(id(threadId));
       return {
-        fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)).state,
+        fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)),
         held: queue.paused && (queue.reason === "not_sent" || queue.reason === "model_unavailable"),
       };
     },

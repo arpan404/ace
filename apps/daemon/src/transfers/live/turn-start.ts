@@ -10,15 +10,18 @@ export type TurnStart = { kind: "running" } | { kind: "wait" } | { kind: "failed
 
 /** What became of the continue message, and whether the queue holds it after a failure. */
 export interface ContinueFacts {
-  fate: InputFate["state"];
+  fate: InputFate;
   /** The queue is paused on a failure (`not_sent`, `model_unavailable`), the message in it. */
   held: boolean;
 }
 
 export function turnStart({ fate, held }: ContinueFacts): TurnStart {
-  switch (fate) {
-    // It reached its run. Uncertain: it may have, and the person decides as on any thread.
+  switch (fate.state) {
+    // Taken from the queue and written to the transcript, but no run has it until the provider's
+    // turn starts on it: an open that fails then puts it back, held.
     case "delivered":
+      return fate.runId === undefined ? { kind: "wait" } : { kind: "running" };
+    // It may have reached its run; the person decides, as on any thread.
     case "uncertain":
       return { kind: "running" };
     // The person sent it again or took it out: the thread is theirs to carry on from here.

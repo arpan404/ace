@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Device, TransferCommit } from "@ace/protocol";
+import { RunId, type Device, type TransferCommit } from "@ace/protocol";
 import { Store } from "../store.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import { IncomingTransfers, type IncomingDeps } from "./incoming.ts";
@@ -55,7 +55,10 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     account: () => undefined,
     threadCwd: () => "/srv/app",
     threadStatus: options.threadStatus ?? (() => ({ state: "working", agents: 1 }) as const),
-    continueFate: () => ({ fate: "delivered", held: false }),
+    continueFate: () => ({
+      fate: { state: "delivered", runId: RunId.parse("run-1") },
+      held: false,
+    }),
     adoptSession: () => {},
     dropSession: () => {},
     adoptHandoff: () => {},
