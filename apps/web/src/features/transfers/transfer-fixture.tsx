@@ -17,7 +17,9 @@ const settledPhases = new Set(["completed", "failed", "cancelled"]);
  * transfers), a studio that is offline, a laptop that doesn't allow projects and a desk that
  * takes transfers but not agents. Each transfer step runs when the test says so.
  */
-export function linkedMachines(options: { links?: boolean } = {}) {
+export function linkedMachines(
+  options: { links?: boolean; history?: Parameters<typeof harness>[0]["history"] } = {},
+) {
   const steps: (() => void)[] = [];
   const app = harness({
     machines: [
@@ -27,6 +29,7 @@ export function linkedMachines(options: { links?: boolean } = {}) {
       { hostId: "desk", name: "Desk" },
     ],
     projectScheduler: (callback) => void steps.push(callback),
+    ...(options.history ? { history: options.history } : {}),
   });
   const machine = (id: string) => {
     const found = app.machines.get(id);
