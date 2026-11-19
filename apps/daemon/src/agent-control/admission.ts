@@ -58,8 +58,10 @@ export class DelegationAdmission {
         this.deps.engine.childPermissionRefusal(caller.threadId, input.provider, input),
       );
     }
-    // Only a thread that is itself being cancelled is refused; a Stop never fences later work.
-    if (this.journal.fenced(caller.threadId))
+    // A thread being cancelled is refused, and so is one whose Stop still stands: its turn was
+    // stopped, so a delegation now comes from the turn that is ending. The next message the
+    // person or parent sends lifts the Stop, so it never fences work that comes after.
+    if (this.journal.fenced(caller.threadId) || this.journal.stopped(caller.threadId))
       throw new AgentControlError("delegation_cancelled", "cancelled");
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
