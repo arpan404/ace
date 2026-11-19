@@ -244,12 +244,14 @@ export function useFolderTree(options: {
   useEffect(() => {
     alive.current = true;
     previous.current = { visible: new Set<string>(), online: false, paused: false };
+    const running = controllers.current;
+    const waiting = queue.current;
     return () => {
       alive.current = false;
-      for (const controller of controllers.current.values()) controller.abort();
-      controllers.current.clear();
+      for (const controller of running.values()) controller.abort();
+      running.clear();
       requests.current = noFolderRequests;
-      queue.current.clear();
+      waiting.clear();
     };
   }, []);
 
