@@ -228,21 +228,23 @@ struct FilesScreen: View {
         guard !text.isEmpty else { results = nil; searchFailure = nil; return }
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
+        // One deadline starts before the first request; every request and sleep after it spends
+        // only what is left, so a slow answer cannot outlast the wait.
+        let wait = IndexWait()
         do {
-            var found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
+            var found = try await quickOpen(text, within: wait)
             // A checkout whose index is still building answers empty with `ready: false`: keep
             // the skeleton and ask again, until it answers or the wait runs out. Past the
             // deadline the screen says so and the next keystroke tries again.
-            let deadline = ContinuousClock.now.advanced(by: .seconds(8))
             while found.ready == false {
-                guard ContinuousClock.now < deadline else {
+                guard let pause = wait.pause() else {
                     results = nil
                     searchFailure = "The checkout's file index is still building. Try again in a moment."
                     return
                 }
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: pause)
                 guard !Task.isCancelled, query.trimmingCharacters(in: .whitespaces) == text else { return }
-                found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
+                found = try await quickOpen(text, within: wait)
             }
             guard !Task.isCancelled else { return }
             quickLine = found.line
@@ -252,6 +254,18 @@ struct FilesScreen: View {
         } catch {
             if !Task.isCancelled { searchFailure = error.localizedDescription }
         }
+    }
+
+    /// The quick-open answer, asked with no more time than the wait has left.
+    private func quickOpen(_ text: String, within wait: IndexWait) async throws -> QuickOpen {
+        let remaining = wait.remaining
+        guard remaining > .zero else {
+            throw FilesFailure(
+                code: "timeout",
+                message: "The checkout's file index is still building. Try again in a moment."
+            )
+        }
+        return try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self, timeout: remaining)
     }
 
     /// Pull to refresh lists what the tree shows and waits for the patch that draws it.

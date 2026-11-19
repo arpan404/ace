@@ -10,6 +10,7 @@
 mod describe;
 mod encoding;
 mod error;
+mod fingerprint;
 mod handle;
 mod hooks;
 mod mutate;
@@ -27,6 +28,7 @@ pub use describe::{
     entry_version, measure,
 };
 pub use error::Error;
+pub use fingerprint::{Fingerprint, fingerprint};
 pub use mutate::{
     Committed, create_dir, recover_move, remove, rename, rename_journaled, trash, untrash,
 };

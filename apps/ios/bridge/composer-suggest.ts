@@ -287,14 +287,21 @@ export class ComposerSuggest {
     // Recent files and matching threads show at once; completed files join them.
     const early = rows([], []);
     put(early.length ? "ready" : "loading", early);
+    // The browser's tabs are the phone's own lookup with its own timeout: a slow one neither
+    // spends the file deadline below nor is cut short by it.
     const tabs = threadId ? this.#browserTabs(threadId) : Promise.resolve([]);
-    const started = this.#ports.now();
-    let completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
+    // One deadline starts before the first file request and every request and sleep after it
+    // spends what is left, so a slow daemon and the retries it causes cannot outlast the wait.
+    const deadline = this.#ports.now() + buildingWait.deadlineMs;
+    let completion = await this.#complete(scope, workspaceId, query, deadline).catch(
+      () => undefined,
+    );
     // A checkout whose index is still building answers empty with `ready: false`: ask again,
     // unless the query moved on or its deadline passed.
-    while (completion?.ready === false && this.#ports.now() - started < buildingWait.deadlineMs) {
-      if (!(await this.#pause(buildingWait.retryMs, seq))) return;
-      completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
+    while (completion?.ready === false && this.#ports.now() < deadline) {
+      const wait = Math.min(buildingWait.retryMs, deadline - this.#ports.now());
+      if (!(await this.#pause(wait, seq))) return;
+      completion = await this.#complete(scope, workspaceId, query, deadline).catch(() => undefined);
     }
     if (seq !== this.#seq) return;
     const all = rows(completion?.paths ?? [], await tabs);
@@ -322,7 +329,11 @@ export class ComposerSuggest {
     scope: Scope,
     workspaceId: string,
     query: string,
-  ): Promise<{ paths: string[]; ready: boolean }> {
+    deadline: number,
+  ): Promise<{ paths: string[]; ready: boolean } | undefined> {
+    // The request may only take what the wait has left; past the deadline there is nothing to ask.
+    const timeoutMs = deadline - this.#ports.now();
+    if (timeoutMs <= 0) return undefined;
     if (scope.type === "draft") return this.#ports.draft.complete(workspaceId, query, 8);
     const reply = await this.#ports.owner.request(
       {
@@ -334,7 +345,7 @@ export class ComposerSuggest {
           limit: 8,
         },
       },
-      quiet,
+      { timeoutMs },
     );
     if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
     return { paths: reply.result.paths.slice(0, 8), ready: reply.result.ready };

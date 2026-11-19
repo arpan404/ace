@@ -95,7 +95,7 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
 ///
 /// The name comes from a walk that already resolved any final link inside the root, so a link
 /// here is one that appeared afterwards and is refused rather than followed.
-fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
+pub(crate) fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
     use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 
     let mut options = cap_std::fs::OpenOptions::new();
@@ -104,7 +104,7 @@ fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
 }
 
 /// The version the path names now, or `None` when the path no longer names a file.
-fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
+pub(crate) fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
     let parent = match crate::handle::target_parent_stored(root, path) {
         Ok(found) => found,
         Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
@@ -123,7 +123,7 @@ fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
     }
 }
 
-fn conflict(path: &str, current: Option<String>) -> Error {
+pub(crate) fn conflict(path: &str, current: Option<String>) -> Error {
     Error::Conflict {
         path: path.to_owned(),
         current,

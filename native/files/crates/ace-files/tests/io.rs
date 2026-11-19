@@ -248,6 +248,73 @@ fn describes_a_file_and_a_folder_the_way_the_daemon_does() {
 }
 
 #[test]
+fn fingerprints_a_files_bytes_without_sending_them() {
+    let checkout = checkout(&[
+        ("one.txt", "same bytes\n"),
+        ("two.txt", "same bytes\n"),
+        ("folder/kept.txt", ""),
+    ]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Fingerprint {
+        root,
+        path: "one.txt".to_owned(),
+    });
+    let Reply::Fingerprint {
+        version,
+        size,
+        digest,
+    } = client.reply(request)
+    else {
+        panic!("fingerprint answered");
+    };
+    assert_eq!(size, 11);
+    assert!(digest.starts_with("sha256:"), "{digest}");
+
+    let request = client.request(Op::Fingerprint {
+        root,
+        path: "two.txt".to_owned(),
+    });
+    let Reply::Fingerprint { digest: same, .. } = client.reply(request) else {
+        panic!("fingerprint answered");
+    };
+    assert_eq!(digest, same, "identical bytes digest the same");
+
+    let stat = client.request(Op::Stat {
+        root,
+        path: "one.txt".to_owned(),
+    });
+    let Reply::Entry(entry) = client.reply(stat) else {
+        panic!("stat answered");
+    };
+    assert_eq!(entry.size, size);
+
+    // The digest is the entry's own version, so a caller storing both never compares two states.
+    let described = client.request(Op::DescribeEntry {
+        root,
+        path: "one.txt".to_owned(),
+        internal: false,
+    });
+    let Reply::Description(described) = client.reply(described) else {
+        panic!("describeEntry answered");
+    };
+    assert_eq!(described.version, version);
+
+    let folder = client.request(Op::Fingerprint {
+        root,
+        path: "folder".to_owned(),
+    });
+    assert_eq!(client.error(folder).code, "NOT_FILE");
+
+    let missing = client.request(Op::Fingerprint {
+        root,
+        path: "gone.txt".to_owned(),
+    });
+    assert_eq!(client.error(missing).code, "NOT_FOUND");
+}
+
+#[test]
 fn measures_the_bytes_a_delete_would_reserve() {
     let checkout = checkout(&[("docs/a.md", "aaaa\n"), ("docs/nested/b.md", "bb\n")]);
     let mut client = Client::greeted();

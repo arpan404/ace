@@ -27,6 +27,13 @@ pub fn lister_with(root: &Path, clock: Arc<dyn Clock>) -> Lister {
     Lister::with_clock(Root::open(root).unwrap(), clock)
 }
 
+/// A lister whose whole listing memory is `budget` entries, so a folder too large to keep is
+/// visible in a test that cannot build a folder of half a million files.
+pub fn lister_with_budget(root: &Path, budget: usize) -> Lister {
+    let clock = Arc::new(FakeClock::new(settled()));
+    Lister::with_clock_and_budget(Root::open(root).unwrap(), clock, budget)
+}
+
 /// An instant far enough past anything a test just wrote that its folders count as settled.
 pub fn settled() -> SystemTime {
     SystemTime::now() + Duration::from_secs(10)

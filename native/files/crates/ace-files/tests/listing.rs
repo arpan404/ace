@@ -84,6 +84,68 @@ fn pages_through_a_folder_in_vs_code_order() {
 }
 
 #[test]
+fn a_pinned_traversal_pages_a_folder_renamed_between_pages() {
+    let checkout = checkout(&[
+        ("sub/a.txt", ""),
+        ("sub/b.txt", ""),
+        ("sub/c.txt", ""),
+        ("sub/d.txt", ""),
+    ]);
+    // A traversal pins its listing, so the folder's stamp never refuses a cursor; a folder that
+    // changed a moment ago is exactly the case that needs it.
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let first = client.request(Op::List {
+        root,
+        dir: "sub".to_owned(),
+        limit: 2,
+        cursor: None,
+        hide: hide(),
+        snapshot: true,
+    });
+    let page = match client.reply(first) {
+        Reply::Page(page) => page,
+        other => panic!("list answered {other:?}"),
+    };
+    assert_eq!(
+        page.entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["a.txt", "b.txt"]
+    );
+    let cursor = page.next_cursor.expect("another page follows");
+
+    // The folder moves before the next page is asked for. The traversal keeps the handle it
+    // first read, so the remaining pages still describe the folder it pinned.
+    std::fs::rename(checkout.path().join("sub"), checkout.path().join("moved"))
+        .expect("the rename");
+
+    let second = client.request(Op::List {
+        root,
+        dir: "sub".to_owned(),
+        limit: 2,
+        cursor: Some(cursor),
+        hide: hide(),
+        snapshot: true,
+    });
+    let page = match client.reply(second) {
+        Reply::Page(page) => page,
+        other => panic!("list answered {other:?}"),
+    };
+    assert_eq!(
+        page.entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["c.txt", "d.txt"]
+    );
+    assert_eq!(page.total, 4);
+    assert!(page.next_cursor.is_none());
+}
+
+#[test]
 fn refuses_a_page_larger_than_the_contract_allows() {
     let checkout = checkout(&[("a.txt", "")]);
     let mut client = Client::greeted();

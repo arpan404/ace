@@ -66,6 +66,7 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
                 read_write::describe_entry(shared, root, &path)
             }
         }
+        Op::Fingerprint { root, path } => read_write::fingerprint(shared, root, &path),
         // The trash quota counts every byte it reserves, so its measure has no entry budget.
         Op::Measure { root, path } => {
             read_write::measure(shared, root, &path, &Walks::unlimited(&cancelled))

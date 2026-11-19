@@ -55,6 +55,15 @@ pub enum Reply {
         /// The version string, the same format stored drafts carry.
         version: String,
     },
+    /// A file's content digest, and the version it was taken at.
+    Fingerprint {
+        /// The version of the bytes that were hashed.
+        version: String,
+        /// The file's size in bytes.
+        size: u64,
+        /// `sha256:` and the digest of the file's bytes.
+        digest: String,
+    },
     /// The answer to an `indexQuery`.
     Index(IndexResult),
 }

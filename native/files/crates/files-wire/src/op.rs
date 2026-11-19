@@ -15,6 +15,7 @@ pub(crate) const TAGS: &[&str] = &[
     "stat",
     "describe",
     "describeEntry",
+    "fingerprint",
     "measure",
     "read",
     "write",
@@ -100,6 +101,16 @@ pub enum Op {
         /// only: a client path never sets it, and it skips only the reserved-name rule.
         #[serde(default, skip_serializing_if = "is_false")]
         internal: bool,
+    },
+    /// Digest a file's bytes, for a caller reconciling changes it could not watch.
+    ///
+    /// A file whose version looks unchanged can still hold different bytes: the version records
+    /// size and times, not content. This reads the file without sending its bytes.
+    Fingerprint {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path.
+        path: String,
     },
     /// How many bytes of files a path holds, for the trash quota a delete must respect.
     Measure {
@@ -278,6 +289,10 @@ mod tests {
                 root: 0,
                 path: String::new(),
                 internal: false,
+            },
+            Op::Fingerprint {
+                root: 0,
+                path: String::new(),
             },
             Op::Measure {
                 root: 0,

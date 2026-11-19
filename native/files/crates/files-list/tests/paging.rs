@@ -192,6 +192,108 @@ fn a_cursor_is_not_trusted_while_the_folder_is_racy() {
 }
 
 #[test]
+fn a_pinned_traversal_pages_through_a_folder_renamed_after_its_first_page() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    for index in 0..6 {
+        support::write(root, &format!("sub/f{index}.txt"), "x");
+    }
+    let lister = lister(root);
+
+    let first = lister.list_pinned("sub", &options(2)).unwrap();
+    assert_eq!(support::names(&first.entries), ["sub/f0.txt", "sub/f1.txt"]);
+    let cursor = first.next_cursor.unwrap();
+
+    // The folder moves while the traversal is between pages. Its listing was read through the
+    // folder's own handle, so the pages after the rename are still the folder it first read.
+    std::fs::rename(root.join("sub"), root.join("moved")).unwrap();
+
+    let second = lister
+        .list_pinned(
+            "sub",
+            &ListOptions {
+                cursor: Some(cursor),
+                ..options(2)
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        support::names(&second.entries),
+        ["sub/f2.txt", "sub/f3.txt"]
+    );
+    assert_eq!(second.total, 6);
+}
+
+#[test]
+fn a_finished_traversal_releases_its_pinned_listing() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    for index in 0..4 {
+        support::write(root, &format!("f{index}.txt"), "x");
+    }
+    let lister = lister(root);
+
+    let first = lister.list_pinned("", &options(2)).unwrap();
+    let cursor = first.next_cursor.clone().unwrap();
+    let last = lister
+        .list_pinned(
+            "",
+            &ListOptions {
+                cursor: Some(cursor.clone()),
+                ..options(2)
+            },
+        )
+        .unwrap();
+    assert_eq!(support::names(&last.entries), ["f2.txt", "f3.txt"]);
+    assert_eq!(last.next_cursor, None);
+
+    // The traversal is done, so its listing is no longer kept and a replay starts over.
+    let refused = lister
+        .list_pinned(
+            "",
+            &ListOptions {
+                cursor: Some(cursor),
+                ..options(2)
+            },
+        )
+        .unwrap_err();
+    assert_eq!(refused.code(), "INVALID_CURSOR");
+}
+
+#[test]
+fn a_folder_over_the_pin_budget_pages_as_one_bounded_stream() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    let expected: Vec<String> = (0..10).map(|index| format!("f{index}.txt")).collect();
+    for name in &expected {
+        support::write(root, name, "x");
+    }
+    // The whole budget holds four entries, so this folder's listing can never be kept.
+    let lister = support::lister_with_budget(root, 4);
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor = None;
+    for _ in 0..5 {
+        let page = lister
+            .list_pinned(
+                "",
+                &ListOptions {
+                    limit: 3,
+                    cursor,
+                    hide: Vec::new(),
+                },
+            )
+            .unwrap();
+        seen.extend(page.entries.into_iter().map(|entry| entry.path));
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(seen, expected, "every entry once, in listing order");
+}
+
+#[test]
 fn a_pinned_listing_pages_a_folder_that_changed_between_pages() {
     let home = TempDir::new().unwrap();
     let root = home.path();

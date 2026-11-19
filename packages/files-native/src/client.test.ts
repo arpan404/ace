@@ -63,6 +63,19 @@ describe("FilesClient", () => {
     expect(new TextDecoder().decode(bytes)).toBe("read:README.md");
   });
 
+  it("digests a file's bytes without asking for them", async () => {
+    const { client } = harness();
+    await client.start();
+    const root = await client.openRoot("/repo");
+    const printed = await client.fingerprint(root, "README.md");
+    expect(printed).toEqual({
+      type: "fingerprint",
+      version: "0:0:0:0:0",
+      size: 12,
+      digest: "sha256:README.md",
+    });
+  });
+
   it("writes bytes in a body frame and returns the new version", async () => {
     const { h, client } = harness();
     await client.start();
