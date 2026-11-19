@@ -177,6 +177,41 @@ test("Link all from an ace that predates keep never sends it a fill that would r
   expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
 }, 30_000);
 
+test("Link all from an ace that predates keep skips a link another window made during the fill", async () => {
+  const app = harness({
+    machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
+  });
+  const remote = app.machines.get("build");
+  if (!remote) throw new Error("Missing machine");
+  app.daemon.services.fleet.honoursKeep = false;
+  await app.open("/settings/remote");
+  const machines = await region("Machines");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
+  // The other window links this computer with Projects once the fill is under way: after its
+  // first read of the links, when the build server issues the pairing.
+  const issue = remote.access.pair.bind(remote.access);
+  let raced = false;
+  remote.access.pair = (input) => {
+    const issued = issue(input);
+    if (!raced) app.daemon.linkTo(remote);
+    raced = true;
+    return issued;
+  };
+  await userEvent.click(linkAll);
+  await waitFor(() =>
+    expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
+  );
+  // Never asked to link to the build server, so the link with Projects stands, and the pairing
+  // the fill no longer needed is cancelled.
+  expect(
+    app.daemon.services.fleet.asked.filter(({ operation }) => operation.op === "link"),
+  ).toEqual([]);
+  expect(app.daemon.services.fleet.links()).toMatchObject([{ hostId: "build", projects: true }]);
+  await waitFor(() => expect(remote.access.pendingPairings()).toEqual([]));
+  expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
+}, 30_000);
+
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
   const { app, remote } = withBuildServer();
   remote.services.settings.write("remote.enabled", false);

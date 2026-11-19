@@ -130,8 +130,11 @@ const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
  * (`projects: false`) and they can be allowed later on `to`'s page in Settings › Fleet. A link
  * `from` already holds stays as it is (`kept`): `from`'s links are read again first, and nothing
  * is issued for a gap that is linked now. A machine that honours `keep` also checks right before
- * redeeming, for a link made meanwhile, and this one's pairing link is then cancelled unused;
- * one from before `keep` is never sent it, since it would drop it and replace the link.
+ * redeeming, for a link made meanwhile, and this one's pairing link is then cancelled unused.
+ * One from before `keep` is never sent it, since it would drop it and replace the link: its links
+ * are read once more right before the request instead, and any link there skips the gap. What is
+ * left there is the one request's round trip: a link another window makes in it can still be
+ * replaced, which only a machine that honours `keep` rules out.
  */
 export async function linkMachine(
   from: Machine,
@@ -159,6 +162,15 @@ export async function linkMachine(
     projects = false;
     return issue(wanted.filter((scope) => scope !== "projects"));
   });
+  if (!keep) {
+    const again = await fleet(fromClient, { op: "links" }).catch((error: unknown) => {
+      throw new Error(redeemProblem(error, from, to));
+    });
+    if (again.kind !== "links" || again.links.some((link) => link.hostId === to.id)) {
+      await cancelPairing(toClient, pairing.id).catch(() => undefined);
+      return { kind: "kept" };
+    }
+  }
   let kept = false;
   const result = await fleet(fromClient, {
     op: "link",
