@@ -344,23 +344,12 @@ fn exchange_publish(
         let _ = dir.remove_file(&displaced_name);
         return Ok(Some(Published::Conflict));
     }
-    let kept = kept_copy_name(name);
+    let kept = handle::recovery_name(name);
     let at = match handle::rename_noclobber(dir, &displaced_name, dir, &kept) {
         Ok(Noclobber::Done) => kept,
         _ => displaced_name,
     };
     Ok(Some(Published::Done(Some(SaveWarning::Preserved(at)))))
-}
-
-/// `notes.md` keeps an outside save as `notes.conflict-<unique>.md`, next to it.
-#[cfg(unix)]
-fn kept_copy_name(name: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => {
-            format!("{stem}.conflict-{}.{extension}", handle::unique_suffix())
-        }
-        _ => format!("{name}.conflict-{}", handle::unique_suffix()),
-    }
 }
 
 /// Windows publishes a guarded replacement through the entry's own handle: the file the guard

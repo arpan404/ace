@@ -19,15 +19,9 @@ import { FileError, type FilesOptions, type Download } from "./types.ts";
 
 /** The paths one mutation can change, which is what another mutation's proof must not cross. */
 function affectedPaths(operation: Parameters<Mutations["apply"]>[0]): string[] {
-  switch (operation.op) {
-    case "rename":
-    case "move":
-      return [operation.path, operation.destination];
-    case "restore":
-      return [operation.path];
-    default:
-      return [operation.path];
-  }
+  return operation.op === "rename" || operation.op === "move"
+    ? [operation.path, operation.destination]
+    : [operation.path];
 }
 
 export class FilesService {
@@ -327,7 +321,7 @@ export class FilesService {
       // Failed queued I/O emits no change event; refresh its old observation too.
       if (this.pending > 0 || !this.reservations.idle) {
         await this.tail;
-        await this.reservations.settled();
+        await this.reservations.settled(reserved);
         continue;
       }
       // The move's guard is verified after it lands, and verifying a folder walks its whole tree.

@@ -27,7 +27,7 @@ pub use describe::{
 };
 pub use error::Error;
 pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
-pub use policy::{authorized_dir, authorized_parent, authorized_target, refuse_reserved};
+pub use policy::{authorized_dir, authorized_parent, authorized_target};
 pub use read::{Read, ReadRange, read};
 pub use version::stat_version;
 pub use write::{SaveWarning, Saved, create_file, write};

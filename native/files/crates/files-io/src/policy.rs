@@ -26,14 +26,6 @@ const TEMPORARY: &str = ".ace-upload-";
 /// What a delete parks an entry under, followed by the daemon's own id.
 const TRASH: &str = ".ace-upload-trash-";
 
-/// Refuse a path whose resolved names are the daemon's own.
-///
-/// Reads and listings call this before serving anything, so a link into `.git` or into the trash
-/// is refused exactly like the spelling that names them.
-pub fn refuse_reserved(root: &Root, path: &str) -> Result<(), Error> {
-    refuse(&root.stored_path(path)?, path)
-}
-
 /// The folder a read-only request may serve, with the stored path that names it.
 ///
 /// One walk proves the names and hands back the handle, so a link swapped in after the check

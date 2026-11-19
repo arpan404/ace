@@ -15,9 +15,19 @@ export class PathReservations {
     return this.held.length === 0;
   }
 
-  /** A promise that settles once nothing is held. */
-  async settled(): Promise<void> {
-    while (this.held.length) await Promise.all(this.held.map((entry) => entry.settled));
+  /**
+   * A promise that settles once nothing overlapping `paths` is held.
+   *
+   * With no paths it waits for every reservation, which is what a caller that cannot name its
+   * paths needs; a mutation names its own and is never held up by a proof elsewhere.
+   */
+  async settled(paths: string[] = []): Promise<void> {
+    const wanted = paths.filter((path) => path.length > 0);
+    for (;;) {
+      const blocking = this.held.filter((entry) => !wanted.length || overlaps(entry.paths, wanted));
+      if (!blocking.length) return;
+      await Promise.all(blocking.map((entry) => entry.settled));
+    }
   }
 
   /**

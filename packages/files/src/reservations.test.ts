@@ -46,3 +46,12 @@ it("releasing twice does not free another holder's reservation", async () => {
   other();
   expect(reservations.idle).toBe(true);
 });
+
+it("waits only for a reservation that overlaps the paths a mutation names", async () => {
+  const reservations = new PathReservations();
+  const release = await reservations.reserve(["docs/a.md"]);
+
+  await reservations.settled(["src/b.md"]);
+
+  release();
+});

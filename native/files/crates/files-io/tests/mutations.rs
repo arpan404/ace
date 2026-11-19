@@ -135,15 +135,21 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
         .collect();
     match result {
         // The volume cannot hold both spellings, so the entry could not be put back: it is whole
-        // under the staging name and the warning says where.
+        // under a name the warning gives, and that name is one a person can see.
         Ok(committed) => {
             let warning = committed.warning.expect("a stranded move is reported");
-            let staging = names
+            let kept = names
                 .iter()
-                .find(|name| name.starts_with(".ace-upload-move-"))
-                .expect("the entry is preserved under a staging name");
-            assert!(warning.contains(staging.as_str()), "{warning}");
-            assert_eq!(fixture.read(staging), b"the original\n");
+                .find(|name| name.starts_with("Notes.conflict-"))
+                .expect("the entry is preserved under a visible name");
+            assert!(warning.contains(kept.as_str()), "{warning}");
+            assert_eq!(fixture.read(kept), b"the original\n");
+            assert!(
+                !names
+                    .iter()
+                    .any(|name| name.starts_with(".ace-upload-move-")),
+                "no staging name is left behind: {names:?}"
+            );
         }
         Err(error) => {
             assert_eq!(error.code(), "CONFLICT");

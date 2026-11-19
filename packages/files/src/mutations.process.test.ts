@@ -707,13 +707,15 @@ it("keeps a delete restorable when its answer is lost after the entry moved", as
   const listed = z
     .object({ value: z.object({ entries: z.array(z.object({ id: z.string() })) }) })
     .parse(await client.request({ op: "trash.list", limit: 32 }));
-  expect(listed.value.entries).toHaveLength(1);
+  const [entry, ...rest] = listed.value.entries;
+  expect(rest).toEqual([]);
+  if (!entry) throw new Error("the lost answer left no restorable entry");
 
   // While the receipt is unresolved it never expires, however long the daemon runs.
   now += 10_000;
   await f.service.sweep();
   expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
-    value: { entries: [expect.objectContaining({ id: listed.value.entries[0]?.id })] },
+    value: { entries: [expect.objectContaining({ id: entry.id })] },
   });
 
   // A start reconciles it: the entry is not at its path, so it is an ordinary trash entry again.
@@ -724,7 +726,7 @@ it("keeps a delete restorable when its answer is lost after the entry moved", as
     await next.request({
       op: "restore",
       path: "report.md",
-      trashId: listed.value.entries[0]?.id,
+      trashId: entry.id,
       expected: null,
     }),
   ).toMatchObject({ type: "files.result" });
@@ -732,7 +734,7 @@ it("keeps a delete restorable when its answer is lost after the entry moved", as
 });
 
 it("drops a delete's receipt when the port refuses before it moves anything", async () => {
-  const io = await port((base) => ({
+  const io = await port(() => ({
     async trash(): Promise<void> {
       throw new FileError("CONFLICT", "the entry changed", "1:2:3:4:5");
     },

@@ -8,7 +8,8 @@
 //! spelling the volume would reinterpret cannot slip past it.
 //!
 //! A destructive guard is verified after the entry has been moved, not before: the move is one
-//! atomic no-replace rename, and a tree whose digest does not match the one the client held is
+//! atomic no-replace rename — or, when both names fold together into one entry, a staged two-step
+//! that never replaces a name either — and a tree that does not match the one the client held is
 //! moved straight back and reported as `CONFLICT`. A rename that landed and then failed to sync
 //! is a success with a warning, never an error: the bytes are where the client wanted them, and
 //! the daemon must not roll its own bookkeeping back for a step that already happened.
@@ -61,12 +62,15 @@ fn create_dir_with(
 ///
 /// A move is one atomic no-replace rename. Where the operating system or filesystem cannot make
 /// one, the answer is `UNSUPPORTED` rather than a check followed by a rename that could replace a
-/// destination that appeared in between.
+/// destination that appeared in between. Two names that fold into one entry on the volume — the
+/// same name in another case — are moved through a staging name of their own, each step still
+/// without replacing, so a name that appears in between is never overwritten.
 ///
 /// `expected` is the version the caller worked from. When it is set, the entry is verified after
 /// the move: a tree whose digest no longer matches is moved back and reported as `CONFLICT` with
 /// the version found. A folder's `own` version from before the move is part of that check, since
-/// a rename changes the folder's change time and nothing else.
+/// a rename changes the folder's change time and nothing else, and so is the folder's identity:
+/// a different folder whose contents match digests the same.
 pub fn rename(
     root: &Root,
     from: &str,
@@ -400,7 +404,14 @@ fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<
                 Ok(Noclobber::Done)
             );
             if !restored {
-                return Ok(TwoStep::Stranded(staging));
+                // The staging name is one the daemon keeps out of every listing, so the entry is
+                // moved to a name a person can see before it is reported as left behind.
+                let visible = handle::recovery_name(from);
+                let at = match handle::rename_noclobber(from_dir, &staging, from_dir, &visible) {
+                    Ok(Noclobber::Done) => visible,
+                    _ => staging,
+                };
+                return Ok(TwoStep::Stranded(at));
             }
             match refused {
                 Ok(Noclobber::Exists) => Ok(TwoStep::Taken),

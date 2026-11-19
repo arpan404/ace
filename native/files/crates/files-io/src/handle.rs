@@ -181,6 +181,19 @@ pub(crate) fn moving_name() -> String {
     format!("{TEMPORARY}move-{}", unique_suffix())
 }
 
+/// The name a version of an entry that could not be put back is preserved under, beside it.
+///
+/// `notes.md` keeps another version as `notes.conflict-<id>.md`. The name is one a person can see
+/// and open, so a preserved copy is never invisible to the person whose bytes it holds.
+pub(crate) fn recovery_name(name: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => {
+            format!("{stem}.conflict-{}.{extension}", unique_suffix())
+        }
+        _ => format!("{name}.conflict-{}", unique_suffix()),
+    }
+}
+
 /// Swaps two names in `dir` in one step, so neither ever stops existing. Returns false where the
 /// operating system or filesystem has no atomic exchange.
 #[cfg(unix)]
