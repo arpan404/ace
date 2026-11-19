@@ -43,11 +43,9 @@ struct SearchHome: View {
 }
 
 extension SearchHome {
-    /// The system's search tab (iOS 26) places its own field in the tab bar. As a plain tab the
-    /// field would wait in the collapsed navigation drawer, so it is pinned there open.
-    static var fieldPlacement: SearchFieldPlacement {
-        HomeTabs.composeTab ? .navigationBarDrawer(displayMode: .always) : .automatic
-    }
+    /// Search is a plain tab (the home bar is ace's own), so its field would wait in the collapsed
+    /// navigation drawer: it is pinned there open.
+    static var fieldPlacement: SearchFieldPlacement { .navigationBarDrawer(displayMode: .always) }
 }
 
 /// Search before anything is typed: things to act on, not an explanation. The places, then as the

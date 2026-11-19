@@ -7,8 +7,6 @@ import SwiftUI
 struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
     @Binding var path: [InboxRoute]
     @Binding var drawer: ThreadDrawer
-    /// This tab is the one showing; only it places the window's tab bar.
-    let showing: Bool
     /// The list is in Select mode: its action bar takes the tab bar's place.
     var selecting = false
     @ViewBuilder let list: () -> Sidebar
@@ -39,7 +37,6 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
     private var motion: Animation { .default }
     private var listWidth: CGFloat { ThreadDrawer.listWidth(window: width) }
-    private var tabBar: Bool { !selecting && ThreadColumns.showsTabBar(sizeClass, path: path) }
 
     var body: some View {
         if sizeClass == .regular {
@@ -57,14 +54,8 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
                     }
             }
             .environment(\.panelPlace, .none)
-            // The system tab bar shows over the list and steps away for a page or Select mode.
-            .toolbarVisibility(!selecting && path.isEmpty ? .automatic : .hidden, for: .tabBar)
-            .background {
-                if showing {
-                    TabBarPlace(hidden: selecting || !path.isEmpty, relayout: "stack \(path.count) \(selecting)")
-                        .frame(width: 0, height: 0)
-                }
-            }
+            // The system's tab bar never shows: the list's first page carries ace's own (`HomeBar`).
+            .modifier(HomeTabBar(relayout: "stack \(path.count) \(selecting)"))
             .onAppear { drawer.close() }
         }
     }
@@ -93,13 +84,8 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
         .gesture(DrawerEdgePan(enabled: ThreadDrawer.edgeOpens(layout, path: path) && !drawer.isOpen, follows: !reduceMotion,
                                began: beginHold, moved: { [hold, listWidth] in hold.move($0, width: listWidth) },
                                ended: { release(velocity: $1) }))
-        // As a stack, the tab bar hides once a page is open; beside the list the sidebar's foot
-        // takes its place and there is no tab bar at all, nor room kept for one.
-        .toolbarVisibility(tabBar ? .automatic : .hidden, for: .tabBar)
-        // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
-        .background {
-            if showing { TabBarPlace(hidden: !tabBar, relayout: "\(panelPlace) \(path.count) \(sizeClass == .regular) \(appeared)").frame(width: 0, height: 0) }
-        }
+        // Beside the list the sidebar's foot holds the places: no system tab bar, nor room kept for one.
+        .modifier(HomeTabBar(relayout: "\(panelPlace) \(path.count) \(sizeClass == .regular) \(appeared)"))
         .task { try? await Task.sleep(for: .milliseconds(300)); appeared = true }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }

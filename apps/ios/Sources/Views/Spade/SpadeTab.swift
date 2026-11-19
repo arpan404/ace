@@ -4,13 +4,13 @@ import SwiftUI
 /// first, then whoever needs the person, then working, failed, finished and the rest, each with
 /// its face, its name and one line. A bot opens its conversation. With several machines showing
 /// Spade, the title's menu picks whose bots these are. Every word is the bridge's.
-struct SpadeTab: View {
+struct SpadeTab<Bar: View>: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
-    /// The system tab bar is this page's (a phone): it shows over the list and steps away for a
+    /// The phone's tab bar (`HomeBar`), at the list's foot: it steps away with the list for a
     /// conversation, as Projects' does for a page.
-    let tabBar: Bool
+    @ViewBuilder let bar: () -> Bar
     @State private var machine: String?
     @State private var path: [String] = []
     @State private var watch = SpadeWatch()
@@ -25,6 +25,7 @@ struct SpadeTab: View {
             Group {
                 if let session { SpadeList(client: session.client) } else { Color.clear }
             }
+            .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar { if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarTrailing) { machineMenu } } }
             .navigationDestination(for: String.self) { conversation in
@@ -40,7 +41,7 @@ struct SpadeTab: View {
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
         }
-        .modifier(HomeTabBar(shown: tabBar && path.isEmpty))
+        .modifier(HomeTabBar(relayout: "spade \(path.count)"))
         .onChange(of: session?.hostId) { path = [] }
     }
 

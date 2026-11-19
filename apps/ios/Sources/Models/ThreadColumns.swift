@@ -51,11 +51,6 @@ enum ThreadColumns {
         return sidebarHoldsTabs(sizeClass) ? AceTheme.Spacing.sm : AceTheme.Spacing.none
     }
 
-    /// The tab bar shows only in a compact window, and steps aside while it shows a page.
-    static func showsTabBar(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Bool {
-        !sidebarHoldsTabs(sizeClass) && path.isEmpty
-    }
-
     /// The thread before or after `current` in the list's order (`step` -1 or 1); the first or
     /// last when none is open. Nil past either end, or with nothing listed.
     static func neighbour(of current: InboxKey?, in order: [InboxKey], step: Int) -> InboxKey? {

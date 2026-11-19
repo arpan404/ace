@@ -6,7 +6,7 @@ import SwiftUI
 /// Spade while a machine shows it, Search), the one showing on a filled capsule; at the trailing
 /// edge what opens over it: More (Automations and Skills, then Usage, History and Archived) and
 /// Settings. Code review sits in the Projects list's top bar, as on a phone. A phone has the
-/// system tab bar instead.
+/// same system drawn as its tab bar (`HomeBar`): the same glass, glyphs and chosen fill.
 struct SidebarPlaces: View {
     @Binding var tab: InboxTab
     /// Opens one of the places outside the lists.
@@ -28,7 +28,7 @@ struct SidebarPlaces: View {
             // Only the chosen fill slides; the tab it opens shows at once, as the tab bar's do.
             .animation(.default, value: tab)
             .padding(AceDesign.Size.tabInset)
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            .barGlass(in: AceShape.capsule)
             .floatingShadow()
             Spacer(minLength: AceTheme.Spacing.none)
             HStack(spacing: AceDesign.Space.tight) {
@@ -42,7 +42,7 @@ struct SidebarPlaces: View {
                 placeButton(.settings)
             }
             .padding(AceDesign.Size.tabInset)
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            .barGlass(in: AceShape.capsule)
             .floatingShadow()
         }
         .padding(.horizontal, AceDesign.Space.row)
@@ -75,10 +75,7 @@ struct SidebarPlaces: View {
         return Button {
             tab = place
         } label: {
-            Group {
-                if place == .spade { SpadeMark(size: AceDesign.Size.barIcon) } else { AceIcon(HomeTabs.icon(place), size: AceDesign.Size.barIcon) }
-            }
-                .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+            HomePlaceGlyph(place: place, chosen: chosen)
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.navButton)
                 .overlay(alignment: .topTrailing) {
                     if dot {
@@ -104,15 +101,16 @@ struct SidebarPlaces: View {
     }
 }
 
-/// The system tab bar on a page of its own (Search, Spade): shown on a phone, hidden in a regular
-/// window, whose sidebar foot holds the places. Set on the tab bar controller too (`TabBarPlace`),
-/// since a list's tab may have hidden it there.
+/// The system's tab bar never shows: a phone has ace's own (`HomeBar`), a regular window the
+/// sidebar's foot. Set on the tab bar controller too (`TabBarPlace`), or its first layout keeps
+/// room for the bar.
 struct HomeTabBar: ViewModifier {
-    let shown: Bool
+    /// Changes when the tabs may be laid out again (`TabBarPlace.relayout`).
+    var relayout = "home"
     func body(content: Content) -> some View {
         content
-            .toolbarVisibility(shown ? .automatic : .hidden, for: .tabBar)
-            .background { TabBarPlace(hidden: !shown, relayout: "home \(shown)").frame(width: 0, height: 0) }
+            .toolbarVisibility(.hidden, for: .tabBar)
+            .background { TabBarPlace(hidden: true, relayout: relayout).frame(width: 0, height: 0) }
     }
 }
 
