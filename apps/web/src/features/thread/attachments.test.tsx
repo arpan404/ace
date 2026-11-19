@@ -4,6 +4,7 @@ import { DeviceId, type Attachment, type ContentPart, type ContextResult } from 
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { editorText } from "@/test/editor-text.ts";
 import { harness } from "@/test/harness.tsx";
 
 /*
@@ -224,9 +225,8 @@ test("absolute paths an answer writes as code or prose open beside the thread, i
   // Under the project but not in its file index (build output): still opens.
   await userEvent.click(within(feed).getByRole("link", { name: "/work/shop/dist/build.log:3" }));
   const log = await screen.findByRole("region", { name: "build.log" });
-  expect((await within(log).findByLabelText("Contents of build.log")).textContent).toContain(
-    "built",
-  );
+  const contents = await within(log).findByLabelText("Contents of build.log");
+  await waitFor(() => expect(contents.textContent).toContain("built"));
 });
 
 test("a link outside the checkout that the host can't serve says so", async () => {
@@ -526,13 +526,12 @@ test("a saved artifact opens its checkout file and downloads the original bytes"
   expect(within(feed).getByText("src/index.ts")).toBeTruthy();
   expect(feed.textContent).not.toContain("/work/shop");
   await user.click(within(panel).getByRole("button", { name: "Edit file" }));
-  const draft = await within(panel).findByRole("textbox", { name: "Edit src/index.ts" });
-  await user.type(draft, "\n// Unsaved note");
+  const draft = await within(panel).findByRole("textbox", { name: "index.ts" });
+  await user.click(draft);
+  await user.keyboard("{Control>}{End}{/Control}{Enter}// Unsaved note");
   await user.click(within(feed).getByRole("button", { name: "Open saved file" }));
-  expect(
-    (within(panel).getByRole("textbox", { name: "Edit src/index.ts" }) as HTMLTextAreaElement)
-      .value,
-  ).toContain("// Unsaved note");
+  const editing = await within(panel).findByRole("region", { name: "Editing src/index.ts" });
+  expect(editorText(editing)).toContain("// Unsaved note");
 });
 
 /*
