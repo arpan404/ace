@@ -43,24 +43,63 @@ pub(crate) enum Presence {
     Unknown,
 }
 
-/// What is at `path`, asked through the root's handle.
+/// What translating and settling one window asks the tree.
+pub(crate) trait Reader {
+    /// What is at `path`, without following it: whether it is there, and whether it is a folder.
+    fn presence(&mut self, path: &str) -> Presence;
+
+    /// The names the folder holding `path` stores have changed, because a rename touched it.
+    /// Whatever was read there before must not be used to judge the spellings a rename names.
+    fn renamed(&mut self, path: &str);
+}
+
+/// The disk, as one window of translation reads it.
 ///
 /// The leaf is looked up through the folder that holds it without following it, so a link is
 /// reported as the link itself and never as the tree it points at. The folders, and the names
-/// their volume stores, are kept in `readings`, which the caller clears between batches: a burst
-/// that creates twenty thousand files in one folder opens that folder once and reads its names
-/// once, instead of walking to it and listing it for every create.
-pub(crate) fn look(root: &Root, readings: &mut Readings, path: &str) -> Presence {
-    match root.look(path, readings) {
-        Ok(Found::Folder) => Presence::Here(true),
-        Ok(Found::Other) => Presence::Here(false),
-        // A name the volume only knows under another spelling is gone as far as the caller is
-        // concerned: the spelling it asked about no longer names an entry.
-        Ok(Found::Missing | Found::Renamed) => Presence::Gone,
-        Err(files_safe::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            Presence::Gone
+/// their volume stores, are kept in `readings`, which the caller clears when a window closes: a
+/// burst that creates twenty thousand files in one folder opens that folder once and reads its
+/// names once, instead of walking to it and listing it for every create.
+pub(crate) struct Disk<'a> {
+    root: &'a Root,
+    readings: &'a mut Readings,
+}
+
+impl<'a> Disk<'a> {
+    pub(crate) fn new(root: &'a Root, readings: &'a mut Readings) -> Disk<'a> {
+        Disk { root, readings }
+    }
+}
+
+/// The tree as a window that is already going to rescan sees it: every path unknown, because the
+/// rescan is what will describe them and a lookup now would only be thrown away with the change.
+pub(crate) struct Absent;
+
+impl Reader for Absent {
+    fn presence(&mut self, _path: &str) -> Presence {
+        Presence::Unknown
+    }
+
+    fn renamed(&mut self, _path: &str) {}
+}
+
+impl Reader for Disk<'_> {
+    fn presence(&mut self, path: &str) -> Presence {
+        match self.root.look(path, self.readings) {
+            Ok(Found::Folder) => Presence::Here(true),
+            Ok(Found::Other) => Presence::Here(false),
+            // A name the volume only knows under another spelling is gone as far as the caller is
+            // concerned: the spelling it asked about no longer names an entry.
+            Ok(Found::Missing | Found::Renamed) => Presence::Gone,
+            Err(files_safe::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                Presence::Gone
+            }
+            Err(_) => Presence::Unknown,
         }
-        Err(_) => Presence::Unknown,
+    }
+
+    fn renamed(&mut self, path: &str) {
+        self.readings.renamed(path);
     }
 }
 
@@ -77,7 +116,7 @@ pub(crate) fn translate(
     event: Event,
     root: &Root,
     excluder: &Excluder,
-    look: &mut impl FnMut(&str) -> Presence,
+    reader: &mut impl Reader,
 ) -> Translation {
     let mut translation = Translation {
         notices: Vec::new(),
@@ -94,11 +133,19 @@ pub(crate) fn translate(
     if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind
         && let [from, to] = event.paths.as_slice()
     {
+        // Both folders store different names now, and this window may have read them before the
+        // rename: read them again before either spelling is judged, or the new one would be
+        // matched to the old name's identity and dropped as a rename.
+        for absolute in [from, to] {
+            if let Some(path) = inside(root, excluder, absolute) {
+                reader.renamed(&path);
+            }
+        }
         push(
             &mut translation,
             root,
             excluder,
-            look,
+            reader,
             from,
             ChangeKind::Deleted,
             true,
@@ -107,7 +154,7 @@ pub(crate) fn translate(
             &mut translation,
             root,
             excluder,
-            look,
+            reader,
             to,
             ChangeKind::Created,
             true,
@@ -118,7 +165,7 @@ pub(crate) fn translate(
         let Some(path) = inside(root, excluder, absolute) else {
             continue;
         };
-        let present = look(&path);
+        let present = reader.presence(&path);
         if let Some((kind, rename)) = classify(&event.kind, present) {
             let directory = match kind {
                 ChangeKind::Deleted => matches!(event.kind, EventKind::Remove(RemoveKind::Folder)),
@@ -171,7 +218,7 @@ fn push(
     translation: &mut Translation,
     root: &Root,
     excluder: &Excluder,
-    look: &mut impl FnMut(&str) -> Presence,
+    reader: &mut impl Reader,
     absolute: &Path,
     kind: ChangeKind,
     rename: bool,
@@ -179,7 +226,7 @@ fn push(
     let Some(path) = inside(root, excluder, absolute) else {
         return;
     };
-    let present = look(&path);
+    let present = reader.presence(&path);
     let directory = match kind {
         ChangeKind::Deleted => false,
         _ => present == Presence::Here(true),
@@ -197,7 +244,7 @@ fn push(
 
 #[cfg(test)]
 mod tests {
-    use super::{Presence, translate};
+    use super::{Presence, Reader, translate};
     use crate::batch::{Change, ChangeKind};
     use crate::exclude::Excluder;
     use files_safe::Root;
@@ -205,6 +252,31 @@ mod tests {
     use notify::event::{AccessKind, EventKind, ModifyKind, RemoveKind, RenameMode};
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    /// A tree the tests describe: the named paths are there, everything else is absent.
+    struct Table(HashMap<String, bool>);
+
+    impl Reader for Table {
+        fn presence(&mut self, path: &str) -> Presence {
+            match self.0.get(path) {
+                Some(directory) => Presence::Here(*directory),
+                None => Presence::Gone,
+            }
+        }
+
+        fn renamed(&mut self, _path: &str) {}
+    }
+
+    /// A tree with nothing in it.
+    struct Nothing;
+
+    impl Reader for Nothing {
+        fn presence(&mut self, _path: &str) -> Presence {
+            Presence::Gone
+        }
+
+        fn renamed(&mut self, _path: &str) {}
+    }
 
     struct Fixture {
         _dir: tempfile::TempDir,
@@ -237,11 +309,7 @@ mod tests {
                 .iter()
                 .map(|(rel, is_dir)| ((*rel).to_owned(), *is_dir))
                 .collect();
-            let mut look = move |path: &str| match table.get(path) {
-                Some(directory) => Presence::Here(*directory),
-                None => Presence::Gone,
-            };
-            let translation = translate(event, &self.root, &excluder, &mut look);
+            let translation = translate(event, &self.root, &excluder, &mut Table(table));
             let changes = translation
                 .notices
                 .into_iter()
@@ -408,7 +476,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &outside, &mut |_| Presence::Gone).rescan,
+            translate(event, &fixture.root, &outside, &mut Nothing).rescan,
             Some(Some("node_modules/pkg".to_owned())),
             "a package folder is listed, so it can be rescanned"
         );
@@ -416,7 +484,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &inside, &mut |_| Presence::Gone).rescan,
+            translate(event, &fixture.root, &inside, &mut Nothing).rescan,
             Some(None),
             "an excluded folder's overflow names the root instead"
         );

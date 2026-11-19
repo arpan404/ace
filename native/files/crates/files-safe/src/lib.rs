@@ -24,6 +24,7 @@ mod walk;
 mod windows;
 
 pub use crate::error::Error;
+pub use crate::identity::Identity;
 pub use crate::look::{Found, Readings};
 pub use crate::walk::{Parent, Stored};
 
@@ -40,7 +41,6 @@ pub struct Root {
     opened: PathBuf,
     dir: Arc<cap_std::fs::Dir>,
     cache: Arc<Mutex<names::Cache>>,
-    folds_case: bool,
 }
 
 impl Root {
@@ -56,23 +56,40 @@ impl Root {
             return Err(Error::NotDirectory(path.display().to_string()));
         }
         let dir = cap_std::fs::Dir::open_ambient_dir(&path, cap_std::ambient_authority())?;
-        let folds_case = case::folds(&dir);
         Ok(Root {
             path,
             opened,
             dir: Arc::new(dir),
             cache: Arc::new(Mutex::new(names::Cache::default())),
-            folds_case,
         })
     }
 
-    /// Whether this volume folds name case, decided once when the root opened.
+    /// What names the folder behind `dir` on its volume, kept by a caller that holds the handle and
+    /// has to prove it again later. `None` where the platform cannot tell one folder from another.
+    pub fn folder_identity(&self, dir: &cap_std::fs::Dir) -> Option<Identity> {
+        dir.dir_metadata()
+            .ok()
+            .and_then(|metadata| Identity::of(&metadata))
+    }
+
+    /// Whether `rel` names the folder with `identity` right now, asked with one lookup rather than
+    /// a walk.
     ///
-    /// A volume that folds case answers a name it stores under any case, so a caller that reports
-    /// the spelling on disk has to ask what is really stored. A volume that keeps case gives back
-    /// exactly the spelling it was given, which is why a watcher can skip that question there.
-    pub fn folds_case(&self) -> bool {
-        self.folds_case
+    /// A handle stays with the folder it was opened on, but the name it was opened under can lead
+    /// somewhere else a moment later: the folder can be renamed away and another one, or a link out
+    /// of the root, put in its place. The name is resolved once and its identity compared with what
+    /// the handle said when it was opened, so a replaced folder does not match. This is a check,
+    /// never an authorization: a caller told `false` opens the folder again through
+    /// [`Root::open_dir`], which walks it step by step and follows no link out of the root. Nothing
+    /// is kept on a platform without an identity, so `None` is always `false`.
+    pub fn still_names(&self, rel: &str, identity: Option<Identity>) -> bool {
+        let (Some(identity), Ok(rel)) = (identity, Root::check(rel)) else {
+            return false;
+        };
+        if rel.is_empty() {
+            return self.still_ours().is_ok();
+        }
+        identity::named(&self.path, &self.dir, rel) == Some(identity)
     }
 
     /// Folder listings remembered for this root, so resolving many entries of one folder lists it

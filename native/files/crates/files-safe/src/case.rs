@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Whether the volume behind a root folds name case.
+//! Whether a folder folds name case.
 //!
-//! A volume that folds case answers a name it stores under any case, so a caller that reports the
-//! spelling on disk has to ask what is really stored. A volume that keeps case gives back exactly
-//! the spelling it was given, which is why a watcher can skip that question there. The question is
-//! asked once per root, by looking one of the folder's own entries up under a spelling that
-//! differs only in case.
+//! A folder that folds case answers a name it stores under any case, so a caller that reports the
+//! spelling on disk has to ask what is really stored. One that keeps case gives back exactly the
+//! spelling it was given, which is why a watcher can skip that question there. The question is
+//! asked per folder - one checkout can hold a casefolded folder beside case-sensitive ones, and a
+//! mount point can bring a different volume in - by looking one of the folder's own entries up
+//! under a spelling that differs only in case.
 
 #[cfg(unix)]
 use std::ffi::OsStr;
@@ -15,15 +16,13 @@ use std::io;
 
 use cap_std::fs::Dir;
 
-/// Whether the volume behind `dir` folds name case.
+/// Whether the folder `dir` folds name case.
+///
+/// A folder with no name to ask about, or one the probe could not read, is taken to fold: asking
+/// for the stored spelling there costs a reading, while guessing that it does not would keep an old
+/// spelling indexed beside a renamed one. Being wrong in that direction is slower, never wrong.
 pub(crate) fn folds(dir: &Dir) -> bool {
-    probing(dir).unwrap_or_else(platform_default)
-}
-
-/// The platform's usual answer when no entry could be asked: macOS and Windows fold case by
-/// default, and Linux filesystems do not.
-fn platform_default() -> bool {
-    cfg!(any(target_vendor = "apple", windows))
+    probing(dir).unwrap_or(true)
 }
 
 /// Whether a toggled-case spelling of one of the folder's own entries answers with that entry.

@@ -9,7 +9,7 @@
 //! the filesystem what is there now.
 
 use crate::batch::{Change, ChangeKind};
-use crate::translate::Presence;
+use crate::translate::{Presence, Reader};
 
 /// The facts about one path in the open window.
 #[derive(Debug, Default)]
@@ -53,15 +53,17 @@ impl Observed {
         self.directory = true;
     }
 
+    /// Whether a rename touched this path in this window. A rename changes the names its folders
+    /// store, so the stored spelling that decides the change has to be read again.
+    pub(crate) fn renamed(&self) -> bool {
+        self.saw_rename
+    }
+
     /// The change this path contributes, or `None` when the window's news cancels out.
     ///
-    /// `look` answers whether the path exists now, and whether it is a directory.
-    pub(crate) fn resolve(
-        &self,
-        path: &str,
-        look: &mut impl FnMut(&str) -> Presence,
-    ) -> Option<Change> {
-        match look(path) {
+    /// `reader` answers whether the path exists now, and whether it is a directory.
+    pub(crate) fn resolve(&self, path: &str, reader: &mut impl Reader) -> Option<Change> {
+        match reader.presence(path) {
             Presence::Here(directory) => {
                 // New: seen on disk, first heard of as a creation, never removed, and not a
                 // rename over an existing path (which arrives as a rename plus a write).
@@ -137,7 +139,18 @@ pub(crate) fn parent(path: &str) -> &str {
 mod tests {
     use super::Observed;
     use crate::batch::ChangeKind;
-    use crate::translate::Presence;
+    use crate::translate::{Presence, Reader};
+
+    /// A tree where the path being judged has one fixed presence.
+    struct Fixed(Presence);
+
+    impl Reader for Fixed {
+        fn presence(&mut self, _path: &str) -> Presence {
+            self.0
+        }
+
+        fn renamed(&mut self, _path: &str) {}
+    }
 
     fn resolve(
         kinds: &[(ChangeKind, bool, Option<bool>)],
@@ -147,9 +160,8 @@ mod tests {
         for (kind, rename, present) in kinds {
             observed.push(*kind, false, *rename, *present);
         }
-        let mut look = |_: &str| exists;
         observed
-            .resolve("x", &mut look)
+            .resolve("x", &mut Fixed(exists))
             .map(|change| (change.kind, change.directory))
     }
 
