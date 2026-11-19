@@ -218,6 +218,26 @@ test("find in file counts matches and steps through them", async () => {
   expect(within(side).queryByRole("textbox", { name: "Find in file" })).toBeNull();
 });
 
+test("find in a read-only file takes its own row above the source, never over its first lines", async () => {
+  await openThread();
+  await quickOpen("outbox");
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/outbox.ts",
+  });
+  await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
+  const bar = within(side).getByRole("textbox", { name: "Find in file" }).closest("search");
+  expect(bar).toBeTruthy();
+  // A row of its own: not floated over the source, and the source scrolls in the space below it.
+  expect(bar?.className).not.toMatch(/\babsolute\b/);
+  expect(bar?.contains(source)).toBe(false);
+  const below = bar?.nextElementSibling;
+  expect(below?.contains(source)).toBe(true);
+  expect(below?.className).toMatch(/\bflex-1\b/);
+  expect(below?.className).not.toMatch(/\bh-full\b/);
+});
+
 test("an upload lands in the checkout and opens; an existing name asks before replacing it", async () => {
   const { app } = await openThread();
   await quickOpen("socket");

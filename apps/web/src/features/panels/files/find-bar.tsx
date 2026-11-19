@@ -3,7 +3,10 @@ import { useEffect, useRef } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { FindStatus } from "./use-find-hits.ts";
 
-/** Find in file distinguishes an unfinished or failed search from an empty result. */
+/**
+ * Find in file distinguishes an unfinished or failed search from an empty result. The bar is a
+ * row of its own above the file, as the editor's is, so it never covers the first lines.
+ */
 export function FindBar(props: {
   query: string;
   count: number;
@@ -18,7 +21,7 @@ export function FindBar(props: {
   useEffect(() => input.current?.focus(), []);
   const canStep = props.status === "ready" && props.count > 0;
   return (
-    <search className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-md border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]">
+    <search className="flex h-9 shrink-0 items-center gap-1 border-b bg-popover pr-1 pl-2.5">
       <input
         ref={input}
         aria-label="Find in file"
@@ -36,7 +39,7 @@ export function FindBar(props: {
             props.onClose();
           }
         }}
-        className="h-full w-40 bg-transparent text-ui text-foreground focus-ring placeholder:text-subtle-foreground"
+        className="h-full min-w-0 flex-1 bg-transparent text-ui text-foreground focus-ring placeholder:text-subtle-foreground"
       />
       <span
         aria-live="polite"
