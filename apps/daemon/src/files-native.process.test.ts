@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { connectClientViaRelay, startRelay } from "@ace/relay";
-import { ServerMessage, ThreadId } from "@ace/protocol";
+import { FileOperation, ServerMessage, ThreadId } from "@ace/protocol";
 import { startDaemon, createDevThread } from "./index.ts";
 import { findFilesBinary } from "./files-tool/tool.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
@@ -397,7 +397,7 @@ describe.skipIf(!findFilesBinary())("the daemon's ace-files over its socket", ()
       type: "files.request",
       requestId: "relay-search",
       threadId: thread.id,
-      operation: { op: "search", pattern: "hello" },
+      operation: FileOperation.parse({ op: "search", pattern: "hello" }),
     });
     expect(
       await inbox.next(

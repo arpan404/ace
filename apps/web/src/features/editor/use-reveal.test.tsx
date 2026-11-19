@@ -66,3 +66,27 @@ test("a find hit reveals once until the current hit moves", () => {
     { line: 3, column: 9 },
   ]);
 });
+
+test("a jump to a search match reveals its column, and the same line at another column again", () => {
+  const reveals: Position[] = [];
+  const view = renderHook(
+    (props: { line?: number; column?: number }) =>
+      useRevealJump({
+        line: props.line,
+        column: props.column,
+        hit: undefined,
+        reveal: (position: Position) => {
+          reveals.push(position);
+        },
+        announce: () => {},
+      }),
+    { initialProps: {} as { line?: number; column?: number } },
+  );
+  view.rerender({ line: 3, column: 14 });
+  view.rerender({ line: 3, column: 14 });
+  view.rerender({ line: 3, column: 2 });
+  expect(reveals).toEqual([
+    { line: 2, column: 14 },
+    { line: 2, column: 2 },
+  ]);
+});

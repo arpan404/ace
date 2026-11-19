@@ -50,6 +50,8 @@ function file(path: string, count: number): FileMatches {
   };
 }
 
+const settle = () => new Promise((done) => setTimeout(done, 0));
+
 function harness(options: { allowed?: () => boolean; buffered?: () => number } = {}) {
   const clock = new TestClock();
   const sent: FilesServerMessage[] = [];
@@ -70,7 +72,6 @@ function harness(options: { allowed?: () => boolean; buffered?: () => number } =
     replyAllowed: () => options.allowed?.() ?? true,
     run: (task) => tasks.push(task),
   });
-  const settle = () => new Promise((done) => setTimeout(done, 0));
   const lines = (searchId: string) =>
     sent
       .filter((message) => message.type === "files.search.matches" && message.searchId === searchId)

@@ -9,6 +9,7 @@ import {
 import type { FakeServiceContext } from "./service-context.ts";
 import { FakeCheckout, type CheckoutFile } from "./fake-checkout.ts";
 import { UploadReceipts } from "./upload-receipts.ts";
+import { searchCheckout } from "./file-search.ts";
 
 type File = CheckoutFile;
 type Upload = {
@@ -391,6 +392,19 @@ export class FakeFilesWire {
           }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
+          if (op.op === "search") {
+            // As the daemon: one matches message per file, then the summary ends the request.
+            const found = searchCheckout(
+              this.checkout.paths(threadId, op.includeIgnored),
+              (path) => this.files.get(this.key(threadId, path))?.bytes,
+              op,
+            );
+            if ("error" in found) throw new Error(found.error);
+            for (const file of found.files)
+              emit({ type: "files.search.matches", searchId: message.requestId, files: [file] });
+            emit({ type: "files.result", requestId: message.requestId, value: found.summary });
+            return;
+          }
           if (op.op === "link.download") {
             // Not a checkout path, so pulls skip the checkout re-check (as support reads do).
             read(op, "", linkedKey(threadId, op.itemId, op.reference), message.requestId);

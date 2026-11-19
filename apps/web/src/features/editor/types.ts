@@ -22,6 +22,8 @@ export interface CodeEditorProps {
   marks?: ReadonlyMap<number, LineMark> | undefined;
   /** A 1-based line to bring into view once. */
   line?: number | undefined;
+  /** With `line`, the 0-based UTF-16 column on it to bring into view (a search match's). */
+  column?: number | undefined;
   /** Find from the Files toolbar (read-only mode): highlight this query and reveal its hit. */
   find?: { query: string; hit?: { line: number; column: number } | undefined } | undefined;
   /** The line area's region name for assistive tech. */
