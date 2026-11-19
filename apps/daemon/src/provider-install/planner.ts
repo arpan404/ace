@@ -421,8 +421,9 @@ export class InstallPlanner {
       return path || remaining ? undefined : "removed";
     }
     // Retry the read-only check once before asking the person to run the installer again.
-    const version = async (path: string | undefined) =>
-      path && parseVersion(plan.provider, (await this.probe(path, verify.args, signal)) ?? "");
+    const version = async (candidate: string | undefined) =>
+      candidate &&
+      parseVersion(plan.provider, (await this.probe(candidate, verify.args, signal)) ?? "");
     const first = await version(path);
     if (first || signal?.aborted) return first;
     return version(await this.executable(plan.provider, verify.command, signal));
