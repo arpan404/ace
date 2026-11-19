@@ -78,9 +78,17 @@ struct InboxStack<Destination: View, Side: View>: View {
     private var chats: Bool { list == .chats }
 
     var body: some View {
-        InboxSplit(path: $path, drawer: $drawer, empty: chats ? "No chat open" : "No thread open", showing: tab == list, selecting: selecting) {
+        InboxSplit(path: $path, drawer: $drawer, showing: tab == list, selecting: selecting) {
             root.inboxCommands(commands)
-        } page: { page($0) } side: { side($0, $1) }
+        } page: { page($0) } side: { side($0, $1) } empty: { nothingOpen }
+    }
+
+    /// The detail column with nothing open: how many in the list's Inbox need the person, or a
+    /// way to start one. Chats keeps no needs-you line, so its page only offers a new chat.
+    private var nothingOpen: some View {
+        let waiting = chats ? [] : inbox.needs(in: inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }.filter { $0.tab == "inbox" })
+        return NothingOpen(list: list, waiting: waiting.count, first: waiting.first?.thread, canStart: inbox.canStartThreads,
+                           open: { picking.open($0) }, compose: header.compose)
     }
 
     /// The list, its title and bar, and the places at its foot beside a page.

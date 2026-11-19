@@ -4,11 +4,9 @@ import SwiftUI
 /// (iPad, the unfolded iPhone Duo) keeps the list beside the thread in the split view. A compact
 /// one (iPhone, the folded Duo, a narrow iPad window) pushes pages from a full-width list.
 /// Both layouts use the same route path for threads, pull requests and issues.
-struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
+struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
     @Binding var path: [InboxRoute]
     @Binding var drawer: ThreadDrawer
-    /// What the detail column says while nothing is open.
-    let empty: String
     /// This tab is the one showing; only it places the window's tab bar.
     let showing: Bool
     /// The list is in Select mode: its action bar takes the tab bar's place.
@@ -17,6 +15,8 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     @ViewBuilder let page: (InboxRoute) -> Page
     /// The side panel of the thread showing, beside the detail's stack (`ThreadSidePanel`).
     @ViewBuilder let side: (InboxKey, PanelPart) -> Side
+    /// What the detail column shows while nothing is open (`NothingOpen`).
+    @ViewBuilder let empty: () -> Empty
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var visibility = NavigationSplitViewVisibility.all
@@ -165,7 +165,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
                         page(first).id(first)
                             .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
                     }
-                    else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
+                    else { empty() }
                 }
                 .environment(\.threadDrawerOpen, layout == .page && drawer.isOpen)
                 // Shift the rendered thread, never its navigation controller: system bars

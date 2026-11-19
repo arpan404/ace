@@ -27,6 +27,21 @@ import XCTest
         XCTAssertFalse(app.buttons["thread.ios-form"].isSelected)
     }
 
+    func testWithNothingOpenTheIPadPageSaysHowManyNeedYouAndOpensTheFirst() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        let app = launch()
+        let first = app.buttons["detail.empty.first"]
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        // The same count as the list's own line, never a bare "No thread open".
+        let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " need you")).firstMatch
+        XCTAssertTrue(count.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.needs"].label.hasPrefix(count.label))
+        screenshot("ipad-nothing-open")
+        first.tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
+        XCTAssertFalse(first.exists)
+    }
+
     func testTheIPadSidebarCarriesThreadsPullRequestsAndNewThread() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         let app = launch()
@@ -41,7 +56,7 @@ import XCTest
         XCTAssertTrue(app.buttons["sidebar.spade"].reachable)
         // Chats shows its own list, and Threads comes back to its open thread.
         chats.tap()
-        XCTAssertTrue(app.staticTexts["No chat open"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["detail.empty.compose"].waitForExistence(timeout: 10))
         XCTAssertTrue(chats.isSelected)
         XCTAssertFalse(title("Deploy the preview", in: app).exists)
         screenshot("ipad-sidebar-chats")

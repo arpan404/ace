@@ -182,15 +182,7 @@ struct InboxList: View {
             }
         }
     }
-    /// Everything waiting on the person in the open tab's rows, in the list's order: each
-    /// request, and each thread that needs the person with no request to answer here.
-    private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] {
-        shown.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key -> [NeedsRunQueue.Entry] in
-            let asks = inbox.client(key.machineId)?.needsYou(key.id) ?? []
-            if !asks.isEmpty { return asks.map { NeedsRunQueue.Entry(thread: key, request: $0.id) } }
-            return inbox.row(key)?.look?.level == "needs-you" ? [NeedsRunQueue.Entry(thread: key, request: nil)] : []
-        }
-    }
+    private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] { inbox.needs(in: shown) }
     /// The row to reveal, once the open tab lists it.
     private func revealable(_ shown: [MergedInbox.Section]) -> InboxKey? {
         guard let reveal else { return nil }
