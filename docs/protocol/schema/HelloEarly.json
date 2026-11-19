@@ -39,6 +39,11 @@
       "const": 1,
       "type": "number"
     },
+    "standing": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
     "subscribes": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/EarlySubscribe.json"

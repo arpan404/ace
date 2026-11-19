@@ -2,10 +2,12 @@
 /*
  * The open bot's profile beside the walkthrough's conversation (docs/design/spade.md §4), on the
  * tab the feature needs: Flights' Details, its Computer (browser live, a pointer clicking, Take
- * over), its Library (a suggested note), its model picker; Builds' routines; Inbox's apps. It
- * slides over the chat on a narrow window, as the profile does.
+ * over), its Library (a suggested note), its model picker; Builds' routines; Inbox's apps. It is
+ * its own column beside the chat (Scene.astro); in a phone-sized window it is the sheet, with
+ * its grabber, as on iPhone.
  */
 import { cast, scene } from "../../content/spade.ts";
+import { panelSpan } from "../../scripts/spade-view.ts";
 import Icon from "../Icon.astro";
 import BotFace from "./BotFace.astro";
 import { offAtStart } from "./scene-at.ts";
@@ -22,7 +24,7 @@ const tabs = [
 ] as const;
 ---
 
-<aside class="panel" data-in="0,3-6,9" hidden={offAtStart("0,3-6,9")}>
+<aside class="panel" data-in={panelSpan} hidden={offAtStart(panelSpan)}>
   {
     heads.map((head) => (
       <div class="who" data-in={head.in} hidden={offAtStart(head.in)}>
@@ -101,29 +103,32 @@ const tabs = [
 
 <style>
   .panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     padding: 14px;
     border-left: 1px solid var(--border);
     background: var(--surface);
   }
 
-  @container scene (min-width: 560px) {
+  /* As a phone's sheet: no neighbour to rule off, the grabber at its top. */
+  @container scene not (min-width: 480px) {
     .panel {
-      width: 64%;
+      padding-top: 8px;
+      border-left: 0;
     }
-  }
 
-  @container scene (min-width: 760px) {
-    .panel {
-      width: 52%;
+    .panel::before {
+      content: "";
+      align-self: center;
+      width: 36px;
+      height: 4px;
+      flex: none;
+      border-radius: 2px;
+      background: var(--border-strong);
     }
   }
 

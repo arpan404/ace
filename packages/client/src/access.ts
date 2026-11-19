@@ -50,9 +50,24 @@ export class AccessClient {
   async ticket(signal?: AbortSignal) {
     return SocketTicket.parse(await this.http("/v1/tickets", "POST", undefined, true, signal));
   }
-  /** `installId`: this app install (ADR 0115); pairing it again keeps its one device. */
-  async redeem(code: string, name: string, signal?: AbortSignal, installId?: string) {
-    const body = PairingRedemption.parse({ code, name, ...(installId ? { installId } : {}) });
+  /**
+   * `installId`: this app install (ADR 0115); pairing it again keeps its one device.
+   * `standingKey`: the public half of the key this app proves the person's standing with, when
+   * the link was a person's (ADR 0190).
+   */
+  async redeem(
+    code: string,
+    name: string,
+    signal?: AbortSignal,
+    installId?: string,
+    standingKey?: string,
+  ) {
+    const body = PairingRedemption.parse({
+      code,
+      name,
+      ...(installId ? { installId } : {}),
+      ...(standingKey ? { standingKey } : {}),
+    });
     return DeviceCredential.parse(await this.http("/v1/pair", "POST", body, false, signal));
   }
   async previewLink(port: number, signal?: AbortSignal) {

@@ -289,27 +289,52 @@ import XCTest
         XCTAssertTrue(app.tabBars.firstMatch.buttons["Projects"].isSelected)
     }
 
-    func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
+    func testTheIPadSidebarFootCarriesTheFourPlacesThenMoreAndSettings() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = launch()
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.review", "sidebar.place.automations",
-                      "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
+        let ids = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.more", "sidebar.place.settings"]
+        let places = ids.map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
-        // Left to right in the rail's order, Spade after Chats while the machine shows it, and
-        // no tab bar beside the list.
+        // The foot holds exactly these six, left to right in the rail's order: Spade after Chats
+        // while the machine shows it, then More and Settings. No tab bar beside the list.
+        let foot = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.")).allElementsBoundByIndex
+        XCTAssertEqual(Set(foot.map(\.identifier)), Set(ids))
+        XCTAssertEqual(foot.count, ids.count)
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
         capture("ipad-sidebar")
-        // Code review is a place of its own: pull requests and issues, the list beside them kept.
-        app.buttons["sidebar.review"].tap()
+        // Automations and Skills open from More.
+        places[4].tap()
+        // A system menu's items may keep only their words, not the identifiers set on them.
+        func item(_ place: String, _ words: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "sidebar.place.\(place)", words)).firstMatch
+        }
+        let automations = item("automations", "Automations")
+        XCTAssertTrue(automations.waitForExistence(timeout: 10))
+        XCTAssertTrue(item("skills", "Skills").exists)
+        capture("ipad-sidebar-more")
+        automations.tap()
+        let close = app.buttons["settings.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+        // Code review opens from the Projects list's top bar, beside the scope button, as a place
+        // of its own: pull requests and issues, the list beside them kept.
+        let review = app.buttons["inbox.review"]
+        XCTAssertTrue(review.waitForHittable(timeout: 10))
+        XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
+        review.tap()
         XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 10))
         capture("ipad-code-review")
-        app.buttons["sidebar.place.settings"].tap()
+        // Projects in the foot goes back to the list.
+        places[0].tap()
+        XCTAssertTrue(review.waitForHittable(timeout: 10))
+        places[5].tap()
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
@@ -394,14 +419,14 @@ import XCTest
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
         let phone = UIDevice.current.userInterfaceIdiom == .phone
-        // A regular-width iPad holds Code review in the sidebar rather than the top bar.
+        // Code review opens from the Projects top bar on both; the iPad's is a place of its own.
         if !phone { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()
         // A fresh install: no computer paired, no fixture connected.
         app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launchWithArguments()
         defer { app.terminate() }
-        let review = app.buttons[phone ? "inbox.review" : "sidebar.review"]
+        let review = app.buttons["inbox.review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
         review.tap()
         if phone { XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10)) }

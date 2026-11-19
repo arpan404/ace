@@ -45,7 +45,7 @@ impl Engine {
         call_id: &str,
         reply: QuestionReply,
     ) -> Result<(), QuestionError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Err(QuestionError::NotFound);
         }
         let waiting = {
@@ -120,7 +120,7 @@ impl Engine {
 
     /// Every question card in the conversation, oldest first; `None` for an unknown one.
     pub fn questions_view(&self, id: &str) -> Result<Option<Vec<View>>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         Ok(Some(question::views(self.load(id)?.iter())))

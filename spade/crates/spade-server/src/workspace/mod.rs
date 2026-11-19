@@ -17,6 +17,7 @@ pub mod place;
 mod reap;
 #[cfg(unix)]
 pub use reap::adopt_orphans;
+pub mod outside;
 pub mod shell;
 mod tools;
 pub mod trust;
@@ -35,7 +36,7 @@ pub use files::{Entry, EntryKind, FileView, Listing};
 pub use person::{Seen, Snapshot, changes};
 pub use tools::{
     Commands, ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch,
-    WorkspaceWrite, tools as workspace_tools,
+    WorkspaceWrite, asks_outside, tools as workspace_tools,
 };
 pub use trust::Trust;
 

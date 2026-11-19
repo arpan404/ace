@@ -113,6 +113,11 @@ fn ace_state(activity: &Activity) -> State {
 }
 
 impl Engine {
+    /// Forgets the folded index, so it is read again: bots came or went whole (ADR 0187).
+    pub(crate) fn forget_tree(&self) {
+        *lock(&self.workers.index) = None;
+    }
+
     /// The index, folded from the stored links the first time it is needed.
     fn tree_index(&self) -> MutexGuard<'_, Option<Index>> {
         let mut index = lock(&self.workers.index);

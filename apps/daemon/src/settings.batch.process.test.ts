@@ -152,3 +152,32 @@ test.each(adminOnlyBatches)(
     for (const { key } of entries) expect((await settings.get(key)).provenance).toBe("defaults");
   },
 );
+
+test("a batch naming Ask me before agents publish, from the host token alone, writes none of it", async () => {
+  const f = await setup();
+  // The person turned the ask on in the app.
+  await f.settings.set("market.askBeforeAgentPublish", true, { kind: "global" });
+  const before = await f.settings.get("providers.coder.provider");
+  f.client.send({
+    type: "settings.setMany",
+    requestId: "guarded",
+    entries: [...role, { key: "market.askBeforeAgentPublish", value: false }],
+    layer: { kind: "global" },
+  });
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.result",
+    requestId: "guarded",
+    ok: false,
+  });
+  // The guarded key is unchanged, and so is every other key the batch named.
+  expect(await f.settings.get("market.askBeforeAgentPublish")).toMatchObject({ value: true });
+  expect(await f.settings.get("providers.coder.provider")).toEqual(before);
+});
+
+test("a reset from the host token alone leaves Ask me before agents publish on", async () => {
+  const f = await setup();
+  await f.settings.set("market.askBeforeAgentPublish", true, { kind: "global" });
+  f.client.send({ type: "settings.reset", requestId: "reset" });
+  expect(await f.client.next()).toMatchObject({ type: "settings.result", requestId: "reset" });
+  expect(await f.settings.get("market.askBeforeAgentPublish")).toMatchObject({ value: true });
+});

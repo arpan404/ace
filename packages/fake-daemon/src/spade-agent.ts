@@ -30,6 +30,10 @@ export interface FakeSpadeAgent {
     at: number;
     from_agent: { id: string; name: string } | null;
   } | null;
+  /** A move to another machine while one runs, or one that failed (ADR 0187). */
+  move?: Json | null;
+  /** What needs the person since it arrived from another machine. */
+  arrived?: Json | null;
   /** The conversation's seen cursor, as Spade sends it; null when never marked. */
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */

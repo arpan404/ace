@@ -3,7 +3,9 @@
 Status: accepted. Date: 2026-11-17. Builds on [ADR 0078](0078-multi-device-mcp.md),
 [ADR 0101](0101-work-on-another-machine.md), [ADR 0105](0105-linked-machine-capabilities.md),
 [ADR 0110](0110-cloudflare-relay.md) and [ADR 0114](0114-fastest-path.md). Amends ADR 0105:
-machine calls may also travel through a relay, for the calls listed below.
+machine calls may also travel through a relay, for the calls listed below. Amended by
+[ADR 0192](0192-transfers-over-every-machine-route.md): the route choice is shared with project
+and thread transfers, which now take these routes too.
 
 ## Context
 
@@ -175,9 +177,8 @@ relay alone, with no new authority:
   from the link the person copied. ace's relay never carries a pairing; it admits account
   devices only.
 - **The link.** A profile keeps its TLS address and key, its relay and key, or both
-  (`RemoteProfile.relay`). The CLI, project transfers (ADR 0101) and kept-open connections use
-  only the TLS address, so a relay-only link refuses them with "linked through a relay only"
-  before anything is sent.
+  (`RemoteProfile.relay`). The CLI and kept-open connections use only the TLS address. Project
+  transfers (ADR 0101) take every route listed here since ADR 0192.
 - **Machine calls.** `withRelayFallback` (`machines/relay-fallback.ts`) sends each call
   directly, and through a relay only when the direct attempt never reached the machine
   (`offline`, `MachineNotSent`, or no TLS address). Work is never sent twice: a call that may

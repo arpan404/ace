@@ -40,7 +40,7 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), super::AnswerError> {
-        if self.store.conversation(conversation)?.is_none() {
+        if !self.reachable(conversation)? {
             return Err(super::AnswerError::NotFound);
         }
         let (Some(plugins), Some(agent)) = (self.plugins().cloned(), self.agent_of(conversation))

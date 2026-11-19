@@ -92,6 +92,8 @@ describe("the machine's security answer", () => {
     );
     expect(machine?.bots).toEqual({
       commands: "outside",
+      // A Spade before Full access: every bot is on the auto-review.
+      autonomy: "auto_review",
       network: policy,
       pluginNetwork: { mode: "open", allow: [], dropped: [] },
     });
@@ -114,6 +116,27 @@ describe("a bot's security answer", () => {
       commands: "outside",
       own: { commands: false, network: true, pluginNetwork: false },
     });
+  });
+
+  test("reads Full access only when Spade says so, and anything else as the auto-review", () => {
+    const on = parseSpadeBotSecurity(
+      JSON.stringify({
+        autonomy: "full_access",
+        full_access_confirmed: true,
+        own: { autonomy: true },
+      }),
+    );
+    expect(on).toMatchObject({
+      autonomy: "full_access",
+      fullAccessConfirmed: true,
+      own: { autonomy: true },
+    });
+    for (const autonomy of ["everything", 1, null, undefined])
+      expect(parseSpadeBotSecurity(JSON.stringify({ autonomy }))).toMatchObject({
+        autonomy: "auto_review",
+        fullAccessConfirmed: false,
+        own: { autonomy: false },
+      });
   });
 
   test("an older Spade without own reads everything as the bot's own", () => {

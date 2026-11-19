@@ -74,6 +74,22 @@ export function SpadeAgentScreen(props: {
     (candidate) =>
       candidate.id === props.agentId && candidate.machine.key === (props.machine ?? "primary"),
   );
+  // A bot that moved to another machine (ADR 0187) is followed there.
+  const elsewhere = bot
+    ? undefined
+    : roster.bots.find((candidate) => candidate.id === props.agentId);
+  if (elsewhere)
+    return (
+      <Navigate
+        to="/spade/$agentId"
+        params={{ agentId: elsewhere.id }}
+        search={{
+          ...(elsewhere.machine.primary ? {} : { on: elsewhere.machine.key }),
+          ...(props.profile ? { profile: props.profile } : {}),
+        }}
+        replace
+      />
+    );
   if (!bot || !machine)
     return (
       <Screen page="spade" title="Spade" namedByPanel>

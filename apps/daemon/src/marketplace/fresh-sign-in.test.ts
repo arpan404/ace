@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MarketOperation } from "@ace/protocol/marketplace";
-import {
-  freshSignInMs,
-  hostMarketRefusal,
-  needsFreshSignIn,
-  signedInRecently,
-} from "./fresh-sign-in.ts";
+import { hostMarketStanding, needsPerson } from "./fresh-sign-in.ts";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 const publish = (
@@ -18,9 +13,13 @@ const install: MarketOperation = {
   choices: { bots: [], needs: {}, startRoutines: false },
 };
 
-describe("which market actions need a sign-in from the last ten minutes", () => {
+describe("which market actions are the person's", () => {
   it.each<[string, MarketOperation]>([
     ["installing", install],
+    [
+      "turning a skill on for bots",
+      { op: "turnOnForBots", name: "triage-mail", hash: "a".repeat(64) },
+    ],
     ["withdrawing", publish({ action: "withdraw", ...entry, reason: "Broken" })],
     ["transferring", publish({ action: "transfer", ...entry, to: "rijan" })],
     [
@@ -32,7 +31,7 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
     ["applying for verification", publish({ action: "applyVerification" })],
     ["checking verification", publish({ action: "checkVerification" })],
   ])("%s does", (_what, operation) => {
-    expect(needsFreshSignIn(operation)).toBe(true);
+    expect(needsPerson(operation)).toBe(true);
   });
 
   it.each<[string, MarketOperation]>([
@@ -41,63 +40,49 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
     ["publishing a draft", publish({ action: "draftPublish", id: "drf_abcdefgh" })],
     ["preparing a review", { op: "prepare", source: "market", ...entry }],
   ])("%s doesn't", (_what, operation) => {
-    expect(needsFreshSignIn(operation)).toBe(false);
+    expect(needsPerson(operation)).toBe(false);
   });
 });
 
-describe("a sign-in counts as fresh for ten minutes before its grant", () => {
-  it.each([
-    [1_000, true],
-    [0, true],
-    [freshSignInMs, true],
-    [freshSignInMs + 1, false],
-    [-10 * 60_000, false],
-    [undefined, false],
-  ])("signed in %s ms before the grant: %s", (age, fresh) => {
-    expect(signedInRecently(age)).toBe(fresh);
-  });
-});
+/** The gate's answer for `operation`, from a socket that did or didn't prove the person. */
+const standing = (operation: MarketOperation, unproven: boolean, contentOnly = false) =>
+  hostMarketStanding({ operation, unproven, contentOnly: () => contentOnly });
 
-const fresh = (value: boolean) => async () => value;
-
-describe("a person-only market action from the host token, with no thread", () => {
-  it("is refused without a fresh sign-in: the host token alone may be an agent", async () => {
-    const refusal = await hostMarketRefusal({
-      operation: install,
-      hostCredential: true,
-      fresh: fresh(false),
-    });
-    expect(refusal).toMatchObject({ op: "error", code: "reauth" });
-    expect(refusal?.op === "error" && refusal.message).toMatch(/app|paired device/);
-  });
-
-  it("runs after a sign-in in the last ten minutes", async () => {
+describe("a person-only market action without a thread", () => {
+  it("is refused from a socket that hasn't proved the person's standing", () => {
+    const decided = standing(install, true);
+    expect(decided).toMatchObject({ refusal: { op: "error", code: "reauth" } });
     expect(
-      await hostMarketRefusal({ operation: install, hostCredential: true, fresh: fresh(true) }),
-    ).toBeUndefined();
+      "refusal" in decided && decided.refusal.op === "error" && decided.refusal.message,
+    ).toMatch(/app/);
   });
 
-  it("from the app or a paired device needs nothing more", async () => {
-    let asked = false;
-    const result = await hostMarketRefusal({
-      operation: install,
-      hostCredential: false,
-      fresh: async () => {
-        asked = true;
-        return false;
-      },
-    });
-    expect(result).toBeUndefined();
-    expect(asked).toBe(false);
+  it("runs as the person from a socket that proved it", () => {
+    expect(standing(install, false)).toEqual({ run: "person" });
   });
 
-  it("a search needs nothing more, wherever it comes from", async () => {
-    expect(
-      await hostMarketRefusal({
-        operation: { op: "search", query: "", offset: 0, limit: 50 },
-        hostCredential: true,
-        fresh: fresh(false),
-      }),
-    ).toBeUndefined();
+  it("a search needs nothing more, wherever it comes from", () => {
+    expect(standing({ op: "search", query: "", offset: 0, limit: 50 }, true)).not.toHaveProperty(
+      "refusal",
+    );
+  });
+
+  it("installing content only runs without the person, so a skill waits for them", () => {
+    expect(standing(install, true, true)).toEqual({ run: "without-person" });
+  });
+
+  it("content only from a proven socket is still the person's install", () => {
+    expect(standing(install, false, true)).toEqual({ run: "person" });
+  });
+
+  it("content only is an install's exemption: withdrawing and turning a skill on for bots aren't", () => {
+    const withdraw = publish({ action: "withdraw", ...entry, reason: "Broken" });
+    const turnOn: MarketOperation = {
+      op: "turnOnForBots",
+      name: "triage-mail",
+      hash: "a".repeat(64),
+    };
+    for (const operation of [withdraw, turnOn])
+      expect(standing(operation, true, true)).toMatchObject({ refusal: { code: "reauth" } });
   });
 });

@@ -19,7 +19,7 @@ describe("an account socket's grant", () => {
 });
 
 const admitted = (account: string, expiresAt: number) =>
-  ({ admitted: true, account, expiresAt }) as const;
+  ({ admitted: true, account, expiresAt, person: false }) as const;
 
 describe("refreshing an account socket's grant", () => {
   it.each([

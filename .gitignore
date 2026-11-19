@@ -47,3 +47,6 @@ apps/web/public/markit/
 
 # The editor Wasm build (packages/editor/scripts/build.mjs).
 packages/editor/pkg/
+
+# Wrangler dev bundles a Worker test run leaves behind.
+.wrangler/

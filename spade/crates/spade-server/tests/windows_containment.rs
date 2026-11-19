@@ -40,6 +40,7 @@ async fn a_networked_windows_bot_keeps_the_review_path_and_a_no_network_one_is_c
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
+        person_key: None,
     })
     .await;
     spade.engine.set_security(security.clone());

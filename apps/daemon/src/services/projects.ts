@@ -73,6 +73,8 @@ export function createProjectsSession(context: SocketContext): SocketService {
     authenticated(kind) {
       // Project changes belong on the main channel; a devices or files channel can't parse them.
       if (kind !== undefined || !options.projects) return;
+      // Its project list should carry remote keys (ADR 0189): read those that are due.
+      if (allowed()) void options.projects.readRemoteKeys();
       stops = [
         options.projects.subscribe((change) => {
           if (allowed()) send(change);

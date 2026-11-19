@@ -2,6 +2,7 @@
 /*
  * The story scene's list (docs/design/spade.md §2): Spade's head, the club and each bot as a
  * row whose face pose, needs-you dot and line follow the walkthrough, and the open row marked.
+ * While the profile is open beside the chat it folds to the faces alone.
  * Spans are the walkthrough's steps (content/spade.ts `tour.steps`, from 0).
  */
 import { cast, type BotName } from "../../content/spade.ts";
@@ -127,16 +128,33 @@ const members = ["spade", "flights", "papers", "inbox"] as const;
 
 <style>
   .list {
-    display: none;
+    display: flex;
     flex-direction: column;
     min-width: 0;
-    border-right: 1px solid var(--border);
+    min-height: 0;
+    overflow: hidden;
     background: var(--surface);
   }
 
-  @container scene (min-width: 560px) {
+  @container scene (min-width: 480px) {
     .list {
-      display: flex;
+      border-right: 1px solid var(--border);
+    }
+
+    /* While the profile has its column the list folds to its faces, which keep their states. */
+    :global(.scene[data-panel]) .head span,
+    :global(.scene[data-panel]) .text {
+      display: none;
+    }
+
+    :global(.scene[data-panel]) .head,
+    :global(.scene[data-panel]) .row {
+      justify-content: center;
+      padding-inline: 0;
+    }
+
+    :global(.scene[data-panel]) ul {
+      padding-inline: 6px;
     }
   }
 

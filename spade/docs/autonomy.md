@@ -7,9 +7,17 @@ Date: 2026-11-13, amended 2026-11-15. As built for
 [agents.md](agents.md). The pure rules are `spade_core::autonomy` and `spade_core::task`; the
 engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.rs`.
 
-## One level: the auto-review
+## How a bot decides: the auto-review, or Full access
 
-Every bot is on the auto-review (ADR 0163). Where a call goes is decided by what it does, its
+A plugin server is **sealed** when the sandbox holds it, it launches under the enforced offline
+policy (no socket of its own, no connect, bind or listen; only where the machine holds every
+boundary) and its entry injects no environment of its own (`Tool::sealed`). Only a sealed server's tools are the
+sandbox's to decide; every other connector or plugin tool is decided as on the host, sandboxed or
+not, in both modes: the sandbox holds files, not what a server does with a token over the network
+(ADR 0171, amendment 4).
+
+Every bot is on the auto-review (ADR 0163) unless the person puts it in Full access (ADR 0163,
+amendment 2; below). Where a call goes is decided by what it does, its
 effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md),
 `spade_core::effect::route`). The reviewer sees only what the table below sends it, and the ADR
 0135 review still checks calls the gate runs when it is switched on (never a sandboxed one).
@@ -19,6 +27,26 @@ effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effec
   conversation whose latest stored level is `ask` or `full_access` (`Store::latest_field`), then
   stores the setting `access_levels_retired` and removes `access_levels_pinned`.
 - Nothing else stores a level: creating or changing a bot never writes one.
+
+### Full access
+
+A security setting per bot (`autonomy` in `security:<bot>`, `PUT
+/v1/agents/{id}/security/autonomy`), with a machine default (`PUT /v1/security/autonomy`). A
+worker without its own follows its parent and is never freer than a bot above it; a helper
+decides as its bot. Raising a bot (or the machine) to Full access needs the person's stamp from
+ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
+as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
+`change_access` and `unknown` to the person, a granted push under untrusted content too),
+`effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
+unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
+access change, a request to leave the sandbox, and a tool that declares nothing outside the
+sandbox or able to reach the network (once, as on the auto-review); a tool the person declined
+stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
+reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
+`Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
+(`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
+Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
+the ADR 0135 review is skipped. The sandbox is unchanged.
 
 ### Effects
 
@@ -65,9 +93,10 @@ In order, first match wins:
 | `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
 | `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
+| a connector's or plugin's tool that can reach the network, in the sandbox         | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
 | it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
-| in a sandbox that holds files and network                                         | runs                                                                                  |
+| in a sandbox that holds files and network (a plugin's only when sealed)           | runs                                                                                  |
 | in the sandbox, but its checkpoint couldn't be taken                              | the reviewer, told so                                                                 |
 | a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
 | a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |
@@ -278,10 +307,26 @@ everywhere else, and recipes that don't expand are checked as written.
 **Precedence.** Everything a command reaches is read before deciding: a credential read found
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
 (`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
-over "unclear" or "unseen script". The approval is bound to the SHA-256 of what was shown
-(`call_reviewed.bound`): if any file differs when the call is about to start, it isn't run and
-the bot gets `Not run: A file it runs changed after it was reviewed.` Paths are resolved against
-the terminal's current folder.
+over "unclear" or "unseen script". An "unclear" or "unseen script" finding also marks the
+reading incomplete: a command that would run outside the sandbox with one is refused, never
+asked about or reviewed (ADR 0171, amendment 4). The approval is bound to the SHA-256 of what
+was shown (`call_reviewed.bound`): if any file differs when the call is about to start, it isn't
+run and the bot gets `Not run: A file it runs changed after it was reviewed.` The run checks it
+once more after everything it waits on (in a terminal, under the terminal's lock, from the
+folder and variables it starts with): `Not run: A file it runs changed while it waited to start,
+after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
+verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
+narrower one; one that records none, and a grant, holds for a contained launch only. Every bot command that starts where nothing holds it passes one check at the spawn
+(`workspace::outside::admit`, ADR 0171, amendment 5): what it runs, read again from the folder
+and environment it starts with, is complete and is what its verdict was given on, and the launch
+is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
+command that sets its own `PATH`, is incomplete; so is git, a Node package manager, cargo or
+ripgrep where its configuration names a program to run. A program outside the operating system's
+protected folders (judged by its real path) is bound by the SHA-256 of its content, read whole up
+to 512 MiB; one that can't be read whole is incomplete. On Windows a program is resolved only when
+cmd.exe can't choose otherwise: a same-named file in the starting folder refuses the command
+(ADR 0171, amendment 6). The binding is defence in depth, not race-free; see that amendment's
+"what the binding can't promise".
 
 **Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a

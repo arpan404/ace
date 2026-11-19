@@ -33,6 +33,13 @@ pub struct Shared {
     secrets: fn() -> String,
 }
 
+impl Shared {
+    /// How a new webhook secret is made.
+    pub(crate) fn new_secret(&self) -> fn() -> String {
+        self.secrets
+    }
+}
+
 impl Default for Shared {
     fn default() -> Self {
         Self {

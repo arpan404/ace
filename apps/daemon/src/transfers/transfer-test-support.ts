@@ -15,12 +15,15 @@ import {
   type CommandPayload,
   type CommandResult,
   type DeviceScope,
+  type FleetOperation,
   type ServerMessage,
   type Transfer,
   type TransfersRequest,
   type WorkspaceId,
 } from "@ace/protocol";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
+import { setup } from "../agent-control/test-support.ts";
+import type { EngineLimits } from "../engine/limits.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { loadHostId } from "../local-files.ts";
@@ -132,20 +135,28 @@ async function window(daemon: { url: string; tokenPath: string }) {
       { timeout: 30_000, interval: 20 },
     );
   }
-  async function links() {
+  /** One `fleet.request`: its result, or the refusal's code. */
+  async function fleet(operation: FleetOperation) {
     const requestId = `fleet-${++sequence}`;
-    client.send({ type: "fleet.request", requestId, operation: { op: "links" } });
+    client.send({ type: "fleet.request", requestId, operation });
     return vi.waitFor(
       () => {
         const found = messages.find(
-          (message) => message.type === "fleet.result" && message.requestId === requestId,
+          (message) =>
+            (message.type === "fleet.result" || message.type === "error") &&
+            message.requestId === requestId,
         );
-        if (found?.type !== "fleet.result" || found.result.kind !== "links")
-          throw new Error("No links yet");
-        return found.result.links;
+        if (found?.type === "fleet.result") return found.result;
+        if (found?.type === "error") return { kind: "refused" as const, code: found.code };
+        throw new Error("No answer yet");
       },
       { timeout: 30_000, interval: 20 },
     );
+  }
+  async function links() {
+    const result = await fleet({ op: "links" });
+    if (result.kind !== "links") throw new Error("No links");
+    return result.links;
   }
   /** Every `transfer.progress` push this window got for one transfer, in order. */
   const progress = (commandId?: string): Transfer[] =>
@@ -155,7 +166,15 @@ async function window(daemon: { url: string; tokenPath: string }) {
         ? [message.transfer]
         : [],
     );
-  return { command, request, links, progress, messages, lastCommand: () => `command-${sequence}` };
+  return {
+    command,
+    request,
+    fleet,
+    links,
+    progress,
+    messages,
+    lastCommand: () => `command-${sequence}`,
+  };
 }
 
 /** Polls and retries wait 20 ms in tests instead of up to 30 s. */
@@ -200,6 +219,16 @@ export async function transferMachines(
     transport?: (inner: TransferTransport) => TransferTransport;
     /** Both daemons write their info logs, for tests that read them. */
     logs?: boolean;
+    /**
+     * A relay the target registers with: the source's link names only it, no address, as a
+     * machine linked through a relay is saved (ADR 0182, ADR 0192).
+     */
+    relayOnly?: string;
+    /** Engine limits on either side, e.g. one active thread. */
+    sourceEngineLimits?: Partial<EngineLimits>;
+    targetEngineLimits?: Partial<EngineLimits>;
+    /** Holds the source's Claude sessions while they open, until `ready` settles. */
+    sourceOpening?: { entered(): void; ready: Promise<void> };
   } = {},
 ) {
   const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "ace-transfer-source-")));
@@ -212,16 +241,26 @@ export async function transferMachines(
   const targetOptions = {
     projects: projects(targetRoot),
     transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
+    ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
   };
-  const targetEnvironment = { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel };
+  const targetEnvironment = {
+    ACE_LISTEN: "lan",
+    ACE_ADVERTISE_HOST: "127.0.0.1",
+    ...(options.relayOnly ? { ACE_RELAY_URL: options.relayOnly } : {}),
+    ...logLevel,
+  };
   let target: Side = await daemonFixture(undefined, targetOptions, targetEnvironment);
   cleanup.push(() => target.daemon.close());
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
   const sourceOptions = {
     projects: projects(sourceRoot),
     transfers: { transport, sleep: quickSleep, offlineMs: 5_000 },
+    ...(options.sourceEngineLimits ? { engineLimits: options.sourceEngineLimits } : {}),
   };
-  let source: Side = await daemonFixture(undefined, sourceOptions, logLevel);
+  const sourceHarness = options.sourceOpening
+    ? setup({}, undefined, false, options.sourceOpening)
+    : undefined;
+  let source: Side = await daemonFixture(undefined, sourceOptions, logLevel, sourceHarness);
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");
@@ -234,11 +273,25 @@ export async function transferMachines(
     }),
   );
   const credential = await redeemPairing(pairing.url, "MacBook");
+  const relayOnly = options.relayOnly;
+  const route = relayOnly
+    ? {
+        relay: {
+          url: relayOnly,
+          relayHostId: await vi.waitFor(
+            () => {
+              if (!target.daemon.relayHostId) throw new Error("Not on the relay yet");
+              return target.daemon.relayHostId;
+            },
+            { timeout: 15_000 },
+          ),
+        },
+      }
+    : { origin: `${remoteUrl.replace("wss:", "https:").replace(/\/?$/, "/")}`, fingerprint };
   const profiles = new Profiles(join(source.h.home, "daemon"));
   profiles.add({
     name: "studio",
-    origin: `${remoteUrl.replace("wss:", "https:").replace(/\/?$/, "/")}`,
-    fingerprint,
+    ...route,
     deviceId: credential.device.id,
     token: credential.token,
   });
@@ -310,9 +363,16 @@ export async function transferMachines(
     sourceRoot,
     targetRoot,
     targetHostId,
+    /** The source's device on the target: the link's credential there. */
+    linkDevice: credential.device.id,
+    /** That credential's token, and where the target listens for paired devices. */
+    linkToken: credential.token,
+    targetOrigin: remoteUrl.replace("wss:", "https:").replace(/\/$/, ""),
     get here() {
       return here;
     },
+    /** The target's own app window. */
+    targetWindow: () => window(target.daemon),
     addProject,
     settled,
     restartSource,

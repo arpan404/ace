@@ -25,6 +25,8 @@ export async function redeemPairingViaRelay(input: {
   name: string;
   /** This app install (ADR 0115): pairing it again keeps its one device. */
   installId?: string | undefined;
+  /** The public half of this app's standing key (ADR 0190), named to the daemon at redemption. */
+  standingKey?: string | undefined;
   socket(url: string, protocols?: string[]): PortableSocket;
   schedule(callback: () => void, delayMs: number): () => void;
   keys?: PortableRelayOptions["keys"];
@@ -48,6 +50,7 @@ export async function redeemPairingViaRelay(input: {
       code: link.code,
       name: input.name,
       ...(input.installId ? { installId: InstallId.parse(input.installId) } : {}),
+      ...(input.standingKey ? { standingKey: input.standingKey } : {}),
     });
     const answer = await relay.receive();
     const parsed = PairResult.safeParse(answer);

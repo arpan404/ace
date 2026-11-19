@@ -31,7 +31,10 @@ impl Engine {
         }
         let attached = outgoing.images.len() + outgoing.documents.len();
         self.check_message(&outgoing.text, attached)?;
-        if self.store.conversation(id)?.is_none() || self.deleting(id) {
+        if let Some((name, machine)) = self.moving_to(id) {
+            return Err(SendError::Moving(name, machine));
+        }
+        if !self.reachable(id)? || self.deleting(id) {
             return Err(SendError::NotFound);
         }
         if self.disabled_main(id)? {
@@ -52,7 +55,7 @@ impl Engine {
         let images = outgoing
             .images
             .iter()
-            .map(|bytes| self.images.put(bytes))
+            .map(|bytes| self.put_image(bytes))
             .collect::<Result<Vec<_>, _>>()?;
         let message = Event::Known(Known::UserMessage {
             text: outgoing.text.trim().to_owned(),

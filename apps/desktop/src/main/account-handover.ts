@@ -1,10 +1,34 @@
 import { MachineAccountStatus } from "@ace/protocol";
+import { aceAccountClient } from "@ace/client/ace-account";
 import type { DaemonConnection } from "../shared/contract.ts";
 
 /**
- * Hands the app's ace session to the daemon this app runs on this computer, or signs out the
- * session the app handed it (ADR 0111). Whether to is decided first (`account-write.ts`,
- * `account-follow.ts`); this only sends it. A remote daemon is never given the session.
+ * A single-use enrollment ticket for the daemon on this computer (ADR 0190), got with the app's
+ * own session and bound to the relay host id its home's key names. The daemon is given this,
+ * never the session: whatever answers at the daemon's address can at most sign that machine in.
+ */
+export async function enrollmentFor(
+  connection: DaemonConnection,
+  origin: string,
+  token: string,
+  request: typeof fetch = fetch,
+): Promise<string> {
+  if (connection.mode !== "daemon" || !connection.localRelayHostId)
+    throw new Error("Update ace on this computer to sign it in from the app.");
+  const backend = aceAccountClient({ origin, fetch: request });
+  const enrollment = await backend.machineEnrollment(
+    token,
+    connection.localRelayHostId,
+    AbortSignal.timeout(15_000),
+  );
+  return enrollment.ticket;
+}
+
+/**
+ * Signs the daemon this app runs on this computer in to the app's ace account with an enrollment
+ * ticket (ADR 0190), or signs out what the app signed it in with (ADR 0111). Whether to is decided
+ * first (`account-write.ts`, `account-follow.ts`); this only sends it. A remote daemon is never
+ * signed in from here, and no daemon is ever given the session.
  *
  * `expected` is the `sessionId` the decision was read with: the daemon then applies it only
  * while it still holds that session (null: none), and this resolves false when it no longer
@@ -18,6 +42,7 @@ export async function handAccountToDaemon(
   expected?: string | null,
 ): Promise<boolean> {
   if (connection.mode !== "daemon" || connection.localHostId === undefined) return false;
+  const ticket = token ? await enrollmentFor(connection, origin, token, request) : undefined;
   const url = new URL("/v1/ace-account", connection.url);
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
   const condition: Record<string, string> =
@@ -27,13 +52,13 @@ export async function handAccountToDaemon(
         ? { "if-none-match": "*" }
         : { "if-match": `"${expected}"` };
   const response = await request(url, {
-    method: token ? "PUT" : "DELETE",
+    method: ticket ? "PUT" : "DELETE",
     headers: {
       authorization: `Bearer ${connection.token}`,
       ...condition,
-      ...(token ? { "content-type": "application/json" } : {}),
+      ...(ticket ? { "content-type": "application/json" } : {}),
     },
-    ...(token ? { body: JSON.stringify({ origin, token }) } : {}),
+    ...(ticket ? { body: JSON.stringify({ origin, ticket }) } : {}),
     signal: AbortSignal.timeout(15_000),
   });
   await response.body?.cancel();

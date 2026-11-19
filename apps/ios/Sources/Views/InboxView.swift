@@ -3,8 +3,8 @@ import SwiftUI
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads (Inbox,
 /// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
 /// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
-/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Code review is a tab in a
-/// regular window and opens over Projects from its top bar on a phone. Spade's tab is there while
+/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Code review opens from the
+/// Projects list's top bar: as a place of its own in a regular window, over Projects on a phone. Spade's tab is there while
 /// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
 struct InboxView: View {
@@ -145,7 +145,8 @@ struct InboxView: View {
         }
     }
 
-    /// A phone opens Code review from the Projects list's top bar instead (`reviewing`).
+    /// Code review's place in a regular window, chosen from the Projects list's top bar; a phone
+    /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
             Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
@@ -293,6 +294,11 @@ struct InboxView: View {
             }
     }
 
+    /// Code review from the Projects list's top bar: its own place beside the sidebar in a regular
+    /// window, a sheet over Projects on a phone.
+    private func openReview() {
+        if sizeClass == .regular { tab = .review } else { reviewing = true }
+    }
     /// The compose button: a new chat on Chats, else a new thread.
     private func compose(chat: Bool) {
         if chat { composeProject = NewThreadDraft.chat }
@@ -363,7 +369,7 @@ struct InboxView: View {
                                               search: { tab = .search },
                                               place: { open($0) },
                                               compose: { compose(chat: list == .chats) },
-                                              review: { reviewing = true },
+                                              review: { openReview() },
                                               page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the

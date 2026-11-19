@@ -5,9 +5,10 @@ import { useMachineAccountAccess } from "@/features/settings/index.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
 /*
- * The way on from "sign in again" (ADR 0174 §2: installing needs a sign-in from the last ten
- * minutes): a fresh browser sign-in for this window, handed to this computer's daemon so its
- * next market request counts as recent. The caller retries what was refused once it resolves.
+ * The way on from "sign in again" (a person-only action, ADR 0190): a browser sign-in for this
+ * window, after which this window's sockets prove the person's standing with it. A daemon that
+ * isn't signed in is signed in with an enrollment ticket too. The caller retries what was refused
+ * once it resolves.
  */
 
 export interface FreshSignIn {
@@ -37,7 +38,10 @@ export function useFreshSignIn(): FreshSignIn {
         setProblem(store.get().error || "Sign-in didn't finish. Try again.");
         return false;
       }
-      await access?.signIn(store.origin, session.token);
+      const status = await access?.status().catch(() => undefined);
+      if (access && !status?.signedIn) await access.signIn(store.origin, session.token);
+      const { proveAgain } = await import("@/boot/window-prover.ts");
+      await proveAgain();
       return true;
     } catch (cause) {
       setProblem(

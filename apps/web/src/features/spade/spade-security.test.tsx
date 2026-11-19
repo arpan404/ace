@@ -197,7 +197,7 @@ test("a bot inherits the machine's commands, picks its own, and goes back", asyn
   expect(commands.getByRole("link", { name: "Security settings" }).getAttribute("href")).toBe(
     "/settings/spade/security",
   );
-  expect(commands.queryByRole("combobox")).toBeNull();
+  expect(commands.queryByRole("combobox", { name: "Where commands run" })).toBeNull();
   await userEvent.click(commands.getByRole("button", { name: "Set its own" }));
   const box = await commands.findByRole("combobox", { name: "Where commands run" });
   expect(box.textContent).toContain("Same as this Mac");

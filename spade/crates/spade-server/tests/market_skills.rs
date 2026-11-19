@@ -235,3 +235,78 @@ async fn with_ace_away_or_its_marketplace_not_answering_the_last_copy_stays() ->
     assert!(names(&*restarted, None).await?.is_empty());
     Ok(())
 }
+
+/// The skills index a bot's standing instructions carry, for `bot`.
+async fn index_for(library: &dyn SkillLibrary, bot: &str) -> Result<String> {
+    let entries = library.list_for(Some(bot)).await?;
+    Ok(spade_core::skills::index(
+        &entries,
+        &std::collections::HashMap::new(),
+    ))
+}
+
+/// The daemon lists a market skill only once the person turned its installed version on for
+/// their bots (ADR 0178 §12.8): one installed or updated by a caller without the person's
+/// standing is held back. Spade's side of that: a skill the daemon holds back is in no bot's
+/// skills or instructions, and an update held back takes the earlier copy away rather than
+/// leaving it in use.
+#[tokio::test]
+async fn a_market_skill_reaches_no_bot_until_the_person_turns_its_version_on() -> Result {
+    let setup = Setup::start().await?;
+    let store = setup.open()?;
+    let sync = tokio::spawn(store.clone().run_market());
+    // Installed over the host token: the daemon holds it back, so Spade copies nothing.
+    until("the first sync is read", async || {
+        setup.daemon.market_requests() > 0
+    })
+    .await?;
+    assert!(names(&*store, Some("bot_1")).await?.is_empty());
+    assert!(!index_for(&*store, "bot_1").await?.contains("triage-mail"));
+
+    // The person turns this version on: every bot can load it, and it is in their index.
+    setup.install_triage();
+    setup.daemon.push_market_change();
+    until("the turned-on skill reaches the bots", async || {
+        names(&*store, Some("bot_1"))
+            .await
+            .is_ok_and(|n| n == ["triage-mail"])
+    })
+    .await?;
+    assert!(
+        index_for(&*store, "bot_1")
+            .await?
+            .contains("- triage-mail:")
+    );
+    let folder = setup.folder(&store, "triage-mail")?;
+
+    // An update installed over the host token: the daemon holds the new version back, so the
+    // copy goes from every bot instead of the old version staying in their instructions.
+    setup.daemon.remove_market_skill("triage-mail");
+    setup.daemon.push_market_change();
+    until("the held-back update leaves the bots", async || {
+        !folder.exists()
+    })
+    .await?;
+    for bot in ["bot_1", "bot_2"] {
+        assert!(names(&*store, Some(bot)).await?.is_empty(), "{bot}");
+        assert!(
+            !index_for(&*store, bot).await?.contains("triage-mail"),
+            "{bot}"
+        );
+    }
+
+    // The person turns the new version on: it comes back, the new version only.
+    setup
+        .daemon
+        .set_market_skill("triage-mail", "1.1.0", &[("SKILL.md", TRIAGE_MD_2, false)]);
+    setup.daemon.push_market_change();
+    until("the new version reaches the bots", async || {
+        setup
+            .folder(&store, "triage-mail")
+            .is_ok_and(|f| std::fs::read(f.join("SKILL.md")).is_ok_and(|b| b == TRIAGE_MD_2))
+    })
+    .await?;
+    assert_eq!(names(&*store, Some("bot_2")).await?, ["triage-mail"]);
+    sync.abort();
+    Ok(())
+}

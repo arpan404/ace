@@ -157,6 +157,8 @@ pub(super) async fn pin(
 #[derive(Deserialize)]
 pub(super) struct Main {
     enabled: bool,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 /// An agent as the API shows it. The task is the person's own text, sent back only to them.
@@ -450,9 +452,11 @@ pub(super) async fn delete(
     }
 }
 
-/// Switches Spade, the main agent, on or off on this machine (ADR 0127: it runs on one).
+/// Switches Spade, the main agent, on or off on this machine. With `by: "person"` it is the
+/// person's own switch; without, the old election's, which a host record overrides (ADR 0187).
 pub(super) async fn set_main(State(state): State<AppState>, Body(body): Body<Main>) -> Response {
-    match state.engine.set_main_enabled(body.enabled) {
+    let by_person = body.by.as_deref() == Some("person");
+    match state.engine.set_main_enabled(body.enabled, by_person) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }

@@ -7,8 +7,10 @@ mod agents;
 mod digests;
 mod endpoints;
 mod episodes;
+mod gate;
 mod helpers;
 mod knowledge;
+mod moves;
 mod notes;
 mod oversight;
 mod routines;
@@ -25,6 +27,11 @@ pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
+pub use moves::{
+    Arrived, Begun, Cursor, Cutover, EVENTS, Handover, MOVE_BATCH, MOVE_BATCH_BYTES, MOVE_TABLES,
+    MainActive, Merge, MoveTable, OPEN_MOVE, PER_BOT_SETTINGS, Row, RowSums, Selection, Stage,
+    StoredMove, TableSum, arrival_state, move_table, open_state,
+};
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
@@ -35,6 +42,7 @@ pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, Store
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+use gate::ARRIVING_CONVERSATIONS;
 use rusqlite::{Connection, OptionalExtension, params};
 use spade_core::Event;
 use spade_core::event::Known;
@@ -49,9 +57,45 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("the storage lock was poisoned by a crash")]
     Poisoned,
+    /// Only its arrival moves an arriving move on (ADR 0187).
+    #[error("move {0} is arriving; only its arrival moves it on")]
+    Arriving(String),
+    /// No event number is left in the conversation.
+    #[error("conversation {0} has no event numbers left")]
+    NoSeqLeft(String),
+    /// An arrival's placed files go back before its rows and its gate (ADR 0187).
+    #[error("move {0} still has files placed; they go back first")]
+    FilesPlaced(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+/// The largest event number a conversation reaches (2^53, exact in every client's numbers); a
+/// move brings none past it (ADR 0187).
+pub const MOST_SEQ: i64 = 1 << 53;
+
+/// The store's connection while what is written through it must reach the disk before each
+/// commit returns; back to the everyday `NORMAL` once let go.
+pub(crate) struct Durable<'a>(MutexGuard<'a, Connection>);
+
+impl std::ops::Deref for Durable<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Durable<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.0
+    }
+}
+
+impl Drop for Durable<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.pragma_update(None, "synchronous", "NORMAL");
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredEvent {
@@ -77,6 +121,8 @@ impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let mut connection = Connection::open(path)?;
         schema::prepare(&mut connection)?;
+        // The arriving gate (ADR 0187), held by SQLite itself on this connection.
+        gate::install(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -149,6 +195,14 @@ impl Store {
         self.connection.lock().map_err(|_| StoreError::Poisoned)
     }
 
+    /// The connection, every commit made through it synced to disk before it returns
+    /// (`synchronous = FULL`): for what a move acknowledges, which a power loss must not undo.
+    pub(crate) fn lock_durable(&self) -> Result<Durable<'_>> {
+        let connection = self.lock()?;
+        connection.pragma_update(None, "synchronous", "FULL")?;
+        Ok(Durable(connection))
+    }
+
     pub fn create_conversation(&self, id: &str, now_ms: i64) -> Result<()> {
         let connection = self.lock()?;
         let inserted = connection.execute(
@@ -166,11 +220,12 @@ impl Store {
     /// (ADR 0152) are left out: [`Store::helpers`] lists them.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT id, title, created_ms, updated_ms FROM conversations
              WHERE id NOT IN (SELECT conversation_id FROM helpers)
-             ORDER BY updated_ms DESC, id DESC",
-        )?;
+               AND id NOT IN {ARRIVING_CONVERSATIONS}
+             ORDER BY updated_ms DESC, id DESC"
+        ))?;
         let rows = statement.query_map([], |row| {
             Ok(Conversation {
                 id: row.get(0)?,
@@ -184,6 +239,9 @@ impl Store {
 
     pub fn conversation(&self, id: &str) -> Result<Option<Conversation>> {
         let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, id)? {
+            return Ok(None);
+        }
         Ok(connection
             .query_row(
                 "SELECT id, title, created_ms, updated_ms FROM conversations WHERE id = ?1",
@@ -235,6 +293,9 @@ impl Store {
         after: i64,
     ) -> Result<(Vec<StoredEvent>, usize)> {
         let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, conversation)? {
+            return Ok((Vec::new(), 0));
+        }
         let mut statement = connection.prepare(
             "SELECT seq, at_ms, body FROM events
              WHERE conversation_id = ?1 AND seq > ?2 ORDER BY seq",
@@ -270,7 +331,11 @@ impl Store {
         now_ms: i64,
     ) -> Result<()> {
         let cost = i64::try_from(cost_micros).unwrap_or(i64::MAX);
-        self.lock()?.execute(
+        let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, conversation)? {
+            return Err(StoreError::NoConversation(conversation.to_owned()));
+        }
+        connection.execute(
             "INSERT INTO spend (conversation_id, model, cost_micros, at_ms) VALUES (?1, ?2, ?3, ?4)",
             params![conversation, model, cost, now_ms],
         )?;
@@ -280,7 +345,10 @@ impl Store {
     /// Total spent from `since_ms` on.
     pub fn spent_since(&self, since_ms: i64) -> Result<u64> {
         let total: i64 = self.lock()?.query_row(
-            "SELECT COALESCE(SUM(cost_micros), 0) FROM spend WHERE at_ms >= ?1",
+            &format!(
+                "SELECT COALESCE(SUM(cost_micros), 0) FROM spend WHERE at_ms >= ?1
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![since_ms],
             |row| row.get(0),
         )?;
@@ -303,7 +371,8 @@ pub(crate) fn append_in(
         )
         .optional()?
         .unwrap_or(false);
-    if !exists {
+    // Nothing is written to a conversation still arriving (ADR 0187).
+    if !exists || gate::arriving(tx, gate::CONVERSATION, conversation)? {
         return Err(StoreError::NoConversation(conversation.to_owned()));
     }
     let mut seq: i64 = tx.query_row(
@@ -313,7 +382,10 @@ pub(crate) fn append_in(
     )?;
     let mut stored = Vec::with_capacity(events.len());
     for event in events {
-        seq += 1;
+        seq = seq
+            .checked_add(1)
+            .filter(|next| *next <= MOST_SEQ)
+            .ok_or_else(|| StoreError::NoSeqLeft(conversation.to_owned()))?;
         tx.execute(
             "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
             params![conversation, seq, now_ms, event.to_json().to_string()],

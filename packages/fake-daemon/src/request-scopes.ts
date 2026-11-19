@@ -126,6 +126,30 @@ export function scopeRefusal(
       message: "Only an administrator can manage this machine's links and devices.",
       requestId: message.requestId,
     };
+  // As the daemon: a device grants only Projects or Accounts it holds, by a pairing link or by
+  // allowing a scope on another device.
+  if (message.type === "fleet.request" && scopes) {
+    const operation = message.operation;
+    const granted =
+      operation.op === "pairing"
+        ? operation.scopes
+        : operation.op === "scope" && operation.allowed
+          ? [operation.scope]
+          : [];
+    const missing = granted.find(
+      (scope) =>
+        (scope === "projects" || scope === "accounts") &&
+        !scopes.includes(scope) &&
+        !scopes.includes("desktop"),
+    );
+    if (missing)
+      return {
+        type: "error",
+        code: "forbidden",
+        message: `You can't grant ${missing === "projects" ? "Projects" : "Accounts"}: this device doesn't have it.`,
+        requestId: message.requestId,
+      };
+  }
   // As the daemon: Use my Chrome (status included) and changing locked use are the owner's.
   if (message.type === "user_browser.settings" && !scopes?.includes("admin"))
     return {

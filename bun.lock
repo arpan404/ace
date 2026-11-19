@@ -174,6 +174,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "electron-updater": "6.8.9",
@@ -356,6 +357,7 @@
       "name": "@ace/account-grant",
       "dependencies": {
         "@noble/curves": "2.0.1",
+        "@noble/hashes": "2.0.1",
         "zod": "^4.6.5",
       },
     },

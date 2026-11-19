@@ -158,3 +158,21 @@ it("Node warnings with bracketed tags stay readable while a credential beside th
   expect(leaky).not.toContain("abcdefghijklmnopqrstuvwxyz");
   expect(redact('(node:1) [DEP0005] {"password":"opaque-value"')).not.toContain("opaque-value");
 });
+
+it("ace account grants, standing grants and their proofs never reach a diagnostic log (ADR 0190)", () => {
+  const redact = createDiagnosticRedactor({ env: {} });
+  const grant = `eyJ2IjoyLCJraWQiOiJrMSIsImtpbmQiOiJkZXZpY2UifQ.${"s".repeat(86)}`;
+  expect(redact(`hello ${grant} via ace.grant.${grant}`)).not.toContain(grant);
+  const record = redact(
+    JSON.stringify({
+      type: "account.standing",
+      grant: "anything-at-all",
+      proof: "p".repeat(86),
+      personGrant: "secret-ish",
+      standing: "also-secret",
+      grantTtlMs: 300_000,
+    }),
+  );
+  expect(record).not.toMatch(/anything-at-all|ppppp|secret-ish|also-secret/);
+  expect(record).toContain("300000");
+});

@@ -120,11 +120,6 @@ export async function pinAgent(target: SpadeTarget, id: string, pinned: boolean)
   await spadeHttp(target, "PUT", `/v1/agents/${segment(id)}/pin`, { body: { pinned } });
 }
 
-/** Whether this machine's Spade hosts the main bot (only the first machine Spade ran on does). */
-export async function setMainHosted(target: SpadeTarget, enabled: boolean): Promise<void> {
-  await spadeHttp(target, "PUT", "/v1/main", { body: { enabled } });
-}
-
 export async function readModels(target: SpadeTarget, options: Signal = {}): Promise<SpadeModels> {
   return sure(parseSpadeModels(await spadeHttp(target, "GET", "/v1/models", options)), "models");
 }

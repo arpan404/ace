@@ -2,7 +2,8 @@
 import Closing from "../../components/Closing.astro";
 import Faq from "../../components/Faq.astro";
 import FeatureStory from "../../components/features/FeatureStory.astro";
-import LinkCards from "../../components/site/LinkCards.astro";
+import FeatureTools from "../../components/features/FeatureTools.astro";
+import LinkRows from "../../components/features/LinkRows.astro";
 import PageIntro from "../../components/site/PageIntro.astro";
 import { features, type Feature } from "../../content/features.ts";
 import Page from "../../layouts/Page.astro";
@@ -20,7 +21,11 @@ const { feature } = Astro.props;
 const path = `/features/${feature.slug}/`;
 const others = features
   .filter((entry) => entry.slug !== feature.slug)
-  .map((entry) => ({ href: `/features/${entry.slug}/`, title: entry.name, body: entry.intro }));
+  .map((entry) => ({
+    href: `/features/${entry.slug}/`,
+    name: entry.name,
+    body: entry.points[0] ?? entry.intro,
+  }));
 ---
 
 <Page
@@ -36,9 +41,13 @@ const others = features
     secondary={{ href: "/features/", label: "All features" }}
   />
   <FeatureStory feature={feature} />
-
+  <FeatureTools tools={feature.tools} />
   <Faq items={feature.questions} heading={`Questions about ${feature.name.toLowerCase()}`} />
-  <LinkCards heading="More of ace" cards={others} />
+  <LinkRows
+    heading="More of ace."
+    lede={`The other ${others.length} things ace gives every agent, each with a page of its own.`}
+    items={others}
+  />
   <Closing />
 </Page>
 

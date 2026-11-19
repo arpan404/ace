@@ -20,9 +20,20 @@ it("an agent's result that never reached its thread survives retention and is de
     if (!m.source.daemon.transfers.outgoing.get(transfer.transferId)?.delivered)
       throw new Error("Not delivered yet");
   });
-  m.source.daemon.store
-    .statement("UPDATE transfer_outgoing SET delivered=0 WHERE transfer_id=?")
-    .run(transfer.transferId);
+  // As the store holds it then: the row undelivered, so open and not expiring in its side tables
+  // (ADR 0170), all in one transaction as every write of the row keeps them.
+  const { store } = m.source.daemon;
+  store.atomic(() => {
+    store
+      .statement("UPDATE transfer_outgoing SET delivered=0 WHERE transfer_id=?")
+      .run(transfer.transferId);
+    store
+      .statement("DELETE FROM transfer_outgoing_expiry WHERE transfer_id=?")
+      .run(transfer.transferId);
+    store
+      .statement("INSERT OR IGNORE INTO transfer_outgoing_open (transfer_id) VALUES (?)")
+      .run(transfer.transferId);
+  });
 
   // The machine comes back two days later, past the 24-hour retention.
   m.source.h.clock.advance(m.source.h.clock.now() + 2 * day);

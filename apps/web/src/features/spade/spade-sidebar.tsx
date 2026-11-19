@@ -19,7 +19,8 @@ import {
 import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
-import { useOneSpade, useSpadeRoster } from "./use-spade-roster.ts";
+import { useSpadeRoster } from "./use-spade-roster.ts";
+import { useSpadeHost } from "./use-spade-host.ts";
 import { useGoalMissing } from "./use-goal-missing.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useTellZone } from "./use-spade-zone.ts";
@@ -34,7 +35,8 @@ const isMain = (entry: SpadeListEntry) => entry.kind === "bot" && entry.bot.kind
  * every machine this window reaches: what needs the person, what works, what failed and what
  * they haven't seen, then the rest by latest activity. The foot is the person and the gear.
  * While Spade runs but waits on the person (a keychain prompt), what to look for, under the head.
- * The panel sees every machine, so it keeps Spade, the main bot, on one (`useOneSpade`).
+ * The panel sees every machine, so it keeps the fleet's choice of where Spade lives in step
+ * (`useSpadeHost`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
@@ -42,7 +44,7 @@ export function SpadeSidebar() {
   const line = spadeStateLine(status, enabled);
   const setup = spadeSetupSentence(status);
   const roster = useSpadeRoster(line.ready);
-  useOneSpade(roster.hosting);
+  useSpadeHost(roster.hosting);
   useTellZone(useMemo(() => roster.hosts.map((host) => host.machine.client), [roster.hosts]));
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);

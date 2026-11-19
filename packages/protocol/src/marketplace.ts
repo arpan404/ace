@@ -57,6 +57,12 @@ export const MarketInstalled = z.strictObject({
   update: MarketVersion.optional(),
   /** Where it landed: the Suit's id, the plugin's name, the bot's id. */
   target: z.string().max(200).optional(),
+  /**
+   * For a Spade skill: whether the person turned this installed version on for their bots (ADR
+   * 0178 §12.8). False after an install or update by a caller without the person's standing:
+   * the skill is installed but no bot sees it until the person turns it on.
+   */
+  botsApproved: z.boolean().optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -275,6 +281,11 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("remove"), ...installedKey }),
   /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
   z.strictObject({ op: z.literal("turnOn"), ...installedKey }),
+  /**
+   * The person turns an installed Spade skill on for their bots: exactly the version with this
+   * `hash`, so an update installed since needs turning on again (ADR 0178 §12.8). Person-only.
+   */
+  z.strictObject({ op: z.literal("turnOnForBots"), name: MarketEntryName, hash: MarketHash }),
   /** Spade's view (ADR 0168 §13, `marketplace.spade`): installed market skills with hashes. */
   z.strictObject({ op: z.literal("spadeSkills") }),
   ...marketPublishOperations,
@@ -340,6 +351,12 @@ export const MarketErrorCode = z.enum([
    * the asking thread's strip, named by `request`, that only a person's device answers.
    */
   "person_only",
+  /**
+   * A sensitive action the market takes only with a grant from the person's own session naming
+   * this request (ADR 0190): the client asks for one with `action` and sends the request again
+   * with it as `personGrant`.
+   */
+  "person_grant",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -384,6 +401,8 @@ export const MarketResult = z.discriminatedUnion("op", [
     scan: MarketScanReport.optional(),
     /** The person's request ace opened, for `person_only`. */
     request: z.string().max(200).optional(),
+    /** For `person_grant`: the market request, `METHOD /path`, a person's grant must name. */
+    action: z.string().min(1).max(512).optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -397,6 +416,11 @@ export const MarketClientMessage = z.strictObject({
    * turns a person-only action into a request in that thread instead of running it.
    */
   thread: ThreadId.optional(),
+  /**
+   * A market grant the client got with the person's own session for this request's one market
+   * call (ADR 0190): the market takes a sensitive action only with it. Never a machine's.
+   */
+  personGrant: z.string().min(1).max(4096).optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

@@ -97,6 +97,11 @@ impl ImageStore {
         })
     }
 
+    /// The hash an image is stored under.
+    pub fn hash_of(bytes: &[u8]) -> String {
+        hex(&Sha256::digest(bytes))
+    }
+
     /// The stored image with this hash, and its media type.
     pub fn read(&self, sha256: &str) -> Option<(Vec<u8>, &'static str)> {
         let valid = sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit());

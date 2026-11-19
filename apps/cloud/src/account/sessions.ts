@@ -12,24 +12,58 @@ const Row = z.object({
   refresh: z.string(),
   expires: z.number(),
   signed_in: z.number().default(0),
+  standing: z.enum(["person", "legacy", "exposed"]).catch("exposed"),
 });
+/**
+ * Whether a session may speak for the person (ADR 0190, migration 0004): `person` for a sign-in
+ * only the client that made it holds; `legacy` for one from before standing was kept; `exposed`
+ * for one a machine kept on its disk.
+ */
+export type SessionStanding = z.infer<typeof Row>["standing"];
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
 /** ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest. */
 export function sessionStore(db: D1Database, sealer: Sealer) {
+  const select = (retired: boolean) =>
+    db.prepare(
+      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"}`,
+    );
+  async function read(hash: string, now: number, retired: boolean) {
+    const raw = await select(retired).bind(hash, now).first();
+    if (!raw) return undefined;
+    const row = Row.parse(raw);
+    const { pictureUrl, ...account } = row.account;
+    return {
+      account,
+      pictureUrl,
+      expiresAt: row.expires,
+      signedInAt: row.signed_in,
+      standing: row.standing,
+      refresh: () => sealer.open(row.refresh, hash),
+    };
+  }
+  const exposing = (hash: string) =>
+    db
+      .prepare("UPDATE sessions SET standing = 'exposed' WHERE token = ? AND standing != 'exposed'")
+      .bind(hash);
   return {
+    /**
+     * A new sign-in's session. `standing` is `person` for an app's sign-in, which only that app
+     * holds, and `exposed` for a daemon's (`ace login`), which a machine keeps (ADR 0190).
+     */
     async put(
       hash: string,
       account: AceAccount,
       refresh: string,
       expires: number,
       signedIn: number,
+      standing: "person" | "exposed",
       pictureUrl?: string,
     ) {
       await db
         .prepare(
-          "INSERT INTO sessions (token, account, refresh, expires, signed_in) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(
           hash,
@@ -37,27 +71,36 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
           await sealer.seal(refresh, hash),
           expires,
           signedIn,
+          standing,
         )
         .run();
     },
-    async get(hash: string, now: number) {
+    /** A session its token still opens: not expired, not retired. */
+    get: (hash: string, now: number) => read(hash, now, false),
+    /**
+     * A session a machine credential lives on, retired or not: a retired session's token opens
+     * nothing, but the credential exchanged from it still renews it (ADR 0190).
+     */
+    held: (hash: string, now: number) => read(hash, now, true),
+    /**
+     * The session's standing now, read for the decision that issues a grant (ADR 0190).
+     * Undefined once it is gone, expired or retired.
+     */
+    async standingNow(hash: string, now: number): Promise<SessionStanding | undefined> {
       const raw = await db
-        .prepare(
-          "SELECT account, refresh, expires, signed_in FROM sessions WHERE token = ? AND expires > ?",
-        )
+        .prepare("SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ?")
         .bind(hash, now)
-        .first();
-      if (!raw) return undefined;
-      const row = Row.parse(raw);
-      const { pictureUrl, ...account } = row.account;
-      return {
-        account,
-        pictureUrl,
-        expiresAt: row.expires,
-        signedInAt: row.signed_in,
-        refresh: () => sealer.open(row.refresh, hash),
-      };
+        .first<{ standing: string }>();
+      return raw ? Row.shape.standing.parse(raw.standing) : undefined;
     },
+    /** The statement that marks a session kept on a machine's disk: never the person's again. */
+    exposing,
+    async expose(hash: string) {
+      await exposing(hash).run();
+    },
+    /** The statement that retires a session's token: it opens nothing from then on. */
+    retiring: (hash: string) =>
+      db.prepare("UPDATE sessions SET retired = 1 WHERE token = ?").bind(hash),
     /** Claims the right to spend the refresh token for `ms`; false while another holds it. */
     async lease(hash: string, now: number, ms: number): Promise<boolean> {
       const result = await db

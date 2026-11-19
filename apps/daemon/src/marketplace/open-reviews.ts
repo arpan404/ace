@@ -4,11 +4,19 @@ import type { MarketKeySet, MarketPublisher, MarketResult } from "@ace/protocol/
 import { blockedEntry } from "./blocklist.ts";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
-import { installReview, type InstallPorts, type PluginPort, type SpadePort } from "./install.ts";
+import {
+  installReview,
+  type Installer,
+  type InstallPorts,
+  type PluginPort,
+  type SpadePort,
+} from "./install.ts";
 import { learnWithdrawn, readWithdrawn, withdrawalOf, type WithdrawnState } from "./listings.ts";
 import { marketError as error } from "./market-error.ts";
 import { prepareWithBrings, Refused } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
+import { contentOnlyReview } from "./content-only.ts";
+import { reauthSentence } from "./fresh-sign-in.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { verifiedKey, type MarketStore } from "./store.ts";
 import { badgesOf, type Trust } from "./trust.ts";
@@ -139,10 +147,23 @@ export class OpenReviews {
     });
   }
 
+  /**
+   * Whether the open review `id`, for the bytes `hash`, installs content only
+   * (`content-only.ts`): false for a review that is gone or names other bytes.
+   */
+  contentOnly(id: string, hash: string): boolean {
+    const pending = this.#pending.get(id);
+    if (!pending || pending.review.hash !== hash) return false;
+    const { review } = pending;
+    const previous = this.#ports.store.provenance(review.type, review.name);
+    return contentOnlyReview(review, buildReview(review).review.body, previous);
+  }
+
   async install(
     id: string,
     hash: string,
     choices: Parameters<typeof installReview>[2],
+    by: Installer,
   ): Promise<MarketResult> {
     const { store, trust } = this.#ports;
     const pending = this.#pending.get(id);
@@ -154,6 +175,10 @@ export class OpenReviews {
     if (pending.review.type === "spade-bot" && !this.#ports.spade.ready())
       return error("unavailable", "Spade isn't running. Start Spade to make this bot.");
     await this.#ports.recover();
+    // On the exemption, judged again here, in turn with every other install and after recovery:
+    // an install that landed the same name since the gate looked is what this one replaces.
+    if (by === "without-person" && !this.contentOnly(id, hash))
+      return error("reauth", reauthSentence);
     // A withdrawal learned since the review counts: for the entry and for all it brings.
     await learnWithdrawn(store, this.#ports.http(), this.#ports.keys).catch(() => {});
     const state = readWithdrawn(store);
@@ -186,6 +211,7 @@ export class OpenReviews {
         pending.review,
         choices,
         this.#transactionId(),
+        by,
       );
     } catch (thrown) {
       await this.#renewPluginReviews(pending.review);

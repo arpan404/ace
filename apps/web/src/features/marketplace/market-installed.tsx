@@ -2,6 +2,7 @@ import type { MarketInstalled } from "@ace/protocol/marketplace";
 import { Button } from "@/components/ui/button.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { useMarketInstalled, useRemove, useTurnOn } from "./market-api.ts";
+import { BotsApproval, waitsForBots } from "./market-bots-approval.tsx";
 import { Empty } from "./market-card.tsx";
 import { failureSentence, typeWord } from "./market-model.ts";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
@@ -113,6 +114,7 @@ function InstalledRow(props: { item: MarketInstalled }) {
           </span>
         )}
         {failed && <span className="mk-withdrawn-line">{failureSentence(failed, "remove")}</span>}
+        {waitsForBots(item) && <BotsApproval item={item} />}
         <span className="mk-meta">
           {typeWord(item.type)} ·{" "}
           <span style={{ fontVariantNumeric: "tabular-nums" }}>{version}</span>

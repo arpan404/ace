@@ -21,6 +21,9 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         checkpointed: false,
         target: None,
         drive: Drive::default(),
+        mode: crate::autonomy::Mode::AutoReview,
+        remote: false,
+        classifier: true,
     }
 }
 
@@ -442,6 +445,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             app: None,
             acts_in: None,
             helper: None,
+            launch: None,
         })
     };
     let answered = |call: &str, allowed: bool| {
@@ -969,4 +973,196 @@ fn an_app_that_shows_another_device_asks_on_every_screen_path_despite_always_all
             "{name}"
         );
     }
+}
+
+#[test]
+fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered_here() {
+    use crate::event::{Event, Known, since_arrival};
+    let key = "a_1|plugin:files@h1/fs:delete#s1";
+    let asked = |call: &str| {
+        Event::Known(Known::ApprovalRequested {
+            reply: "r".into(),
+            call_id: call.into(),
+            name: "files__delete".into(),
+            arguments: json!({}),
+            scope: None,
+            reviewer_reason: None,
+            ask: Some(Ask::Undeclared),
+            tool_key: Some(key.into()),
+            app: None,
+            acts_in: None,
+            helper: None,
+            launch: None,
+        })
+    };
+    let answered = |call: &str, always: bool| {
+        Event::Known(Known::ApprovalAnswered {
+            reply: "r".into(),
+            call_id: call.into(),
+            allowed: true,
+            always,
+        })
+    };
+    let arrived = Event::Known(Known::Arrived {
+        from: "Laptop".into(),
+    });
+    let there = vec![asked("a"), answered("a", true), arrived.clone()];
+    assert_eq!(
+        remembered(&there, key),
+        Some(true),
+        "the whole history remembers it"
+    );
+    assert_eq!(
+        remembered(since_arrival(&there), key),
+        None,
+        "here it asks again"
+    );
+    let folded = crate::Transcript::fold(since_arrival(&there));
+    assert!(folded.always_allowed.is_empty(), "no Always allow crossed");
+    // An answer given here, after it arrived, counts.
+    let mut here = there;
+    here.extend([asked("b"), answered("b", false)]);
+    assert_eq!(remembered(since_arrival(&here), key), Some(true));
+}
+
+/// A connector's or plugin's tool, run in the sandbox, that can reach the network.
+fn contained_app_tool(effect: Option<Effect>) -> Call<'static> {
+    Call {
+        place: Place::Sandbox,
+        remote: true,
+        ..call("mailer__send_email", effect)
+    }
+}
+
+#[test]
+fn on_the_auto_review_a_sandboxed_app_tool_that_can_reach_the_network_never_runs_unreviewed() {
+    // It declares nothing: the person decides once, as on the host.
+    assert_eq!(
+        route(contained_app_tool(None)),
+        Route::Ask {
+            line: UNDECLARED.to_owned(),
+            ask: Some(Ask::Undeclared)
+        }
+    );
+    // Declared to write: the reviewer, with or without untrusted content in view.
+    assert_eq!(
+        route(contained_app_tool(Some(Effect::Network))),
+        reviewed(None)
+    );
+    let tainted = Call {
+        tainted: true,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(tainted), reviewed(Some(TAINTED_OUTWARD)));
+    // A checkpoint that couldn't be taken changes nothing about that.
+    let unprotected = Call {
+        place: Place::Unprotected,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(unprotected), reviewed(None));
+    // Declared read-only: it runs.
+    assert_eq!(route(contained_app_tool(Some(Effect::Read))), Route::Run);
+    // The person's say still counts: their Always allow, or a remembered "yes".
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(always), Route::Run);
+    let remembered = Call {
+        remembered: Some(true),
+        ..contained_app_tool(None)
+    };
+    assert_eq!(route(remembered), Route::Run);
+    // Sends and payments stay the person's, as everywhere.
+    assert_eq!(route(contained_app_tool(Some(Effect::Pay))), asks(SPENDS));
+}
+
+#[test]
+fn on_the_auto_review_a_sealed_plugin_servers_tools_keep_the_sandboxs_decision() {
+    for effect in [None, Some(Effect::Network), Some(Effect::Publish)] {
+        let sealed = Call {
+            remote: false,
+            tainted: true,
+            ..contained_app_tool(effect)
+        };
+        assert_eq!(route(sealed), Route::Run, "{effect:?}");
+    }
+}
+
+#[test]
+fn a_tool_the_person_declined_stays_declined_once_its_server_is_sealed() {
+    use crate::autonomy::Mode;
+    for mode in [Mode::AutoReview, Mode::FullAccess] {
+        // Declined while its server could reach the network...
+        let asked = Call {
+            mode,
+            ..contained_app_tool(None)
+        };
+        assert!(matches!(route(asked), Route::Ask { .. }), "{mode:?}");
+        // ...and still declined once the server runs sealed (offline, no token), where a tool
+        // that declares nothing would otherwise run as the sandbox decides.
+        let sealed = Call {
+            remote: false,
+            ..asked
+        };
+        assert_eq!(route(sealed), Route::Run, "{mode:?}: never asked about");
+        let declined = Call {
+            remembered: Some(false),
+            ..sealed
+        };
+        assert_eq!(
+            route(declined),
+            Route::Refuse(DECLINED_TOOL.to_owned()),
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn on_the_auto_review_an_app_tool_that_calls_its_write_local_is_still_reviewed() {
+    // Declared `write_local` with a read-only hint: the rule gate would let a local write run.
+    let local = Call {
+        risk: Risk::Read,
+        rule: Decision::Run,
+        ..contained_app_tool(Some(Effect::WriteLocal))
+    };
+    for place in [Place::Sandbox, Place::Host, Place::Unprotected] {
+        let call = Call { place, ..local };
+        assert_eq!(route(call), reviewed(None), "{place:?}");
+    }
+    // The person's Always allow for it still runs it.
+    let always = Call {
+        always: true,
+        ..local
+    };
+    assert_eq!(route(always), Route::Run);
+    // A sealed plugin server's local write is the sandbox's.
+    let sealed = Call {
+        remote: false,
+        ..local
+    };
+    assert_eq!(route(sealed), Route::Run);
+}
+
+#[test]
+fn an_approvals_stored_launch_reads_leniently_as_the_narrowest() {
+    use crate::event::{Authorized, Event, Known};
+    let read = |launch: serde_json::Value| {
+        let event = Event::from_json(json!({
+            "type": "approval_requested", "reply": "r", "call_id": "c", "name": "shell",
+            "arguments": {}, "launch": launch,
+        }));
+        match event {
+            Event::Known(Known::ApprovalRequested { launch, .. }) => launch,
+            _ => None,
+        }
+    };
+    assert_eq!(read(json!("outside")), Some(Authorized::Outside));
+    assert_eq!(read(json!("as_found")), Some(Authorized::AsFound));
+    // A word this build doesn't know never lets it run wider.
+    assert_eq!(read(json!("anywhere")), Some(Authorized::Contained));
+    assert_eq!(read(serde_json::Value::Null), None);
+    assert!(Authorized::Contained < Authorized::AsFound);
+    assert!(Authorized::AsFound < Authorized::Outside);
 }

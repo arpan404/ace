@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Timestamp } from "./ids.ts";
+import { HostId, ThreadId, Timestamp } from "./ids.ts";
 import { QueueFacts } from "./thread-transitions.ts";
 
 /**
@@ -18,6 +18,14 @@ export const ThreadStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("limited"), until: Timestamp.optional() }),
   z.object({ state: z.literal("failed") }),
   z.object({ state: z.literal("unresponsive") }),
+  /**
+   * Its work moved to another machine while it was working and goes on there (ADR 0191). Not
+   * done and not settled: the thread there is the work; this one runs nothing more.
+   */
+  z.object({
+    state: z.literal("moved"),
+    to: z.object({ hostId: HostId, name: z.string().min(1).max(256), threadId: ThreadId }),
+  }),
   /** Every agent idle, nothing pending, nothing running in the background. */
   z.object({ state: z.literal("done") }),
   z.object({ state: z.literal("new") }),

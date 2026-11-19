@@ -178,6 +178,9 @@ impl Store {
     /// How `agent` used each skill it used, by name.
     pub fn skill_uses(&self, agent: &str) -> Result<HashMap<String, SkillUse>> {
         let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::AGENT, agent)? {
+            return Ok(HashMap::new());
+        }
         let mut statement = connection
             .prepare("SELECT name, loads, helpful FROM skill_uses WHERE agent_id = ?1")?;
         let rows = statement.query_map(params![agent], |row| {
@@ -195,9 +198,11 @@ impl Store {
     /// The bots that loaded each skill, by the skill's name, each list in id order.
     pub fn skill_users(&self) -> Result<HashMap<String, Vec<String>>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
-            "SELECT name, agent_id FROM skill_uses WHERE loads > 0 ORDER BY name, agent_id",
-        )?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT name, agent_id FROM skill_uses WHERE loads > 0 AND agent_id NOT IN {}
+             ORDER BY name, agent_id",
+            crate::gate::ARRIVING_AGENTS
+        ))?;
         let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))?;
         let mut users: HashMap<String, Vec<String>> = HashMap::new();
         for row in rows {

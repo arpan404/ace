@@ -31,7 +31,11 @@ impl Store {
         let tx = connection.transaction()?;
         let exists: Option<i64> = tx
             .query_row(
-                "SELECT 1 FROM conversations WHERE id = ?1",
+                &format!(
+                    "SELECT 1 FROM conversations WHERE id = ?1
+                     AND id NOT IN {}",
+                    crate::gate::ARRIVING_CONVERSATIONS
+                ),
                 params![conversation],
                 |row| row.get(0),
             )
@@ -66,7 +70,10 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT seq FROM seen WHERE conversation_id = ?1",
+                &format!(
+                    "SELECT seq FROM seen WHERE conversation_id = ?1 AND conversation_id NOT IN {}",
+                    crate::gate::ARRIVING_CONVERSATIONS
+                ),
                 params![conversation],
                 |row| row.get(0),
             )

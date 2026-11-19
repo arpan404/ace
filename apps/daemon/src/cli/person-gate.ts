@@ -4,7 +4,7 @@ import { CliFailure } from "./output.ts";
 /*
  * What the CLI keeps for the person (ADR 0178 §10, §12.5). The host token is the person's whole
  * authority and an agent's shell can read it, so these checks guard honest agents only; the
- * daemon's own rules (agent devices never answer, fresh sign-ins for person-only market work)
+ * daemon's own rules (agent devices never answer, person-only work only from a proven socket)
  * and the app and paired devices are what an agent can't get round. Pure.
  */
 

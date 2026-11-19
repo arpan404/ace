@@ -39,9 +39,10 @@ pub(super) async fn call(
     name: &str,
     arguments: &Value,
     def: &ToolDef,
+    launch: spade_core::event::Authorized,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, _)) = review::stored(events, &call.id) {
+    if let Some((verdict, _)) = review::stored(events, &call.id, launch) {
         return of(verdict);
     }
     let model = engine.review_model(id);
@@ -90,6 +91,7 @@ pub(super) async fn call(
         cost_micros: cost,
         bound: None,
         acts_in: None,
+        launch: Some(launch),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict),

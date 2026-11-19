@@ -4,6 +4,7 @@
 //! changes them.
 
 use serde::{Deserialize, Deserializer, Serialize};
+use spade_core::autonomy::{Mode, lenient_mode};
 use spade_core::grant::Grant;
 use spade_sandbox::egress::NetworkPolicy;
 
@@ -34,6 +35,17 @@ pub struct BotSecurity {
     /// Where its commands run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commands: Option<Commands>,
+    /// How it decides (ADR 0163, amendment 2): the auto-review or Full access.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_mode"
+    )]
+    pub autonomy: Option<Mode>,
+    /// The person has turned Full access on for it before, so the client's confirmation was
+    /// given once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub full_access_confirmed: bool,
     /// Toolchain folders the person confirmed: read-only in the sandbox, their `bin` on `PATH`.
     #[serde(default)]
     pub toolchains: Vec<String>,
@@ -56,6 +68,9 @@ fn own_network<'de, D: Deserializer<'de>>(
 pub struct MachineSecurity {
     #[serde(default)]
     pub commands: Commands,
+    /// How a bot without its own setting decides.
+    #[serde(default, deserialize_with = "machine_mode")]
+    pub autonomy: Mode,
     #[serde(default)]
     pub network: NetworkPolicy,
     /// Plugins' default is any public host: the person installed them.
@@ -67,10 +82,30 @@ impl Default for MachineSecurity {
     fn default() -> Self {
         Self {
             commands: Commands::default(),
+            autonomy: Mode::default(),
             network: NetworkPolicy::default(),
             plugin_network: NetworkPolicy::open(),
         }
     }
+}
+
+fn machine_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Mode, D::Error> {
+    Ok(lenient_mode(deserializer)?.unwrap_or_default())
+}
+
+/// How a bot decides, given its chain from the top bot down to it (a worker's parents first):
+/// a top bot's own setting, else the machine's; a worker's own, else its parent's; and never
+/// freer than any bot above it, so a bot on the auto-review can't start a worker that isn't.
+pub fn autonomy<'a>(chain: impl IntoIterator<Item = &'a BotSecurity>, machine: Mode) -> Mode {
+    chain
+        .into_iter()
+        .fold(None, |above: Option<Mode>, bot| {
+            Some(match above {
+                None => bot.autonomy.unwrap_or(machine),
+                Some(above) => bot.autonomy.unwrap_or(above).under(above),
+            })
+        })
+        .unwrap_or(machine)
 }
 
 /// What holds for one bot: its own values over the machine's.
@@ -114,6 +149,7 @@ pub fn read<T: for<'de> Deserialize<'de> + Default>(stored: Option<&str>) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spade_core::autonomy::Mode as Autonomy;
     use spade_sandbox::egress::Mode;
 
     fn policy(mode: Mode) -> NetworkPolicy {
@@ -127,6 +163,7 @@ mod tests {
     fn a_bot_inherits_the_machine_until_it_sets_its_own() {
         let machine = MachineSecurity {
             commands: Commands::Outside,
+            autonomy: Autonomy::AutoReview,
             network: policy(Mode::Off),
             plugin_network: policy(Mode::AllowList),
         };
@@ -167,6 +204,70 @@ mod tests {
             read::<BotSecurity>(Some("not json")),
             BotSecurity::default()
         );
+    }
+
+    fn on(mode: Option<Autonomy>) -> BotSecurity {
+        BotSecurity {
+            autonomy: mode,
+            ..BotSecurity::default()
+        }
+    }
+
+    #[test]
+    fn auto_review_stays_the_default_for_new_bots() {
+        let nothing: MachineSecurity = read(None);
+        assert_eq!(
+            autonomy([&read(None)], nothing.autonomy),
+            Autonomy::AutoReview
+        );
+        // Settings stored by a build before Full access.
+        let earlier = r#"{"commands":"outside","toolchains":[],"grants":[]}"#;
+        let bot: BotSecurity = read(Some(earlier));
+        let machine: MachineSecurity = read(Some(r#"{"commands":"outside"}"#));
+        assert_eq!(autonomy([&bot], machine.autonomy), Autonomy::AutoReview);
+        // A word this build doesn't know is the auto-review, and the rest of the bot's settings
+        // still read.
+        let unknown = r#"{"autonomy":"yolo","commands":"outside"}"#;
+        let bot: BotSecurity = read(Some(unknown));
+        assert_eq!(bot.commands, Some(Commands::Outside));
+        assert_eq!(autonomy([&bot], Autonomy::FullAccess), Autonomy::AutoReview);
+    }
+
+    #[test]
+    fn full_access_is_per_bot_over_the_machine_and_never_freer_than_the_bot_above() {
+        use Autonomy::{AutoReview, FullAccess};
+        let cases: &[(&[Option<Autonomy>], Autonomy, Autonomy)] = &[
+            (&[Some(FullAccess)], AutoReview, FullAccess),
+            (&[None], FullAccess, FullAccess),
+            (&[Some(AutoReview)], FullAccess, AutoReview),
+            // A worker follows its parent unless it has its own.
+            (&[Some(FullAccess), None], AutoReview, FullAccess),
+            (
+                &[Some(FullAccess), Some(AutoReview)],
+                AutoReview,
+                AutoReview,
+            ),
+            // A worker of a bot on the auto-review is on it too, whatever it or the machine say.
+            (
+                &[Some(AutoReview), Some(FullAccess)],
+                FullAccess,
+                AutoReview,
+            ),
+            (&[None, None, Some(FullAccess)], AutoReview, AutoReview),
+            (
+                &[Some(FullAccess), None, Some(FullAccess)],
+                AutoReview,
+                FullAccess,
+            ),
+        ];
+        for (chain, machine, expected) in cases {
+            let bots: Vec<BotSecurity> = chain.iter().map(|mode| on(*mode)).collect();
+            assert_eq!(
+                autonomy(&bots, *machine),
+                *expected,
+                "{chain:?} {machine:?}"
+            );
+        }
     }
 
     #[test]

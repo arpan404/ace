@@ -15,7 +15,7 @@ import {
   withdrawalOf,
   type RowMarks,
 } from "./listings.ts";
-import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
+import { approvedForBots, verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 
 /*
  * Browsing the daemon's copy of every listing (ADR 0168 §3, §11): search, the home page's
@@ -30,9 +30,14 @@ export function publicInstall(install: StoredInstall): MarketInstalled {
     description: _description,
     pluginCommit: _pin,
     bundledBy: _by,
+    signed: _signed,
+    publisher: _publisher,
+    approvedHash: _approved,
     ...rest
   } = install;
-  return rest;
+  return install.type === "spade-skill"
+    ? { ...rest, botsApproved: approvedForBots(install) }
+    : rest;
 }
 
 async function enabledListings(store: MarketStore) {

@@ -1,4 +1,5 @@
 import { nextFrame } from "./lib/next-frame.ts";
+import { windowSessionStorage } from "./boot/window-session.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
@@ -57,7 +58,8 @@ import "./styles/index.css";
 // A browser that denies site data throws on the first touch of storage; ace then starts with
 // storage that lasts for this window instead of failing before it can say anything.
 const local = webStorage(() => localStorage);
-const session = webStorage(() => sessionStorage);
+// The ace account session in it stays in this window's memory (ADR 0190, `window-session.ts`).
+const session = windowSessionStorage();
 const environment = {
   storage: local,
   matchMedia: (query: string) => matchMedia(query),

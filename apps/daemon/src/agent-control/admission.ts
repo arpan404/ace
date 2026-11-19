@@ -58,8 +58,10 @@ export class DelegationAdmission {
         this.deps.engine.childPermissionRefusal(caller.threadId, input.provider, input),
       );
     }
-    // Only a thread that is itself being cancelled is refused; a Stop never fences later work.
-    if (this.journal.fenced(caller.threadId))
+    // A thread being cancelled is refused, and so is the turn a Stop stopped: a delegation from
+    // it, a tool call still on its way included, comes from work the person ended. The fence
+    // lifts when a newer turn runs (the next message actually dispatched), never on acceptance.
+    if (this.journal.fenced(caller.threadId) || this.stoppedTurn(caller))
       throw new AgentControlError("delegation_cancelled", "cancelled");
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
@@ -73,6 +75,15 @@ export class DelegationAdmission {
       )
     )
       throw controlAdmissionError("launch_options_unsupported");
+  }
+  /** The caller's turn is one a Stop ended; a newer turn lifts the fence. */
+  private stoppedTurn(caller: McpAttribution): boolean {
+    const fenced = this.journal.turnFence(caller.threadId);
+    if (fenced === undefined) return false;
+    const run = this.deps.engine.activeRun(caller.threadId, caller.agentId);
+    if (!run || run === fenced) return true;
+    this.journal.liftTurnFence(caller.threadId);
+    return false;
   }
   /** One parent never shows two live children under the same display name. */
   private rejectDuplicateSibling(parent: ThreadId, requestId: string, role: string): void {

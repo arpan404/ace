@@ -1,4 +1,5 @@
 import { WorkspacePrLinks } from "../workspace-pr-links.ts";
+import { targetsRoot } from "./stop-scope.ts";
 import { WorkspaceIssueLinks } from "../workspace-issue-links.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -576,7 +577,6 @@ function stopsOneAgent(
   threadId: ThreadId,
   p: { agentId?: string | undefined },
 ): boolean {
-  if (p.agentId === undefined) return false;
   const state = repo.requireState(threadId);
-  return state.agents[state.rootKey ?? ""]?.agent.id !== p.agentId;
+  return !targetsRoot(p, state.agents[state.rootKey ?? ""]?.agent.id);
 }

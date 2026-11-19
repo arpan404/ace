@@ -94,7 +94,7 @@ export type DaemonOptions = {
   };
   /** Data between agents (ADR 0182): the relay dialer, the pinned request and the pull pace. */
   parcels?: {
-    connectRelay?: import("../parcels/relay-link.ts").RelayLinkDeps["connect"];
+    connectRelay?: import("../machines/relay-link.ts").RelayLinkDeps["connect"];
     pinned?: import("../parcels/link.ts").ParcelLinkDeps["pinned"];
     pollMs?: number;
   };
@@ -140,6 +140,11 @@ export type DaemonOptions = {
     Pick<import("../user-browser.ts").UserBrowserOptions, "home" | "node" | "extraHostDirs">
   >;
   preview?: DaemonPreviewOptions;
+  /**
+   * The account grant keys that give the person's standing, for tests on an account backend of
+   * their own (ADR 0190). `ace start` never sets it: a real daemon trusts `shippedGrantKeys`.
+   */
+  personGrantKeys?: import("@ace/account-grant").GrantKeySet | undefined;
   review?: DaemonReviewOptions;
   history?: DaemonHistoryOptions;
 };

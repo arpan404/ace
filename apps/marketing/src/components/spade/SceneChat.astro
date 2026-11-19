@@ -89,7 +89,7 @@ const p = scene.papers;
   <div class="pane" data-in="7" hidden={offAtStart("7")}>
     <p class="mine"><span class="bubble">{p.ask}</span></p>
     <p class="mine"><span class="file"><span class="sheet"></span><span>{p.file}</span><span class="meta">{p.fileMeta}</span></span></p>
-    <p class="quiet">{p.helper}</p>
+    <p class="quiet extra">{p.helper}</p>
     <p class="quiet">{p.researching}</p>
     <div class="theirs">
       <span class="file"><span class="sheet"></span><span>{p.report}</span><span class="meta">{p.reportMeta}</span></span>
@@ -114,6 +114,19 @@ const p = scene.papers;
     justify-content: flex-end;
     gap: 10px;
     padding: 56px clamp(12px, 3cqw, 22px) 10px;
+    /* Older lines go under the floating pill's band, as a chat scrolls, never behind the pill. */
+    clip-path: inset(46px 0 0 0);
+  }
+
+  /* A line the conversation reads without, left out where a phone has less room. */
+  @container scene not (min-width: 480px) {
+    .pane {
+      gap: 6px;
+    }
+
+    .extra {
+      display: none;
+    }
   }
 
   .bubble {
@@ -285,7 +298,9 @@ const p = scene.papers;
     color: var(--subtle);
   }
 
+  /* The sandbox's note, under the bubble's own folded steps and aligned with them. */
   .full {
+    padding-left: 13px;
     color: var(--foreground);
   }
 

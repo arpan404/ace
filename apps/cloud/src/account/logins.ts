@@ -14,11 +14,13 @@ const Row = z.object({
   issued: z.string().nullable(),
   /** Where the browser goes when the sign-in ends (return-to.ts), if the app asked. */
   return_to: z.string().nullable(),
+  /** Who will hold the session (ADR 0190); NULL for sign-ins from before it was kept. */
+  holder: z.enum(["person", "machine"]).nullable().catch(null),
 });
 export type LoginRow = z.infer<typeof Row>;
 
 const changed = (result: D1Result) => result.meta.changes > 0;
-const columns = "id, secret, expires, phase, binding, verifier, session, issued, return_to";
+const columns = "id, secret, expires, phase, binding, verifier, session, issued, return_to, holder";
 
 /**
  * Pending sign-ins. A Worker keeps nothing between requests, so each step is a conditional
@@ -42,12 +44,18 @@ export function loginStore(db: D1Database, sealer: Sealer) {
         .first<{ n: number }>();
       return row?.n ?? 0;
     },
-    async create(id: string, secret: string, expires: number, returnTo: string | null) {
+    async create(
+      id: string,
+      secret: string,
+      expires: number,
+      returnTo: string | null,
+      holder: "person" | "machine",
+    ) {
       await db
         .prepare(
-          "INSERT INTO logins (id, secret, expires, phase, return_to) VALUES (?, ?, ?, 'new', ?)",
+          "INSERT INTO logins (id, secret, expires, phase, return_to, holder) VALUES (?, ?, ?, 'new', ?, ?)",
         )
-        .bind(id, secret, expires, returnTo)
+        .bind(id, secret, expires, returnTo, holder)
         .run();
     },
     get: (id: string, now: number) =>

@@ -1462,8 +1462,13 @@ Example:
       "id": "example",
       "name": "example",
       "notes": [],
-      "openedAt": 4,
-      "path": "example"
+      "path": "example",
+      "remoteKey": {
+        "remotes": [
+          "example"
+        ],
+        "subpath": "example"
+      }
     }
   },
   "type": "projects.result"

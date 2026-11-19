@@ -24,11 +24,16 @@ export type MachineCodeRefusal = z.infer<typeof MachineCodeRefusal>;
 /** `PUT /v1/machine-code` on the daemon: set or replace this machine's code (admin only). */
 export const MachineCodeChange = z.object({ code: MachineCode });
 
-/** `PUT /v1/ace-account`: hand this daemon an ace session (the desktop app's own, or `ace login`'s). */
-export const AceAccountHandover = z.object({
-  origin: AceAccountOrigin,
-  token: AceAccountGrant.shape.token,
-});
+/**
+ * `PUT /v1/ace-account`: sign this daemon in (ADR 0190). The app sends a single-use enrollment
+ * ticket it got for this machine's host id, never its own session; the daemon redeems it for its
+ * machine credential, proving its host key. `token` (a session) is still taken from a caller that
+ * has one of its own, such as a CLI, and is exchanged the same way; the daemon never writes it.
+ */
+export const AceAccountHandover = z.union([
+  z.object({ origin: AceAccountOrigin, ticket: AceAccountGrant.shape.token }),
+  z.object({ origin: AceAccountOrigin, token: AceAccountGrant.shape.token }),
+]);
 
 /** `POST /v1/ace-account/login`: start ace sign-in from this machine (`ace login`). */
 export const AceAccountLoginStart = z.object({ origin: AceAccountOrigin.optional() });
@@ -52,6 +57,30 @@ export const MachineAccountStatus = z.object({
    * that can't check.
    */
   sessionId: z.string().min(1).max(64).nullable().optional(),
+  /**
+   * The daemon still holds a session from before machine credentials (ADR 0190) and couldn't
+   * exchange it yet: it keeps working, but as a machine. Signing in again in the app, or with
+   * `ace login`, replaces it. Absent once the daemon holds a machine credential.
+   */
+  signInAgain: z.literal(true).optional(),
+  /**
+   * This machine's host id on ace's relay (ADR 0190): an app signing it in asks the account
+   * backend for an enrollment ticket for this id and hands the daemon only the ticket. Absent
+   * from older daemons.
+   */
+  relayHostId: z
+    .string()
+    .regex(/^[A-Z2-7]{52}$/)
+    .optional(),
+  /**
+   * The ace account this machine answers to (ADR 0190 §3a): the one whose person's grants carry
+   * the person's standing here, whatever account it is signed in to. Null before the first
+   * person's proof; absent from older daemons.
+   */
+  owner: z
+    .object({ account: z.string().min(1).max(256) })
+    .nullable()
+    .optional(),
   /** A sign-in started on this machine that has not finished yet. */
   login: z.object({ url: z.url(), expiresAt: z.number().int().positive() }).optional(),
   machineCode: z.object({

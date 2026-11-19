@@ -217,6 +217,12 @@ pub trait Tool: Send + Sync {
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
         None
     }
+    /// For a connector's or plugin's tool: its server runs in the sandbox with no network and no
+    /// credentials of its own, so nothing it does reaches anyone as the person. A sandbox that
+    /// holds files alone doesn't make it so (ADR 0163, amendment 2).
+    fn sealed(&self) -> bool {
+        false
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).

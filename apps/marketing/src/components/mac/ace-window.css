@@ -596,6 +596,10 @@ html[data-theme="light"] .ace {
   display: block;
 }
 
+.ace:not([data-cold="done"]) .step.after-done {
+  display: none;
+}
+
 .ace .you {
   width: fit-content;
   max-width: 540px;
@@ -940,6 +944,7 @@ html[data-theme="light"] .ace {
   align-items: center;
   gap: 7px;
   color: var(--a-fg-2);
+  white-space: nowrap;
 }
 
 .ace .model {
@@ -948,6 +953,21 @@ html[data-theme="light"] .ace {
 
 .ace .model span {
   color: var(--a-muted);
+}
+
+/* The composer names the open thread's agent: Codex on the soak test, Claude elsewhere. */
+.ace .model .name {
+  color: inherit;
+}
+
+.ace .model .as-claude,
+.ace .model .as-codex {
+  display: contents;
+}
+
+.ace[data-thread="soak"] .model .as-claude,
+.ace:not([data-thread="soak"]) .model .as-codex {
+  display: none;
 }
 
 .ace .send {

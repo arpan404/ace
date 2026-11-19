@@ -52,7 +52,7 @@ export interface ServerOptions {
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("./transfers/service.ts").DaemonTransfers;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("./transfers/http.ts").TransferTarget;
+  transferTarget?: import("./transfers/serve.ts").TransferTarget;
   /** This machine's links to other machines (`fleet.request`). */
   fleet?: import("./machines/fleet-links.ts").FleetLinks;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;

@@ -33,9 +33,11 @@ impl Engine {
                 self.run_outbox(&entry.key);
             }
         }
+        // Moves a restart left open carry on (ADR 0187).
+        self.resume_moves();
     }
 
-    fn remote(&self) -> Option<Arc<dyn Remote>> {
+    pub(crate) fn remote(&self) -> Option<Arc<dyn Remote>> {
         self.teams
             .remote
             .lock()
@@ -228,8 +230,24 @@ impl Engine {
             return;
         }
         let request: Value = serde_json::from_str(&entry.request).unwrap_or(Value::Null);
-        match remote.call(&entry.machine, request).await {
+        match remote.call(&entry.machine, request.clone()).await {
             Ok((200, _)) => self.advance(entry, "sent", None, entry.attempts, now),
+            // The bot moved to another machine (ADR 0187): ask it there.
+            Ok((410, body))
+                if body["moved_to"]
+                    .as_str()
+                    .is_some_and(|to| to != entry.machine) =>
+            {
+                let to = body["moved_to"].as_str().unwrap_or_default();
+                let name = body["name"]
+                    .as_str()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or(to);
+                let agent = request["to"].as_str().unwrap_or_default();
+                if let Err(error) = self.store.retarget_outbox(&entry.key, agent, to, name, now) {
+                    tracing::warn!(%error, "could not send an ask on to where its bot moved");
+                }
+            }
             Ok((_, body)) => {
                 let answer = json!({ "status": "failed", "text": error_of(&body) });
                 self.advance(entry, "failed", Some(answer), entry.attempts + 1, now);
