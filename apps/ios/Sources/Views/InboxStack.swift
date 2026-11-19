@@ -83,10 +83,13 @@ struct InboxStack<Destination: View, Side: View>: View {
         } page: { page($0) } side: { side($0, $1) } empty: { nothingOpen }
     }
 
-    /// The detail column with nothing open: how many in the list's Inbox need the person, or a
-    /// way to start one. Chats keeps no needs-you line, so its page only offers a new chat.
+    /// The detail column with nothing open: how many need the person, under the same guards as
+    /// the list's own needs-you line (Threads › Inbox, not picking), so Open first only opens a
+    /// thread the list beside it shows; otherwise a way to start one.
     private var nothingOpen: some View {
-        let waiting = chats ? [] : inbox.needs(in: inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }.filter { $0.tab == "inbox" })
+        let counts = !chats && threadsTab == "inbox" && !selecting
+        let shown = counts ? inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }.filter { $0.tab == threadsTab } : []
+        let waiting = inbox.needs(in: shown)
         return NothingOpen(list: list, waiting: waiting.count, first: waiting.first?.thread, canStart: inbox.canStartThreads,
                            open: { picking.open($0) }, compose: header.compose)
     }
