@@ -3,7 +3,12 @@
 
 use rusqlite::{OptionalExtension, Row, params};
 
+use crate::gate::ARRIVING_CONVERSATIONS;
 use crate::{Result, Store};
+
+/// An episode of no bot still arriving (ADR 0187).
+const LIVE_EPISODE: &str =
+    "e.agent_id NOT IN (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1)";
 
 /// The schema step's part for episodes. Also rebuilds the past-text index, which now holds
 /// compaction summaries too: it refills from the event log as it is searched.
@@ -132,7 +137,7 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                &format!("SELECT {COLUMNS} FROM episodes e WHERE e.id = ?1"),
+                &format!("SELECT {COLUMNS} FROM episodes e WHERE e.id = ?1 AND {LIVE_EPISODE}"),
                 params![id],
                 episode,
             )
@@ -154,7 +159,7 @@ impl Store {
             None => {
                 let mut statement = connection.prepare(&format!(
                     "SELECT {COLUMNS} FROM episodes e
-                     WHERE e.agent_id IN (SELECT value FROM json_each(?1))
+                     WHERE e.agent_id IN (SELECT value FROM json_each(?1)) AND {LIVE_EPISODE}
                      ORDER BY e.closed_ms DESC, e.id DESC LIMIT ?2"
                 ))?;
                 let rows = statement.query_map(params![bases, limit], episode)?;
@@ -165,7 +170,7 @@ impl Store {
                     "SELECT {COLUMNS} FROM episodes_search
                      JOIN episodes e ON e.rowid = episodes_search.rowid
                      WHERE episodes_search MATCH ?1
-                       AND e.agent_id IN (SELECT value FROM json_each(?2))
+                       AND e.agent_id IN (SELECT value FROM json_each(?2)) AND {LIVE_EPISODE}
                      ORDER BY bm25(episodes_search) LIMIT ?3"
                 ))?;
                 let rows = statement.query_map(params![query, bases, limit], episode)?;
@@ -179,7 +184,10 @@ impl Store {
     pub fn count_episodes(&self, agents: &[String]) -> Result<usize> {
         let bases = serde_json::to_string(agents).unwrap_or_else(|_| "[]".to_owned());
         let count: i64 = self.lock()?.query_row(
-            "SELECT COUNT(*) FROM episodes WHERE agent_id IN (SELECT value FROM json_each(?1))",
+            &format!(
+                "SELECT COUNT(*) FROM episodes e WHERE e.agent_id IN (SELECT value FROM json_each(?1))
+                 AND {LIVE_EPISODE}"
+            ),
             params![bases],
             |row| row.get(0),
         )?;
@@ -189,8 +197,11 @@ impl Store {
     /// What conversation `conversation` spent between two times, inclusive.
     pub fn spent_between(&self, conversation: &str, from_ms: i64, to_ms: i64) -> Result<u64> {
         let spent: i64 = self.lock()?.query_row(
-            "SELECT COALESCE(SUM(cost_micros), 0) FROM spend
-             WHERE conversation_id = ?1 AND at_ms >= ?2 AND at_ms <= ?3",
+            &format!(
+                "SELECT COALESCE(SUM(cost_micros), 0) FROM spend
+                 WHERE conversation_id = ?1 AND at_ms >= ?2 AND at_ms <= ?3
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![conversation, from_ms, to_ms],
             |row| row.get(0),
         )?;

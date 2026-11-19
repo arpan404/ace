@@ -244,6 +244,12 @@ impl Engine {
             tokio::time::sleep(FIRST_WAIT).await;
             return Next::Again;
         }
+        // That machine can't take it just now (others arriving, or it can't yet ask this one
+        // about the move): wait and begin again, within the move's deadline.
+        if matches!(status, 429 | 503) {
+            tokio::time::sleep(FIRST_WAIT).await;
+            return Next::Again;
+        }
         if status != 200 {
             return Next::Fail(error_of(&body));
         }
@@ -287,41 +293,30 @@ impl Engine {
         Next::Again
     }
 
-    /// The record that names the move's machine as Spade's host: one version above the newest
-    /// either side holds.
-    fn next_host(&self, entry: &StoredMove) -> HostRecord {
-        let kept = detail(entry);
-        let theirs = HostRecord::parse(&kept["peer_host"]).map_or(0, |r| r.version);
-        let ours = self.host_record().ok().flatten().map_or(0, |r| r.version);
-        HostRecord {
-            host: entry.peer.clone(),
-            version: ours.max(theirs) + 1,
-            at: self.now_ms(),
-            by: "move".to_owned(),
-        }
+    /// The host choice the move's manifest began with (Spade, the main bot, only).
+    fn began_host(&self, entry: &StoredMove) -> Option<HostRecord> {
+        let manifest = std::fs::read_to_string(self.packed(&entry.id).ok()?.join("manifest.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
+        HostRecord::parse(&manifest["host"])
     }
 
     async fn step_commit(self: &Arc<Self>, entry: &StoredMove) -> Next {
-        let kept = detail(entry);
-        let host = match HostRecord::parse(&kept["host"]) {
-            Some(host) => host,
-            None if entry.main => {
-                let host = self.next_host(entry);
-                let shown = host.to_json();
-                self.update(entry, COMMITTING, |kept| kept["host"] = shown);
-                host
+        // Spade's host choice made again since the move began (elsewhere, by the person): the
+        // move is stale, and given up before anything can take. Once a commit was sent only the
+        // other machine knows (and it refuses a stale one itself).
+        if entry.main && detail(entry)["commit_sent"] != json!(true) {
+            let began = self.began_host(entry);
+            let held = self.host_record().ok().flatten();
+            if held.is_some_and(|held| began.as_ref().is_none_or(|began| held.newer_than(began))) {
+                return Next::Fail(
+                    "Spade's host was chosen again since this move began; start it again"
+                        .to_owned(),
+                );
             }
-            None => HostRecord {
-                host: entry.peer.clone(),
-                version: 0,
-                at: 0,
-                by: String::new(),
-            },
-        };
-        let mut request = json!({ "op": "move", "step": "commit", "move": entry.id });
-        if entry.main {
-            request["host"] = host.to_json();
         }
+        self.update(entry, COMMITTING, |kept| kept["commit_sent"] = json!(true));
+        let request = json!({ "op": "move", "step": "commit", "move": entry.id });
         // Only the other machine knows whether a commit took: from here on the bot waits for
         // its answer, however long that machine is away.
         let (status, body) = match self.call_peer(entry, request, false).await {
@@ -330,7 +325,12 @@ impl Engine {
                 let status = json!({ "op": "move", "step": "status", "move": entry.id });
                 match self.call_peer(entry, status, false).await {
                     Ok((200, body)) if body["state"] == "committed" => (200, body),
-                    Ok((_, body)) if body["state"] == "receiving" || body["state"] == "placing" => {
+                    Ok((_, body))
+                        if matches!(
+                            body["state"].as_str(),
+                            Some("receiving" | "placing" | "activating" | "undoing")
+                        ) =>
+                    {
                         tokio::time::sleep(FIRST_WAIT).await;
                         return Next::Again;
                     }
@@ -343,7 +343,22 @@ impl Engine {
         match status {
             200 => {
                 let arrival = body["arrival"].clone();
-                self.update(entry, FINISHING, |kept| kept["arrival"] = arrival);
+                // The choice the other machine made as it took Spade: it must name it, one on
+                // from the choice the move began with.
+                let host = HostRecord::parse(&body["host"])
+                    .filter(|record| record.host == entry.peer)
+                    .or_else(|| {
+                        entry.main.then(|| HostRecord {
+                            host: entry.peer.clone(),
+                            version: self.began_host(entry).map_or(0, |r| r.version) + 1,
+                            at: self.now_ms(),
+                            by: "move".to_owned(),
+                        })
+                    });
+                self.update(entry, FINISHING, |kept| {
+                    kept["arrival"] = arrival;
+                    kept["host"] = host.as_ref().map_or(Value::Null, HostRecord::to_json);
+                });
                 Next::Again
             }
             // Parts went missing there: send them again.

@@ -277,6 +277,26 @@ pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spa
     Ok(spade)
 }
 
+/// Records on `spade` (a machine a test sends from by hand) that it sends move `id` of `bot`
+/// through the device `via` at the studio, as its own move would: so it vouches for it there.
+pub fn sending(spade: &Spade, id: &str, bot: &str, via: &str) -> Result {
+    let store = Store::open(&spade.database())?;
+    store.insert_move(&spade_store::StoredMove {
+        id: id.to_owned(),
+        direction: "out".to_owned(),
+        agent_id: bot.to_owned(),
+        agent_name: bot.to_owned(),
+        peer: "host-studio".to_owned(),
+        peer_name: "Studio".to_owned(),
+        main: false,
+        state: "sending".to_owned(),
+        detail: serde_json::json!({ "via": via }).to_string(),
+        created_ms: 1,
+        updated_ms: 1,
+    })?;
+    Ok(())
+}
+
 /// Links (again, after a restart) `spade` into the fleet as `host`.
 pub fn link(fleet: &Arc<Fleet>, host: &str, spade: &Spade) {
     if let Some(entry) = lock(&fleet.spades).iter_mut().find(|(h, _, _)| h == host) {

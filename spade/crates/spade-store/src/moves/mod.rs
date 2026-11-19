@@ -3,21 +3,21 @@
 //! that isn't the moving bot's, and checks every table's count and hash before it commits; and
 //! the moves themselves (`state`), stored on both sides so a restart carries one on.
 
+mod arrival;
 mod stage;
 mod state;
 mod tables;
 
+pub use arrival::{Arrived, Cutover, Handover, MainActive};
 pub use stage::Stage;
-pub use state::{OPEN_MOVE, StoredMove, open_state};
+pub use state::{Begun, OPEN_MOVE, StoredMove, arrival as arrival_state, open_state};
 pub use tables::{EVENTS, MOVE_TABLES, MoveTable, PER_BOT_SETTINGS, move_table};
 
+use crate::{Result, Store};
 use rusqlite::types::ValueRef;
 use rusqlite::{OptionalExtension, Statement, Transaction, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use spade_core::Event;
-
-use crate::{Result, Store, append_in};
 
 pub(crate) use state::SCHEMA;
 
@@ -279,164 +279,13 @@ fn page_in(
     Ok((out, next))
 }
 
-/// Whether Spade's own main is in use, given a reader of this machine's settings.
-pub type MainActive<'a> = dyn Fn(&dyn Fn(&str) -> Option<String>) -> bool + 'a;
-
-/// How far a copy got: the table it was in (by its place in `MOVE_TABLES`) and the last staged
-/// rowid of it committed.
-pub type Copied = (usize, i64);
-
-/// What arriving needs to be told.
-pub struct Activation<'a> {
-    /// What the staged rows say the bots own.
-    pub selection: &'a Selection,
-    pub main: bool,
-    /// Told after each batch is copied (a test holds the copy there).
-    pub after_batch: &'a dyn Fn(),
-    /// Whether this machine's own Spade is in use, read from its settings: it is never replaced.
-    pub main_active: &'a MainActive<'a>,
-    pub arriving: Arriving<'a>,
-}
-
-/// What changes as a moved bot arrives (ADR 0187), in the last, small transaction: its routines
-/// pause until the person resumes them and each webhook gets a new secret; the person's consent
-/// stays behind (`reset`, which says what it dropped; a bot without security settings gets the
-/// reset defaults too); the bot's clubs point here; an `arrived` event closes every conversation
-/// it brought, so no earlier answer of the person counts here; Spade's host choice is kept; and
-/// the move, with all it needs to finish, reads `placing`.
-pub struct Arriving<'a> {
-    pub move_id: &'a str,
-    /// How many of its routines ran where it came from.
-    pub routines_paused: u64,
-    pub placing: &'a str,
-    pub now_ms: i64,
-    /// The machine it came from, by host id.
-    pub from: &'a str,
-    pub secret: &'a dyn Fn() -> String,
-    /// A bot's security settings key.
-    pub security_key: &'a dyn Fn(&str) -> String,
-    /// Its security settings with the person's consent taken out, and what was taken.
-    pub reset: &'a dyn Fn(&str) -> (String, Vec<String>),
-    /// Closes each conversation it brought.
-    pub marker: &'a Event,
-    pub host: Option<HostChange<'a>>,
-    /// The move's stored detail once it reads `placing`, made from what was written.
-    pub detail: &'a dyn Fn(&Selection, &Arrived) -> String,
-}
-
-/// The main bot's host choice, kept when it replaces the one held; `clear` goes with it.
-pub struct HostChange<'a> {
-    pub key: &'a str,
-    pub value: String,
-    pub newer: &'a dyn Fn(Option<&str>) -> bool,
-    pub clear: &'a [&'a str],
-}
-
-/// What arriving changed that the person should hear about.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Arrived {
-    pub routines_paused: u64,
-    pub webhooks: u64,
-    /// The consent that stayed on the other machine, in words.
-    pub consent: Vec<String>,
-}
-
-fn setting_in(tx: &Transaction<'_>, key: &str) -> rusqlite::Result<Option<String>> {
+pub(super) fn setting_in(tx: &Transaction<'_>, key: &str) -> rusqlite::Result<Option<String>> {
     tx.query_row(
         "SELECT value FROM settings WHERE key = ?1",
         params![key],
         |r| r.get(0),
     )
     .optional()
-}
-
-fn arrive_in(
-    tx: &Transaction<'_>,
-    written: &Selection,
-    arriving: &Arriving<'_>,
-) -> rusqlite::Result<Arrived> {
-    let list = json!(written.agents).to_string();
-    // Its routines were copied in paused: none fires before the person resumes it.
-    let mut arrived = Arrived {
-        routines_paused: arriving.routines_paused,
-        ..Arrived::default()
-    };
-    let hooks: Vec<String> = tx
-        .prepare(
-            "SELECT id FROM routines WHERE json_extract(trigger, '$.kind') = 'webhook'
-             AND agent_id IN (SELECT value FROM json_each(?1))",
-        )?
-        .query_map(params![list], |row| row.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    for hook in &hooks {
-        tx.execute(
-            "UPDATE routines SET secret = ?2 WHERE id = ?1",
-            params![hook, (arriving.secret)()],
-        )?;
-    }
-    arrived.webhooks = hooks.len() as u64;
-    // The bot is this machine's now; a club it brought keeps its other members where they are.
-    tx.execute(
-        "UPDATE group_members SET machine = '' WHERE machine = ?1
-         AND agent_id IN (SELECT value FROM json_each(?2))",
-        params![arriving.from, list],
-    )?;
-    let groups = json!(written.groups).to_string();
-    tx.execute(
-        "UPDATE group_members SET machine = ?1 WHERE machine = ''
-         AND group_id IN (SELECT value FROM json_each(?2))
-         AND agent_id NOT IN (SELECT value FROM json_each(?3))",
-        params![arriving.from, groups, list],
-    )?;
-    // Every arriving bot gets security settings with the person's consent reset, those it
-    // brought or none: a bot without its own would follow this machine's, Full access included.
-    for agent in &written.agents {
-        let key = (arriving.security_key)(agent);
-        let brought = setting_in(tx, &key)?;
-        let (kept, dropped) = (arriving.reset)(brought.as_deref().unwrap_or("{}"));
-        arrived.consent.extend(dropped);
-        tx.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            params![key, kept],
-        )?;
-    }
-    for conversation in &written.conversations {
-        let club: bool = tx.query_row(
-            "SELECT EXISTS (SELECT 1 FROM groups WHERE conversation_id = ?1)",
-            params![conversation],
-            |row| row.get(0),
-        )?;
-        if !club {
-            let marker = std::slice::from_ref(arriving.marker);
-            append_in(tx, conversation, marker, arriving.now_ms).map_err(|error| match error {
-                crate::StoreError::Sqlite(error) => error,
-                other => rusqlite::Error::ToSqlConversionFailure(other.into()),
-            })?;
-        }
-    }
-    if let Some(host) = &arriving.host {
-        if (host.newer)(setting_in(tx, host.key)?.as_deref()) {
-            tx.execute(
-                "INSERT INTO settings (key, value) VALUES (?1, ?2)
-                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                params![host.key, host.value],
-            )?;
-        }
-        for key in host.clear {
-            tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
-        }
-    }
-    tx.execute(
-        "UPDATE moves SET state = ?2, open = 1, detail = ?3, updated_ms = ?4 WHERE id = ?1",
-        params![
-            arriving.move_id,
-            arriving.placing,
-            (arriving.detail)(written, &arrived),
-            arriving.now_ms
-        ],
-    )?;
-    Ok(arrived)
 }
 
 impl Store {
@@ -457,216 +306,6 @@ impl Store {
     ) -> Result<(Vec<Row>, Cursor)> {
         let connection = self.lock()?;
         Ok(page_in(&connection, table, selection, cursor, MOVE_BATCH)?)
-    }
-
-    /// Writes a staged, checked move here, insert-only, never holding Spade's connection for more
-    /// than one batch (ADR 0170). First every row's own key is looked for here: any already taken
-    /// refuses the move before a live row is touched. Then the rows are copied in batches with
-    /// the bots `arriving` (no lookup finds them) and their routines paused; then one small
-    /// transaction makes them this machine's and runs `arriving`, retiring this machine's own
-    /// quiet Spade for an incoming one, never one in use. A failure deletes exactly what this
-    /// move inserted (`move_rollback`); the inner `Err` says what failed.
-    pub fn move_activate(
-        &self,
-        stage: &Stage,
-        activation: Activation<'_>,
-    ) -> Result<std::result::Result<(Selection, Arrived), String>> {
-        let selection = activation.selection;
-        if let Some(problem) = self.move_collisions(stage)? {
-            return Ok(Err(problem));
-        }
-        let kinds = stage.kinds()?;
-        match self.copy_staged(stage, activation.after_batch)? {
-            Ok(()) => {}
-            Err((problem, copied)) => {
-                self.move_rollback(stage, selection, Some(copied))?;
-                return Ok(Err(problem));
-            }
-        }
-        let mut connection = self.lock()?;
-        let tx = connection.transaction()?;
-        if activation.main {
-            let read = |key: &str| setting_in(&tx, key).ok().flatten();
-            if (activation.main_active)(&read) {
-                drop(tx);
-                drop(connection);
-                self.move_rollback(stage, selection, None)?;
-                return Ok(Err(
-                    "Spade is in use on this machine; it can't be replaced".to_owned()
-                ));
-            }
-            // This machine's own quiet Spade stays, intact, retired.
-            tx.execute(
-                "UPDATE agents SET kind = 'retired'
-                 WHERE kind = 'main' AND id NOT IN (SELECT value FROM json_each(?1))",
-                params![json!(selection.agents).to_string()],
-            )?;
-        }
-        for (id, kind) in &kinds {
-            tx.execute(
-                "UPDATE agents SET kind = ?2 WHERE id = ?1",
-                params![id, kind],
-            )?;
-        }
-        let arrived = arrive_in(&tx, selection, &activation.arriving)?;
-        tx.commit()?;
-        Ok(Ok((selection.clone(), arrived)))
-    }
-
-    /// The first staged row whose own key is already taken here, in words; `None` when every
-    /// key is new. Read a batch at a time.
-    fn move_collisions(&self, stage: &Stage) -> Result<Option<String>> {
-        for table in MOVE_TABLES.iter().filter(|t| t.unique) {
-            // One lookup by the table's own key per row, so each is an index probe: the work is
-            // the move's size, never this machine's history (ADR 0170).
-            let sql = format!(
-                "SELECT 1 FROM {} WHERE {} LIMIT 1",
-                table.name,
-                table.by_key()
-            );
-            let mut after = 0;
-            loop {
-                let (keys, last) = stage.keys(table, after, MOVE_BATCH)?;
-                if keys.is_empty() {
-                    break;
-                }
-                after = last;
-                let connection = self.lock()?;
-                let mut statement = connection.prepare_cached(&sql)?;
-                for key in &keys {
-                    if statement.exists(rusqlite::params_from_iter(key.iter()))? {
-                        return Ok(Some(format!(
-                            "this machine already has something it would bring ({})",
-                            table.name
-                        )));
-                    }
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    /// Copies the staged rows, a batch per transaction (`MOVE_BATCH` rows or
-    /// `MOVE_BATCH_BYTES`); the bots read `arriving` and their routines paused until the end.
-    fn copy_staged(
-        &self,
-        stage: &Stage,
-        after_batch: &dyn Fn(),
-    ) -> Result<std::result::Result<(), (String, Copied)>> {
-        for (index, table) in MOVE_TABLES.iter().enumerate() {
-            let mut committed = 0;
-            let sql = format!(
-                "INSERT INTO {} ({}) VALUES ({})",
-                table.name,
-                table.select_list(),
-                vec!["?"; table.columns.len()].join(", ")
-            );
-            let at = |name: &str| table.columns.iter().position(|c| c.name == name);
-            let (kind, paused, due) = (at("kind"), at("paused"), at("next_due_ms"));
-            let mut after = 0;
-            loop {
-                let (rows, last) = stage.page(table, after, MOVE_BATCH)?;
-                if rows.is_empty() {
-                    break;
-                }
-                after = last;
-                {
-                    let mut connection = self.lock()?;
-                    let tx = connection.transaction()?;
-                    for mut values in rows {
-                        if table.name == "agents"
-                            && let Some(at) = kind
-                        {
-                            values[at] = rusqlite::types::Value::Text("arriving".to_owned());
-                        }
-                        if table.name == "routines"
-                            && let (Some(paused), Some(due)) = (paused, due)
-                        {
-                            values[paused] = rusqlite::types::Value::Integer(1);
-                            values[due] = rusqlite::types::Value::Null;
-                        }
-                        if let Err(error) =
-                            tx.execute(&sql, rusqlite::params_from_iter(values.iter()))
-                        {
-                            // This batch's transaction goes; what came before stays copied.
-                            let problem = format!("{} couldn't be written: {error}", table.name);
-                            return Ok(Err((problem, (index, committed))));
-                        }
-                    }
-                    tx.commit()?;
-                }
-                committed = last;
-                after_batch();
-            }
-        }
-        Ok(Ok(()))
-    }
-
-    /// Deletes exactly what a move with these staged rows inserted here: each row by its own
-    /// key, and rows keyed only by their owner by the move's own new conversations and bots;
-    /// with `copied`, only as far as the copy got. A batch at a time; nothing else here is
-    /// touched. Can run again after a restart.
-    pub fn move_rollback(
-        &self,
-        stage: &Stage,
-        selection: &Selection,
-        copied: Option<Copied>,
-    ) -> Result<()> {
-        for (index, table) in MOVE_TABLES.iter().enumerate().rev() {
-            let upto = match copied {
-                Some((at, _)) if index > at => continue,
-                Some((at, rowid)) if index == at => rowid,
-                _ => i64::MAX,
-            };
-            if !table.unique {
-                let sql = format!(
-                    "DELETE FROM {name} WHERE rowid IN
-                       (SELECT rowid FROM {name} WHERE {filter} LIMIT {MOVE_BATCH})",
-                    name = table.name,
-                    filter = table.filter
-                );
-                loop {
-                    let connection = self.lock()?;
-                    let mut statement = connection.prepare(&sql)?;
-                    bind(&mut statement, selection)?;
-                    if statement.raw_execute()? == 0 {
-                        break;
-                    }
-                }
-                continue;
-            }
-            // By the table's own key, one index probe per row the move inserted.
-            let sql = format!("DELETE FROM {} WHERE {}", table.name, table.by_key());
-            let mut after = 0;
-            loop {
-                let (keys, last) = stage.keys_upto(table, after, upto, MOVE_BATCH)?;
-                if keys.is_empty() {
-                    break;
-                }
-                after = last;
-                let mut connection = self.lock()?;
-                let tx = connection.transaction()?;
-                {
-                    let mut statement = tx.prepare_cached(&sql)?;
-                    for key in &keys {
-                        statement.execute(rusqlite::params_from_iter(key.iter()))?;
-                    }
-                }
-                tx.commit()?;
-            }
-        }
-        Ok(())
-    }
-
-    /// The bots still arriving here, by id (kind `arriving`), and what they own: what the gate
-    /// holds closed until their moves end (ADR 0187).
-    pub fn arriving_selection(&self) -> Result<Selection> {
-        let connection = self.lock()?;
-        let mut statement = connection.prepare("SELECT id FROM agents WHERE kind = 'arriving'")?;
-        let ids: Vec<String> = statement
-            .query_map([], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        Ok(selection_in(&connection, &ids)?)
     }
 
     /// Removes rows a move took away (the bot's copy is archived in files first), a batch at a

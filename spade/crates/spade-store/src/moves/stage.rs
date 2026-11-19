@@ -154,7 +154,82 @@ impl Stage {
                 return Ok(Err(problem.to_owned()));
             }
         }
+        if let Err(problem) = self.tree_holds()? {
+            return Ok(Err(problem));
+        }
         Ok(Ok(selection))
+    }
+
+    /// Whether the staged bots' worker links (ADR 0161) make one tree inside the move: the bot
+    /// is no one's worker, every worker's maker came with it (by its id and its conversation),
+    /// and no link runs in a circle. A link to a bot outside the move would make that bot its
+    /// maker here, with its knowledge open to it.
+    fn tree_holds(&self) -> Result<std::result::Result<(), String>> {
+        let own: BTreeMap<String, String> = {
+            let mut statement = self
+                .connection
+                .prepare("SELECT conversation_id, id FROM agents")?;
+            let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut statement = self.connection.prepare(
+            "SELECT conversation_id, body FROM events
+             WHERE json_extract(body, '$.type') IN ('worker_of', 'worker_detached')
+             ORDER BY conversation_id, seq",
+        )?;
+        let mut rows = statement.query([])?;
+        // Each conversation's link as its events leave it.
+        let mut links: BTreeMap<String, Option<String>> = BTreeMap::new();
+        while let Some(row) = rows.next()? {
+            let conversation: String = row.get(0)?;
+            let body: String = row.get(1)?;
+            let event: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let Some(agent) = own.get(&conversation) else {
+                return Ok(Err(
+                    "a worker link sits in a conversation that is no moving bot's".to_owned(),
+                ));
+            };
+            if event["type"] != "worker_of" {
+                links.insert(conversation, None);
+                continue;
+            }
+            let parent = event["parent_conversation"].as_str().unwrap_or_default();
+            if own.get(parent) != event["parent"].as_str().map(str::to_owned).as_ref()
+                || parent == conversation
+            {
+                return Ok(Err("a worker's maker didn't come with it".to_owned()));
+            }
+            if Some(agent) == self.agents.first() {
+                return Ok(Err("the bot that moves is another bot's worker".to_owned()));
+            }
+            links.insert(conversation, Some(parent.to_owned()));
+        }
+        let root = self.agents.first().cloned().unwrap_or_default();
+        for (conversation, agent) in &own {
+            if *agent == root {
+                continue;
+            }
+            // Up from each worker, the bot is reached within as many steps as there are bots.
+            let mut at = conversation.clone();
+            let mut steps = 0;
+            loop {
+                match own.get(&at) {
+                    Some(up) if *up == root => break,
+                    _ => {}
+                }
+                let Some(Some(parent)) = links.get(&at) else {
+                    return Ok(Err(
+                        "a bot that moves is no worker of the bot that moves".to_owned()
+                    ));
+                };
+                steps += 1;
+                if steps > own.len() {
+                    return Ok(Err("worker links run in a circle".to_owned()));
+                }
+                at = parent.clone();
+            }
+        }
+        Ok(Ok(()))
     }
 
     /// Staged rows of `table` after `after` (a rowid), as values in column order: up to `limit`
@@ -176,31 +251,6 @@ impl Stage {
         limit: usize,
     ) -> Result<(Vec<Vec<Sql>>, i64)> {
         self.read(table, table.pk, after, limit)
-    }
-
-    /// `keys`, of staged rows no later than `upto` (a rowid).
-    pub(super) fn keys_upto(
-        &self,
-        table: &tables::MoveTable,
-        after: i64,
-        upto: i64,
-        limit: usize,
-    ) -> Result<(Vec<Vec<Sql>>, i64)> {
-        if after >= upto {
-            return Ok((Vec::new(), after));
-        }
-        let (mut keys, last) = self.keys(table, after, limit)?;
-        if last > upto {
-            // Rowids are in order: keep only those up to `upto`.
-            let mut statement = self.connection.prepare(&format!(
-                "SELECT COUNT(*) FROM {} WHERE rowid > ?1 AND rowid <= ?2",
-                table.name
-            ))?;
-            let within: i64 = statement.query_row(params![after, upto], |r| r.get(0))?;
-            keys.truncate(usize::try_from(within).unwrap_or(0));
-            return Ok((keys, upto));
-        }
-        Ok((keys, last))
     }
 
     fn read(
@@ -243,7 +293,7 @@ impl Stage {
     }
 
     /// Each moving bot's kind as it came.
-    pub(super) fn kinds(&self) -> Result<Vec<(String, String)>> {
+    pub fn kinds(&self) -> Result<Vec<(String, String)>> {
         let mut statement = self.connection.prepare("SELECT id, kind FROM agents")?;
         let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

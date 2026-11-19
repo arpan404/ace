@@ -4,7 +4,12 @@
 
 use rusqlite::{OptionalExtension, Row, params};
 
+use crate::gate::ARRIVING_AGENTS;
 use crate::{Result, Store};
+
+/// Routines of bots still arriving (ADR 0187).
+const ARRIVING_ROUTINES: &str = "(SELECT id FROM routines WHERE agent_id IN \
+     (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1))";
 
 /// `kind` of a heartbeat row; every other row is a `routine`.
 pub const HEARTBEAT: &str = "heartbeat";
@@ -97,11 +102,13 @@ impl Store {
     pub fn insert_routine(&self, r: &StoredRoutine) -> Result<bool> {
         let connection = self.lock()?;
         let inserted = connection.execute(
-            "INSERT OR IGNORE INTO routines (id, agent_id, kind, name, instruction, trigger,
+            &format!(
+                "INSERT OR IGNORE INTO routines (id, agent_id, kind, name, instruction, trigger,
                  time_zone, paused, secret, next_due_ms, created_by, created_ms, updated_ms,
                  untrusted)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
-             WHERE EXISTS (SELECT 1 FROM agents WHERE id = ?2)",
+             WHERE EXISTS (SELECT 1 FROM agents WHERE id = ?2) AND ?2 NOT IN {ARRIVING_AGENTS}"
+            ),
             params![
                 r.id,
                 r.agent_id,
@@ -126,10 +133,12 @@ impl Store {
     /// whether it existed.
     pub fn update_routine(&self, r: &StoredRoutine) -> Result<bool> {
         let changed = self.lock()?.execute(
-            "UPDATE routines SET name = ?2, instruction = ?3, trigger = ?4, time_zone = ?5,
+            &format!(
+                "UPDATE routines SET name = ?2, instruction = ?3, trigger = ?4, time_zone = ?5,
                  paused = ?6, secret = ?7, next_due_ms = ?8, updated_ms = ?9,
                  untrusted = (untrusted OR ?10)
-             WHERE id = ?1",
+             WHERE id = ?1 AND agent_id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![
                 r.id,
                 r.name,
@@ -148,17 +157,19 @@ impl Store {
 
     /// Deletes a routine and its runs. Returns whether it existed.
     pub fn delete_routine(&self, id: &str) -> Result<bool> {
-        Ok(self
-            .lock()?
-            .execute("DELETE FROM routines WHERE id = ?1", params![id])?
-            == 1)
+        Ok(self.lock()?.execute(
+            &format!("DELETE FROM routines WHERE id = ?1 AND agent_id NOT IN {ARRIVING_AGENTS}"),
+            params![id],
+        )? == 1)
     }
 
     pub fn routine(&self, id: &str) -> Result<Option<StoredRoutine>> {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM routines WHERE id = ?1"),
+                &format!(
+                    "SELECT {COLUMNS} FROM routines WHERE id = ?1 AND agent_id NOT IN {ARRIVING_AGENTS}"
+                ),
                 params![id],
                 routine,
             )
@@ -170,6 +181,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM routines WHERE agent_id = ?1 AND kind = ?2
+               AND agent_id NOT IN {ARRIVING_AGENTS}
              ORDER BY created_ms, id"
         ))?;
         let rows = statement.query_map(params![agent_id, kind], routine)?;
@@ -180,7 +192,8 @@ impl Store {
     pub fn active_routines(&self) -> Result<Vec<StoredRoutine>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS} FROM routines WHERE paused = 0 ORDER BY created_ms, id"
+            "SELECT {COLUMNS} FROM routines WHERE paused = 0 AND agent_id NOT IN {ARRIVING_AGENTS}
+             ORDER BY created_ms, id"
         ))?;
         let rows = statement.query_map([], routine)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -192,6 +205,7 @@ impl Store {
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM routines
              WHERE paused = 0 AND next_due_ms IS NOT NULL AND next_due_ms <= ?1
+               AND agent_id NOT IN {ARRIVING_AGENTS}
              ORDER BY next_due_ms, id"
         ))?;
         let rows = statement.query_map(params![now_ms], routine)?;
@@ -201,7 +215,10 @@ impl Store {
     /// The earliest next slot of any active scheduled routine.
     pub fn next_routine_due(&self) -> Result<Option<i64>> {
         Ok(self.lock()?.query_row(
-            "SELECT MIN(next_due_ms) FROM routines WHERE paused = 0 AND next_due_ms IS NOT NULL",
+            &format!(
+                "SELECT MIN(next_due_ms) FROM routines WHERE paused = 0 AND next_due_ms IS NOT NULL
+                 AND agent_id NOT IN {ARRIVING_AGENTS}"
+            ),
             [],
             |row| row.get(0),
         )?)
@@ -220,12 +237,15 @@ impl Store {
         let tx = connection.transaction()?;
         let claimed = match slot {
             Some(slot) => tx.execute(
-                "UPDATE routines SET next_due_ms = ?3
-                 WHERE id = ?1 AND paused = 0 AND next_due_ms IS ?2",
+                &format!(
+                    "UPDATE routines SET next_due_ms = ?3
+                     WHERE id = ?1 AND paused = 0 AND next_due_ms IS ?2
+                     AND agent_id NOT IN {ARRIVING_AGENTS}"
+                ),
                 params![run.routine_id, slot, next],
             )?,
             None => tx.query_row(
-                "SELECT COUNT(*) FROM routines WHERE id = ?1",
+                &format!("SELECT COUNT(*) FROM routines WHERE id = ?1 AND agent_id NOT IN {ARRIVING_AGENTS}"),
                 params![run.routine_id],
                 |row| {
                     row.get::<_, i64>(0)
@@ -273,7 +293,10 @@ impl Store {
     /// hours). Returns false when the slot was no longer `slot`.
     pub fn advance_routine(&self, id: &str, slot: Option<i64>, next: Option<i64>) -> Result<bool> {
         Ok(self.lock()?.execute(
-            "UPDATE routines SET next_due_ms = ?3 WHERE id = ?1 AND next_due_ms IS ?2",
+            &format!(
+                "UPDATE routines SET next_due_ms = ?3 WHERE id = ?1 AND next_due_ms IS ?2
+                 AND agent_id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![id, slot, next],
         )? == 1)
     }
@@ -300,7 +323,9 @@ impl Store {
     pub fn pending_runs(&self) -> Result<Vec<StoredRun>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {RUN_COLUMNS} FROM routine_runs WHERE outcome = 'pending' ORDER BY at_ms, id"
+            "SELECT {RUN_COLUMNS} FROM routine_runs WHERE outcome = 'pending'
+               AND routine_id NOT IN {ARRIVING_ROUTINES}
+             ORDER BY at_ms, id"
         ))?;
         let rows = statement.query_map([], run)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -311,6 +336,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {RUN_COLUMNS} FROM routine_runs WHERE routine_id = ?1
+               AND routine_id NOT IN {ARRIVING_ROUTINES}
              ORDER BY at_ms DESC, id DESC LIMIT ?2"
         ))?;
         let rows = statement.query_map(
@@ -328,6 +354,7 @@ impl Store {
                 &format!(
                     "SELECT {RUN_COLUMNS} FROM routine_runs
                      WHERE routine_id = ?1 AND outcome IN ('delivered', 'pending')
+                       AND routine_id NOT IN {ARRIVING_ROUTINES}
                      ORDER BY at_ms DESC, id DESC LIMIT 1"
                 ),
                 params![routine_id],
@@ -435,7 +462,7 @@ mod tests {
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE moves; DROP TABLE move_claims;",
+                 DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows;",
             )?;
             connection.pragma_update(
                 None,

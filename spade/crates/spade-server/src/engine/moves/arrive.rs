@@ -1,11 +1,11 @@
 //! A moved bot arriving (ADR 0187). Its staged files are put together and checked against the
 //! move's inventory (every file and image named with its size and hash, the inventory bound to
-//! the manifest the move began with): nothing missing, twice or unexpected. Then its rows are
-//! written and checked in one transaction together with what changes on arrival and everything
-//! needed to finish (the move reads `placing`); then its files are placed and flushed to disk.
-//! Only then does the move read `committed`, which is what the source waits for. A crash after
-//! the rows were written leaves the move `placing`, and placing finishes at the next start or
-//! the next `commit`.
+//! the manifest the move began with): nothing missing, twice or unexpected. Its rows are staged
+//! and checked apart, then copied in behind the store's gate, insert-only, each inserted row's
+//! key recorded with it (`activating`); then its files are placed and flushed with the rows still
+//! hidden (`placing`); then one transaction makes it this machine's: its bots, Spade's host
+//! choice and `committed`, which is what the source waits for. A failure takes out exactly what
+//! it inserted. A crash mid-copy is undone at the next step or start; one while placing finishes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -16,15 +16,15 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use spade_core::Event;
 use spade_core::event::Known;
-use spade_store::{
-    Activation, Arrived, Arriving, HostChange, Row, Selection, Stage, StoredMove, TableSum,
-};
+use spade_store::{Arrived, Begun, Cutover, Handover, Row, Selection, Stage, StoredMove, TableSum};
 
 use super::files::is_sha256;
 use super::host::{HostRecord, MAIN_ENABLED, MAIN_HOST, MAIN_OFF, main_active_with};
 use super::paths::{self, under};
 use super::receive::manifest_agents;
-use super::{ACTIVATING, ARRIVED, COMMITTED, Engine, PLACING, RECEIVING, budget, consent, detail};
+use super::{
+    ABORTED, ACTIVATING, ARRIVED, Engine, PLACING, RECEIVING, UNDOING, budget, consent, detail,
+};
 
 /// Why a commit didn't end with the bot here.
 #[derive(Debug)]
@@ -256,12 +256,12 @@ fn assemble(
 }
 
 impl Engine {
-    /// Writes the staged move here. Answers what needs the person once the move took, else
-    /// why not: refused (nothing kept, the move given up) or not placed yet (ask again).
+    /// Writes the staged move here (it reads `receiving`). Answers what needs the person once
+    /// the move took, else why not: refused (nothing of it kept, the move given up) or not done
+    /// yet (ask again).
     pub(super) fn arrive(
         &self,
         entry: &StoredMove,
-        host: &Value,
         connectors: Option<&spade_connect::Connectors>,
     ) -> Result<Value, Failed> {
         let kept = detail(entry);
@@ -301,45 +301,6 @@ impl Engine {
                     .collect()
             })
             .unwrap_or_default();
-        let secret = self.routines_shared().new_secret();
-        let record = HostRecord::parse(host).filter(|_| entry.main);
-        let newer = |held: Option<&str>| {
-            let held = held
-                .and_then(|t| serde_json::from_str::<Value>(t).ok())
-                .and_then(|v| HostRecord::parse(&v));
-            record
-                .as_ref()
-                .is_some_and(|record| held.is_none_or(|held| record.newer_than(&held)))
-        };
-        let security_key = |agent: &str| crate::security::settings::key(agent);
-        let marker = Event::Known(Known::Arrived {
-            from: entry.peer_name.clone(),
-        });
-        let outside = self.outside_needs(manifest, &agents);
-        let placing = |written: &Selection, arrived: &Arrived| {
-            let mut placing = kept.clone();
-            placing["conversations"] = json!(written.conversations);
-            placing["arrival"] = arrival_json(entry, &self.now_ms(), arrived, &outside, manifest);
-            placing.to_string()
-        };
-        let arriving = Arriving {
-            move_id: &entry.id,
-            routines_paused: 0,
-            placing: PLACING,
-            now_ms: self.now_ms(),
-            from: &entry.peer,
-            secret: &secret,
-            security_key: &security_key,
-            reset: &consent::reset,
-            marker: &marker,
-            host: record.as_ref().map(|record| HostChange {
-                key: MAIN_HOST,
-                value: record.to_json().to_string(),
-                newer: &newer,
-                clear: &[MAIN_ENABLED, MAIN_OFF],
-            }),
-            detail: &placing,
-        };
         // Staged and checked in a database of its own, then copied in batches: Spade's own
         // connection is never held for the whole move (ADR 0170).
         let mut rows = StagedRows {
@@ -363,64 +324,62 @@ impl Engine {
             Ok(Err(problem)) => return Err(refuse(problem)),
             Err(error) => return Err(refuse(error.to_string())),
         };
-        // Everything it carries is claimed for this move, so no other move brings any of it.
-        let claimed = self
-            .store
-            .claim_for_move(&entry.id, &super::claims(&selection))
-            .map_err(|e| Failed::Placing(e.to_string()))?;
-        if !claimed {
-            return Err(refuse(
-                "part of this move is already arriving with another".to_owned(),
-            ));
-        }
+        let kinds = stage.kinds().map_err(|e| refuse(e.to_string()))?;
+        let routines_paused = stage
+            .running_routines()
+            .map_err(|e| refuse(e.to_string()))?;
         let mut activating = kept.clone();
         activating["selection"] = json!({
             "agents": selection.agents,
             "conversations": selection.conversations,
             "groups": selection.groups,
         });
-        self.store
-            .set_move(
+        activating["conversations"] = json!(selection.conversations);
+        activating["kinds"] = json!(kinds);
+        activating["routines_paused"] = json!(routines_paused);
+        activating["outside"] = self.outside_needs(manifest, &agents);
+        // The gate closes on all it carries, with the move reading `activating`, in one
+        // transaction before the first row lands: from here the store finds none of it.
+        let begun = self
+            .store
+            .move_arrive_begin(
                 &entry.id,
-                ACTIVATING,
                 &activating.to_string(),
                 self.now_ms(),
+                &selection,
             )
             .map_err(|e| Failed::Placing(e.to_string()))?;
-        // The gate closes before the first row lands: nothing reaches or acts as it until it is
-        // this machine's.
-        self.arriving(&entry.id, &selection.conversations);
-        let here = self.here();
-        let main_active =
-            |read: &dyn Fn(&str) -> Option<String>| main_active_with(read, here.as_deref());
-        let mut arriving = arriving;
-        arriving.routines_paused = stage
-            .running_routines()
-            .map_err(|e| refuse(e.to_string()))?;
-        let after_batch = || self.after_batch();
-        let written = self.store.move_activate(
-            &stage,
-            Activation {
-                selection: &selection,
-                main: entry.main,
-                main_active: &main_active,
-                after_batch: &after_batch,
-                arriving,
-            },
-        );
-        let written = match written {
-            Ok(Ok((written, _))) => written,
-            Ok(Err(problem)) => {
-                self.arrived(&entry.id, &selection.conversations);
-                return Err(refuse(problem));
+        match begun {
+            Begun::Begun => {}
+            Begun::Taken => {
+                return Err(refuse(
+                    "part of this move is already arriving with another".to_owned(),
+                ));
             }
+            Begun::NotReceiving => {
+                return Err(Failed::Placing(
+                    "the move changed while it was checked".to_owned(),
+                ));
+            }
+        }
+        let after_batch = || self.after_batch();
+        let copied = self.store.move_arrive_copy(
+            &entry.id,
+            &stage,
+            &after_batch,
+            &activating.to_string(),
+            self.now_ms(),
+        );
+        match copied {
+            Ok(Ok(())) => {}
+            Ok(Err(problem)) => return Err(self.abandon(&entry.id, &problem)),
             Err(error) => {
-                // What was copied is taken out at the next start (the move reads `activating`).
+                // What it copied comes out again now; the source's next commit copies afresh.
+                self.recover(&entry.id);
                 return Err(Failed::Placing(error.to_string()));
             }
-        };
-        // Nothing of it runs until its files are in place; its apps start at none.
-        self.arriving(&entry.id, &written.conversations);
+        }
+        // Its apps start at none.
         if let Some(hub) = connectors {
             for agent in &agents {
                 let none = spade_connect::Access::Only(BTreeSet::new());
@@ -438,39 +397,56 @@ impl Engine {
         self.finish_placing(&placing)
     }
 
-    /// Takes out exactly what a cut-off activation copied in, a batch at a time (its staged
-    /// keys say what), so the source's next commit writes it afresh. The gate stays closed on it
-    /// throughout.
-    pub(super) fn undo_activation(&self, entry: &StoredMove) {
-        let kept = detail(entry);
-        let list = |name: &str| super::strings(&kept["selection"][name]);
-        let selection = Selection {
-            agents: list("agents"),
-            conversations: list("conversations"),
-            groups: list("groups"),
-        };
-        let stage = self
-            .moves_dir(&entry.id)
-            .and_then(|folder| paths::child(&folder, "in"))
-            .map(|staging| staging.join("stage.sqlite"))
-            .and_then(|path| {
-                Stage::open(&path, &selection.agents, entry.main).map_err(|e| e.to_string())
-            });
-        let undone = match stage {
-            Ok(stage) => self
-                .store
-                .move_rollback(&stage, &selection, None)
-                .map_err(|e| e.to_string()),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = undone {
-            tracing::error!(%error, "a cut-off move's rows could not be taken out");
-            return;
-        }
-        let _ = self
+    /// Gives up an arrival whose gate is closed: exactly the rows it inserted come out, its
+    /// placed files go, its staging goes, and it reads given up. If taking them out stops
+    /// short, the move reads `undoing` and the next step, the sweep or a restart carries on.
+    pub(super) fn abandon(&self, id: &str, problem: &str) -> Failed {
+        let held = self.store.stored_move(id).ok().flatten();
+        let mut kept = held.as_ref().map(detail).unwrap_or_else(|| json!({}));
+        kept["problem"] = json!(problem);
+        match self
             .store
-            .set_move(&entry.id, RECEIVING, &entry.detail, self.now_ms());
-        self.arrived(&entry.id, &selection.conversations);
+            .move_arrive_undo(id, ABORTED, &kept.to_string(), self.now_ms())
+        {
+            Ok(_) => {
+                if let Some(entry) = &held {
+                    self.unplace(entry);
+                }
+                if let Err(error) = paths::remove_child(&self.data_dir().join("moves"), id) {
+                    tracing::warn!(%error, "a given-up move's staging could not be removed");
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "a given-up move's rows could not be taken out yet")
+            }
+        }
+        Failed::Refused(problem.to_owned())
+    }
+
+    /// Carries on an arrival cut off while its rows were copied in or taken out (it reads
+    /// `activating` or `undoing` with nobody working on it): what it inserted comes out, and it
+    /// reads `receiving` again, so the source's next commit copies it afresh. A move placing
+    /// its files finishes instead. Run under the move's lock.
+    pub(super) fn recover(&self, id: &str) {
+        let Ok(Some(entry)) = self.store.stored_move(id) else {
+            return;
+        };
+        match entry.state.as_str() {
+            ACTIVATING | UNDOING => {
+                if let Err(error) =
+                    self.store
+                        .move_arrive_undo(id, RECEIVING, &entry.detail, self.now_ms())
+                {
+                    tracing::error!(%error, "a cut-off move's rows could not be taken out yet");
+                }
+            }
+            PLACING => {
+                if let Err(error) = self.finish_placing(&entry) {
+                    tracing::warn!(?error, "a moved bot's files could not be placed yet");
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Lets a test hold an arrival between its batches.
@@ -531,38 +507,146 @@ impl Engine {
         json!({ "endpoints": endpoints, "apps": apps, "plugins": plugins })
     }
 
-    /// Puts the staged files in place (each step can run again), flushes them to disk, and only
-    /// then records that the move took. Answers what needs the person.
+    /// Puts the staged files in place (each step can run again) and flushes them, with the rows
+    /// still behind the gate; then the one transaction that makes the move this machine's: its
+    /// bots, Spade's host choice and `committed`, together. Answers what needs the person.
     pub(super) fn finish_placing(&self, entry: &StoredMove) -> Result<Value, Failed> {
         let kept = detail(entry);
         let placing = |problem: String| Failed::Placing(problem);
+        self.place(entry).map_err(placing)?;
+        let list = |name: &str| super::strings(&kept["selection"][name]);
+        let selection = Selection {
+            agents: list("agents"),
+            conversations: list("conversations"),
+            groups: list("groups"),
+        };
+        let kinds: Vec<(String, String)> =
+            serde_json::from_value(kept["kinds"].clone()).unwrap_or_default();
+        let secret = self.routines_shared().new_secret();
+        let security_key = |agent: &str| crate::security::settings::key(agent);
+        let marker = Event::Known(Known::Arrived {
+            from: entry.peer_name.clone(),
+        });
+        let here = self.here();
+        let main_active =
+            |read: &dyn Fn(&str) -> Option<String>| main_active_with(read, here.as_deref());
+        // Spade's new host choice is made here, from the choice the accepted manifest began
+        // with: it names this machine, the move's accepted destination, one version on. One held
+        // here that is newer than that was chosen since: the move is stale and refused.
+        let began = HostRecord::parse(&kept["manifest"]["host"]);
+        let to = kept["to"].as_str().unwrap_or_default().to_owned();
+        let now = self.now_ms();
+        let chosen = std::cell::RefCell::new(None::<HostRecord>);
+        let record = |held: Option<&str>| {
+            let held = held
+                .and_then(|t| serde_json::from_str::<Value>(t).ok())
+                .and_then(|v| HostRecord::parse(&v));
+            if let Some(held) = &held
+                && began.as_ref().is_none_or(|began| held.newer_than(began))
+            {
+                return None;
+            }
+            let version = held
+                .iter()
+                .chain(began.iter())
+                .map(|r| r.version)
+                .max()
+                .unwrap_or(0)
+                + 1;
+            let record = HostRecord {
+                host: to.clone(),
+                version,
+                at: now,
+                by: "move".to_owned(),
+            };
+            let text = record.to_json().to_string();
+            *chosen.borrow_mut() = Some(record);
+            Some(text)
+        };
+        let manifest = &kept["manifest"];
+        let outside = kept["outside"].clone();
+        let answer = std::cell::RefCell::new(Value::Null);
+        let arrival = |arrived: &Arrived| {
+            let shown = arrival_json(entry, now, arrived, &outside, manifest);
+            let mut committed = kept.clone();
+            committed["arrival"] = shown.clone();
+            committed["host"] = chosen
+                .borrow()
+                .as_ref()
+                .map_or(Value::Null, HostRecord::to_json);
+            *answer.borrow_mut() = shown.clone();
+            (
+                format!("{ARRIVED}:{}", entry.agent_id),
+                shown.to_string(),
+                committed.to_string(),
+            )
+        };
+        let cutover = Cutover {
+            move_id: &entry.id,
+            now_ms: now,
+            selection: &selection,
+            kinds: &kinds,
+            routines_paused: kept["routines_paused"].as_u64().unwrap_or(0),
+            from: &entry.peer,
+            secret: &secret,
+            security_key: &security_key,
+            reset: &consent::reset,
+            marker: &marker,
+            main: entry.main.then_some(Handover {
+                active: &main_active,
+                key: MAIN_HOST,
+                record: &record,
+                clear: &[MAIN_ENABLED, MAIN_OFF],
+            }),
+            arrival: &arrival,
+        };
+        match self.store.move_arrive_cutover(&cutover) {
+            Ok(Ok(_)) => {}
+            Ok(Err(problem)) => return Err(self.abandon(&entry.id, &problem)),
+            Err(error) => return Err(placing(error.to_string())),
+        }
+        for conversation in &selection.conversations {
+            self.forget_activity(conversation);
+        }
+        self.forget_tree();
+        if let Err(error) = self.store.move_arrive_forget(&entry.id) {
+            tracing::warn!(%error, "a moved bot's record of its rows could not be forgotten yet");
+        }
+        if let Err(error) = paths::remove_child(&self.data_dir().join("moves"), &entry.id) {
+            tracing::warn!(%error, "a moved bot's staging could not be removed");
+        }
+        Ok(answer.into_inner())
+    }
+
+    /// Puts the staged workspace files and images in place, each flushed: a folder already
+    /// where a bot's goes (of no bot here: its id is new here) is set aside in the archive,
+    /// never removed. Each step can run again.
+    fn place(&self, entry: &StoredMove) -> Result<(), String> {
+        let kept = detail(entry);
         let data = self.data_dir();
         let staging = self
             .moves_dir(&entry.id)
-            .and_then(|folder| paths::child(&folder, "in"))
-            .map_err(placing)?;
+            .and_then(|folder| paths::child(&folder, "in"))?;
         let agents = manifest_agents(&kept["manifest"]).unwrap_or_default();
         let workspaces = data.join("workspace");
-        std::fs::create_dir_all(&workspaces).map_err(|e| placing(e.to_string()))?;
-        let files = paths::child(&staging, "files").map_err(placing)?;
+        std::fs::create_dir_all(&workspaces).map_err(|e| e.to_string())?;
+        let files = paths::child(&staging, "files")?;
         for agent in &agents {
-            let from = paths::child(&files, agent).map_err(placing)?;
+            let from = paths::child(&files, agent)?;
             if !from.exists() {
                 continue;
             }
-            let to = paths::child(&workspaces, agent).map_err(placing)?;
+            let to = paths::child(&workspaces, agent)?;
             if to.exists() {
                 let aside = paths::child(&data.join("moved"), &entry.id)
-                    .and_then(|archive| paths::child(&archive, "replaced"))
-                    .map_err(placing)?;
-                std::fs::create_dir_all(&aside).map_err(|e| placing(e.to_string()))?;
-                let into = paths::child(&aside, agent).map_err(placing)?;
-                std::fs::rename(&to, into).map_err(|e| placing(e.to_string()))?;
+                    .and_then(|archive| paths::child(&archive, "replaced"))?;
+                std::fs::create_dir_all(&aside).map_err(|e| e.to_string())?;
+                std::fs::rename(&to, paths::child(&aside, agent)?).map_err(|e| e.to_string())?;
             }
-            std::fs::rename(&from, &to).map_err(|e| placing(e.to_string()))?;
+            std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
         }
-        paths::sync_dir(&workspaces).map_err(placing)?;
-        let images = paths::child(&staging, "images").map_err(placing)?;
+        paths::sync_dir(&workspaces)?;
+        let images = paths::child(&staging, "images")?;
         if let Ok(staged) = std::fs::read_dir(&images) {
             for image in staged.filter_map(|e| e.ok()) {
                 let name = image.file_name().to_string_lossy().into_owned();
@@ -571,39 +655,41 @@ impl Engine {
                 }
                 let to = self.images.dir().join(&name);
                 if !to.exists() {
-                    std::fs::rename(image.path(), to).map_err(|e| placing(e.to_string()))?;
+                    std::fs::rename(image.path(), to).map_err(|e| e.to_string())?;
                 }
             }
         }
-        paths::sync_dir(self.images.dir()).map_err(placing)?;
-        let conversations = super::strings(&kept["conversations"]);
-        for conversation in &conversations {
-            self.forget_activity(conversation);
+        paths::sync_dir(self.images.dir())
+    }
+
+    /// Takes a given-up arrival's placed workspaces out again and puts back what was set aside.
+    /// Images stay: they are named by their hash, and may be another's too.
+    fn unplace(&self, entry: &StoredMove) {
+        let data = self.data_dir();
+        let workspaces = data.join("workspace");
+        let aside = paths::child(&data.join("moved"), &entry.id)
+            .and_then(|archive| paths::child(&archive, "replaced"));
+        for agent in manifest_agents(&detail(entry)["manifest"]).unwrap_or_default() {
+            if let Err(error) = paths::remove_child(&workspaces, &agent) {
+                tracing::warn!(%error, "a given-up move's workspace could not be removed");
+                continue;
+            }
+            if let Ok(aside) = &aside
+                && let Ok(kept) = paths::child(aside, &agent)
+                && kept.exists()
+                && let Ok(back) = paths::child(&workspaces, &agent)
+                && let Err(error) = std::fs::rename(&kept, back)
+            {
+                tracing::warn!(%error, "a set-aside workspace could not be put back");
+            }
         }
-        self.forget_tree();
-        let arrival = kept["arrival"].clone();
-        self.store
-            .set_setting(
-                &format!("{ARRIVED}:{}", entry.agent_id),
-                Some(&arrival.to_string()),
-            )
-            .and_then(|()| {
-                self.store
-                    .set_move(&entry.id, COMMITTED, &kept.to_string(), self.now_ms())
-            })
-            .map_err(|e| placing(e.to_string()))?;
-        if let Err(error) = paths::remove_child(&data.join("moves"), &entry.id) {
-            tracing::warn!(%error, "a moved bot's staging could not be removed");
-        }
-        self.arrived(&entry.id, &conversations);
-        Ok(arrival)
     }
 }
 
 /// What needs the person since the bot arrived, as its profile shows it.
 fn arrival_json(
     entry: &StoredMove,
-    now: &i64,
+    now: i64,
     arrived: &Arrived,
     outside: &Value,
     manifest: &Value,

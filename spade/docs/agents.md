@@ -86,40 +86,45 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
    machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
-host}`; `part {index, part}`; then `commit {host?}`. Every step (`begin`, `part`, `commit`,
+host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
    `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
    else `403` ("this move is another machine's"), the same manifest included; another manifest
-   answers `409`. Unreachable means wait and try again (`waiting: true`); Cancel works until the commit.
+   answers `409`. Unreachable, or `429`/`503` at `begin`, means wait and try again (`waiting:
+   true`); Cancel works until the commit. Every step of a move to here holds that move's lock
+   (`steps_of`), as do its recovery and the sweep (which skips a move whose lock is taken), and
+   every state change is made only from the state it expects (`advance_move`).
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
    machine it comes from, what it replaces) and the limits (`budget.rs`: parts, bytes, files, row
    size, and its free disk; at most `MOST_ARRIVING` (two) moves at once, `429`, and together they
-   must fit the free disk, `507`), stages parts in `moves/<id>/in/`, counting each against what was
-   declared (past it: `413`, staging removed), and on `commit`: joins the files against the
+   must fit the free disk, `507`). Then it asks the machine the manifest names, over its own link
+   to it, `{op: "move", step: "vouch", move}`: that machine answers the `via` it holds for its
+   own open move, which must be the accepted one (else `403`); the sender's name is the one this
+   machine's link knows it by. It stages parts in `moves/<id>/in/`, counting each against what
+   was declared (past it: `413`, staging removed), and on `commit`: joins the files against the
    inventory (none missing, twice, unexpected or larger than its entry, each flushed); writes the
    rows into `in/stage.sqlite`, its own database (typed; each the moving bots' own: its id, its
    agent, its club, or one of `PER_BOT_SETTINGS` for one of them), where every table must hold
-   exactly the bots' rows with the manifest's counts and hashes and nothing may point at a
-   conversation, entry or routine that didn't come along. Arrival is insert-only: every staged
-   row's natural key (`MoveTable::pk`) is looked up here first, and any taken refuses the move
-   (`422`, "this machine already has …") before a live row is touched. Then it copies them into
-   Spade's database `MOVE_BATCH` rows or `MOVE_BATCH_BYTES` (4 MB) per transaction, whichever
-   comes first, with the bots stored as `arriving`: the gate. No store lookup by id or
-   conversation finds an `arriving` bot, a club it leads isn't listed, and every engine path that
-   takes a conversation checks `reachable`, so nothing (messages, routines, clubs, club runs,
-   files, API) reaches it; `restore_moves` rebuilds the gate and the source's freezes when Spade
-   opens, before any conversation resumes. It sums them again in pages,
-   and in one small transaction makes them this machine's and arrives: routines pause and webhooks
-   get new secrets; every bot's security settings lose every grant, its toolchains and Full access
-   and read `auto_review` (also a bot that brought none); its clubs point here; each moved
-   conversation gets an `arrived` event, before which no answer counts here (`since_arrival`);
-   Spade's host record is kept (never over a Spade in use here); and the move reads `placing` with
-   all it needs to finish. A failed check answers `422` and takes out what was copied, by its
-   keys and only as far as the copy got (never a row of this machine); a restart while
-   `activating` takes it out too, for the next commit. The only replacement is Spade's own: an
-   incoming main retires this machine's quiet main in the cutover transaction. It then places the workspace and
-   images, flushes them, reads `committed` and answers `{committed, arrival}`; a placing that
-   fails answers `503` and stays `placing`, and a retried commit or a restart only places. The
-   bot's apps start at none.
+   exactly the bots' rows with the manifest's counts and hashes, nothing may point at a
+   conversation, entry or routine that didn't come along, and worker links make one tree inside
+   the move (`Stage::tree_holds`). Then the store's arrival (`spade_store::moves::arrival`):
+   - `move_arrive_begin`: `receiving` → `activating` and the move's claims `hidden`, one
+     transaction. The store's gate (`gate.rs`) leaves out every row a hidden claim's bot,
+     conversation or club owns, in every read and write: lists, lookups by id, appends.
+   - `move_arrive_copy`: every staged row's own key (`MoveTable::pk`) looked up first, any taken
+     refuses (`422`, "this machine already has …"); then `MOVE_BATCH` rows or `MOVE_BATCH_BYTES`
+     per transaction, each inserted row's key recorded in `move_rows` in that transaction; the
+     bots stored as `arriving`, routines paused; done, `placing`.
+   - the workspace and images placed and flushed, rows still hidden.
+   - `move_arrive_cutover`, one transaction, only from `placing`: Spade's quiet main retired and
+     the host record the target makes (decision 19), kinds, the gate opens, routines pause and
+     webhooks get new secrets, every bot's security settings lose every grant, its toolchains
+     and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
+     moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
+     arrival, host}`.
+   - `move_arrive_undo` on any refusal, error or cut-off copy: `undoing`, the recorded rows out a
+     batch at a time, then the claims go and the move reads `receiving` (to copy again) or
+     `aborted`, never touching a row it didn't insert. A placing that fails answers `503` and
+     stays `placing`; a retried commit or a restart finishes it. The bot's apps start at none.
 6. **Finishing** on the source: the record now names the target; the bot, Spade too, is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`
    remembers where it went, clubs here list it on the target, and its rows go, a batch at a time;
    for Spade, `ensure_main` then makes a new, quiet main here. Once the commit is sent and no

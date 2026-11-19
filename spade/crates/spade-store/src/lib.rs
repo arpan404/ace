@@ -7,6 +7,7 @@ mod agents;
 mod digests;
 mod endpoints;
 mod episodes;
+mod gate;
 mod helpers;
 mod knowledge;
 mod moves;
@@ -27,9 +28,9 @@ pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
 pub use moves::{
-    Activation, Arrived, Arriving, Copied, Cursor, EVENTS, HostChange, MOVE_BATCH,
-    MOVE_BATCH_BYTES, MOVE_TABLES, MoveTable, OPEN_MOVE, PER_BOT_SETTINGS, Row, RowSums, Selection,
-    Stage, StoredMove, TableSum, move_table, open_state,
+    Arrived, Begun, Cursor, Cutover, EVENTS, Handover, MOVE_BATCH, MOVE_BATCH_BYTES, MOVE_TABLES,
+    MainActive, MoveTable, OPEN_MOVE, PER_BOT_SETTINGS, Row, RowSums, Selection, Stage, StoredMove,
+    TableSum, arrival_state, move_table, open_state,
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
@@ -41,6 +42,7 @@ pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, Store
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+use gate::ARRIVING_CONVERSATIONS;
 use rusqlite::{Connection, OptionalExtension, params};
 use spade_core::Event;
 use spade_core::event::Known;
@@ -55,6 +57,9 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("the storage lock was poisoned by a crash")]
     Poisoned,
+    /// Only its arrival moves an arriving move on (ADR 0187).
+    #[error("move {0} is arriving; only its arrival moves it on")]
+    Arriving(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -172,11 +177,12 @@ impl Store {
     /// (ADR 0152) are left out: [`Store::helpers`] lists them.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT id, title, created_ms, updated_ms FROM conversations
              WHERE id NOT IN (SELECT conversation_id FROM helpers)
-             ORDER BY updated_ms DESC, id DESC",
-        )?;
+               AND id NOT IN {ARRIVING_CONVERSATIONS}
+             ORDER BY updated_ms DESC, id DESC"
+        ))?;
         let rows = statement.query_map([], |row| {
             Ok(Conversation {
                 id: row.get(0)?,
@@ -190,6 +196,9 @@ impl Store {
 
     pub fn conversation(&self, id: &str) -> Result<Option<Conversation>> {
         let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, id)? {
+            return Ok(None);
+        }
         Ok(connection
             .query_row(
                 "SELECT id, title, created_ms, updated_ms FROM conversations WHERE id = ?1",
@@ -241,6 +250,9 @@ impl Store {
         after: i64,
     ) -> Result<(Vec<StoredEvent>, usize)> {
         let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, conversation)? {
+            return Ok((Vec::new(), 0));
+        }
         let mut statement = connection.prepare(
             "SELECT seq, at_ms, body FROM events
              WHERE conversation_id = ?1 AND seq > ?2 ORDER BY seq",
@@ -276,7 +288,11 @@ impl Store {
         now_ms: i64,
     ) -> Result<()> {
         let cost = i64::try_from(cost_micros).unwrap_or(i64::MAX);
-        self.lock()?.execute(
+        let connection = self.lock()?;
+        if gate::arriving(&connection, gate::CONVERSATION, conversation)? {
+            return Err(StoreError::NoConversation(conversation.to_owned()));
+        }
+        connection.execute(
             "INSERT INTO spend (conversation_id, model, cost_micros, at_ms) VALUES (?1, ?2, ?3, ?4)",
             params![conversation, model, cost, now_ms],
         )?;
@@ -286,7 +302,10 @@ impl Store {
     /// Total spent from `since_ms` on.
     pub fn spent_since(&self, since_ms: i64) -> Result<u64> {
         let total: i64 = self.lock()?.query_row(
-            "SELECT COALESCE(SUM(cost_micros), 0) FROM spend WHERE at_ms >= ?1",
+            &format!(
+                "SELECT COALESCE(SUM(cost_micros), 0) FROM spend WHERE at_ms >= ?1
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![since_ms],
             |row| row.get(0),
         )?;
@@ -309,7 +328,8 @@ pub(crate) fn append_in(
         )
         .optional()?
         .unwrap_or(false);
-    if !exists {
+    // Nothing is written to a conversation still arriving (ADR 0187).
+    if !exists || gate::arriving(tx, gate::CONVERSATION, conversation)? {
         return Err(StoreError::NoConversation(conversation.to_owned()));
     }
     let mut seq: i64 = tx.query_row(

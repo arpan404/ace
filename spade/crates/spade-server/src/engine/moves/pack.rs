@@ -324,6 +324,13 @@ impl Engine {
             "endpoints": needs,
             "extras": extras,
             "left": left,
+            // Spade's host choice as the move began: the other machine names itself from it,
+            // and refuses the move if the choice changed since.
+            "host": if entry.main {
+                self.host_record().ok().flatten().map(|r| r.to_json())
+            } else {
+                None
+            },
         });
         // The same limits the other machine holds it to, before anything is sent.
         budget::declared(&manifest)?;

@@ -6,6 +6,7 @@
 use rusqlite::{OptionalExtension, Row, params};
 use spade_core::Event;
 
+use crate::gate::{ARRIVING_CONVERSATIONS, ARRIVING_GROUPS};
 use crate::{Result, Store, StoreError, StoredEvent};
 
 pub(crate) const SCHEMA: &str = "
@@ -53,8 +54,9 @@ pub(crate) const SCHEMA: &str = "
     ) WITHOUT ROWID;
 ";
 
-/// A club led by a bot still arriving from another machine (ADR 0187) is no club here yet.
-const LIVE_GROUP: &str = "lead_id NOT IN (SELECT id FROM agents WHERE kind = 'arriving')";
+/// A club still arriving from another machine (ADR 0187) is no club here yet.
+const LIVE_GROUP: &str =
+    "id NOT IN (SELECT id FROM move_claims WHERE kind = 'group' AND hidden = 1)";
 
 /// A group member: a bot of this machine (`machine` empty) or of another, by host id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,8 +275,7 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT id FROM groups WHERE conversation_id = ?1
-                 AND lead_id NOT IN (SELECT id FROM agents WHERE kind = 'arriving')",
+                &format!("SELECT id FROM groups WHERE conversation_id = ?1 AND {LIVE_GROUP}"),
                 params![conversation],
                 |row| row.get(0),
             )
@@ -286,8 +287,10 @@ impl Store {
     pub fn set_group_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE groups SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
-             WHERE id = ?1",
+            &format!(
+                "UPDATE groups SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+                 WHERE id = ?1 AND {LIVE_GROUP}"
+            ),
             params![id, pinned, now_ms],
         )?;
         Ok(changed > 0)
@@ -298,7 +301,10 @@ impl Store {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let changed = tx.execute(
-            "UPDATE groups SET name = ?2, lead_id = ?3, updated_ms = ?4 WHERE id = ?1",
+            &format!(
+                "UPDATE groups SET name = ?2, lead_id = ?3, updated_ms = ?4
+                 WHERE id = ?1 AND {LIVE_GROUP}"
+            ),
             params![group.id, group.name, group.lead_id, now_ms],
         )?;
         if changed == 0 {
@@ -322,7 +328,10 @@ impl Store {
         avatar: Option<&str>,
     ) -> Result<()> {
         self.lock()?.execute(
-            "UPDATE group_members SET name = ?3, avatar = ?4 WHERE machine = ?1 AND agent_id = ?2",
+            &format!(
+                "UPDATE group_members SET name = ?3, avatar = ?4 WHERE machine = ?1 AND agent_id = ?2
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
             params![machine, agent, name, avatar],
         )?;
         Ok(())
@@ -334,7 +343,7 @@ impl Store {
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
             .query_row(
-                "SELECT conversation_id FROM groups WHERE id = ?1",
+                &format!("SELECT conversation_id FROM groups WHERE id = ?1 AND {LIVE_GROUP}"),
                 params![id],
                 |row| row.get(0),
             )
@@ -358,7 +367,10 @@ impl Store {
     /// Takes a deleted bot of this machine out of every group.
     pub fn leave_groups(&self, agent: &str) -> Result<()> {
         self.lock()?.execute(
-            "DELETE FROM group_members WHERE machine = '' AND agent_id = ?1",
+            &format!(
+                "DELETE FROM group_members WHERE machine = '' AND agent_id = ?1
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
             params![agent],
         )?;
         Ok(())
@@ -494,8 +506,11 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT from_host, key, from_name, agent_id, conversation_id, seq FROM inbox
-                 WHERE from_host = ?1 AND key = ?2",
+                &format!(
+                    "SELECT from_host, key, from_name, agent_id, conversation_id, seq FROM inbox
+                     WHERE from_host = ?1 AND key = ?2
+                     AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![from_host, key],
                 |row| {
                     Ok(InboxEntry {

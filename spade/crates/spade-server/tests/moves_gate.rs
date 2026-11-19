@@ -64,7 +64,29 @@ async fn research(spade: &Spade) -> Result<(String, String)> {
     let folder = spade.dir.path().join("workspace").join(&bot);
     std::fs::create_dir_all(&folder)?;
     std::fs::write(folder.join("plan.md"), "# Plan\n")?;
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{bot}/notes"),
+            json!({ "text": "Prefers short answers." }),
+        )
+        .await?;
+    assert!(status < 300, "{body}");
     Ok((bot, conversation))
+}
+
+/// The id of `bot`'s note on `spade`.
+async fn note_of(spade: &Spade, bot: &str) -> Result<String> {
+    let (_, body) = spade.get(&format!("/v1/agents/{bot}/notes")).await?;
+    let notes = body["notes"]
+        .as_array()
+        .or(body.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(notes
+        .first()
+        .and_then(|n| n["id"].as_str())
+        .ok_or("no note")?
+        .to_owned())
 }
 
 async fn listed(spade: &Spade, bot: &str) -> Result<Option<Value>> {
@@ -75,8 +97,26 @@ async fn listed(spade: &Spade, bot: &str) -> Result<Option<Value>> {
 }
 
 /// Everything that could reach an arriving bot or act as it, each refused or not finding it.
-async fn unreachable(studio: &Spade, bot: &str, conversation: &str) -> Result {
+async fn unreachable(studio: &Spade, bot: &str, conversation: &str, note: &str) -> Result {
     assert!(listed(studio, bot).await?.is_none(), "not listed");
+    let (_, all) = studio.get("/v1/conversations").await?;
+    let text = all.to_string();
+    assert!(
+        !text.contains(conversation),
+        "no conversation list shows it: {text}"
+    );
+    let (status, _) = studio
+        .patch(&format!("/v1/notes/{note}"), json!({ "text": "Changed." }))
+        .await?;
+    assert_eq!(status, 404, "its note isn't changed");
+    let (status, _) = studio
+        .post(&format!("/v1/notes/{note}/accept"), json!({}))
+        .await?;
+    assert_eq!(status, 404, "nor kept");
+    let (status, _) = studio.delete(&format!("/v1/notes/{note}")).await?;
+    assert_eq!(status, 404, "nor deleted");
+    let (_, shared) = studio.get("/v1/notes").await?;
+    assert!(!shared.to_string().contains(note), "nor listed");
     let (status, _) = studio
         .post(
             &format!("/v1/conversations/{conversation}/messages"),
@@ -112,6 +152,7 @@ async fn unreachable(studio: &Spade, bot: &str, conversation: &str) -> Result {
 async fn a_bot_arriving_is_reached_by_nothing_while_its_rows_are_copied() -> Result {
     let (_fleet, laptop, studio) = pair().await?;
     let (bot, conversation) = research(&laptop).await?;
+    let note = note_of(&laptop, &bot).await?;
     // The studio holds its copy after the bot's own row has landed, until the test lets go.
     let (held, wait) = mpsc::channel::<()>();
     let (release, released) = mpsc::channel::<()>();
@@ -135,7 +176,7 @@ async fn a_bot_arriving_is_reached_by_nothing_while_its_rows_are_copied() -> Res
         store.agents()?.iter().all(|a| a.id != bot),
         "copied, yet listed nowhere"
     );
-    unreachable(&studio, &bot, &conversation).await?;
+    unreachable(&studio, &bot, &conversation, &note).await?;
     let _ = release.send(());
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     assert!(
@@ -146,6 +187,10 @@ async fn a_bot_arriving_is_reached_by_nothing_while_its_rows_are_copied() -> Res
         .get(&format!("/v1/conversations/{conversation}/events"))
         .await?;
     assert_eq!(status, 200);
+    let (status, _) = studio
+        .patch(&format!("/v1/notes/{note}"), json!({ "text": "Changed." }))
+        .await?;
+    assert_eq!(status, 200, "its note is the studio's now");
     Ok(())
 }
 
@@ -153,6 +198,7 @@ async fn a_bot_arriving_is_reached_by_nothing_while_its_rows_are_copied() -> Res
 async fn after_a_restart_mid_copy_nothing_reaches_the_bot_and_its_move_still_arrives() -> Result {
     let (fleet, laptop, studio) = pair().await?;
     let (bot, conversation) = research(&laptop).await?;
+    let note = note_of(&laptop, &bot).await?;
     // The studio's copy dies after the bot's own row has landed, as in a crash.
     let batches = Arc::new(AtomicUsize::new(0));
     let counted = batches.clone();
@@ -172,7 +218,7 @@ async fn after_a_restart_mid_copy_nothing_reaches_the_bot_and_its_move_still_arr
     }
     let studio = support::fleet::restart(&fleet, "host-studio", studio).await?;
     // Restarted, before anything else runs: the half-copied bot is behind the gate.
-    unreachable(&studio, &bot, &conversation).await?;
+    unreachable(&studio, &bot, &conversation, &note).await?;
     // Once the studio is back in the fleet, the copy is taken out and the move arrives whole.
     link(&fleet, "host-studio", &studio);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
@@ -393,9 +439,17 @@ async fn two_moves_arrive_at_once_at_most_and_staging_nobody_sends_to_goes_while
         limits,
     )
     .await?;
+    let laptop = machine(
+        &fleet,
+        "host-laptop",
+        "Laptop",
+        vec![Script::reply("unused")],
+    )
+    .await?;
     let mut statuses = Vec::new();
     for n in 1..=3 {
         let (id, bot) = (format!("mv_{n}"), format!("a_l{n}"));
+        support::fleet::sending(&laptop, &id, &bot, "host-laptop")?;
         let sent = manifest(&id, &bot);
         let said = json!({ "bot": bot, "from": "host-laptop", "via": "host-laptop",
             "to": "host-studio", "digest": sha(&sent), "replaces": "bot" });
@@ -430,5 +484,75 @@ async fn two_moves_arrive_at_once_at_most_and_staging_nobody_sends_to_goes_while
         store.stored_move("mv_1")?.map(|e| e.state),
         Some("aborted".to_owned())
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_abort_or_the_sweep_waits_for_a_commit_in_hand_and_never_removes_what_it_uses() -> Result
+{
+    let fleet = Arc::new(Fleet::default());
+    let laptop = machine(
+        &fleet,
+        "host-laptop",
+        "Laptop",
+        vec![Script::reply("unused")],
+    )
+    .await?;
+    let limits = spade_server::engine::Limits {
+        archive_sweep: Duration::from_millis(50),
+        ..spade_server::engine::Limits::default()
+    };
+    let studio = machine_with(
+        &fleet,
+        "host-studio",
+        "Studio",
+        vec![Script::reply("unused")],
+        limits,
+    )
+    .await?;
+    let (bot, _) = research(&laptop).await?;
+    let (held, wait) = mpsc::channel::<()>();
+    let (release, released) = mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    let batches = AtomicUsize::new(0);
+    studio.engine.hold_arrivals(Arc::new(move || {
+        if batches.fetch_add(1, Ordering::SeqCst) == 1 {
+            let _ = held.send(());
+            let _ = released
+                .lock()
+                .map(|r| r.recv_timeout(Duration::from_secs(30)));
+        }
+    }));
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
+    assert_eq!(status, 202);
+    tokio::task::spawn_blocking(move || wait.recv_timeout(Duration::from_secs(20))).await??;
+    // The commit is in hand. To the sweep the move looks a day old.
+    let store = Store::open(&studio.database())?;
+    let backdate = rusqlite::Connection::open(studio.database())?;
+    backdate.execute("UPDATE moves SET updated_ms = 0 WHERE id = 'mv_1'", [])?;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let staging = studio.dir.path().join("moves/mv_1/in");
+    assert!(staging.exists(), "the sweep left the staging a commit uses");
+    assert_eq!(
+        store.stored_move("mv_1")?.map(|m| m.state).as_deref(),
+        Some("activating")
+    );
+    // An abort from the laptop waits for the commit, then finds it took.
+    let base = studio.base.clone();
+    let abort = tokio::spawn(async move {
+        let request = json!({ "op": "move", "step": "abort", "move": "mv_1" });
+        deliver(&base, "host-laptop", "Laptop", &request).await
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(
+        !abort.is_finished(),
+        "the abort waits for the commit in hand"
+    );
+    assert!(staging.exists(), "nothing removed the staging meanwhile");
+    let _ = release.send(());
+    let (status, body) = abort.await??;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
+    assert!(listed(&studio, &bot).await?.is_some(), "it arrived whole");
     Ok(())
 }

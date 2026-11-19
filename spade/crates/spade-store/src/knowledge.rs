@@ -8,6 +8,14 @@ use spade_core::knowledge::{self, Entry, Fold, Kind, Relation, SourceKind, Trust
 
 use crate::{Result, Store};
 
+/// An entry of no bot still arriving (ADR 0187), as `k` and as its own row; and those that are.
+const LIVE_ENTRY: &str =
+    "k.agent_id NOT IN (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1)";
+const LIVE_ENTRY_ROW: &str =
+    "agent_id NOT IN (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1)";
+const ARRIVING_ENTRIES: &str = "(SELECT id FROM knowledge WHERE agent_id IN \
+     (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1))";
+
 /// The schema step that adds knowledge bases and episodes.
 pub(crate) const SCHEMA: &str = "
     CREATE TABLE knowledge (
@@ -187,7 +195,7 @@ fn base_in(tx: &Transaction<'_>, agent: &str) -> rusqlite::Result<Vec<StoredEntr
 
 fn one_in(tx: &rusqlite::Connection, id: &str) -> rusqlite::Result<Option<StoredEntry>> {
     tx.query_row(
-        &format!("SELECT {COLUMNS} FROM knowledge k WHERE k.id = ?1"),
+        &format!("SELECT {COLUMNS} FROM knowledge k WHERE k.id = ?1 AND {LIVE_ENTRY}"),
         params![id],
         entry,
     )
@@ -281,6 +289,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM knowledge k WHERE k.agent_id = ?1 AND (?2 IS NULL OR k.topic = ?2)
+               AND {LIVE_ENTRY}
              ORDER BY k.updated_ms DESC, k.id DESC"
         ))?;
         let rows = statement.query_map(params![agent, topic], entry)?;
@@ -309,7 +318,7 @@ impl Store {
             "SELECT {COLUMNS}, bm25(knowledge_search) FROM knowledge_search
              JOIN knowledge k ON k.rowid = knowledge_search.rowid
              WHERE knowledge_search MATCH ?1
-               AND k.agent_id IN (SELECT value FROM json_each(?2))
+               AND k.agent_id IN (SELECT value FROM json_each(?2)) AND {LIVE_ENTRY}
              ORDER BY bm25(knowledge_search) LIMIT ?3"
         ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -381,10 +390,12 @@ impl Store {
     ) -> Result<Changed> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE knowledge SET topic = COALESCE(?2, topic), title = COALESCE(?3, title),
+            &format!(
+                "UPDATE knowledge SET topic = COALESCE(?2, topic), title = COALESCE(?3, title),
                  body = COALESCE(?4, body), kind = COALESCE(?5, kind),
                  trust = COALESCE(?6, trust), updated_ms = MAX(?7, updated_ms + 1)
-             WHERE id = ?1 AND (?8 IS NULL OR updated_ms = ?8)",
+             WHERE id = ?1 AND (?8 IS NULL OR updated_ms = ?8) AND {LIVE_ENTRY_ROW}"
+            ),
             params![
                 id,
                 change.topic,
@@ -405,17 +416,20 @@ impl Store {
 
     /// Deletes an entry and its links; whether there was one.
     pub fn delete_knowledge(&self, id: &str) -> Result<bool> {
-        Ok(self
-            .lock()?
-            .execute("DELETE FROM knowledge WHERE id = ?1", params![id])?
-            > 0)
+        Ok(self.lock()?.execute(
+            &format!("DELETE FROM knowledge WHERE id = ?1 AND {LIVE_ENTRY_ROW}"),
+            params![id],
+        )? > 0)
     }
 
     /// Links `from` to `to`, replacing any link between them in that direction.
     pub fn link_knowledge(&self, from: &str, to: &str, relation: Relation) -> Result<()> {
         self.lock()?.execute(
-            "INSERT INTO knowledge_links (from_id, to_id, relation) VALUES (?1, ?2, ?3)
-             ON CONFLICT (from_id, to_id) DO UPDATE SET relation = excluded.relation",
+            &format!(
+                "INSERT INTO knowledge_links (from_id, to_id, relation)
+                 SELECT ?1, ?2, ?3 WHERE ?1 NOT IN {ARRIVING_ENTRIES} AND ?2 NOT IN {ARRIVING_ENTRIES}
+                 ON CONFLICT (from_id, to_id) DO UPDATE SET relation = excluded.relation"
+            ),
             params![from, to, relation.name()],
         )?;
         Ok(())
@@ -424,7 +438,10 @@ impl Store {
     /// Removes the link from `from` to `to`; whether there was one.
     pub fn unlink_knowledge(&self, from: &str, to: &str) -> Result<bool> {
         Ok(self.lock()?.execute(
-            "DELETE FROM knowledge_links WHERE from_id = ?1 AND to_id = ?2",
+            &format!(
+                "DELETE FROM knowledge_links WHERE from_id = ?1 AND to_id = ?2
+                 AND from_id NOT IN {ARRIVING_ENTRIES}"
+            ),
             params![from, to],
         )? > 0)
     }
@@ -432,12 +449,14 @@ impl Store {
     /// The links from and to an entry.
     pub fn knowledge_links(&self, id: &str) -> Result<Vec<EntryLink>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT to_id, relation, 1 FROM knowledge_links WHERE from_id = ?1
+               AND to_id NOT IN {ARRIVING_ENTRIES} AND from_id NOT IN {ARRIVING_ENTRIES}
              UNION ALL
              SELECT from_id, relation, 0 FROM knowledge_links WHERE to_id = ?1
-             ORDER BY 3 DESC, 1",
-        )?;
+               AND to_id NOT IN {ARRIVING_ENTRIES} AND from_id NOT IN {ARRIVING_ENTRIES}
+             ORDER BY 3 DESC, 1"
+        ))?;
         let rows = statement.query_map(params![id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -492,8 +511,10 @@ impl Store {
             tx.execute("DELETE FROM knowledge WHERE id = ?1", params![id])?;
         }
         tx.execute(
-            "UPDATE knowledge SET body = ?2, trust = ?3, updated_ms = MAX(?4, updated_ms + 1)
-             WHERE id = ?1",
+            &format!(
+                "UPDATE knowledge SET body = ?2, trust = ?3, updated_ms = MAX(?4, updated_ms + 1)
+             WHERE id = ?1 AND {LIVE_ENTRY_ROW}"
+            ),
             params![into, body, trust.name(), now_ms],
         )?;
         let merged = one_in(&tx, into)?;
@@ -507,7 +528,7 @@ impl Store {
         let tx = connection.transaction()?;
         for id in ids {
             tx.execute(
-                "UPDATE knowledge SET used_ms = ?2, uses = uses + 1 WHERE id = ?1",
+                &format!("UPDATE knowledge SET used_ms = ?2, uses = uses + 1 WHERE id = ?1 AND {LIVE_ENTRY_ROW}"),
                 params![id, now_ms],
             )?;
         }
@@ -518,9 +539,11 @@ impl Store {
     /// The bytes one base holds, as its bound counts them.
     pub fn knowledge_bytes(&self, agent: &str) -> Result<u64> {
         let bytes: i64 = self.lock()?.query_row(
-            "SELECT COALESCE(SUM(LENGTH(CAST(topic AS BLOB)) + LENGTH(CAST(title AS BLOB))
+            &format!(
+                "SELECT COALESCE(SUM(LENGTH(CAST(topic AS BLOB)) + LENGTH(CAST(title AS BLOB))
                                  + LENGTH(CAST(body AS BLOB))), 0)
-             FROM knowledge WHERE agent_id = ?1",
+             FROM knowledge WHERE agent_id = ?1 AND {LIVE_ENTRY_ROW}"
+            ),
             params![agent],
             |row| row.get(0),
         )?;

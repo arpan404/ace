@@ -356,7 +356,8 @@ async fn a_bot_arrives_on_the_auto_review_though_the_machine_it_moves_to_runs_fu
 
 #[tokio::test]
 async fn a_begun_move_hears_only_from_its_machine_and_keeps_its_manifest() -> Result {
-    let (_fleet, _laptop, studio) = pair().await?;
+    let (_fleet, laptop, studio) = pair().await?;
+    support::fleet::sending(&laptop, "mv_1", "a_l1", "host-laptop")?;
     let sent = manifest("mv_1", "a_l1");
     assert_eq!(
         accept(&studio, "mv_1", &said("a_l1", sha(&sent)), true).await?,
@@ -625,7 +626,7 @@ async fn a_moved_away_bots_archive_goes_after_thirty_days_without_a_restart() ->
 #[tokio::test]
 async fn a_move_past_its_limits_or_past_what_it_declared_is_refused_and_its_staging_removed()
 -> Result {
-    let (_fleet, _laptop, studio) = pair().await?;
+    let (_fleet, laptop, studio) = pair().await?;
     let mut begun = 0;
     let mut begin = |change: &dyn Fn(&mut Value)| {
         begun += 1;
@@ -671,6 +672,7 @@ async fn a_move_past_its_limits_or_past_what_it_declared_is_refused_and_its_stag
             m["parts"] = json!(3);
             m["bytes"] = json!(40);
         });
+        support::fleet::sending(&laptop, &id, &format!("a_{id}"), "host-laptop")?;
         assert_eq!(
             accept(&studio, &id, &said("a_l1", sha(&sent)), true).await?,
             200
@@ -696,5 +698,40 @@ async fn a_move_past_its_limits_or_past_what_it_declared_is_refused_and_its_stag
             409
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_move_the_machine_it_names_never_sent_is_refused_and_the_sender_is_named_as_known()
+-> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    // Another paired device claims to bring a bot from the laptop, and the person, reading
+    // "from Laptop", accepts it with that device.
+    let forged = manifest("mv_1", "a_l1");
+    let mut claimed = said("a_l1", sha(&forged));
+    claimed["via"] = json!("host-evil");
+    assert_eq!(accept(&studio, "mv_1", &claimed, true).await?, 200);
+    let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": forged });
+    let (status, body) = deliver(&studio.base, "host-evil", "Laptop", &begin).await?;
+    assert_eq!(status, 403, "the laptop never sent it: {body}");
+    assert!(
+        !studio.dir.path().join("moves/mv_1/in/parts").exists(),
+        "nothing was staged"
+    );
+    // The laptop's own move, its device vouched for by the laptop: the sender is named as
+    // this machine knows it, whatever name the request carries.
+    support::fleet::sending(&laptop, "mv_2", "a_l2", "host-laptop")?;
+    let sent = manifest("mv_2", "a_l2");
+    assert_eq!(
+        accept(&studio, "mv_2", &said("a_l2", sha(&sent)), true).await?,
+        200
+    );
+    let begin = json!({ "op": "move", "step": "begin", "move": "mv_2", "manifest": sent });
+    let (status, body) = deliver(&studio.base, "host-laptop", "Pretender", &begin).await?;
+    assert_eq!(status, 200, "{body}");
+    let held = Store::open(&studio.database())?
+        .stored_move("mv_2")?
+        .ok_or("no move")?;
+    assert_eq!(held.peer_name, "Laptop");
     Ok(())
 }

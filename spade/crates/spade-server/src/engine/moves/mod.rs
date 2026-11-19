@@ -44,15 +44,10 @@ const DONE: &str = "done";
 const FAILED: &str = "failed";
 const CANCELLED: &str = "cancelled";
 
-// The target's: the person accepted it, it receives, writes and places, then has it; or it was
-// given up.
+// The target's: the person accepted it, it receives, copies its rows in behind the gate, places
+// its files, then has it; or it was given up. The store moves an arrival through its own.
 const ACCEPTED: &str = "accepted";
-const RECEIVING: &str = "receiving";
-/// Its rows are being copied in, in batches; a restart takes them out again.
-const ACTIVATING: &str = "activating";
-const PLACING: &str = "placing";
-const COMMITTED: &str = "committed";
-const ABORTED: &str = "aborted";
+use spade_store::arrival_state::{ABORTED, ACTIVATING, COMMITTED, PLACING, RECEIVING, UNDOING};
 
 /// What a move's export says it is.
 pub const FORMAT: &str = "spade-move";
@@ -70,23 +65,6 @@ const MOST_ARRIVING: usize = 2;
 const STALE_STAGING_MS: i64 = 24 * 60 * 60_000;
 const STALE_ACCEPT_MS: i64 = 60 * 60_000;
 
-/// What a move claims: its bots, their conversations and its clubs.
-fn claims(selection: &spade_store::Selection) -> Vec<String> {
-    let mut all: Vec<String> = selection
-        .agents
-        .iter()
-        .map(|id| format!("agent:{id}"))
-        .collect();
-    all.extend(
-        selection
-            .conversations
-            .iter()
-            .map(|id| format!("conversation:{id}")),
-    );
-    all.extend(selection.groups.iter().map(|id| format!("group:{id}")));
-    all
-}
-
 /// How long a moved-away bot's archive is kept.
 const KEEP_ARCHIVE_MS: i64 = 30 * 24 * 60 * 60_000;
 /// Archives one sweep removes at most.
@@ -103,9 +81,9 @@ pub(crate) struct Shared {
     cancelled: Mutex<std::collections::HashSet<String>>,
     /// The archive sweep runs.
     sweeping: std::sync::atomic::AtomicBool,
-    /// Conversations of bots arriving here (ADR 0187): no read or write reaches them until their
-    /// move makes them this machine's. Rebuilt from the store when Spade opens.
-    arriving: Mutex<std::collections::HashSet<String>>,
+    /// One lock per move to here: every step of it, its recovery and the sweep take it, so
+    /// nothing removes its staging or moves it on while another step works on it.
+    steps: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Each running move's driver, woken by the person's Check again.
     wakes: Mutex<HashMap<String, Arc<tokio::sync::Notify>>>,
     /// Told after each batch an arrival copies (tests hold the copy there).
@@ -216,46 +194,26 @@ impl Engine {
         lock(&self.moves.frozen).contains_key(conversation)
     }
 
-    /// Whether `conversation` exists here and is no bot's still arriving: the one check every
-    /// read and write of a conversation goes through (ADR 0187).
+    /// Whether `conversation` exists here: the store finds no bot's still arriving (ADR 0187),
+    /// whatever asks.
     pub(crate) fn reachable(&self, conversation: &str) -> Result<bool, StoreError> {
-        if lock(&self.moves.arriving).contains(conversation) {
-            return Ok(false);
-        }
         Ok(self.store.conversation(conversation)?.is_some())
     }
 
-    /// Closes the gate on what an arrival brings: frozen for its move, and unreachable.
-    fn arriving(&self, id: &str, conversations: &[String]) {
-        self.freeze(id, conversations);
-        lock(&self.moves.arriving).extend(conversations.iter().cloned());
+    /// The lock every step of move `id` to here takes.
+    fn steps_of(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        lock(&self.moves.steps)
+            .entry(id.to_owned())
+            .or_default()
+            .clone()
     }
 
-    /// Opens the gate once an arrival is this machine's, or gone.
-    fn arrived(&self, id: &str, conversations: &[String]) {
-        let mut arriving = lock(&self.moves.arriving);
-        for conversation in conversations {
-            arriving.remove(conversation);
-        }
-        drop(arriving);
-        self.thaw(id, conversations);
-    }
-
-    /// Restores every move's hold from the store, before anything else runs at start: bots
-    /// moving away stay frozen; bots arriving (their move's stored selection, and any agent still
-    /// `arriving`) stay frozen and unreachable.
+    /// Restores the holds of moves from here before anything else runs at start: bots moving
+    /// away stay frozen. Bots arriving need nothing: the store's gate is its own rows.
     pub(crate) fn restore_moves(&self) -> Result<(), StoreError> {
         for entry in self.store.open_moves(OUT)? {
             self.freeze(&entry.id, &strings(&detail(&entry)["conversations"]));
         }
-        for entry in self.store.open_moves(IN)? {
-            let kept = detail(&entry);
-            let mut held = strings(&kept["selection"]["conversations"]);
-            held.extend(strings(&kept["conversations"]));
-            self.arriving(&entry.id, &held);
-        }
-        let left = self.store.arriving_selection()?;
-        self.arriving("arriving", &left.conversations);
         Ok(())
     }
 
@@ -457,7 +415,7 @@ impl Engine {
                 agent.name
             )));
         }
-        if !self.store.claim_for_move(id, &claims(&selection))? {
+        if !self.store.claim_for_move(id, &selection)? {
             self.store
                 .set_move(id, CANCELLED, &entry.detail, self.now_ms())?;
             return Err(MoveError::Refused(format!(
@@ -651,18 +609,8 @@ impl Engine {
     /// Removes the archives and leftovers of at most `most` moves that ended more than
     /// `KEEP_ARCHIVE_MS` ago, oldest first; answers how many it removed.
     pub(crate) fn sweep_archives(&self, most: usize) -> usize {
-        // Staging nobody sends to any more, and acceptances nobody began, go too, a few at a time.
-        let now = self.now_ms();
-        if let Ok(open) = self.store.open_moves(IN) {
-            let stale = open.into_iter().filter(|entry| match entry.state.as_str() {
-                ACCEPTED => now - entry.updated_ms > STALE_ACCEPT_MS,
-                RECEIVING => now - entry.updated_ms > STALE_STAGING_MS,
-                _ => false,
-            });
-            for entry in stale.take(most) {
-                self.drop_staging(&entry, "nothing came for this move for too long");
-            }
-        }
+        // Arrivals nobody works on: stale staging and acceptances, cut-off copies, a few at a time.
+        self.sweep_arrivals(most);
         let Ok(old) = self
             .store
             .moves_to_sweep(self.now_ms() - KEEP_ARCHIVE_MS, most)

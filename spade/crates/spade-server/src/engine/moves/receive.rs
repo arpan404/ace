@@ -1,9 +1,10 @@
 //! The machine a bot moves to (ADR 0187): inbox requests with `op: "move"`, through the
-//! daemons. A move begins only if the person accepted it here (`accept_move`), for that bot;
-//! `begin` binds it to the machine that sent it and to its manifest, by hash, so neither can
-//! change afterwards. `part` stores one part, `commit` writes and checks everything (`arrive`),
-//! `status` and `abort` answer the source after a lost answer or when it gives up. Every step
-//! can come twice.
+//! daemons, each from the device the person accepted. A move begins only if the person
+//! accepted it here (`accept_move`), for that bot, and the machine it names vouches for that
+//! device over this machine's own link to it; `begin` binds it to its manifest, by hash. `part`
+//! stores one part, `commit` writes and checks everything (`arrive`), `status` and `abort`
+//! answer the source after a lost answer or when it gives up. Every step can come twice, and
+//! each holds the move's lock while it works.
 
 use std::sync::Arc;
 
@@ -13,8 +14,8 @@ use spade_store::{Store, StoredMove};
 
 use super::paths::{self, plain_id};
 use super::{
-    ABORTED, ACCEPTED, ACTIVATING, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING, VERSION,
-    budget, detail, lock,
+    ABORTED, ACCEPTED, ACTIVATING, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING, UNDOING,
+    VERSION, budget, detail,
 };
 use crate::engine::inbox::{InboxAnswer, Sender};
 
@@ -104,7 +105,8 @@ impl Engine {
     }
 
     /// One `op: "move"` inbox request. `connectors` is the person's apps here, whose access
-    /// for the arriving bot starts empty.
+    /// for the arriving bot starts empty. Every step of a move to here holds the move's lock, so
+    /// no other step, recovery or sweep works on it meanwhile.
     pub(crate) async fn inbox_move(
         self: &Arc<Self>,
         sender: &Sender,
@@ -114,6 +116,10 @@ impl Engine {
         let Some(id) = body["move"].as_str().filter(|id| plain_id(id)) else {
             return refuse(400, "a move is named by a plain id");
         };
+        if body["step"] == "vouch" {
+            return self.move_vouch(id);
+        }
+        let held = self.steps_of(id).lock_owned().await;
         let entry = match self.store.stored_move(id) {
             Ok(Some(entry)) if entry.direction == IN => entry,
             Ok(Some(_)) => return refuse(409, "that move is this machine's own"),
@@ -136,19 +142,36 @@ impl Engine {
             return refuse(403, "this move is another machine's");
         }
         match body["step"].as_str() {
-            Some("begin") => self.move_begin(sender, entry, &body["manifest"]),
+            Some("begin") => self.move_begin(entry, &body["manifest"]).await,
             Some("part") => self.move_part(entry, body),
-            Some("commit") => self.move_commit(entry, &body["host"], connectors).await,
-            Some("status") => (
-                200,
-                json!({ "state": entry.state, "arrival": kept["arrival"] }),
-            ),
-            Some("abort") => self.move_abort(entry),
+            Some("commit") => self.move_commit(held, entry, connectors).await,
+            Some("status") => self.move_status(held, entry).await,
+            Some("abort") => self.move_abort(held, entry).await,
             _ => refuse(400, "unknown step"),
         }
     }
 
-    fn move_begin(&self, sender: &Sender, entry: StoredMove, manifest: &Value) -> InboxAnswer {
+    /// Asked by the machine a move goes to: which device this machine speaks through there for
+    /// its move `id`, so that machine knows the device the person accepted is this one's.
+    fn move_vouch(&self, id: &str) -> InboxAnswer {
+        match self.store.stored_move(id) {
+            Ok(Some(entry))
+                if entry.direction == super::OUT && spade_store::open_state(&entry.state) =>
+            {
+                (200, json!({ "via": detail(&entry)["via"] }))
+            }
+            Ok(_) => refuse(404, "this machine sends no such move"),
+            Err(error) => refuse(500, &error.to_string()),
+        }
+    }
+
+    /// What the move's state and the arrival read, for the source.
+    fn move_answer(entry: &StoredMove) -> Value {
+        let kept = detail(entry);
+        json!({ "state": entry.state, "arrival": kept["arrival"], "host": kept["host"] })
+    }
+
+    async fn move_begin(&self, entry: StoredMove, manifest: &Value) -> InboxAnswer {
         let host = self.host_record().ok().flatten().map(|r| r.to_json());
         let kept = detail(&entry);
         let sha = manifest_sha(manifest);
@@ -196,9 +219,25 @@ impl Engine {
         if main && self.main_enabled().unwrap_or(true) {
             return refuse(409, "Spade is in use on this machine; it can't be replaced");
         }
+        let from = kept["from"].as_str().unwrap_or_default().to_owned();
+        if main
+            && super::HostRecord::parse(&manifest["host"]).is_some_and(|record| record.host != from)
+        {
+            return refuse(
+                409,
+                "Spade isn't hosted on the machine this move comes from",
+            );
+        }
         let declared = match budget::declared(manifest) {
             Ok(declared) => declared,
             Err(problem) => return refuse(413, &problem),
+        };
+        // The machine the move names, reached over this machine's own link to it, vouches that
+        // the device the person accepted is the one it speaks through here; its name here is
+        // the one this machine knows it by, never the one the request carries.
+        let from_name = match self.vouched(&entry.id, &from, &kept["via"]).await {
+            Ok(name) => name,
+            Err(answer) => return answer,
         };
         // A few moves arrive at once, and together they must fit the disk.
         let arriving: Vec<StoredMove> = self
@@ -233,10 +272,6 @@ impl Engine {
             .collect();
         for agent in &agents {
             match self.store.agent(agent) {
-                // Spade's own quiet copy from an earlier stay here is replaced.
-                Ok(Some(held))
-                    if main && held.kind == super::MAIN && !self.main_enabled().unwrap_or(true) => {
-                }
                 Ok(Some(_)) => return refuse(409, &format!("{name} is already on this machine")),
                 Ok(None) => {}
                 Err(error) => return refuse(500, &error.to_string()),
@@ -253,26 +288,63 @@ impl Engine {
         let mut begun = kept.clone();
         begun["manifest"] = manifest.clone();
         begun["manifest_sha"] = json!(sha);
-        begun["sender"] = json!(sender.host);
-        begun["from_name"] = json!(sender.name);
+        begun["from_name"] = json!(from_name);
         begun["staged"] = json!(0);
         begun["listed"] = json!(0);
         let now = self.now_ms();
         let stored = self
             .store
-            .set_move(&entry.id, RECEIVING, &begun.to_string(), now)
-            .and_then(|()| {
-                self.store.set_move_peer(
-                    &entry.id,
-                    manifest["from"].as_str().unwrap_or_default(),
-                    &sender.name,
-                )
-            });
+            .advance_move(
+                &entry.id,
+                Some(&[ACCEPTED]),
+                RECEIVING,
+                &begun.to_string(),
+                now,
+            )
+            .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name));
         if let Err(error) = stored {
             return refuse(500, &error.to_string());
         }
         let _ = self.store.set_move_identity(&entry.id, &name, main);
         (200, json!({ "have": [], "state": RECEIVING, "host": host }))
+    }
+
+    /// Asks the machine `from` names, over this machine's own link to it, which device it sends
+    /// move `id` through: it must be `via`, the one the person accepted. Answers that machine's
+    /// name as this machine knows it.
+    async fn vouched(&self, id: &str, from: &str, via: &Value) -> Result<String, InboxAnswer> {
+        let Some(remote) = self.remote() else {
+            return Err(refuse(
+                503,
+                "this machine can't reach its other machines yet",
+            ));
+        };
+        let known = remote
+            .machines()
+            .await
+            .ok()
+            .and_then(|all| all.into_iter().find(|m| m.host_id == from));
+        let Some(machine) = known else {
+            return Err(refuse(
+                403,
+                "the machine this move names isn't one of yours here",
+            ));
+        };
+        let asked = json!({ "op": "move", "step": "vouch", "move": id });
+        match remote.call(from, asked).await {
+            Ok((200, answer)) if answer["via"] == *via => Ok(machine.name),
+            Ok((200 | 404, _)) => Err(refuse(
+                403,
+                "the machine this move names doesn't send it through the device you accepted",
+            )),
+            _ => Err(refuse(
+                503,
+                &format!(
+                    "{} can't be asked about this move yet; try again",
+                    machine.name
+                ),
+            )),
+        }
     }
 
     fn move_part(&self, entry: StoredMove, body: &Value) -> InboxAnswer {
@@ -332,34 +404,51 @@ impl Engine {
             kept["staged"] = json!(staged);
             kept["listed"] = json!(named);
         }
-        let _ = self
-            .store
-            .set_move(&entry.id, RECEIVING, &kept.to_string(), self.now_ms());
+        let _ = self.store.advance_move(
+            &entry.id,
+            Some(&[RECEIVING]),
+            RECEIVING,
+            &kept.to_string(),
+            self.now_ms(),
+        );
         (200, json!({}))
+    }
+
+    /// Runs `work` on a blocking thread, holding the move's lock `held` throughout.
+    async fn blocking<T: Send + 'static>(
+        self: &Arc<Self>,
+        held: tokio::sync::OwnedMutexGuard<()>,
+        work: impl FnOnce(&Engine) -> T + Send + 'static,
+    ) -> Result<T, String> {
+        let engine = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let answer = work(&engine);
+            drop(held);
+            answer
+        })
+        .await
+        .map_err(|e| e.to_string())
     }
 
     async fn move_commit(
         self: &Arc<Self>,
+        held: tokio::sync::OwnedMutexGuard<()>,
         entry: StoredMove,
-        host: &Value,
         connectors: Option<Arc<spade_connect::Connectors>>,
     ) -> InboxAnswer {
-        let id = entry.id.clone();
         match entry.state.as_str() {
             COMMITTED => {
-                return (
-                    200,
-                    json!({ "committed": true, "arrival": detail(&entry)["arrival"] }),
-                );
+                let mut answer = Self::move_answer(&entry);
+                answer["committed"] = json!(true);
+                return (200, answer);
             }
             ABORTED => return refuse(409, "this move was given up here; start it again"),
             ACCEPTED => return refuse(409, "this move hasn't begun"),
-            ACTIVATING => return refuse(503, "this move is being written; ask again in a moment"),
             _ => {}
         }
         if entry.state == RECEIVING {
             let total = detail(&entry)["manifest"]["parts"].as_u64().unwrap_or(0);
-            let have = self.staged(&id);
+            let have = self.staged(&entry.id);
             let missing: Vec<u64> = (0..total)
                 .filter(|i| have.binary_search(i).is_err())
                 .take(20)
@@ -371,82 +460,170 @@ impl Engine {
                 );
             }
         }
-        // One commit at a time per move: a second waits for the first's answer.
-        if !lock(&self.moves.driving).insert(format!("in:{id}")) {
-            return refuse(503, "this move is being written; ask again in a moment");
-        }
-        let (engine, host) = (self.clone(), host.clone());
-        let written = tokio::task::spawn_blocking(move || {
-            if entry.state == PLACING {
-                // Its rows are written: only its files are left to place.
-                engine.finish_placing(&entry)
-            } else {
-                engine.arrive(&entry, &host, connectors.as_deref())
-            }
-        })
-        .await;
-        lock(&self.moves.driving).remove(&format!("in:{id}"));
+        let id = entry.id.clone();
+        let written = self
+            .blocking(held, move |engine| {
+                // A copy that was cut off comes out first; then it runs again from its parts.
+                if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+                    engine.recover(&entry.id);
+                }
+                let entry = engine
+                    .store
+                    .stored_move(&entry.id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(entry);
+                match entry.state.as_str() {
+                    RECEIVING => engine.arrive(&entry, connectors.as_deref()),
+                    // Its rows are in: only its files and the cutover are left.
+                    PLACING => engine.finish_placing(&entry),
+                    _ => Err(super::arrive::Failed::Placing(format!(
+                        "this move reads {} here",
+                        entry.state
+                    ))),
+                }
+            })
+            .await;
         match written {
-            Ok(Ok(arrival)) => (200, json!({ "committed": true, "arrival": arrival })),
+            Ok(Ok(_)) => {
+                let entry = self.store.stored_move(&id).ok().flatten();
+                let mut answer = entry
+                    .as_ref()
+                    .map(Self::move_answer)
+                    .unwrap_or_else(|| json!({}));
+                answer["committed"] = json!(true);
+                (200, answer)
+            }
             Ok(Err(super::arrive::Failed::Refused(problem))) => refuse(422, &problem),
             Ok(Err(super::arrive::Failed::Placing(problem))) => (
                 503,
-                json!({ "state": PLACING, "error": format!("its files aren't placed yet: {problem}") }),
+                json!({ "state": PLACING, "error": format!("the move isn't done here yet: {problem}") }),
             ),
-            Err(error) => refuse(500, &error.to_string()),
+            Err(error) => refuse(500, &error),
         }
     }
 
-    fn move_abort(&self, entry: StoredMove) -> InboxAnswer {
+    /// The move as it stands here; one cut off mid-copy is carried on first, so the answer is
+    /// one the source can act on.
+    async fn move_status(
+        self: &Arc<Self>,
+        held: tokio::sync::OwnedMutexGuard<()>,
+        entry: StoredMove,
+    ) -> InboxAnswer {
+        let id = entry.id.clone();
+        if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+            let _ = self.blocking(held, move |engine| engine.recover(&id)).await;
+        }
+        match self.store.stored_move(&entry.id) {
+            Ok(Some(entry)) => (200, Self::move_answer(&entry)),
+            _ => refuse(500, "the move's state can't be read"),
+        }
+    }
+
+    async fn move_abort(
+        self: &Arc<Self>,
+        held: tokio::sync::OwnedMutexGuard<()>,
+        entry: StoredMove,
+    ) -> InboxAnswer {
         match entry.state.as_str() {
             RECEIVING | ACCEPTED => {
                 self.drop_staging(&entry, "the other machine gave the move up");
                 (200, json!({ "state": ABORTED }))
             }
-            PLACING | COMMITTED => refuse(409, "the move already took here"),
+            // Not this machine's yet: exactly what it inserted comes out.
+            ACTIVATING | UNDOING | PLACING => {
+                let id = entry.id.clone();
+                let _ = self
+                    .blocking(held, move |engine| {
+                        engine.abandon(&id, "the other machine gave the move up")
+                    })
+                    .await;
+                (200, json!({ "state": ABORTED }))
+            }
+            COMMITTED => refuse(409, "the move already took here"),
             _ => (200, json!({ "state": ABORTED })),
         }
     }
 
-    /// Gives a move to here up: its staging goes, and it is remembered as given up.
+    /// Gives a move to here up while nothing of it is copied in (accepted or receiving): it is
+    /// remembered as given up, then its staging goes. A move that has moved on is left alone.
     pub(super) fn drop_staging(&self, entry: &StoredMove, why: &str) {
+        let mut kept = detail(entry);
+        kept["problem"] = json!(why);
+        match self.store.advance_move(
+            &entry.id,
+            Some(&[ACCEPTED, RECEIVING]),
+            ABORTED,
+            &kept.to_string(),
+            self.now_ms(),
+        ) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                tracing::error!(%error, "a given-up move could not be stored");
+                return;
+            }
+        }
         if let Err(error) = paths::remove_child(&self.data_dir().join("moves"), &entry.id) {
             tracing::warn!(%error, "a given-up move's staging could not be removed");
         }
-        let mut kept = detail(entry);
-        kept["problem"] = json!(why);
-        if let Err(error) =
-            self.store
-                .set_move(&entry.id, ABORTED, &kept.to_string(), self.now_ms())
-        {
-            tracing::error!(%error, "a given-up move could not be stored");
-        }
     }
 
-    /// After a restart: a move whose rows were written finishes placing its files; one whose
-    /// source stopped sending a day ago, or that the person accepted and nobody began, is
-    /// given up.
+    /// After a restart, each move to here under its lock: one cut off mid-copy is undone, one
+    /// placing its files finishes, one whose source stopped sending a day ago is given up.
     pub(super) fn resume_arrivals(self: &Arc<Self>) {
         let Ok(open) = self.store.open_moves(IN) else {
             return;
         };
         let now = self.now_ms();
         for entry in open {
-            if entry.state == ACTIVATING {
-                // Cut off while its rows were being copied in: they come out again, and the
-                // source's next commit writes them afresh.
-                let engine = self.clone();
-                tokio::task::spawn_blocking(move || engine.undo_activation(&entry));
-            } else if entry.state == PLACING {
-                self.freeze(&entry.id, &super::strings(&detail(&entry)["conversations"]));
-                let engine = self.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(error) = engine.finish_placing(&entry) {
-                        tracing::error!(?error, "a moved bot's files could not be placed");
-                    }
-                });
-            } else if now - entry.updated_ms > STALE_MS {
-                self.drop_staging(&entry, "the other machine stopped sending");
+            let engine = self.clone();
+            tokio::spawn(async move {
+                let held = engine.steps_of(&entry.id).lock_owned().await;
+                if matches!(entry.state.as_str(), ACTIVATING | UNDOING | PLACING) {
+                    let id = entry.id.clone();
+                    let _ = engine
+                        .blocking(held, move |engine| engine.recover(&id))
+                        .await;
+                } else if now - entry.updated_ms > STALE_MS {
+                    engine.drop_staging(&entry, "the other machine stopped sending");
+                }
+            });
+        }
+    }
+
+    /// Part of the sweep, for moves to here no step works on now (their lock is free): stale
+    /// staging and acceptances go; an arrival cut off mid-copy is undone; a committed one's
+    /// record of its rows is forgotten. At most `most` of each.
+    pub(super) fn sweep_arrivals(&self, most: usize) {
+        let now = self.now_ms();
+        let Ok(open) = self.store.open_moves(IN) else {
+            return;
+        };
+        let mut done = 0;
+        for entry in open {
+            if done >= most {
+                break;
+            }
+            let Ok(_held) = self.steps_of(&entry.id).try_lock_owned() else {
+                continue;
+            };
+            let stale = match entry.state.as_str() {
+                ACCEPTED => now - entry.updated_ms > super::STALE_ACCEPT_MS,
+                RECEIVING => now - entry.updated_ms > super::STALE_STAGING_MS,
+                _ => false,
+            };
+            if stale {
+                self.drop_staging(&entry, "nothing came for this move for too long");
+                done += 1;
+            } else if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+                self.recover(&entry.id);
+                done += 1;
+            }
+        }
+        for id in self.store.moves_with_rows(most).unwrap_or_default() {
+            if let Err(error) = self.store.move_arrive_forget(&id) {
+                tracing::warn!(%error, "a moved bot's record of its rows could not be forgotten");
             }
         }
     }

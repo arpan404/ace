@@ -319,9 +319,7 @@ async fn a_move_interrupted_by_a_restart_carries_on_by_itself() -> Result {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    let laptop = laptop
-        .restart(Vec::new(), vec![Script::reply("unused")])
-        .await?;
+    let laptop = support::fleet::restart(&fleet, "host-laptop", laptop).await?;
     fleet.unreachable.store(false, Ordering::SeqCst);
     link(&fleet, "host-laptop", &laptop);
     // The person's say, given once the restarted laptop says what to accept.
