@@ -8,7 +8,9 @@
 //! asked once per root, by looking one of the folder's own entries up under a spelling that
 //! differs only in case.
 
+#[cfg(unix)]
 use std::ffi::OsStr;
+#[cfg(unix)]
 use std::io;
 
 use cap_std::fs::Dir;
