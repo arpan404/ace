@@ -54,7 +54,7 @@ struct ThreadFileRoutes: ViewModifier {
                 }
             }
             .alert("Couldn't open the file", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK") { problem = nil }
+                Button("Dismiss") { problem = nil }
             } message: { Text(problem ?? "") }
     }
 

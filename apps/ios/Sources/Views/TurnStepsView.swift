@@ -88,6 +88,8 @@ struct AgentLaneSheet: View {
     let model: ClientModel
     let thread: ThreadModel
     let openThread: (String) -> Void
+    /// Shows the thread's browser under this sheet, which closes first.
+    var openBrowser: (() -> Void)? = nil
     @State private var path: [SubagentRoute] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -99,7 +101,8 @@ struct AgentLaneSheet: View {
     }
     private func page(_ route: SubagentRoute) -> some View {
         SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
-                     openThread: { child in dismiss(); openThread(child) })
+                     openThread: { child in dismiss(); openThread(child) },
+                     openBrowser: openBrowser.map { open in { dismiss(); open() } })
             .escapeCloses { dismiss() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
     }

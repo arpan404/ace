@@ -32,6 +32,8 @@ import { declinesOnly, summarizedNote } from "./summarized-requests.ts";
  */
 
 const questionLimit = 8;
+/** The raw part the daemon puts on a request it mirrors from another machine. */
+const mirrored = "ace.machine.request";
 const optionLimit = 32;
 
 function approval(interaction: Interaction, command: string) {
@@ -148,6 +150,11 @@ export function interactionRow(asked: Interaction, reader: RequestReader, fallba
     ...base,
     ...(request.kind === "question" ? { title: preview(questionTitle(request.questions)) } : {}),
     ...row,
+    // Mirrored from another machine (`apps/daemon/src/machines/mirror.ts`): its tab is there, not
+    // in this thread's browser, so the card doesn't offer to open it here.
+    ...(row.help
+      ? { help: { ...row.help, elsewhere: asked.raw.some((part) => part.type === mirrored) } }
+      : {}),
     ...(summarized && row.plan ? { plan: { ...row.plan, truncated: true } } : {}),
     ...(summarized && row.form ? { form: { ...row.form, unsupported: true, fields: [] } } : {}),
     ...(summarized ? { truncated: true } : {}),

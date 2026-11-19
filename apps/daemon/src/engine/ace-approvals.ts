@@ -24,6 +24,46 @@ export function liveAceCall(
   return named.length === 1 ? named[0]?.key : undefined;
 }
 
+/**
+ * The agent making a live call to ace's `tool` whose arguments `matches`: its key when exactly
+ * one agent is, so a request the call opens (browser help, say) belongs to the subagent that asked
+ * and shows in its lane. Only agents on this machine count. Undefined when none is, or several
+ * are and the caller can't be told, so the request falls back to the root.
+ */
+export function aceCaller(
+  state: ThreadState,
+  tool: string,
+  matches: (args: unknown) => boolean,
+): string | undefined {
+  const callers = new Set<string>();
+  for (const key of Object.keys(state.indexes.liveTools)) {
+    const item = state.items[key];
+    if (item?.type !== "tool_call") continue;
+    const detail = item.call.detail;
+    if (detail.kind !== "mcp" || detail.server !== "ace" || detail.tool !== tool) continue;
+    if (!matches(detail.arguments)) continue;
+    const agent = state.indexes.agentKeysById[item.agentId];
+    // Only this machine's agents can have made the call: tab ids repeat across machines, and a
+    // child elsewhere asks through its own machine.
+    if (agent === undefined || state.agents[agent]?.agent.machine !== undefined) continue;
+    callers.add(agent);
+  }
+  return callers.size === 1 ? [...callers][0] : undefined;
+}
+
+/** Whether agent `agentId` is `ancestorId` or one of its descendants in the thread's tree. */
+export function withinAgent(state: ThreadState, agentId: string, ancestorId: string): boolean {
+  const seen = new Set<string>();
+  let current: string | null | undefined = agentId;
+  while (current && !seen.has(current)) {
+    if (current === ancestorId) return true;
+    seen.add(current);
+    const key: string | undefined = state.indexes.agentKeysById[current];
+    current = key === undefined ? undefined : state.agents[key]?.agent.parentId;
+  }
+  return false;
+}
+
 /** Only daemon catalog entries with validated arguments earn ace action metadata. */
 export function attributeAceAction(
   state: ThreadState,
