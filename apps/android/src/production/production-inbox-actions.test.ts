@@ -211,7 +211,8 @@ it("admits a production archive through the operate gate for the exact host", as
     const outcome = await runProductionInboxAction(produced, "host-1", "archive", THREAD, NOW);
     expect(outcome.admitted).toBe(true);
     expect(typeof outcome.commandId).toBe("string");
-    expect(sent.some((text) => text.includes("thread.archive"))).toBe(true);
+    // The client writes the admitted command on a later turn.
+    await until(() => sent.some((text) => text.includes("thread.archive")));
     const reads = produced.runtimeForReading("host-1");
     await until(() => {
       try {
@@ -311,6 +312,8 @@ it("a revoked grant stops the next admission before the wire", async () => {
   try {
     const first = await runProductionInboxAction(produced, "host-1", "settle", THREAD, NOW);
     expect(first.admitted).toBe(true);
+    // Let the first command reach the wire so the slice below holds only the second.
+    await until(() => sent.some((text) => text.includes("thread.settle")));
     await produced.grants.setScopes("device-1", ["read"]);
     const before = sent.length;
     const second = await runProductionInboxAction(produced, "host-1", "settle", THREAD, NOW);
