@@ -222,14 +222,20 @@ fn open_parent_stored_reports_the_spelling_the_disk_keeps() {
     assert_eq!(parent.name, "new.txt");
     assert_eq!(parent.folders, ["Docs", "nested"]);
 
-    let parent = root
-        .open_parent_stored("DOCS/NESTED/new.txt")
-        .expect("open the folders under another spelling");
-    assert_eq!(
-        parent.folders,
-        ["Docs", "nested"],
-        "a case-insensitive volume answers with the names on disk"
-    );
+    let outcome = root.open_parent_stored("DOCS/NESTED/new.txt");
+    if root.path().join("DOCS").exists() {
+        let parent = outcome.expect("open the folders under another spelling");
+        assert_eq!(
+            parent.folders,
+            ["Docs", "nested"],
+            "a case-insensitive volume answers with the names on disk"
+        );
+    } else {
+        assert!(
+            outcome.is_err(),
+            "a case-sensitive volume has no DOCS folder to open"
+        );
+    }
 }
 
 #[cfg(unix)]
