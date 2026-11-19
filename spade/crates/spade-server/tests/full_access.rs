@@ -409,9 +409,32 @@ async fn in_full_access_a_network_declared_app_tool_that_sends_is_reviewed_with_
     .await?;
     assert_eq!(as_person(&w, &w.bot, json!("full_access")).await?.0, 200);
     classifier(&w, false).await?;
+    // Each refusal is put to the person (ADR 0163, amendment 3), who says no here.
+    let deny = |call: &'static str| {
+        let w = &w;
+        async move {
+            let (status, body) = w
+                .spade
+                .post(
+                    &format!("/v1/conversations/{}/approvals/{call}", w.conversation),
+                    json!({ "allowed": false }),
+                )
+                .await?;
+            assert_eq!(status, 202, "{body}");
+            Result::Ok(())
+        }
+    };
     w.spade.say(&w.conversation, "Email Bob").await?;
+    w.spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    deny("c1").await?;
     w.spade.wait_for(&w.conversation, "reply_finished").await?;
     w.spade.say(&w.conversation, "Read the page").await?;
+    w.spade
+        .wait_for_count(&w.conversation, "approval_requested", 2)
+        .await?;
+    deny("c3").await?;
     let events = w
         .spade
         .wait_for_count(&w.conversation, "reply_finished", 2)
@@ -422,7 +445,16 @@ async fn in_full_access_a_network_declared_app_tool_that_sends_is_reviewed_with_
             .find(|e| e["type"] == "call_reviewed" && e["call_id"] == call)
             .ok_or_else(|| format!("{call} wasn't reviewed: {events:?}"))?;
         assert_ne!(reviewed["model"], "", "a reviewer judged {call}");
-        assert!(output(&events, call).starts_with("Not run"), "{call}");
+        let asked = events
+            .iter()
+            .find(|e| e["type"] == "approval_requested" && e["call_id"] == call)
+            .ok_or_else(|| format!("{call} wasn't put to the person"))?;
+        assert_eq!(
+            asked["reviewer_reason"],
+            "The reviewer stopped this: The person didn't ask to email anyone.",
+            "{call}"
+        );
+        assert_eq!(output(&events, call), "The person declined this action.");
     }
     assert_eq!(sends.lock().map(|c| c.len()).unwrap_or(0), 0);
     Ok(())
