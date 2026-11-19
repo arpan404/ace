@@ -136,6 +136,28 @@ describe("a transfer frame goes only where it can be taken, and only while it is
     expect(transfersSent(there.sent)).toHaveLength(1);
     await relay.close();
   });
+  it("never says hello on an opening the pool closed, for a caller of a newer opening", async () => {
+    const old = machineThere(true);
+    const fresh = machineThere(true);
+    const oldOpened = Promise.withResolvers<ClientChannel>();
+    const freshOpened = Promise.withResolvers<ClientChannel>();
+    const channels = [oldOpened.promise, freshOpened.promise];
+    const relay = link({ connect: () => channels.shift() ?? Promise.reject(new Error("none")) });
+    const stop = new AbortController();
+    const first = relay.transfer(target(false), status, { timeoutMs: 5000, signal: stop.signal });
+    // Links change: the pool closes, and a new caller's stream is still opening when the old
+    // one's connection comes back.
+    const closing = relay.close();
+    const second = relay.transfer(target(false), status, { timeoutMs: 5000 });
+    stop.abort();
+    oldOpened.resolve(old.channel);
+    await expect(first).rejects.toThrow();
+    freshOpened.resolve(fresh.channel);
+    await expect(second).resolves.toEqual({ offset: 0 });
+    await closing;
+    expect(tokenSent(old.sent)).toBe(false);
+    await relay.close();
+  });
   it("opens ace's relay and the person's own as separate streams, the account grant only on ace's", async () => {
     const grants: (string | undefined)[] = [];
     const relay = link({

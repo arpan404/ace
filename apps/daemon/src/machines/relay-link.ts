@@ -70,6 +70,28 @@ interface Stream {
   stopIdle?: (() => void) | undefined;
 }
 
+/** A caller waiting for a stream, until it gives up. */
+interface Waiter {
+  signal?: AbortSignal | undefined;
+}
+
+/** What one opening of a stream knows while it opens: who waits on it, and whether it was closed. */
+interface OpeningState {
+  waiters: Set<Waiter>;
+  closed: boolean;
+}
+
+interface Opening {
+  own: OpeningState;
+  stream: Promise<Stream>;
+}
+
+/** Whether any of `waiters` hasn't given up. */
+function wanted(waiters: ReadonlySet<Waiter>): boolean {
+  for (const waiter of waiters) if (!waiter.signal?.aborted) return true;
+  return false;
+}
+
 /** A stream unused for this long closes; the next call opens a new one. */
 const IDLE_MS = 60_000;
 const CONNECT_MS = 15_000;
@@ -82,9 +104,7 @@ const CONNECT_MS = 15_000;
  */
 export class RelayLink {
   private deps: RelayLinkDeps;
-  private streams = new Map<string, Promise<Stream>>();
-  /** The callers waiting on each stream still opening, by stream key. */
-  private waiting = new Map<string, Set<{ signal?: AbortSignal | undefined }>>();
+  private streams = new Map<string, Opening>();
   constructor(deps: RelayLinkDeps) {
     this.deps = deps;
   }
@@ -93,7 +113,7 @@ export class RelayLink {
     // way never reuses a stream opened the other way (with or without an account grant).
     return `${target.hosted ? "hosted" : "own"}\n${target.url}\n${target.relayHostId}\n${target.deviceId}`;
   }
-  private async open(target: RelayTarget): Promise<Stream> {
+  private async open(target: RelayTarget, own: OpeningState): Promise<Stream> {
     // The deadline covers connecting and the hello only: an open stream outlives it.
     const opening = new AbortController();
     const stopDeadline = this.deps.schedule(CONNECT_MS, () => opening.abort());
@@ -127,7 +147,7 @@ export class RelayLink {
       // while some caller still waits for this stream (several may share one opening).
       if (!this.deps.current(target))
         throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
-      if (!this.wanted(this.key(target)))
+      if (own.closed || !wanted(own.waiters))
         throw new MachineNotSent("offline", undefined, "No call waits for this stream any more");
       await channel.send({
         type: "hello",
@@ -176,19 +196,33 @@ export class RelayLink {
     })();
     return stream;
   }
-  private async stream(target: RelayTarget): Promise<Stream> {
+  /**
+   * The open stream for `target`, or the one opening, which `waiter` waits on until it is there.
+   * Each opening keeps its own waiters, so one never sends its hello for another's caller.
+   */
+  private async stream(target: RelayTarget, waiter: Waiter): Promise<Stream> {
     const key = this.key(target);
-    const known = this.streams.get(key);
-    if (known) {
-      const stream = await known.catch(() => undefined);
+    for (;;) {
+      const found = this.streams.get(key);
+      const opening = found ?? this.opening(key, target);
+      opening.own.waiters.add(waiter);
+      const stream = await opening.stream
+        // One found already opening that failed is opened again for this caller, as before.
+        .catch((error: unknown) => {
+          if (!found) throw error;
+          return undefined;
+        })
+        .finally(() => opening.own.waiters.delete(waiter));
       if (stream && !stream.dead) return stream;
-      if (this.streams.get(key) === known) this.streams.delete(key);
-      const again = this.streams.get(key);
-      if (again) return again;
+      if (this.streams.get(key) === opening) this.streams.delete(key);
     }
-    const opening = this.open(target);
+  }
+  /** Starts opening the stream under `key`, its own waiters and closing flag with it. */
+  private opening(key: string, target: RelayTarget): Opening {
+    const own: OpeningState = { waiters: new Set(), closed: false };
+    const opening: Opening = { own, stream: this.open(target, own) };
     this.streams.set(key, opening);
-    opening.catch(() => {
+    opening.stream.catch(() => {
       if (this.streams.get(key) === opening) this.streams.delete(key);
     });
     return opening;
@@ -238,21 +272,13 @@ export class RelayLink {
     if (!this.deps.current(target))
       throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
     let stream: Stream;
-    const key = this.key(target);
-    const waiter = { signal: options.signal };
-    const waiters = this.waiting.get(key) ?? new Set();
-    waiters.add(waiter);
-    this.waiting.set(key, waiters);
     try {
-      stream = await this.stream(target);
+      stream = await this.stream(target, { signal: options.signal });
     } catch (error) {
       throw (error instanceof MachineFailure && error.kind === "refused") ||
         error instanceof MachineNotSent
         ? error
         : new MachineFailure("offline");
-    } finally {
-      waiters.delete(waiter);
-      if (!waiters.size && this.waiting.get(key) === waiters) this.waiting.delete(key);
     }
     try {
       // Set-up took time: a caller that gave up, or a pairing removed meanwhile, sends nothing.
@@ -320,17 +346,14 @@ export class RelayLink {
       refusal.success && refusal.data.final === true,
     );
   }
-  /** Whether any caller waiting on the stream under `key` hasn't given up. */
-  private wanted(key: string): boolean {
-    for (const waiter of this.waiting.get(key) ?? []) if (!waiter.signal?.aborted) return true;
-    return false;
-  }
   /** Closes every stream, e.g. at shutdown or when links change. */
   async close(): Promise<void> {
     const open = [...this.streams.values()];
     this.streams.clear();
+    // An opening that hasn't said hello yet never will: its callers start a new one.
+    for (const opening of open) opening.own.closed = true;
     for (const opening of open) {
-      const stream = await opening.catch(() => undefined);
+      const stream = await opening.stream.catch(() => undefined);
       stream?.channel.close();
     }
   }
