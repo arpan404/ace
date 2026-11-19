@@ -12,13 +12,22 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub use crate::hooks::Step;
 
 /// What a watcher sees: the step, and the source and destination of the move.
-type Watcher = Box<dyn Fn(Step, &str, &str) + Send + Sync>;
+///
+/// Shared so the list can be read and released before any watcher runs: a watcher that calls back
+/// into this crate must not find its own registry locked.
+type Watcher = Arc<dyn Fn(Step, &str, &str) + Send + Sync>;
+
+/// The targets whose atomic exchange a test refused.
+type Refusals = Vec<(usize, Vec<String>)>;
+
+/// The moves a test reported as meeting a taken destination.
+type Taken = Vec<(usize, Vec<(String, String)>)>;
 
 #[derive(Default)]
 struct Installed {
     watchers: Arc<Mutex<Vec<(usize, Watcher)>>>,
-    exchange: Arc<Mutex<Vec<(usize, Vec<String>)>>>,
-    taken: Arc<Mutex<Vec<(usize, Vec<(String, String)>)>>>,
+    exchange: Arc<Mutex<Refusals>>,
+    taken: Arc<Mutex<Taken>>,
 }
 
 fn installed() -> &'static Installed {
@@ -66,7 +75,7 @@ pub fn watch(watcher: impl Fn(Step, &str, &str) + Send + Sync + 'static) -> Guar
         .watchers
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    watchers.push((id, Box::new(watcher)));
+    watchers.push((id, Arc::new(watcher)));
     Guard { id }
 }
 
@@ -104,11 +113,14 @@ pub(crate) fn reports_taken(from: &str, to: &str) -> bool {
 /// Runs every watcher for one step.
 pub(crate) fn reached(step: Step, from: &str, to: &str) {
     let hooks = installed();
-    let watchers = hooks
+    let watchers: Vec<Watcher> = hooks
         .watchers
         .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    for (_, watcher) in watchers.iter() {
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|(_, watcher)| Arc::clone(watcher))
+        .collect();
+    for watcher in watchers {
         watcher(step, from, to);
     }
 }
