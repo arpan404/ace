@@ -208,7 +208,9 @@ fn classify(kind: &EventKind, present: Presence) -> Option<(ChangeKind, bool)> {
 /// The relative form of `absolute` if it is inside the root and not excluded.
 fn inside(root: &Root, excluder: &Excluder, absolute: &Path) -> Option<String> {
     let path = root.relative(absolute)?;
-    if path.is_empty() || excluder.is_excluded(&path) {
+    // The watcher writes one probe file into a root to prove its stream delivers; its own news is
+    // never a change in the tree.
+    if path.is_empty() || path == crate::watch::PROBE || excluder.is_excluded(&path) {
         return None;
     }
     Some(path)
