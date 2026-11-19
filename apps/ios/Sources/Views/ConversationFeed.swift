@@ -555,6 +555,7 @@ struct ConversationFeed: View {
         pageIfNeeded(proxy)
     }
     private func threadLoaded(_ loaded: Bool, proxy: ScrollViewProxy) {
+        TranscriptJumpHooks.mark("loaded=\(loaded)")
         guard loaded else { focusRequested(); return }
         restoreSessionIfReady()
         if !initialScroll {
@@ -611,6 +612,7 @@ struct ConversationFeed: View {
     }
     private func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
+        TranscriptJumpHooks.mark("appeared.loaded=\(thread.loaded)")
         model.readingWillMove = { captureTop(); holdOlderPage() }
         model.readingMoved = { reading.moved() }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
@@ -689,6 +691,7 @@ struct ConversationFeed: View {
             let watched = TranscriptSettle.watched(following: pinned, height: Double(metrics.height), offset: Double(metrics.y))
             return settle.frame(watched, placed: placed, at: time)
         }) { outcome in
+            TranscriptJumpHooks.mark("reveal.\(outcome).fromEnd=\(Int(intent.metrics.bottom)).session=\(viewport.sessionAnchor != nil).loading=\(reading.loading).window=\(reading.thread != nil).pinned=\(pinned).h=\(Int(intent.metrics.height))")
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
@@ -1110,6 +1113,7 @@ struct ConversationFeed: View {
         let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)
         let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom, ahead: ahead, direction: viewport.direction)
         if edge == .older, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
+            TranscriptJumpHooks.mark("page.older.retained=\(inRetainedSpace).active=\(intent.active).top=\(Int(intent.metrics.top)).bottom=\(Int(intent.metrics.bottom))")
             intent.consumed = true
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())
         } else if edge == .newer, reading.thread != nil {

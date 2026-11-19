@@ -260,6 +260,18 @@ enum TranscriptJumpHooks {
         }
         #endif
     }
+    /// DIAG(#2316): an event on the open's timeline, in ms since the feed appeared.
+    @MainActor static func mark(_ event: String) {
+        #if ACE_FIXTURE
+        guard PerfProbe.enabled else { return }
+        let now = CACurrentMediaTime()
+        if openedAt == 0 || event == "appeared" { openedAt = now; timeline = [] }
+        timeline.append("\(Int(((now - openedAt) * 1_000).rounded())):\(event)")
+        PerfProbe.record(["jump.timeline": timeline.joined(separator: "|")])
+        #endif
+    }
+    @MainActor private static var openedAt: CFTimeInterval = 0
+    @MainActor private static var timeline: [String] = []
     @MainActor static func scrolling(_ phase: ScrollPhase) {
         #if ACE_FIXTURE
         guard PerfProbe.enabled else { return }

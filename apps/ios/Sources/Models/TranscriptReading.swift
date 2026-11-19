@@ -223,6 +223,7 @@ struct ThreadFocus: Equatable {
         let turnsOnly = thread != nil && !isStale && (operation == "hold" || operation == "follow")
         let movesRows = operation != "live" && !turnsOnly
         if movesRows { model.holdReading() }
+        TranscriptJumpHooks.mark("ask.\(operation)")
         request = Task {
             defer { if generation == version { loading = false } }
             do {
@@ -237,6 +238,7 @@ struct ThreadFocus: Equatable {
     }
     /// The current read's reply: the window closed, or its rows and evidence to fold in.
     private func received(_ reply: TranscriptReadingReply, operation: String, model: ClientModel, asked: Double) {
+        TranscriptJumpHooks.mark("reply.\(operation).active=\(reply.active).count=\(reply.count)")
         guard reply.active else {
             close(model: model)
             landing.readFailed()
@@ -302,7 +304,7 @@ struct ThreadFocus: Equatable {
         retryAnchorItemId = nil
     }
     /// The reading rows moved: the feed restores the reader's place against them.
-    func moved() { revision += 1 }
+    func moved() { revision += 1; TranscriptJumpHooks.mark("moved.rows=\(thread?.order.count ?? -1)") }
 
     private func open(model: ClientModel, live: ThreadModel) -> ThreadModel {
         Self.epochs += 1

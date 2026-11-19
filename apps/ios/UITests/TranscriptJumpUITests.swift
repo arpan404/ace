@@ -22,6 +22,7 @@ import XCTest
     func testALiveThreadOpensAtItsEndAndOnlyFollowsIt() {
         let app = open("ios-stream")
         let run = jumpRun(app, "open")
+        print("jump timeline ios-stream: \(app.probe["jump.timeline"] ?? "-")")
         print("jump open ios-stream: \(run) reveal=\(app.probe["jump.reveal.ms"] ?? "-")ms capped=\(app.probe["jump.reveal.capped"] ?? "-")")
         XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
         XCTAssertFalse(run.trace.contains("swap"), "the screen is never replaced: \(run)")
