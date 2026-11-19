@@ -387,3 +387,30 @@ test("a checkout of hundreds of files lists one folder at a time, and search fin
   expect(await within(found).findByRole("treeitem", { name: "case-399.ts" })).toBeTruthy();
   expect(pkg.getAttribute("aria-expanded")).toBe("true");
 });
+
+test("an open file shows what another program wrote to it, once the watcher names its folder", async () => {
+  const { app, folders } = await openThread();
+  await quickOpen("sock");
+  await screen.findByRole("option", { name: /socket\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/socket.ts",
+  });
+  await waitFor(() => expect(source.textContent).toContain("export class RelaySocket {"));
+  // The daemon only names folders a client watches: the open file's folder is one of them.
+  await waitFor(() => expect(folders.watches.at(-1)).toContain("apps/web/src/relay"));
+
+  app.daemon.checkouts.overwrite(
+    "thread-cold-start",
+    "apps/web/src/relay/socket.ts",
+    "export const fromDisk = 1;\n",
+  );
+  folders.changed(["apps/web/src/relay"]);
+  await waitFor(() =>
+    expect(
+      within(side).getByRole("region", { name: "Source of apps/web/src/relay/socket.ts" })
+        .textContent,
+    ).toContain("fromDisk"),
+  );
+});

@@ -32,6 +32,7 @@ import { useFindHits } from "./use-find-hits.ts";
 import { FindBar } from "./find-bar.tsx";
 import { useChangeMarks } from "./use-change-marks.ts";
 import { useFileContent } from "./use-checkout.ts";
+import { useOpenFileFollow } from "./use-open-file-follow.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
 const FileEditor = lazy(() =>
@@ -114,6 +115,7 @@ export function FileTab(props: TabViewProps) {
   const [prefs] = useFilePrefs();
   const recentStore = useRecentFilesStore();
   const content = useFileContent(threadId, path);
+  useOpenFileFollow(threadId, path);
   const [operation, setOperation] = useState<FileOperationDialog>();
   const query = data.query ?? "";
   const find = data.find;
