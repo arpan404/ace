@@ -49,6 +49,14 @@ it("ends a session that finished opening after the move fenced it, and keeps the
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   await m.source.daemon.engine?.flush();
   expect(sentTo(m.source, threadId)).not.toContain("One more thing");
-  const fate = m.source.daemon.engine?.inputFate(threadId, CommandId.parse("parked"));
-  expect(fate?.state).not.toBe("failed");
+  // Still queued and held, not marked unsent for a manual retry.
+  const engine = m.source.daemon.engine;
+  expect(engine?.inputFate(threadId, CommandId.parse("parked"))).toEqual({ state: "waiting" });
+  const queue = engine?.queue(threadId);
+  expect(queue?.lastFailure).toBeNull();
+  expect(JSON.stringify(queue?.messages.map((message) => message.input))).toContain(
+    "One more thing",
+  );
+  // The provider that finished opening was closed: no process for the thread remains.
+  expect(engine?.liveMove.withProcess([threadId])).toEqual([]);
 });

@@ -32,6 +32,8 @@ async function source(
   const childRunning = () =>
     !closed.has("child") && (childStopsAt === undefined || clock < childStopsAt);
   const packedWhile: boolean[] = [];
+  const grandchildAtPack: boolean[] = [];
+  const tree = [{ threadId: "child", title: "Write the tests", live: true }];
   const ports: LiveSourcePorts = {
     ownership: new ThreadOwnership(store),
     git: {
@@ -43,6 +45,8 @@ async function source(
     archive: {
       packFolder: async () => {
         packedWhile.push(childRunning());
+        if (tree.some((entry) => entry.threadId === "grandchild"))
+          grandchildAtPack.push(!closed.has("grandchild"));
         return { bytes: 1024, sha256: "a".repeat(64), entries: 0, skipped: 0, files: 0 };
       },
     } as unknown as LiveSourcePorts["archive"],
@@ -60,7 +64,7 @@ async function source(
     shells: () => [],
     terminals: () => [],
     stopTerminals: async () => {},
-    descendants: () => [{ threadId: "child", title: "Write the tests", live: true }],
+    descendants: () => tree,
     // The engine's own process set: a thread has one until its provider was closed.
     withProcess: (ids) => ids.filter((id) => !closed.has(id)),
     // Admission returns at once; the child's own turn ends later.
@@ -81,7 +85,15 @@ async function source(
       clock += ms;
     },
   };
-  return { live: new LiveSource(ports), packedWhile, root, closed, clock: () => clock };
+  return {
+    live: new LiveSource(ports),
+    packedWhile,
+    grandchildAtPack,
+    tree,
+    root,
+    closed,
+    clock: () => clock,
+  };
 }
 
 const record = {
@@ -138,5 +150,41 @@ describe("stopping a working thread's subagents before its final snapshot", () =
     ).rejects.toMatchObject({ code: "process_still_running" });
     expect(s.packedWhile).toEqual([]);
     expect(s.clock()).toBeLessThanOrEqual(40_000);
+  });
+
+  it("waits for a grandchild's process too: the whole tree, not only direct subagents", async () => {
+    const s = await source(0);
+    // A subagent of the subagent, which ignores the cascading interrupt and keeps writing.
+    s.tree.push({ threadId: "grandchild", title: "Fix the flaky test", live: true });
+    await s.live.stop({
+      record,
+      plan: { source: s.root, name: "app" },
+      directory: s.root,
+      signal: new AbortController().signal,
+      interrupted: () => {},
+    });
+    expect(s.closed.has("grandchild")).toBe(true);
+    expect(s.packedWhile).toEqual([false]);
+    expect(s.grandchildAtPack).toEqual([false]);
+  });
+
+  it("fails the move when a grandchild's process never exits", async () => {
+    const s = await source(0, (threadId) =>
+      threadId === "grandchild" ? new Promise<void>(() => {}) : Promise.resolve(),
+    );
+    s.tree.push({ threadId: "grandchild", title: "Fix the flaky test", live: true });
+    await expect(
+      s.live.stop({
+        record,
+        plan: { source: s.root, name: "app" },
+        directory: s.root,
+        signal: new AbortController().signal,
+        interrupted: () => {},
+      }),
+    ).rejects.toMatchObject({
+      code: "process_still_running",
+      message: expect.stringContaining("Fix the flaky test"),
+    });
+    expect(s.packedWhile).toEqual([]);
   });
 });

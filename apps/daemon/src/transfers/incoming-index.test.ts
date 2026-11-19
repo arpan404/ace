@@ -90,6 +90,45 @@ describe("the target's transfer rows over time", () => {
     );
   });
 
+  it("carries the one-time indexing on from where a restart cut it, not from the start", async () => {
+    const store = await open();
+    store.atomic((db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming (
+        transfer_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, state TEXT NOT NULL,
+        method TEXT NOT NULL, has_origin INTEGER, begin TEXT NOT NULL, commit_input TEXT,
+        workspace_id TEXT, registered_id TEXT, created_path TEXT, result TEXT, error TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+      const insert = db.prepare(
+        "INSERT INTO transfer_incoming (transfer_id,device_id,state,method,begin,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+      );
+      for (let index = 0; index < 600; index++) {
+        const id = `t${String(index).padStart(4, "0")}`;
+        insert.run(
+          id,
+          "macbook",
+          "completed",
+          "remote",
+          JSON.stringify(record(id, "completed").begin),
+          index,
+          index,
+        );
+      }
+      // A first start indexed the first 512 rows, then the daemon stopped.
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_index_progress (
+        id INTEGER PRIMARY KEY CHECK (id = 1), done INTEGER NOT NULL, after TEXT NOT NULL)`);
+      db.exec(
+        "INSERT INTO transfer_incoming_index_progress (id, done, after) VALUES (1, 0, 't0511')",
+      );
+    });
+    // The next start goes on from there: those 512 are taken as indexed and not read again.
+    const rows = new IncomingRows(store);
+    await rows.ready();
+    // Retention's oldest page now starts after the rows taken as indexed.
+    expect(rows.expired(1_000).map((row) => row.transferId)).toEqual(
+      Array.from({ length: 64 }, (_, index) => `t${String(512 + index).padStart(4, "0")}`),
+    );
+  });
+
   it("reads open work and expiry without scanning the transfers table (ADR 0170)", async () => {
     const store = await open();
     const rows = new IncomingRows(store);
