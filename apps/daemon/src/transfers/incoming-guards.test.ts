@@ -280,7 +280,13 @@ it("closing stops the sweep and waits for it, so nothing is swept once close has
   const removing = hold("removeQuietly");
   const sweeping = incoming.call(device, begin("t-next")).catch(() => undefined);
   await removing.reached;
-  const closing = incoming.close();
+  let closed = false;
+  const closing = incoming.close().then(() => {
+    closed = true;
+  });
+  // Closing waits for the sweep: it hasn't returned while the removal is held.
+  await settle();
+  expect(closed).toBe(false);
   removing.release();
   await closing;
   const left = () => ["t-old-1", "t-old-2"].filter((id) => state(id) !== undefined);
@@ -328,4 +334,24 @@ it("an upload an earlier build named after its id is found again after the upgra
   expect(
     (await readdir(fixture.directory)).filter((name) => !/^[0-9a-f]{64}\./.test(name)),
   ).toEqual([]);
+});
+
+it("a begin waiting on the sweep when closing starts is refused and makes no row", async () => {
+  const clock = { at: 2 };
+  const { incoming, state } = await target({ clock });
+  await incoming.call(device, begin("t-reused"));
+  await incoming.call(device, { op: "cancel", transferId: "t-reused" });
+  clock.at = 3 * 24 * 60 * 60 * 1000;
+  const removing = hold("removeQuietly");
+  const sweeping = incoming.call(device, begin("t-next")).catch(() => undefined);
+  await removing.reached;
+  // The sender begins the swept id again; it waits for the sweep, then closing starts.
+  const again = incoming.call(device, begin("t-reused"));
+  await settle();
+  const closing = incoming.close();
+  removing.release();
+  await closing;
+  await expect(again).rejects.toMatchObject({ code: "unavailable" });
+  await sweeping;
+  expect(state("t-reused")).toBeUndefined();
 });

@@ -358,7 +358,9 @@ export class IncomingTransfers {
     }
     const again = this.rows.get(call.transferId);
     if (again) return this.view(this.owned(device, call.transferId));
-    // Awaited above: the device may have lost the scopes a transfer needs meanwhile.
+    // Awaited above: this machine may be shutting down, or the device may have lost the scopes
+    // a transfer needs, meanwhile. Nothing starts once closing began.
+    if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
     this.still(device, check);
     const record: IncomingRecord = {
       transferId: call.transferId,
