@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { launchVerdict } from "./launch-verdict.ts";
 
-const daemon = '[info] daemon: ace daemon: ws://127.0.0.1:<ENV> {"stream":"stdout"}';
+const daemon = '[info] supervisor: The daemon is running {"source":"app","sinceLaunchMs":1809}';
 const checking = "[info] updates: updater: Checking for update";
 
 it("passes once the daemon serves and an update check has started, even if the check fails", () => {
@@ -17,7 +17,7 @@ it("passes once the daemon serves and an update check has started, even if the c
 it("keeps waiting while the daemon or the update check has not shown up", () => {
   expect(launchVerdict([])).toEqual({
     state: "waiting",
-    missing: ["the daemon serving", "an update check starting"],
+    missing: ["the daemon running", "an update check starting"],
   });
   expect(launchVerdict([daemon])).toEqual({
     state: "waiting",
