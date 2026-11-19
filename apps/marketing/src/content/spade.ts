@@ -9,7 +9,7 @@ import type { BotFace } from "@ace/ui-core/bot-face";
  */
 
 export const spadePage = {
-  title: "Spade: ace's own assistant",
+  title: "Spade: an AI assistant with bots, memory and routines: ace",
   description:
     "Spade is a messenger for bots that work for you: each with a face, a task, a model and a machine. Your own models, on your own computer. In beta in ace.",
   status: "In beta",

@@ -1,0 +1,99 @@
+---
+/*
+ * Questions as ruled rows in a card, each opening its answer in place. Answers stay in the HTML
+ * while closed, so search engines read them. Each row carries an anchor made from its question.
+ */
+import type { Question } from "../../scripts/faq-topics.ts";
+import { anchorIds } from "../../scripts/legal-outline.ts";
+
+interface Props {
+  questions: Question[];
+}
+
+const { questions } = Astro.props;
+const ids = anchorIds(questions.map((entry) => entry.question));
+---
+
+<div class="card list">
+  {
+    questions.map((entry, index) => (
+      <details id={ids[index]}>
+        <summary>
+          <h3>{entry.question}</h3>
+          <span class="sign" aria-hidden="true" />
+        </summary>
+        <p>{entry.answer}</p>
+      </details>
+    ))
+  }
+</div>
+
+<style>
+  .list {
+    padding: 6px;
+  }
+
+  details + details {
+    border-top: 1px solid var(--border);
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 17px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    list-style: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary:hover {
+    background: var(--wash);
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  /* A plus that turns into a minus when the answer is open. */
+  .sign {
+    position: relative;
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    color: var(--subtle);
+  }
+
+  .sign::before,
+  .sign::after {
+    content: "";
+    position: absolute;
+    inset: 5.5px 0 auto;
+    height: 1px;
+    background: currentColor;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+
+  .sign::after {
+    transform: rotate(90deg);
+  }
+
+  details[open] .sign::after {
+    transform: rotate(0deg);
+  }
+
+  details p {
+    max-width: 40em;
+    padding: 0 14px 20px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+</style>

@@ -77,13 +77,14 @@ export function startZoomStory(root: HTMLElement): void {
   const emptyText = placeholder?.textContent ?? "";
 
   // ace is open on every machine in the picture, each on a thread of its own: this Mac on the
-  // story's thread, the Linux machine testing sign-in, the workstation driving ace's browser.
+  // story's thread, the Linux machine running the soak test it handed off (as the caption says),
+  // the workstation driving ace's browser.
   const machine = (id: string) => q(`[data-thing="${id}"]`);
   const thisMac = machine("mac");
   const server = machine("build");
   const desk = machine("workstation");
   if (thisMac) show(thisMac, { thread: "cold-start" });
-  if (server) show(server, { thread: "sign-in" });
+  if (server) show(server, { thread: "soak" });
   if (desk) {
     show(desk, { thread: "staging" });
     desk.querySelector(".ace")?.setAttribute("data-panel", "browser");
@@ -397,6 +398,11 @@ export function startZoomStory(root: HTMLElement): void {
     }
     if (state.done !== was?.done) {
       app.dataset.cold = state.done ? "done" : "running";
+      // The Linux machine's own soak thread finishes with it.
+      if (server) {
+        server.querySelector(".ace")?.setAttribute("data-cold", state.done ? "done" : "running");
+        tone(server, "soak", state.done ? "done" : "working", state.done ? "now" : undefined);
+      }
       tone(root, "cold-start", state.done ? "done" : "agents", state.done ? "now" : undefined);
       tone(root, "soak", state.done ? "done" : "working", state.done ? "now" : undefined);
       q("[data-phone]")?.setAttribute("data-activity", state.done ? "done" : "waiting");

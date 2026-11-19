@@ -1,28 +1,69 @@
 ---
-import Boundary from "../components/Boundary.astro";
+/*
+ * Security and privacy: one heading and one sentence, a drawing of where things live, where ace
+ * stops in four groups, the records to check it against, and the questions. Words in
+ * content/security.ts; the questions are product.ts's, which the page's Markdown copy shares.
+ */
 import Closing from "../components/Closing.astro";
+import DownloadButton from "../components/DownloadButton.astro";
 import Faq from "../components/Faq.astro";
-import PageIntro from "../components/site/PageIntro.astro";
+import Boundaries from "../components/security/Boundaries.astro";
+import Records from "../components/security/Records.astro";
+import TrustMap from "../components/security/TrustMap.astro";
 import { securityQuestions } from "../content/product.ts";
+import { securityPage } from "../content/security.ts";
 import Page from "../layouts/Page.astro";
 import { faqPage, schemaFor } from "../seo/schema.ts";
 
 const path = "/security/";
-const questions = securityQuestions;
 ---
 
 <Page
   path={path}
-  title="Security and privacy: where your code goes with ace"
-  description="Agents run on your machines, credentials stay with each CLI, remote access is end-to-end encrypted, and every line of ace is open source."
-  schema={[faqPage(schemaFor(Astro.site), path, questions)]}
+  title={securityPage.title}
+  description={securityPage.description}
+  schema={[faqPage(schemaFor(Astro.site), path, securityQuestions)]}
 >
-  <PageIntro
-    headline="Your code, your machines, your keys"
-    intro="ace is an app you run, not a service you send code to. It sits around your agents, never between you and your providers."
-    secondary={{ href: "/privacy-policy/", label: "Privacy policy" }}
-  />
-  <Boundary />
-  <Faq items={questions} heading="Questions about security" moreHref="/faq/" />
+  <section class="page opening">
+    <h1>{securityPage.headline}</h1>
+    <p class="lead">{securityPage.intro}</p>
+    <div class="actions">
+      <DownloadButton />
+      <a class="button button-secondary" href="/privacy-policy/">Privacy policy</a>
+    </div>
+  </section>
+
+  <TrustMap />
+  <Boundaries />
+  <Records />
+  <Faq items={securityQuestions} heading={securityPage.questionsHeading} moreHref="/faq/" />
   <Closing />
 </Page>
+
+<style>
+  .opening {
+    padding-top: clamp(32px, 5vw, 64px);
+  }
+
+  h1 {
+    max-width: 12em;
+    font-size: clamp(44px, 7vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+</style>

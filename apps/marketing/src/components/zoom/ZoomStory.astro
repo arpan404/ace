@@ -237,16 +237,23 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     height: 15px;
   }
 
-  .ghost :global(.composer) {
-    box-shadow: 0 24px 60px -30px var(--frame-shadow);
-  }
-
-  /* On a narrow screen the copy is drawn at reading size, so the prompt wraps inside it. */
+  /*
+   * On a narrow screen the copy is drawn at reading size, so the prompt wraps inside it, and its
+   * foot keeps to one line: the access label gives way, as it does in a narrow window.
+   */
   @media (max-width: 759px) {
     .ghost :global(.composer) {
       height: auto;
       min-height: 112px;
       gap: 14px;
+    }
+
+    .ghost :global(.composer-foot) {
+      gap: 14px;
+    }
+
+    .ghost :global(.access) {
+      display: none;
     }
 
     .verb {
@@ -495,7 +502,6 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     border: 1px solid var(--border);
     border-radius: 999px;
     background: var(--surface);
-    box-shadow: 0 10px 24px -16px var(--frame-shadow);
     color: var(--foreground);
     font: inherit;
     font-size: 14px;

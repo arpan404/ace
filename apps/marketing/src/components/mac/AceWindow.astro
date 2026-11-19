@@ -17,7 +17,7 @@ import ThreadRow from "./ThreadRow.astro";
 import "./ace-window.css";
 
 /** Each thread a scene opens, as the top bar titles it. */
-const opened = ["cold-start", "checkout", "sign-in", "staging", "webhooks"].flatMap((id) => {
+const opened = ["cold-start", "checkout", "soak", "sign-in", "staging", "webhooks"].flatMap((id) => {
   const row = rows.find((entry) => entry.id === id);
   return row ? [row] : [];
 });

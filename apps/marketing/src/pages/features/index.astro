@@ -7,6 +7,7 @@ import { features } from "../../content/features.ts";
 import { partGroups } from "../../content/parts.ts";
 import Page from "../../layouts/Page.astro";
 import { tourStory } from "../../scripts/feature-tour.ts";
+import { featuresMeta } from "../../seo/meta.ts";
 import { itemList, schemaFor } from "../../seo/schema.ts";
 
 const path = "/features/";
@@ -24,8 +25,8 @@ const rest = partGroups.flatMap((group) =>
 
 <Page
   path={path}
-  title="Features: computer use, multi-machine agents and more: ace"
-  description="What ace adds to Claude Code, Codex, Cursor and every agent you run: computer use, Fleet across machines, a real browser, simulators, worktrees and review."
+  title={featuresMeta.title}
+  description={featuresMeta.description}
   pageType="CollectionPage"
   schema={[list]}
 >
