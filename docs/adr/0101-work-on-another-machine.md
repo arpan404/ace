@@ -68,7 +68,10 @@ change without pairing again:
   the linking machine refuses it as `exists`, right before redeeming, while it holds a link to that
   machine or is making one: redeeming replaces the link's device there, so a link made meanwhile
   in another window, perhaps with Projects, is never replaced by one granting less. The unused
-  pairing link is cancelled, and the toast names only links this action made.
+  pairing link is cancelled, and the toast names only links this action made. Every link, gap fill or not, holds its machine from right before
+  redeeming until it is saved or fails: a second link to the same machine meanwhile is refused
+  (`busy`, or `exists` for a gap fill), and links being made count toward the 64-link limit, so
+  nothing is redeemed that couldn't be saved.
 - A machine's page in Settings › Fleet lists each machine linked to it with "Allow projects" or
   "Don't allow projects".
 - In "Continue on…" and "Open on…", a machine that doesn't allow projects can be chosen. The step
@@ -286,6 +289,9 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   import stopped before its cutoff is undone and runs again on the next start.
 - A cancel or a shutdown stops waiting on a call to the target the moment it aborts, whatever the
   connection does; what the target made of that call is learnt again through status.
+- The target names a transfer's files after its id with each `.` written as `~` (never in an
+  id), so no id's files can be another transfer's payload. Closing stops the retention sweep and
+  waits for all of it.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
   both machines before the transfer reads settled; rows are kept 24 hours for the list. While the
   target's sweep removes an expired transfer's files, its id is held: a begin of the same id waits
