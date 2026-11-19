@@ -85,3 +85,29 @@ it("refuses a second move of a thread already moving", async () => {
   expect(refused[0]).toMatchObject({ code: "thread_moving" });
   expect(await m.settled()).toMatchObject({ phase: "completed" });
 });
+
+it("keeps the thread here when a child on another machine never confirms its stop", async () => {
+  const m = await transferMachines();
+  const { threadId } = await workingThread(m);
+  const store = m.source.daemon.store;
+  const agentId = store.getThread(threadId)?.rootAgentId ?? "";
+  store
+    .statement(
+      `INSERT INTO machine_children (id, request_key, parent_thread, parent_agent, machine, role,
+        provider, created_at) VALUES ('remote-child', 'remote-key', ?, ?, 'elsewhere', 'reviewer',
+        'claude', 1)`,
+    )
+    .run(threadId, agentId);
+  expect(await continueOn(m, threadId)).toMatchObject({ ok: true });
+  // The move stopped the tree and waits on the child there.
+  await vi.waitFor(() => expect(m.source.h.interrupts).toContain(threadId), { timeout: 20_000 });
+  // Its machine never answered: stopped here unconfirmed, as ordinary status reads it.
+  store
+    .statement(
+      "UPDATE machine_children SET settled=1, settled_at=?, stopped_unconfirmed=1 WHERE id='remote-child'",
+    )
+    .run(Number.MAX_SAFE_INTEGER);
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({ phase: "failed", error: { code: "remote_child_unconfirmed" } });
+  expect(store.getThread(threadId)?.status.state).not.toBe("moved");
+});

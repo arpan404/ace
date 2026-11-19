@@ -1,3 +1,5 @@
+import type { ThreadState } from "@ace/core";
+
 /*
  * What a Stop (`thread.interrupt`) reaches, decided once for every part of ace that acts on it:
  * the handler's queue hold, the delivery's shell stop and close fallback, and agent control's
@@ -18,4 +20,14 @@ export function stopsWholeThread(
   rootAgentId: string | undefined,
 ): boolean {
   return p.cascade && targetsRoot(p, rootAgentId);
+}
+
+/**
+ * The provider's own background work a whole-thread Stop stops (shells, monitors), by task key:
+ * running, and never ace's own rows. A live move waits on the same list to read empty.
+ */
+export function stoppableTasks(state: ThreadState): string[] {
+  return Object.entries(state.tasks)
+    .filter(([, task]) => task.status === "running" && task.owner !== "ace" && !task.internal)
+    .map(([key]) => key);
 }

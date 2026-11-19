@@ -1,6 +1,7 @@
 import { apply, deriveThreadStatus } from "@ace/core";
 import type { Command, CommandResult, ThreadId, ThreadStatus } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
+import { stoppableTasks } from "./stop-scope.ts";
 
 /*
  * What the engine does for a thread moving to another machine while it works (ADR 0191): the
@@ -112,13 +113,12 @@ export function dropCarriedSession(repo: EngineRepository, id: ThreadId): void {
   });
 }
 
-/** The agent's own background work still running (shells, monitors), by title. */
+/** What a whole-thread Stop stops that still runs (`stoppableTasks`), by title. */
 export function runningShells(repo: EngineRepository, id: ThreadId): string[] {
   const state = repo.state(id);
   if (!state) return [];
-  return Object.values(state.tasks)
-    .filter((task) => task.status === "running" && task.owner !== "ace" && !task.internal)
-    .map((task) => task.title.slice(0, 256))
+  return stoppableTasks(state)
+    .map((key) => (state.tasks[key]?.title ?? key).slice(0, 256))
     .slice(0, 32);
 }
 

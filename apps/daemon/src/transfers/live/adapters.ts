@@ -47,6 +47,8 @@ function account(context: ServiceContext, provider: ProviderKind, instanceId?: s
   return home ? { instanceId: chosen, home } : undefined;
 }
 
+const role = (row: Record<string, unknown>) => String(row["role"]).slice(0, 256);
+
 /** The thread and every delegated child it owns here, as settling reads it. */
 function tree(context: ServiceContext, threadId: string): ThreadId[] {
   return context.services.engine?.cleanupThreads(id(threadId)) ?? [id(threadId)];
@@ -88,7 +90,10 @@ export function liveSourcePorts(
     stop: (threadId, key) =>
       command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: true }),
     atRest: (threadId, task) => engineOf(context).liveMove.atRest(id(threadId), task),
-    shells: (threadId) => engineOf(context).liveMove.shells(id(threadId)),
+    shells: (threadId) =>
+      tree(context, threadId)
+        .flatMap((owner) => engineOf(context).liveMove.shells(owner))
+        .slice(0, 32),
     terminals: (threadId) =>
       tree(context, threadId).flatMap((owner) =>
         (services.workspaceActions?.listTerminals(owner) ?? [])
@@ -104,18 +109,35 @@ export function liveSourcePorts(
       (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? [])
         .filter((edge) => edge.phase !== "settled")
         .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
-    remoteChildren(threadId) {
+    remoteChildren(threadId, since) {
+      const parents = tree(context, threadId).slice(0, 256);
+      let rows: Record<string, unknown>[];
       try {
-        return store
+        // Indexed by parent (machine_children_parent); bounded by the tree's size.
+        rows = store
           .statement(
-            "SELECT role FROM machine_children WHERE parent_thread=? AND settled=0 LIMIT 32",
+            `SELECT role, settled, stopped_unconfirmed, lost_at FROM machine_children
+             WHERE parent_thread IN (${parents.map(() => "?").join(",")})
+               AND (settled=0 OR settled_at>=?) LIMIT 64`,
           )
-          .all(threadId)
-          .map((row) => String(row["role"]).slice(0, 256));
+          .all(...parents, since);
       } catch {
         // No machine children were ever delegated here.
-        return [];
+        return { running: [], unconfirmed: [] };
       }
+      return {
+        running: rows.filter((row) => row["settled"] === 0).map(role),
+        // 1: every cancel went unanswered; 3: it can never answer. 2 is a late confirmation.
+        unconfirmed: rows
+          .filter(
+            (row) =>
+              row["settled"] !== 0 &&
+              (row["stopped_unconfirmed"] === 1 ||
+                row["stopped_unconfirmed"] === 3 ||
+                row["lost_at"] !== null),
+          )
+          .map(role),
+      };
     },
     queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
     hold(threadId, transferId, change) {

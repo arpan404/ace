@@ -1,5 +1,5 @@
 import { contextNotice } from "@ace/context";
-import { stopsWholeThread } from "./stop-scope.ts";
+import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -399,11 +399,4 @@ export async function executeIntent(
     if (!entry || entry[1].status !== "running") throw new Error("Task is no longer running");
     await actor.session.stopTask(entry[0]);
   }
-}
-
-/** The provider's own background work still running in the thread; never ace's own rows. */
-function stoppableTasks(state: import("@ace/core").ThreadState): string[] {
-  return Object.entries(state.tasks)
-    .filter(([, task]) => task.status === "running" && task.owner !== "ace" && !task.internal)
-    .map(([key]) => key);
 }

@@ -29,7 +29,11 @@ export interface LiveSourcePorts {
    * (`task`) aside: nothing working, waiting on the person, or running in the background.
    */
   atRest(threadId: string, task: string): boolean;
-  /** The provider's background shells still running in the thread, by title. */
+  /**
+   * The provider's background shells and monitors still running anywhere in the thread's tree,
+   * by title: the work the whole-thread Stop stops. A finished turn's build reads done by design
+   * (ADR 0116), so being at rest alone never shows it ended.
+   */
   shells(threadId: string): string[];
   /** Open terminals in the thread's tree, by name. */
   terminals(threadId: string): string[];
@@ -37,7 +41,12 @@ export interface LiveSourcePorts {
   stopTerminals(threadId: string): Promise<void>;
   /** Subagent threads of the tree here, at any depth, still live: the ones a Stop stops. */
   children(threadId: string): string[];
-  remoteChildren(threadId: string): string[];
+  /**
+   * The tree's children on other machines, by role: those still running, and those settled
+   * since `since` without their machine confirming they stopped (stopped after every cancel went
+   * unanswered, or lost). Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
+   */
+  remoteChildren(threadId: string, since: number): { running: string[]; unconfirmed: string[] };
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
@@ -102,7 +111,9 @@ export class LiveSource {
         .children(threadId)
         .map((title) => title.slice(0, 256))
         .slice(0, 32),
-      remoteChildren: ports.remoteChildren(threadId).slice(0, 32),
+      remoteChildren: ports
+        .remoteChildren(threadId, record.transfer.startedAt)
+        .running.slice(0, 32),
       queued: ports.queued(threadId),
     };
     // Always the whole Stop, even for a thread at rest: a shell its last turn left running
@@ -111,16 +122,34 @@ export class LiveSource {
     ports.stop(threadId, `transfer-live:${transferId}:stop`);
     await ports.stopTerminals(threadId);
     const until = ports.now() + restMs;
-    while (!ports.atRest(threadId, holdTask(transferId))) {
+    for (;;) {
       signal.throwIfAborted();
-      if (ports.now() >= until)
+      // Only a stop its machine confirmed counts: a child that may still be writing stays here.
+      const remote = ports.remoteChildren(threadId, record.transfer.startedAt);
+      if (remote.unconfirmed.length)
         throw new TransferError(
-          "tree_still_working",
-          "The work here didn't stop, so it stayed here.",
+          "remote_child_unconfirmed",
+          `${remote.unconfirmed[0]} on another machine never confirmed it stopped, so the thread stayed here.`.slice(
+            0,
+            512,
+          ),
         );
+      const shells = ports.shells(threadId);
+      if (ports.atRest(threadId, holdTask(transferId)) && !shells.length && !remote.running.length)
+        break;
+      if (ports.now() >= until)
+        throw shells.length
+          ? new TransferError(
+              "process_still_running",
+              `${shells[0]} didn't stop, so the thread stayed here.`.slice(0, 512),
+            )
+          : new TransferError(
+              "tree_still_working",
+              "The work here didn't stop, so it stayed here.",
+            );
       await ports.sleep(250, signal);
     }
-    // At rest: from here new input waits for the hand-over. Written in the same step that saw
+    // At rest, with no process left running: from here new input waits for the hand-over. Written in the same step that saw
     // the tree at rest, so nothing started in between.
     ports.ownership.change(threadId, {
       to: "stopping",
