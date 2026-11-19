@@ -184,11 +184,8 @@ it("a chunk waiting on the disk when its device loses Projects never appends", a
   scopes.projects = false;
   waiting.release();
   await expect(writing).rejects.toMatchObject({ code: "machine_forbidden" });
-  expect(
-    await stat(part("t-queued"))
-      .then((info) => info.size)
-      .catch(() => 0),
-  ).toBe(0);
+  // Not even an empty payload file is made for it.
+  await expect(stat(part("t-queued"))).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 it("a stale commit whose digest fails after the transfer reopened never fails the new upload", async () => {

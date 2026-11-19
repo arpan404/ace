@@ -26,11 +26,15 @@ export async function appendAt(
   path: string,
   offset: number,
   data: Buffer,
-  /** Runs right before the bytes are written, after every wait; throwing writes nothing. */
+  /**
+   * Runs before the file is opened (or made) and again right before the bytes are written,
+   * after every wait; throwing writes nothing and leaves no file behind.
+   */
   before: () => void = () => undefined,
 ): Promise<number> {
   const held = await fileBytes(path);
   if (held !== offset) return held;
+  before();
   const handle = await open(path, "a", 0o600);
   try {
     before();
