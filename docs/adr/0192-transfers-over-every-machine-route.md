@@ -28,10 +28,24 @@ for a key this side already holds:
 
 - A direct address must be under the TLS key the link pinned.
 - A relay must be under the relay host key the link pinned.
-- A link that pinned no key of a kind takes addresses of that kind only under the one key the
-  machine announced over the pinned link: a relay-only link for direct addresses, a link made on
-  the address only for relays. An honest machine has one TLS key and one relay host key
-  (`machinePaths`). A description that names two keys of a kind adds no address of that kind.
+- A link that pinned no key of a kind (a relay-only link has no TLS key; a link made on the address
+  only has no relay host key) enrolls one later, once, and keeps it (`enrollPins`, stored per
+  pairing in `parcel_pins`):
+  - The first description that names exactly one key of that kind enrolls it. An honest machine
+    has one TLS key and one relay host key (`machinePaths`), so a description naming two enrolls
+    neither.
+  - Routes of that kind come only from the enrolled pin, never from a description. Until a key is
+    enrolled there is no route of that kind at all, so the description that enrolls it can only
+    have come over a route under a key the link itself pinned.
+  - Later descriptions add and drop addresses under the pin, but never change it. One naming
+    another key changes nothing: whoever holds an enrolled relay key can't move the pairing to a
+    key of its own.
+  - A new key takes linking again. Linking again is a new pairing (another device there), and the
+    old pin no longer counts. A machine whose TLS key or relay host key really changes keeps
+    working over its original route meanwhile.
+  - A machine linked before this build has no pin yet. Its relay or extra addresses come back
+    after its next description over the address it was linked on, which the machine list asks
+    for often.
 - A Tailscale name (`*.ts.net`) the machine announces is never tried. A publicly trusted
   certificate for such a name passes the pin check without the key (ADR 0097), so it proves
   nothing here. The linked address may still be one, as ADR 0097 allows. Announced Tailscale
@@ -42,12 +56,11 @@ for a key this side already holds:
 
 This was the same code for parcels, so they get the same rules.
 
-Adopting the key a machine announces over its pinned link is kept on purpose. It is what lets a
-machine linked on the LAN be reached through its relay later (ADR 0182,
-`parcels-relay.process.test.ts`), and it is the premise of continuing on a server once the
-Mac's lid closes. Only the paired machine itself can send that description, over a channel
-authenticated by the key the link pinned. A machine that lies in it could just as well misuse
-what it is sent directly.
+Enrolling the key a machine announces over a route its link pinned is kept on purpose. It is
+what lets a machine linked on the LAN be reached through its relay later (ADR 0182,
+`parcels-relay.process.test.ts`), and it is the premise of continuing on a server once the Mac's
+lid closes. Only the paired machine itself can send that first description, over a channel
+authenticated by the key the link pinned.
 
 **Transfers keep their own protocol.** They are never machine calls and never parcels. Their
 receipts, cut-off, 20 GiB cap and authority (`operate` and `projects` on the target, read again on
@@ -73,20 +86,27 @@ every transfer call is idempotent under its transfer id:
   returns the winner's record.
 - `chunk` writes only at the offset the target holds and answers that offset otherwise, so a
   chunk sent twice writes nothing twice.
-- `commit` returns the record unless it is still receiving. After its awaits (reading the files,
-  the identity's registration) it reads the state again and claims it only while it is still
-  receiving. Nothing is awaited between that read and the claim, so a cancel that came meanwhile
-  stays cancelled, and only one copy of a commit ever starts the import.
+- `commit` returns the record unless it is still receiving. It claims `importing` with
+  `IncomingRows.claim`, one statement that writes only while the row is still receiving. A cancel
+  that came during its awaits stays cancelled, and only one copy of a commit ever starts the
+  import. A damaged upload claims `failed` the same way before its files are removed, so a sound
+  copy of the commit, or a cancel, that comes during that clean-up sees the failure rather than
+  losing its input or being overwritten.
 - `status` only reads.
-- `cancel` returns a settled record as it is. A copy of a cancel that comes while the first is
-  still undoing the transfer waits for that clean-up and answers with its result.
+- `cancel` returns a settled record as it is. It claims `cancelled` only from a state that isn't
+  settled. A copy of a cancel that comes while the first is still undoing the transfer waits for
+  that clean-up and answers with its result. Closing the daemon waits for those clean-ups too.
+
+An import that fails claims `failed` from `importing`, as does reopening it for a full bundle,
+always from the row as it is then, never from a copy read before its rollback.
 
 The sender's own retry loop already resent all of these after a lost answer. No call needed to
 stay on one route.
 
-Every route checks that the pairing is still saved before it sends. A relay send checks again
-once its stream is open, along with whether the caller has given up, because opening a stream
-takes time.
+Every route checks that the pairing is still saved before it sends. Opening a relay stream takes
+time, and its `hello` carries the pairing's token. So the pairing is checked again right before
+that hello, and the hello goes only while some caller still waits for the stream (several callers
+may share one opening). A send checks once more after the stream is open.
 
 **On the relay.** A relay `machine` stream carries a new frame, `machine.transfer`, which takes
 either one control call or one chunk piece and is answered by `machine.answer`. It shares the
@@ -99,8 +119,9 @@ about 1.4 MB, cheap to deflate and acknowledged well inside its timeout on a slo
 pieces of one chunk share what is left of that chunk's timeout. The welcome on a `machine` stream
 now says `machineTransfers: true`. An older daemon ends the stream on a frame it doesn't know, so
 an older machine is sent no transfer frames. That relay counts as a route that can't take
-transfers: the next route is tried. Only when no other route is left is the transfer refused,
-with a request to update ace there.
+transfers: the next route is tried. When no route answers, an older machine's relay is the reason
+given ("update ace there"), whichever route failed last, unless an address answered in the last
+five minutes. A relay-only machine that takes transfers is listed to agents as taking them.
 
 **What each relay carries.** Over the person's own relay, everything goes. Over ace's hosted
 relay, which ace pays to run for everyone, these go:
@@ -144,14 +165,17 @@ can't check it.
 
 ## Verification
 
-- `machines/link-routes.test.ts`: route order and preference, keys the link didn't pin, two
-  announced keys, announced `ts.net` names, and ace's relay classified by this machine's settings.
-- `machines/relay-link.test.ts`: no transfer frame for an older machine, a caller that gave up, or
-  a pairing removed while the stream opened; separate streams for ace's relay and the person's
-  own.
+- `machines/link-routes.test.ts`: route order and preference, pins enrolled once and never
+  changed, no route of a kind without a pin, announced `ts.net` names, and ace's relay classified
+  by this machine's settings.
+- `machines/directory-transfers.test.ts`: a relay-only machine is listed as taking transfers.
+- `machines/relay-link.test.ts`: no transfer frame for an older machine; not even the token's
+  hello for a caller that gave up or a pairing removed while the stream opened; a shared opening
+  still served for the caller that waits; separate streams for ace's relay and the person's own.
 - `relay-machine-host.test.ts`: a stream through ace's relay refuses bulk past the bound.
-- `transfers/incoming-races.test.ts`: a cancel during a commit stays cancelled, a second cancel
-  waits for the first's clean-up, and two copies of a begin both get the one transfer.
+- `transfers/incoming-races.test.ts`: a cancel during a commit stays cancelled, a damaged upload's
+  clean-up loses nothing to a sound copy or a cancel, a second cancel and closing wait for a
+  cancel's clean-up, and two copies of a begin leave one stored row.
 - `transfers/route-policy.test.ts`: the hosted-relay bound and splitting into pieces.
 - `transfers/routes.test.ts`: falling through to a relay, refusals that stay put, a 4 MiB chunk in
   pieces, a resent chunk, a lost answer carried again on the relay with the exact bytes landing,
