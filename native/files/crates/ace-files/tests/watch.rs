@@ -8,7 +8,7 @@ mod common;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use files_wire::{EventPayload, Op, Reply};
+use files_wire::{Op, Reply};
 
 use common::{Client, await_reported, checkout, watch, write_file};
 
