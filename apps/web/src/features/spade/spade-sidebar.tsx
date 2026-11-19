@@ -10,7 +10,9 @@ import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.t
 import { SpadePinStrip } from "./spade-pin-strip.tsx";
 import { SpadeRowMenu } from "./spade-row-menu.tsx";
 import {
+  holdSpadeOrder,
   searchSpadeList,
+  spadeEntryKey,
   type SpadeListEntry,
   spadeFlatEntries,
   spadeListEntries,
@@ -67,7 +69,10 @@ export function SpadeSidebar() {
   const rest = split.rest;
   // The main bot is the head, not a row or a pin: it only turns up among search results.
   const main = all.find((entry): entry is MainEntry => entry.kind === "bot" && isMain(entry));
-  const entries = searched ? rest : rest.filter((entry) => !isMain(entry));
+  const listed = searched ? rest : rest.filter((entry) => !isMain(entry));
+  // While the pointer is over the list its order holds, so a row never moves out from under it.
+  const [held, setHeld] = useState<readonly string[]>();
+  const entries = held && !searched ? holdSpadeOrder(listed, held) : listed;
   const pinned = split.pinned.filter((entry) => !isMain(entry));
   const closeSearch = () => {
     setQuery("");
@@ -91,7 +96,13 @@ export function SpadeSidebar() {
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {pinned.length > 0 && <SpadePinStrip entries={pinned} bots={roster.bots} open={open} />}
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div
+          className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setHeld(listed.map(spadeEntryKey));
+          }}
+          onPointerLeave={() => setHeld(undefined)}
+        >
           {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
           {!roster.bots.length && !line.ready ? (
             // Spade off or not answering: one quiet sentence in the middle; Turn on is in the
@@ -127,10 +138,7 @@ export function SpadeSidebar() {
             <ul className="flex flex-col">
               {entries.map((entry) =>
                 entry.kind === "bot" ? (
-                  <li
-                    key={`${entry.bot.machine.key}/${entry.bot.id}`}
-                    className={entry.depth ? "pl-6" : undefined}
-                  >
+                  <li key={spadeEntryKey(entry)} className={entry.depth ? "pl-6" : undefined}>
                     <SpadeRowMenu entry={entry}>
                       <BotListRow
                         bot={entry.bot}
@@ -141,7 +149,7 @@ export function SpadeSidebar() {
                     </SpadeRowMenu>
                   </li>
                 ) : (
-                  <li key={`group:${entry.group.machine.key}/${entry.group.id}`}>
+                  <li key={spadeEntryKey(entry)}>
                     <SpadeRowMenu entry={entry}>
                       <GroupListRow
                         group={entry.group}

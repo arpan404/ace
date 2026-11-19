@@ -207,6 +207,29 @@ export function searchSpadeList(
   );
 }
 
+/** A row's key in the list: its machine and its bot's or group's id. */
+export const spadeEntryKey = (entry: SpadeListEntry) =>
+  entry.kind === "bot"
+    ? `${entry.bot.machine.key}/${entry.bot.id}`
+    : `group:${entry.group.machine.key}/${entry.group.id}`;
+
+/**
+ * The rows in the order they had when the pointer came over the list (`held`, by key), so a row
+ * never moves out from under it to put another in its place; a row new since then comes first.
+ * Each row's state and words stay current.
+ */
+export function holdSpadeOrder(
+  entries: readonly SpadeListEntry[],
+  held: readonly string[],
+): SpadeListEntry[] {
+  const at = new Map(held.map((key, index) => [key, index]));
+  const fresh = entries.filter((entry) => !at.has(spadeEntryKey(entry)));
+  const kept = entries
+    .filter((entry) => at.has(spadeEntryKey(entry)))
+    .sort((a, b) => (at.get(spadeEntryKey(a)) ?? 0) - (at.get(spadeEntryKey(b)) ?? 0));
+  return [...fresh, ...kept];
+}
+
 /** How many conversations wait on the person: the rail's needs-you dot while they're elsewhere. */
 export function spadeNeedsYouCount(
   bots: readonly RosterBot[],
