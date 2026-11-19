@@ -37,6 +37,8 @@ export interface InputFacts {
 
 /** The queue's own words for a message the person took out. */
 const removedFromQueue = "Removed from queue";
+/** A Stop's words for an input it cancelled before any run took it (`stop-intents.ts`). */
+export const cancelledByStop = "Cancelled before delivery";
 
 export function inputFate(facts: InputFacts): InputFate {
   if (facts.replacement) return { state: "replaced", by: facts.replacement };
@@ -46,6 +48,9 @@ export function inputFate(facts: InputFacts): InputFate {
   if (facts.intent?.status === "pending" || facts.intent?.status === "queued")
     return { state: "waiting" };
   if (facts.runId !== undefined) return { state: "delivered", runId: RunId.parse(facts.runId) };
+  // Written, but no run took it and its delivery failed (a Stop cancelled it, say): it will
+  // never reach a run, so it isn't delivered.
+  if (facts.intent?.status === "failed") return failedFate(facts.intent.error);
   if (facts.written) return { state: "delivered" };
   switch (facts.intent?.status) {
     case undefined:
@@ -55,8 +60,12 @@ export function inputFate(facts: InputFacts): InputFate {
     case "done":
       return { state: "delivered" };
     case "failed":
-      return facts.intent.error === removedFromQueue
-        ? { state: "removed" }
-        : { state: "failed", error: facts.intent.error ?? "Not sent" };
+      return failedFate(facts.intent.error);
   }
+}
+
+function failedFate(error: string | undefined): InputFate {
+  return error === removedFromQueue
+    ? { state: "removed" }
+    : { state: "failed", error: error ?? "Not sent" };
 }

@@ -23,6 +23,8 @@ afterEach(async () => {
 });
 
 const runId = RunId.parse("run-1");
+/** The one continue message's command key for transfer `x`, first attempt. */
+const continueKey = "transfer-live:x:continue:0";
 
 /**
  * A target with a real store and account home. Each continue message has its own fate, by its
@@ -198,7 +200,7 @@ describe("a moved thread starting on this machine", () => {
     const t = await target(0, {
       status: { state: "working", agents: 1 },
       fateAt: (clock, key) =>
-        !key.includes(":continue:")
+        key !== continueKey
           ? { fate: { state: "delivered", runId }, held: false }
           : clock < 10 * 60_000
             ? { fate: { state: "waiting" }, held: false }
@@ -215,12 +217,16 @@ describe("a moved thread starting on this machine", () => {
     ["stopped the thread", { fate: { state: "waiting" }, held: false, stopped: true }, "stopped"],
     ["took the message out", { fate: { state: "removed" }, held: false }, "took the message out"],
     ["sent it again", { fate: { state: "replaced", by: "c-2" }, held: false }, "sent the message"],
+    [
+      "stopped it once it was written",
+      { fate: { state: "failed", error: "Cancelled before delivery" }, held: false },
+      "stopped",
+    ],
   ] as const)(
     "completes as not started when the person %s before it ran",
     async (_what, facts, reason) => {
       const t = await target(0, {
-        fateAt: (_clock, key) =>
-          key.includes(":continue:") ? (facts as ContinueFacts) : undefined,
+        fateAt: (_clock, key) => (key === continueKey ? (facts as ContinueFacts) : undefined),
       });
       const live = carried([]);
       await prep(t, live);
@@ -243,7 +249,9 @@ describe("a moved thread starting on this machine", () => {
     const live = carried([]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    // Given up on at its bound, not before and not long after.
     expect(t.clock()).toBeGreaterThanOrEqual(uncertainMs);
+    expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
     expect(t.live.state("x")).toMatchObject({ running: false });
     expect(t.notices[0]).toContain("may not have reached the agent");
   });

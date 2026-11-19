@@ -1,4 +1,4 @@
-import type { InputFate } from "../../engine/input-fate.ts";
+import { cancelledByStop, type InputFate } from "../../engine/input-fate.ts";
 
 /*
  * Whether the moved thread's first turn started on the target (ADR 0191), read on the one
@@ -38,8 +38,11 @@ export function turnStart({ fate, held, stopped }: ContinueFacts): TurnStart {
       return { kind: "person", reason: "the person sent the message again" };
     case "removed":
       return { kind: "person", reason: "the person took the message out" };
+    // The person's Stop cancelled it, written or not, before any run took it.
     case "failed":
-      return { kind: "failed" };
+      return fate.error === cancelledByStop
+        ? { kind: "person", reason: "the person stopped it" }
+        : { kind: "failed" };
     case "waiting":
       if (held) return { kind: "failed" };
       return stopped ? { kind: "person", reason: "the person stopped it" } : { kind: "wait" };

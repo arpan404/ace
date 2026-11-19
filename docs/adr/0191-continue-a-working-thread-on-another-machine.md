@@ -214,6 +214,8 @@ carried session) and a short continue message. The target:
    (post-merge review): the person's own act on it is a defined outcome, not a start. Waiting in
    a queue the person's Stop paused (`stopped`, kept across restarts), taken out (`removed`) or
    sent again (`replaced`) ends the start as not started, with why ("the person stopped it"),
+   and so does a Stop that cancels it once written but before any run took it (`inputFate` now
+   reads such an input `failed`, not `delivered` without a run, so nothing waits on it),
    and no line on the thread, which already shows what they did. The target owns the thread
    from its cutoff, so the sender is answered and the source settles as moved. An `uncertain`
    message (it may have reached its run) is read again every half second for up to 10 minutes,
