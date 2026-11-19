@@ -1,8 +1,9 @@
 # Autonomy: the auto-review, tasks that keep going
 
-Date: 2026-11-13, amended 2026-11-15. As built for
+Date: 2026-11-13, amended 2026-11-15 and 2026-11-19. As built for
 [ADR 0144](../../docs/adr/0144-spade-autonomous-bots.md) and
-[ADR 0163](../../docs/adr/0163-spade-auto-review-only.md) (one level). Extends
+[ADR 0163](../../docs/adr/0163-spade-auto-review-only.md) (one level; amendment 3: what Spade's
+judges stop goes to the person). Extends
 [harness.md](harness.md), [workspace.md](workspace.md), [oversight.md](oversight.md) and
 [agents.md](agents.md). The pure rules are `spade_core::autonomy` and `spade_core::task`; the
 engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.rs`.
@@ -308,18 +309,18 @@ everywhere else, and recipes that don't expand are checked as written.
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
 (`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
 over "unclear" or "unseen script". An "unclear" or "unseen script" finding also marks the
-reading incomplete: a command that would run outside the sandbox with one is refused, never
-asked about or reviewed (ADR 0171, amendment 4). The approval is bound to the SHA-256 of what
-was shown (`call_reviewed.bound`): if any file differs when the call is about to start, it isn't
-run and the bot gets `Not run: A file it runs changed after it was reviewed.` The run checks it
-once more after everything it waits on (in a terminal, under the terminal's lock, from the
-folder and variables it starts with): `Not run: A file it runs changed while it waited to start,
-after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
+reading incomplete: a command that would run outside the sandbox with one is never reviewed or
+run on the rules; the person decides, told so (ADR 0163 amendment 3, below). The approval is
+bound to the SHA-256 of what was shown (`call_reviewed.bound`): if any file differs, or can't be
+read again, when the call is about to start, it isn't run and the person is asked again on what
+it runs now. The run checks it once more after everything it waits on (in a terminal, under the
+terminal's lock, from the folder and variables it starts with): `Not run: A file it runs changed
+while it waited to start, after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
 verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
 narrower one; one that records none, and a grant, holds for a contained launch only. Every bot command that starts where nothing holds it passes one check at the spawn
 (`workspace::outside::admit`, ADR 0171, amendment 5): what it runs, read again from the folder
-and environment it starts with, is complete and is what its verdict was given on, and the launch
-is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
+and environment it starts with, is complete (or the person allowed it knowing it isn't) and is
+what its verdict was given on, and the launch is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
 command that sets its own `PATH`, is incomplete; so is git, a Node package manager, cargo or
 ripgrep where its configuration names a program to run. A program outside the operating system's
 protected folders (judged by its real path) is bound by the SHA-256 of its content, read whole up
@@ -444,15 +445,12 @@ start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the c
 `review_model` from `/v1/oversight`, else the fast model, else the bot's own. Typed output:
 
 ```json
-{ "verdict": "approve" | "refuse", "reason": "one sentence", "retries_refused": false }
+{ "verdict": "approve" | "refuse", "reason": "one sentence" }
 ```
 
 - `approve` runs the call.
-- `refuse` returns `Not run: <reason> Don't work around this. …` to the bot as the call's
-  result, not an error, unless the bot is trying a refused step again (below).
-- `retries_refused` (optional, default `false`): the step tries again what a step in
-  `<refused_before>` tried. The reviewer is shown up to five steps refused since the person's
-  latest message, each with its arguments (cut to 1,000 characters) and reason.
+- `refuse` puts the call to the person (below): "The reviewer stopped this: \<reason\>". The bot
+  is told nothing until they answer. A `retries_refused` an older prompt asked for is ignored.
 - It reads the call's arguments whole, never cut; a call too long for that goes to the person.
 - It is told of every untrusted source still in the model's view: this turn's, an earlier
   turn's since the last compaction, or a summary drawn from one.
@@ -462,27 +460,56 @@ start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the c
   model spends that budget on its thinking before the JSON, and a tight one cuts the answer off.
 - An answer that comes back empty, cut short or unparseable (an `escalate` verdict included) is
   asked for once more, within the same 60 s; each try's cost is recorded.
-- Failure, a 60 s timeout, or a second answer Spade can't read: the person is asked, with one
-  plain sentence ("The reviewer couldn't decide on this, so you decide.", "The reviewer
+- Failure, a 60 s timeout, or a second answer Spade can't read: the person is asked (below), with
+  one plain sentence ("The reviewer couldn't decide on this, so you decide.", "The reviewer
   couldn't be reached, so you decide.", "The review took too long, so you decide."). The raw
   error, with model and type names, goes to the logs only. An unreviewed call never runs.
 - Status line while it reads: `Checking a step`.
 
 ### When the person is asked
 
-A refusal goes to the person instead of the bot (`call_reviewed` verdict `escalate`,
-`reviewer_reason` `Refused again: <reason>`) when, since the person's latest message
-(`spade_core::autonomy::refusals`):
+When one of Spade's automated judges says a call is unsafe, the call isn't refused: it waits on the
+person as a request, with the judge's reason in one plain sentence and what the call would do
+(ADR 0163, amendment 3; `spade_core::autonomy::escalate`). The request's `stopped` names the judge:
 
-- a refused call had the same tool and arguments;
-- the reviewer says `retries_refused` and something was refused; or
-- it is the third refusal in a row (`IN_A_ROW`), with no call started, approved or answered
-  between them.
+| What stopped it                                                                  | `stopped`       | The request's line                                          |
+| -------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------- |
+| the reviewer refused it                                                          | `reviewer`      | "The reviewer stopped this: \<reason\>"                     |
+| the reviewer failed, timed out, answered twice what Spade can't read, or the cap | `reviewer`      | "The review took too long, so you decide." (and the like)   |
+| Spade's classifier raised it                                                     | `classifier`    | "It could spend money, so you decide." (and the like)       |
+| the second review (ADR 0135) objected or couldn't decide                         | `second_review` | "The second review stopped this: \<reason\>"                |
+| part of a command outside the sandbox couldn't be read whole                     | `incomplete`    | "Part of what this command would run … you decide."         |
+| right before the launch: couldn't be read again                                  | `unread`        | "Right before it started, Spade couldn't read again …"      |
+| right before the launch: couldn't be read whole again                            | `incomplete`    | "Right before it started, part of what this command runs …" |
+| right before the launch: a file it runs changed after its verdict                | `changed`       | "A file this command runs changed after it was checked …"   |
 
-Credential refusals are the rules' own (`model: ""`) and never count. Otherwise the person is
-asked only when the review can't run or can't read the call whole (above). Their Allow, Always
-allow or Decline answers the request as before; Always allow lets later calls of that tool and
-scope run unreviewed.
+- An incomplete reading asks whatever the route: the rules, a grant, an Always allow, the
+  reviewer (who isn't paid for: it couldn't read it whole) or Full access; a route that already
+  asks keeps its line and adds this one.
+- At the launch, the verdict the call had never runs: Spade stores a verdict bound to what it runs
+  now (`call_reviewed`, `model: ""`) and asks again. Only the latest request's answer counts.
+- **Allow once** runs exactly that call, held to the launch it was asked about and the binding the
+  stopping verdict recorded, checked again right before it starts and at the spawn. After an
+  incomplete reading, the person's Allow alone (`Warrant::incomplete`) lets the spawn start a
+  reading still incomplete if what could be read is unchanged. After an `unread` request, the
+  spawn's own reading is the check.
+- **Deny** refuses it: the bot reads "The person declined this action."
+- A judge's request keeps the Always allow its card offers (Always allow lets later calls of that
+  tool and scope run unreviewed). `incomplete`, `unread` and `changed` requests are answered for
+  this call only: no Always allow, and not the bot's setting to run commands outside.
+- Unanswered, the call waits: the turn waits on the person and the list says so; a routine's or a
+  background run's request waits in the inbox, as every request does.
+
+Never put to the person: a call that hands back a secret (below); a tool the person declined for
+the bot; a command outside the sandbox Spade couldn't read at all when it was decided (`Not run:
+Spade couldn't read what this command would run…`). Not a judgment, so not decided here: what the
+OS sandbox blocks is the command's result (a host its network policy refused reads "Blocked
+\<host\>" on the step); a driving step whose place changed isn't run and the bot looks again; a
+step on a device or in a sensitive place keeps its own request. The spawn's own check still
+refuses a change in the moment after the last check; the bot calls again for a fresh decision.
+
+A stored "Refused again: …" request from an older build still shows as it did; nothing new is
+asked that way.
 
 ### Credentials
 

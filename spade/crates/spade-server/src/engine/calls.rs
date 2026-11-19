@@ -7,7 +7,7 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
-use spade_core::autonomy::escalate::{self, Settled, Stop, Stopped};
+use spade_core::autonomy::escalate::{self, Stopped};
 use spade_core::autonomy::{self, Class, Mode, Runs, Sensitive};
 use spade_core::context;
 use spade_core::effect::{self, Place, Route};
@@ -28,6 +28,7 @@ use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
 use crate::workspace::outside::{self, Bound, Warrant};
 use crate::workspace::shell::Launch;
+use again::{Again, Held, ask_again, asked_stopped};
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -946,20 +947,7 @@ async fn run_tools(
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
                 };
-                let stop = match now {
-                    Classified::Failed(_) => Some((Stop::UnreadAtLaunch, held.bound.clone())),
-                    Classified::Done(now) => {
-                        let read = outside::binding(&now).stored();
-                        if now.incomplete && (!held.incomplete || read != held.bound) {
-                            Some((Stop::IncompleteAtLaunch, read))
-                        } else if read != held.bound {
-                            Some((Stop::ChangedAtLaunch, read))
-                        } else {
-                            None
-                        }
-                    }
-                };
-                if let Some((stop, read)) = stop {
+                if let Some((stop, read)) = again::stop_at_launch(now, held) {
                     let again = Again {
                         call: &call,
                         name: &name,
@@ -1168,100 +1156,6 @@ fn launch_for(runs: Runs) -> Launch {
     }
 }
 
-/// A call let run outside the sandbox, as the verdict that let it run left it.
-struct Held {
-    /// What it ran when that verdict was given.
-    bound: Option<String>,
-    /// The most that verdict lets it launch.
-    limit: Authorized,
-    /// The person allowed it though part of what it runs couldn't be read whole.
-    incomplete: bool,
-    /// Read again right before it starts; not when the person allowed it after it couldn't be
-    /// (the check at the spawn still reads it).
-    recheck: bool,
-    /// What an Always allow of it covers, for a request asked again.
-    scope: Option<String>,
-    /// The `ask` it was put to the person with, kept when it is asked again.
-    ask: Option<effect::Ask>,
-}
-
-/// A call asked about again right before it would have started.
-struct Again<'a> {
-    call: &'a Call,
-    name: &'a str,
-    arguments: &'a Value,
-    held: &'a Held,
-    /// What it runs as read now, which the person's answer binds.
-    read: Option<String>,
-}
-
-/// Puts a call that couldn't be vouched for at its launch to the person, never running the
-/// verdict it had: a verdict stored for this reading, then the request. `Ok(false)` when the
-/// reply was stopped.
-fn ask_again(
-    engine: &Engine,
-    id: &str,
-    reply: &str,
-    again: Again<'_>,
-    stop: Stop<'_>,
-) -> Result<bool, spade_store::StoreError> {
-    let Settled::Ask { line, stopped } = escalate::settle(stop) else {
-        return Ok(true);
-    };
-    let Again {
-        call,
-        name,
-        arguments,
-        held,
-        read,
-    } = again;
-    let reviewed = super::autonomy::record_rule(
-        engine,
-        id,
-        reply,
-        call,
-        name,
-        Verdict::Escalate,
-        &line,
-        read,
-        held.limit,
-    )?;
-    if !reviewed {
-        return Ok(false);
-    }
-    let asked = Event::Known(Known::ApprovalRequested {
-        reply: reply.to_owned(),
-        call_id: call.id.clone(),
-        name: name.to_owned(),
-        arguments: arguments.clone(),
-        scope: held.scope.clone(),
-        reviewer_reason: Some(line),
-        ask: held.ask,
-        tool_key: None,
-        app: None,
-        acts_in: None,
-        helper: None,
-        launch: Some(held.limit),
-        stopped: Some(stopped),
-    });
-    match engine.helper_of(id) {
-        Some(helper) => engine.ask_for_helper(&helper, reply, &asked),
-        None => engine.record_unless_stopped(id, reply, &asked),
-    }
-}
-
-/// Which of Spade's judges put the call `call_id` to the person, as its latest request says.
-fn asked_stopped(events: &[Event], call_id: &str) -> Option<Stopped> {
-    events.iter().rev().find_map(|event| match event {
-        Event::Known(Known::ApprovalRequested {
-            call_id: c,
-            stopped,
-            ..
-        }) if c == call_id => Some(*stopped),
-        _ => None,
-    })?
-}
-
 /// A result being stored (see `finish_tool`).
 type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 
@@ -1383,3 +1277,5 @@ async fn finish_tool(
     })
     .await;
 }
+
+mod again;
