@@ -177,10 +177,11 @@ v1.<ms>.<nonce>.<HMAC-SHA256>`, keyed with `<ACE_HOME>/spade-person.key` (writte
    its store (`settings`, `person_stamp:<nonce>`) before the change is made, so a restart doesn't
    forget it, and pruned once older than two minutes. Without it
    Spade answers `403`; `full_access_confirmed` is set only by a stamped raise. Going back to the
-   auto-review never needs one. The daemon's `spade.http` proxy stamps a raise only from a caller
-   with the person's standing: the app and paired devices as they are, the host token only with
-   an ace sign-in from the last ten minutes (as the market's person-only actions, ADR 0178
-   §12.5), and never an agent's device (`ace-agent`, `ace-reviewer`); a raise in parts is
+   auto-review never needs one. The daemon's `spade.http` proxy stamps a raise only from a socket
+   that proved the person's standing, as every person-only action needs (ADR 0190): the app
+   signed in as the machine's owner, or a device paired from their link proving with its own
+   key. A credential alone never does, the host token's or a paired device's, nor does a recent
+   sign-in; an agent's device (`ace-agent`, `ace-reviewer`) never does; a raise in parts is
    refused. A bot's change is decided under the same lock as its write, against its parents
    and the machine as they are then: a parent raised meanwhile is what it is decided on. Nothing in Spade calls the setter but its person API: no tool, routine, note or
    skill. The key and Spade's token are in the credential places a bot's arguments are refused
@@ -225,9 +226,9 @@ Full access bot holding Spade's token can't raise another bot; an undeclared sen
 first and a `network`-declared one is reviewed with the classifier off or under untrusted
 content; a stamp taken before a restart is refused after it), `spade-server/tests/
 sandboxed_plugin_tools.rs` (a contained plugin server with a token and its network on keeps the
-app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a host-token raise
-without a fresh sign-in and an agent's raise are refused, a paired device's is stamped, lowering
-is never held), and the web's `spade-full-access.test.tsx`.
+app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a raise from a socket
+that hasn't proved the person's standing, host token or paired, and an agent's raise are
+refused, a proven socket's is stamped, lowering is never held), and the web's `spade-full-access.test.tsx`.
 
 ## Options considered
 

@@ -58,6 +58,7 @@ const device = {
     revokedAt: null,
   }),
   generation: "1",
+  person: false,
 };
 const chunk = (offset: number): ClientMessage => ({
   type: "machine.transfer",

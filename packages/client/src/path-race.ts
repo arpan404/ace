@@ -76,6 +76,8 @@ export function racingTransport(options: RaceOptions): Transport {
     get supportsBinary() {
       return winner?.supportsBinary === true;
     },
+    // The winning path's own channel: a proof names the channel it is sent on (ADR 0190).
+    channelBinding: () => winner?.channelBinding?.(),
     get compression() {
       return winner?.compression ?? [];
     },

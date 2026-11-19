@@ -219,6 +219,8 @@ export async function redeemPairing(
   url: string,
   name: string,
   installId?: string,
+  /** The public half of the key the device proves the person's standing with (ADR 0190). */
+  standingKey?: string,
 ): Promise<DeviceCredential> {
   const link = parsePairingLink(url);
   if (!link.daemon.startsWith("https:"))
@@ -227,7 +229,12 @@ export async function redeemPairing(
     await accessRequest(new URL(link.daemon).origin, "/v1/pair", {
       method: "POST",
       fingerprint: link.fingerprint,
-      body: { code: link.code, name, ...(installId ? { installId } : {}) },
+      body: {
+        code: link.code,
+        name,
+        ...(installId ? { installId } : {}),
+        ...(standingKey ? { standingKey } : {}),
+      },
     }),
   );
 }

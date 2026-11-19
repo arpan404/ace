@@ -341,12 +341,23 @@ class Tab {
     if (!client) return;
     if (moved || client.state !== "ready") this.#channels?.reset();
     const generation = client.connectionGeneration().getSnapshot();
+    const standing = client.standingChallenge?.().getSnapshot();
     this.#post({
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
       ...pathOf(client),
       ...(generation === undefined ? {} : { generation }),
+      ...(standing
+        ? {
+            standing: {
+              host: standing.host,
+              nonce: standing.nonce,
+              device: standing.device,
+              ...(standing.binding === undefined ? {} : { binding: standing.binding }),
+            },
+          }
+        : {}),
     });
   }
   #receive(data: unknown): void {

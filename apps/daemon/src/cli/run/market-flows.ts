@@ -33,18 +33,19 @@ const flag = (context: CommandContext, name: string) => {
   return typeof value === "string" ? value : undefined;
 };
 
-/** Signed out or a stale sign-in, on a terminal: offer to sign in, then run it once more. */
+/**
+ * Signed out, on a terminal: offer to sign in, then run it once more. A person-only action
+ * (`reauth`) is never offered a sign-in: signing in proves nothing about who runs this terminal
+ * (ADR 0190), so it is done in the app.
+ */
 async function signedIn<T>(context: CommandContext, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
     const code = error instanceof CliFailure ? error.detail.code : undefined;
-    if (!context.args.interactive || (code !== "signed_out" && code !== "reauth")) throw error;
+    if (!context.args.interactive || code !== "signed_out") throw error;
     const { askConfirm } = await import("../ask.ts");
-    const asked =
-      code === "reauth"
-        ? "Sign in again to do this. Sign in now?"
-        : "Sign in to publish. Sign in now?";
+    const asked = "Sign in to publish. Sign in now?";
     if (!(await askConfirm(asked, true))) throw error;
     const { aceAccountCommand } = await import("../ace-account.ts");
     await aceAccountCommand(

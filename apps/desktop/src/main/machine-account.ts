@@ -2,6 +2,7 @@ import { MachineAccountStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { MachineAccountRequest } from "../shared/channels.ts";
 import type { DaemonConnection } from "../shared/contract.ts";
+import { enrollmentFor } from "./account-handover.ts";
 
 const Failure = z.object({ error: z.string().max(256) });
 
@@ -9,8 +10,8 @@ const Failure = z.object({ error: z.string().max(256) });
  * Signs this computer's daemon in or out of the app's ace account and sets or clears its
  * machine code, with the app's host credential. The renderer can't call these routes itself:
  * the daemon serves them to its own credential and same-origin callers only. Signing in uses the
- * session the app saved, so the renderer never hands the token over again; a remote daemon is
- * never given it.
+ * session the app saved to get an enrollment ticket for this machine, so neither the renderer nor
+ * the daemon is ever handed the session (ADR 0190); a remote daemon is never signed in from here.
  */
 export async function machineAccount(
   connection: DaemonConnection,
@@ -29,7 +30,11 @@ export async function machineAccount(
     const token = await savedSession(request.origin);
     if (!token) throw new Error("Sign in to your ace account in this app first.");
     method = "PUT";
-    body = { origin: request.origin, token };
+    // The daemon gets a ticket for its own host id, never the app's session (ADR 0190).
+    body = {
+      origin: request.origin,
+      ticket: await enrollmentFor(connection, request.origin, token, send),
+    };
   } else if (request.op === "setCode") {
     path = "/v1/machine-code";
     method = "PUT";

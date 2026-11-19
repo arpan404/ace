@@ -41,4 +41,6 @@ export interface MarketRequestPorts {
   grant?: MarketGrantPort | undefined;
   /** The signed-in person's own name and email, which the privacy pass flags. */
   names?: readonly string[] | undefined;
+  /** A person's market grant the client sent for this request's one call (ADR 0190). */
+  personGrant?: string | undefined;
 }

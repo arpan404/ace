@@ -6,8 +6,9 @@ import { createSpadeSession } from "./spade-session.ts";
 
 /*
  * Turning Full access on is the person's alone (ADR 0163, amendment 2): the daemon forwards it to
- * Spade stamped as theirs only from a caller with their standing, and going back to the
- * auto-review from anyone who may change Spade.
+ * Spade stamped as theirs only from a socket that proved the person's standing (ADR 0190), as
+ * every person-only action needs, and going back to the auto-review from anyone who may change
+ * Spade.
  */
 
 interface Seen {
@@ -17,7 +18,7 @@ interface Seen {
 
 /** A Spade that records what reaches it, and a session forwarding to it as `caller`. */
 async function proxied(
-  caller: { device: string; hostCredential: boolean; fresh: boolean },
+  caller: { device: string; proven: boolean },
   onTestFinished: (close: () => Promise<void>) => void,
 ) {
   const seen: Seen[] = [];
@@ -46,13 +47,12 @@ async function proxied(
         onRunEnded: () => () => {},
         personKey: () => new Uint8Array(32).fill(7),
       },
-      marketAgent: { freshSignIn: async () => caller.fresh },
     },
     authorize: () => true,
     connected: () => true,
     send: (message) => sent.push(message as ServerMessage),
     device: () => DeviceId.parse(caller.device),
-    hostCredential: () => caller.hostCredential,
+    personProven: () => caller.proven,
     now: () => 1_700_000_000_000,
   });
   const put = async (requestId: string, path: string, body: unknown) => {
@@ -83,12 +83,10 @@ async function proxied(
 const bot = "/v1/agents/a_1/security/autonomy";
 const machine = "/v1/security/autonomy";
 
-test("a paired device turns Full access on with the person's stamp, for a bot and the machine", async ({
+test("a socket that proved the person's standing turns Full access on with their stamp, for a bot and the machine", async ({
   onTestFinished,
 }) => {
-  const spade = await proxied({ device: "phone", hostCredential: false, fresh: false }, (close) =>
-    onTestFinished(close),
-  );
+  const spade = await proxied({ device: "phone", proven: true }, (close) => onTestFinished(close));
   expect(await spade.put("b", bot, { autonomy: "full_access" })).toMatchObject({ status: 200 });
   expect(spade.stampOf(bot)).toMatch(/^v1\.1700000000000\.[0-9a-f]{32}\.[0-9a-f]{64}$/);
   expect(await spade.put("m", machine, { autonomy: "full_access" })).toMatchObject({
@@ -98,46 +96,39 @@ test("a paired device turns Full access on with the person's stamp, for a bot an
   spade.close();
 });
 
-test("the host token can't turn Full access on without a fresh sign-in, and can with one", async ({
+test("a credential that hasn't proved the person's standing never turns Full access on, whoever holds it", async ({
   onTestFinished,
 }) => {
-  const stale = await proxied({ device: "cli", hostCredential: true, fresh: false }, (close) =>
-    onTestFinished(close),
-  );
-  for (const [path, body] of [
-    [bot, { autonomy: "full_access" }],
-    [bot, { autonomy: null }],
-    [machine, { autonomy: "full_access" }],
-  ] as const)
-    expect(await stale.put(path + JSON.stringify(body), path, body)).toMatchObject({
-      kind: "error",
-      code: "forbidden",
-      message: expect.stringContaining("sign in to ace again"),
+  // The host token (which a recent sign-in no longer helps), and a paired device's bearer token
+  // without its key's proof: both unproven.
+  for (const device of ["cli", "phone"]) {
+    const unproven = await proxied({ device, proven: false }, (close) => onTestFinished(close));
+    for (const [path, body] of [
+      [bot, { autonomy: "full_access" }],
+      [bot, { autonomy: null }],
+      [machine, { autonomy: "full_access" }],
+    ] as const)
+      expect(await unproven.put(path + JSON.stringify(body), path, body)).toMatchObject({
+        kind: "error",
+        code: "forbidden",
+        message: expect.stringContaining("signed in as you"),
+      });
+    expect(unproven.seen).toEqual([]);
+    // Going back to the auto-review never needs it, and carries no stamp.
+    expect(await unproven.put("down", bot, { autonomy: "auto_review" })).toMatchObject({
+      status: 200,
     });
-  expect(stale.seen).toEqual([]);
-  // Going back to the auto-review never needs it, and carries no stamp.
-  expect(await stale.put("down", bot, { autonomy: "auto_review" })).toMatchObject({
-    status: 200,
-  });
-  expect(stale.seen).toHaveLength(1);
-  expect(stale.stampOf(bot)).toBeUndefined();
-  stale.close();
-
-  const fresh = await proxied({ device: "cli", hostCredential: true, fresh: true }, (close) =>
-    onTestFinished(close),
-  );
-  expect(await fresh.put("up", bot, { autonomy: "full_access" })).toMatchObject({ status: 200 });
-  expect(fresh.stampOf(bot)).toMatch(/^v1\./);
-  fresh.close();
+    expect(unproven.seen).toHaveLength(1);
+    expect(unproven.stampOf(bot)).toBeUndefined();
+    unproven.close();
+  }
 });
 
 test("an agent's device never turns Full access on, but may turn it off", async ({
   onTestFinished,
 }) => {
   for (const device of ["ace-agent", "ace-reviewer"]) {
-    const agent = await proxied({ device, hostCredential: false, fresh: true }, (close) =>
-      onTestFinished(close),
-    );
+    const agent = await proxied({ device, proven: true }, (close) => onTestFinished(close));
     expect(await agent.put("up", bot, { autonomy: "full_access" })).toMatchObject({
       kind: "error",
       code: "forbidden",

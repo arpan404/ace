@@ -3,10 +3,15 @@ import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
+import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
+import { machineSignInRoutes } from "./machine-credential-route.ts";
+import { enrollmentStore } from "./enrollments.ts";
+import { exchangeKeyPair } from "@ace/account-grant/machine-proof";
 import { loginRoutes } from "./login.ts";
 import { loginStore } from "./logins.ts";
 import { pictureRoute } from "./picture.ts";
+import { principalReader } from "./principal.ts";
 import { machineStore } from "./machines.ts";
 import { bearer, fail, json, secure } from "./respond.ts";
 import { sessionReader } from "./session.ts";
@@ -43,12 +48,31 @@ export function accountApi(
       handle: async () => secure(fail(503, "account_not_configured"), undefined),
       sweep: async () => {},
     };
-  const { config, keys } = setup;
+  const { config } = setup;
   const { now, random } = deps;
+  // The key a daemon proves its host key against (ADR 0190), published with the grant keys.
+  const exchangeKey = exchangeKeyPair(
+    Uint8Array.from(config.encryptionKey.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16)),
+  );
+  const keys = { ...setup.keys, exchangeKey: exchangeKey.publicKey };
   const seal = sealer(config.encryptionKey, random);
   const sessions = sessionStore(deps.db, seal);
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
+  const credentials = machineCredentialStore(deps.db);
+  const principals = principalReader({ sessions: reader, credentials, now });
+  const enrollments = enrollmentStore(deps.db);
+  const machineSignIn = machineSignInRoutes({
+    db: deps.db,
+    principals,
+    sessions: reader,
+    sessionStore: sessions,
+    credentials,
+    enrollments,
+    exchangeKey,
+    now,
+    random,
+  });
   const picture = pictureRoute({ sessions, fetch: deps.fetch, now });
   const logins = loginStore(deps.db, seal);
   const loginFor = (publicUrl: string) => {
@@ -67,7 +91,8 @@ export function accountApi(
   const canonicalLogin = loginFor(config.publicUrl);
   const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
   const directory = directoryRoutes({
-    sessions: reader,
+    principals,
+    sessionStore: sessions,
     machines: machineStore(deps.db),
     ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
     keys,
@@ -85,6 +110,10 @@ export function accountApi(
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
+    if (pathname === "/v1/machine-credentials" && method === "POST")
+      return machineSignIn.exchange(request);
+    if (pathname === "/v1/machine-enrollments" && method === "POST")
+      return machineSignIn.enroll(request);
     if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
@@ -99,18 +128,25 @@ export function accountApi(
       const token = bearer(request);
       if (!token) return fail(401, "unauthenticated");
       if (method === "DELETE") {
-        await reader.revoke(token);
+        await principals.revoke(token);
         return json(200, { ok: true });
       }
-      const session = await reader.read(token);
-      return session ? json(200, session) : fail(401, "unauthenticated");
+      // A machine credential reads as the session it lives on, without saying more of it.
+      const principal = await principals.read(token);
+      return principal
+        ? json(200, { account: principal.account, expiresAt: principal.expiresAt })
+        : fail(401, "unauthenticated");
     }
     return fail(404, "not_found");
   }
 
   return {
-    /** Drops expired sign-ins and sessions. */
-    sweep: () => logins.sweep(now()),
+    /** Drops expired sign-ins, sessions and machine credentials. */
+    sweep: async () => {
+      await logins.sweep(now());
+      await credentials.sweep(now());
+      await enrollments.sweep(now());
+    },
     /**
      * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which
      * gated features the calling app supports (ADR 0189); none is gated yet.

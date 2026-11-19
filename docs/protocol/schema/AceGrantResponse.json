@@ -7,6 +7,11 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "standing": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
     "token": {
       "maxLength": 2048,
       "minLength": 1,

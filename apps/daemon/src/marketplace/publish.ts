@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personMarketCall } from "@ace/client/market-intent";
 import {
   MarketApiError,
   MarketDone,
@@ -40,6 +41,18 @@ const entryPath = (action: { type: string; name: string }) =>
   `/v1/me/entries/${segment(action.type)}/${segment(action.name)}`;
 const versionPath = (action: { type: string; name: string; version: string }) =>
   `${entryPath(action)}/versions/${segment(action.version)}`;
+
+/**
+ * A person-only action's one request, as `personMarketCall` builds it for the app too (ADR 0190):
+ * the person's grant names exactly this method, path and body.
+ */
+function personCalls(
+  action: MarketPublishAction,
+  answer: Pick<Call, "answer" | "pending">,
+): Call[] {
+  const call = personMarketCall(action);
+  return call ? [{ ...call, ...answer }] : [];
+}
 
 /** The Worker's 202 for what it took and holds: a listing edit for review, a withdrawal. */
 const PendingAnswer = z.object({
@@ -114,6 +127,7 @@ function readAnswer(call: Call, body: unknown): MarketPublishAnswer | undefined 
 const codes: Record<z.infer<typeof MarketApiError>["error"], ErrorResult["code"]> = {
   unauthorized: "signed_out",
   reauth: "reauth",
+  person_grant: "person_grant",
   email_unverified: "refused",
   suspended: "suspended",
   forbidden: "forbidden",
@@ -165,18 +179,9 @@ async function callsOf(
     case "entry":
       return [{ method: "GET", path: entryPath(action), answer: "entry" }];
     case "createProfile":
-      return [{ method: "POST", path: "/v1/me/profile", json: action.profile, answer: "profile" }];
     case "editProfile":
-      return [{ method: "PUT", path: "/v1/me/profile", json: action.profile, answer: "profile" }];
     case "changeHandle":
-      return [
-        {
-          method: "PUT",
-          path: "/v1/me/handle",
-          json: { handle: action.handle },
-          answer: "profile",
-        },
-      ];
+      return personCalls(action, { answer: "profile" });
     case "setAvatar": {
       const picture = pictureBytes(action.image);
       return [
@@ -308,20 +313,9 @@ async function callsOf(
             },
       ];
     case "withdraw":
-      return [
-        {
-          method: "POST",
-          path:
-            action.version === undefined
-              ? `${entryPath(action)}/withdraw`
-              : `${versionPath({ ...action, version: action.version })}/withdraw`,
-          json: { reason: action.reason },
-          answer: "done",
-          pending: "withdrawal",
-        },
-      ];
+      return personCalls(action, { answer: "done", pending: "withdrawal" });
     case "deleteEntry":
-      return [{ method: "DELETE", path: entryPath(action), answer: "done" }];
+      return personCalls(action, { answer: "done" });
     case "visibility":
       return [
         {
@@ -341,35 +335,17 @@ async function callsOf(
         },
       ];
     case "transfer":
-      return [
-        {
-          method: "POST",
-          path: `${entryPath(action)}/transfer`,
-          json: { to: action.to },
-          // The Worker answers the offer it made; the app reads the transfer from `me`.
-          answer: "done",
-        },
-      ];
+      // The Worker answers the offer it made; the app reads the transfer from `me`.
+      return personCalls(action, { answer: "done" });
     case "transferAnswer":
-      return [
-        {
-          method: "POST",
-          path: `/v1/me/transfers/${action.id}/${action.accept ? "accept" : "decline"}`,
-          answer: "me",
-        },
-      ];
+      return personCalls(action, { answer: "me" });
     case "signals":
       return [{ method: "GET", path: `${entryPath(action)}/signals`, answer: "signals" }];
     case "verification":
       return [{ method: "GET", path: "/v1/me/verification", answer: "verification" }];
-    case "applyVerification": {
-      const { action: _action, ...claims } = action;
-      return [
-        { method: "POST", path: "/v1/me/verification", json: claims, answer: "verification" },
-      ];
-    }
+    case "applyVerification":
     case "checkVerification":
-      return [{ method: "POST", path: "/v1/me/verification/check", answer: "verification" }];
+      return personCalls(action, { answer: "verification" });
     case "appeal":
       return [
         {
@@ -390,6 +366,11 @@ export async function publishAction(
   ports: {
     http: MarketHttp | undefined;
     grant: MarketGrantPort | undefined;
+    /**
+     * A person's market grant for this action's one call (ADR 0190), which the market takes
+     * for a sensitive action; the machine's own grant is used otherwise.
+     */
+    personGrant?: string | undefined;
     /** A draft's archive already read and checked on this machine (`check.ts`). */
     archive?: Uint8Array | undefined;
   },
@@ -407,7 +388,10 @@ export async function publishAction(
   }
   let grant: string | undefined;
   try {
-    grant = await ports.grant?.();
+    grant =
+      ports.personGrant !== undefined && calls.length === 1
+        ? ports.personGrant
+        : await ports.grant?.();
   } catch (error) {
     return failure(
       "unavailable",
@@ -439,7 +423,14 @@ export async function publishAction(
       if (error instanceof MarketHttpError) return failure("unavailable", error.message);
       throw error;
     }
-    if (reply.status < 200 || reply.status >= 300) return workerError(reply.status, reply.body);
+    if (reply.status < 200 || reply.status >= 300) {
+      const refused = workerError(reply.status, reply.body);
+      // The market wants the person's own grant for this call: say which, so the client can
+      // get one and send the request again (ADR 0190).
+      return refused.code === "person_grant" && calls.length === 1
+        ? { ...refused, action: `${call.method} ${path}` }
+        : refused;
+    }
     answer = readAnswer(call, reply.body);
     if (!answer) return failure("failed", "The market's answer isn't in a form this build reads");
     if (answer.kind === "draft") draftId = answer.draft.id;

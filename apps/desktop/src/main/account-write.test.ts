@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { followAppAccount, handsOverOnSignIn, signsOutOnSignOut } from "./account-write.ts";
+import { fakeEnrollments, relayHostId } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -8,6 +9,8 @@ afterEach(async () => {
 });
 
 const origin = "https://account.example";
+// The app gets an enrollment ticket for its daemon from here, never handing over its session.
+fakeEnrollments(origin);
 const other = "https://other.example";
 const session = "s".repeat(43);
 const person = (id: string) => ({ id, email: `${id}@example.com`, name: id });
@@ -95,7 +98,13 @@ async function daemon(status: unknown) {
   const url = `ws://127.0.0.1:${address.port}/`;
   return {
     seen,
-    local: { mode: "daemon", url, token: "c".repeat(64), localHostId: "host" } as const,
+    local: {
+      mode: "daemon",
+      url,
+      token: "c".repeat(64),
+      localHostId: "host",
+      localRelayHostId: relayHostId,
+    } as const,
   };
 }
 const signedInApp = { saved: async () => ({ [origin]: session }), accountOf: async () => "user_a" };

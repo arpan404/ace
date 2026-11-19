@@ -5,9 +5,7 @@ import type { SettingsService } from "@ace/settings";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
-import { grantSignInAge } from "@ace/account-grant";
 import { agentMarketRequest } from "./agent-requests.ts";
-import { signedInRecently } from "./fresh-sign-in.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
 import type { MarketplaceService } from "./service.ts";
 
@@ -51,7 +49,7 @@ export interface MarketAgentDeps {
 export class MarketAgent {
   readonly requests: MarketPersonRequests;
   private readonly deps: MarketAgentDeps;
-  private account: { account: MachineAccount; hostId: string } | undefined;
+  private account: { account: MachineAccount } | undefined;
 
   constructor(deps: MarketAgentDeps) {
     this.deps = deps;
@@ -64,29 +62,14 @@ export class MarketAgent {
   }
 
   /** The machine's ace account, once the daemon has loaded it. */
-  bindAccount(account: MachineAccount, hostId: string): void {
-    this.account = { account, hostId };
+  bindAccount(account: MachineAccount): void {
+    this.account = { account };
   }
 
-  /**
-   * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-   * read from the `authAt` of a market grant taken for the check. False when signed out or
-   * the account service can't be reached.
-   */
-  async freshSignIn(): Promise<boolean> {
+  /** `personGrant`: the person's own market grant for a sensitive action (ADR 0190). */
+  asPerson(operation: MarketOperation, personGrant?: string): Promise<MarketResult> {
     const bound = this.account;
-    if (!bound) return false;
-    try {
-      const grant = await bound.account.marketGrant(bound.hostId);
-      return grant !== undefined && signedInRecently(grantSignInAge(grant));
-    } catch {
-      return false;
-    }
-  }
-
-  asPerson(operation: MarketOperation): Promise<MarketResult> {
-    const bound = this.account;
-    const grant = bound ? () => bound.account.marketGrant(bound.hostId) : undefined;
+    const grant = bound ? () => bound.account.marketGrant() : undefined;
     // The signed-in person's name and email, for the privacy pass over what they publish.
     const signedIn = bound?.account.account();
     const names = signedIn
@@ -94,7 +77,7 @@ export class MarketAgent {
       : [];
     return this.deps.marketplace.request(
       operation,
-      operation.op === "publish" ? { grant, names } : { names },
+      operation.op === "publish" ? { grant, names, personGrant } : { names },
     );
   }
 

@@ -29,6 +29,8 @@ const checkedKinds: ReadonlySet<string> = new Set([
 export interface PublishRequestPorts {
   http: MarketHttp | undefined;
   grant: MarketGrantPort | undefined;
+  /** A person's market grant for a sensitive action's one call (ADR 0190). */
+  personGrant?: string | undefined;
   /** The picker's ports, built only when a draft is checked here. */
   pick: () => PickPorts | undefined;
   suits: () => SuitPort | undefined;
@@ -48,7 +50,7 @@ export async function publishRequest(
   ports: PublishRequestPorts,
   request: MarketPublishAction,
 ): Promise<MarketResult> {
-  const base = { http: ports.http, grant: ports.grant };
+  const base = { http: ports.http, grant: ports.grant, personGrant: ports.personGrant };
   const drafting =
     request.action === "draftCheck" ||
     request.action === "draftCreate" ||

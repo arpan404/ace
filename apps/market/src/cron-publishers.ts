@@ -175,6 +175,10 @@ async function expire(dbs: Databases, now: number) {
   await eachCatalogue(dbs, ({ db }) =>
     db.prepare("DELETE FROM transfers WHERE expires <= ?1").bind(now).run(),
   );
+  await dbs.publishers
+    .prepare("DELETE FROM spent_person_grants WHERE expires <= ?1")
+    .bind(now)
+    .run();
   // A passed token stays: the weekly re-check reads it again.
   await dbs.publishers
     .prepare("DELETE FROM verification_challenges WHERE state != 'passed' AND expires <= ?1")
