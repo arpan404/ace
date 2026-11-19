@@ -57,4 +57,8 @@ extension MachineInbox {
     /// The machines that show Spade (Settings › Beta), in the inbox's order: the Spade tab is
     /// there while any does.
     var spadeSessions: [MachineSession] { sessions.filter { $0.client.spade.shown == true } }
+    /// A Spade bot works on a machine that shows Spade: the tab's face moves its eyes.
+    var spadeWorking: Bool {
+        spadeSessions.contains { $0.client.spade.bots?.contains { $0.state == "working" } == true }
+    }
 }

@@ -160,7 +160,7 @@ struct SpadeBotFace: View {
     var body: some View {
         Group {
             if bot.main {
-                SpadeMark(size: Self.size).foregroundStyle(AceDesign.Ink.primary)
+                SpadeMark(size: Self.size, moving: bot.state == "working").foregroundStyle(AceDesign.Ink.primary)
             } else {
                 Text(bot.initial)
                     .aceFont(AceDesign.TextRole.header)
