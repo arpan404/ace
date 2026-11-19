@@ -1240,3 +1240,62 @@ it("reports the version the port read from the entry it restored", async () => {
     }),
   ).toMatchObject({ type: "files.result", value: { version: "11:22:33:44:55" } });
 });
+
+it("keeps a journaled case-only rename whose entry was stranded in a subfolder", async () => {
+  let folding = true;
+  let dataDir = "";
+  const io = await port((base) => ({
+    async shallow(root, path, options) {
+      // A volume that folds the spellings answers both names with the one entry.
+      if (folding && (path === "docs/Notes.md" || path === "docs/notes.md"))
+        return { version: "1:2:3:4:5", shallow: false, size: 8, kind: "file", mode: 0o644 };
+      return base.shallow(root, path, options);
+    },
+    async move(root, from, _to, _expected, _own, staging) {
+      if (!staging) throw new Error("a case-only move must carry its journaled staging name");
+      const parked = from.replace(/[^/]+$/, staging);
+      await rename(join(root, from), join(root, parked));
+      // The first step landed and the second could not put the entry back, so it is whole under a
+      // private name inside the folder; the port names that very path as the recovery.
+      throw new FileError(
+        "STRANDED",
+        `the change at ${from} could not be completed; the entry is preserved at ${parked}`,
+        undefined,
+        parked,
+      );
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  dataDir = join(f.home, "data");
+  const client = await f.connect();
+  await mkdir(join(f.root, "docs"));
+  await writeFile(join(f.root, "docs/Notes.md"), "original");
+
+  expect(
+    await client.request({
+      op: "rename",
+      path: "docs/Notes.md",
+      expected: await version(client, "docs/Notes.md"),
+      destination: "docs/notes.md",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.error", code: "STRANDED" });
+  // The recovery path is a private name inside the folder, so the journal is the only record that
+  // can find the entry: it must survive for the next start.
+  const database = new DatabaseSync(join(dataDir, "files.sqlite"));
+  try {
+    expect(
+      z
+        .object({ n: z.number() })
+        .parse(database.prepare("SELECT count(*) AS n FROM resources WHERE kind='move'").get()).n,
+    ).toBe(1);
+  } finally {
+    database.close();
+  }
+
+  // A start finds the entry at the journaled name and finishes the move the client asked for.
+  folding = false;
+  await f.restart();
+  await f.connect();
+  expect(await readFile(join(f.root, "docs/notes.md"), "utf8")).toBe("original");
+});

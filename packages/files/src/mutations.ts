@@ -419,13 +419,16 @@ export class Mutations {
   /**
    * Forgets a journaled move's record when no start needs it.
    *
-   * A visible recovery path means the entry is where a person can find it; a refusal the port
-   * reports before it moves anything means the entry never left. Anything else may be at the
-   * journaled staging name and keeps the record for the next start.
+   * The record is the only thing that can find an entry parked under a private name, so it is
+   * kept whenever the recovery path is one of those — the journal's own staging endpoint, or any
+   * other hidden name in the entry's folder. It goes only when the entry is proven to be at a
+   * visible path, or when the port refused before it moved anything and the entry never left its
+   * own.
    */
   private failedMove(receipt: MoveRecord, error: unknown): void {
     const recovery = error instanceof FileError ? error.recovery : undefined;
-    if (typeof recovery === "string" && !recovery.startsWith(".ace-upload-")) {
+    if (typeof recovery === "string") {
+      if (recovery === receipt.staging || hidden(recovery)) return;
       this.catalog.delete(receipt.id);
       return;
     }
@@ -568,6 +571,11 @@ function folderOf(path: string): string {
 /** The last segment of a path. */
 function leafOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/** Whether a path names one of the daemon's private entries, wherever it lives. */
+function hidden(path: string): boolean {
+  return leafOf(path).startsWith(".ace-upload-");
 }
 
 /**
