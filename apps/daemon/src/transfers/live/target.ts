@@ -231,7 +231,8 @@ export class LiveTarget {
         try {
           ports.send(
             start.threadId,
-            `transfer-live:${input.transferId}:continue:${session.kind}`,
+            // A fresh id per attempt: a refusal's receipt never answers the next try.
+            `transfer-live:${input.transferId}:continue:${session.kind}:${attempts}`,
             continueMessage({ from: input.from, path, live: input.live, session }),
           );
         } catch (error) {
