@@ -83,6 +83,8 @@ const CONNECT_MS = 15_000;
 export class RelayLink {
   private deps: RelayLinkDeps;
   private streams = new Map<string, Promise<Stream>>();
+  /** The callers waiting on each stream still opening, by stream key. */
+  private waiting = new Map<string, Set<{ signal?: AbortSignal | undefined }>>();
   constructor(deps: RelayLinkDeps) {
     this.deps = deps;
   }
@@ -121,6 +123,12 @@ export class RelayLink {
       // Both ends hold to a window the other has consumed (ADR 0110), so a slow reader here
       // holds back the machine instead of filling the relay.
       channel.flowControl?.();
+      // The hello carries the pairing's token: sent only for a pairing still saved, and only
+      // while some caller still waits for this stream (several may share one opening).
+      if (!this.deps.current(target))
+        throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
+      if (!this.wanted(this.key(target)))
+        throw new MachineNotSent("offline", undefined, "No call waits for this stream any more");
       await channel.send({
         type: "hello",
         protocolVersion: 1,
@@ -230,12 +238,21 @@ export class RelayLink {
     if (!this.deps.current(target))
       throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
     let stream: Stream;
+    const key = this.key(target);
+    const waiter = { signal: options.signal };
+    const waiters = this.waiting.get(key) ?? new Set();
+    waiters.add(waiter);
+    this.waiting.set(key, waiters);
     try {
       stream = await this.stream(target);
     } catch (error) {
-      throw error instanceof MachineFailure && error.kind === "refused"
+      throw (error instanceof MachineFailure && error.kind === "refused") ||
+        error instanceof MachineNotSent
         ? error
         : new MachineFailure("offline");
+    } finally {
+      waiters.delete(waiter);
+      if (!waiters.size && this.waiting.get(key) === waiters) this.waiting.delete(key);
     }
     try {
       // Set-up took time: a caller that gave up, or a pairing removed meanwhile, sends nothing.
@@ -302,6 +319,11 @@ export class RelayLink {
       refusal.success ? refusal.data.message : undefined,
       refusal.success && refusal.data.final === true,
     );
+  }
+  /** Whether any caller waiting on the stream under `key` hasn't given up. */
+  private wanted(key: string): boolean {
+    for (const waiter of this.waiting.get(key) ?? []) if (!waiter.signal?.aborted) return true;
+    return false;
   }
   /** Closes every stream, e.g. at shutdown or when links change. */
   async close(): Promise<void> {

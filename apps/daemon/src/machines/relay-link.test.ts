@@ -63,6 +63,8 @@ const target = (hosted: boolean): RelayTarget => ({
 const status = { kind: "call" as const, call: { op: "status" as const, transferId: "t-1" } };
 const transfersSent = (sent: ClientMessage[]) =>
   sent.filter((message) => message.type === "machine.transfer");
+/** Whether the pairing's token went out: the hello carries it. */
+const tokenSent = (sent: ClientMessage[]) => sent.some((message) => message.type === "hello");
 
 function link(options: {
   connect: (grant: string | undefined) => Promise<ClientChannel>;
@@ -89,7 +91,7 @@ describe("a transfer frame goes only where it can be taken, and only while it is
     expect(transfersSent(there.sent)).toEqual([]);
     await relay.close();
   });
-  it("sends nothing when the caller gives up while the stream is still opening", async () => {
+  it("sends not even its token when the caller gives up while the stream is still opening", async () => {
     const there = machineThere(true);
     const stop = new AbortController();
     const relay = link({
@@ -101,10 +103,10 @@ describe("a transfer frame goes only where it can be taken, and only while it is
     await expect(
       relay.transfer(target(false), status, { timeoutMs: 5000, signal: stop.signal }),
     ).rejects.toThrow();
-    expect(transfersSent(there.sent)).toEqual([]);
+    expect(tokenSent(there.sent)).toBe(false);
     await relay.close();
   });
-  it("sends nothing when the machine is unlinked while the stream is opening", async () => {
+  it("sends not even its token when the machine is unlinked while the stream is opening", async () => {
     const there = machineThere(true);
     let linked = true;
     const relay = link({
@@ -117,7 +119,21 @@ describe("a transfer frame goes only where it can be taken, and only while it is
     await expect(relay.transfer(target(false), status, { timeoutMs: 5000 })).rejects.toBeInstanceOf(
       MachineUnpaired,
     );
-    expect(transfersSent(there.sent)).toEqual([]);
+    expect(tokenSent(there.sent)).toBe(false);
+    await relay.close();
+  });
+  it("still opens a stream another caller waits on when one of them gives up", async () => {
+    const there = machineThere(true);
+    const stop = new AbortController();
+    const opened = Promise.withResolvers<ClientChannel>();
+    const relay = link({ connect: () => opened.promise });
+    const leaving = relay.transfer(target(false), status, { timeoutMs: 5000, signal: stop.signal });
+    const staying = relay.transfer(target(false), status, { timeoutMs: 5000 });
+    stop.abort();
+    opened.resolve(there.channel);
+    await expect(leaving).rejects.toThrow();
+    await expect(staying).resolves.toEqual({ offset: 0 });
+    expect(transfersSent(there.sent)).toHaveLength(1);
     await relay.close();
   });
   it("opens ace's relay and the person's own as separate streams, the account grant only on ace's", async () => {
