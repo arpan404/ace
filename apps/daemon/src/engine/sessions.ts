@@ -76,25 +76,12 @@ interface SessionDependencies {
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
-  /** Each close in flight, settled once its process exited or the close failed. */
-  private closes = new Map<ThreadId, Promise<void>>();
-  /**
-   * Each open in flight, from before its provider is spawned until the open settles: a process
-   * still waiting for its handshake is in the thread's process set too (ADR 0191).
-   */
-  private opens = new Map<ThreadId, Promise<void>>();
+
   private turnPermissions = new Map<ThreadId, number>();
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
   }
-  /** The close in flight for the thread, if one is: it settles when that close does. */
-  closed(id: ThreadId): Promise<void> | undefined {
-    return this.closes.get(id);
-  }
-  /** The open in flight for the thread, if one is: it settles when that open does. */
-  opening(id: ThreadId): Promise<void> | undefined {
-    return this.opens.get(id);
-  }
+
   private assertUnfenced(id: ThreadId): void {
     if (this.dependencies.fenced?.(id)) throw new SessionFenced();
   }
@@ -156,8 +143,6 @@ export class Sessions {
     if (stateBefore.config.provider !== "codex")
       permissions.applied(actor.id, access, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
-    const opened = Promise.withResolvers<void>();
-    this.opens.set(actor.id, opened.promise);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
@@ -587,8 +572,6 @@ export class Sessions {
       throw fenced ? error : failure;
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
-      if (this.opens.get(actor.id) === opened.promise) this.opens.delete(actor.id);
-      opened.resolve();
     }
   }
   async assertWorkspaceAvailable(cwd: string, threadId: ThreadId): Promise<void> {
@@ -689,8 +672,6 @@ export class Sessions {
     if (!session) return;
     const lifetime = actor.lifetime;
     const generation = actor.generation;
-    const settled = Promise.withResolvers<void>();
-    this.closes.set(actor.id, settled.promise);
     this.closing.add(actor.id);
     actor.session = undefined;
     this.dependencies.wake(actor.id);
@@ -724,8 +705,6 @@ export class Sessions {
       actor.schedule();
     } finally {
       this.closing.delete(actor.id);
-      if (this.closes.get(actor.id) === settled.promise) this.closes.delete(actor.id);
-      settled.resolve();
       if (!actor.session) this.turnPermissions.delete(actor.id);
       if (!actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }

@@ -47,6 +47,11 @@ function account(context: ServiceContext, provider: ProviderKind, instanceId?: s
   return home ? { instanceId: chosen, home } : undefined;
 }
 
+/** The thread and every delegated child it owns here, as settling reads it. */
+function tree(context: ServiceContext, threadId: string): ThreadId[] {
+  return context.services.engine?.cleanupThreads(id(threadId)) ?? [id(threadId)];
+}
+
 export function liveSourcePorts(
   context: ServiceContext,
   input: {
@@ -79,29 +84,26 @@ export function liveSourcePorts(
         ...(home ? { home } : {}),
       };
     },
-    turnFacts: (threadId) => engineOf(context).liveMove.turnFacts(id(threadId)),
-    interrupt: (threadId, key) =>
-      command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: false }),
-    stopProvider: (threadId) => engineOf(context).liveMove.closeProvider(id(threadId)),
+    // ace's own Stop, as the person's Stop button sends it: the thread with every agent under it.
+    stop: (threadId, key) =>
+      command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: true }),
+    atRest: (threadId, task) => engineOf(context).liveMove.atRest(id(threadId), task),
     shells: (threadId) => engineOf(context).liveMove.shells(id(threadId)),
     terminals: (threadId) =>
-      (services.workspaceActions?.listTerminals(id(threadId)) ?? [])
-        .filter((terminal) => !terminal.exited)
-        .map((terminal) => terminal.name.slice(0, 256)),
+      tree(context, threadId).flatMap((owner) =>
+        (services.workspaceActions?.listTerminals(owner) ?? [])
+          .filter((terminal) => !terminal.exited)
+          .map((terminal) => terminal.name.slice(0, 256)),
+      ),
+    // The tree's terminals end as settling a thread ends them; their output stays readable.
     stopTerminals: async (threadId) => {
-      await services.workspaceActions?.stopThreadTerminals(id(threadId));
+      for (const owner of tree(context, threadId).toReversed())
+        await services.workspaceActions?.stopThreadTerminals(owner);
     },
-    // Every subagent thread of the tree here, at any depth, settled ones too: a settled child's
-    // warm session is a provider process as well.
-    descendants: (threadId) =>
-      (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? []).map((edge) => ({
-        threadId: edge.childId,
-        title: store.getThread(edge.childId)?.title ?? edge.childId,
-        live: edge.phase !== "settled",
-      })),
-    withProcess: (threadIds) => engineOf(context).liveMove.withProcess(threadIds.map(id)),
-    stopChild: (threadId, key) =>
-      command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: true }),
+    children: (threadId) =>
+      (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? [])
+        .filter((edge) => edge.phase !== "settled")
+        .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
     remoteChildren(threadId) {
       try {
         return store
@@ -182,6 +184,19 @@ export function liveTargetPorts(
       });
     },
     send: (threadId, key, text) => send(context, threadId, key, text),
+    // The person's "Try again" for the held message: its queue resumes and it is sent again.
+    retryHeld: (threadId, key) => {
+      try {
+        command(context, key, {
+          type: "queue.resume",
+          threadId: id(threadId),
+          expectedRevision: engineOf(context).queue(id(threadId)).revision,
+        });
+      } catch {
+        // Nothing held any more, or already resumed by this key: the watch reads how it went.
+      }
+    },
+    atomic: (run) => store.atomic(run),
     notice: (threadId, text) =>
       engineOf(context).hostNotice(id(threadId), `transfer-live:${threadId}:start`, text, "error"),
     now,

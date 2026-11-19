@@ -72,7 +72,7 @@ it("moves a working thread: stopped here, started there by itself, and only then
   ).toMatchObject({ ok: false, error: "thread_moved" });
 });
 
-it("moves a thread whose turn ended with a build still running, without an interrupt, and says the build stopped", async () => {
+it("stops a build the finished turn left running before it moves the thread, and says so there", async () => {
   const m = await transferMachines();
   const { threadId } = await workingThread(m);
   await m.source.h.emit(threadId, {
@@ -89,6 +89,9 @@ it("moves a thread whose turn ended with a build still running, without an inter
   const transfer = await m.settled();
   const newId = transfer.result?.threadId;
   if (!newId) throw new Error("No thread there");
-  expect(m.source.h.interrupts).not.toContain(threadId);
+  // Stopped here by ace's own Stop, so nothing of it writes once the snapshot is taken.
+  expect(m.source.h.stoppedTasks).toContain("build");
   expect(sentTo(m.target, newId).join("\n")).toContain("bun run build --watch");
+  // At rest when the move began, so the agent isn't told to carry on anything here.
+  expect(sentTo(m.source, threadId).join("\n")).not.toContain("didn't work");
 });

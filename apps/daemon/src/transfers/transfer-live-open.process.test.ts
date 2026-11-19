@@ -26,7 +26,8 @@ it("ends a session that finished opening after the move fenced it, and keeps the
   const { threadId } = await workingThread(m);
   await m.source.h.emit(threadId, { type: "turn.ended", agent: "root", outcome: "completed" });
   await m.source.daemon.engine?.flush();
-  await m.source.daemon.engine?.liveMove.closeProvider(threadId);
+  // No session now: the next message opens one.
+  await m.source.daemon.engine?.cleanupSession(threadId);
   // The next session waits inside the provider's open.
   gate = Promise.withResolvers<void>();
   const before = entered.count;
@@ -58,5 +59,5 @@ it("ends a session that finished opening after the move fenced it, and keeps the
     "One more thing",
   );
   // The provider that finished opening was closed: no process for the thread remains.
-  expect(engine?.liveMove.withProcess([threadId])).toEqual([]);
+  expect(engine?.providerProcesses().map((process) => process.threadId)).not.toContain(threadId);
 });

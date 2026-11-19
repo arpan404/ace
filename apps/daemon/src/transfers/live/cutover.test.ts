@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cutoverStep, runsHere, type CutoverEvent } from "./cutover.ts";
-import { interrupts, safePoint, safePointDeadlineMs } from "./safe-point.ts";
-import { turnStart, turnStartMs } from "./turn-start.ts";
+import { turnStart } from "./turn-start.ts";
 
 const step = (events: CutoverEvent[]) =>
   events.reduce(
@@ -73,54 +72,18 @@ describe("a working thread's switch-over, on the machine it leaves", () => {
   });
 });
 
-describe("the safe point a working turn is stopped at", () => {
-  const facts = { turnRunning: true, toolsRunning: 0, streaming: 0 };
-
-  it("needs no interrupt once the turn ended on its own", () => {
-    expect(safePoint({ ...facts, turnRunning: false, toolsRunning: 2 }, 0)).toEqual({
-      kind: "boundary",
-    });
-    expect(interrupts(safePoint({ ...facts, turnRunning: false }, 0))).toBe(false);
-  });
-
-  it("interrupts between tool calls", () => {
-    expect(interrupts(safePoint(facts, 0))).toBe(true);
-  });
-
-  it("waits while a tool call runs or a reply streams, then interrupts at the deadline", () => {
-    expect(safePoint({ ...facts, toolsRunning: 1 }, 1000)).toEqual({ kind: "wait" });
-    expect(safePoint({ ...facts, streaming: 1 }, 1000)).toEqual({ kind: "wait" });
-    expect(safePoint({ ...facts, toolsRunning: 1 }, safePointDeadlineMs)).toEqual({
-      kind: "deadline",
-    });
-  });
-});
-
 describe("the moved thread's first turn on the target", () => {
   it.each(["working", "done"] as const)("counts a %s thread as started", (state) => {
     const status = state === "working" ? { state, agents: 1 } : { state };
-    expect(turnStart(status, { native: true, waitedMs: 0 })).toEqual({ kind: "running" });
+    expect(turnStart(status)).toEqual({ kind: "running" });
   });
 
-  it("tries the summary once when the carried session fails to open", () => {
-    expect(turnStart({ state: "failed" }, { native: true, waitedMs: 0 })).toEqual({
-      kind: "retry_with_summary",
-    });
-    expect(turnStart({ state: "failed" }, { native: false, waitedMs: 0 })).toEqual({
-      kind: "failed",
-    });
+  it("waits while the message is still queued or the thread hasn't begun", () => {
+    expect(turnStart({ state: "waiting", on: "queue" })).toEqual({ kind: "wait" });
+    expect(turnStart({ state: "new" })).toEqual({ kind: "wait" });
   });
 
-  it("doesn't count a message still waiting in the queue as a started turn", () => {
-    expect(turnStart({ state: "waiting", on: "queue" }, { native: false, waitedMs: 10 })).toEqual({
-      kind: "wait",
-    });
-  });
-
-  it("waits for a turn that hasn't shown yet, within a bound", () => {
-    expect(turnStart({ state: "new" }, { native: false, waitedMs: 10 })).toEqual({ kind: "wait" });
-    expect(turnStart({ state: "new" }, { native: false, waitedMs: turnStartMs })).toEqual({
-      kind: "failed",
-    });
+  it("reads the message held unsent by a failure as failed, however long it took", () => {
+    expect(turnStart({ state: "failed" })).toEqual({ kind: "failed" });
   });
 });

@@ -9,7 +9,6 @@ import { sessionCarrier, SessionNotCarried } from "../sessions/index.ts";
 import { stageSession } from "../sessions/stage.ts";
 import { resumeMessage } from "./messages.ts";
 import type { ThreadOwnership } from "./ownership.ts";
-import { interrupts, safePoint, type TurnFacts } from "./safe-point.ts";
 
 /** What the source machine does to a thread it moves (ADR 0191), narrowed for tests. */
 export interface LiveSourcePorts {
@@ -20,27 +19,31 @@ export interface LiveSourcePorts {
   session(
     threadId: string,
   ): { provider: ProviderKind; cwd: string; nativeSessionId?: string; home?: string } | undefined;
-  turnFacts(threadId: string): TurnFacts;
-  /** The root agent's own interrupt (`thread.interrupt`), keyed so a repeat runs once. */
-  interrupt(threadId: string, key: string): void;
-  /** Ends the provider's process: its background shells and the session's writer stop. */
-  stopProvider(threadId: string): Promise<void>;
+  /**
+   * ace's own Stop of the thread with every agent under it: the same command the person's Stop
+   * sends (`thread.interrupt` with cascade), keyed so a repeat runs once.
+   */
+  stop(threadId: string, key: string): void;
+  /**
+   * The thread and its whole tree read at rest by the normal status rules, the move's own hold
+   * (`task`) aside: nothing working, waiting on the person, or running in the background.
+   */
+  atRest(threadId: string, task: string): boolean;
+  /** The provider's background shells still running in the thread, by title. */
   shells(threadId: string): string[];
-  /** Open terminals by name, then stops them. */
+  /** Open terminals in the thread's tree, by name. */
   terminals(threadId: string): string[];
+  /** Ends the processes in the tree's terminals, as settling a thread does. */
   stopTerminals(threadId: string): Promise<void>;
-  /** Every subagent thread of the tree here, at any depth; `live` while it hasn't settled. */
-  descendants(threadId: string): { threadId: string; title: string; live: boolean }[];
-  stopChild(threadId: string, key: string): void;
-  /** Of these threads, the ones with a provider process here: attached, opening or closing. */
-  withProcess(threadIds: readonly string[]): string[];
+  /** Subagent threads of the tree here, at any depth, still live: the ones a Stop stops. */
+  children(threadId: string): string[];
   remoteChildren(threadId: string): string[];
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
   /** The thread reads moved and records where (one transaction with the ownership change). */
   moved(threadId: string, to: { hostId: string; name: string; threadId: string }): void;
-  /** The fence lifted: work held while it stood (queued messages, controls) dispatches. */
+  /** The hold lifted: work it held dispatches. */
   released(threadId: string): void;
   /** Owes the agent a message, sent durably until the engine takes it. */
   resume(threadId: string, transferId: string, text: string): void;
@@ -62,12 +65,11 @@ export interface LivePlan {
 export const finalChangesRef = (transferId: string) => `refs/ace/transfer-final/${transferId}`;
 export const bulkHeadRef = (transferId: string) => `refs/ace/transfer-bulk/${transferId}`;
 
-/** How long an interrupt may take to end the turn before the move carries on regardless. */
-const interruptMs = 30_000;
-/** The one deadline for the whole tree here to stop: its turns, then every process's exit. */
-const treeStopMs = 40_000;
-/** Of that, what is kept for the processes to exit once asked to close. */
-const closeMs = 10_000;
+/** How long the stopped tree may take to read at rest before the move gives up. */
+const restMs = 60_000;
+
+/** The move's own background row, which is all that may still run once the tree stopped. */
+export const holdTask = (transferId: string) => `ace-transfer:${transferId}`;
 
 export class LiveSource {
   private ports: LiveSourcePorts;
@@ -75,9 +77,10 @@ export class LiveSource {
     this.ports = ports;
   }
   /**
-   * Refuses new turns, waits for a safe point, interrupts, stops what can't move, then writes
-   * the final payload: what changed since the bulk and the provider's session. `interrupted`
-   * is told durably the moment the turn is interrupted. Safe to run again after a restart.
+   * Stops the thread's tree with ace's own Stop, waits until it reads at rest, then holds new
+   * input for the hand-over and writes the final payload: what changed since the bulk and the
+   * provider's session. `interrupted` is told durably when the Stop is sent. Safe to run again
+   * after a restart.
    */
   async stop(input: {
     record: OutgoingRecord;
@@ -90,34 +93,41 @@ export class LiveSource {
     const { record, plan, signal } = input;
     const { transferId, target } = record.transfer;
     const threadId = need(record.transfer.threadId);
-    // The whole tree here is fenced at once: no subagent starts anything while the move stops.
-    const tree = ports.descendants(threadId);
-    ports.atomic(() => {
-      ports.ownership.change(threadId, {
-        to: "stopping",
-        transferId,
-        peer: { hostId: target.hostId, name: target.name },
-        at: ports.now(),
-      });
-      ports.ownership.fenceTree(
-        threadId,
-        tree.map((child) => child.threadId),
-      );
-    });
     if (!record.request.agent)
       ports.hold(threadId, transferId, { title: `Moving to ${target.name}` });
-    await this.safePoint(threadId, transferId, signal, input.interrupted);
+    // What the Stop stops, said in the continue message so the agent there can start it again.
     const left = {
       shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
-      children: tree
-        .filter((child) => child.live)
-        .map((child) => child.title.slice(0, 256))
+      children: ports
+        .children(threadId)
+        .map((title) => title.slice(0, 256))
         .slice(0, 32),
       remoteChildren: ports.remoteChildren(threadId).slice(0, 32),
       queued: ports.queued(threadId),
     };
+    // Always the whole Stop, even for a thread at rest: a shell its last turn left running
+    // stops too. Only a thread that was working is owed the message to carry on.
+    if (!ports.atRest(threadId, holdTask(transferId))) input.interrupted();
+    ports.stop(threadId, `transfer-live:${transferId}:stop`);
     await ports.stopTerminals(threadId);
-    await this.stopTree(threadId, tree, transferId, signal);
+    const until = ports.now() + restMs;
+    while (!ports.atRest(threadId, holdTask(transferId))) {
+      signal.throwIfAborted();
+      if (ports.now() >= until)
+        throw new TransferError(
+          "tree_still_working",
+          "The work here didn't stop, so it stayed here.",
+        );
+      await ports.sleep(250, signal);
+    }
+    // At rest: from here new input waits for the hand-over. Written in the same step that saw
+    // the tree at rest, so nothing started in between.
+    ports.ownership.change(threadId, {
+      to: "stopping",
+      transferId,
+      peer: { hostId: target.hostId, name: target.name },
+      at: ports.now(),
+    });
     const folder = join(input.directory, `${transferId}.final.d`);
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -149,81 +159,6 @@ export class LiveSource {
       };
     } finally {
       await rm(folder, { recursive: true, force: true });
-    }
-  }
-  /**
-   * The invariant before the final snapshot (ADR 0191): every provider process of the thread's
-   * tree here, the thread and its subagents at any depth, including one still opening, has
-   * exited, as the engine's own process set says. One deadline covers it all: the subagents'
-   * turns are interrupted and waited on, leaving the last 10 seconds for every process to be
-   * closed and to exit. A process still there then fails the move before the hand-over, so no
-   * snapshot is taken while anything writes and no close that never returns can hang the move.
-   */
-  private async stopTree(
-    threadId: string,
-    tree: { threadId: string; title: string; live: boolean }[],
-    transferId: string,
-    signal: AbortSignal,
-  ) {
-    const { ports } = this;
-    const until = ports.now() + treeStopMs;
-    const live = tree.filter((child) => child.live);
-    for (const child of live)
-      ports.stopChild(child.threadId, `transfer-live:${transferId}:stop:${child.threadId}`);
-    while (
-      live.some((child) => ports.turnFacts(child.threadId).turnRunning) &&
-      ports.now() < until - closeMs
-    ) {
-      signal.throwIfAborted();
-      await ports.sleep(250, signal);
-    }
-    const ids = [threadId, ...tree.map((child) => child.threadId)];
-    const closes = Promise.allSettled(ids.map((id) => ports.stopProvider(id)));
-    const waited = new AbortController();
-    const onAbort = () => waited.abort();
-    signal.addEventListener("abort", onAbort, { once: true });
-    try {
-      await Promise.race([closes, ports.sleep(Math.max(0, until - ports.now()), waited.signal)]);
-    } finally {
-      waited.abort();
-      signal.removeEventListener("abort", onAbort);
-    }
-    signal.throwIfAborted();
-    const still = ports.withProcess(ids);
-    if (still.length) {
-      const first = tree.find((child) => still.includes(child.threadId));
-      const who =
-        still.includes(threadId) || !first ? "The agent" : `The subagent "${first.title}"`;
-      throw new TransferError(
-        "process_still_running",
-        `${who} on this machine didn't stop, so the work stayed here.`,
-      );
-    }
-  }
-  private async safePoint(
-    threadId: string,
-    transferId: string,
-    signal: AbortSignal,
-    noted: () => void,
-  ): Promise<void> {
-    const { ports } = this;
-    const started = ports.now();
-    for (;;) {
-      signal.throwIfAborted();
-      const point = safePoint(ports.turnFacts(threadId), ports.now() - started);
-      if (point.kind === "wait") {
-        await ports.sleep(500, signal);
-        continue;
-      }
-      if (!interrupts(point)) return;
-      noted();
-      ports.interrupt(threadId, `transfer-live:${transferId}:interrupt`);
-      break;
-    }
-    const since = ports.now();
-    while (ports.turnFacts(threadId).turnRunning && ports.now() - since < interruptMs) {
-      signal.throwIfAborted();
-      await ports.sleep(250, signal);
     }
   }
   /**
@@ -328,8 +263,9 @@ export class LiveSource {
     if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
   }
   /**
-   * The thread is this machine's again: the fence and the hold go, and an agent that was stopped
-   * is told to carry on. `confirmed`: the target said it never took the thread.
+   * The thread is this machine's again, in one transaction: the hold on new input goes, the
+   * "Moving to" row ends, and a stopped agent is owed the message that tells it to carry on.
+   * `confirmed`: the target said it never took the thread.
    */
   release(
     record: OutgoingRecord,
@@ -337,21 +273,20 @@ export class LiveSource {
   ): void {
     const threadId = need(record.transfer.threadId);
     const { transferId, target } = record.transfer;
-    const owner = this.ports.ownership.get(threadId);
-    if (owner?.transferId === transferId && owner.state !== "moved" && owner.state !== "owned")
-      this.ports.ownership.change(threadId, {
-        to: "local",
-        transferId,
-        confirmed: input.confirmed,
-        at: this.ports.now(),
-      });
-    if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
-    // The tree runs here again: everything it held dispatches through normal scheduling.
-    for (const child of this.ports.ownership.unfenceTree(threadId)) this.ports.released(child);
+    this.ports.atomic(() => {
+      const owner = this.ports.ownership.get(threadId);
+      if (owner?.transferId === transferId && owner.state !== "moved" && owner.state !== "owned")
+        this.ports.ownership.change(threadId, {
+          to: "local",
+          transferId,
+          confirmed: input.confirmed,
+          at: this.ports.now(),
+        });
+      if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
+      if (input.interrupted)
+        this.ports.resume(threadId, transferId, resumeMessage(target.name, input.reason));
+    });
     this.ports.released(threadId);
-    // Owed durably: sent once the engine takes it, however long a full engine refuses it.
-    if (input.interrupted)
-      this.ports.resume(threadId, transferId, resumeMessage(target.name, input.reason));
   }
 }
 

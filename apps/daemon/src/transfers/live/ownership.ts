@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../../store.ts";
-import { threadFenceTable, threadOwnershipTable } from "../../thread-ownership-table.ts";
+import { threadOwnershipTable } from "../../thread-ownership-table.ts";
 import {
   nextOwnership,
   ownershipRefusal,
@@ -38,7 +38,6 @@ export class ThreadOwnership {
     // A new, empty table: nothing here grows with stored history at open (ADR 0170).
     store.atomic((db) => {
       db.exec(threadOwnershipTable);
-      db.exec(threadFenceTable);
     });
   }
   get(threadId: string): Ownership | undefined {
@@ -84,39 +83,8 @@ export class ThreadOwnership {
       return next;
     });
   }
-  /**
-   * Why the thread takes no new turn here; none while it may. A subagent of a moving thread is
-   * fenced by its root's record.
-   */
+  /** Why the thread takes no new turn here; none while it may. */
   refusal(threadId: string) {
-    const own = ownershipRefusal(this.get(threadId));
-    if (own) return own;
-    const fence = this.store
-      .statement("SELECT root_id FROM thread_fence WHERE thread_id=?")
-      .get(threadId);
-    return fence ? ownershipRefusal(this.get(String(fence["root_id"]))) : undefined;
-  }
-  /** Fences the rest of a moving thread's tree here with it, until `unfenceTree`. */
-  fenceTree(rootId: string, threadIds: readonly string[]): void {
-    this.store.atomic(() => {
-      for (const threadId of threadIds)
-        if (threadId !== rootId)
-          this.store
-            .statement(
-              "INSERT INTO thread_fence (thread_id, root_id) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET root_id=excluded.root_id",
-            )
-            .run(threadId, rootId);
-    });
-  }
-  /** The move ended without the thread leaving: its tree runs here again. Returns who. */
-  unfenceTree(rootId: string): string[] {
-    return this.store.atomic(() => {
-      const ids = this.store
-        .statement("SELECT thread_id FROM thread_fence WHERE root_id=? LIMIT 1024")
-        .all(rootId)
-        .map((row) => String(row["thread_id"]));
-      this.store.statement("DELETE FROM thread_fence WHERE root_id=?").run(rootId);
-      return ids;
-    });
+    return ownershipRefusal(this.get(threadId));
   }
 }

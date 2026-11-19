@@ -67,6 +67,8 @@ import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
+  /** Why the thread opens no terminal now: it is moving to another machine (ADR 0191). */
+  moveRefusal?(id: ThreadId): string | undefined;
   sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
@@ -450,6 +452,8 @@ export class WorkspaceRuntime {
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
     if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    const moving = this.options.moveRefusal?.(threadId);
+    if (moving) throw new Error(moving);
     for (const [key, entry] of this.terminals)
       if (!terminalAlive(entry.terminal)) {
         await this.manager.release(entry.terminal);

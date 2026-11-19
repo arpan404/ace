@@ -1,5 +1,5 @@
 import { hasUnresponsiveAncestor } from "@ace/core";
-import { threadFenceTable, threadOwnershipTable } from "../thread-ownership-table.ts";
+import { threadOwnershipTable } from "../thread-ownership-table.ts";
 import { streamFacts } from "./stream-facts.ts";
 import { streamedFactsBytes } from "./fact-bytes.ts";
 import { RecordBudget } from "./records.ts";
@@ -150,7 +150,6 @@ export class EngineRepository {
     // Read by `runnableThreads`, which leaves threads moving to another machine out (ADR 0191).
     store.atomic((db) => {
       db.exec(threadOwnershipTable);
-      db.exec(threadFenceTable);
     });
     this.admissionStatements = store.atomic((_db) => ({
       has: this.store.statement(

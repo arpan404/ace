@@ -1,3 +1,4 @@
+import { apply, deriveThreadStatus } from "@ace/core";
 import type { Command, CommandResult, ThreadId, ThreadStatus } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
@@ -43,19 +44,28 @@ export function admittedControls<T extends { kind: string }>(controls: T[], fenc
   return fenced ? controls.filter((intent) => teardown.has(intent.kind)) : controls;
 }
 
-/** Whether a turn runs and what it is in the middle of, for the safe point. */
-export function turnFacts(repo: EngineRepository, id: ThreadId) {
+/**
+ * Whether the thread, with its whole tree, reads at rest by the normal status rules once the
+ * background row `task` (the move's own hold) is set aside: nothing working, waiting on the
+ * person or held running in the background, its subagents included through their summary
+ * agents. Read on a copy, through core's own reducer; the thread itself is untouched.
+ */
+export function atRest(repo: EngineRepository, id: ThreadId, task: string, now: number): boolean {
   const state = repo.state(id);
-  if (!state) return { turnRunning: false, toolsRunning: 0, streaming: 0 };
-  // An ace background row (the move's own hold) isn't the agent's turn.
-  const inTurn = Object.values(state.agents).some(({ agent: { status } }) =>
-    status.state === "blocked" ? status.on !== "background_task" : status.state === "working",
-  );
-  return {
-    turnRunning: inTurn,
-    toolsRunning: Object.keys(state.indexes.liveTools).length,
-    streaming: Object.keys(state.indexes.openText).length,
-  };
+  if (!state) return true;
+  // A plain copy, as the state is persisted: read here and dropped, never stored.
+  const copy = JSON.parse(JSON.stringify(state)) as typeof state;
+  let seq = 0;
+  if (copy.tasks[task]?.status === "running")
+    apply(
+      copy,
+      { type: "background.ended", task, status: "completed" },
+      {
+        now,
+        ids: { next: (kind) => `rest-${kind}-${++seq}` },
+      },
+    );
+  return ["done", "new", "failed"].includes(deriveThreadStatus(copy).state);
 }
 
 /** The thread reads moved (or, with null, runs here again). */
@@ -116,24 +126,16 @@ export function runningShells(repo: EngineRepository, id: ThreadId): string[] {
 export function api(
   repo: () => EngineRepository,
   now: () => number,
-  host: {
-    closeProvider(id: ThreadId): Promise<void>;
-    hasProcess(id: ThreadId): boolean;
-    released(id: ThreadId): void;
-  },
+  host: { released(id: ThreadId): void },
 ) {
   return {
-    turnFacts: (id: ThreadId) => turnFacts(repo(), id),
+    atRest: (id: ThreadId, task: string) => atRest(repo(), id, task, now()),
     markMoved: (id: ThreadId, to: Parameters<typeof markMoved>[2]) =>
       markMoved(repo(), id, to, now()),
     adoptSession: (id: ThreadId, session: Parameters<typeof adoptCarriedSession>[2]) =>
       adoptCarriedSession(repo(), id, session),
     dropSession: (id: ThreadId) => dropCarriedSession(repo(), id),
     shells: (id: ThreadId) => runningShells(repo(), id),
-    /** Ends the provider's process, waiting for it to exit; nothing pending is retired. */
-    closeProvider: host.closeProvider,
-    /** Of these threads, the ones with a provider process here: attached, opening or closing. */
-    withProcess: (ids: readonly ThreadId[]) => ids.filter((id) => host.hasProcess(id)),
     released: host.released,
   };
 }

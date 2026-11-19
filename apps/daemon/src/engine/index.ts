@@ -442,12 +442,14 @@ export class Engine {
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
+  /** Why the thread takes no new work here while it moves (ADR 0191); none while it may. */
+  ownershipRefusal(id: ThreadId) {
+    return this.fence?.(id);
+  }
   readonly liveMove = liveMove.api(
     () => this.repo,
     () => this.clock.now(),
     {
-      closeProvider: (id) => this.liveness.closeProvider(id),
-      hasProcess: (id) => this.liveness.hasProcess(id),
       // The fence lifted: what it held dispatches, given a slot first.
       released: (id) => {
         this.wakeQueued();
@@ -1243,7 +1245,7 @@ export class Engine {
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
-      if (this.repo.reserve(id)) this.wake(id);
+      if (!this.fenced(id) && this.repo.reserve(id)) this.wake(id);
   }
   private releaseDormant(id: ThreadId): void {
     const actor = this.actors.get(id);

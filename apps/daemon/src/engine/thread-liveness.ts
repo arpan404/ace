@@ -160,40 +160,6 @@ export class ThreadLiveness {
   stop(id: ThreadId): Promise<void> {
     return this.stopOwned(id, () => {});
   }
-  /**
-   * Ends the provider's process for a thread moving to another machine (ADR 0191): its
-   * background shells and its session's writer stop. Unlike `stop`, nothing pending is retired:
-   * queued messages and controls stay held behind the move's fence.
-   */
-  async closeProvider(id: ThreadId): Promise<void> {
-    const actor = this.ports.actor(id);
-    if (!actor) return;
-    const { sessions } = this.ports;
-    // Ends an open still waiting for its handshake: its lifetime is the spawned process's.
-    actor.lifetime?.abort();
-    // An open settles once its process is gone; a close already in flight has cleared the
-    // session before its process exits. Both are waited for. A close that fails leaves the
-    // session in place, and it is tried again.
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const opening = sessions.opening(id);
-      const inFlight = sessions.closed(id);
-      if (opening) await opening;
-      else if (inFlight) await inFlight;
-      else if (actor.session) await sessions.close(actor, "user").catch(() => undefined);
-      else break;
-      await actor.flush();
-    }
-    if (this.hasProcess(id)) throw new Error("The provider's process didn't exit");
-  }
-  /** Whether the thread has a provider process here: attached, opening, or closing. */
-  hasProcess(id: ThreadId): boolean {
-    const actor = this.ports.actor(id);
-    return (
-      Boolean(actor?.session) ||
-      this.ports.sessions.isClosing(id) ||
-      this.ports.sessions.opening(id) !== undefined
-    );
-  }
   /** Idle retained sessions need cleanup, but have no unfinished outcome to cancel. */
   unfinished(id: ThreadId): boolean {
     const { repo } = this.ports;
