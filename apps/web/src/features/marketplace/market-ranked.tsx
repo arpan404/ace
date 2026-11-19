@@ -111,7 +111,12 @@ export function PublisherCard(props: { publisher: MarketTopPublisher }) {
         onClick={() => nav.push({ kind: "publisher", handle: publisher.handle })}
       >
         <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <Avatar name={publisher.displayName} size={48} picture={picture} />
+          <Avatar
+            name={publisher.displayName}
+            size={48}
+            ace={publisher.official}
+            picture={picture}
+          />
           <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
             <span className="mk-pub-name">
               {publisher.displayName}
