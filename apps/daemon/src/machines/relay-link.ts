@@ -1,11 +1,13 @@
 import {
   DeviceId,
   MachineRefusal,
+  type ClientMessage,
   type MachineCallRequest,
   type MachineRelayAnswer,
+  type TransferRelayRequest,
 } from "@ace/protocol";
 import type { ClientChannel } from "@ace/relay";
-import { MachineFailure, MachineTimeout, MachineUnpaired } from "../machines/transport.ts";
+import { MachineFailure, MachineTimeout, MachineUnpaired } from "./transport.ts";
 
 /** What opening a relay stream to a machine needs; `connect` is `connectClientViaRelay`. */
 export interface RelayLinkDeps {
@@ -53,6 +55,8 @@ interface Stream {
   next: number;
   /** The stream ended; a call that finds it opens a new one. */
   dead: boolean;
+  /** The machine said in its welcome that it takes `machine.transfer` frames (ADR 0192). */
+  transfers: boolean;
   stopIdle?: (() => void) | undefined;
 }
 
@@ -100,6 +104,7 @@ export class RelayLink {
     }
     const late = () => channel.close();
     opening.signal.addEventListener("abort", late, { once: true });
+    let welcome: Extract<Awaited<ReturnType<ClientChannel["receive"]>>, { type: "welcome" }>;
     try {
       // Both ends hold to a window the other has consumed (ADR 0110), so a slow reader here
       // holds back the machine instead of filling the relay.
@@ -112,9 +117,10 @@ export class RelayLink {
         channel: "machine",
         flowControl: ["credit"],
       });
-      const welcome = await channel.receive();
-      if (welcome.type !== "welcome")
+      const answer = await channel.receive();
+      if (answer.type !== "welcome")
         throw new MachineFailure("refused", "unauthorized", "The machine refused this link");
+      welcome = answer;
     } catch (error) {
       channel.close();
       throw error instanceof MachineFailure ? error : new MachineFailure("offline");
@@ -122,7 +128,13 @@ export class RelayLink {
       stopDeadline();
       opening.signal.removeEventListener("abort", late);
     }
-    const stream: Stream = { channel, pending: new Map(), next: 1, dead: false };
+    const stream: Stream = {
+      channel,
+      pending: new Map(),
+      next: 1,
+      dead: false,
+      transfers: welcome.machineTransfers === true,
+    };
     void (async () => {
       try {
         for await (const frame of channel.frames()) {
@@ -162,10 +174,51 @@ export class RelayLink {
     return opening;
   }
   /** One machine call on the stream; failures read as the direct transport's do. */
-  async call(
+  call(
     target: RelayTarget,
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<unknown> {
+    return this.exchange(
+      target,
+      (id, timeoutMs) => ({
+        type: "machine.call",
+        id,
+        request: body,
+        timeoutMs,
+      }),
+      options,
+    );
+  }
+  /**
+   * One transfer call on the stream (ADR 0192), answered and failing as a machine call does. A
+   * machine whose welcome didn't say it takes them is sent nothing: it would end the stream.
+   */
+  transfer(
+    target: RelayTarget,
+    request: TransferRelayRequest,
+    options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<unknown> {
+    return this.exchange(
+      target,
+      (id, timeoutMs) => ({ type: "machine.transfer", id, request, timeoutMs }),
+      options,
+      (stream) => {
+        if (!stream.transfers)
+          throw new MachineFailure(
+            "refused",
+            "not_supported",
+            "That machine's ace can't take projects and threads through a relay yet. Update ace there, or link it again where its address answers (LAN or Tailscale).",
+            true,
+          );
+      },
+    );
+  }
+  private async exchange(
+    target: RelayTarget,
+    frame: (id: number, timeoutMs: number) => ClientMessage,
+    options: { timeoutMs: number; signal?: AbortSignal },
+    admit?: (stream: Stream) => void,
   ): Promise<unknown> {
     if (!this.deps.current(target))
       throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
@@ -176,6 +229,14 @@ export class RelayLink {
       throw error instanceof MachineFailure && error.kind === "refused"
         ? error
         : new MachineFailure("offline");
+    }
+    try {
+      admit?.(stream);
+    } catch (error) {
+      // Nothing was sent: an unused stream still closes when idle.
+      if (stream.pending.size === 0 && !stream.stopIdle)
+        stream.stopIdle = this.deps.schedule(IDLE_MS, () => stream.channel.close());
+      throw error;
     }
     stream.stopIdle?.();
     stream.stopIdle = undefined;
@@ -212,7 +273,7 @@ export class RelayLink {
       });
       // Past this the machine stops it rather than run it after the caller gave up.
       const timeoutMs = Math.min(3_600_000, Math.max(1, Math.ceil(options.timeoutMs)));
-      stream.channel.send({ type: "machine.call", id, request: body, timeoutMs }).catch(() => {
+      stream.channel.send(frame(id, timeoutMs)).catch(() => {
         stream.pending.delete(id);
         done();
         reject(new MachineFailure("offline"));
