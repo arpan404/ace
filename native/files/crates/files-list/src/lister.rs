@@ -148,14 +148,12 @@ impl Lister {
         let offset = match cursor {
             None => 0,
             Some(cursor) => {
-                if !pinned && snapshot.racy {
+                if snapshot.racy {
                     return Err(Error::InvalidCursor(format!(
                         "folder {dir:?} changed too recently to page through"
                     )));
                 }
-                let unchanged =
-                    pinned || (cursor.stamp == snapshot.stamp && cursor.count == total as u64);
-                if !unchanged {
+                if cursor.stamp != snapshot.stamp || cursor.count != total as u64 {
                     return Err(Error::InvalidCursor(format!(
                         "folder {dir:?} changed since the cursor was handed out"
                     )));
