@@ -47,8 +47,6 @@ const current = (path: string) => here === path || here.startsWith(path);
 <style>
   /* The header floats over the page as one rounded bar. */
   .nav {
-    /* Stays put while pages cross-fade (styles/motion.css). */
-    view-transition-name: site-nav;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -64,10 +62,13 @@ const current = (path: string) => here === path || here.startsWith(path);
     padding-inline: 18px 10px;
     border: 1px solid var(--border);
     border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    /* Stays put while pages cross-fade (styles/motion.css). The name sits on the bar itself: on
+       its parent it cut the bar off from the page behind, and the blur had nothing to blur. */
+    view-transition-name: site-nav;
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
     box-shadow: 0 14px 30px -22px var(--frame-shadow);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
   }
 
   .brand {
