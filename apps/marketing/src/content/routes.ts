@@ -50,6 +50,13 @@ export const routes: Route[] = [
     parent: "/agents/",
   })),
   {
+    path: "/spade/",
+    name: "Spade",
+    summary:
+      "Spade, ace's own assistant: bots with memory, routines and a computer, on your models.",
+    parent: "/",
+  },
+  {
     path: "/mcp/",
     name: "MCP tools",
     summary: "The MCP tools every agent gets in ace, in every CLI.",

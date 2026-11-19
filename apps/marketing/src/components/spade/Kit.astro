@@ -1,0 +1,229 @@
+---
+/*
+ * What a bot has (content/spade.ts `kit`), laid out as the home page's Parts: the five things
+ * down the left, the chosen one's words and small drawing on the right. On a narrow screen the
+ * names run across the top. Without the script every detail shows, one under the other.
+ */
+import { kit } from "../../content/spade.ts";
+import KitDrawing from "./KitDrawing.astro";
+---
+
+<section class="section page kit" data-kit>
+  <header class="head reveal">
+    <h2 class="section-title">{kit.heading}</h2>
+    <p class="lede">{kit.lede}</p>
+  </header>
+
+  <div class="layout reveal">
+    <div class="tabs" role="tablist" aria-label="What a bot has" aria-orientation="vertical">
+      {
+        kit.items.map((item, index) => (
+          <button
+            type="button"
+            role="tab"
+            id={`kit-tab-${index}`}
+            aria-controls={`kit-panel-${index}`}
+            aria-selected={index === 0 ? "true" : "false"}
+            tabindex={index === 0 ? 0 : -1}
+          >
+            <span class="name">{item.name}</span>
+            <span class="line">{item.line}</span>
+          </button>
+        ))
+      }
+    </div>
+
+    <div class="panels">
+      {
+        kit.items.map((item, index) => (
+          <div class="panel" role="tabpanel" id={`kit-panel-${index}`} aria-labelledby={`kit-tab-${index}`}>
+            <h3>{item.name}</h3>
+            <p class="body">{item.body}</p>
+            <div class="card art" aria-hidden="true">
+              <KitDrawing which={item.key} />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .head h2 {
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .head .lede {
+    font-size: 17px;
+  }
+
+  .layout {
+    display: grid;
+    gap: 20px clamp(40px, 7vw, 96px);
+    align-items: start;
+    margin-top: clamp(28px, 4vw, 48px);
+  }
+
+  @media (min-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  /* The list of things. It only shows once the script can switch between them. */
+  .tabs {
+    display: none;
+  }
+
+  .kit[data-enhanced] .tabs {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs button {
+    flex: none;
+    display: grid;
+    gap: 3px;
+    padding: 9px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  .tabs button:hover {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  .tabs button[aria-selected="true"] {
+    background: var(--active);
+    color: var(--foreground);
+  }
+
+  .name {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .line {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .kit[data-enhanced] .tabs {
+      display: grid;
+      overflow: visible;
+    }
+
+    .tabs button {
+      padding: 14px 16px 15px;
+    }
+
+    .name {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.035em;
+    }
+
+    .line {
+      display: block;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.4;
+    }
+  }
+
+  .panels {
+    display: grid;
+    gap: 40px;
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  /* Each panel names its thing only where the list of things is missing. */
+  h3 {
+    margin-bottom: 8px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+
+  .kit[data-enhanced] h3 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .body {
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  .art {
+    margin-top: 20px;
+    padding: 6px;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+</style>
+
+<script>
+  /*
+   * Tabs: one thing shows at a time. A click or the arrow, Home and End keys choose it; only
+   * the chosen tab takes Tab focus, as tab lists do.
+   */
+  for (const root of document.querySelectorAll<HTMLElement>("[data-kit]")) {
+    const tabs = [...root.querySelectorAll<HTMLElement>('[role="tab"]')];
+    const panels = [...root.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+    const choose = (index: number, focus = false) => {
+      tabs.forEach((tab, at) => {
+        tab.setAttribute("aria-selected", at === index ? "true" : "false");
+        tab.tabIndex = at === index ? 0 : -1;
+      });
+      panels.forEach((panel, at) => {
+        panel.hidden = at !== index;
+      });
+      if (focus) tabs[index]?.focus();
+    };
+    const keys: Record<string, (index: number, last: number) => number> = {
+      ArrowRight: (index, last) => (index === last ? 0 : index + 1),
+      ArrowDown: (index, last) => (index === last ? 0 : index + 1),
+      ArrowLeft: (index, last) => (index === 0 ? last : index - 1),
+      ArrowUp: (index, last) => (index === 0 ? last : index - 1),
+      Home: () => 0,
+      End: (_index, last) => last,
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => choose(index));
+      tab.addEventListener("keydown", (event) => {
+        const move = keys[event.key];
+        if (!move) return;
+        event.preventDefault();
+        choose(move(index, tabs.length - 1), true);
+      });
+    });
+    root.dataset.enhanced = "";
+    choose(0);
+  }
+</script>

@@ -12,6 +12,7 @@ import {
   type Downloads,
 } from "../content/release.ts";
 import { partGroups, type Part } from "../content/parts.ts";
+import { kit, safety, spadePage, spadeQuestions, turnOn, yours } from "../content/spade.ts";
 import { captionWith, zoomCaptions } from "../content/zoom.ts";
 import { links } from "../site.ts";
 
@@ -215,6 +216,45 @@ function security(): string[] {
   ];
 }
 
+const namedRows = (list: readonly { name: string; body: string }[]) =>
+  list.map((row) => `- ${row.name}: ${row.body}`);
+
+function spade(): string[] {
+  return [
+    `# Spade: ${spadePage.headline}`,
+    "",
+    `> ${spadePage.intro}`,
+    "",
+    `${spadePage.status}: off until switched on in ace's Settings › Beta.`,
+    "",
+    `## ${kit.heading}`,
+    "",
+    kit.lede,
+    "",
+    ...kit.items.map((item) => `- ${item.name}: ${item.body}`),
+    "",
+    `## ${yours.heading}`,
+    "",
+    yours.lede,
+    "",
+    ...namedRows(yours.rows),
+    "",
+    `## ${safety.heading}`,
+    "",
+    safety.lede,
+    "",
+    ...namedRows(safety.rows),
+    "",
+    `## ${turnOn.heading}`,
+    "",
+    ...turnOn.steps.map((step, index) => `${index + 1}. ${step.name}: ${step.body}`),
+    "",
+    "## Questions",
+    "",
+    ...questions([...spadeQuestions]),
+  ];
+}
+
 function faqPage(): string[] {
   return [
     "# Questions about ace",
@@ -252,6 +292,7 @@ function linesFor(path: string, href: Href, downloads: Downloads): string[] | un
     "/features/": () => featureIndex(href),
     "/agents/": () => agentIndex(href),
     "/mcp/": mcp,
+    "/spade/": spade,
     "/security/": security,
     "/faq/": faqPage,
   };

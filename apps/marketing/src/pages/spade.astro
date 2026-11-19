@@ -1,0 +1,124 @@
+---
+/*
+ * Spade, ace's own assistant: Spade in 3D with what it is; a conversation that plays once; what
+ * a bot has; whose models and machine it uses; what keeps a bot in bounds; how to turn it on;
+ * questions. Every word is in content/spade.ts.
+ */
+import Closing from "../components/Closing.astro";
+import DownloadButton from "../components/DownloadButton.astro";
+import Faq from "../components/Faq.astro";
+import Kit from "../components/spade/Kit.astro";
+import Messenger from "../components/spade/Messenger.astro";
+import ModelPicker from "../components/spade/ModelPicker.astro";
+import RuledList from "../components/spade/RuledList.astro";
+import Spade3d from "../components/spade/Spade3d.astro";
+import Split from "../components/spade/Split.astro";
+import { safety, spadePage, spadeQuestions, turnOn, yours } from "../content/spade.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor, softwareApplication } from "../seo/schema.ts";
+
+const path = "/spade/";
+const schema = schemaFor(Astro.site);
+const questions = [...spadeQuestions];
+---
+
+<Page
+  path={path}
+  title={spadePage.title}
+  description={spadePage.description}
+  schema={[softwareApplication(schema), faqPage(schema, path, questions)]}
+>
+  <section class="page opening">
+    <div class="say">
+      <p class="status">{spadePage.status}</p>
+      <h1>{spadePage.headline}</h1>
+      <p class="lead">{spadePage.intro}</p>
+      <div class="actions">
+        <DownloadButton />
+        <a class="text-link" href="#turn-on">{spadePage.turnOnLink}</a>
+      </div>
+    </div>
+    <div class="face">
+      <Spade3d size={320} />
+    </div>
+  </section>
+
+  <Messenger />
+
+  <Kit />
+
+  <Split heading={yours.heading} lede={yours.lede}>
+    <ModelPicker />
+  </Split>
+
+  <Split heading={safety.heading} lede={safety.lede}>
+    <RuledList rows={safety.rows} />
+  </Split>
+
+  <Split id="turn-on" heading={turnOn.heading} lede={turnOn.lede}>
+    <div class="get" slot="below"><DownloadButton withNote /></div>
+    <RuledList rows={turnOn.steps} numbered />
+  </Split>
+
+  <Faq items={questions} heading="Questions about Spade." />
+
+  <Closing />
+</Page>
+
+<style>
+  .opening {
+    display: grid;
+    align-items: center;
+    gap: 8px 48px;
+    padding-top: clamp(32px, 5vw, 64px);
+  }
+
+  @media (min-width: 900px) {
+    .opening {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+  }
+
+  .status {
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  h1 {
+    max-width: 11em;
+    margin-top: 14px;
+    font-size: clamp(44px, 7vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 32em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 24px;
+    margin-top: 28px;
+  }
+
+  .get {
+    margin-top: 28px;
+  }
+
+  /* On a narrow screen Spade sits above the words, smaller. */
+  @media (max-width: 899px) {
+    .face {
+      --spade-box: 180px;
+      order: -1;
+      margin-left: -14px;
+    }
+  }
+</style>

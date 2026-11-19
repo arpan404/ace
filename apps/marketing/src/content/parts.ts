@@ -54,6 +54,7 @@ export const partGroups: PartGroup[] = [
       {
         name: "Spade",
         body: "ace's own assistant, with bots, routines and memory.",
+        href: page("/spade/"),
         beta: true,
       },
     ],

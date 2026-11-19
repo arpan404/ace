@@ -1,0 +1,158 @@
+---
+/*
+ * A bot's character face, drawn by the app's own geometry (@ace/ui-core/bot-face) from its eight
+ * fields. `state` poses it: idle, working (its eyes dart while the drawing plays) or needs you
+ * (looking up). Faces keep their own colours in both themes; they are the bots' marks.
+ */
+import { botFaceColourVars, botFaceMarkup, faceTier, type BotFace } from "@ace/ui-core/bot-face";
+
+interface Props {
+  face: BotFace;
+  size: number;
+  /** Unique on the page: the face's clip paths are named from it. */
+  uid: string;
+  state?: "idle" | "working" | "needs-you";
+  class?: string;
+}
+
+const { face, size, uid, state = "idle", class: className } = Astro.props;
+const style = Object.entries(botFaceColourVars(face))
+  .map(([name, value]) => `${name}:${value}`)
+  .join(";");
+---
+
+<svg
+  class:list={["bot-face", className]}
+  viewBox="0 0 24 24"
+  width={size}
+  height={size}
+  overflow="visible"
+  aria-hidden="true"
+  data-state={state}
+  data-tier={faceTier(size)}
+  style={style}
+  set:html={botFaceMarkup(face, size, uid)}
+/>
+
+<style is:global>
+  /* The colour roles for the page's theme; dark is the site's base, light is set on <html>. */
+  .bot-face {
+    --b: var(--b-dark);
+    --a: var(--a-dark);
+    --bs: var(--bs-dark);
+    --as: var(--as-dark);
+    --bl: var(--bl-dark);
+    --visor: var(--visor-dark);
+    --mask: var(--mask-dark);
+    --blush: var(--blush-dark);
+    --tongue: var(--tongue-dark);
+    display: block;
+    flex: none;
+    overflow: visible;
+  }
+
+  html[data-theme="light"] .bot-face {
+    --b: var(--b-light);
+    --a: var(--a-light);
+    --bs: var(--bs-light);
+    --as: var(--as-light);
+    --bl: var(--bl-light);
+    --visor: var(--visor-light);
+    --mask: var(--mask-light);
+    --blush: var(--blush-light);
+    --tongue: var(--tongue-light);
+  }
+
+  /* Held poses, which are also what reduced motion and a page without script show. */
+  .bot-face :is(.bf-ey, .bf-pu) {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .bot-face .bf-hd {
+    transform-box: view-box;
+    transform-origin: 12px 22px;
+  }
+
+  .bot-face .bf-pu {
+    transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98));
+  }
+
+  .bot-face .bf-lid {
+    transform: translateY(calc(var(--eh) * var(--l0)));
+  }
+
+  .bot-face :is(.bf-hp, .bf-spark, .bf-sweat, .bf-m-done, .bf-m-fail, .bf-m-wait) {
+    opacity: 0;
+  }
+
+  .bot-face[data-state="working"] .bf-pu {
+    transform: translate(calc(var(--ax) * 0.45), calc(var(--ay) * 0.7));
+  }
+
+  .bot-face[data-state="working"] .bf-hd {
+    transform: rotate(2.5deg);
+  }
+
+  .bot-face[data-state="needs-you"] .bf-pu {
+    transform: translate(calc(var(--ax) * 0.1), calc(var(--ay) * -0.8)) scale(1.24);
+  }
+
+  .bot-face[data-state="needs-you"] .bf-ey {
+    transform: scale(1.07, 1.12);
+  }
+
+  .bot-face[data-state="needs-you"] .bf-lid {
+    transform: translateY(calc(var(--eh) * var(--l0) * 0.3));
+  }
+
+  .bot-face[data-state="needs-you"] .bf-hd {
+    transform: translateY(-0.7px) rotate(7deg);
+  }
+
+  .bot-face[data-state="needs-you"] .bf-m-own {
+    opacity: 0;
+  }
+
+  .bot-face[data-state="needs-you"] .bf-m-wait {
+    opacity: 1;
+  }
+
+  /* Only a working face moves, and only while its drawing is on screen (.is-in). */
+  html.motion .is-in .bot-face[data-state="working"] .bf-pu {
+    animation: bf-dart 2.4s var(--ease-out) infinite;
+  }
+
+  html.motion .is-in .bot-face[data-state="working"] .bf-hd {
+    animation: bf-bob 1.2s ease-in-out infinite;
+  }
+
+  @keyframes bf-dart {
+    0%,
+    22%,
+    100% {
+      transform: translate(calc(var(--ax) * -0.7), calc(var(--ay) * 0.55));
+    }
+
+    27%,
+    47% {
+      transform: translate(calc(var(--ax) * 0.75), calc(var(--ay) * 0.45));
+    }
+
+    52%,
+    72% {
+      transform: translate(calc(var(--ax) * 0.2), calc(var(--ay) * 0.9));
+    }
+  }
+
+  @keyframes bf-bob {
+    0%,
+    100% {
+      transform: rotate(2.5deg);
+    }
+
+    50% {
+      transform: translateY(0.45px) rotate(2.5deg) scale(1.01, 0.985);
+    }
+  }
+</style>

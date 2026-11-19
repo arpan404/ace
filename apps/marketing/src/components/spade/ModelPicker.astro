@@ -1,0 +1,86 @@
+---
+/*
+ * A bot's model picker, as its profile draws it: one list grouped by endpoint, each group saying
+ * where it runs or how it signs in, the chosen model checked. Endpoints with your own key, a
+ * local server and a signed-in coding CLI sit side by side.
+ */
+import { yours } from "../../content/spade.ts";
+import Icon from "../Icon.astro";
+---
+
+<div class="picker" aria-hidden="true">
+  <div class="card menu">
+    <p class="label">{yours.picker.label}</p>
+    {
+      yours.picker.groups.map((group) => (
+        <div class="group">
+          <p class="group-head">
+            <span>{group.name}</span>
+            <span class="note">{group.note}</span>
+          </p>
+          {group.models.map((model) => (
+            <p class:list={["model", { chosen: model === yours.picker.chosen }]}>
+              <span>{model}</span>
+              {model === yours.picker.chosen && <Icon name="check" size={15} />}
+            </p>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+  <p class="caption">{yours.caption}</p>
+</div>
+
+<style>
+  .menu {
+    padding: 6px;
+    font-size: 14px;
+  }
+
+  .label {
+    padding: 10px 12px 6px;
+    color: var(--subtle);
+    font-size: 12px;
+  }
+
+  .group + .group {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+
+  .group-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .note {
+    color: var(--subtle);
+    font-weight: 400;
+  }
+
+  .model {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .chosen {
+    background: var(--active);
+  }
+
+  .caption {
+    margin-top: 14px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+</style>

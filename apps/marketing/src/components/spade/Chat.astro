@@ -1,0 +1,311 @@
+---
+/*
+ * Spade's conversation column, drawn as docs/design/spade.md lays it out: the floating pill with
+ * the bot's face and name, bubbles (the bot's on a faint wash, the person's in ink, the default
+ * accent), the working line, the folded steps line, the raised card for a payment and the
+ * composer capsule. Marked `.play`, the parts arrive in order once the drawing is on screen
+ * (`--play-at` is each one's start); without motion they all show, as the conversation ends.
+ */
+import { bots, conversation as talk } from "../../content/spade.ts";
+import BotFace from "./BotFace.astro";
+import Glyph from "./Glyph.astro";
+---
+
+<div class="chat">
+  <div class="pill">
+    <BotFace face={bots.flights.face} size={28} uid="sp-pill" state="needs-you" />
+    <span>{bots.flights.name}</span>
+  </div>
+
+  <div class="transcript">
+    <p class="play mine" style="--play-at: 0.5s"><span class="bubble">{talk.ask}</span></p>
+    <div class="working" style="--play-at: 1.2s">
+      <BotFace face={bots.flights.face} size={32} uid="sp-work" state="working" />
+      <span>{talk.working}</span>
+      <span class="time">{talk.workingTime}</span>
+    </div>
+    <div class="play theirs" style="--play-at: 4s">
+      <span class="bubble">{talk.answer}</span>
+      <span class="steps">{talk.steps}</span>
+    </div>
+    <p class="play mine" style="--play-at: 5.4s"><span class="bubble">{talk.yes}</span></p>
+    <div class="play raised" style="--play-at: 6.4s">
+      <div class="request">
+        <p class="ask"><span class="dot"></span>{talk.card.title}</p>
+        <p class="what">{talk.card.body}</p>
+        <div class="actions">
+          <span class="ghost">{talk.card.deny}</span>
+          <span class="primary">{talk.card.allow}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="composer">
+    <span class="round"><Glyph name="plus" size={16} /></span>
+    <span class="field">{talk.composer}</span>
+    <span class="round quiet"><Glyph name="mic" size={16} /></span>
+    <span class="round voice"><Glyph name="waveform" size={18} /></span>
+  </div>
+</div>
+
+<style>
+  .chat {
+    position: relative;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* The pill floats over the top of the transcript, which runs under it. */
+  .pill {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px 4px 5px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    font-size: 13px;
+    font-weight: 500;
+    translate: -50% 0;
+  }
+
+  .transcript {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 64px clamp(14px, 3vw, 28px) 12px;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  .transcript > * {
+    padding-top: 16px;
+  }
+
+  .mine {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .bubble {
+    display: block;
+    padding: 9px 16px;
+    border-radius: 18px;
+    text-wrap: pretty;
+  }
+
+  .mine .bubble {
+    max-width: min(56ch, 82%);
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+
+  .theirs {
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+  }
+
+  .theirs .bubble {
+    max-width: min(64ch, 88%);
+    background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  }
+
+  /* A reply's finished steps, folded into one quiet line under its words. */
+  .steps {
+    padding-left: 16px;
+    color: var(--subtle);
+    font-size: 12px;
+  }
+
+  .working {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .time {
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  /* The card that needs the person: the only raised thing, one primary at its right. */
+  .request {
+    max-width: 420px;
+    padding: 16px 18px;
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    background: var(--surface);
+  }
+
+  .ask {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 500;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--status-needs-you);
+  }
+
+  .what {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+  }
+
+  .ghost {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .primary {
+    display: inline-grid;
+    place-items: center;
+    height: 32px;
+    padding-inline: 16px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 clamp(10px, 2.4vw, 22px) 14px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+
+  .field {
+    flex: 1;
+    min-width: 0;
+    padding-left: 4px;
+    overflow: hidden;
+    color: var(--subtle);
+    font-size: 14px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .round {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--wash);
+    color: var(--muted);
+  }
+
+  .quiet {
+    background: none;
+  }
+
+  .voice {
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+
+  /*
+   * The play: each part grows in at its time, once. The working line shows while the bot works
+   * and folds away as the reply lands. Without motion only the working line is left out.
+   */
+  .working {
+    display: none;
+  }
+
+  html.motion .working {
+    display: flex;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    padding-top: 0;
+  }
+
+  html.motion .play {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    padding-top: 0;
+  }
+
+  html.motion :global(.is-in) .play {
+    animation: arrive 700ms var(--ease-out) var(--play-at) both;
+  }
+
+  html.motion :global(.is-in) .working {
+    animation: work 3s var(--ease-out) var(--play-at) both;
+  }
+
+  @keyframes arrive {
+    from {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+    }
+
+    40% {
+      opacity: 0;
+    }
+
+    to {
+      max-height: 260px;
+      opacity: 1;
+      padding-top: 16px;
+    }
+  }
+
+  @keyframes work {
+    0% {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+    }
+
+    10%,
+    88% {
+      max-height: 60px;
+      opacity: 1;
+      padding-top: 16px;
+    }
+
+    100% {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+    }
+  }
+</style>

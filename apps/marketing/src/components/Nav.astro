@@ -7,6 +7,7 @@ import Icon from "./Icon.astro";
 const sections = [
   { path: "/features/", name: "Features" },
   { path: "/agents/", name: "Agents" },
+  { path: "/spade/", name: "Spade" },
   { path: "/mcp/", name: "MCP" },
   { path: "/download/", name: "Download" },
   { path: "/faq/", name: "FAQ" },
@@ -128,6 +129,18 @@ const current = (path: string) => here === path || here.startsWith(path);
 
   .icon-link:hover {
     color: var(--foreground);
+  }
+
+  /* Six links fit beside the actions only on a wide bar; a narrower one drops FAQ (still in the
+     footer) and closes the gaps. */
+  @media (max-width: 1080px) {
+    .nav-links {
+      gap: 20px;
+    }
+
+    .nav-links a[href="/faq/"] {
+      display: none;
+    }
   }
 
   @media (max-width: 860px) {
