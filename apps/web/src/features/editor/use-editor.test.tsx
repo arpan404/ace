@@ -91,7 +91,10 @@ test("a change that landed nothing lets go of the position it remembered", async
   expect(events).toEqual(["before", "no edit"]);
 });
 
-function Hideable(props: { mode: "visible" | "hidden"; capture(state: EditorDocumentState): void }) {
+function Hideable(props: {
+  mode: "visible" | "hidden";
+  capture(state: EditorDocumentState): void;
+}) {
   return (
     <Activity mode={props.mode}>
       <Probe capture={props.capture} />
