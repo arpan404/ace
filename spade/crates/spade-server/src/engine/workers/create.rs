@@ -64,6 +64,11 @@ impl Engine {
         let _ = self.workers.grants.set(grants);
     }
 
+    /// The person's apps, as bots are let use them; `None` when Spade has none.
+    pub(crate) fn connector_grants(&self) -> Option<&Arc<dyn ConnectorGrants>> {
+        self.workers.grants.get()
+    }
+
     /// `bot_create` from the call with `key` (`<conversation>.<call>`): makes the worker (once,
     /// even when the call runs again after a restart) and starts it, or queues it while the
     /// maker's workers are all busy.

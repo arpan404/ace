@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod fleet;
 pub mod gated;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
@@ -750,6 +751,10 @@ impl Spade {
             before(&engine);
         }
         bots.set(&engine);
+        // As Spade wires it: workers and arrivals set apps through the hub.
+        if let Some(hub) = &connectors {
+            engine.set_connector_grants(hub.clone());
+        }
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);

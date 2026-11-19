@@ -11,12 +11,15 @@ impl Store {
     /// Every `worker_of` and `worker_detached` event, by conversation in order.
     pub fn worker_links(&self) -> Result<Vec<(String, Event)>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        // A bot still arriving (ADR 0187) is linked to nothing until it is this machine's.
+        let mut statement = connection.prepare(&format!(
             "SELECT conversation_id, body FROM events
-             WHERE body LIKE '{\"type\":\"worker_%'
+             WHERE body LIKE '{{\"type\":\"worker_%'
                AND json_extract(body, '$.type') IN ('worker_of', 'worker_detached')
+               AND conversation_id NOT IN {}
              ORDER BY conversation_id, seq",
-        )?;
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
         let rows = statement.query_map([], |row| {
             let conversation: String = row.get(0)?;
             let body: String = row.get(1)?;
@@ -36,13 +39,15 @@ impl Store {
     /// a cancel ace hasn't confirmed may be owed after a restart.
     pub fn ace_stops(&self) -> Result<Vec<String>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT DISTINCT conversation_id FROM events
-             WHERE body LIKE '{\"type\":\"worker_reported\"%'
+             WHERE body LIKE '{{\"type\":\"worker_reported\"%'
                AND json_extract(body, '$.kind') = 'ace'
                AND json_extract(body, '$.state') = 'stopping'
+               AND conversation_id NOT IN {}
              ORDER BY conversation_id",
-        )?;
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
@@ -54,10 +59,11 @@ impl Store {
             return Ok(0);
         }
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT COALESCE(SUM(cost_micros), 0) FROM spend
-             WHERE at_ms >= ?2 AND conversation_id = ?1",
-        )?;
+             WHERE at_ms >= ?2 AND conversation_id = ?1 AND conversation_id NOT IN {}",
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
         let mut total: i64 = 0;
         for conversation in conversations {
             let spent: i64 =

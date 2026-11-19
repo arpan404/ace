@@ -8,6 +8,10 @@ use spade_core::memory;
 
 use crate::{Result, Store};
 
+/// A note of no bot still arriving (ADR 0187), as `n`, and as its own row.
+const LIVE_NOTE: &str = "(n.agent_id IS NULL OR n.agent_id NOT IN (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1))";
+const LIVE_NOTE_ROW: &str = "(agent_id IS NULL OR agent_id NOT IN (SELECT id FROM move_claims WHERE kind = 'agent' AND hidden = 1))";
+
 /// The schema step that adds notes and the past-text index.
 pub(crate) const SCHEMA: &str = "
     CREATE TABLE notes (
@@ -181,7 +185,8 @@ impl Store {
     pub fn notes(&self, which: Notes<'_>) -> Result<Vec<StoredNote>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS} FROM notes n WHERE {} ORDER BY n.updated_ms DESC, n.id DESC",
+            "SELECT {COLUMNS} FROM notes n WHERE {} AND {LIVE_NOTE}
+             ORDER BY n.updated_ms DESC, n.id DESC",
             which.clause()
         ))?;
         let rows = statement.query_map(params![which.agent()], note)?;
@@ -193,7 +198,7 @@ impl Store {
     pub fn notes_by_use(&self, which: Notes<'_>) -> Result<Vec<StoredNote>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS} FROM notes n WHERE {}
+            "SELECT {COLUMNS} FROM notes n WHERE {} AND {LIVE_NOTE}
              ORDER BY n.uses DESC, MAX(n.updated_ms, COALESCE(n.used_ms, 0)) DESC, n.id",
             which.clause()
         ))?;
@@ -205,7 +210,7 @@ impl Store {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
+                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1 AND {LIVE_NOTE}"),
                 params![id],
                 note,
             )
@@ -285,13 +290,15 @@ impl Store {
     ) -> Result<Updated> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE notes SET text = ?2, updated_ms = MAX(?3, updated_ms + 1)
-             WHERE id = ?1 AND (?4 IS NULL OR updated_ms = ?4)",
+            &format!(
+                "UPDATE notes SET text = ?2, updated_ms = MAX(?3, updated_ms + 1)
+                 WHERE id = ?1 AND (?4 IS NULL OR updated_ms = ?4) AND {LIVE_NOTE_ROW}"
+            ),
             params![id, text, now_ms, expected],
         )?;
         let current = connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
+                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1 AND {LIVE_NOTE}"),
                 params![id],
                 note,
             )
@@ -306,10 +313,13 @@ impl Store {
     /// Keeps a suggested note: from now on its bot sees it. `None` if there is no such note.
     pub fn accept_note(&self, id: &str) -> Result<Option<StoredNote>> {
         let connection = self.lock()?;
-        connection.execute("UPDATE notes SET suggested = 0 WHERE id = ?1", params![id])?;
+        connection.execute(
+            &format!("UPDATE notes SET suggested = 0 WHERE id = ?1 AND {LIVE_NOTE_ROW}"),
+            params![id],
+        )?;
         Ok(connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
+                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1 AND {LIVE_NOTE}"),
                 params![id],
                 note,
             )
@@ -325,6 +335,9 @@ impl Store {
         limit: usize,
     ) -> Result<Vec<crate::StoredEvent>> {
         let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+            return Ok(Vec::new());
+        }
         let mut statement = connection.prepare(
             "SELECT seq, at_ms, body FROM events
              WHERE conversation_id = ?1 AND seq >= ?2 ORDER BY seq LIMIT ?3",
@@ -345,10 +358,10 @@ impl Store {
 
     /// Deletes a note; whether there was one.
     pub fn delete_note(&self, id: &str) -> Result<bool> {
-        Ok(self
-            .lock()?
-            .execute("DELETE FROM notes WHERE id = ?1", params![id])?
-            > 0)
+        Ok(self.lock()?.execute(
+            &format!("DELETE FROM notes WHERE id = ?1 AND {LIVE_NOTE_ROW}"),
+            params![id],
+        )? > 0)
     }
 
     /// Notes `which` covers that match the FTS5 `query`, each with its BM25 (lower is better), at
@@ -363,7 +376,7 @@ impl Store {
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS}, bm25(notes_search) FROM notes_search
              JOIN notes n ON n.rowid = notes_search.rowid
-             WHERE notes_search MATCH ?2 AND {}
+             WHERE notes_search MATCH ?2 AND {} AND {LIVE_NOTE}
              ORDER BY bm25(notes_search) LIMIT ?3",
             which.clause()
         ))?;
@@ -380,7 +393,7 @@ impl Store {
         let tx = connection.transaction()?;
         for id in ids {
             tx.execute(
-                "UPDATE notes SET used_ms = ?2, uses = uses + 1 WHERE id = ?1",
+                &format!("UPDATE notes SET used_ms = ?2, uses = uses + 1 WHERE id = ?1 AND {LIVE_NOTE_ROW}"),
                 params![id, now_ms],
             )?;
         }
@@ -409,6 +422,9 @@ impl Store {
     ) -> Result<Vec<HistoryMatch>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
+        if crate::gate::arriving(&tx, crate::gate::CONVERSATION, conversation)? {
+            return Ok(Vec::new());
+        }
         let upto: i64 = tx
             .query_row(
                 "SELECT upto FROM history_indexed WHERE conversation_id = ?1",

@@ -975,6 +975,56 @@ fn an_app_that_shows_another_device_asks_on_every_screen_path_despite_always_all
     }
 }
 
+#[test]
+fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered_here() {
+    use crate::event::{Event, Known, since_arrival};
+    let key = "a_1|plugin:files@h1/fs:delete#s1";
+    let asked = |call: &str| {
+        Event::Known(Known::ApprovalRequested {
+            reply: "r".into(),
+            call_id: call.into(),
+            name: "files__delete".into(),
+            arguments: json!({}),
+            scope: None,
+            reviewer_reason: None,
+            ask: Some(Ask::Undeclared),
+            tool_key: Some(key.into()),
+            app: None,
+            acts_in: None,
+            helper: None,
+            launch: None,
+        })
+    };
+    let answered = |call: &str, always: bool| {
+        Event::Known(Known::ApprovalAnswered {
+            reply: "r".into(),
+            call_id: call.into(),
+            allowed: true,
+            always,
+        })
+    };
+    let arrived = Event::Known(Known::Arrived {
+        from: "Laptop".into(),
+    });
+    let there = vec![asked("a"), answered("a", true), arrived.clone()];
+    assert_eq!(
+        remembered(&there, key),
+        Some(true),
+        "the whole history remembers it"
+    );
+    assert_eq!(
+        remembered(since_arrival(&there), key),
+        None,
+        "here it asks again"
+    );
+    let folded = crate::Transcript::fold(since_arrival(&there));
+    assert!(folded.always_allowed.is_empty(), "no Always allow crossed");
+    // An answer given here, after it arrived, counts.
+    let mut here = there;
+    here.extend([asked("b"), answered("b", false)]);
+    assert_eq!(remembered(since_arrival(&here), key), Some(true));
+}
+
 /// A connector's or plugin's tool, run in the sandbox, that can reach the network.
 fn contained_app_tool(effect: Option<Effect>) -> Call<'static> {
     Call {

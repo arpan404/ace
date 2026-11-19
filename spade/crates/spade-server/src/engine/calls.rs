@@ -11,7 +11,7 @@ use spade_core::autonomy::{self, Class, Mode, Runs, Sensitive};
 use spade_core::context;
 use spade_core::effect::{self, Place, Route};
 use spade_core::event::Verdict;
-use spade_core::event::{Authorized, Call, Known};
+use spade_core::event::{Authorized, Call, Known, since_arrival};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::question;
@@ -233,14 +233,25 @@ pub(super) async fn handle_calls(
                         .and_then(|tool| tool.always_scope_in(&key, &arguments));
                     // An Always allow holds only for the launch it was given for, or narrower; a
                     // whole-tool one records none, so it holds for a contained launch only.
-                    let always_in = |owner: &str, owned: &[Event], folded: &Transcript| match &scope
-                    {
-                        Some(scope) => {
-                            allowed_always_for(engine, owner, owned, &name, scope, limit)
-                        }
-                        None => {
-                            limit == Authorized::Contained
-                                && folded.always_allowed.iter().any(|t| t == &name)
+                    // Only answers given on this machine count: a bot that moved here brought its
+                    // history, not the person's consent (ADR 0187).
+                    let always_in = |owner: &str, owned: &[Event], folded: &Transcript| {
+                        let here = since_arrival(owned);
+                        match &scope {
+                            Some(scope) => {
+                                allowed_always_for(engine, owner, here, &name, scope, limit)
+                            }
+                            None if here.len() == owned.len() => {
+                                limit == Authorized::Contained
+                                    && folded.always_allowed.iter().any(|t| t == &name)
+                            }
+                            None => {
+                                limit == Authorized::Contained
+                                    && Transcript::fold(here)
+                                        .always_allowed
+                                        .iter()
+                                        .any(|t| t == &name)
+                            }
                         }
                     };
                     let always = match (&helper, &bot_events) {
@@ -284,10 +295,10 @@ pub(super) async fn handle_calls(
                             .map(|tool| engine.tool_key(id, tool.identity())),
                     };
                     let remembered = tool_key.as_deref().and_then(|key| {
-                        effect::remembered(events, key).or_else(|| {
+                        effect::remembered(since_arrival(events), key).or_else(|| {
                             bot_events
                                 .as_deref()
-                                .and_then(|owned| effect::remembered(owned, key))
+                                .and_then(|owned| effect::remembered(since_arrival(owned), key))
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);
@@ -1221,7 +1232,7 @@ async fn finish_tool(
     let mut content = super::trim::trim(&output.content, engine.limits.result_chars);
     let mut images = Vec::new();
     for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {
-        match engine.images.put(bytes) {
+        match engine.put_image(bytes) {
             Ok(image) => images.push(image),
             Err(error) => {
                 content.push_str(&format!("\n[An image it returned was not kept: {error}]"))

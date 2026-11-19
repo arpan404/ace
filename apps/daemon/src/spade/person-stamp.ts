@@ -11,21 +11,33 @@ import { createHmac } from "node:crypto";
 
 export const personHeader = "x-ace-person";
 
-/** A change only the person may make: which bot (or `machine`) and to what. */
+/** A change only the person may make: which bot (or `machine`, or `move:<id>`) and to what. */
 export interface PersonOnlyWrite {
   target: string;
-  /** `full_access`, or `null`: following the parent or the machine can raise a bot too. */
-  value: "full_access" | "null";
+  /**
+   * `full_access`, or `null`: following the parent or the machine can raise a bot too. For a
+   * move, `accept:<bot>`: the person accepts that bot arriving by that move (ADR 0187).
+   */
+  value: string;
 }
 
 const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
+const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
+/** A move's or a bot's id, as Spade takes them: one plain name. */
+const plainId = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const machineAutonomy = "/v1/security/autonomy";
+/** Passing Spade's host choice on to this machine (ADR 0187). */
+const mainHost = "/v1/main/host";
 
 /** The route a guarded change goes to, whatever its body; undefined for every other request. */
 export function personOnlyRoute(method: string, path: string): string | undefined {
   if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
   if (bare === machineAutonomy) return "machine";
+  if (bare === mainHost) return "main-host";
+  // Accepting a bot moving here: always the person's, whatever the body says.
+  const move = moveAccept.exec(bare)?.[1];
+  if (move !== undefined) return `move:${move}`;
   const bot = botAutonomy.exec(bare)?.[1];
   if (bot === undefined) return undefined;
   try {
@@ -47,6 +59,8 @@ export function personOnlyWrite(
 ): PersonOnlyWrite | undefined {
   const target = personOnlyRoute(method, path);
   if (target === undefined) return undefined;
+  if (target.startsWith("move:")) return moveAcceptWrite(target, body);
+  if (target === "main-host") return hostWrite(target, body);
   let value: unknown;
   try {
     value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
@@ -72,4 +86,61 @@ export function personStamp(
     .update(`ace-spade-person/1\n${write.target}\n${write.value}\n${atMs}\n${nonce}`)
     .digest("hex");
   return `v1.${atMs}.${nonce}.${mac}`;
+}
+
+/**
+ * Accepting a bot moving here (ADR 0187): the whole move as Spade will check it (the bot, the
+ * machine it comes from, the device this daemon knows that machine by, the machine it goes to, the manifest by its hash, and whether it
+ * replaces Spade), or nothing to stamp when any part isn't what Spade takes (it then refuses it
+ * unstamped).
+ */
+function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWrite | undefined {
+  if (!plainId.test(target.slice("move:".length))) return undefined;
+  let value: unknown;
+  try {
+    value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const field = (name: string) => {
+    const got: unknown = Reflect.get(value, name);
+    return typeof got === "string" ? got : undefined;
+  };
+  const [bot, from, via, to, digest, replaces] = [
+    "bot",
+    "from",
+    "via",
+    "to",
+    "digest",
+    "replaces",
+  ].map(field);
+  const plain = [bot, from, via, to].every((id) => id !== undefined && plainId.test(id));
+  if (!plain || !digest || !/^[0-9a-f]{64}$/.test(digest)) return undefined;
+  if (replaces !== "bot" && replaces !== "main") return undefined;
+  return { target, value: `accept:${bot}:${from}:${via}:${to}:${digest}:${replaces}` };
+}
+
+/**
+ * Passing Spade's host choice on (ADR 0187): the whole record as Spade checks it (the host, the
+ * version, the time and who made it), or nothing to stamp when it isn't one Spade takes.
+ */
+function hostWrite(target: string, body: Buffer | undefined): PersonOnlyWrite | undefined {
+  let value: unknown;
+  try {
+    value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const host: unknown = Reflect.get(value, "host");
+  const version: unknown = Reflect.get(value, "version");
+  const at: unknown = Reflect.get(value, "at");
+  const by: unknown = Reflect.get(value, "by");
+  if (typeof host !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(host)) return undefined;
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)
+    return undefined;
+  if (typeof at !== "number" || !Number.isSafeInteger(at)) return undefined;
+  if (by !== "seed" && by !== "move") return undefined;
+  return { target, value: `host:${host}:${version}:${at}:${by}` };
 }

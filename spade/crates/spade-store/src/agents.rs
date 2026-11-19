@@ -8,6 +8,7 @@ use spade_core::Event;
 use spade_core::event::Known;
 use spade_core::face;
 
+use crate::gate::ARRIVING_AGENTS;
 use crate::{Result, Store, StoreError, StoredEvent, append_in};
 
 /// The colours an initials avatar used, before character faces (schema 2's backfill).
@@ -121,11 +122,14 @@ impl Store {
         Ok(())
     }
 
-    /// Every agent: the main one first, then by latest activity.
+    /// Every agent: the main one first, then by latest activity. A main bot another machine's
+    /// Spade replaced when it moved here (ADR 0187) is kept, retired, and never listed; nor is a
+    /// bot still arriving from another machine.
     pub fn agents(&self) -> Result<Vec<Agent>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM agents a JOIN conversations c ON c.id = a.conversation_id
+             WHERE a.kind IN ('main', 'bot') AND a.id NOT IN {ARRIVING_AGENTS}
              ORDER BY a.kind = 'main' DESC, c.updated_ms DESC, a.id DESC"
         ))?;
         let rows = statement.query_map([], agent)?;
@@ -137,8 +141,10 @@ impl Store {
     pub fn set_agent_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE agents SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
-             WHERE id = ?1",
+            &format!(
+                "UPDATE agents SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+                 WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![id, pinned, now_ms],
         )?;
         Ok(changed > 0)
@@ -158,13 +164,17 @@ impl Store {
         )
     }
 
+    /// The one agent `condition` names. A bot still arriving from another machine (ADR 0187,
+    /// kind `arriving`) is no agent here until its move makes it one: nothing finds it by its id
+    /// or its conversation, so nothing can reach it or act as it.
     fn agent_where(&self, condition: &str, value: &str) -> Result<Option<Agent>> {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
                 &format!(
                     "SELECT {COLUMNS} FROM agents a JOIN conversations c
-                     ON c.id = a.conversation_id WHERE {condition}"
+                     ON c.id = a.conversation_id WHERE ({condition}) AND a.kind != 'arriving'
+                     AND a.id NOT IN {ARRIVING_AGENTS}"
                 ),
                 params![value],
                 agent,
@@ -181,7 +191,10 @@ impl Store {
         now_ms: i64,
     ) -> Result<bool> {
         let changed = self.lock()?.execute(
-            "UPDATE agents SET name = ?2, avatar = ?3, updated_ms = ?4 WHERE id = ?1",
+            &format!(
+                "UPDATE agents SET name = ?2, avatar = ?3, updated_ms = ?4
+                 WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![id, name, avatar, now_ms],
         )?;
         Ok(changed > 0)
@@ -199,7 +212,7 @@ impl Store {
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
             .query_row(
-                "SELECT conversation_id FROM agents WHERE id = ?1",
+                &format!("SELECT conversation_id FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
                 params![id],
                 |row| row.get(0),
             )
@@ -223,7 +236,9 @@ impl Store {
     /// Sets the model of agents that have none (migrated ones whose conversation never replied).
     pub fn fill_missing_models(&self, model: &str) -> Result<()> {
         self.lock()?.execute(
-            "UPDATE agents SET model = ?1 WHERE model = ''",
+            &format!(
+                "UPDATE agents SET model = ?1 WHERE model = '' AND id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![model],
         )?;
         Ok(())
@@ -236,7 +251,7 @@ impl Store {
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
             .query_row(
-                "SELECT conversation_id FROM agents WHERE id = ?1",
+                &format!("SELECT conversation_id FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
                 params![id],
                 |row| row.get(0),
             )
@@ -283,9 +298,10 @@ impl Store {
     pub fn agents_using_endpoint(&self, endpoint: &str) -> Result<Vec<String>> {
         let connection = self.lock()?;
         let prefix = format!("{endpoint}/");
-        let mut statement = connection.prepare(
-            "SELECT name FROM agents WHERE substr(model, 1, length(?1)) = ?1 ORDER BY name",
-        )?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT name FROM agents WHERE substr(model, 1, length(?1)) = ?1
+             AND id NOT IN {ARRIVING_AGENTS} ORDER BY name"
+        ))?;
         let rows = statement.query_map(params![prefix], |row| row.get(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

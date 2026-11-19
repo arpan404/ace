@@ -1,6 +1,6 @@
 # 0127: Spade is the main bot among the person's bots, shown as a chat
 
-Status: accepted. Date: 2026-11-11. Decided by: the owner (2026-11-11: "Spade will be the main bot
+Status: accepted; decision 2 amended by [ADR 0187](0187-spade-bots-move-between-machines.md). Date: 2026-11-11. Decided by: the owner (2026-11-11: "Spade will be the main bot
 and the others will be the other bots ... they will all run in the same machine or the user can
 choose different machine for different bot", "we will have chat bubbles instead of the markdown
 full render", "we will only show the status of the current one with the pulsating eye thing ... we
@@ -32,6 +32,10 @@ delegating to an autonomous one.
    machine that is offline shows its bots as away. Bots on the same machine talk directly;
    reaching a bot on another machine goes through ace's paths between machines and is built
    after same-machine handoffs.
+
+   Amended (2026-11-18, [ADR 0187](0187-spade-bots-move-between-machines.md)): Spade lives on the
+   machine the person chooses, a stored fleet-wide choice that only the person and a move change;
+   any bot, Spade included, can move to another machine with its memory.
 
 3. **The app is a chat.** The sidebar is a list of conversations like a messenger: each bot's
    face, name, its latest message or current status, and time; Spade first. A conversation shows

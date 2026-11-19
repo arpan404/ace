@@ -173,7 +173,7 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), AnswerError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Err(AnswerError::NotFound);
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.

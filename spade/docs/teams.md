@@ -159,6 +159,10 @@ club it came through: words from another machine are never the person's own (`40
 | `answer` | `key`, `wait_ms` (0 to 25,000)                                              | `{"status":"pending"                         | "answered"                                    | "stopped"   | "failed" | "unknown", "text"?}` |
 | `stop`   | `key`                                                                       | `{"status":"stopped"                         | "not_running"                                 | "unknown"}` |
 
+An `ask` for a bot that moved away (ADR 0187) answers `410 {error, moved_to, name}`; the asking
+Spade sends it on to that machine and its clubs list the bot there. `op: "move"` carries moves
+(agents.md, "Moving a bot").
+
 `key` is 1 to 160 of `A-Za-z0-9_.:-`, scoped to the calling host: the same key from two machines
 is two asks. The key is stored in the same transaction that stores the message, so a repeated
 `ask` answers `duplicate` and delivers nothing. The message carries `from_agent {id, name, depth,

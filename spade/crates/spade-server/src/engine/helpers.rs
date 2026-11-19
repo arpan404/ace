@@ -678,7 +678,7 @@ impl Engine {
     /// a rerun on the bot's model, ADR 0162), `state` one of `queued`,
     /// `working`, `waiting` (on the person) or `ended`. `None` for an unknown conversation.
     pub fn helpers_view(&self, id: &str) -> Result<Option<Vec<Value>>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         let mut shown = Vec::new();

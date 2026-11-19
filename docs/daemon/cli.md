@@ -907,6 +907,20 @@ One bot: its task, model and latest message.
 
 - `BOT`: A bot's id or name
 
+### `ace spade move BOT [flags]`
+
+Move a bot to another of your machines, with everything it knows.
+
+The bot keeps its id, history, notes, files and routines (they arrive paused). Endpoint keys, webhook secrets and what you allowed it (grants, Full access, apps, plugins) stay on each machine: give them again there. The machine it goes to takes it only with your say there, so --target-remote names how to reach it. Spade's main bot can move too; the machine it moves to becomes where Spade lives.
+
+- `BOT`: A bot's id or name
+
+- `--to MACHINE`: The machine: its name or host id
+- `--target-remote PROFILE`: How to reach that machine for your say there: a remote profile, or here
+
+    ace spade move research --to studio --target-remote studio
+    # Move Research to the studio, saying so there through its remote profile
+
 ### `ace spade chat [BOT] [TEXT|-]`
 
 Talk with a bot (Spade's main bot by default).

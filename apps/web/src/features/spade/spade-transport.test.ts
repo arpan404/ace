@@ -173,3 +173,21 @@ test("back on this computer's daemon, the direct path returns", async () => {
   moveTo("host-a");
   expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"this mac"');
 });
+
+test("a change only the person may make goes through the daemon, which stamps it, even in the desktop app", async () => {
+  const { client, asked } = daemon();
+  const direct = desktop(ok("{}"));
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  await spadeHttp(transport, "PUT", "/v1/moves/mv_1/accept", { body: { bot: "a_1" } });
+  await spadeHttp(transport, "PUT", "/v1/agents/a_1/security/autonomy", {
+    body: { autonomy: "full_access" },
+  });
+  expect(direct.sent).toEqual([]);
+  expect(asked.map((request) => request.path)).toEqual([
+    "/v1/moves/mv_1/accept",
+    "/v1/agents/a_1/security/autonomy",
+  ]);
+  // Everything else still goes straight to Spade.
+  await spadeHttp(transport, "PUT", "/v1/agents/a_1/pin", { body: { pinned: true } });
+  expect(direct.sent.map((request) => request.path)).toEqual(["/v1/agents/a_1/pin"]);
+});

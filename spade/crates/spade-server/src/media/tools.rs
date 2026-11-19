@@ -170,7 +170,7 @@ impl Tool for ShareFile {
             let name = super::documents::file_name(&args.path);
             let mut shared = Shared::default();
             if crate::images::sniff(&bytes).is_some() {
-                match engine.image_store().put(&bytes) {
+                match engine.put_image(&bytes) {
                     Ok(image) => shared.images.push(image),
                     Err(error) => return ToolOutput::error(format!("{name}: {error}")),
                 }

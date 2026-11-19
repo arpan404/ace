@@ -13,6 +13,7 @@ mod goals;
 mod knowledge;
 mod media;
 mod memory;
+mod moves;
 mod oversight;
 mod plugins;
 mod questions;
@@ -98,7 +99,7 @@ pub fn router(state: AppState) -> Router {
             "/agents/{id}/task/goal",
             put(goals::set).delete(goals::clear),
         )
-        .route("/main", put(agents::set_main))
+        .route("/main", get(moves::main_state).put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
         .route(
             "/endpoints/{id}",
@@ -172,6 +173,7 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -276,9 +278,11 @@ fn stored(event: &StoredEvent) -> Value {
 pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled | SendError::Group | SendError::Helper | SendError::NoModel => {
-            StatusCode::CONFLICT
-        }
+        SendError::Disabled
+        | SendError::Moving(..)
+        | SendError::Group
+        | SendError::Helper
+        | SendError::NoModel => StatusCode::CONFLICT,
         SendError::Empty
         | SendError::TooLong
         | SendError::TooManyImages

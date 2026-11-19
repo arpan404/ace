@@ -15,6 +15,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   const now = Date.now();
   const minutes = (count: number) => now - count * 60_000;
   const here = running(daemon);
+  // Where a bot can move (ADR 0187), by the names the machines go by.
+  here.machineNames.set("build-server", "Build server");
   const endpoint = {
     id: "openrouter",
     name: "OpenRouter",

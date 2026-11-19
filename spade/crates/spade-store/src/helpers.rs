@@ -5,6 +5,7 @@
 use rusqlite::{OptionalExtension, params};
 use spade_core::Event;
 
+use crate::gate::ARRIVING_CONVERSATIONS;
 use crate::{Result, Store, StoreError};
 
 /// The schema step that adds helpers.
@@ -89,7 +90,7 @@ impl Store {
         }
         let parent: Option<bool> = tx
             .query_row(
-                "SELECT 1 FROM conversations WHERE id = ?1",
+                &format!("SELECT 1 FROM conversations WHERE id = ?1 AND id NOT IN {ARRIVING_CONVERSATIONS}"),
                 params![helper.parent],
                 |_| Ok(true),
             )
@@ -136,7 +137,10 @@ impl Store {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM helpers WHERE conversation_id = ?1"),
+                &format!(
+                    "SELECT {COLUMNS} FROM helpers WHERE conversation_id = ?1
+                     AND parent_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![conversation],
                 helper,
             )
@@ -148,7 +152,10 @@ impl Store {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
-                &format!("SELECT {COLUMNS} FROM helpers WHERE parent_id = ?1 AND job = ?2"),
+                &format!(
+                    "SELECT {COLUMNS} FROM helpers WHERE parent_id = ?1 AND job = ?2
+                     AND parent_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![parent, job],
                 helper,
             )
@@ -157,7 +164,7 @@ impl Store {
 
     /// The bot's helpers, oldest first (the order queued ones start in).
     pub fn helpers_of(&self, parent: &str) -> Result<Vec<StoredHelper>> {
-        self.helpers_where("WHERE parent_id = ?1", params![parent])
+        self.helpers_where("AND parent_id = ?1", params![parent])
     }
 
     /// Every helper, oldest first.
@@ -172,7 +179,8 @@ impl Store {
     ) -> Result<Vec<StoredHelper>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {COLUMNS} FROM helpers {condition} ORDER BY created_ms, conversation_id"
+            "SELECT {COLUMNS} FROM helpers WHERE parent_id NOT IN {ARRIVING_CONVERSATIONS}
+             {condition} ORDER BY created_ms, conversation_id"
         ))?;
         let rows = statement.query_map(values, helper)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

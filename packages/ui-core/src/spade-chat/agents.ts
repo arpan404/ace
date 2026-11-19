@@ -4,6 +4,7 @@ import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
+import { parseSpadeArrival, parseSpadeMove, type SpadeArrival, type SpadeMove } from "./moves.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
@@ -74,6 +75,10 @@ export interface SpadeAgent {
   progress: SpadeTaskProgress | undefined;
   /** The bot that made it as a worker (ADR 0161); undefined when the person made it. */
   parent: { id: string; name: string } | undefined;
+  /** Its move to another machine while one runs, or one that failed (ADR 0187). */
+  move: SpadeMove | undefined;
+  /** What needs the person since it arrived from another machine, until dismissed. */
+  arrived: SpadeArrival | undefined;
   /**
    * It is in Full access (ADR 0163, amendment 2): no reviewer, and only the hard stops ask. False
    * on the auto-review, every bot's default, and from a Spade before Full access.
@@ -189,6 +194,8 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     computer: parseSpadeComputer(record.computer),
     progress: parseSpadeTaskProgress(record),
     parent: agent.parent ?? undefined,
+    move: parseSpadeMove(record.move),
+    arrived: parseSpadeArrival(record.arrived),
     fullAccess: record.autonomy === "full_access",
     raw: record,
   };
