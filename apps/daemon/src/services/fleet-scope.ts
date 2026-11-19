@@ -49,8 +49,11 @@ export function changeScope(
       };
     }
   });
-  // A receipt of another device's has no title here: it is refused below as `forbidden`.
-  if (receipt.title !== undefined && receipt.title !== change)
+  // Only a receipt of this exact change answers it. Another device's receipt reads as a
+  // `forbidden` refusal without a title and is answered so; any other receipt, even a successful
+  // one without a title (a thread archive's, say), was for something else and is refused.
+  const otherDevice = !receipt.ok && receipt.error === "forbidden" && receipt.title === undefined;
+  if (receipt.title !== change && !otherDevice)
     throw new KeptRefusal("invalid", "That command id was already used for a different change.");
   if (!receipt.ok)
     throw new KeptRefusal(
