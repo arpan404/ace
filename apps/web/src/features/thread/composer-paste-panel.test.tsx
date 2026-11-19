@@ -4,6 +4,7 @@ import { cleanup, configure, fireEvent, screen, waitFor, within } from "@testing
 import userEvent from "@testing-library/user-event";
 import { createHash } from "node:crypto";
 import { beforeEach, expect, test } from "vitest";
+import { editorText, replaceEditorText } from "@/test/editor-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -41,7 +42,7 @@ async function openInPanel(user: ReturnType<typeof userEvent.setup>, chips: HTML
   await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
   const tab = await screen.findByRole("tab", { name: /Pasted 60 lines\.txt/ });
   const region = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
-  const field = await within(region).findByRole("textbox", { name: "File contents" });
+  const field = await within(region).findByRole("textbox", { name: "Pasted 60 lines.txt" });
   return { tab, region, field };
 }
 
@@ -67,8 +68,8 @@ function sentFiles(app: ReturnType<typeof harness>) {
 
 test("a pasted chip opens its text in a panel tab, and the chip shows it is being edited", async () => {
   const { user, chips } = await pasted();
-  const { field } = await openInPanel(user, chips);
-  expect((field as HTMLTextAreaElement).value).toBe(log);
+  const { region } = await openInPanel(user, chips);
+  await waitFor(() => expect(editorText(region)).toBe(log));
   expect(screen.queryByRole("dialog")).toBeNull();
   const chip = within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" });
   expect(chip.getAttribute("aria-current")).toBe("true");
@@ -80,9 +81,8 @@ test("a pasted chip opens its text in a panel tab, and the chip shows it is bein
 
 test("typing then pausing puts the edited text in the chip's place, under its new name", async () => {
   const { app, user, chips, message } = await pasted();
-  const { field } = await openInPanel(user, chips);
-  await user.clear(field);
-  await user.type(field, "error at line 7{Enter}error at line 9");
+  const { region, field } = await openInPanel(user, chips);
+  await replaceEditorText(user, field, "error at line 7{Enter}error at line 9");
 
   const renamed = await within(chips).findByRole(
     "button",
@@ -94,7 +94,7 @@ test("typing then pausing puts the edited text in the chip's place, under its ne
   // The tab follows its chip: renamed, still one, still holding the typing.
   await screen.findByRole("tab", { name: /Pasted 2 lines\.txt/ });
   expect(screen.queryByRole("tab", { name: /Pasted 60 lines\.txt/ })).toBeNull();
-  expect((field as HTMLTextAreaElement).value).toBe("error at line 7\nerror at line 9");
+  expect(editorText(region)).toBe("error at line 7\nerror at line 9");
   // The daemon holds the edited bytes, and the unedited copy is gone.
   await waitFor(async () =>
     expect(await held(app)).toEqual([
@@ -106,8 +106,7 @@ test("typing then pausing puts the edited text in the chip's place, under its ne
 test("sending straight after typing sends the edited text and closes the tab", async () => {
   const { app, user, chips } = await pasted();
   const { field } = await openInPanel(user, chips);
-  await user.clear(field);
-  await user.type(field, "only this");
+  await replaceEditorText(user, field, "only this");
   await user.click(screen.getByRole("button", { name: "Send" }));
 
   await waitFor(() => expect(sentFiles(app)).toEqual([hash("only this")]));
@@ -117,8 +116,7 @@ test("sending straight after typing sends the edited text and closes the tab", a
 test("closing the tab keeps what was typed", async () => {
   const { user, chips } = await pasted();
   const { field } = await openInPanel(user, chips);
-  await user.clear(field);
-  await user.type(field, "kept on close");
+  await replaceEditorText(user, field, "kept on close");
   await user.click(screen.getByRole("button", { name: /^Close Pasted 60 lines\.txt/ }));
 
   await waitFor(() => expect(screen.queryByRole("tab", { name: /Pasted/ })).toBeNull());
