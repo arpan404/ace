@@ -51,6 +51,14 @@ export const TrashRecord = z.object({
     .optional(),
   path: z.string(),
   version: z.string(),
+  /**
+   * True between writing this receipt and knowing whether its move landed.
+   *
+   * A delete writes the receipt before it dispatches the move, because an answer that never comes
+   * back may still have parked the entry in the trash. A pending receipt is restorable and exempt
+   * from retention until it is reconciled, so the bytes it names are never swept as garbage.
+   */
+  pending: z.boolean().default(false),
 });
 export type TrashRecord = z.infer<typeof TrashRecord>;
 export const ArtifactRecord = z.object({
@@ -136,6 +144,12 @@ export class Catalog {
   }
   put(record: Record): void {
     this.insert.run(record.id, record.kind, record.expires, record.bytes, JSON.stringify(record));
+  }
+  /** Rewrites a trash row in place, which is how a delete's receipt is settled. */
+  settleTrash(record: TrashRecord): void {
+    this.db
+      .prepare("UPDATE resources SET expires=?, bytes=?, body=? WHERE id=? AND kind='trash'")
+      .run(record.expires, record.bytes, JSON.stringify(record), record.id);
   }
   publishUpload(record: UploadRecord): void {
     this.db

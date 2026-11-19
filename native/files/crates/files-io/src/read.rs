@@ -11,7 +11,7 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 use files_safe::Root;
 
 use crate::Error;
-use cap_std::fs::File;
+use cap_std::fs::{Dir, File};
 
 use crate::encoding::{self, SAMPLE_BYTES};
 use crate::version;
@@ -49,10 +49,12 @@ pub struct Read {
 /// A file that changes while it is being read is a `CONFLICT`, not a mix of old and new bytes:
 /// the caller re-reads from the version in the error, as a download does.
 pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
-    let parent = crate::handle::target_parent_stored(root, path)?;
-    crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+    let parent = crate::policy::authorized_target(root, path)?;
     let (dir, name) = (parent.dir, parent.name);
-    let mut file = dir.open(&name)?;
+    // The walk already followed a final link that stays inside the root, so the name the read
+    // opens is the target's. Opening it without following proves the file that answers is the
+    // one the policy authorized, even if a link is put at that name in between.
+    let mut file = open_nofollow(&dir, &name)?;
     let opened = file.metadata()?;
     if !opened.is_file() {
         return Err(Error::NotFile(path.to_owned()));
@@ -87,6 +89,18 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
         bom: detection.bom,
         eof,
     })
+}
+
+/// Opens a file in a folder without following a link at its name.
+///
+/// The name comes from a walk that already resolved any final link inside the root, so a link
+/// here is one that appeared afterwards and is refused rather than followed.
+fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
+    use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+
+    let mut options = cap_std::fs::OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    Ok(dir.open_with(name, &options)?)
 }
 
 /// The version the path names now, or `None` when the path no longer names a file.

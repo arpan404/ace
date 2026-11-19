@@ -34,19 +34,25 @@ pub fn list(
     let entry = shared.roots.get(root)?;
     let limit = usize::try_from(limit)
         .map_err(|_| Error::InvalidArgument(format!("limit {limit} is out of range")))?;
-    // Git's store and the daemon's transfer temporaries are never served, and neither is anything
-    // a link leads into: the check reads the stored names the walk found, so another spelling of
-    // the same folder is refused too.
-    files_io::refuse_reserved(entry.root(), dir)?;
     let options = ListOptions {
         limit,
         cursor,
         hide: hidden::listing_hide(hide),
     };
+    // A pinned traversal's later page is served from the handle its first page was authorized
+    // through, so a folder renamed or deleted since still answers its remaining pages.
+    if snapshot && options.cursor.as_deref().is_some_and(files_list::is_pinned) {
+        let page = entry.lister().list_pinned_page(dir, &options)?;
+        return Ok(Reply::Page(convert::page(page)));
+    }
+    // Git's store and the daemon's transfer temporaries are never served, and neither is anything
+    // a link leads into: the walk that proves the names hands back the handle the page is read
+    // through, so the folder that answered is the folder the policy read.
+    let (handle, _stored) = files_io::authorized_dir(entry.root(), dir)?;
     let page = if snapshot {
-        entry.lister().list_pinned(dir, &options)?
+        entry.lister().list_pinned_in(dir, &handle, &options)?
     } else {
-        entry.lister().list(dir, &options)?
+        entry.lister().list_in(dir, &handle, &options)?
     };
     Ok(Reply::Page(convert::page(page)))
 }
@@ -54,7 +60,7 @@ pub fn list(
 /// The description of one path.
 pub fn stat(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;
-    files_io::refuse_reserved(entry.root(), path)?;
-    let stat = entry.lister().stat(path)?;
+    let parent = files_io::authorized_parent(entry.root(), path)?;
+    let stat = entry.lister().stat_in(path, &parent.dir, &parent.name)?;
     Ok(Reply::Entry(convert::entry(stat)))
 }

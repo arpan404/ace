@@ -155,7 +155,6 @@ pub struct Measurement {
 /// An entry whose resolved name is one of the daemon's own, git's store or a transfer temporary,
 /// is `INVALID_PATH`: a description carries a version and a size, and neither is a client's.
 pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, Error> {
-    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         let dir = root.dir();
         let metadata = dir.dir_metadata()?;
@@ -169,7 +168,10 @@ pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, E
             mode: permissions(&metadata),
         });
     }
-    let (dir, name) = root.open_parent(path)?;
+    // One walk hands back the folder and the stored names it proved, and the policy runs on those
+    // names, so what answers is what was checked.
+    let parent = crate::policy::authorized_parent(root, path)?;
+    let (dir, name) = (parent.dir, parent.name);
     let own = dir.symlink_metadata(&name)?;
     let mode = permissions(&own);
     let kind = kind_of(own.file_type());
@@ -186,21 +188,26 @@ pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, E
         });
     }
     // A link the daemon can read is versioned by its target, which is what a read or save touches.
-    let resolved = root.resolve(path)?;
-    let inside = root
-        .relative(&resolved)
-        .ok_or_else(|| files_safe::Error::PathEscape(path.to_owned()))?;
-    let (target_dir, target_name) = crate::handle::target_parent(root, &inside)?;
-    let target = target_dir.symlink_metadata(&target_name)?;
-    let versioned = crate::version::entry_version(root, &target_dir, &target_name, &inside, walks)?
-        .ok_or_else(missing)?;
+    // The target is reached through the same kind of walk, and the policy runs on the names that
+    // walk found: a link into git's store or the trash is refused like the spelling that names it.
+    let target = crate::policy::authorized_target(root, path)?;
+    let recorded = if target.folders.is_empty() {
+        target.name.clone()
+    } else {
+        format!("{}/{}", target.folders.join("/"), target.name)
+    };
+    let (target_dir, target_name) = (target.dir, target.name);
+    let metadata = target_dir.symlink_metadata(&target_name)?;
+    let versioned =
+        crate::version::entry_version(root, &target_dir, &target_name, &recorded, walks)?
+            .ok_or_else(missing)?;
     Ok(Description {
         version: versioned.version,
         own_version: versioned.own,
         shallow: versioned.shallow,
-        size: target.len(),
+        size: metadata.len(),
         kind,
-        mode: permissions(&target),
+        mode: permissions(&metadata),
     })
 }
 
@@ -209,7 +216,6 @@ pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, E
 /// This is the cheap guard a queued mutation re-checks before it acts, so a folder's identity and
 /// times decide whether it moved, without walking everything below it again.
 pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
-    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         let metadata = root.dir().dir_metadata()?;
         return Ok(Description {
@@ -221,8 +227,8 @@ pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
             mode: permissions(&metadata),
         });
     }
-    let (dir, name) = root.open_parent(path)?;
-    describe_here(&dir, &name)
+    let parent = crate::policy::authorized_parent(root, path)?;
+    describe_here(&parent.dir, &parent.name)
 }
 
 /// The entry's own details, from the folder that holds it: never a tree digest.
@@ -240,12 +246,7 @@ fn describe_here(dir: &Dir, name: &str) -> Result<Description, Error> {
 
 /// The checkout's own version, before any tree digest.
 fn root_version(dir: &Dir) -> Result<String, Error> {
-    let metadata = dir.dir_metadata()?;
-    #[cfg(unix)]
-    let handle = None;
-    #[cfg(windows)]
-    let handle = Some(crate::handle::dir_handle(&dir.try_clone()?)?);
-    crate::version::version_of(handle.as_ref(), &metadata)
+    crate::version::own_version(dir)
 }
 
 /// The version of the entry at `path` without a folder digest, so a conflict reply never walks a
@@ -289,16 +290,19 @@ fn permissions(metadata: &Metadata) -> u64 {
 /// walk that hits its budget reports a lower bound instead of failing, so a huge folder can still
 /// be deleted.
 pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Error> {
-    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         return measure_folder(root, path, root.dir(), walks);
     }
-    let (dir, name) = root.open_parent(path)?;
+    let parent = crate::policy::authorized_parent(root, path)?;
+    let (dir, name) = (parent.dir, parent.name);
     let own = dir.symlink_metadata(&name)?;
     if own.is_dir() {
         return measure_folder(root, path, &dir.open_dir(&name)?, walks);
     }
     if own.file_type().is_symlink() {
+        // A link is counted through its target, so the target's stored names are held to the
+        // policy too: a link into git's store is never measured as if it were the client's.
+        crate::policy::authorized_target(root, path)?;
         return Ok(Measurement {
             bytes: followed_size(root, path)?.unwrap_or(0),
             shallow: false,

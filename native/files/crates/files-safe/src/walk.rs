@@ -58,6 +58,18 @@ enum Links {
     Refuse,
 }
 
+/// A folder a read-only caller serves from, with the names the disk stores for the path that
+/// reached it.
+#[derive(Debug)]
+pub struct Stored {
+    /// The handle of the folder itself.
+    pub dir: Dir,
+    /// The stored relative path of the folder, `/` separated; empty for the root.
+    pub path: String,
+    /// The stored names of the folders from the root down to `dir`, `dir`'s own name last.
+    pub folders: Vec<String>,
+}
+
 /// The folder a caller acts in, with the names the disk stores for the path that reached it.
 #[derive(Debug)]
 pub struct Parent {
@@ -96,6 +108,26 @@ pub(crate) fn open_parent(root: &Root, rel: &str) -> Result<(Dir, String), Error
     let mut walk = Walk::start(root, rel, Last::Folder, Links::Follow)?;
     walk.run(request_segments(parent))?;
     Ok((walk.handle()?, walk.stored_leaf(leaf)?))
+}
+
+/// Opens the folder `rel` names and reports the stored names of every segment that reached it.
+///
+/// A read-only request uses this so the names it authorizes and the handle it serves from are one
+/// walk: a link swapped in after the check cannot make the folder that answers differ from the
+/// one the policy read.
+pub(crate) fn open_dir_stored(root: &Root, rel: &str) -> Result<Stored, Error> {
+    let rel = Root::check(rel)?;
+    if rel.is_empty() {
+        root.still_ours()?;
+        return Ok(Stored {
+            dir: root.dir().try_clone()?,
+            path: String::new(),
+            folders: Vec::new(),
+        });
+    }
+    let mut walk = Walk::start(root, rel, Last::Entry, Links::Follow)?;
+    let leaf = walk.run(request_segments(rel))?;
+    walk.stored_dir(leaf.as_deref())
 }
 
 /// Opens the folder that holds `rel` and reports the stored names on the way to it.
@@ -343,6 +375,32 @@ impl<'a> Walk<'a> {
             dir: self.handle()?,
             name: self.stored_leaf(leaf)?,
             folders: self.stored_names()?,
+        })
+    }
+
+    /// The folder the walk stopped on, with the stored names that reached it.
+    ///
+    /// The handle is opened without following, because the walk already followed any link on the
+    /// way; a name that is not a folder there is `NOT_DIRECTORY`, never something to guess at.
+    fn stored_dir(&self, leaf: Option<&OsStr>) -> Result<Stored, Error> {
+        let mut folders = self.stored_names()?;
+        let Some(name) = leaf else {
+            return Ok(Stored {
+                dir: self.handle()?,
+                path: folders.join("/"),
+                folders,
+            });
+        };
+        let metadata = self.current.symlink_metadata(name)?;
+        if !metadata.is_dir() {
+            return Err(Error::NotDirectory(self.rel.to_owned()));
+        }
+        let dir = self.current.open_dir_nofollow(name)?;
+        folders.push(name.to_str().ok_or_else(|| self.changed())?.to_owned());
+        Ok(Stored {
+            dir,
+            path: folders.join("/"),
+            folders,
         })
     }
 

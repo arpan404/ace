@@ -30,6 +30,18 @@ pub enum Error {
     /// The caller's cancel flag went up before the walk finished.
     #[error("aborted")]
     Aborted,
+    /// The save did not land and a file it displaced could not be put back. That file is whole
+    /// under `at`, beside the target, and nothing else was overwritten to get here.
+    #[error(
+        "the save at {path} could not be completed; the file it displaced is preserved at {at}"
+    )]
+    Preserved {
+        path: String,
+        /// The version of whatever holds the path now, when it could be read.
+        current: Option<String>,
+        /// The preserved file's name, relative to the target's folder.
+        at: String,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -41,6 +53,9 @@ impl Error {
             Error::Path(error) => error.code(),
             Error::NotFile(_) => "NOT_FILE",
             Error::Conflict { .. } => "CONFLICT",
+            // A preserved file is reported as a conflict: the save did not land, and the caller's
+            // next attempt is guarded by what the path holds now.
+            Error::Preserved { .. } => "CONFLICT",
             Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
             Error::Unsupported(_) => "UNSUPPORTED",

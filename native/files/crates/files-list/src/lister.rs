@@ -120,7 +120,9 @@ impl Lister {
     /// held then, and once the folder is past the racy window; otherwise it is `INVALID_CURSOR`
     /// and the caller starts again from the top.
     pub fn list(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
-        self.page(dir, options, false)
+        Root::check(dir)?;
+        let handle = self.root.open_dir(dir)?;
+        self.list_in(dir, &handle, options)
     }
 
     /// Lists one page of a traversal that pins `dir` for as long as it pages through it.
@@ -131,10 +133,65 @@ impl Lister {
     /// folder inside the racy window or edited mid-walk cannot refuse the traversal's cursor or
     /// skip a file. The listing is dropped when its pages are done, or evicted past the cache cap.
     pub fn list_pinned(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
-        self.page(dir, options, true)
+        Root::check(dir)?;
+        // A later page comes from the handle its first page kept, never from re-opening the path.
+        if options.cursor.as_deref().is_some_and(is_pinned) {
+            return self.list_pinned_page(dir, options);
+        }
+        let handle = self.root.open_dir(dir)?;
+        self.list_pinned_in(dir, &handle, options)
     }
 
-    fn page(&self, dir: &str, options: &ListOptions, pinned: bool) -> Result<Page, Error> {
+    /// Lists one page of a folder the caller already opened, by the stored path that names it.
+    ///
+    /// A request that authorizes a folder and then lists it uses this: the handle the policy read
+    /// and the handle the page comes from are one walk, so a name rewritten in between cannot
+    /// make the listing answer with a folder nobody checked.
+    pub fn list_in(
+        &self,
+        dir: &str,
+        handle: &cap_std::fs::Dir,
+        options: &ListOptions,
+    ) -> Result<Page, Error> {
+        self.page(dir, handle, options, false)
+    }
+
+    /// [`Lister::list_pinned`] over a folder the caller already opened and authorized.
+    pub fn list_pinned_in(
+        &self,
+        dir: &str,
+        handle: &cap_std::fs::Dir,
+        options: &ListOptions,
+    ) -> Result<Page, Error> {
+        self.page(dir, handle, options, true)
+    }
+
+    /// A later page of a pinned traversal, served from the listing it pinned.
+    ///
+    /// The traversal keeps the handle the folder was first read through, so this neither re-opens
+    /// nor re-authorizes the path: a folder renamed or deleted since still answers its remaining
+    /// pages, and the policy was applied to the handle when the first page was read.
+    pub fn list_pinned_page(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
+        Root::check(dir)?;
+        let pinned = match options.cursor.as_deref().map(decode_cursor) {
+            Some(Some(Resume::Pinned(pin))) => pin,
+            _ => {
+                return Err(Error::InvalidCursor(
+                    "a pinned traversal starts from the first page".into(),
+                ));
+            }
+        };
+        let listing = self.pinned_listing(dir, &pinned)?;
+        self.pinned_page(dir, &pinned, options.limit, &listing)
+    }
+
+    fn page(
+        &self,
+        dir: &str,
+        handle: &cap_std::fs::Dir,
+        options: &ListOptions,
+        pinned: bool,
+    ) -> Result<Page, Error> {
         if options.limit == 0 || options.limit > MAX_LIMIT {
             return Err(Error::InvalidArgument(format!(
                 "limit {} is outside 1..={MAX_LIMIT}",
@@ -172,9 +229,8 @@ impl Lister {
             Some(Resume::Pinned(_)) => None,
         };
         let hidden = Hidden::build(self.root.path(), &options.hide)?;
-        let handle = self.root.open_dir(dir)?;
         let rules = self.rules_for(dir)?;
-        let snapshot = self.snapshot(dir, &handle, &rules, &hidden)?;
+        let snapshot = self.snapshot(dir, handle, &rules, &hidden)?;
         let total = snapshot.total();
         let offset = match cursor {
             None => 0,
@@ -229,7 +285,7 @@ impl Lister {
             None
         };
         Ok(Page {
-            entries: snapshot.entries(&handle, offset..end),
+            entries: snapshot.entries(handle, offset..end),
             next_cursor,
             total,
         })
@@ -245,20 +301,37 @@ impl Lister {
         if path.is_empty() {
             return Err(Error::Path(files_safe::Error::InvalidPath(String::new())));
         }
-        let (parent, _) = split_leaf(path);
         let (handle, name) = self.root.open_parent(path)?;
-        let metadata = handle.symlink_metadata(&name)?;
+        self.stat_in(path, &handle, &name)
+    }
+
+    /// Reports one entry from the folder the caller already opened, without following it.
+    ///
+    /// A request that authorizes a leaf and then reports it uses this, so the entry it reports is
+    /// the entry the policy read.
+    pub fn stat_in(
+        &self,
+        path: &str,
+        handle: &cap_std::fs::Dir,
+        name: &str,
+    ) -> Result<Entry, Error> {
+        Root::check(path)?;
+        if path.is_empty() {
+            return Err(Error::Path(files_safe::Error::InvalidPath(String::new())));
+        }
+        let (parent, _) = split_leaf(path);
+        let metadata = handle.symlink_metadata(name)?;
         let kind = if metadata.file_type().is_symlink() {
-            symlink_kind(&handle, &name)
+            symlink_kind(handle, name)
         } else {
             kind_of(&metadata.file_type())
         };
         let rules = self.rules_for(parent)?;
         let is_dir = matches!(kind, Kind::Directory);
         Ok(Entry {
-            ignored: rules.folder_ignored() || rules.ignored(&name, is_dir),
+            ignored: rules.folder_ignored() || rules.ignored(name, is_dir),
             path: path.to_owned(),
-            name,
+            name: name.to_owned(),
             size: size_of(&metadata, &kind),
             mtime_ms: metadata
                 .modified()
@@ -496,6 +569,12 @@ impl Lister {
         }
         Ok(fresh)
     }
+}
+
+/// Whether `cursor` is a later page of a pinned traversal, which carries the handle its folder was
+/// first read through.
+pub fn is_pinned(cursor: &str) -> bool {
+    matches!(decode_cursor(cursor), Some(Resume::Pinned(_)))
 }
 
 /// `"a/b"` becomes `("a", "b")`, and `"b"` becomes `("", "b")`.

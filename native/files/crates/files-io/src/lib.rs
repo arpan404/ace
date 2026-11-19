@@ -12,10 +12,13 @@ mod encoding;
 mod error;
 mod fingerprint;
 mod handle;
+mod hooks;
 mod mutate;
 mod number;
 mod policy;
 mod read;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 mod tree;
 mod version;
 mod write;
@@ -26,7 +29,7 @@ pub use describe::{
 pub use error::Error;
 pub use fingerprint::{Fingerprint, fingerprint};
 pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
-pub use policy::refuse_reserved;
+pub use policy::{authorized_dir, authorized_parent, authorized_target};
 pub use read::{Read, ReadRange, read};
 pub use version::stat_version;
 pub use write::{SaveWarning, Saved, create_file, write};
