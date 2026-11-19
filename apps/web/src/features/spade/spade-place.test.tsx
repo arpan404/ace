@@ -30,7 +30,7 @@ test("Spade is the list's first row, then each bot with what it asks or its last
   });
   const list = await roster();
   await waitFor(() =>
-    // The rows, not the icon links above them (Apps, plugins and skills).
+    // The rows, not any labelled icon links above them.
     expect(
       list
         .getAllByRole("link")

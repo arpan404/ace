@@ -2,33 +2,30 @@ import {
   ArrowSquareInIcon,
   MagnifyingGlassIcon,
   PlusIcon,
-  PuzzlePieceIcon,
   UserPlusIcon,
   UsersThreeIcon,
   XIcon,
 } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
-import { useOpenMarket } from "@/lib/open-market.ts";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { cn } from "@/lib/cn.ts";
 import { botFileMax } from "./spade-bot-start.tsx";
 import { importAgent } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
-import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
-/* Spade's list toolbar: Search, Spade's apps, plugins and skills, and +; then the search field. */
+/* Spade's list toolbar: Search and +; then the search field. The marketplace has its own place on the rail. */
 
 /** A round 32px button, as Spade's list draws them: on the hover wash, `--active` on hover. */
 const roundButton =
   "size-(--spade-round-button) rounded-full bg-hover hover:bg-active aria-expanded:bg-active";
 
 /**
- * The list's toolbar (docs/design/spade.md §2): a slim row above the rows with Search, Spade's
- * apps, plugins and skills, and +. It belongs to the list, not to Spade, which is the first row.
+ * The list's toolbar (docs/design/spade.md §2): a slim row above the rows with Search and +. It
+ * belongs to the list, not to Spade, which is the first row. Apps, plugins and skills open from the
+ * rail's marketplace, so the toolbar doesn't repeat it.
  */
 export function SpadeListTop(props: {
   searching: boolean;
@@ -37,8 +34,6 @@ export function SpadeListTop(props: {
   onNewBot(): void;
   onNewGroup(): void;
 }) {
-  const openMarket = useOpenMarket();
-  const marketplace = useBetaEnabled("marketplace") === true;
   return (
     <div className="mx-2 mt-1 mb-1 flex h-12 shrink-0 items-center justify-end gap-2 pr-2">
       <IconButton
@@ -50,20 +45,6 @@ export function SpadeListTop(props: {
         onClick={props.onSearch}
         className={roundButton}
       />
-      {marketplace && (
-        <button
-          type="button"
-          onClick={() => openMarket("spade")}
-          aria-label="Apps, plugins and skills"
-          title="Apps, plugins and skills"
-          className={cn(
-            "grid shrink-0 place-items-center text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground",
-            roundButton,
-          )}
-        >
-          <Icon icon={PuzzlePieceIcon} size={18} />
-        </button>
-      )}
       {props.hosts.length > 0 && (
         <AddMenu hosts={props.hosts} onNewBot={props.onNewBot} onNewGroup={props.onNewGroup} />
       )}
