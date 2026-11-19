@@ -52,6 +52,8 @@ export const MarketTopPublisher = z.strictObject({
   displayName: MarketDisplayName,
   avatar: MarketHash.optional(),
   verified: z.boolean(),
+  /** ace's own publisher, by the signed official list (ADR 0174 §14); set by the daemon. */
+  official: z.boolean().optional(),
   entries: z.number().int().nonnegative(),
   /** Downloads over 30 days, after the caps. */
   downloads: z.number().int().nonnegative(),

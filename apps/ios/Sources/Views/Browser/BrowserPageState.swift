@@ -20,6 +20,11 @@ struct BrowserPageState: View {
 
     private var content: AnyView? {
         guard let view = browser.view else { return AnyView(SkeletonPage(label: "Opening the browser")) }
+        // The live view was refused; the bridge asks again on its own, so no button.
+        if view.state == nil, view.error != nil {
+            return AnyView(EmptyState(icon: nil, title: "Couldn't show the browser",
+                                      line: "Check the connection to this machine.", failed: true))
+        }
         guard let state = view.state, !state.closed else {
             return AnyView(EmptyState(icon: .compass, title: "No page open") {
                 if model.canOperate { Button("Open a page", action: openAddress).frame(maxWidth: AceDesign.Size.loneAction) }
@@ -33,13 +38,14 @@ struct BrowserPageState: View {
         }
         if let certificate = state.certificate, let tabId = state.activeTabId {
             return AnyView(failure(certificate) {
-                Button("Go back") { model.browserHistory("back") }.buttonStyle(.textAction(.prominent))
-                Button("Open anyway (unsafe)") { model.browserProceed(tabId, url: certificate.url) }.buttonStyle(.textAction(.destructive))
+                Button("Go back") { model.browserHistory("back") }.buttonStyle(.primaryAction)
+                Button("Open anyway (unsafe)", role: .destructive) { model.browserProceed(tabId, url: certificate.url) }
+                    .buttonStyle(.secondaryAction)
             })
         }
         if let failure = state.failure {
             return AnyView(self.failure(failure) {
-                Button("Reload") { model.browserHistory("reload") }.buttonStyle(.textAction(.prominent))
+                Button("Reload") { model.browserHistory("reload") }.buttonStyle(.primaryAction)
                     .accessibilityIdentifier("browser.failure.reload")
             })
         }

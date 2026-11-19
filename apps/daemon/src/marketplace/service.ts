@@ -15,6 +15,7 @@ import type { MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 import { botRecipe, listPublishables, type PickPorts } from "./pick.ts";
 import { withMarketInstalls } from "./pick-ports.ts";
 import { MarketPictures } from "./pictures.ts";
+import { markOwnProfile } from "./own-profile.ts";
 import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
@@ -296,15 +297,18 @@ export class MarketplaceService {
           operation.handle,
         );
       case "publish":
-        return publishRequest(
-          {
-            http: this.#http(),
-            grant: ports.grant,
-            personGrant: ports.personGrant,
-            pick: () => this.#pick(ports.names),
-            suits: () => this.#options.suits(),
-          },
-          operation.request,
+        return markOwnProfile(
+          await publishRequest(
+            {
+              http: this.#http(),
+              grant: ports.grant,
+              personGrant: ports.personGrant,
+              pick: () => this.#pick(ports.names),
+              suits: () => this.#options.suits(),
+            },
+            operation.request,
+          ),
+          this.#marks().badges,
         );
       case "publishables": {
         const pick = this.#pick();

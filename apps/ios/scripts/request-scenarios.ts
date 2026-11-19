@@ -10,7 +10,14 @@ import { z } from "zod";
  */
 
 type Details = (branch: string) => Record<string, unknown>;
-export const RequestScenario = z.enum(["approval", "question", "plan", "form", "stop"]);
+export const RequestScenario = z.enum([
+  "approval",
+  "question",
+  "plan",
+  "form",
+  "stop",
+  "browserHelp",
+]);
 export type RequestScenario = z.infer<typeof RequestScenario>;
 
 /** A model the fixture's catalog lists with effort levels and fast tiers (`workbenchServices`). */
@@ -20,6 +27,21 @@ const tunable = {
   instanceId: "codex-personal",
   options: {},
 };
+
+/** A sign-in the agent hands to the person in the browser. */
+const signIn = (key: string, tabId: string, url: string) => ({
+  type: "interaction.opened" as const,
+  agent: "root",
+  interaction: key,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "browser_help",
+    tabId,
+    reason: "login",
+    message: "Sign in with the team account",
+    url,
+  }),
+});
 
 const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: Details) => void> = {
   approval(daemon, id, details) {
@@ -200,6 +222,23 @@ const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: D
           },
         },
       },
+    ]);
+  },
+  /** Two sign-ins the agent hands to the person, so a test can open the second one's browser. */
+  browserHelp(daemon, id, details) {
+    daemon.createThread({
+      id,
+      workspaceId: "ace",
+      title: "Sign in to both forges",
+      provider: "claude",
+      details: details("chore/forges"),
+    });
+    daemon.apply(id, [
+      facts.rootAgent("claude"),
+      facts.turn("root"),
+      facts.message("root", "ask", "user", "Sign in to GitHub and GitLab."),
+      signIn("help-github", "tab-1", "https://github.com/login"),
+      signIn("help-gitlab", "tab-2", "https://gitlab.com/users/sign_in"),
     ]);
   },
   stop(daemon, id, details) {
