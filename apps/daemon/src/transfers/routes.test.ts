@@ -147,14 +147,16 @@ describe("a transfer reaches the other machine by any route that answers", () =>
   });
 });
 
+/** A machine linked on the LAN that only ace's hosted relay reaches besides. */
+const hostedOnly = (direct: () => Reach) =>
+  world({
+    profile: studio(linkedOnLan),
+    paths: [acePath],
+    direct,
+    relays: { [acePath.url]: "answers" },
+  });
+
 describe("ace's hosted relay carries a transfer's control and small payloads only", () => {
-  const hostedOnly = (direct: () => Reach) =>
-    world({
-      profile: studio(linkedOnLan),
-      paths: [acePath],
-      direct,
-      relays: { [acePath.url]: "answers" },
-    });
   it("carries the control calls and a small project's code", async () => {
     const { client, there } = hostedOnly(() => "offline");
     await expect(client.call({ op: "status", transferId: "t-1" })).resolves.toMatchObject({

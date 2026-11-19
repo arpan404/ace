@@ -1,6 +1,8 @@
 # 0101: Work on another machine
 
-Status: accepted. Date: 2026-10-23.
+Status: accepted. Date: 2026-10-23. Amended by [ADR 0192](0192-transfers-over-every-machine-route.md):
+transfers reach the other machine by every route parcels use, relays included, not only the pinned
+TLS address.
 
 ## Context
 
