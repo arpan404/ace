@@ -544,6 +544,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -570,6 +571,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -606,6 +608,7 @@ mod tests {
                 acts_in: None,
                 helper: None,
                 launch: None,
+                stopped: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),
@@ -922,6 +925,7 @@ mod tests {
                     call_id: "call_0".into(),
                 })),
                 launch: None,
+                stopped: None,
             })
         };
         let mut events = vec![

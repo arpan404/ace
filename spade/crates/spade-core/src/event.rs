@@ -214,6 +214,17 @@ pub enum Known {
             deserialize_with = "lenient_authorized"
         )]
         launch: Option<Authorized>,
+        /// Set when one of Spade's judges stopped the call and it was put to the person instead
+        /// of refused (ADR 0163, amendment 3): the reviewer, the second review, the classifier,
+        /// or a check that couldn't vouch for what a command outside the sandbox runs. Absent
+        /// for older events and every other request; a word this build doesn't know reads as
+        /// absent.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::autonomy::escalate::lenient"
+        )]
+        stopped: Option<crate::autonomy::escalate::Stopped>,
     },
     ApprovalAnswered {
         reply: String,
