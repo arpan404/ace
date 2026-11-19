@@ -202,19 +202,25 @@ export function localFilesIo(
         throw error;
       }
       await target.verify();
+      // A new folder holds nothing yet, so its digest is one read of the folder this call made.
+      const info = await lstat(target.path);
+      return treeVersion(safe, path, info);
     },
     async move(root, from, to, expected, _own) {
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
       const source = await safe.target(from);
       if (expected !== null) checkVersion(await observed(safe, from), expected);
-      if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) return;
+      if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) {
+        return movedOutcome(safe, to);
+      }
       const destination = await safe.target(to);
       await source.verify();
       await destination.verify();
       await exclusive.move(source.path, destination.path);
       await source.verify();
       await destination.verify();
+      return movedOutcome(safe, to);
     },
     async trash(root, path, endpoint, expected, _own) {
       const safe = await safeRoot(root);
@@ -279,6 +285,34 @@ export function localFilesIo(
       return { bytes, shallow: false };
     },
     internal: {
+      async describe(root, path) {
+        const safe = await safeRoot(root);
+        const target = await privateTarget(safe, path);
+        const info = await lstat(target.path).catch((error: unknown) => {
+          if (absent(error)) return undefined;
+          throw error;
+        });
+        if (info === undefined) return null;
+        const directory = info.isDirectory();
+        return {
+          version: directory ? await treeVersion(safe, path, info) : version(info),
+          ...(directory ? { ownVersion: version(info) } : {}),
+          shallow: false,
+          size: info.size,
+          kind: kindAt(info),
+          mode: info.mode & 0o777,
+        };
+      },
+      async move(root, from, to) {
+        const safe = await safeRoot(root);
+        const source = await privateTarget(safe, from);
+        const destination = await safe.target(to);
+        await source.verify();
+        await destination.verify();
+        await exclusive.move(source.path, destination.path);
+        await source.verify();
+        await destination.verify();
+      },
       async remove(root, path) {
         const safe = await safeRoot(root);
         const target = await privateTarget(safe, path);
@@ -287,6 +321,23 @@ export function localFilesIo(
       },
     },
   } satisfies FilesIo;
+
+  /**
+   * What a landed move reports. A folder's own version stands in as the identity of the entry a
+   * later digest must match, because a folder's digest records the path it is read at.
+   */
+  async function movedOutcome(
+    safe: SafeRoot,
+    path: string,
+  ): Promise<{ version: string | null; identity: string | null; recovery: string | null }> {
+    const resolved = await safe.resolve(path).catch(() => undefined);
+    if (resolved === undefined) return { version: null, identity: null, recovery: null };
+    const info = await lstat(resolved).catch(() => undefined);
+    if (info === undefined) return { version: null, identity: null, recovery: null };
+    return info.isDirectory()
+      ? { version: null, identity: version(info), recovery: null }
+      : { version: version(info), identity: null, recovery: null };
+  }
 
   /**
    * Windows: names differing only in case usually name one file, so the destination looks taken

@@ -247,6 +247,8 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
     current: FileVersion.nullable().optional(),
+    /** Where an entry that could not be put back is preserved, for the client to show. */
+    recovery: path.optional(),
   }),
   z.object({
     type: z.literal("files.ready"),

@@ -18,11 +18,18 @@ export type Applied = Omit<WorkspaceFileChange, "version"> & {
   /**
    * The version the port read from the object it committed, when it read one there.
    *
-   * A save's version comes from a handle to the file the save published, and a new folder's from
-   * a walk of the empty folder, so neither is an inference from a later state. Absent when the
-   * version can only be read after the queue has released the path.
+   * A save's version comes from a handle to the file the save published, a new folder's from the
+   * folder that create made, and a move's from the entry that moved, so none is an inference
+   * from a later state. Absent when the version can only be read after the queue has released the
+   * path; `null` when the commit is known and its version is not.
    */
   committed?: string | null;
+  /**
+   * A moved folder's own version after the move. The digest read after the queue is accepted only
+   * while the folder it describes still has this identity, so a name another program took in the
+   * meantime never lends its digest to this change.
+   */
+  identity?: string | null;
 };
 
 /**
@@ -34,6 +41,8 @@ interface Prepared {
   own: string | null;
   /** The bytes a delete would reserve in the trash. */
   bytes: number;
+  /** True when the entry is a folder, whose digest can only be read after a move. */
+  folder: boolean;
 }
 
 /**
@@ -107,7 +116,7 @@ export class Mutations {
       : description?.kind === "file"
         ? description.size
         : 0;
-    return { own: description?.ownVersion ?? null, bytes };
+    return { own: description?.ownVersion ?? null, bytes, folder: directory };
   }
   async apply(operation: Mutation, prepared: Prepared): Promise<Applied> {
     const root = this.root();
@@ -128,22 +137,22 @@ export class Mutations {
         };
       }
       case "mkdir": {
+        let version: string | null;
         try {
-          await this.io.createDir(root, operation.path);
+          version = await this.io.createDir(root, operation.path);
         } catch (error) {
           // A taken name is a plain conflict for `mkdir`: the client already knows it exists.
           if (error instanceof FileError && error.code === "CONFLICT")
             throw new FileError("CONFLICT", error.message);
           throw error;
         }
-        // A new folder holds nothing yet, so its digest is one read: the version comes back
-        // inside the queue with the commit rather than from a later state.
-        const created = await this.io.describe(root, operation.path, { full: true });
+        // The port read the digest from the folder it made, inside the queue, so the reply is not
+        // an inference from a name that may hold something else by now.
         return {
           id,
           op: operation.op,
           path: operation.path,
-          committed: created?.version ?? null,
+          committed: version,
         };
       }
       case "rename":
@@ -159,7 +168,7 @@ export class Mutations {
             target?.version ?? null,
           );
         }
-        await this.io.move(
+        const moved = await this.io.move(
           root,
           operation.path,
           operation.destination,
@@ -167,7 +176,17 @@ export class Mutations {
           prepared.own,
         );
         destination = operation.destination;
-        break;
+        // A file's version comes from the entry that moved. A folder's digest records the new
+        // path, so it is read after the queue and accepted only against the folder's own version.
+        const identity =
+          prepared.folder && sameIdentity(moved.identity, prepared.own) ? moved.identity : null;
+        return {
+          id,
+          op: operation.op,
+          path: operation.path,
+          destination,
+          ...(prepared.folder ? { identity } : { committed: moved.version }),
+        };
       }
       case "delete": {
         if (operation.expected === null)
@@ -244,10 +263,14 @@ export class Mutations {
    * corrects it, because the bytes are already where the caller asked for them.
    */
   async change(applied: Applied): Promise<WorkspaceFileChange> {
-    const { committed, ...change } = applied;
+    const { committed, identity, ...change } = applied;
     if (committed !== undefined) return { ...change, version: committed };
     const path = change.destination ?? change.path;
     const after = await this.io.describe(this.root(), path, { full: true }).catch(() => undefined);
+    // A moved folder's digest belongs to this change only while the name still holds the folder
+    // whose own version the move reported; a different entry's digest is never reported as its.
+    if (identity !== undefined && !sameIdentity(after?.ownVersion, identity))
+      return { ...change, version: null };
     return { ...change, version: after?.version ?? null };
   }
   /**
@@ -335,6 +358,15 @@ export class Mutations {
   private async legacyRemove(id: string): Promise<void> {
     await rm(join(this.options.dataDir, "trash", id), { recursive: true, force: true });
   }
+}
+
+/**
+ * Whether two versions name the same entry: a rename changes the change time and nothing else a
+ * version records, so the last field is left out. A tree digest carries no identity to compare.
+ */
+function sameIdentity(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right || left.startsWith("tree:") || right.startsWith("tree:")) return false;
+  return left.slice(0, left.lastIndexOf(":")) === right.slice(0, right.lastIndexOf(":"));
 }
 
 /**

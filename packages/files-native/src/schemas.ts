@@ -137,7 +137,13 @@ export const opSchema = z.discriminatedUnion("op", [
     path: z.string(),
     full: z.boolean().optional(),
   }),
-  z.object({ op: z.literal("describeEntry"), root: u64, path: z.string() }),
+  z.object({
+    op: z.literal("describeEntry"),
+    root: u64,
+    path: z.string(),
+    /** Read one of the daemon's own generated names, for its reconciliation. */
+    internal: z.boolean().optional(),
+  }),
   z.object({ op: z.literal("measure"), root: u64, path: z.string() }),
   z.object({
     op: z.literal("read"),
@@ -162,6 +168,8 @@ export const opSchema = z.discriminatedUnion("op", [
     to: z.string(),
     expected: z.string().optional(),
     own: z.string().optional(),
+    /** The staging name a case-only move was journaled under. */
+    staging: z.string().optional(),
   }),
   z.object({ op: z.literal("remove"), root: u64, path: z.string() }),
   z.object({
@@ -178,6 +186,7 @@ export const opSchema = z.discriminatedUnion("op", [
     endpoint: z.string(),
     path: z.string(),
   }),
+  z.object({ op: z.literal("recoverMove"), root: u64, from: z.string(), to: z.string() }),
   z.object({ op: z.literal("watch"), root: u64 }),
   z.object({ op: z.literal("unwatch"), subscription: u64 }),
   z.object({ op: z.literal("indexQuery"), root: u64, query: z.string(), limit: u64 }),
@@ -186,7 +195,15 @@ export const opSchema = z.discriminatedUnion("op", [
 
 /** What a successful request produced; the tag says which op it answers. */
 export const replySchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("done") }),
+  z.object({
+    type: z.literal("done"),
+    /** The version of the entry the mutation committed, read from that entry. */
+    version: z.string().optional(),
+    /** A folder's own version after a move, which a later digest must match. */
+    identity: z.string().optional(),
+    /** Where an entry whose move could not complete is preserved. */
+    recovery: z.string().optional(),
+  }),
   z.object({ type: z.literal("root"), root: u64 }),
   z.object({ type: z.literal("subscription"), subscription: u64 }),
   z.object({ type: z.literal("page"), ...pageSchema.shape }),
@@ -234,6 +251,8 @@ export const messageSchema = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
     current: z.string().optional(),
+    /** Where an entry that could not be put back is preserved. */
+    recovery: z.string().optional(),
   }),
   z.object({ type: z.literal("event"), subscription: u64, payload: eventPayloadSchema }),
 ]);

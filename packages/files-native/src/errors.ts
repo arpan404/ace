@@ -8,12 +8,15 @@ export class FilesRequestError extends Error {
   readonly code: FilesErrorCode;
   /** The file's version now, on a rejected write, so the editor can offer to reload. */
   readonly current: string | undefined;
+  /** Where an entry that could not be put back is preserved, when the binary says. */
+  readonly recovery: string | undefined;
 
-  constructor(code: FilesErrorCode, message: string, current?: string) {
+  constructor(code: FilesErrorCode, message: string, current?: string, recovery?: string) {
     super(message);
     this.name = "FilesRequestError";
     this.code = code;
     this.current = current;
+    this.recovery = recovery;
   }
 
   /** True when the same request can be sent again: restarting, or stdin is saturated. */

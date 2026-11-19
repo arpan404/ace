@@ -84,6 +84,7 @@ impl Out {
             code: failure.code.to_owned(),
             message: failure.message,
             current: failure.current,
+            recovery: failure.recovery,
         })
         .await;
     }
@@ -193,6 +194,7 @@ fn too_large(stdout: &mut impl std::io::Write, id: u64, detail: &str) -> std::io
         code: "TOO_LARGE".to_owned(),
         message: format!("the answer does not fit one frame: {detail}"),
         current: None,
+        recovery: None,
     };
     match encode(&failure) {
         Ok(frame) => write_frame(stdout, &frame),

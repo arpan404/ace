@@ -23,10 +23,13 @@ mod version;
 mod write;
 
 pub use describe::{
-    Description, Kind, Measurement, Walks, describe, describe_entry, entry_version, measure,
+    Description, Kind, Measurement, Walks, describe, describe_entry, describe_entry_internal,
+    entry_version, measure,
 };
 pub use error::Error;
-pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
+pub use mutate::{
+    Committed, create_dir, recover_move, remove, rename, rename_journaled, trash, untrash,
+};
 pub use policy::{authorized_dir, authorized_parent, authorized_target};
 pub use read::{Read, ReadRange, read};
 pub use version::stat_version;

@@ -143,7 +143,7 @@ fn closing_a_root_closes_its_requests() {
     let mut client = Client::greeted();
     let root = client.open_root(checkout.path());
     let closed = client.request(Op::CloseRoot { root });
-    assert_eq!(client.reply(closed), Reply::Done);
+    assert_eq!(client.reply(closed), Reply::done());
 
     let after = client.request(Op::Stat {
         root,

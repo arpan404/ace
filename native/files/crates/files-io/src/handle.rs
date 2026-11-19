@@ -118,6 +118,126 @@ impl Drop for Staged {
     }
 }
 
+/// A folder made under a private name and published in one no-replace rename.
+///
+/// A create that reported a version read from the destination name could describe a folder
+/// another program put there instead. This keeps the created folder's identity: Unix renames a
+/// folder while a handle to it is open and reads the version through that handle; Windows cannot
+/// rename a folder whose handle is open, so the identity is recorded first and the published name
+/// is trusted only while it still holds that folder.
+pub(crate) struct StagedDir {
+    dir: Dir,
+    name: Option<String>,
+    #[cfg(unix)]
+    handle: Option<Dir>,
+    #[cfg(windows)]
+    identity: Option<(u64, u64)>,
+}
+
+impl StagedDir {
+    pub(crate) fn new(parent: &Dir) -> Result<StagedDir, Error> {
+        for _ in 0..32 {
+            let name = format!("{TEMPORARY}dir-{}", unique_suffix());
+            match parent.create_dir(&name) {
+                Ok(()) => return StagedDir::open(parent, name),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(Error::Io(std::io::Error::new(
+            ErrorKind::AlreadyExists,
+            "no free name for a staging folder",
+        )))
+    }
+
+    #[cfg(unix)]
+    fn open(parent: &Dir, name: String) -> Result<StagedDir, Error> {
+        use cap_fs_ext::DirExt;
+
+        let handle = parent.open_dir_nofollow(&name)?;
+        Ok(StagedDir {
+            dir: parent.try_clone()?,
+            name: Some(name),
+            handle: Some(handle),
+        })
+    }
+
+    #[cfg(windows)]
+    fn open(parent: &Dir, name: String) -> Result<StagedDir, Error> {
+        use cap_fs_ext::DirExt;
+
+        let identity = {
+            let handle = parent.open_dir_nofollow(&name)?;
+            crate::version::identity_of(&handle)?
+        };
+        Ok(StagedDir {
+            dir: parent.try_clone()?,
+            name: Some(name),
+            identity: Some(identity),
+        })
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_deref().unwrap_or_default()
+    }
+
+    /// The tree digest of the folder this create made, once it holds `name` in its parent, or
+    /// `None` when the name no longer holds it.
+    pub(crate) fn published_tree(
+        &self,
+        root: &Root,
+        name: &str,
+        recorded: &str,
+        walks: &crate::describe::Walks,
+    ) -> Result<Option<String>, Error> {
+        let folder = match self.published(name)? {
+            Some(folder) => folder,
+            None => return Ok(None),
+        };
+        let tree = crate::tree::version(root, recorded, &folder, walks)?;
+        Ok(Some(tree.version))
+    }
+
+    #[cfg(unix)]
+    fn published(&self, _name: &str) -> Result<Option<Dir>, Error> {
+        let handle = self.handle.as_ref().ok_or_else(|| {
+            Error::Io(std::io::Error::other(
+                "the staging folder was closed before its version was read",
+            ))
+        })?;
+        Ok(Some(handle.try_clone()?))
+    }
+
+    #[cfg(windows)]
+    fn published(&self, name: &str) -> Result<Option<Dir>, Error> {
+        use cap_fs_ext::DirExt;
+
+        let Some(identity) = self.identity else {
+            return Ok(None);
+        };
+        let Ok(folder) = self.dir.open_dir_nofollow(name) else {
+            return Ok(None);
+        };
+        if crate::version::identity_of(&folder)? != identity {
+            return Ok(None);
+        }
+        Ok(Some(folder))
+    }
+
+    /// Gives up the staging name, which now holds the published folder.
+    pub(crate) fn release(&mut self) {
+        self.name = None;
+    }
+}
+
+impl Drop for StagedDir {
+    fn drop(&mut self) {
+        if let Some(name) = self.name.take() {
+            let _ = self.dir.remove_dir(name);
+        }
+    }
+}
+
 /// A suffix no other staging file of this process uses, even across a reused name.
 pub(crate) fn unique_suffix() -> String {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);

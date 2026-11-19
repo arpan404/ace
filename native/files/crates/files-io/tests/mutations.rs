@@ -121,7 +121,8 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
         }
     });
 
-    let result = files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None);
+    let error = files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None)
+        .expect_err("a move that could not be put back is its own outcome");
 
     let names: Vec<String> = std::fs::read_dir(fixture.dir())
         .expect("list the root")
@@ -133,35 +134,29 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
                 .into_owned()
         })
         .collect();
-    match result {
-        // The volume cannot hold both spellings, so the entry could not be put back: it is whole
-        // under a name the warning gives, and that name is one a person can see.
-        Ok(committed) => {
-            let warning = committed.warning.expect("a stranded move is reported");
-            let kept = names
-                .iter()
-                .find(|name| name.starts_with("Notes.conflict-"))
-                .expect("the entry is preserved under a visible name");
-            assert!(warning.contains(kept.as_str()), "{warning}");
-            assert_eq!(fixture.read(kept), b"the original\n");
-            assert!(
-                !names
-                    .iter()
-                    .any(|name| name.starts_with(".ace-upload-move-")),
-                "no staging name is left behind: {names:?}"
-            );
-        }
-        Err(error) => {
-            assert_eq!(error.code(), "CONFLICT");
-            assert!(
-                !names
-                    .iter()
-                    .any(|name| name.starts_with(".ace-upload-move-")),
-                "a refused move leaves no staging name: {names:?}"
-            );
-            assert_eq!(fixture.read("Notes.md"), b"the original\n", "put back");
-        }
-    }
+    // The volume cannot hold both spellings, so the entry could not be put back: it is whole
+    // under a name a person can see, and the failure names that very path.
+    assert_eq!(error.code(), "STRANDED");
+    let kept = names
+        .iter()
+        .find(|name| name.starts_with("Notes.conflict-"))
+        .expect("the entry is preserved under a visible name");
+    assert_eq!(
+        error.recovery().as_deref(),
+        Some(kept.as_str()),
+        "the outcome carries the actual recovery path"
+    );
+    assert!(
+        error.to_string().contains(kept.as_str()),
+        "the message names it: {error}"
+    );
+    assert_eq!(fixture.read(kept), b"the original\n");
+    assert!(
+        !names
+            .iter()
+            .any(|name| name.starts_with(".ace-upload-move-")),
+        "no private staging name is left behind: {names:?}"
+    );
     assert_eq!(
         fixture.read("notes.md"),
         b"someone else\n",
@@ -230,8 +225,13 @@ fn remove_folder_recursively() {
 #[test]
 fn create_dir_creates_one_folder_and_refuses_a_taken_name() {
     let fixture = Fixture::new();
-    files_io::create_dir(fixture.root(), "src").expect("create a folder");
+    let created = files_io::create_dir(fixture.root(), "src").expect("create a folder");
     assert!(fixture.dir().join("src").is_dir());
+    assert_eq!(
+        created.version.as_deref(),
+        Some(fixture.version("src").as_str()),
+        "a create reports the digest of the folder it made"
+    );
     files_io::create_dir(fixture.root(), "src/nested").expect("create inside it");
 
     let error = files_io::create_dir(fixture.root(), "src").expect_err("a taken folder");
@@ -240,6 +240,109 @@ fn create_dir_creates_one_folder_and_refuses_a_taken_name() {
     let missing_parent =
         files_io::create_dir(fixture.root(), "absent/child").expect_err("the parent must exist");
     assert_eq!(missing_parent.code(), "NOT_FOUND");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_create_reports_the_folder_it_made_not_the_name_it_published() {
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    let folder = fixture.dir().to_path_buf();
+    // After the folder is published, another program takes the name for a file of its own. The
+    // reply must describe the folder this create made, never the impostor.
+    let _hook = watch(move |step, from, _to| {
+        if step == Step::AfterCreateDir && from == "made" {
+            std::fs::rename(folder.join("made"), folder.join("elsewhere")).expect("move away");
+            std::fs::write(folder.join("made"), b"not the folder\n").expect("impostor");
+        }
+    });
+
+    let created = files_io::create_dir(fixture.root(), "made").expect("create a folder");
+
+    #[cfg(unix)]
+    {
+        // Unix keeps the created folder's handle through publication, so it still knows the
+        // folder's digest even though the name now holds another entry.
+        let reported = created.version.expect("the created folder's digest");
+        assert!(reported.starts_with("tree:"), "{reported}");
+        assert_ne!(
+            reported,
+            fixture.version("made"),
+            "the impostor's digest is never the create's reply"
+        );
+        assert!(fixture.dir().join("elsewhere").is_dir());
+    }
+    #[cfg(windows)]
+    {
+        // Windows cannot rename a folder while its handle is open, so a name that no longer holds
+        // the created folder has no version to report.
+        assert!(created.version.is_none(), "{created:?}");
+    }
+}
+
+#[test]
+fn a_move_reports_the_version_of_the_file_it_moved() {
+    let fixture = Fixture::new();
+    fixture.write("a.md", b"moved bytes\n");
+
+    let moved = files_io::rename(fixture.root(), "a.md", "b.md", None, None).expect("move");
+
+    assert_eq!(
+        moved.version.as_deref(),
+        Some(fixture.version("b.md").as_str()),
+        "the reply is the moved file's version"
+    );
+    assert!(moved.identity.is_none(), "a file has no separate identity");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_move_never_reports_the_version_of_a_name_it_no_longer_holds() {
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("race-a.md", b"moved bytes\n");
+    let folder = fixture.dir().to_path_buf();
+    // A program replaces the destination right after the move. The reply must not describe that
+    // program's file as if it were the entry the move carried.
+    let _hook = watch(move |step, from, to| {
+        if step == Step::AfterMove && from == "race-a.md" && to == "race-b.md" {
+            std::fs::write(folder.join(".intruder"), b"someone else's file\n").expect("intruder");
+            std::fs::rename(folder.join(".intruder"), folder.join("race-b.md")).expect("replace");
+        }
+    });
+
+    let moved =
+        files_io::rename(fixture.root(), "race-a.md", "race-b.md", None, None).expect("move");
+
+    assert!(
+        moved.version.is_none(),
+        "a destination that is not the moved entry has no version: {moved:?}"
+    );
+    assert_eq!(fixture.read("race-b.md"), b"someone else's file\n");
+}
+
+#[test]
+fn a_moved_folder_reports_its_own_version_as_the_identity_a_later_digest_must_match() {
+    let fixture = Fixture::new();
+    fixture.write("before/deep.md", b"deep\n");
+    let before = files_io::describe_entry(fixture.root(), "before").expect("describe the folder");
+
+    let moved = files_io::rename(fixture.root(), "before", "after", None, None).expect("move");
+
+    assert!(
+        moved.version.is_none(),
+        "a folder's digest records its path, so the caller takes it after the queue"
+    );
+    let identity = moved
+        .identity
+        .expect("a moved folder reports its own version");
+    assert_eq!(
+        identity.rsplit_once(':').map(|(rest, _)| rest),
+        before.version.rsplit_once(':').map(|(rest, _)| rest),
+        "only the change time moved"
+    );
 }
 
 #[cfg(unix)]

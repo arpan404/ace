@@ -84,7 +84,7 @@ export type FilesToolClient = {
   describeEntry(
     root: number,
     path: string,
-    options?: { signal?: AbortSignal | undefined },
+    options?: { signal?: AbortSignal | undefined; internal?: boolean | undefined },
   ): Promise<DescriptionReply>;
   measure(
     root: number,
@@ -117,7 +117,7 @@ export type FilesToolClient = {
     root: number,
     path: string,
     options?: { signal?: AbortSignal | undefined },
-  ): Promise<void>;
+  ): Promise<string | null>;
   rename(
     root: number,
     from: string,
@@ -126,8 +126,9 @@ export type FilesToolClient = {
       signal?: AbortSignal | undefined;
       expected?: string | undefined;
       own?: string | undefined;
+      staging?: string | undefined;
     },
-  ): Promise<void>;
+  ): Promise<{ version: string | null; identity: string | null; recovery: string | null }>;
   /** Park a client's entry at the generated trash endpoint, verified after the move. */
   trash(
     root: number,
@@ -143,6 +144,13 @@ export type FilesToolClient = {
     path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<void>;
+  /** Finish a journaled case-only move from one of the daemon's own staging names. */
+  recoverMove(
+    root: number,
+    from: string,
+    to: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<{ version: string | null; identity: string | null; recovery: string | null }>;
   remove(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;
   indexQuery(root: number, query: string, limit: number): Promise<IndexReply>;
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch>;

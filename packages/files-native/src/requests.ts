@@ -132,6 +132,7 @@ export class PendingRequests {
     message: string,
     current?: string,
     explain?: (op: Op["op"]) => string | undefined,
+    recovery?: string,
   ): void {
     const pending = this.#pending.get(id);
     const detail = pending === undefined ? undefined : explain?.(pending.op);
@@ -140,6 +141,7 @@ export class PendingRequests {
         code,
         detail === undefined ? message : `${message}: ${detail}`,
         current,
+        recovery,
       ),
     });
   }

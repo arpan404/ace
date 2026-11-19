@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -780,12 +780,102 @@ it("reports the version the port read from the file it saved", async () => {
   );
 });
 
+it("reports the version the port read from the folder and the file it committed", async () => {
+  const io = await port((base) => ({
+    async createDir(root, path) {
+      await base.createDir(root, path);
+      return "tree:made";
+    },
+    async move(...args: Parameters<FilesIo["move"]>) {
+      await base.move(...args);
+      return { version: "11:22:33:44:55", identity: null, recovery: null };
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+
+  expect(
+    await client.request({ op: "mkdir", path: "made", expected: null }),
+  ).toMatchObject({ type: "files.result", value: { version: "tree:made" } });
+  await writeFile(join(f.root, "a.md"), "a\n");
+  expect(
+    await client.request({
+      op: "rename",
+      path: "a.md",
+      expected: await version(client, "a.md"),
+      destination: "b.md",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: "11:22:33:44:55" } });
+});
+
+it("reports a new folder's version as unknown when its identity cannot be proven", async () => {
+  const io = await port((base) => ({
+    async createDir(root, path) {
+      await base.createDir(root, path);
+      return null;
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+
+  expect(
+    await client.request({ op: "mkdir", path: "made", expected: null }),
+  ).toMatchObject({ type: "files.result", value: { version: null } });
+});
+
+it("reports a moved folder's digest only while its identity still matches", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await mkdir(join(f.root, "docs"));
+  await writeFile(join(f.root, "docs/a"), "a");
+  expect(
+    await client.request({
+      op: "rename",
+      path: "docs",
+      expected: await version(client, "docs"),
+      destination: "moved",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: expect.stringMatching(/^tree:/) } });
+
+  let root = "";
+  const swapping = await port((base) => ({
+    async move(...args: Parameters<FilesIo["move"]>) {
+      const outcome = await base.move(...args);
+      // Another program replaces the moved folder before the digest is read after the queue.
+      await rename(join(root, "moved"), join(root, "elsewhere"));
+      await mkdir(join(root, "moved"));
+      await writeFile(join(root, "moved/impostor"), "x");
+      return outcome;
+    },
+  }));
+  const g = await setup({ workspaceIo: swapping });
+  root = g.root;
+  const other = await g.connect();
+  await mkdir(join(g.root, "docs"));
+  await writeFile(join(g.root, "docs/a"), "a");
+
+  expect(
+    await other.request({
+      op: "rename",
+      path: "docs",
+      expected: await version(other, "docs"),
+      destination: "moved",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: null } });
+  expect(await readFile(join(g.root, "moved/impostor"), "utf8")).toBe("x");
+});
+
 it("reports a committed move even when its version cannot be read afterwards", async () => {
   let moved = false;
   const io = await port((base) => ({
     async move(...args: Parameters<FilesIo["move"]>) {
       await base.move(...args);
       moved = true;
+      // The move landed; the port could not read the moved entry's version afterwards.
+      return { version: null, identity: null, recovery: null };
     },
     async describe(root, path, options) {
       if (moved) throw new FileError("FILES_RESTARTING", "the process is restarting");

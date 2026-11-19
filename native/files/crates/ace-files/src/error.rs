@@ -12,6 +12,8 @@ pub struct Failure {
     pub message: String,
     /// The version the file has now, when a guarded write lost a race.
     pub current: Option<String>,
+    /// Where an entry that could not be put back is preserved, so the daemon can resolve it.
+    pub recovery: Option<String>,
 }
 
 impl Failure {
@@ -21,6 +23,7 @@ impl Failure {
             code,
             message: message.into(),
             current: None,
+            recovery: None,
         }
     }
 }
@@ -96,12 +99,21 @@ impl Error {
         }
     }
 
+    /// Where an entry that could not be put back is preserved, when the crate says.
+    pub fn recovery(&self) -> Option<String> {
+        match self {
+            Error::Io(error) => error.recovery(),
+            _ => None,
+        }
+    }
+
     /// The message this error becomes on the wire.
     pub fn failure(&self) -> Failure {
         Failure {
             code: self.code(),
             message: self.to_string(),
             current: self.current(),
+            recovery: self.recovery(),
         }
     }
 }

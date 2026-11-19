@@ -22,6 +22,8 @@ export type FilesDescribeOptions = FilesRequestOptions & { full?: boolean | unde
 export type FilesMutationOptions = FilesRequestOptions & {
   expected?: string | undefined;
   own?: string | undefined;
+  /** The staging name a case-only move was journaled under, so a later start can finish it. */
+  staging?: string | undefined;
 };
 
 export type PageReply = Extract<Reply, { type: "page" }>;
@@ -30,6 +32,19 @@ export type DescriptionReply = Extract<Reply, { type: "description" }>;
 export type ReadReply = Extract<Reply, { type: "read" }>;
 export type VersionReply = Extract<Reply, { type: "version" }>;
 export type IndexReply = Extract<Reply, { type: "index" }>;
+
+/**
+ * What a move reported besides "done".
+ *
+ * `version` is the moved entry's version, read from that entry; `identity` is a moved folder's
+ * own version, which a digest taken later is accepted against; `recovery` names where an entry
+ * is preserved when its move could not complete.
+ */
+export type MutationOutcome = {
+  version: string | null;
+  identity: string | null;
+  recovery: string | null;
+};
 
 /**
  * The typed surface over one `FilesProcess`: every op in the files-wire section, with the wire's
@@ -102,9 +117,12 @@ export class FilesClient {
   async describeEntry(
     root: number,
     path: string,
-    options: FilesRequestOptions = {},
+    options: FilesRequestOptions & { internal?: boolean } = {},
   ): Promise<DescriptionReply> {
-    const { reply } = await this.#process.request({ op: "describeEntry", root, path }, options);
+    const { reply } = await this.#process.request(
+      { op: "describeEntry", root, path, ...(options.internal === true ? { internal: true } : {}) },
+      options,
+    );
     if (reply.type !== "description") throw unexpected("describeEntry", reply);
     return reply;
   }
@@ -172,17 +190,27 @@ export class FilesClient {
     return reply;
   }
 
-  async createDir(root: number, path: string, options: FilesRequestOptions = {}): Promise<void> {
+  /**
+   * Create a folder. The result is the new folder's digest, read from the folder this create
+   * made, or `null` when that folder's identity could not be proven.
+   */
+  async createDir(root: number, path: string, options: FilesRequestOptions = {}): Promise<string | null> {
     const { reply } = await this.#process.request({ op: "createDir", root, path }, options);
     if (reply.type !== "done") throw unexpected("createDir", reply);
+    return reply.version ?? null;
   }
 
+  /**
+   * Move a path. The result carries the moved entry's version when it was read from that entry,
+   * a moved folder's own version, and the visible name an entry that could not complete its move
+   * is preserved under.
+   */
   async rename(
     root: number,
     from: string,
     to: string,
     options: FilesMutationOptions = {},
-  ): Promise<void> {
+  ): Promise<MutationOutcome> {
     const { reply } = await this.#process.request(
       {
         op: "rename",
@@ -191,10 +219,16 @@ export class FilesClient {
         to,
         ...(options.expected === undefined ? {} : { expected: options.expected }),
         ...(options.own === undefined ? {} : { own: options.own }),
+        ...(options.staging === undefined ? {} : { staging: options.staging }),
       },
       options,
     );
     if (reply.type !== "done") throw unexpected("rename", reply);
+    return {
+      version: reply.version ?? null,
+      identity: reply.identity ?? null,
+      recovery: reply.recovery ?? null,
+    };
   }
 
   async remove(root: number, path: string, options: FilesRequestOptions = {}): Promise<void> {
@@ -233,6 +267,28 @@ export class FilesClient {
   ): Promise<void> {
     const { reply } = await this.#process.request({ op: "untrash", root, endpoint, path }, options);
     if (reply.type !== "done") throw unexpected("untrash", reply);
+  }
+
+  /**
+   * Finish a journaled case-only move: the entry at one of the daemon's own staging names moves
+   * to a client path, never replacing one. Internal callers only.
+   */
+  async recoverMove(
+    root: number,
+    from: string,
+    to: string,
+    options: FilesRequestOptions = {},
+  ): Promise<MutationOutcome> {
+    const { reply } = await this.#process.request(
+      { op: "recoverMove", root, from, to },
+      options,
+    );
+    if (reply.type !== "done") throw unexpected("recoverMove", reply);
+    return {
+      version: reply.version ?? null,
+      identity: reply.identity ?? null,
+      recovery: reply.recovery ?? null,
+    };
   }
 
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch> {

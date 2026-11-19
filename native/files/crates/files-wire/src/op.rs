@@ -24,6 +24,7 @@ pub(crate) const TAGS: &[&str] = &[
     "remove",
     "trash",
     "untrash",
+    "recoverMove",
     "watch",
     "unwatch",
     "indexQuery",
@@ -95,6 +96,10 @@ pub enum Op {
         root: u64,
         /// Root-relative path.
         path: String,
+        /// Read one of the daemon's own generated names, for its reconciliation. Internal callers
+        /// only: a client path never sets it, and it skips only the reserved-name rule.
+        #[serde(default, skip_serializing_if = "is_false")]
+        internal: bool,
     },
     /// How many bytes of files a path holds, for the trash quota a delete must respect.
     Measure {
@@ -155,6 +160,9 @@ pub enum Op {
         /// A folder's own version from before the move, so its digest can be verified afterward.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         own: Option<String>,
+        /// The staging name a case-only move was journaled under, so a start can finish it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        staging: Option<String>,
     },
     /// Delete a file or a folder and everything inside it.
     ///
@@ -187,6 +195,16 @@ pub enum Op {
         endpoint: String,
         /// Root-relative client destination, which must be absent.
         path: String,
+    },
+    /// Finish a journaled case-only move: the entry parked at one of the daemon's own staging
+    /// names moves to a client path, never replacing one. Internal callers only.
+    RecoverMove {
+        /// The root's number.
+        root: u64,
+        /// The generated `.ace-upload-move-<id>` staging name, with the folder that holds it.
+        from: String,
+        /// Root-relative client destination, which must be absent.
+        to: String,
     },
     /// Start watching a root. The result is the subscription; `event` messages follow.
     Watch {
@@ -259,6 +277,7 @@ mod tests {
             Op::DescribeEntry {
                 root: 0,
                 path: String::new(),
+                internal: false,
             },
             Op::Measure {
                 root: 0,
@@ -290,6 +309,7 @@ mod tests {
                 to: String::new(),
                 expected: None,
                 own: None,
+                staging: None,
             },
             Op::Remove {
                 root: 0,
@@ -306,6 +326,11 @@ mod tests {
                 root: 0,
                 endpoint: String::new(),
                 path: String::new(),
+            },
+            Op::RecoverMove {
+                root: 0,
+                from: String::new(),
+                to: String::new(),
             },
             Op::Watch { root: 0 },
             Op::Unwatch { subscription: 0 },

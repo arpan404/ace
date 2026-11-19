@@ -92,7 +92,7 @@ fn cancel_sent_during_a_remove_still_answers_success() {
     std::thread::sleep(Duration::from_millis(50));
     client.send(&Message::Cancel { id: removed });
 
-    assert_eq!(client.reply(removed), Reply::Done);
+    assert_eq!(client.reply(removed), Reply::done());
     let after = client.request(Op::Stat {
         root,
         path: "bulk".to_owned(),
@@ -150,7 +150,16 @@ fn creates_moves_and_removes_a_folder() {
         root,
         path: "notes".to_owned(),
     });
-    assert_eq!(client.reply(created), Reply::Done);
+    assert!(
+        matches!(
+            client.reply(created),
+            Reply::Done {
+                version: Some(_),
+                ..
+            }
+        ),
+        "a create reports the digest of the folder it made"
+    );
 
     let file = client.request(Op::CreateFile {
         root,
@@ -165,8 +174,18 @@ fn creates_moves_and_removes_a_folder() {
         to: "notes/b.txt".to_owned(),
         expected: None,
         own: None,
+        staging: None,
     });
-    assert_eq!(client.reply(moved), Reply::Done);
+    assert!(
+        matches!(
+            client.reply(moved),
+            Reply::Done {
+                version: Some(_),
+                ..
+            }
+        ),
+        "a move reports the moved file's version"
+    );
     let stat = client.request(Op::Stat {
         root,
         path: "notes/b.txt".to_owned(),
@@ -177,7 +196,7 @@ fn creates_moves_and_removes_a_folder() {
         root,
         path: "notes".to_owned(),
     });
-    assert_eq!(client.reply(removed), Reply::Done);
+    assert_eq!(client.reply(removed), Reply::done());
     let gone = client.request(Op::Stat {
         root,
         path: "notes/b.txt".to_owned(),
@@ -276,6 +295,7 @@ fn describes_an_entry_without_walking_its_folder() {
     let request = client.request(Op::DescribeEntry {
         root,
         path: "docs".to_owned(),
+        internal: false,
     });
     let Reply::Description(entry) = client.reply(request) else {
         panic!("describeEntry answered");
@@ -386,7 +406,13 @@ fn a_mutation_refuses_a_link_on_the_way_in_one_step() {
         root,
         path: "docs/new".to_owned(),
     });
-    assert_eq!(client.reply(created), Reply::Done);
+    assert!(matches!(
+        client.reply(created),
+        Reply::Done {
+            version: Some(_),
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -411,7 +437,7 @@ fn trashes_and_restores_through_the_generated_endpoint() {
         expected: description.version.clone(),
         own: description.own_version.clone(),
     });
-    assert_eq!(client.reply(trashed), Reply::Done);
+    assert_eq!(client.reply(trashed), Reply::done());
     assert!(!checkout.path().join("docs").exists());
 
     let restored = client.request(Op::Untrash {
@@ -419,7 +445,7 @@ fn trashes_and_restores_through_the_generated_endpoint() {
         endpoint: ".ace-upload-trash-wire".to_owned(),
         path: "docs".to_owned(),
     });
-    assert_eq!(client.reply(restored), Reply::Done);
+    assert_eq!(client.reply(restored), Reply::done());
     assert_eq!(
         std::fs::read(checkout.path().join("docs/a.md")).expect("the restored file"),
         b"kept\n"
@@ -522,7 +548,7 @@ fn a_verified_delete_walks_the_moved_tree_past_the_display_budget() {
     });
     assert_eq!(
         client.reply(trashed),
-        Reply::Done,
+        Reply::done(),
         "the post-move verification is not stopped by the display budget"
     );
     assert!(!checkout.path().join("big").exists());

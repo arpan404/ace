@@ -117,6 +117,36 @@ pub(crate) fn identity(metadata: &Metadata) -> (u64, u64) {
     (metadata.dev(), metadata.ino())
 }
 
+/// The identity of a folder, read through a handle to it: a name that is replaced by another
+/// entry before the version is read never lends that entry's identity. Windows cannot rename a
+/// folder while its handle is open, so it records this before publishing and checks it after.
+#[cfg(windows)]
+pub(crate) fn identity_of(dir: &Dir) -> Result<(u64, u64), Error> {
+    let facts = windows::handle_facts(&crate::handle::dir_handle(dir)?)?;
+    Ok((facts.0, facts.1))
+}
+
+/// The identity of an entry, read the way a version is.
+#[cfg(unix)]
+pub(crate) fn identity_of_entry(
+    _dir: &Dir,
+    _name: &str,
+    metadata: &Metadata,
+) -> Result<(u64, u64), Error> {
+    Ok(identity(metadata))
+}
+
+#[cfg(windows)]
+pub(crate) fn identity_of_entry(
+    dir: &Dir,
+    name: &str,
+    _metadata: &Metadata,
+) -> Result<(u64, u64), Error> {
+    let handle = crate::handle::attribute_handle(dir, name)?;
+    let facts = windows::handle_facts(&handle)?;
+    Ok((facts.0, facts.1))
+}
+
 /// Whether two entries in their folders are the same entry, which a case-only rename on a
 /// case-insensitive volume needs. A link is compared as itself, never followed.
 pub(crate) fn same_entry(
@@ -133,6 +163,30 @@ pub(crate) fn same_entry(
         &right,
     )?;
     Ok(left.dev == right.dev && left.ino == right.ino)
+}
+
+/// The version of the moved entry at `name`, when the name still holds the entry with `identity`.
+///
+/// A rename changes the change time and nothing else, so a version read through the name after
+/// the move is the moved entry's only while the identity is the one recorded before it. A name
+/// another program took in between has a different identity, and no version is reported for it.
+pub(crate) fn moved_version(
+    dir: &Dir,
+    name: &str,
+    identity: Option<(u64, u64)>,
+) -> Result<Option<String>, Error> {
+    let Some(identity) = identity else {
+        return Ok(None);
+    };
+    let metadata = match dir.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || identity_of_entry(dir, name, &metadata)? != identity {
+        return Ok(None);
+    }
+    Ok(Some(version_of_entry(dir, name, &metadata)?))
 }
 
 /// A version with its last field removed: a rename changes the change time and nothing else a
