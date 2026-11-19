@@ -143,8 +143,24 @@ it("a person's grant, proven with its device key over this socket's nonce, gives
   const proof = await device.sign(
     standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
   );
-  expect(await prove(token, proof)).toEqual({ until: issued + GRANT_LIFETIME_MS });
+  expect(await prove(token, proof)).toEqual({
+    until: issued + GRANT_LIFETIME_MS,
+    account: "user_1",
+  });
   expect(await prove(token, proof, { now: issued + GRANT_LIFETIME_MS })).toBeUndefined();
+});
+
+it("before the machine has an owner, a person's grant proves for the account it names itself", async () => {
+  const device = await deviceKey();
+  const token = personGrant(device.raw, { account: "user_2" });
+  const proof = await device.sign(
+    standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
+  );
+  expect(await prove(token, proof, { account: undefined })).toEqual({
+    until: issued + GRANT_LIFETIME_MS,
+    account: "user_2",
+  });
+  expect(await prove(token, proof)).toBeUndefined();
 });
 
 it("a captured person's grant or proof gives nothing on another socket, daemon or device", async () => {

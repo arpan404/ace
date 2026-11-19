@@ -491,7 +491,8 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
   }),
   /**
-   * The machine's owner hands it on (ADR 0190): from a socket proven as the owner only. Every
+   * The machine's owner hands it on (ADR 0190 §3a): only from a socket that proved the owner's
+   * own grant (`account.standing`), never a paired device's key. Every
    * standing proven under it, and every person's pairing, ends; the next person's proof sets
    * the owner. Answered with `account.owner.release.result`.
    */

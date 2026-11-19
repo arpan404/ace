@@ -421,17 +421,23 @@ export async function startServer(options: ServerOptions): Promise<{
       ? Buffer.from(relayed.channel.channelBinding).toString("base64url")
       : undefined;
     let personUntil = 0;
-    /** The owner this socket's standing was proven under; another owner since ends it. */
+    /** The owner generation this socket's standing was proven under; any change since ends it. */
     let provenUnder = -1;
+    /** How it was proven: the owner's own grant, or a paired device's key. */
+    let provenBy: "account" | "device" | undefined;
     // Whether this socket is the person's for person-only actions (ADR 0190): only once it proved
     // it, under the machine's current owner, while that lasts. A device paired from a person's
     // link proves it with its own key; its bearer token alone, the host token or an account
     // device's admission never do, and nor does someone having signed in lately.
     const personProven = () =>
-      personUntil > auth.now() && provenUnder === options.machineAccount?.ownerGeneration();
-    const proved = (until: number, generation: number) => {
+      personUntil > auth.now() && options.machineAccount?.standingHolds(provenUnder) === true;
+    /** Stamps a proof that began under `generation`, unless the owner changed since. */
+    const proved = (until: number, generation: number, by: "account" | "device") => {
+      if (options.machineAccount?.standingHolds(generation) !== true) return false;
       personUntil = until;
       provenUnder = generation;
+      provenBy = by;
+      return true;
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
@@ -783,7 +789,7 @@ export async function startServer(options: ServerOptions): Promise<{
         case "account.standing": {
           const { requestId } = message;
           // A grant from the machine's owner only (ADR 0190), whatever account it is signed in to.
-          const proven = stillAdmitted()
+          const checked = stillAdmitted()
             ? await options.machineAccount?.proveStanding({
                 grant: message.grant,
                 proof: message.proof,
@@ -792,7 +798,9 @@ export async function startServer(options: ServerOptions): Promise<{
                 deviceId: actor,
               })
             : undefined;
-          if (proven) proved(Math.max(personUntil, proven.until), proven.generation);
+          // Only if the owner is still the one it was checked against (ADR 0190 §3a).
+          const proven =
+            checked && proved(checked.until, checked.generation, "account") ? checked : undefined;
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({
               type: "account.standing.result",
@@ -813,14 +821,16 @@ export async function startServer(options: ServerOptions): Promise<{
           // key read from ACE_HOME could collect, proves nothing.
           const { requestId } = message;
           const paired = authenticated.get(socket);
-          const record =
-            paired?.revocable === true && standingHost !== undefined
+          // Read before the key: a change of owner since then clears the key and ends the proof.
+          const seen = options.machineAccount?.ownerGeneration();
+          const keyNow = () =>
+            paired?.revocable === true
               ? options.store.devices.standingKeyOf(paired.id, paired.generation, auth.now())
               : undefined;
-          const generation = options.machineAccount?.ownerGeneration();
-          const ok =
+          const record = keyNow();
+          const verified =
             record !== undefined &&
-            generation !== undefined &&
+            seen !== undefined &&
             standingHost !== undefined &&
             (await provenDevice({
               key: record,
@@ -830,8 +840,12 @@ export async function startServer(options: ServerOptions): Promise<{
               binding: channelBinding,
               deviceId: actor,
             }));
-          // As long as this socket lasts: revoking the device ends the socket (ADR 0115).
-          if (ok) proved(Number.MAX_SAFE_INTEGER, generation);
+          // As long as this socket lasts, under this owner: revoking the device ends the socket
+          // (ADR 0115), and a change of owner its standing.
+          const ok =
+            verified &&
+            keyNow() === record &&
+            proved(Number.MAX_SAFE_INTEGER, seen ?? -1, "device");
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({
               type: "account.standing.result",
@@ -847,14 +861,13 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         case "account.owner.release": {
-          // Only the owner's own proven socket hands the machine on (ADR 0190); every standing
-          // proven under it, and every person's pairing, ends with it.
+          // Only a socket that proved the owner's own grant hands the machine on (ADR 0190 §3a),
+          // never a paired device; every standing proven under it, and every person's pairing,
+          // ends as the release starts.
           const { requestId } = message;
-          const ok = personProven() && options.machineAccount !== undefined;
-          if (ok) {
-            await options.machineAccount?.releaseOwner();
-            auth.dropPersonStanding();
-          }
+          const ok =
+            personProven() && provenBy === "account" && options.machineAccount !== undefined;
+          if (ok) await options.machineAccount?.releaseOwner(() => auth.dropPersonStanding());
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({ type: "account.owner.release.result", requestId, ok });
           return;

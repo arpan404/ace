@@ -523,6 +523,8 @@ export function machineAccount(options: {
           : {}),
         sessionId,
         ...(hostIdKnown ? { relayHostId: hostIdKnown } : {}),
+        // Who the machine answers to (ADR 0190 §3a), so the person can see it and fix it.
+        owner: owner.current() === undefined ? null : { account: owner.current() },
         // A session from before machine credentials that couldn't be exchanged yet.
         ...(session && session.kind !== "machine" && !noCredentials
           ? { signInAgain: true as const }
@@ -757,19 +759,24 @@ export function machineAccount(options: {
       binding: string | undefined;
       deviceId: string;
     }): Promise<{ until: number; generation: number } | undefined> {
-      // The owner's grants only (ADR 0190). Before there is one, the account this machine is
-      // signed in to, whose first proof makes it the owner.
-      const account = owner.current() ?? active()?.account.id;
-      if (account === undefined) return undefined;
+      // The owner's grants only (ADR 0190 §3a). Before there is one, the account the proof's own
+      // grant names, from the window signed in as the person: never the account this machine is
+      // signed in to, which the host token can switch first.
+      const seen = owner.generation();
+      if (!owner.holds(seen)) return undefined;
       const proven = await provenStanding({
         ...input,
-        account,
+        account: owner.current(),
         keys: personKeys,
         now: options.now(),
         host: await ownHostId(),
       });
-      if (!proven || !(await owner.claim(account))) return undefined;
-      return { until: proven.until, generation: owner.generation() };
+      if (!proven || !(await owner.claim(proven.account, seen))) return undefined;
+      return { until: proven.until, generation: seen };
+    },
+    /** Whether standing proven under `generation` still counts (`MachineOwner.holds`). */
+    standingHolds(generation: number): boolean {
+      return owner.holds(generation);
     },
     /** Every change of owner moves this; standing proven under another owner is over. */
     ownerGeneration(): number {
@@ -780,11 +787,11 @@ export function machineAccount(options: {
       return owner.current();
     },
     /**
-     * No owner any more: the current owner's own socket released it, or the person reset it
-     * here by removing `ace-owner.json` with the daemon stopped. The next person's proof sets one.
+     * No owner any more: the owner's own proof released it (ADR 0190 §3a). `drop` ends what is
+     * kept beyond a socket, before anything can be proven again. The next person's proof sets one.
      */
-    async releaseOwner(): Promise<void> {
-      await owner.release();
+    async releaseOwner(drop: () => void): Promise<void> {
+      await owner.release(drop);
       notify();
     },
     /** Whether an admitted account device keeps access: same account, current code passed. */

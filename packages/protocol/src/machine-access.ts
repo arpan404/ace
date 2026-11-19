@@ -72,6 +72,15 @@ export const MachineAccountStatus = z.object({
     .string()
     .regex(/^[A-Z2-7]{52}$/)
     .optional(),
+  /**
+   * The ace account this machine answers to (ADR 0190 §3a): the one whose person's grants carry
+   * the person's standing here, whatever account it is signed in to. Null before the first
+   * person's proof; absent from older daemons.
+   */
+  owner: z
+    .object({ account: z.string().min(1).max(256) })
+    .nullable()
+    .optional(),
   /** A sign-in started on this machine that has not finished yet. */
   login: z.object({ url: z.url(), expiresAt: z.number().int().positive() }).optional(),
   machineCode: z.object({

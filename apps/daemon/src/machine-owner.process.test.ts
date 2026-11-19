@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { pairedStandingText, standingProofText } from "@ace/account-grant";
 import { signInThroughWorker } from "@ace/cloud/testing";
+import { PairingResponse } from "@ace/protocol";
 import { redeemPairing } from "./client-access.ts";
 import {
   useAccountBackend,
@@ -16,6 +17,7 @@ import {
   provesPaired,
   linkFrom,
   pageProves,
+  person,
 } from "./machine-standing-test-support.ts";
 
 // ADR 0190 end to end, the machine's owner and its paired devices' keys: a real daemon signed
@@ -55,6 +57,30 @@ it("a host-token handover to another account gives that account no person standi
   await daemonHome.close();
 });
 
+it("a host-token handover before the person's first proof doesn't make that handover's account the owner", async () => {
+  // The person signed the machine in from their app, which hasn't proved anything here yet.
+  const daemonHome = await signedInDaemon();
+  const { session, host } = daemonHome;
+  expect(daemonHome.account.status().owner).toBeNull();
+  // A process with the host token switches it to an account it signed in to itself, and makes
+  // no proof of its own.
+  const theirs = await signInThroughWorker(backend.worker.http, backend.workos, other);
+  const { ticket } = await accounts().machineEnrollment(theirs.token, host, signal());
+  await daemonHome.account.handover(backend.worker.http, { ticket });
+  expect(daemonHome.account.status()).toMatchObject({ account: { id: "user_q" }, owner: null });
+  // The person's own proof, from their browser-signed-in session, makes them the owner, whatever
+  // account the machine is signed in to now.
+  const mine = await pageProves(daemonHome, session.token);
+  expect(mine.ok).toBe(true);
+  expect(daemonHome.account.status().owner).toEqual({ account: person.id });
+  expect(await changesGuardedSetting(mine.client)).toBe(true);
+  // And the handover's account, proving properly afterwards, is not the person here.
+  const page = await pageProves(daemonHome, theirs.token);
+  expect(page.ok).toBe(false);
+  expect(await changesGuardedSetting(page.client)).toBe(false);
+  await daemonHome.close();
+});
+
 it("the owner letting the machine go ends every standing proven under them and every person's pairing", async () => {
   const daemonHome = await signedInDaemon();
   const { session } = daemonHome;
@@ -62,15 +88,73 @@ it("the owner letting the machine go ends every standing proven under them and e
   expect(owner.ok).toBe(true);
   const url = await linkFrom(owner.client);
   const kept = await pageProves(daemonHome, session.token);
-  // Someone else's socket can't let it go.
+  // A device paired from the owner's link, proven with its own key: the person's, but it can't
+  // let the machine go; nor can a socket that proved nothing.
+  const key = await deviceKey();
+  const paired = await pairedChallenge(daemonHome.f, async () =>
+    redeemPairing(await linkFrom(owner.client), "Phone", undefined, key.raw),
+  );
+  const pairedProof = await key.sign(
+    pairedStandingText({
+      host: paired.host,
+      nonce: paired.nonce,
+      binding: undefined,
+      deviceId: paired.device,
+    }),
+  );
+  expect(await provesPaired(paired.client, pairedProof)).toBe(true);
+  const release = async (client: typeof owner.client) => {
+    client.send({ type: "account.owner.release", requestId: "release" });
+    return (await answer(client, "account.owner.release.result")).ok;
+  };
+  expect(await release(paired.client)).toBe(false);
   const bare = await daemonHome.pageSocket();
-  bare.client.send({ type: "account.owner.release", requestId: "release" });
-  expect((await answer(bare.client, "account.owner.release.result")).ok).toBe(false);
-  owner.client.send({ type: "account.owner.release", requestId: "release" });
-  expect((await answer(owner.client, "account.owner.release.result")).ok).toBe(true);
-  // Every socket proven under the old owner is no longer the person's, and its link is void.
+  expect(await release(bare.client)).toBe(false);
+  expect(daemonHome.account.status().owner).toEqual({ account: person.id });
+  expect(await release(owner.client)).toBe(true);
+  expect(daemonHome.account.status().owner).toBeNull();
+  // Every socket proven under the old owner is no longer the person's, the paired device's key
+  // proves nothing any more, and the pending link is void.
   expect(await changesGuardedSetting(kept.client)).toBe(false);
+  expect(await changesGuardedSetting(paired.client)).toBe(false);
+  expect(await provesPaired(paired.client, pairedProof)).toBe(false);
   await expect(redeemPairing(url, "Phone")).rejects.toThrow();
+
+  // The owner proves again, and a proof of theirs that began before a release lands after it:
+  // it doesn't reclaim the machine.
+  expect((await pageProves(daemonHome, session.token)).ok).toBe(true);
+  const deviceKeyPair = await deviceKey();
+  const nonce = "a-socket-nonce";
+  const minted = await accounts().grant(
+    session.token,
+    { kind: "device", subject: "device", host: daemonHome.host, key: deviceKeyPair.raw },
+    signal(),
+  );
+  const grant = minted.standing ?? "";
+  const proof = await deviceKeyPair.sign(
+    standingProofText({ host: daemonHome.host, nonce, binding: undefined, grant }),
+  );
+  const proving = daemonHome.account.proveStanding({
+    grant,
+    proof,
+    nonce,
+    binding: undefined,
+    deviceId: "device",
+  });
+  const releasing = daemonHome.account.releaseOwner(() => {});
+  expect(await proving).toBeUndefined();
+  await releasing;
+  expect(daemonHome.account.status().owner).toBeNull();
+  // The same proof, begun after the release: it is the next owner's first.
+  expect(
+    await daemonHome.account.proveStanding({
+      grant,
+      proof,
+      nonce,
+      binding: undefined,
+      deviceId: "device",
+    }),
+  ).toBeDefined();
   await daemonHome.close();
 });
 
@@ -119,10 +203,10 @@ it("a paired device's bearer token, without its own key's proof on that very soc
   // Its own key, on its own socket: the person.
   expect(await provesPaired(paired.client, proof)).toBe(true);
   expect(await changesGuardedSetting(paired.client)).toBe(true);
-  // A device paired from the person's link by an app that names no key never is.
-  const keyless = await pairedChallenge(f, async () =>
-    redeemPairing(await linkFrom(owner.client), "Old phone"),
-  );
+  // A device paired from the person's link by an app that names no key never is: an admin
+  // the CLI paired, its bearer saved on disk.
+  const keylessCredential = await redeemPairing(await linkFrom(owner.client), "Old phone");
+  const keyless = await pairedChallenge(f, async () => keylessCredential);
   const keylessProof = await key.sign(
     pairedStandingText({
       host: keyless.host,
@@ -133,5 +217,30 @@ it("a paired device's bearer token, without its own key's proof on that very soc
   );
   expect(await provesPaired(keyless.client, keylessProof)).toBe(false);
   expect(await changesGuardedSetting(keyless.client)).toBe(false);
+  // Whoever holds that bearer makes a link over HTTP and redeems it with a key of its own: an
+  // ordinary pairing, never the person's. Nor is one the person's keyed device makes over HTTP.
+  for (const bearer of [keylessCredential.token, credential.token]) {
+    const link = PairingResponse.parse(
+      await f.remoteRequest("/v1/pairings", {
+        method: "POST",
+        token: bearer,
+        body: { scopes: ["read", "operate", "admin"] },
+      }),
+    );
+    const theirKey = await deviceKey();
+    const theirs = await pairedChallenge(f, () =>
+      redeemPairing(link.url, "Their phone", undefined, theirKey.raw),
+    );
+    const theirProof = await theirKey.sign(
+      pairedStandingText({
+        host: theirs.host,
+        nonce: theirs.nonce,
+        binding: undefined,
+        deviceId: theirs.device,
+      }),
+    );
+    expect(await provesPaired(theirs.client, theirProof)).toBe(false);
+    expect(await changesGuardedSetting(theirs.client)).toBe(false);
+  }
   await daemonHome.close();
 });

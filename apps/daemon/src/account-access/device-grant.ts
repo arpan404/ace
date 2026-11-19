@@ -74,8 +74,9 @@ export function deviceGrantVerdict(
 /**
  * The person's standing a socket proves (ADR 0190), or undefined. The grant must be a format 2
  * person grant signed by a key this build pins (never one fetched from the session's origin or
- * named by the environment), for this daemon's account and host, the socket's device, and not
- * expired; and `proof` must be the signature, by the device key the grant names, of
+ * named by the environment), for the machine's owner (any account before it has one, which the
+ * proof then makes the owner: `account` in the answer), this host and the socket's device, and
+ * not expired; and `proof` must be the signature, by the device key the grant names, of
  * `standingProofText` over this host, this socket's nonce, its channel binding and the grant. A
  * grant captured on the way is worthless without that key, and a proof made for one socket,
  * channel or daemon fails on any other: one relayed by whoever answered as this host, with its
@@ -89,10 +90,11 @@ export async function provenStanding(input: {
   binding: string | undefined;
   keys: GrantKeySet;
   now: number;
-  account: string;
+  /** The machine's owner; undefined before it has one, when any account's grant may prove. */
+  account: string | undefined;
   deviceId: string;
   host: string;
-}): Promise<{ until: number } | undefined> {
+}): Promise<{ until: number; account: string } | undefined> {
   let claims;
   try {
     claims = verifyStandingGrant(input.grant, input.keys, input.now);
@@ -101,7 +103,7 @@ export async function provenStanding(input: {
   }
   if (
     claims.standing !== "person" ||
-    claims.account !== input.account ||
+    (input.account !== undefined && claims.account !== input.account) ||
     claims.subject !== input.deviceId ||
     claims.host !== input.host ||
     claims.key === undefined
@@ -128,7 +130,7 @@ export async function provenStanding(input: {
         }),
       ),
     );
-    return signed ? { until: claims.exp } : undefined;
+    return signed ? { until: claims.exp, account: claims.account } : undefined;
   } catch {
     return undefined;
   }
