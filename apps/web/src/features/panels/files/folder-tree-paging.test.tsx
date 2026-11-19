@@ -42,32 +42,25 @@ async function openBig() {
   return { folders, tree };
 }
 
-test("a big folder pages with Show more, and the last entry follows", async () => {
+test("a big folder loads its next page when its last rows scroll into view, with no click", async () => {
   const { folders, tree } = await openBig();
-  // The first page is 500 entries, so the folder offers the rest at its end.
+  expect(folders.count("big")).toBe(1);
   scrollToEnd(tree);
-  const more = await within(tree).findByRole("treeitem", { name: "Show more" });
-  await userEvent.click(more);
   await waitFor(() => expect(folders.count("big")).toBe(2));
-  expect(within(tree).queryByRole("treeitem", { name: "Show more" })).toBeNull();
   scrollToEnd(tree);
   expect(await within(tree).findByRole("treeitem", { name: "entry-0504.txt" })).toBeTruthy();
+  expect(within(tree).queryByRole("treeitem", { name: "Show more" })).toBeNull();
 });
 
-test("← from Show more returns to its folder, and a failed page retries with its cursor", async () => {
+test("a failed page stops loading and retries with its cursor on Try again", async () => {
   const { folders, tree } = await openBig();
-  scrollToEnd(tree);
-  const more = await within(tree).findByRole("treeitem", { name: "Show more" });
-  more.focus();
-  await userEvent.keyboard("{ArrowLeft}");
-  await waitFor(() =>
-    expect(document.activeElement).toBe(within(tree).getByRole("treeitem", { name: "big" })),
-  );
-
-  scrollToEnd(tree);
   folders.failNext("big", "IO_ERROR");
-  await userEvent.click(within(tree).getByRole("treeitem", { name: "Show more" }));
+  scrollToEnd(tree);
   const retry = await within(tree).findByRole("button", { name: "Try again" });
+  await waitFor(() => expect(folders.count("big")).toBe(2));
+  // A failed page is not asked for again until the person retries.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(folders.count("big")).toBe(2);
   await userEvent.click(retry);
   await waitFor(() => expect(folders.count("big")).toBe(3));
   const requests = folders.requests.filter((request) => request.path === "big");

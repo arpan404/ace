@@ -1,6 +1,6 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
-import type { DragEvent, KeyboardEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
@@ -89,26 +89,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         </button>
       </div>
     );
-  if (row.kind === "more")
-    return (
-      <button
-        type="button"
-        role="treeitem"
-        data-part="list-row"
-        data-variant="more"
-        data-row={row.key}
-        aria-level={row.depth + 1}
-        tabIndex={props.focusable ? 0 : -1}
-        onFocus={() => props.onFocus(row.key)}
-        onClick={() => props.onMore(row.folder ?? "")}
-        onKeyDown={(event) => props.onKeyDown(event, row, index)}
-        style={indent}
-        className={cn(rowClass, "text-muted-foreground hover:text-foreground")}
-      >
-        <RowIndent />
-        <span className="min-w-0 truncate">Show more</span>
-      </button>
-    );
+  if (row.kind === "more") return <MoreRow row={row} index={index} props={props} indent={indent} />;
   const folder = row.kind === "folder";
   return (
     <FileRowMenu
@@ -172,5 +153,56 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         </span>
       </button>
     </FileRowMenu>
+  );
+}
+
+/**
+ * A folder's Show more line. The tree only mounts it once its rows are near the view, so being
+ * mounted is the sign that the person has scrolled to the end: the next page loads by itself.
+ * A failed page turns this row into an error row, so a failure is retried only by Try again.
+ */
+function MoreRow(args: {
+  row: FolderRow;
+  index: number;
+  props: FileTreeRowViewProps;
+  indent: CSSProperties;
+}) {
+  const { row, index, props, indent } = args;
+  const ref = useRef<HTMLButtonElement>(null);
+  const onMore = useRef(props.onMore);
+  onMore.current = props.onMore;
+  const folder = row.folder ?? "";
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      onMore.current(folder);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onMore.current(folder);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [folder]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="treeitem"
+      data-part="list-row"
+      data-variant="more"
+      data-row={row.key}
+      aria-level={row.depth + 1}
+      tabIndex={props.focusable ? 0 : -1}
+      onFocus={() => props.onFocus(row.key)}
+      onClick={() => props.onMore(row.folder ?? "")}
+      onKeyDown={(event) => props.onKeyDown(event, row, index)}
+      style={indent}
+      className={cn(rowClass, "text-muted-foreground hover:text-foreground")}
+    >
+      <RowIndent />
+      <span className="min-w-0 truncate">Show more</span>
+    </button>
   );
 }
