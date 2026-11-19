@@ -128,8 +128,10 @@ const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
  * it. The link asks for Projects with operate, but a device grants only what it holds there; when
  * this window's device on `to` doesn't hold Projects, the link is made without them
  * (`projects: false`) and they can be allowed later on `to`'s page in Settings › Fleet. A link
- * `from` made meanwhile, from another window say, stays as it is (`kept`): `from` checks right
- * before redeeming, and this one's pairing link is cancelled unused.
+ * `from` already holds stays as it is (`kept`): `from`'s links are read again first, and nothing
+ * is issued for a gap that is linked now. A machine that honours `keep` also checks right before
+ * redeeming, for a link made meanwhile, and this one's pairing link is then cancelled unused;
+ * one from before `keep` is never sent it, since it would drop it and replace the link.
  */
 export async function linkMachine(
   from: Machine,
@@ -139,6 +141,12 @@ export async function linkMachine(
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;
+  const now = await fleet(fromClient, { op: "links" }).catch((error: unknown) => {
+    throw new Error(redeemProblem(error, from, to));
+  });
+  if (now.kind !== "links") throw new Error(`${from.name} didn't say what it's linked to.`);
+  if (now.links.some((link) => link.hostId === to.id)) return { kind: "kept" };
+  const keep = now.keep === true;
   const wanted = linkScopes(access);
   const issue = (scopes: PairingScope[]) =>
     createPairing(toClient, { scopes }).catch((error: unknown) => {
@@ -157,7 +165,7 @@ export async function linkMachine(
     pairingUrl: pairing.url,
     hostId: to.id,
     name: to.name,
-    keep: true,
+    ...(keep ? { keep: true as const } : {}),
   }).catch((error: unknown) => {
     if (refusalCode(error) !== "exists") throw new Error(redeemProblem(error, from, to));
     kept = true;

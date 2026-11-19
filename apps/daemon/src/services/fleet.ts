@@ -51,7 +51,8 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
           "refused",
           featureOff(context.options.serviceStatus, "machines", "Machine links"),
         );
-      if (operation.op === "links") return { kind: "links", links: await links.links() };
+      if (operation.op === "links")
+        return { kind: "links", links: await links.links(), keep: true };
       if (operation.op === "link") return { kind: "linked", link: await links.link(operation) };
       links.unlink(operation.hostId);
       return { kind: "unlinked" };

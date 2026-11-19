@@ -36,6 +36,11 @@ export class FakeFleet {
   /** Levels set per paired device; the rest are this fake's fixed starting levels. */
   private chosen = new Map<string, Partial<MachineGrants>>();
   private linked = 0;
+  /**
+   * Whether this machine honours `keep` on `link` and says so in `links`; false stages a daemon
+   * from before it, which drops the field unread.
+   */
+  honoursKeep = true;
   /** Every operation this machine was asked, in order, with what it answered: what a test sees. */
   readonly asked: { operation: FleetOperation; answer: FleetOutcome | { code: string } }[] = [];
   /**
@@ -71,10 +76,10 @@ export class FakeFleet {
       return { code: "invalid_message", message: "Message does not match the protocol" };
     switch (operation.op) {
       case "links":
-        return { kind: "links", links: this.links() };
+        return { kind: "links", links: this.links(), ...(this.honoursKeep ? { keep: true } : {}) };
       case "link": {
         const previous = this.entries.find((entry) => entry.hostId === operation.hostId);
-        if (operation.keep && previous)
+        if (operation.keep && this.honoursKeep && previous)
           return {
             code: "exists",
             message: "This machine is already linked to that one. Its link stays.",

@@ -111,13 +111,21 @@ test("Link all keeps a link another window made meanwhile, granting more, and do
   const machines = await region("Machines");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
-  // Another window links this computer to the build server with Projects; this one hasn't seen it.
-  app.daemon.linkTo(remote);
-  const before = app.daemon.services.fleet.links();
+  // Another window links this computer to the build server with Projects while this one's fill is
+  // under way: after it read the links again, once the build server issued its pairing.
+  const issue = remote.access.pair.bind(remote.access);
+  let raced = false;
+  remote.access.pair = (input) => {
+    const issued = issue(input);
+    if (!raced) app.daemon.linkTo(remote);
+    raced = true;
+    return issued;
+  };
   await userEvent.click(linkAll);
   await waitFor(() =>
     expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
   );
+  const before = app.daemon.services.fleet.links();
   // The link made meanwhile stands, and nothing says this window linked it without Projects.
   expect(app.daemon.services.fleet.links()).toEqual(before);
   expect(before).toMatchObject([{ hostId: "build", projects: true }]);
@@ -139,6 +147,34 @@ test("Link all keeps a link another window made meanwhile, granting more, and do
     }),
   );
   expect(remote.access.pendingPairings()).toEqual([]);
+}, 30_000);
+
+test("Link all from an ace that predates keep never sends it a fill that would replace its link", async () => {
+  const app = harness({
+    machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
+  });
+  const remote = app.machines.get("build");
+  if (!remote) throw new Error("Missing machine");
+  // This computer's ace drops `keep` unread, so a link it is sent always replaces the one held.
+  app.daemon.services.fleet.honoursKeep = false;
+  await app.open("/settings/remote");
+  const machines = await region("Machines");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
+  // Another window links this computer to the build server with Projects; this one hasn't seen it.
+  app.daemon.linkTo(remote);
+  const before = app.daemon.services.fleet.links();
+  await userEvent.click(linkAll);
+  await waitFor(() =>
+    expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
+  );
+  // The link with Projects stands: this computer was never asked to link to the build server.
+  expect(app.daemon.services.fleet.links()).toEqual(before);
+  expect(before).toMatchObject([{ hostId: "build", projects: true }]);
+  expect(
+    app.daemon.services.fleet.asked.filter(({ operation }) => operation.op === "link"),
+  ).toEqual([]);
+  expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {

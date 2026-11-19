@@ -105,7 +105,15 @@ export const FleetRequest = z.object({
 export type FleetRequest = z.infer<typeof FleetRequest>;
 
 const FleetOutcome = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("links"), links: z.array(FleetLink).max(64) }),
+  z.object({
+    kind: z.literal("links"),
+    links: z.array(FleetLink).max(64),
+    /**
+     * This machine honours `keep` on `link`. Older daemons drop the field unread, so a client
+     * sends it only to a machine that says this, and skips a gap that is already linked.
+     */
+    keep: z.literal(true).optional(),
+  }),
   z.object({ kind: z.literal("linked"), link: FleetLink }),
   z.object({ kind: z.literal("unlinked") }),
   z.object({
