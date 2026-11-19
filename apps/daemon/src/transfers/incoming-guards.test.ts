@@ -17,7 +17,7 @@ import { incomingPath } from "./incoming-files.ts";
  * One file system call can be held, the next time it runs, so a test can land something in the
  * window where a transfer call waits on the disk.
  */
-type Held = "removeQuietly" | "fileDigest" | "fileBytes";
+type Held = "removeQuietly" | "fileDigest" | "fileBytes" | "removeStray";
 const holds = vi.hoisted(() => {
   const next = new Map<string, { reached: () => void; until: Promise<void> }>();
   /** `run`, first waiting at a hold set for `name`, if there is one. */
@@ -41,6 +41,7 @@ vi.mock("./files.ts", async (original) => {
     removeQuietly: holds.holding("removeQuietly", real.removeQuietly),
     fileDigest: holds.holding("fileDigest", real.fileDigest),
     fileBytes: holds.holding("fileBytes", real.fileBytes),
+    removeStray: holds.holding("removeStray", real.removeStray),
   };
 });
 
@@ -167,6 +168,13 @@ async function target(
       cleanup.push(() => incoming.close());
       await incoming.recover();
       return incoming;
+    },
+    /** As `restart`, answering before recovery has finished. */
+    async reopen() {
+      await incoming.close();
+      incoming = make();
+      cleanup.push(() => incoming.close());
+      return { incoming, recovering: incoming.recover() };
     },
   };
 }
@@ -394,4 +402,25 @@ it("an old file name two live transfers could own is left alone, kept, and logge
     message: expect.stringMatching(/old name/),
     fields: { name: "x.ignored.part", transfers: ["x", "x.ignored"] },
   });
+});
+
+it("a transfer begun while recovery removes strays keeps the bytes it was acknowledged", async () => {
+  const fixture = await target();
+  await fixture.incoming.call(device, begin("t-before"));
+  // Recovery has read which transfers are live and is about to remove every other file.
+  const removing = hold("removeStray");
+  const { incoming, recovering } = await fixture.reopen();
+  await removing.reached;
+  // A sender begins a new transfer now, and sends its first chunk once that is answered.
+  const sent = incoming
+    .call(device, begin("t-during"))
+    .then(() => incoming.chunk(device, "t-during", 0, bytes));
+  await settle();
+  removing.release();
+  await recovering;
+  await expect(sent).resolves.toEqual({ offset: bytes.length });
+  await expect(
+    incoming.call(device, { op: "status", transferId: "t-during" }),
+  ).resolves.toMatchObject({ state: "receiving", offset: bytes.length });
+  expect(await readFile(fixture.part("t-during"))).toEqual(bytes);
 });

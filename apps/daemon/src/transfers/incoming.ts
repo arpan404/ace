@@ -153,6 +153,8 @@ export class IncomingTransfers {
   private sweeping = new Map<string, Promise<void>>();
   /** Sweeps running now, whole, so closing waits for each to stop rather than for one removal. */
   private sweeps = new Set<Promise<void>>();
+  /** Recovery removing files no live transfer owns: a begin waits for it to end. */
+  private strays: Promise<void> | undefined;
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
   constructor(deps: IncomingDeps) {
@@ -189,9 +191,23 @@ export class IncomingTransfers {
       (after) => this.rows.leftovers(after),
       (record) => this.rollback(record),
     );
-    // Files a crash left behind: every name a transfer still receiving or importing could own,
-    // worked out from all of those rows, is kept; anything else is a settled or unknown
-    // transfer's and goes. Names are never parsed back to an id.
+    // Files a crash left behind. No transfer begins while this runs (`strays`), so the live rows
+    // it reads are all there are until it ends, and a chunk only ever writes for one of them.
+    const strays = this.removeStrays();
+    this.strays = strays;
+    try {
+      await strays;
+    } finally {
+      this.strays = undefined;
+    }
+    await this.sweep();
+  }
+  /**
+   * Every name a transfer still receiving or importing could own, worked out from all of those
+   * rows, is kept; anything else is a settled or unknown transfer's and goes. Names are never
+   * parsed back to an id.
+   */
+  private async removeStrays(): Promise<void> {
     const kept = new Set<string>();
     await batches(
       (after) => this.rows.live(after),
@@ -203,7 +219,6 @@ export class IncomingTransfers {
       },
     );
     await removeStray(this.deps.directory, (name) => kept.has(name));
-    await this.sweep();
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
   async close(): Promise<void> {
@@ -362,10 +377,14 @@ export class IncomingTransfers {
         : this.earlierCopy(device, call);
     // A sweep still removing the files of an expired transfer with this id finishes first, so
     // it never removes the files of the transfer this begin starts.
-    for (let swept = this.sweeping.get(call.transferId); swept;) {
-      await swept;
-      swept = this.sweeping.get(call.transferId);
-    }
+    // So does recovery's removal of strays, which decides from the live rows as they stand: a
+    // row this begin made meanwhile would not be among them, and its upload would go.
+    for (
+      let waiting = this.sweeping.get(call.transferId) ?? this.strays;
+      waiting;
+      waiting = this.sweeping.get(call.transferId) ?? this.strays
+    )
+      await waiting.catch(() => undefined);
     const again = this.rows.get(call.transferId);
     if (again) return this.view(this.owned(device, call.transferId));
     // Awaited above: this machine may be shutting down, or the device may have lost the scopes
