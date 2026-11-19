@@ -11,6 +11,7 @@ import type { TransferIdentities } from "./identity.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import type { TargetProjects } from "./landing.ts";
 import type { TransferArchive, TransferGit } from "./ports.ts";
+import { incomingPath } from "./incoming-files.ts";
 
 /**
  * One file system call can be held, the next time it runs, so a test can land something in the
@@ -156,7 +157,7 @@ async function target(
     state,
     directory,
     /** Where a transfer's uploaded code waits: named by the hash of its id. */
-    part: (id: string) => join(directory, `${createHash("sha256").update(id).digest("hex")}.part`),
+    part: (id: string) => incomingPath(directory, id, "code"),
     /** Stops this machine's transfers and starts them again on the same store and folder. */
     async restart() {
       await incoming.close();

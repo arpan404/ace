@@ -1,5 +1,4 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
-import { createHash } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
@@ -35,7 +34,8 @@ import {
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
-import { finalFolder, type LiveTarget } from "./live/target.ts";
+import type { LiveTarget } from "./live/target.ts";
+import { incomingParts, incomingPath, legacyIncomingName } from "./incoming-files.ts";
 import { persist } from "./retry.ts";
 
 export interface IncomingDeps {
@@ -67,15 +67,6 @@ export type DeviceCheck = () => Device;
 /** The most registrations, most recently used first, a begin reads origins of. */
 const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
-/** What a receiving transfer holds beside its name: the code, the ignored files, the final payload. */
-const incomingSuffixes = [".part", ".ignored.part", ".final.part", ".final.d"];
-/**
- * A transfer's name on disk: the lowercase hex SHA-256 of its id. Ids may hold dots and differ
- * only in case, so a name made from the id could be another transfer's file (`x.ignored.part` is
- * `x`'s ignored payload; `Move-1` and `move-1` are one file on a case-insensitive volume). A
- * hash is the same width for every id, has no dot and no capital, and never collides.
- */
-const stem = (transferId: string) => createHash("sha256").update(transferId).digest("hex");
 
 /** Runs `each` over every row `page` returns, page after page by transfer id, to the end. */
 async function batches(
@@ -203,8 +194,10 @@ export class IncomingTransfers {
     await batches(
       (after) => this.rows.live(after),
       async (record) => {
-        for (const path of this.paths(record.transferId)) kept.add(basename(path));
-        for (const suffix of incomingSuffixes) kept.add(`${record.transferId}${suffix}`);
+        for (const part of incomingParts) {
+          kept.add(basename(incomingPath(this.deps.directory, record.transferId, part)));
+          kept.add(legacyIncomingName(record.transferId, part));
+        }
       },
     );
     await removeStray(this.deps.directory, (name) => kept.has(name));
@@ -222,25 +215,15 @@ export class IncomingTransfers {
       ...this.sweeps,
     ]);
   }
-  /** Every path a transfer's files take here. */
-  private paths(transferId: string): string[] {
-    return [
-      this.file(transferId),
-      this.ignoredFile(transferId),
-      this.finalFile(transferId),
-      this.finalFolder(transferId),
-    ];
-  }
   /**
    * Moves a transfer's files from the names an earlier build gave them (the id with the suffix)
    * to its hashed names. A name already taken keeps its file; nothing is removed here.
    */
   private async adoptLegacy(transferId: string): Promise<void> {
-    const current = this.paths(transferId);
-    for (const [index, suffix] of incomingSuffixes.entries()) {
-      const legacy = join(this.deps.directory, `${transferId}${suffix}`);
-      const target = current[index];
-      if (!target || legacy === target) continue;
+    for (const part of incomingParts) {
+      const legacy = join(this.deps.directory, legacyIncomingName(transferId, part));
+      const target = incomingPath(this.deps.directory, transferId, part);
+      if (legacy === target) continue;
       if ((await pathExists(legacy)) && !(await pathExists(target)))
         await rename(legacy, target).catch((error: unknown) =>
           this.deps.log("Transfer file not moved", { transferId, error: String(error) }),
@@ -248,15 +231,15 @@ export class IncomingTransfers {
     }
   }
   private file(transferId: string) {
-    return join(this.deps.directory, `${stem(transferId)}.part`);
+    return incomingPath(this.deps.directory, transferId, "code");
   }
   /** The archive of files Git ignores, uploaded beside the code (`part=ignored`). */
   private ignoredFile(transferId: string) {
-    return join(this.deps.directory, `${stem(transferId)}.ignored.part`);
+    return incomingPath(this.deps.directory, transferId, "ignored");
   }
   /** A live move's final payload: what changed after the bulk, and the session (ADR 0191). */
   private finalFile(transferId: string) {
-    return join(this.deps.directory, `${stem(transferId)}.final.part`);
+    return incomingPath(this.deps.directory, transferId, "final");
   }
   private async removeFiles(transferId: string) {
     await removeQuietly(this.file(transferId));
@@ -266,7 +249,7 @@ export class IncomingTransfers {
   }
   /** Where a live move's final payload is unpacked (ADR 0191), under the transfer's stem. */
   private finalFolder(transferId: string) {
-    return finalFolder(this.deps.directory, stem(transferId));
+    return incomingPath(this.deps.directory, transferId, "finalFolder");
   }
   async view(record: IncomingRecord): Promise<IncomingTransfer> {
     const receiving = record.state === "receiving";

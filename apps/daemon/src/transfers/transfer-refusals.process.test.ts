@@ -11,6 +11,7 @@ import {
 } from "./transfer-test-support.ts";
 import { writeFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
+import { incomingPath } from "./incoming-files.ts";
 
 /** Folders the target made for projects. */
 const made = async (root: string) => (await readdir(root)).toSorted();
@@ -238,12 +239,12 @@ it("a chunk whose whole body is in, and whose write is queued when Projects goes
     .statement("SELECT state FROM transfer_incoming WHERE transfer_id=?")
     .get("transfer-queued");
   expect(stored?.["state"]).toBe("receiving");
-  const part = join(m.target.h.home, "daemon", "transfers", "incoming", "transfer-queued.part");
-  expect(
-    await stat(part)
-      .then((info) => info.size)
-      .catch(() => 0),
-  ).toBe(0);
+  const part = incomingPath(
+    join(m.target.h.home, "daemon", "transfers", "incoming"),
+    "transfer-queued",
+    "code",
+  );
+  await expect(stat(part)).rejects.toMatchObject({ code: "ENOENT" });
 }, 120_000);
 
 it("refuses a machine this one has no link to", async () => {

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunId, type Device, type TransferCommit } from "@ace/protocol";
 import { Store } from "../store.ts";
@@ -9,6 +9,7 @@ import { IncomingTransfers, type IncomingDeps } from "./incoming.ts";
 import { ThreadOwnership } from "./live/ownership.ts";
 import { LiveTarget, type LiveTargetPorts } from "./live/target.ts";
 import { LiveStarts } from "./live/target-rows.ts";
+import { incomingPath } from "./incoming-files.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -195,8 +196,15 @@ describe("a target's recovery after a restart", () => {
     }
     await writeFile(join(t.directory, "gone.part"), "left by a crash");
     await t.incoming.recover();
-    const left = await readdir(t.directory);
-    expect(left).toHaveLength(ids.length);
-    expect(left).not.toContain("gone.part");
+    // Every upload an earlier build named after its id is under its own name now, nothing else.
+    expect((await readdir(t.directory)).toSorted()).toEqual(
+      ids.map((id) => basename(incomingPath(t.directory, id, "code"))).toSorted(),
+    );
+    // And resumes where it stood.
+    for (const id of [ids[0], ids[700], ids.at(-1)].filter((each) => each !== undefined)) {
+      await expect(
+        t.incoming.call(device, { op: "status", transferId: id }),
+      ).resolves.toMatchObject({ state: "receiving", offset: "bytes".length });
+    }
   });
 });
