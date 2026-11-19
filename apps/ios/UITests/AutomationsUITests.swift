@@ -94,7 +94,8 @@ import XCTest
         let keep = app.buttons["Keep editing"].firstMatch
         XCTAssertTrue(keep.waitForExistence(timeout: 5), "closing a changed draft asks first")
         keep.tap()
-        XCTAssertEqual(title.value as? String, "Weekly report", "Keep editing keeps the draft")
+        // The title has scrolled out of the list by now; the recurrence typed last is still on screen.
+        XCTAssertEqual(expression.value as? String, "FREQ=BOGUS", "Keep editing keeps the draft")
         app.buttons["automation.cancel"].tap()
         let discard = app.buttons["Discard changes"].firstMatch
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
@@ -229,9 +230,9 @@ import XCTest
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
                target.frame.minY > top, target.frame.maxY < bottom { return }
             let below = !target.exists ? attempt < 8 : target.frame.minY >= bottom
-            let high = visible / app.frame.height * 0.35, low = visible / app.frame.height * 0.7
-            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? low : high))
-            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? high : low))
+            let share = visible / app.frame.height
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (below ? 0.65 : 0.35) * share))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (below ? 0.4 : 0.6) * share))
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
     }
