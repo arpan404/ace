@@ -111,10 +111,12 @@ session the backend then returns a **person's grant**:
   account, subject, host, key, iat, exp }
 ```
 
-Every socket's welcome carries its own `standingNonce`: the app's page on loopback, an account
-device, a paired device. The client proves standing with `account.standing { grant, proof }`. The
-`proof` is the device key's ECDSA P-256 signature over
-`ace-standing/v2\n<host>\n<nonce>\n<binding>\n<grant>`.
+Every socket's welcome carries its own `standingNonce`, and `standingHost`, the daemon's relay
+host id (the fingerprint of its relay key), which is what grants and proofs name. It is a field of
+its own: the welcome's `hostId` is the home's UUID and never what a grant names. Every socket
+gets one: the app's page on loopback, an account device, a paired device. The client proves
+standing with `account.standing { grant, proof }`. The `proof` is the device key's ECDSA P-256
+signature over `ace-standing/v2\n<host>\n<nonce>\n<binding>\n<grant>`.
 
 `binding` is the socket's **channel binding**:
 
@@ -132,8 +134,12 @@ The daemon accepts a proof only when all of these hold:
 
 - the grant verifies against the keys this build pins;
 - it says `person`;
-- it names this daemon's account, this host and the socket's device;
+- it names the machine's **owner** (§3a), this host and the socket's device;
 - the signature verifies with the key the grant names.
+
+Grants are parsed as canonical base64url only: a respelling of the same bytes (unused low bits in
+the last character) is refused everywhere a grant is read, and the market spends a grant by the
+SHA-256 of the claims bytes it verified, so two spellings can't spend it twice.
 
 The standing lasts until that grant's `exp`, and the client proves again every few minutes. A
 grant refresh never extends it.
@@ -142,6 +148,28 @@ The device key is made in WebCrypto with its private half non-extractable, and k
 window's memory only. The tab proves for every client it uses. A worker-hosted client mirrors its
 socket's challenge to the tab (`standingChallenge`), which sends the proof through the worker
 (`apps/web/src/boot/standing-keeper.ts`, `window-prover.ts`).
+
+### 3a. The machine's owner
+
+The account the machine is signed in to is not who it answers to. The host token can change that
+account (`PUT /v1/ace-account` with a ticket from any account), so a reader of `ACE_HOME` could
+hand the machine to an account it signed in to itself, whose own person's grant is genuine. The
+machine therefore keeps an **owner**, the account whose person's grants carry the person's
+standing here, in `ace-owner.json`:
+
+- **The first owner** is the account of the first person's proof the machine takes (§3), from
+  the app signed in as the person. Trust on first use: on a machine no proof has reached yet, a
+  reader that proves first with its own account becomes the owner. The person sees that as their
+  own app failing to act as them; the reset below recovers.
+- **A handover changes nothing**: a person's grant from any other account proves nothing, on any
+  socket, whatever account the machine is signed in to.
+- **Changing it** takes the owner's own proven socket (`account.owner.release`), or a local reset
+  that a reader can't do: removing `ace-owner.json` with the daemon stopped (a write to
+  `ACE_HOME`). Either way every paired device stops being the person's and every pending
+  person's link is cancelled (§7); the devices stay paired with their other access. The next
+  person's proof sets the new owner.
+- **Every change ends every standing**: each socket's standing records the owner generation it
+  was proven under, and counts only while that is current.
 
 ### 4. Device grant formats, and older daemons
 
@@ -161,7 +189,7 @@ no standing. The relay admits format 2 at `/client`, and a bound grant only for 
 
 A sign-in in the last ten minutes no longer authorizes anything. A reader of the host token could
 otherwise wait for the person to sign in and act in that window. These need a socket that proved
-the person's standing (§3), or a device paired from a link such a socket made (§7):
+the person's standing (§3), or a paired device's socket that proved it with its own key (§7):
 
 - installs and the market's sensitive actions;
 - answering a person-only market request;
@@ -194,12 +222,24 @@ A different recipient, handle or reason is a different digest.
 
 ### 7. Pairing
 
-A pairing link records whether its maker had the person's standing, and the device it pairs keeps
-that (`devices.person`, `pairing_codes.person`). The maker had it only if its socket proved the
-person's standing (§3), or it is itself a device paired from a person's link. Both ways of making
+A pairing link records whether its maker had the person's standing (`pairing_codes.person`). The
+maker had it only if its socket proved the person's standing (§3, or below). Both ways of making
 links check this: `fleet.request pairing`, and `POST /v1/pairings` with a paired device's
 credential. The host token never makes a person's link, however recently anyone signed in.
-Devices paired before this change are not the person's until paired again.
+
+A paired device's **bearer token is never the person**. A reader of `ACE_HOME` holds the relay
+host key, so on a self-hosted relay it can register as the host, and a paired client reconnecting
+there hands it that token. So the redeeming app names `standingKey`, the public half of a P-256
+key it keeps and never exports (the web app keeps it as a non-extractable `CryptoKey` in its
+origin's IndexedDB, `apps/web/src/boot/paired-standing-key.ts`). The daemon stores it with the
+device (`devices.standing_key`) when the link was a person's. On each socket the device proves
+with `device.standing { proof }`: that key's signature over
+`ace-paired-standing/v1\n<host>\n<nonce>\n<binding>\n<deviceId>`, the same challenge and channel
+binding as §3. A collected token, or a proof made for another socket or channel, proves nothing;
+revoking the device ends its sockets.
+
+Devices paired before this change, or by an app that names no key (the iPhone app until it
+does), are not the person's until paired again from a person's link by an app that does.
 
 ### 8. Sign-in and migration
 
@@ -223,7 +263,11 @@ Devices paired before this change are not the person's until paired again.
   and the web app's windows. It acts as the person on each socket where it proved its grant with
   its in-memory key, to its own machine over loopback and to other machines on the account. It can
   also make market sensitive requests with a grant for that exact request.
-- **A device paired from a link one of those sockets made.**
+- **A device paired from a link one of those sockets made**, on each socket where it proved with
+  the key it named at pairing.
+
+Either only under the machine's owner (§3a): a person's grant from another account, whatever
+account the machine is signed in to, proves nothing.
 
 Nothing else is the person:
 
@@ -232,9 +276,11 @@ Nothing else is the person:
 - anything in `ACE_HOME`;
 - a daemon's own grants;
 - sessions from before this version;
-- devices paired before this change;
-- the iPhone app on the account route, until it proves on its sockets. Paired from a person's
-  link, it is the person's.
+- a paired device's bearer token, however it was got;
+- devices paired before this change, or by an app that names no standing key;
+- the person's grant of any account but the owner's;
+- the iPhone app, until it proves on its sockets (account route) or names a standing key when it
+  pairs (paired route).
 
 ## Residuals
 
@@ -245,6 +291,13 @@ Nothing else is the person:
   - driving the app's UI, or tampering with its renderer;
   - OS keychains that release the app's session to any process of the user (Linux Secret
     Service, Windows DPAPI, browser profiles).
+- **Owner on first use.** On a machine no person's proof has reached yet, whoever proves first
+  owns it (§3a).
+- **A link redeemed through an impersonated relay registration.** The pairing code travels on the
+  relay channel pinned to the host key, which a reader holds: one that answers as the host on a
+  self-hosted relay while the person redeems a person's link takes the code and can redeem it
+  with its own key. That is answering at the daemon's endpoint (out of scope above); a link is
+  single-use and short-lived, and the person sees their own device fail to pair.
 - **Admin.** A machine credential still opens every machine on the account with admin (ADR 0111);
   the machine code limits that.
 - **Older daemons** stay as exposed as before to format 1 grants from a person's own session, until
@@ -258,6 +311,7 @@ Nothing else is the person:
 | New daemon, older backend               | No exchange key, so it keeps a session as before. No person's grants exist, so nothing is the person.                                |
 | New app, older daemon                   | Format 1 grant from the person's session, as before. Sign-in hands it a ticket it can't read, so it stays signed out until upgraded. |
 | Older app or the iPhone app, new daemon | Admin, no standing. Its person-only actions are refused.                                                                             |
+| Older app paired from a person's link   | Names no standing key, so it is paired without the person's standing until it pairs again once updated.                              |
 | Older backend, new market               | Sensitive actions are refused until the backend mints intent grants.                                                                 |
 
 ## Deploy order
@@ -265,12 +319,15 @@ Nothing else is the person:
 1. **ace cloud:** apply D1 migration 0004, then deploy the Worker.
 2. **The market:** apply its publishers migration 0003, then deploy the Worker.
 3. **The daemon with the desktop and web apps**, together.
-4. **The iPhone app**, once it sends `host` and `key` and proves on its sockets.
+4. **The iPhone app**, once it sends `host` and `key` and proves on its sockets, and names a
+   standing key when it pairs.
 
 ## Tests
 
 - `apps/cloud/src/account-machine-credential.process.test.ts` (Worker and D1 under Miniflare).
 - `apps/daemon/src/machine-credential.process.test.ts` (a real daemon through that Worker).
+- `apps/daemon/src/machine-owner.process.test.ts` (a handover to another account, the owner
+  letting go, a paired device's token without its key's proof).
 - `apps/market/src/me-auth.process.test.ts` (a machine's grant, another payload, another request,
   a replay).
 - `apps/daemon/src/cli-market-agent.process.test.ts` (the CLI never acts as the person).
