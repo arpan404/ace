@@ -1046,7 +1046,8 @@
       "sign_in": [
         "oauth"
       ],
-      "notes": "Can deploy your projects.",
+      "waits_for": "maker_approval",
+      "notes": "Can deploy your projects. Vercel lets in only the apps it has reviewed, until its sign-in names itself in its answers.",
       "source": "https://vercel.com/docs/agent-resources/vercel-mcp",
       "checked": "2026-11-19"
     },
