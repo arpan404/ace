@@ -122,8 +122,23 @@ test("Link all keeps a link another window made meanwhile, granting more, and do
   expect(app.daemon.services.fleet.links()).toEqual(before);
   expect(before).toMatchObject([{ hostId: "build", projects: true }]);
   expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
-  // The pairing link it would have used is cancelled, not left open.
-  await waitFor(() => expect(remote.access.pendingPairings()).toEqual([]));
+  // It did ask: the build server issued a pairing, this computer was asked to link only if it
+  // still had no link and said it already had one, and the pairing went unused, cancelled.
+  const issued = remote.services.fleet.asked.flatMap(({ operation, answer }) =>
+    operation.op === "pairing" && "kind" in answer && answer.kind === "pairing" ? [answer.id] : [],
+  );
+  expect(issued).toHaveLength(1);
+  expect(app.daemon.services.fleet.asked).toContainEqual({
+    operation: expect.objectContaining({ op: "link", hostId: "build", keep: true }),
+    answer: expect.objectContaining({ code: "exists" }),
+  });
+  await waitFor(() =>
+    expect(remote.services.fleet.asked).toContainEqual({
+      operation: { op: "cancelPairing", id: issued[0] },
+      answer: expect.objectContaining({ kind: "pairingCancelled" }),
+    }),
+  );
+  expect(remote.access.pendingPairings()).toEqual([]);
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {

@@ -36,6 +36,8 @@ export class FakeFleet {
   /** Levels set per paired device; the rest are this fake's fixed starting levels. */
   private chosen = new Map<string, Partial<MachineGrants>>();
   private linked = 0;
+  /** Every operation this machine was asked, in order, with what it answered: what a test sees. */
+  readonly asked: { operation: FleetOperation; answer: FleetOutcome | { code: string } }[] = [];
   /**
    * Operations this fake answers as a daemon from before them would: the whole request doesn't
    * parse, so it's refused `invalid_message` (tests stage an older machine).
@@ -194,6 +196,7 @@ export class FakeFleet {
     if (answerMachineCode(this.access.machineAccount, message, push)) return true;
     if (message.type !== "fleet.request") return false;
     const result = this.run(message.operation, device);
+    this.asked.push({ operation: message.operation, answer: result });
     push(
       "kind" in result
         ? { type: "fleet.result", requestId: message.requestId, result }
