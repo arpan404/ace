@@ -216,6 +216,7 @@ fn transfer_temporaries_never_appear_in_listings_or_quick_open() {
         limit: 100,
         cursor: None,
         hide: hide(),
+        snapshot: false,
     });
     assert_eq!(
         client.error(trash).code,

@@ -217,11 +217,6 @@ pub enum Op {
     },
 }
 
-/// Whether a defaulted flag is off, so a plain message keeps its old shape on the wire.
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
