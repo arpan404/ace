@@ -2,12 +2,13 @@ import type { ProviderKind } from "@ace/protocol";
 import { route } from "./routes.ts";
 
 /*
- * The home page's showcase: five things agents do in ace, each a tile with a piece of the app
- * drawn in it (components/home/Showcase.astro). The words live here; a tile whose feature has
- * a page links to it.
+ * The home page's showcase: six things agents do in ace, each a tile with a piece of the app
+ * drawn in it (components/home/Showcase.astro, drawings in components/home/showcase/). The
+ * words live here; a tile whose feature has a page links to it. The order is the grid's:
+ * on a wide screen the tiles run in rows of two.
  */
 
-export type ShowcaseId = "browser" | "review" | "devices" | "accounts" | "automations";
+export type ShowcaseId = "browser" | "review" | "devices" | "computer" | "accounts" | "automations";
 
 export interface ShowcaseTile {
   id: ShowcaseId;
@@ -39,6 +40,12 @@ export const showcase = {
       title: "Simulators and phones",
       body: "Agents tap through iOS Simulators, Android emulators and real Android phones, even ones on another machine.",
       href: page("/features/devices/"),
+    },
+    {
+      id: "computer",
+      title: "The apps on your computer",
+      body: "Agents use your desktop apps in the background, without your mouse or keyboard. Touch the app and they step back.",
+      href: page("/features/computer-use/"),
     },
     {
       id: "accounts",

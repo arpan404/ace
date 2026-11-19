@@ -1,0 +1,69 @@
+---
+/*
+ * The iOS Simulator, as an agent sees it, and the request an agent on another machine makes
+ * before it may use this Mac's Simulator.
+ */
+import SimulatorWindow from "../../mac/SimulatorWindow.astro";
+---
+
+<div class="sim-wrap">
+  <SimulatorWindow />
+</div>
+<div class="ask">
+  <span>
+    <b>Claude on build-server</b> wants to use iPhone 17 Pro
+  </span>
+  <span class="allow">Allow</span>
+</div>
+
+<style>
+  .sim-wrap {
+    position: absolute;
+    left: 50%;
+    top: 26px;
+    width: 340px;
+    margin-left: -170px;
+    transform: scale(0.78);
+    transform-origin: 50% 0;
+    translate: calc(var(--px, 0) * -8px) calc(var(--py, 0) * -6px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  .ask {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 9px 9px 14px;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 1px var(--border-strong),
+      0 18px 36px -18px var(--frame-shadow);
+    font-size: 13px;
+    line-height: 1.35;
+    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  .ask b {
+    font-weight: 600;
+  }
+
+  .ask .allow {
+    flex: none;
+    padding: 6px 13px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 600;
+  }
+
+  :global(html.motion .piece.is-in) .ask {
+    animation: rise 0.6s var(--ease-out) 0.7s both;
+  }
+</style>

@@ -1,25 +1,37 @@
 ---
 /*
- * Five things agents do in ace, each a tile with a piece of the app drawn in it: ace's browser
- * with an agent paying at a checkout, a thread's diff with a comment, the iOS Simulator, an
- * account at its limit, and a list of automations. The drawings are still; the pages they link
+ * Six things agents do in ace, each a tile with a piece of the app drawn in it: ace's browser
+ * with an agent paying at a checkout, a thread's diff with a comment, the iOS Simulator, a
+ * desktop app an agent is using, an account at its limit, and a list of automations. Each
+ * drawing lives in showcase/ and plays once as its tile comes into view; the pages they link
  * to play the full scenes. Words come from content/showcase.ts.
  */
-import { providerIcon } from "@ace/ui-core/provider-icons";
-import { sampleAutomations, showcase, type ShowcaseId } from "../../content/showcase.ts";
-import { diff } from "../../content/stage.ts";
-import BrandMark from "../BrandMark.astro";
+import { showcase, type ShowcaseId } from "../../content/showcase.ts";
 import Icon from "../Icon.astro";
-import SimulatorWindow from "../mac/SimulatorWindow.astro";
+import AccountsArt from "./showcase/AccountsArt.astro";
+import AutomationsArt from "./showcase/AutomationsArt.astro";
+import BrowserArt from "./showcase/BrowserArt.astro";
+import ComputerArt from "./showcase/ComputerArt.astro";
+import DevicesArt from "./showcase/DevicesArt.astro";
+import ReviewArt from "./showcase/ReviewArt.astro";
 
-const file = diff.files[0];
-const claude = providerIcon({ provider: "claude" }).brand;
+const art = {
+  browser: BrowserArt,
+  review: ReviewArt,
+  devices: DevicesArt,
+  computer: ComputerArt,
+  accounts: AccountsArt,
+  automations: AutomationsArt,
+} satisfies Record<ShowcaseId, unknown>;
+
+/* How many of the wide screen's twelve columns each tile takes: rows of 7/5, 5/7 and 6/6. */
 const span: Record<ShowcaseId, string> = {
-  browser: "wide",
-  review: "mid",
-  devices: "third",
-  accounts: "third",
-  automations: "third",
+  browser: "span-7",
+  review: "span-5",
+  devices: "span-5",
+  computer: "span-7",
+  accounts: "span-6",
+  automations: "span-6",
 };
 ---
 
@@ -33,138 +45,11 @@ const span: Record<ShowcaseId, string> = {
     {
       showcase.tiles.map((tile) => {
         const Tag = tile.href ? "a" : "div";
+        const Art = art[tile.id];
         return (
           <Tag class:list={["piece", span[tile.id], "reveal"]} href={tile.href} data-piece>
             <div class="art" aria-hidden="true">
-              {tile.id === "browser" && (
-                <div class="win browser">
-                  <div class="chrome">
-                    <span class="dots">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    <span class="url">localhost:5173/checkout</span>
-                  </div>
-                  <div class="site">
-                    <div class="order">
-                      <b>Your order</b>
-                      <span>
-                        Pro plan <em>$20.00</em>
-                      </span>
-                      <span>
-                        3 extra seats <em>$60.00</em>
-                      </span>
-                      <span class="total">
-                        Total <em>$80.00</em>
-                      </span>
-                    </div>
-                    <div class="pay">
-                      <span class="field">4242 4242 4242 4242</span>
-                      <span class="row">
-                        <span class="field">12 / 28</span>
-                        <span class="field">123</span>
-                      </span>
-                      <span class="button">Pay $80.00</span>
-                      <span class="pointer">
-                        <svg width="18" height="18" viewBox="0 0 18 18">
-                          <path d="M3 2l11 5.5-4.7 1.8L7.5 14z" />
-                        </svg>
-                        Claude
-                      </span>
-                    </div>
-                  </div>
-                  <div class="using">
-                    <span>
-                      <b>Claude is using this tab</b>
-                    </span>
-                    <span class="acts">
-                      <b>Take over</b>
-                      <b>Stop</b>
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {tile.id === "review" && file && (
-                <div class="win diff">
-                  <div class="filehead">
-                    <code>{file.path}</code>
-                    <span>
-                      <ins>+{file.added}</ins> <del>−{file.removed}</del>
-                    </span>
-                  </div>
-                  <div class="lines">
-                    {file.lines.map((line) => (
-                      <span class:list={["line", "kind" in line ? line.kind : undefined]}>
-                        <i>{"new" in line ? line.new : ""}</i>
-                        {line.text}
-                      </span>
-                    ))}
-                  </div>
-                  <div class="comment">
-                    <b>You</b>
-                    Send the ack only after the last event.
-                  </div>
-                </div>
-              )}
-
-              {tile.id === "devices" && (
-                <>
-                  <div class="sim-wrap">
-                    <SimulatorWindow />
-                  </div>
-                  <div class="ask">
-                    <span>
-                      <b>Claude on build-server</b> wants to use iPhone 17 Pro
-                    </span>
-                    <span class="allow">Allow</span>
-                  </div>
-                </>
-              )}
-
-              {tile.id === "accounts" && (
-                <div class="win accounts">
-                  <div class="limit">
-                    <b>Claude · Personal hit its limit</b>
-                    <span>resets 4:20 PM</span>
-                  </div>
-                  <div class="account">
-                    <span class="who">
-                      {claude && <BrandMark brand={claude} size={16} />}Personal
-                    </span>
-                    <span class="meter full">
-                      <i />
-                    </span>
-                  </div>
-                  <div class="account">
-                    <span class="who">
-                      {claude && <BrandMark brand={claude} size={16} />}Work
-                    </span>
-                    <span class="meter">
-                      <i />
-                    </span>
-                  </div>
-                  <span class="move">Move to Work</span>
-                </div>
-              )}
-
-              {tile.id === "automations" && (
-                <div class="win autos">
-                  {sampleAutomations.map((item) => {
-                    const brand = providerIcon({ provider: item.provider }).brand;
-                    return (
-                      <div class="auto">
-                        <span>
-                          <b>{item.name}</b>
-                          <span>{item.when}</span>
-                        </span>
-                        {brand && <BrandMark brand={brand} size={16} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <Art />
             </div>
             <div class="words">
               <h3>
@@ -209,26 +94,21 @@ const span: Record<ShowcaseId, string> = {
     border-color: var(--border-strong);
   }
 
-  /* Two across on a tablet, under the browser at full width; a row of two and a row of three
-     on a wide screen. Five tiles never leave a hole. */
+  /* One column on a phone, pairs on a tablet, and on a wide screen rows of 7/5, 5/7 and 6/6.
+     Six tiles never leave a hole. */
   @media (min-width: 760px) {
-    .mid,
-    .third {
+    .piece {
       grid-column: span 6;
     }
   }
 
   @media (min-width: 1040px) {
-    .wide {
+    .span-7 {
       grid-column: span 7;
     }
 
-    .mid {
+    .span-5 {
       grid-column: span 5;
-    }
-
-    .third {
-      grid-column: span 4;
     }
   }
 
@@ -248,20 +128,6 @@ const span: Record<ShowcaseId, string> = {
       var(--glow),
       transparent 70%
     );
-  }
-
-  .win,
-  .sim-wrap {
-    translate: calc(var(--px, 0) * -8px) calc(var(--py, 0) * -6px);
-    transition: translate 0.5s var(--ease-out);
-  }
-
-  .pointer,
-  .comment,
-  .move,
-  .ask {
-    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
-    transition: translate 0.5s var(--ease-out);
   }
 
   .words {
@@ -299,8 +165,9 @@ const span: Record<ShowcaseId, string> = {
     line-height: 1.5;
   }
 
-  /* A window of the app: every drawing sits in one. */
-  .win {
+  /* A window of the app: every drawing in showcase/ sits in one, and places it with its own
+     class. The window drifts against the pointer; what floats over it drifts the other way. */
+  :global(:where(.art .win)) {
     position: absolute;
     left: 28px;
     right: 28px;
@@ -313,336 +180,12 @@ const span: Record<ShowcaseId, string> = {
       0 30px 60px -30px var(--frame-shadow);
     font-size: 13px;
     line-height: 1.4;
+    container-type: inline-size;
+    translate: calc(var(--px, 0) * -8px) calc(var(--py, 0) * -6px);
+    transition: translate 0.5s var(--ease-out);
   }
 
-  /* ace's browser, an agent paying at a checkout. */
-  .browser {
-    bottom: -40px;
-  }
-
-  .chrome {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    height: 40px;
-    padding: 0 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .dots {
-    display: flex;
-    gap: 6px;
-  }
-
-  .dots i {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--border-strong);
-  }
-
-  .url {
-    flex: 1;
-    padding: 5px 12px;
-    border-radius: 8px;
-    background: var(--raised);
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .site {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 20px 28px;
-    padding: 22px 24px;
-  }
-
-  /* A narrow tile shows only the payment the agent is making. */
-  @media (max-width: 519px) {
-    .site .order {
-      display: none;
-    }
-  }
-
-  .order {
-    display: grid;
-    align-content: start;
-    gap: 9px;
-  }
-
-  .order b {
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .order span {
-    display: flex;
-    justify-content: space-between;
-    color: var(--muted);
-  }
-
-  .order em {
-    font-style: normal;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .order .total {
-    padding-top: 9px;
-    border-top: 1px solid var(--border);
-    color: var(--foreground);
-    font-weight: 600;
-  }
-
-  .pay {
-    position: relative;
-    display: grid;
-    align-content: start;
-    gap: 8px;
-  }
-
-  .field {
-    display: block;
-    padding: 8px 11px;
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .button {
-    display: grid;
-    place-items: center;
-    height: 36px;
-    border-radius: 8px;
-    background: var(--ink);
-    color: var(--ink-foreground);
-    font-weight: 600;
-  }
-
-  /* The agent's own pointer, with its name. */
-  .pointer {
-    position: absolute;
-    right: 18px;
-    bottom: -8px;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 3px 9px 3px 4px;
-    border-radius: 999px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .pointer svg {
-    margin: -12px 0 0 -14px;
-    fill: var(--accent);
-    stroke: #fff;
-    stroke-width: 1.2;
-  }
-
-  .using {
-    position: absolute;
-    inset: auto 0 40px;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 10px 16px;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
-  }
-
-  .acts {
-    display: flex;
-    gap: 16px;
-  }
-
-  .using b,
-  .limit b {
-    font-weight: 600;
-  }
-
-  /* A thread's diff, with a comment on a line. */
-  .diff {
-    bottom: -30px;
-  }
-
-  .filehead {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-    font-size: 12px;
-  }
-
-  .filehead ins,
-  .filehead del {
-    font-family: var(--font-mono);
-    text-decoration: none;
-  }
-
-  ins {
-    color: var(--status-done);
-  }
-
-  del {
-    color: var(--status-failed);
-  }
-
-  .lines {
-    display: grid;
-    padding: 6px 0;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.75;
-  }
-
-  .line {
-    overflow: hidden;
-    padding-right: 12px;
-    white-space: pre;
-    text-overflow: clip;
-  }
-
-  .line i {
-    display: inline-block;
-    width: 38px;
-    padding-right: 10px;
-    color: var(--faint);
-    font-style: normal;
-    text-align: right;
-  }
-
-  .line.add {
-    background: color-mix(in srgb, var(--status-done) 13%, transparent);
-  }
-
-  .line.del {
-    background: color-mix(in srgb, var(--status-failed) 12%, transparent);
-  }
-
-  .comment {
-    margin: 4px 14px 0 48px;
-    padding: 9px 12px;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
-    background: var(--surface);
-  }
-
-  .comment b {
-    margin-right: 8px;
-    font-weight: 600;
-  }
-
-  /* The iOS Simulator, as an agent sees it. */
-  .sim-wrap {
-    position: absolute;
-    left: 50%;
-    top: 26px;
-    width: 340px;
-    margin-left: -170px;
-    transform: scale(0.78);
-    transform-origin: 50% 0;
-  }
-
-  /* The request an agent on another machine makes before it may use this Mac's Simulator. */
-  .ask {
-    position: absolute;
-    left: 20px;
-    right: 20px;
-    bottom: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 9px 9px 9px 14px;
-    border-radius: 12px;
-    background: var(--surface);
-    box-shadow:
-      0 0 0 1px var(--border-strong),
-      0 18px 36px -18px var(--frame-shadow);
-    font-size: 13px;
-    line-height: 1.35;
-  }
-
-  .ask b {
-    font-weight: 600;
-  }
-
-  .ask .allow {
-    flex: none;
-    padding: 6px 13px;
-    border-radius: 999px;
-    background: var(--ink);
-    color: var(--ink-foreground);
-    font-weight: 600;
-  }
-
-  /*
-   * Each drawing plays once as its tile comes into view: the agent's pointer arrives and presses
-   * Pay, the comment lands on its line, the request slides up, the account fills and the
-   * thread moves, the automations list in.
-   */
-  :global(html.motion) .piece:global(.is-in) .pointer {
-    animation: arrive 1.1s var(--ease-out) 0.5s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .button {
-    animation: press 0.3s var(--ease-out) 1.65s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) :is(.comment, .ask) {
-    animation: rise 0.6s var(--ease-out) 0.7s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .meter.full i {
-    animation: fill 1s var(--ease-out) 0.4s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .move {
-    animation: press 0.3s var(--ease-out) 1.5s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .meter:not(.full) i {
-    animation: start 0.8s var(--ease-out) 1.8s both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .auto {
-    animation: rise 0.5s var(--ease-out) both;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .auto:nth-child(1) {
-    animation-delay: 0.35s;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .auto:nth-child(2) {
-    animation-delay: 0.45s;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .auto:nth-child(3) {
-    animation-delay: 0.55s;
-  }
-
-  :global(html.motion) .piece:global(.is-in) .auto:nth-child(4) {
-    animation-delay: 0.65s;
-  }
-
-  @keyframes arrive {
-    from {
-      transform: translate(-150px, -70px);
-      opacity: 0;
-    }
-  }
-
+  /* Keyframes the drawings in showcase/ share. */
   @keyframes press {
     50% {
       scale: 0.96;
@@ -655,117 +198,8 @@ const span: Record<ShowcaseId, string> = {
       opacity: 0;
     }
   }
-
-  @keyframes fill {
-    from {
-      width: 58%;
-    }
-  }
-
-  @keyframes start {
-    from {
-      width: 0;
-    }
-  }
-
-  /* An account at its limit, and the one the thread moves to. */
-  .accounts {
-    top: 50%;
-    transform: translateY(-50%);
-    display: grid;
-    gap: 14px;
-    padding: 16px 16px 18px;
-  }
-
-  .limit {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 4px 12px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .limit span {
-    color: var(--status-needs-you);
-  }
-
-  .account {
-    display: grid;
-    grid-template-columns: 96px 1fr;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .who {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-  }
-
-  .meter {
-    height: 6px;
-    border-radius: 3px;
-    background: var(--raised);
-  }
-
-  .meter i {
-    display: block;
-    width: 28%;
-    height: 100%;
-    border-radius: 3px;
-    background: var(--status-working);
-  }
-
-  .meter.full i {
-    width: 100%;
-    background: var(--status-needs-you);
-  }
-
-  .move {
-    justify-self: end;
-    padding: 7px 14px;
-    border-radius: 999px;
-    background: var(--ink);
-    color: var(--ink-foreground);
-    font-weight: 600;
-  }
-
-  /* Automations: what runs, what starts it, and the agent that does it. */
-  .autos {
-    top: 50%;
-    transform: translateY(-50%);
-  }
-
-  .auto:last-child {
-    border-bottom: 0;
-  }
-
-  .auto {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 11px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .auto > span {
-    display: grid;
-    gap: 1px;
-    min-width: 0;
-  }
-
-  .auto b {
-    font-weight: 600;
-  }
-
-  .auto span span {
-    color: var(--muted);
-    font-size: 12px;
-  }
 </style>
+
 
 <script>
   /* Each tile learns where the pointer is over it: in pixels for its light, and from -1 to 1 for
