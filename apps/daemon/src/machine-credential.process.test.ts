@@ -21,6 +21,7 @@ import {
   backendKnows,
   deviceKey,
   changesGuardedSetting,
+  changesGuardedSettingInBatch,
   proves,
   daemon,
   signedInDaemon,
@@ -64,10 +65,12 @@ it("the person signing in in a browser acts as the person on the socket that pro
   const proof = await key.sign(
     standingProofText({ host, nonce: socket.nonce, binding: undefined, grant }),
   );
-  // Not the person until the socket proves it.
+  // Not the person until the socket proves it, whether it writes the setting alone or in a batch.
   expect(await changesGuardedSetting(socket.client)).toBe(false);
+  expect(await changesGuardedSettingInBatch(socket.client)).toBe(false);
   expect(await proves(socket.client, grant, proof)).toBe(true);
   expect(await changesGuardedSetting(socket.client)).toBe(true);
+  expect(await changesGuardedSettingInBatch(socket.client)).toBe(true);
   // The same grant and proof, captured and sent on another socket, prove nothing there.
   const replay = await accountSocket(session.token);
   expect(await proves(replay.client, grant, proof)).toBe(false);

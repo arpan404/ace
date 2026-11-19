@@ -127,6 +127,20 @@ export async function changesGuardedSetting(client: Client): Promise<boolean> {
   return (await answer(client, "settings.result")).ok;
 }
 
+/** The same, as one of a batch of writes (`settings.setMany`): true when the daemon let it. */
+export async function changesGuardedSettingInBatch(client: Client): Promise<boolean> {
+  client.send({
+    type: "settings.setMany",
+    requestId: "ask-batch",
+    entries: [
+      { key: "logs.maxBytes", value: 10_000_000 },
+      { key: "market.askBeforeAgentPublish", value: true },
+    ],
+    layer: { kind: "global" },
+  });
+  return (await answer(client, "settings.result")).ok;
+}
+
 /** Proves the person's standing on `client` with `grant` and `proof`: true when it took. */
 export async function proves(client: Client, grant: string, proof: string): Promise<boolean> {
   client.send({ type: "account.standing", requestId: "standing", grant, proof });

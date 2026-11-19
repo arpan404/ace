@@ -62,8 +62,6 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (!key.startsWith("media.") || authorize("admin")) &&
           (!key.startsWith("beta.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
-          // A reset would turn the ask off; over the host token only `config set` changes it.
-          (key !== "market.askBeforeAgentPublish" || context.personProven?.() === true) &&
           ((key !== "computer.blockedApps" &&
             key !== "providers.codex.toolSource" &&
             key !== "providers.claude.chrome" &&
@@ -71,12 +69,16 @@ export function createSettingsSession(context: SocketContext): SocketService {
             key !== "spade.enabled") ||
             authorize("admin")),
       ),
-    set: async (key, value, commit) => {
+    // Every write, single, batched or a reset, asks this for each key it names (ADR 0190): an
+    // agent's device writes nothing, and a guarded setting needs the person's standing.
+    refuse: async (key) => {
       const refused = await settingWriteRefusal(key, {
         device: context.device(),
         unproven: context.personProven?.() !== true,
       });
-      if (refused) throw new SettingsError(refused.code, refused.message);
+      return refused ? new SettingsError(refused.code, refused.message) : undefined;
+    },
+    set: async (key, value, commit) => {
       const write = async () => {
         if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
         else await commit();
