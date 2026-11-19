@@ -1,0 +1,172 @@
+---
+/*
+ * The page's first screen: what Spade is, beside its crew. Spade in 3D stands in the middle and
+ * the four sample bots gather round it, each arriving once on load and then idling: blinking,
+ * glancing at the pointer, resting their eyes on Spade. Without motion they simply stand there.
+ */
+import { cast, spadePage } from "../../content/spade.ts";
+import DownloadButton from "../DownloadButton.astro";
+import BotFace from "./BotFace.astro";
+import Spade3d from "./Spade3d.astro";
+
+/** Where each bot stands round Spade, and where it looks while the pointer is away. */
+const crew = [
+  { who: "flights", size: 92, place: "top: 2%; left: 0%", rest: "0.8,0.45" },
+  { who: "inbox", size: 78, place: "top: 0%; right: 4%", rest: "-0.8,0.5" },
+  { who: "papers", size: 84, place: "bottom: 4%; left: 6%", rest: "0.85,-0.35" },
+  { who: "builds", size: 96, place: "bottom: 0%; right: 0%", rest: "-0.8,-0.4" },
+] as const;
+---
+
+<section class="page opening">
+  <div class="words">
+    <p class="status">{spadePage.status}</p>
+    <h1>{spadePage.headline}</h1>
+    <p class="lead">{spadePage.intro}</p>
+    <div class="actions">
+      <DownloadButton />
+      <a class="text-link" href="#turn-on">{spadePage.turnOnLink}</a>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="spade">
+      <Spade3d size={260} />
+    </div>
+    {
+      crew.map((member, index) => (
+        <figure class="member" style={`${member.place}; --i: ${index}`}>
+          <BotFace
+            face={cast[member.who].face}
+            size={member.size}
+            uid={`crew-${member.who}`}
+            rest={member.rest}
+            live
+          />
+          <figcaption>{cast[member.who].name}</figcaption>
+        </figure>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .opening {
+    display: grid;
+    align-items: center;
+    gap: 24px 48px;
+    padding-top: clamp(24px, 4vw, 56px);
+  }
+
+  @media (min-width: 960px) {
+    .opening {
+      grid-template-columns: minmax(0, 1fr) minmax(380px, 460px);
+    }
+  }
+
+  .status {
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  h1 {
+    max-width: 11em;
+    margin-top: 14px;
+    font-size: clamp(44px, 7vw, 92px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 32em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 24px;
+    margin-top: 28px;
+  }
+
+  /* The crew: Spade in the middle, the bots round it. */
+  .stage {
+    position: relative;
+    height: 440px;
+  }
+
+  .spade {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+  }
+
+  .member {
+    position: absolute;
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+
+  figcaption {
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  /* Each bot arrives once, a beat after the one before, then stays. */
+  html.motion .member {
+    animation: arrive 760ms cubic-bezier(0.34, 1.5, 0.64, 1) calc(400ms + var(--i) * 160ms) both;
+  }
+
+  html.motion .spade {
+    animation: rise 900ms var(--ease-out) both;
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(22px) scale(0.6);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* A narrow screen puts the crew above the words, smaller. */
+  @media (max-width: 959px) {
+    .stage {
+      order: -1;
+      width: min(100%, 440px);
+      height: 300px;
+    }
+
+    .spade {
+      --spade-box: 180px;
+    }
+
+    .member :global(svg) {
+      width: 62px;
+      height: 62px;
+    }
+  }
+</style>

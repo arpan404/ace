@@ -1,0 +1,128 @@
+---
+/*
+ * "Set it up": a statement beside an agent's three setup steps as numbered ruled rows, each with
+ * the command to run in a mono chip when there is one.
+ */
+import { agentSteps, type AgentGuide } from "../../content/agent-guides.ts";
+
+interface Props {
+  guide: AgentGuide;
+}
+
+const { guide } = Astro.props;
+const steps = agentSteps(guide);
+/** A step's sentence in parts: text, and what it names in backticks, which reads as code. */
+const parts = (body: string) =>
+  body.split("`").map((text, index) => ({ text, code: index % 2 === 1 }));
+---
+
+<section class="section page setup" aria-labelledby="setup-title">
+  <header class="say reveal">
+    <h2 id="setup-title" class="section-title">Set it up.</h2>
+    <p class="lede">
+      ace uses {guide.label}'s own login, so there is no key to paste and your plan stays as it
+      is.
+    </p>
+  </header>
+  <ol class="card reveal">
+    {
+      steps.map((step, index) => (
+        <li>
+          <span class="n" aria-hidden="true">
+            {index + 1}
+          </span>
+          <div>
+            <h3>{step.title}</h3>
+            <p>{parts(step.body).map((part) => (part.code ? <code>{part.text}</code> : part.text))}</p>
+            {step.command && <code class="command">{step.command}</code>}
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
+<style>
+  .setup {
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .setup {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .lede {
+    margin-top: 20px;
+  }
+
+  ol {
+    padding: 6px;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 16px;
+    padding: 18px 14px 20px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .n {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+    border-radius: 50%;
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  h3 {
+    padding-top: 4px;
+    font-size: 17px;
+    letter-spacing: -0.015em;
+  }
+
+  p {
+    margin-top: 4px;
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  /* The command as it is typed: one mono chip that selects whole on a click. */
+  p code {
+    color: var(--foreground);
+    font-size: 13px;
+  }
+
+  .command {
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 12px;
+    padding: 7px 12px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--foreground);
+    font-size: 13px;
+    white-space: nowrap;
+    user-select: all;
+  }
+</style>

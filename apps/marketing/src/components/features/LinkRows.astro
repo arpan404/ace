@@ -1,0 +1,117 @@
+---
+/*
+ * A statement beside a ruled list of links, each a name, one line and an arrow: what ace adds
+ * on an agent's page, and "More of ace" under a feature's story.
+ */
+import Icon from "../Icon.astro";
+
+interface Props {
+  heading: string;
+  lede?: string;
+  items: { href: string; name: string; body: string }[];
+}
+
+const { heading, lede, items } = Astro.props;
+---
+
+<section class="section page links">
+  <header class="say reveal">
+    <h2 class="section-title">{heading}</h2>
+    {lede && <p class="lede">{lede}</p>}
+  </header>
+  <ul class="card reveal">
+    {
+      items.map((item) => (
+        <li>
+          <a href={item.href}>
+            <span class="name">
+              {item.name}
+              <Icon name="arrow-right" size={15} />
+            </span>
+            <span class="body">{item.body}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .links {
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .links {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+
+    .say {
+      position: sticky;
+      top: 96px;
+    }
+  }
+
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .lede {
+    margin-top: 20px;
+  }
+
+  /* Flat rows ruled with hairlines, as the app rules a list. */
+  ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  a {
+    display: grid;
+    gap: 3px;
+    padding: 14px 14px 15px;
+    border-radius: 8px;
+    color: var(--foreground);
+    text-decoration: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover {
+    background: var(--wash);
+  }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .name :global(svg) {
+    margin-left: auto;
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover .name :global(svg) {
+    color: var(--foreground);
+    transform: translateX(2px);
+  }
+
+  .body {
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>

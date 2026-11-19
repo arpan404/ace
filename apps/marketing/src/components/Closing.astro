@@ -4,7 +4,7 @@ import DownloadButton from "./DownloadButton.astro";
 import Icon from "./Icon.astro";
 ---
 
-<section class="closing">
+<section class="section closing">
   <div class="page inner reveal">
     <h2>Free, open source, and yours to run.</h2>
     <p class="lede">
@@ -18,47 +18,48 @@ import Icon from "./Icon.astro";
         Star on GitHub
       </a>
     </div>
+    <a class="text-link more" href="/download/">Every download: Mac, Windows, Linux, iPhone and iPad</a>
   </div>
 </section>
 
 <style>
   .closing {
     position: relative;
-    margin-top: var(--section);
-    padding-block: 140px;
-    border-top: 1px solid var(--border);
+    padding-bottom: clamp(88px, 12vw, 160px);
     overflow: hidden;
   }
 
   .inner {
     position: relative;
     display: grid;
-    justify-items: center;
-    text-align: center;
+    justify-items: start;
   }
 
   h2 {
-    max-width: 12em;
-    font-size: clamp(36px, 5vw, 60px);
+    max-width: 10em;
+    font-size: clamp(40px, 7.2vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.96;
   }
 
   .lede {
-    margin-inline: auto;
+    margin-top: 24px;
   }
 
   .actions {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
     gap: 12px;
     margin-top: 32px;
+  }
+
+  .more {
+    margin-top: 22px;
+    font-size: 14px;
   }
 
   .actions :global(.button-secondary) {
     background: var(--background);
   }
 
-  .actions :global(.download-note) {
-    text-align: center;
-  }
 </style>

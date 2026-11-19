@@ -6,7 +6,7 @@
 export const product = {
   name: "ace",
   title: "ace: run Claude Code, Codex and every agent as one team",
-  headline: "Stop babysitting your agents.",
+  headline: "One prompt in. A whole team out.",
   summary:
     "ace runs your agents on many tasks at once, across all your machines. They hand work to each other and call you only when a decision is yours.",
   /** The hero's one line under its buttons: what ace costs, where it runs, what it needs. */
@@ -78,7 +78,7 @@ export const workbench: { icon: FeatureIcon; title: string; body: string }[] = [
   {
     icon: "tree-structure",
     title: "Hand off between models",
-    body: "Move a thread from Claude to Codex with its context, or send one task to several agents and keep the best result.",
+    body: "Move a thread from Claude to Codex and its context carries over.",
   },
   {
     icon: "git-pull-request",
@@ -88,7 +88,7 @@ export const workbench: { icon: FeatureIcon; title: string; body: string }[] = [
   {
     icon: "clock-countdown",
     title: "Automations",
-    body: "Run a prompt on a schedule, like a nightly flaky-test sweep. Each run gets its own thread to read in the morning.",
+    body: "Run a prompt on a schedule, on a GitHub event, when files change or when a webhook calls. Each run gets its own thread.",
   },
   {
     icon: "chart-bar",
@@ -216,10 +216,10 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
   },
 ];
 
-/** Spade, ace's own agent: announced on the home page until it launches. */
+/** Spade, ace's own assistant: in beta, off until switched on in Settings. */
 export const spade = {
   name: "Spade",
-  status: "Coming soon",
+  status: "In beta",
   headline: "Meet Spade",
-  body: "Spade is ace's own agent. It will work right beside Claude Code, Codex and the rest, in the same window.",
+  body: "Spade is ace's own assistant, with bots, routines and memory of its own. It works beside Claude Code, Codex and the rest, in the same window. Turn it on in Settings.",
 } as const;

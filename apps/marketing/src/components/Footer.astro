@@ -1,90 +1,130 @@
 ---
-/* The footer doubles as the site map: every page from routes.ts, grouped by section. */
+/*
+ * The footer doubles as the site map: every page from routes.ts, grouped by section, with the
+ * features in two columns so the list stays short on a phone. Under it, ace's name set very
+ * large and faint, and a last row with the licence and where the code lives.
+ */
 import { privacyPolicy, termsOfService } from "../content/legal.ts";
 import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
 
 const under = (parent: string) => routes.filter((entry) => entry.parent === parent);
+const pages = (paths: string[]) =>
+  paths.flatMap((path) => routes.filter((entry) => entry.path === path));
 const columns = [
-  { name: "Features", entries: under("/features/") },
-  { name: "Agents", entries: under("/agents/") },
+  { name: "Features", href: "/features/", entries: under("/features/"), wide: true },
+  { name: "Agents", href: "/agents/", entries: under("/agents/"), wide: false },
   {
     name: "ace",
-    entries: [
+    href: "/",
+    entries: pages([
       "/download/",
+      "/spade/",
       "/mcp/",
       "/security/",
       "/faq/",
       privacyPolicy.path,
       termsOfService.path,
-    ].flatMap((path) =>
-      routes.filter((entry) => entry.path === path),
-    ),
+    ]),
+    wide: false,
   },
 ];
-const external = [
+const elsewhere = [
   { href: links.source, name: "GitHub" },
   { href: links.releases, name: "Releases" },
   { href: "/llms.txt", name: "llms.txt" },
-  { href: links.license, name: "Apache-2.0 license" },
 ];
 ---
 
 <footer class="footer">
   <div class="page inner">
-    <div class="about">
-      <a class="brand" href="/" aria-label="ace home">
-        <AceMark size={22} />
-        <span>ace</span>
-      </a>
-      <p>Run every coding agent on every machine, and steer them from any screen.</p>
+    <div class="top">
+      <div class="about">
+        <a class="brand" href="/" aria-label="ace home">
+          <AceMark size={22} />
+          <span>ace</span>
+        </a>
+        <p>Run every coding agent on every machine, and steer them from any screen.</p>
+      </div>
+      {
+        columns.map((column) => (
+          <nav class:list={["column", { wide: column.wide }]} aria-label={column.name}>
+            <h2>
+              <a href={column.href}>{column.name}</a>
+            </h2>
+            <ul>
+              {column.entries.map((entry) => (
+                <li>
+                  <a href={entry.path}>{entry.name}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
     </div>
-    {
-      columns.map((column) => (
-        <nav aria-label={column.name}>
-          <h2>{column.name}</h2>
-          <ul>
-            {column.entries.map((entry) => (
+
+    <p class="word" aria-hidden="true">ace</p>
+
+    <div class="bottom">
+      <p>
+        Free and open source under the <a href={links.license}>Apache-2.0 license</a>.
+      </p>
+      <nav aria-label="Elsewhere">
+        <ul>
+          {
+            elsewhere.map((link) => (
               <li>
-                <a href={entry.path}>{entry.name}</a>
+                <a href={link.href}>{link.name}</a>
               </li>
-            ))}
-          </ul>
-        </nav>
-      ))
-    }
-    <nav aria-label="Elsewhere">
-      <h2>Elsewhere</h2>
-      <ul>
-        {
-          external.map((link) => (
-            <li>
-              <a href={link.href}>{link.name}</a>
-            </li>
-          ))
-        }
-      </ul>
-    </nav>
+            ))
+          }
+        </ul>
+      </nav>
+    </div>
   </div>
 </footer>
 
 <style>
   .footer {
+    position: relative;
+    overflow: hidden;
     border-top: 1px solid var(--border);
   }
 
   .inner {
+    padding-block: 64px 28px;
+  }
+
+  .top {
     display: grid;
-    grid-template-columns: 1.4fr repeat(4, 1fr);
-    gap: 40px;
-    padding-block: 64px 72px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 40px 24px;
+  }
+
+  .about,
+  .wide {
+    grid-column: 1 / -1;
+  }
+
+  @media (min-width: 900px) {
+    .top {
+      grid-template-columns: minmax(0, 4fr) minmax(0, 5fr) minmax(0, 2.4fr) minmax(0, 2.4fr);
+      gap: 40px;
+    }
+
+    .about,
+    .wide {
+      grid-column: auto;
+    }
   }
 
   .brand {
     display: inline-flex;
     align-items: center;
     gap: 10px;
+    color: var(--foreground);
     font-size: 17px;
     font-weight: 600;
     text-decoration: none;
@@ -97,17 +137,30 @@ const external = [
     font-size: 14px;
   }
 
+  /* A column's name on a hairline, its links quietly under it. */
   h2 {
-    color: var(--foreground);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
     font-size: 13px;
     font-weight: 500;
     letter-spacing: 0;
+    line-height: 1.4;
   }
 
-  ul {
+  h2 a {
+    color: var(--foreground);
+  }
+
+  .column ul {
     display: grid;
-    gap: 10px;
-    margin-top: 16px;
+    gap: 9px;
+    margin-top: 14px;
+  }
+
+  /* The features run in two columns, so ten links take five rows. */
+  .wide ul {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
   }
 
   a {
@@ -121,13 +174,46 @@ const external = [
     color: var(--foreground);
   }
 
-  @media (max-width: 900px) {
-    .inner {
-      grid-template-columns: repeat(2, 1fr);
-    }
+  /* ace's name as large as the page is wide, flat and faint: the site's last word. */
+  .word {
+    margin-top: clamp(48px, 8vw, 96px);
+    color: color-mix(in srgb, var(--foreground) 6%, transparent);
+    font-size: clamp(132px, 34vw, 380px);
+    font-weight: 600;
+    letter-spacing: -0.07em;
+    line-height: 0.72;
+    user-select: none;
+  }
 
-    .about {
-      grid-column: 1 / -1;
-    }
+  :global(html[data-theme="light"]) .word {
+    color: color-mix(in srgb, var(--foreground) 4%, transparent);
+  }
+
+  .bottom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 24px;
+    margin-top: clamp(20px, 3vw, 32px);
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .bottom a {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .bottom a:hover {
+    color: var(--foreground);
+  }
+
+  .bottom ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
   }
 </style>

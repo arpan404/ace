@@ -1,0 +1,63 @@
+---
+/*
+ * Where ace stops, on the home page: the four boundaries (content/product.ts) beside one line
+ * that sums them up. The Security page tells the rest.
+ */
+import { boundary } from "../../content/product.ts";
+---
+
+<section class="section page yours">
+  <div class="say reveal">
+    <h2 class="section-title">Your machines. Your logins. Your code.</h2>
+    <p class="lede">ace runs on your computers and stops there.</p>
+    <a class="text-link" href="/security/">Security and privacy</a>
+  </div>
+  <ol class="reveal" data-stagger>
+    {
+      boundary.map((item) => (
+        <li>
+          <h3>{item.title}</h3>
+          <p>{item.body}</p>
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
+<style>
+  .yours {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+    gap: 40px 64px;
+    align-items: start;
+  }
+
+  .say h2 {
+    max-width: 9em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .text-link {
+    display: inline-block;
+    margin-top: 20px;
+  }
+
+  li {
+    padding: 20px 0 22px;
+    border-top: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  li p {
+    margin-top: 6px;
+    max-width: 36em;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+</style>
