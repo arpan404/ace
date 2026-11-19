@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 125592,
-      "sha256": "d8d36f3b3ecf14d930ffad0e9e4d832ca1298fe562a0be0ffdc6dbfb5066953f"
+      "bytes": 126958,
+      "sha256": "b2dd24fc2ef32e1f8c40afad0c24a251effd0d3b2c13ef0ae59fca452364ffb5"
     },
     "requests.md": {
-      "bytes": 122448,
-      "sha256": "995f5227e579cc2d9d6a07e0b2659af990d0ac3caf96e8d2d49fe4ecbcba6271"
+      "bytes": 123510,
+      "sha256": "bd31ee128f28c8f512f56c1963e23a8650b41ed87bb724ab66d4d073489ae727"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -1109,8 +1109,8 @@
       "sha256": "2f1e1ffc9faa51131521287da65770e27b55c0c3ea5fbc4859c5941deae224b4"
     },
     "schema/ClientMessage.json": {
-      "bytes": 65750,
-      "sha256": "dac4b0c5bae9384eb0e3b5c029352b16901f83acd16ec72f7c36125e2ff7e8f6"
+      "bytes": 66265,
+      "sha256": "3eb7f88910b8f1dd46d91683cf8962ae2b7e5251d666125ab0c9c31fa3889f38"
     },
     "schema/CollectionsUpload.json": {
       "bytes": 378,
@@ -1209,8 +1209,8 @@
       "sha256": "9faeb5054c0c92908482aebf1af0fab82a5a09f19fc914519be42fd3f2ce0e72"
     },
     "schema/ContextResult.json": {
-      "bytes": 5746,
-      "sha256": "afa9210269f229b8722cfbdd390c97d329da6494a4186f62a4fa546d7d608947"
+      "bytes": 5847,
+      "sha256": "c45950e57283a5a913e781ece6eb438d2071ec88bfe115d720d8ee67e1a6cdd7"
     },
     "schema/ContextSampled.json": {
       "bytes": 711,
@@ -1505,8 +1505,8 @@
       "sha256": "e3e4953ea57dd2be995269def34ea78641ada262b3bde4ae749386c538caff47"
     },
     "schema/FileOperation.json": {
-      "bytes": 13196,
-      "sha256": "4eb49a7e1edc7a7918f4f8c0432710290ba84ac703cc32f8b08ea5c5f8e4caa7"
+      "bytes": 13714,
+      "sha256": "5b1b032e6072ad9ef596081c7337bb57cffe63c3792114969c9bacf66701d473"
     },
     "schema/FileReadResult.json": {
       "bytes": 988,
@@ -1517,12 +1517,12 @@
       "sha256": "bd916326b275f0324d7e16328cb69bfb17138f8f1c1b6cf53ed69aca8c350ae7"
     },
     "schema/FilesClientMessage.json": {
-      "bytes": 3363,
-      "sha256": "b20ee7e068a6f19be0de09294e1b0e844ef4e951aa99f5cfd2428ce4f9fb2382"
+      "bytes": 3878,
+      "sha256": "b8a843039cc2c0b1b7f00eff972f1d571649298a9562d8a47b5d7272c943dd10"
     },
     "schema/FilesServerMessage.json": {
-      "bytes": 5138,
-      "sha256": "85aa1853af107435d809a5ca6b760da9f2f947e9bb65ceeab5fad0feee7c525a"
+      "bytes": 5829,
+      "sha256": "98903625e501b78c3f9d7bc95b8dc901adb0e6714b3a3ac769d6223ae4e0e053"
     },
     "schema/FleetLink.json": {
       "bytes": 975,
@@ -1535,6 +1535,14 @@
     "schema/FleetResult.json": {
       "bytes": 5517,
       "sha256": "05accb7581388956f32adb7bdcebf7eccbce4c76e02e15e76035267f66dfa76e"
+    },
+    "schema/FolderEntry.json": {
+      "bytes": 955,
+      "sha256": "dbcb228290c470469900ea97de2beb38cbe814ed9031c7c06d13ada3007ebca0"
+    },
+    "schema/FolderPage.json": {
+      "bytes": 665,
+      "sha256": "7afb5d4dea3831a211906596caff0c0b87921a4ebc174c1e6e1b8615022b733b"
     },
     "schema/FollowUpBehavior.json": {
       "bytes": 190,
@@ -4873,8 +4881,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 49689,
-      "sha256": "00a82e939fdbab54902126457ba833111222af1b4c5e9cc2dc60c39a771ca3b5"
+      "bytes": 50380,
+      "sha256": "a3654d0fb7a1e42fdf1eea18b0facd28a91d0b684ef82d93782e347aae2fa3ce"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -6441,10 +6449,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1305023,
-      "sha256": "5e2f3baa6743e871a1750b3b49ff950054649890c4d085c5cf0564bf228f56fb"
+      "bytes": 1307543,
+      "sha256": "f25035b70a8fb6f73a884b6852e9270f7a50df8dbea9728e79cdcfdffb0cd153"
     }
   },
-  "input": "9e0ee52ba940446a4efbc5d48a7b4e724c9634e79a063755eeedfb56ca37d3f0",
+  "input": "a571bdfa4573f614393d937d116b5ab32e3e6a42bfe0bff47cbe7dc063977ff8",
   "version": 1
 }

@@ -360,6 +360,7 @@ fn trash_with(
             )));
         }
     }
+    crate::hooks::reached(crate::hooks::Step::AfterMove, path, endpoint);
     let checked = moved_state(root, path, endpoint, &trash, endpoint, own, folder);
     let held = checked
         .as_ref()

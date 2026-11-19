@@ -630,6 +630,40 @@ mod tests {
     }
 
     #[test]
+    fn the_internal_describe_reaches_a_generated_name_but_never_follows_a_link() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join(".ace-upload-trash-1"), b"kept").expect("trash entry");
+        fs::write(temp.path().join("real.md"), b"real").expect("real file");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("real.md", temp.path().join(".ace-upload-move-planted"))
+            .expect("link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file("real.md", temp.path().join(".ace-upload-move-planted"))
+            .expect("link");
+        let root = root(temp.path());
+
+        // The client policy refuses the daemon's own name, and the trusted read reaches it.
+        assert_eq!(
+            crate::describe_entry(&root, ".ace-upload-trash-1")
+                .expect_err("a reserved name is not a client's")
+                .code(),
+            "INVALID_PATH"
+        );
+        let found = super::describe_entry_internal(&root, ".ace-upload-trash-1")
+            .expect("the daemon reads its own endpoint");
+        assert_eq!(found.size, 4);
+        assert_eq!(found.kind, Kind::File);
+
+        // A link planted at one of those names is still never followed.
+        assert_eq!(
+            super::describe_entry_internal(&root, ".ace-upload-move-planted")
+                .expect_err("a link is not one of the daemon's entries")
+                .code(),
+            "PATH_ESCAPE"
+        );
+    }
+
+    #[test]
     fn a_dangling_link_measures_nothing() {
         let temp = tempfile::tempdir().expect("temp dir");
         #[cfg(unix)]

@@ -12,6 +12,23 @@ function stagingId(): string {
   return randomUUID().replaceAll("-", "").slice(0, 24);
 }
 
+/**
+ * What a landed move reports. A folder's own version stands in as the identity of the entry a
+ * later digest must match, because a folder's digest records the path it is read at.
+ */
+async function movedOutcome(
+  safe: SafeRoot,
+  path: string,
+): Promise<{ version: string | null; identity: string | null; recovery: string | null }> {
+  const resolved = await safe.resolve(path).catch(() => undefined);
+  if (resolved === undefined) return { version: null, identity: null, recovery: null };
+  const info = await lstat(resolved).catch(() => undefined);
+  if (info === undefined) return { version: null, identity: null, recovery: null };
+  return info.isDirectory()
+    ? { version: null, identity: version(info), recovery: null }
+    : { version: version(info), identity: null, recovery: null };
+}
+
 /** A path that is not there: the caller decides whether that is `null` or a failure. */
 function absent(error: unknown): boolean {
   return ["ENOENT", "NOT_FOUND"].includes(codeOf(error));
@@ -206,7 +223,7 @@ export function localFilesIo(
       const info = await lstat(target.path);
       return treeVersion(safe, path, info);
     },
-    async move(root, from, to, expected, _own) {
+    async move(root, from, to, expected, _own, _staging) {
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
       const source = await safe.target(from);
@@ -321,23 +338,6 @@ export function localFilesIo(
       },
     },
   } satisfies FilesIo;
-
-  /**
-   * What a landed move reports. A folder's own version stands in as the identity of the entry a
-   * later digest must match, because a folder's digest records the path it is read at.
-   */
-  async function movedOutcome(
-    safe: SafeRoot,
-    path: string,
-  ): Promise<{ version: string | null; identity: string | null; recovery: string | null }> {
-    const resolved = await safe.resolve(path).catch(() => undefined);
-    if (resolved === undefined) return { version: null, identity: null, recovery: null };
-    const info = await lstat(resolved).catch(() => undefined);
-    if (info === undefined) return { version: null, identity: null, recovery: null };
-    return info.isDirectory()
-      ? { version: null, identity: version(info), recovery: null }
-      : { version: version(info), identity: null, recovery: null };
-  }
 
   /**
    * Windows: names differing only in case usually name one file, so the destination looks taken

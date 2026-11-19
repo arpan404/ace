@@ -17,6 +17,8 @@ pub enum Step {
     AfterCreateDir,
     /// A measurement's target was authorized, before the bytes it holds are read.
     MeasureTarget,
+    /// A guarded publish holds the destination's handle, before the copy replaces it.
+    GuardedPublish,
 }
 
 #[cfg(not(feature = "test-hooks"))]

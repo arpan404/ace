@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/FolderEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ignored": {
+      "type": "boolean"
+    },
+    "kind": {
+      "enum": [
+        "file",
+        "directory",
+        "symlink",
+        "other"
+      ],
+      "type": "string"
+    },
+    "mtimeMs": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "target": {
+      "enum": [
+        "file",
+        "directory",
+        "other"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "path",
+    "kind",
+    "size",
+    "mtimeMs",
+    "ignored"
+  ],
+  "type": "object"
+}

@@ -111,12 +111,13 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
         throw refused(error);
       }
     },
-    async move(root, from, to, expected, own) {
+    async move(root, from, to, expected, own, staging) {
       try {
         return await run(root, (client, number) =>
           client.rename(number, from, to, {
             ...(expected === null ? {} : { expected }),
             ...(own === null ? {} : { own }),
+            ...(staging === undefined ? {} : { staging }),
           }),
         );
       } catch (error) {

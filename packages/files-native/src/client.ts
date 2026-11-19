@@ -194,7 +194,11 @@ export class FilesClient {
    * Create a folder. The result is the new folder's digest, read from the folder this create
    * made, or `null` when that folder's identity could not be proven.
    */
-  async createDir(root: number, path: string, options: FilesRequestOptions = {}): Promise<string | null> {
+  async createDir(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<string | null> {
     const { reply } = await this.#process.request({ op: "createDir", root, path }, options);
     if (reply.type !== "done") throw unexpected("createDir", reply);
     return reply.version ?? null;
@@ -279,10 +283,7 @@ export class FilesClient {
     to: string,
     options: FilesRequestOptions = {},
   ): Promise<MutationOutcome> {
-    const { reply } = await this.#process.request(
-      { op: "recoverMove", root, from, to },
-      options,
-    );
+    const { reply } = await this.#process.request({ op: "recoverMove", root, from, to }, options);
     if (reply.type !== "done") throw unexpected("recoverMove", reply);
     return {
       version: reply.version ?? null,

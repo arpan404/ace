@@ -345,6 +345,83 @@ fn a_moved_folder_reports_its_own_version_as_the_identity_a_later_digest_must_ma
     );
 }
 
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_trash_whose_rollback_fails_reports_the_endpoint_it_is_preserved_at() {
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("gone.md", b"the original\n");
+    let version = fixture.version("gone.md");
+    let folder = fixture.dir().to_path_buf();
+    // The entry moves to the endpoint; the guard then fails (the entry changed) and the original
+    // path is taken by another program, so it cannot be put back.
+    let _hook = watch(move |step, from, to| {
+        if step == Step::AfterMove && from == "gone.md" && to == ".ace-upload-trash-strand" {
+            std::fs::write(folder.join("gone.md"), b"someone else's file\n").expect("squatter");
+            std::fs::write(folder.join(".ace-upload-trash-strand"), b"changed\n").expect("change");
+        }
+    });
+
+    let error = files_io::trash(
+        fixture.root(),
+        "gone.md",
+        ".ace-upload-trash-strand",
+        &version,
+        None,
+    )
+    .expect_err("a delete that could not be put back is not a plain success");
+
+    assert_eq!(error.code(), "STRANDED");
+    assert_eq!(
+        error.recovery().as_deref(),
+        Some(".ace-upload-trash-strand"),
+        "the outcome carries the recovery id"
+    );
+    assert_eq!(
+        fixture.read(".ace-upload-trash-strand"),
+        b"changed\n",
+        "the moved entry is preserved at the endpoint"
+    );
+    assert_eq!(
+        fixture.read("gone.md"),
+        b"someone else's file\n",
+        "the name that appeared is never replaced"
+    );
+}
+
+#[test]
+fn a_journaled_staging_entry_is_finished_at_a_client_path_without_replacing_one() {
+    let fixture = Fixture::new();
+    fixture.write(".ace-upload-move-journal1", b"the parked entry\n");
+    fixture.write("taken.md", b"taken\n");
+
+    let error = files_io::recover_move(fixture.root(), ".ace-upload-move-journal1", "taken.md")
+        .expect_err("a taken destination is never replaced");
+    assert_eq!(error.code(), "CONFLICT");
+    assert_eq!(fixture.read("taken.md"), b"taken\n");
+    assert_eq!(
+        fixture.read(".ace-upload-move-journal1"),
+        b"the parked entry\n"
+    );
+
+    files_io::recover_move(fixture.root(), ".ace-upload-move-journal1", "finished.md")
+        .expect("the journaled move finishes");
+    assert_eq!(fixture.read("finished.md"), b"the parked entry\n");
+    assert!(!fixture.exists(".ace-upload-move-journal1"));
+}
+
+#[test]
+fn a_recovery_only_moves_the_daemons_own_staging_names() {
+    let fixture = Fixture::new();
+    fixture.write("ordinary.md", b"a client's file\n");
+
+    let error = files_io::recover_move(fixture.root(), "ordinary.md", "elsewhere.md")
+        .expect_err("a client path is not a staging name");
+    assert_eq!(error.code(), "INVALID_ARGUMENT");
+    assert_eq!(fixture.read("ordinary.md"), b"a client's file\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn remove_refuses_a_link_and_never_touches_its_target() {

@@ -766,3 +766,41 @@ pub(crate) fn attribute_handle(dir: &Dir, name: &str) -> Result<File, Error> {
     options.read(false).write(false).access_mode(0);
     Ok(dir.open_with(name, &options)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::recovery_name;
+
+    #[test]
+    fn a_recovery_name_for_a_name_at_the_limit_still_fits_it() {
+        let long = format!("{}.md", "n".repeat(250));
+        let kept = recovery_name(&long);
+
+        assert!(kept.len() <= 255, "{} bytes: {kept}", kept.len());
+        assert!(kept.ends_with(".md"), "{kept}");
+        assert!(kept.contains(".conflict-"), "{kept}");
+        let stem = kept.split(".conflict-").next().expect("a stem");
+        assert!(long.starts_with(stem), "the stem is the original's");
+    }
+
+    #[test]
+    fn a_recovery_name_never_splits_a_character() {
+        let long = format!("{}.md", "é".repeat(120));
+        let kept = recovery_name(&long);
+
+        assert!(kept.len() <= 255, "{} bytes", kept.len());
+        let stem = kept.split(".conflict-").next().expect("a stem");
+        assert!(
+            long.starts_with(stem),
+            "the stem is a whole-character prefix"
+        );
+    }
+
+    #[test]
+    fn a_short_name_keeps_its_extension() {
+        let kept = recovery_name("notes.md");
+
+        assert!(kept.starts_with("notes.conflict-"), "{kept}");
+        assert!(kept.ends_with(".md"), "{kept}");
+    }
+}

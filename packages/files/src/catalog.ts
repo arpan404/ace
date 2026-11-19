@@ -59,8 +59,34 @@ export const TrashRecord = z.object({
    * from retention until it is reconciled, so the bytes it names are never swept as garbage.
    */
   pending: z.boolean().default(false),
+  /**
+   * The entry's own version before its delete, so a later reconciliation can prove that the
+   * entry at the trash endpoint is the one this receipt moved.
+   *
+   * Absent on receipts written before the daemon recorded it; an identity it cannot prove keeps
+   * the receipt pending rather than guessing.
+   */
+  identity: z.string().nullable().optional(),
 });
 export type TrashRecord = z.infer<typeof TrashRecord>;
+/**
+ * A case-only rename, journaled before its first step.
+ *
+ * Such a rename is two renames: the entry parks at `staging`, then takes its new spelling. A
+ * crash between them leaves the entry under the daemon's private name, so the staging name is
+ * written down first and a later start finishes the move from it.
+ */
+export const MoveRecord = z.object({
+  ...common,
+  kind: z.literal("move"),
+  path: z.string(),
+  destination: z.string(),
+  staging: z.string().regex(/^(?:[^/]+\/)*\.ace-upload-move-[a-zA-Z0-9_-]{1,160}$/),
+  /** The entry's own version before the move, so a name is only trusted while it holds it. */
+  identity: z.string().nullable(),
+  pending: z.boolean().default(true),
+});
+export type MoveRecord = z.infer<typeof MoveRecord>;
 export const ArtifactRecord = z.object({
   ...common,
   kind: z.literal("artifact"),
@@ -75,6 +101,7 @@ const Record = z.discriminatedUnion("kind", [
   UploadRecord,
   UploadReceipt,
   TrashRecord,
+  MoveRecord,
   ArtifactRecord,
 ]);
 type Record = z.infer<typeof Record>;

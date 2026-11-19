@@ -98,9 +98,11 @@ export interface FilesIo {
    *
    * `expected` is the version the caller worked from and `own` a folder's own version before the
    * move: the moved tree is verified against them and put back when it changed, so the guard and
-   * the move are one step. The outcome carries the moved entry's version when the port read one
-   * from that entry, a moved folder's own version as the identity a later digest must match, and
-   * the visible path an entry was preserved under when the move could not complete.
+   * the move are one step. `staging` names the entry a case-only move parks under, which the
+   * caller journaled first so a later start can finish it. The outcome carries the moved entry's
+   * version when the port read one from that entry, a moved folder's own version as the identity
+   * a later digest must match, and the visible path an entry was preserved under when the move
+   * could not complete.
    */
   move(
     root: string,
@@ -108,6 +110,7 @@ export interface FilesIo {
     to: string,
     expected: string | null,
     own: string | null,
+    staging?: string,
   ): Promise<MoveOutcome>;
   /**
    * Park a client's entry at the daemon's generated trash endpoint, guarded by the version it

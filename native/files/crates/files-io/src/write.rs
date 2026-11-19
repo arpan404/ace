@@ -398,6 +398,7 @@ fn guarded_replace(
             current: Some(current),
         });
     }
+    crate::hooks::reached(crate::hooks::Step::GuardedPublish, name, name);
     // Windows refuses to replace a read-only file, so the attribute comes off through the handle
     // the guard just read, and goes back through it if the move aside is refused.
     let readonly = metadata.permissions().readonly();
@@ -645,6 +646,49 @@ mod tests {
             assert_eq!(error.code(), "CONFLICT");
             assert_eq!(std::fs::read(&target).expect("read"), b"appeared first\n");
             assert!(temporaries(dir).is_empty());
+        });
+    }
+
+    #[cfg(all(windows, feature = "test-hooks"))]
+    #[test]
+    fn a_guarded_publish_refuses_a_writer_for_its_whole_run() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        use crate::test_hooks::{Step, watch};
+
+        with_root(|root, dir| {
+            let target = dir.join("doc.md");
+            std::fs::write(&target, b"first\n").expect("seed");
+            let version = crate::stat_version(root, "doc.md")
+                .expect("stat")
+                .expect("a version");
+            let refused = Arc::new(AtomicBool::new(false));
+            // A writer that tries to open the target while the publish holds it must be refused:
+            // nothing may land between the version check and the commit.
+            let seen = Arc::clone(&refused);
+            let racing = target.clone();
+            let _hook = watch(move |step, name, _to| {
+                if step != Step::GuardedPublish || name != "doc.md" {
+                    return;
+                }
+                seen.store(
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&racing)
+                        .is_err(),
+                    Ordering::Relaxed,
+                );
+            });
+
+            save(root, "doc.md", b"ours\n", Some(&version), &|| {}, &|| {})
+                .expect("the save publishes");
+
+            assert!(
+                refused.load(Ordering::Relaxed),
+                "a concurrent writer is refused for the whole guarded publish"
+            );
+            assert_eq!(std::fs::read(&target).expect("read"), b"ours\n");
         });
     }
 
