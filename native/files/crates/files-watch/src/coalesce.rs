@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use crate::batch::{Batch, Change};
 use crate::observed::{Observed, parent};
-use crate::translate::{Notice, Presence};
+use crate::translate::{Notice, Reader};
 
 /// How many `max_wait` periods a burst may run before a checkpoint rescan, so a writer that
 /// never stops cannot keep the tree stale forever.
@@ -182,11 +182,7 @@ impl Coalescer {
     }
 
     /// Closes the window and returns what the sink should hear, if anything.
-    pub(crate) fn settle(
-        &mut self,
-        now: Instant,
-        mut look: impl FnMut(&str) -> Presence,
-    ) -> Option<Batch> {
+    pub(crate) fn settle(&mut self, now: Instant, reader: &mut impl Reader) -> Option<Batch> {
         let activity = std::mem::take(&mut self.activity);
         if let Some(scope) = self.scope.clone() {
             if activity {
@@ -219,7 +215,13 @@ impl Coalescer {
         self.last = None;
         let mut changes = Vec::with_capacity(paths.len());
         for (path, observed) in &paths {
-            if let Some(change) = observed.resolve(path, &mut look) {
+            if observed.renamed() {
+                // A rename in this window changed the names the folder stores, and the window may
+                // have read them before it: the stored spelling that decides this change has to
+                // be read now.
+                reader.renamed(path);
+            }
+            if let Some(change) = observed.resolve(path, reader) {
                 changes.push(change);
             }
         }
@@ -277,11 +279,18 @@ fn intersect(left: &[String], right: &[String]) -> Vec<String> {
 mod tests {
     use super::Coalescer;
     use crate::batch::{Batch, Change, ChangeKind};
-    use crate::translate::{Notice, Presence};
+    use crate::translate::{Notice, Presence, Reader};
     use std::time::{Duration, Instant};
 
     const DEBOUNCE: Duration = Duration::from_millis(75);
     const MAX_WAIT: Duration = Duration::from_secs(1);
+
+    /// A notice the backend described as a rename.
+    fn renamed(path: &str, kind: ChangeKind) -> Notice {
+        let mut notice = notice(path, kind);
+        notice.rename = true;
+        notice
+    }
 
     fn notice(path: &str, kind: ChangeKind) -> Notice {
         Notice {
@@ -306,12 +315,42 @@ mod tests {
         }
     }
 
-    fn exists(_: &str) -> Presence {
-        Presence::Here(false)
+    /// A tree where every path is there and is not a folder.
+    struct Exists;
+
+    impl Reader for Exists {
+        fn presence(&mut self, _path: &str) -> Presence {
+            Presence::Here(false)
+        }
+
+        fn renamed(&mut self, _path: &str) {}
     }
 
-    fn gone(_: &str) -> Presence {
-        Presence::Gone
+    /// A tree where every path is gone.
+    struct Gone;
+
+    impl Reader for Gone {
+        fn presence(&mut self, _path: &str) -> Presence {
+            Presence::Gone
+        }
+
+        fn renamed(&mut self, _path: &str) {}
+    }
+
+    /// A tree where every path is there, with the folders whose stored names were announced as
+    /// changed by a rename.
+    struct Renames {
+        announced: Vec<String>,
+    }
+
+    impl Reader for Renames {
+        fn presence(&mut self, _path: &str) -> Presence {
+            Presence::Here(false)
+        }
+
+        fn renamed(&mut self, path: &str) {
+            self.announced.push(path.to_owned());
+        }
     }
 
     #[test]
@@ -328,7 +367,7 @@ mod tests {
             Some(Duration::from_millis(65))
         );
         assert_eq!(
-            changes_of(coalescer.settle(later + DEBOUNCE, exists)).len(),
+            changes_of(coalescer.settle(later + DEBOUNCE, &mut Exists)).len(),
             1
         );
         assert_eq!(coalescer.wait(Instant::now()), None);
@@ -348,7 +387,7 @@ mod tests {
             }
         }
         assert_eq!(now.duration_since(start), MAX_WAIT);
-        assert!(coalescer.settle(now, exists).is_some());
+        assert!(coalescer.settle(now, &mut Exists).is_some());
     }
 
     #[test]
@@ -358,13 +397,13 @@ mod tests {
         for path in ["b.txt", "c/d.txt", "a.txt"] {
             coalescer.push(notice(path, ChangeKind::Modified), now);
         }
-        let changes = changes_of(coalescer.settle(now, exists));
+        let changes = changes_of(coalescer.settle(now, &mut Exists));
         let paths: Vec<&str> = changes.iter().map(|change| change.path.as_str()).collect();
         assert_eq!(paths, ["a.txt", "b.txt", "c/d.txt"]);
     }
 
     #[test]
-    fn a_burst_over_max_batch_rescans_when_it_goes_quiet() {
+    fn a_burst_over_max_batch_rescans_once_when_it_goes_quiet() {
         let mut coalescer = coalescer(2);
         let start = Instant::now();
         for index in 0..100 {
@@ -374,21 +413,41 @@ mod tests {
                 now,
             );
         }
+        // One window sends at most one rescan: it covers everything that arrived until it was
+        // sent, so a second one would report the same window twice however often it is asked.
+        let mut rescans = Vec::new();
+        for at in [200u64, 2_000, 3_000, 4_000, 5_000] {
+            if let Some(batch) = coalescer.settle(start + Duration::from_millis(at), &mut Exists) {
+                rescans.push(batch);
+            }
+        }
         assert_eq!(
-            coalescer.settle(start + Duration::from_millis(200), exists),
-            None,
-            "the burst is still going in the watcher's queue"
-        );
-        assert_eq!(
-            coalescer.settle(start + Duration::from_secs(2), exists),
-            Some(Batch::Rescan {
+            rescans,
+            [Batch::Rescan {
                 dir: Some("burst".to_owned())
-            })
+            }],
+            "the burst reaches the caller as one rescan of its folder"
         );
+    }
+
+    #[test]
+    fn a_rename_announces_every_path_it_touched() {
+        // A rename changes the names both folders store, and the window may have read them before
+        // the rename: settlement is told about every path the rename touched, so the stored
+        // spelling is read again rather than matched against a name that is gone.
+        let mut coalescer = coalescer(100);
+        let now = Instant::now();
+        coalescer.push(renamed("d/Readme.txt", ChangeKind::Deleted), now);
+        coalescer.push(renamed("d/readme.txt", ChangeKind::Created), now);
+        let mut reader = Renames {
+            announced: Vec::new(),
+        };
+        let changes = changes_of(coalescer.settle(now + DEBOUNCE, &mut reader));
+        assert_eq!(changes.len(), 2, "both spellings are reported");
         assert_eq!(
-            coalescer.settle(start + Duration::from_secs(3), exists),
-            None,
-            "one rescan covers the whole burst"
+            reader.announced,
+            ["d/Readme.txt", "d/readme.txt"],
+            "both paths were announced before either was judged"
         );
     }
 
@@ -411,7 +470,7 @@ mod tests {
                 now,
             );
             if coalescer.wait(now) == Some(Duration::ZERO)
-                && let Some(batch) = coalescer.settle(now, exists)
+                && let Some(batch) = coalescer.settle(now, &mut Exists)
             {
                 rescans.push(batch);
             }
@@ -432,13 +491,13 @@ mod tests {
         // The final rescan still follows once the writer stops.
         let quiet = start + Duration::from_secs(20);
         assert_eq!(
-            coalescer.settle(quiet, exists),
+            coalescer.settle(quiet, &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("burst".to_owned())
             })
         );
         assert_eq!(
-            coalescer.settle(quiet + Duration::from_secs(1), exists),
+            coalescer.settle(quiet + Duration::from_secs(1), &mut Exists),
             None,
             "the burst is over"
         );
@@ -450,16 +509,16 @@ mod tests {
         let start = Instant::now();
         coalescer.push(notice("burst/a", ChangeKind::Created), start);
         coalescer.push(notice("burst/b", ChangeKind::Created), start);
-        assert_eq!(coalescer.settle(start, exists), None);
+        assert_eq!(coalescer.settle(start, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(start + Duration::from_secs(1), exists),
+            coalescer.settle(start + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("burst".to_owned())
             })
         );
         let later = start + Duration::from_secs(2);
         coalescer.push(notice("other/c", ChangeKind::Modified), later);
-        let changes = changes_of(coalescer.settle(later + Duration::from_secs(1), exists));
+        let changes = changes_of(coalescer.settle(later + Duration::from_secs(1), &mut Exists));
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].path, "other/c");
     }
@@ -470,9 +529,9 @@ mod tests {
         let start = Instant::now();
         coalescer.push(notice("first/a", ChangeKind::Created), start);
         coalescer.push(notice("first/b", ChangeKind::Created), start);
-        assert_eq!(coalescer.settle(start, exists), None);
+        assert_eq!(coalescer.settle(start, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(start + Duration::from_secs(1), exists),
+            coalescer.settle(start + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("first".to_owned())
             })
@@ -480,9 +539,9 @@ mod tests {
         let later = start + Duration::from_secs(2);
         coalescer.push(notice("second/a", ChangeKind::Created), later);
         coalescer.push(notice("second/b", ChangeKind::Created), later);
-        assert_eq!(coalescer.settle(later, exists), None);
+        assert_eq!(coalescer.settle(later, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(later + Duration::from_secs(1), exists),
+            coalescer.settle(later + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("second".to_owned())
             })
@@ -495,9 +554,9 @@ mod tests {
         let now = Instant::now();
         coalescer.push(notice("src/a.txt", ChangeKind::Modified), now);
         coalescer.overflow(Some("src".to_owned()), now);
-        assert_eq!(coalescer.settle(now, exists), None);
+        assert_eq!(coalescer.settle(now, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(now + Duration::from_secs(1), exists),
+            coalescer.settle(now + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("src".to_owned())
             })
@@ -509,9 +568,9 @@ mod tests {
         let mut coalescer = coalescer(100);
         let now = Instant::now();
         coalescer.overflow(None, now);
-        assert_eq!(coalescer.settle(now, gone), None);
+        assert_eq!(coalescer.settle(now, &mut Gone), None);
         assert_eq!(
-            coalescer.settle(now + Duration::from_secs(1), gone),
+            coalescer.settle(now + Duration::from_secs(1), &mut Gone),
             Some(Batch::Rescan { dir: None })
         );
     }
@@ -522,9 +581,9 @@ mod tests {
         let now = Instant::now();
         coalescer.overflow(Some("src".to_owned()), now);
         coalescer.push(notice("docs/a.txt", ChangeKind::Modified), now);
-        assert_eq!(coalescer.settle(now, exists), None);
+        assert_eq!(coalescer.settle(now, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(now + Duration::from_secs(1), exists),
+            coalescer.settle(now + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan { dir: None }),
             "the root holds both folders"
         );
@@ -548,9 +607,9 @@ mod tests {
         );
         coalescer.push(notice("burst/a.txt", ChangeKind::Created), now);
         coalescer.overflow(Some("burst".to_owned()), now);
-        assert_eq!(coalescer.settle(now, exists), None);
+        assert_eq!(coalescer.settle(now, &mut Exists), None);
         assert_eq!(
-            coalescer.settle(now + Duration::from_secs(1), exists),
+            coalescer.settle(now + Duration::from_secs(1), &mut Exists),
             Some(Batch::Rescan {
                 dir: Some("burst".to_owned())
             })
@@ -574,7 +633,7 @@ mod tests {
             now,
         );
         coalescer.push(notice("fleeting.txt", ChangeKind::Deleted), now);
-        assert_eq!(coalescer.settle(now, gone), None);
+        assert_eq!(coalescer.settle(now, &mut Gone), None);
     }
 
     #[test]
@@ -591,7 +650,7 @@ mod tests {
                 coalescer.push(notice("gone", ChangeKind::Deleted), now);
                 coalescer.push(notice("gone/file.txt", ChangeKind::Deleted), now);
             }
-            let changes = changes_of(coalescer.settle(now, gone));
+            let changes = changes_of(coalescer.settle(now, &mut Gone));
             let folder = changes.iter().find(|change| change.path == "gone").unwrap();
             assert!(folder.directory, "children_first = {children_first}");
         }

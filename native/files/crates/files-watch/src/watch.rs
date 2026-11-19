@@ -291,14 +291,7 @@ impl Worker {
             // stops hold `recv_timeout(0)` open forever and the window would never close. The
             // deadline is checked before the queue is touched.
             if wait == Some(Duration::ZERO) {
-                let batch = {
-                    let mut look =
-                        |path: &str| translate::look(&self.root, &mut self.readings, path);
-                    coalescer.settle(now, &mut look)
-                };
-                if let Some(batch) = batch {
-                    self.deliver(batch);
-                }
+                self.settle(&mut coalescer, now);
                 continue;
             }
             let received = match wait {
@@ -316,12 +309,15 @@ impl Worker {
                     // only be discarded with the change. Skipping it also lets a large backlog
                     // drain quickly, so the rescan is sent soon after the burst ends.
                     let mut translation = if coalescer.is_rescanning() {
-                        let mut absent = |_: &str| translate::Presence::Unknown;
-                        translate::translate(event, &self.root, &self.excluder, &mut absent)
+                        translate::translate(
+                            event,
+                            &self.root,
+                            &self.excluder,
+                            &mut translate::Absent,
+                        )
                     } else {
-                        let mut look =
-                            |path: &str| translate::look(&self.root, &mut self.readings, path);
-                        translate::translate(event, &self.root, &self.excluder, &mut look)
+                        let mut disk = translate::Disk::new(&self.root, &mut self.readings);
+                        translate::translate(event, &self.root, &self.excluder, &mut disk)
                     };
                     if let Some(dir) = translation.rescan {
                         coalescer.overflow(dir, now);
@@ -337,14 +333,7 @@ impl Worker {
                 }
                 Ok(Command::Failed(message)) => self.backend_failed(message),
                 Err(RecvTimeoutError::Timeout) => {
-                    let batch = {
-                        let mut look =
-                            |path: &str| translate::look(&self.root, &mut self.readings, path);
-                        coalescer.settle(Instant::now(), &mut look)
-                    };
-                    if let Some(batch) = batch {
-                        self.deliver(batch);
-                    }
+                    self.settle(&mut coalescer, Instant::now());
                 }
             }
         }
@@ -439,10 +428,24 @@ impl Worker {
         }
     }
 
-    fn deliver(&mut self, batch: Batch) {
-        // The window is closed: folders read while it filled may have changed since, and the next
-        // window starts from what the tree holds then.
+    /// Closes the coalescer's window and delivers what it holds.
+    ///
+    /// The readings belong to the window that just closed: folders read while it filled may have
+    /// changed since, and the next window starts from what the tree holds then. They are dropped
+    /// whether or not this window produced a batch, so a window whose news cancelled out leaves
+    /// nothing behind for the next one to trust.
+    fn settle(&mut self, coalescer: &mut Coalescer, now: Instant) {
+        let batch = {
+            let mut disk = translate::Disk::new(&self.root, &mut self.readings);
+            coalescer.settle(now, &mut disk)
+        };
         self.readings.clear();
+        if let Some(batch) = batch {
+            self.deliver(batch);
+        }
+    }
+
+    fn deliver(&mut self, batch: Batch) {
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
