@@ -3,8 +3,14 @@ import { agentGuides, agentQuestions, agentSetup } from "../content/agent-guides
 import { features } from "../content/features.ts";
 import { legalDocuments, type LegalBlock } from "../content/legal.ts";
 import { toolReference } from "../content/mcp.ts";
-import { boundary, faq, securityQuestions, statuses } from "../content/product.ts";
+import { faq, securityQuestions, statuses } from "../content/product.ts";
 import { roster, rosterFacts } from "../content/roster.ts";
+import {
+  boundaryGroups,
+  mapNodes,
+  securityPage as securityWords,
+  type BoundaryGroup,
+} from "../content/security.ts";
 import { spadePage, spadeQuestions, tour, turnOn } from "../content/spade.ts";
 import {
   agentsSentence,
@@ -152,13 +158,28 @@ export function mcpPage(): string[] {
   ];
 }
 
+/** One group of boundaries: its heading, then each row as a sentence that stands on its own. */
+function boundaryLines(group: BoundaryGroup): string[] {
+  const rows = group.rows.map((row) =>
+    group.lead ? `${group.lead} ${row.charAt(0).toLowerCase()}${row.slice(1)}` : row,
+  );
+  return [`## ${group.heading}`, ""].concat(bullets(rows), "");
+}
+
 export function securityPage(): string[] {
   return [
     "# Security and privacy in ace",
     "",
     "> ace is an app you run on your own machines, not a hosted service: agents, threads and code stay on your computers, and provider credentials stay with each agent's own CLI.",
     "",
-    ...boundary.flatMap((item) => [`## ${item.title}`, "", item.body, ""]),
+    `## ${securityWords.mapHeading}`,
+    "",
+    securityWords.mapLede,
+    securityWords.mapNote,
+    "",
+    ...bullets(mapNodes.map((node) => `${node.label} (${node.name}): ${node.facts.join("; ")}.`)),
+    "",
+    ...boundaryGroups.flatMap(boundaryLines),
     "## Questions",
     "",
     ...questions(securityQuestions),

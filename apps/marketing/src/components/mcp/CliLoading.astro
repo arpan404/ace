@@ -1,0 +1,99 @@
+---
+/*
+ * How each CLI takes ace's tools in (content/mcp.ts): the heading on one side, one ruled row per
+ * CLI on the other, with its mark where the app has one.
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import { cliLoading, mcpPage } from "../../content/mcp.ts";
+import BrandMark from "../BrandMark.astro";
+---
+
+<section class="section page clis">
+  <div class="say reveal">
+    <h2 class="section-title">{mcpPage.cliHeading}</h2>
+    <p class="lede">{mcpPage.cliLede}</p>
+    <p class="lede">{mcpPage.approvals}</p>
+  </div>
+  <ul class="card reveal" data-stagger>
+    {
+      cliLoading.map((row) => {
+        const brand = row.provider ? providerIcon({ provider: row.provider }).brand : undefined;
+        return (
+          <li>
+            <div>
+              <span class="cli">
+                {brand ? <BrandMark brand={brand} size={18} /> : <i class="blank" />}
+                {row.cli}
+              </span>
+              <span class="how">{row.how}</span>
+            </div>
+          </li>
+        );
+      })
+    }
+  </ul>
+</section>
+
+<style>
+  .clis {
+    display: grid;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .clis {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .say h2 {
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .lede + .lede {
+    margin-top: 12px;
+  }
+
+  ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li > div {
+    display: grid;
+    gap: 4px;
+    padding: 14px 14px 15px;
+    border-radius: 8px;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  li > div:hover {
+    background: var(--wash);
+  }
+
+  .cli {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  /* A row of several CLIs has no one mark; its name stays in line with the others. */
+  .blank {
+    flex: none;
+    width: 18px;
+  }
+
+  .how {
+    padding-left: 28px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>
