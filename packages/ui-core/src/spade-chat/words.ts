@@ -269,11 +269,11 @@ export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | 
       return `${subject} is limiting requests right now. Wait a moment, then try again.`;
     case "model":
       return endpoint
-        ? `The model on ${endpoint} failed to answer. Try again, or see Details.`
-        : "The model failed to answer. Try again, or see Details.";
+        ? `The model on ${endpoint} failed to answer.`
+        : "The model failed to answer.";
     case "no_model":
       return "There's no model set up to answer. Set one up, then try again.";
     case "other":
-      return "Couldn't finish this reply. Try again, or see Details.";
+      return "The reply stopped before it finished.";
   }
 }

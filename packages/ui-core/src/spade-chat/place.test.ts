@@ -92,7 +92,7 @@ describe("a failed reply's sentence", () => {
       "OpenCode Go is limiting requests right now. Wait a moment, then try again.",
     );
     expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
-      "The model on OpenCode Go failed to answer. Try again, or see Details.",
+      "The model on OpenCode Go failed to answer.",
     );
     expect(spadeFailureSentence("no_model", undefined)).toBe(
       "There's no model set up to answer. Set one up, then try again.",

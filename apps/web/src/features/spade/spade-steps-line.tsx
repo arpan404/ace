@@ -8,7 +8,8 @@ import { cn } from "@/lib/cn.ts";
  * changed a file") that opens to each step: what it did and touched, where it ran and how it
  * ended. A step the person must see stands under the line unopened, in full ink: one the
  * network policy blocked, the review refused or the person declined, one that deletes or can't
- * be undone, and one that acted outside the bot's box. Words only: no icons, badges or tints.
+ * be undone, and one that acted outside the bot's box; when every step is such a one, they stand
+ * alone, with no line counting them. Words only: no icons, badges or tints.
  */
 export function SpadeStepsLine(props: { summary: string; steps: readonly SpadeStep[] }) {
   const [open, setOpen] = useState(false);
@@ -17,7 +18,8 @@ export function SpadeStepsLine(props: { summary: string; steps: readonly SpadeSt
   const folds = props.steps.some((step) => !step.notable);
   return (
     <div className="ml-1.5 flex min-w-0 max-w-[64ch] flex-col">
-      {folds ? (
+      {/* With every step standing on its own, a line counting them would only repeat them. */}
+      {folds && (
         <Disclosure
           summary={<span className="min-w-0 truncate">{props.summary}</span>}
           summaryClassName="h-7 rounded-full px-2 text-ui"
@@ -26,10 +28,6 @@ export function SpadeStepsLine(props: { summary: string; steps: readonly SpadeSt
         >
           {open && <Steps label="Steps" steps={props.steps} />}
         </Disclosure>
-      ) : (
-        <p className="flex h-7 min-w-0 items-center px-2 text-ui text-muted-foreground">
-          <span className="truncate">{props.summary}</span>
-        </p>
       )}
       {!open && notable.length > 0 && <Steps label="Steps to look at" steps={notable} />}
     </div>

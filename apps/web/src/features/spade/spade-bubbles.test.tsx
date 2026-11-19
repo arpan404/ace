@@ -169,6 +169,46 @@ test("a reply's steps fold into one line under its words, a blocked one shown un
   expect(chat.queryByRole("list", { name: "Steps to look at" })).toBeNull();
 });
 
+test("a reply whose only step must be seen shows it once, with no line counting it", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    const store = (event: Record<string, unknown>) => spade.store(garden.conversation, event);
+    store({ type: "user_message", text: "Fetch the seed list" });
+    store({ type: "reply_started", reply: "r1" });
+    const command = "curl -s https://example.com/seeds.json";
+    store({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "d", name: "shell", arguments: { command } }],
+    });
+    store({ type: "tool_started", reply: "r1", call_id: "d", name: "shell" });
+    store({
+      type: "tool_finished",
+      reply: "r1",
+      call_id: "d",
+      name: "shell",
+      content: "",
+      is_error: false,
+    });
+    store({
+      type: "command_ran",
+      reply: "r1",
+      call_id: "d",
+      contained: true,
+      exit_code: 0,
+      refused: [{ host: "example.com", port: 443, reason: "not on the allow-list" }],
+    });
+    store({ type: "reply_finished", reply: "r1", text: "The list is blocked." });
+  });
+  const chat = within(await feed("Garden"));
+  await chat.findByText("The list is blocked.");
+  expect(chat.getAllByText(/^Ran a command/)).toHaveLength(1);
+  expect(chat.getByRole("list", { name: "Steps to look at" })).toBeTruthy();
+});
+
 test("the working line says what a tool does in plain words, not its raw name", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
