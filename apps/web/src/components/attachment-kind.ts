@@ -1,4 +1,5 @@
 import type { Attachment } from "@ace/protocol";
+import { imageType } from "@ace/ui-core";
 import { formatBytes } from "./format-bytes.ts";
 
 /*
@@ -78,6 +79,28 @@ const languages: Record<string, string> = {
   dart: "Dart",
   ex: "Elixir",
   zig: "Zig",
+  scala: "Scala",
+  r: "R",
+  pl: "Perl",
+  hs: "Haskell",
+  ml: "OCaml",
+  clj: "Clojure",
+  erl: "Erlang",
+  exs: "Elixir",
+  m: "Objective-C",
+  mm: "Objective-C++",
+  ps1: "PowerShell",
+  bat: "Batch",
+  less: "Less",
+  sass: "Sass",
+  astro: "Astro",
+  graphql: "GraphQL",
+  gql: "GraphQL",
+  proto: "Protobuf",
+  tf: "Terraform",
+  nix: "Nix",
+  gradle: "Gradle",
+  dockerfile: "Dockerfile",
 };
 const prose: Record<string, string> = {
   md: "Markdown",
@@ -87,6 +110,30 @@ const prose: Record<string, string> = {
   rst: "reStructuredText",
   ini: "INI",
   env: "Env",
+  conf: "Config",
+  cfg: "Config",
+  properties: "Properties",
+  lock: "Lockfile",
+  diff: "Diff",
+  patch: "Patch",
+  srt: "Subtitles",
+  vtt: "Subtitles",
+};
+/** Files known by their whole name, with no extension to go by. */
+const named: Record<string, string> = {
+  dockerfile: "Dockerfile",
+  makefile: "Makefile",
+  gemfile: "Ruby",
+  rakefile: "Ruby",
+  procfile: "Procfile",
+  license: "Text",
+  readme: "Text",
+  ".gitignore": "Gitignore",
+  ".gitattributes": "Git",
+  ".dockerignore": "Dockerignore",
+  ".editorconfig": "EditorConfig",
+  ".npmrc": "Config",
+  ".env": "Env",
 };
 const sheets: Record<string, string> = {
   csv: "CSV",
@@ -99,6 +146,9 @@ const sheets: Record<string, string> = {
 const archives = new Set(["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "zst", "jar"]);
 const audio = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "opus"]);
 const video = new Set(["mp4", "mov", "m4v", "webm", "mkv", "avi", "ogv"]);
+
+/** A raster image the browser draws by its name alone (SVG reads as source, not a picture). */
+const isImageName = (name: string, ext: string) => ext !== "svg" && imageType(name) !== undefined;
 
 /** A table's own entry, never one inherited from `Object` ("x.constructor" is no language). */
 const entry = (table: Record<string, string>, key: string) =>
@@ -117,9 +167,14 @@ export function describeFile(file: FileFacts): Described {
   // A pathological extension is noise, not a kind: cap what chips and previews print.
   const word = ext.toUpperCase();
   const upper = word.length > 16 ? `${word.slice(0, 15)}…` : word;
+  const base = file.name.split(/[\\/]/).at(-1)?.toLowerCase() ?? "";
   if (file.kind === "pdf" || mime === "application/pdf" || (!file.kind && ext === "pdf"))
     return { kind: "pdf", label: "PDF", preview: "pdf" };
-  if (file.kind === "image" || (!file.kind && mime.startsWith("image/") && ext !== "svg"))
+  // A file an answer links by path comes with no MIME type and no daemon kind: its name decides.
+  if (
+    file.kind === "image" ||
+    (!file.kind && ext !== "svg" && (mime.startsWith("image/") || isImageName(file.name, ext)))
+  )
     return { kind: "image", label: upper || "Image", preview: "image" };
   // Text the daemon validated, or what claims to be text before it has looked.
   const textual =
@@ -129,6 +184,7 @@ export function describeFile(file: FileFacts): Described {
         /json|javascript|typescript|xml|yaml|x-sh/.test(mime) ||
         entry(languages, ext) ||
         entry(prose, ext) ||
+        entry(named, base) ||
         ext === "csv" ||
         ext === "tsv"));
   if (textual) {
@@ -136,6 +192,8 @@ export function describeFile(file: FileFacts): Described {
     if (sheet) return { kind: "sheet", label: entry(sheets, ext) ?? "CSV", preview: "text" };
     const language = entry(languages, ext);
     if (language) return { kind: "code", label: language, preview: "text" };
+    const known = entry(named, base);
+    if (known) return { kind: "text", label: known, preview: "text" };
     return { kind: "text", label: entry(prose, ext) ?? (upper || "Text"), preview: "text" };
   }
   const sheet = entry(sheets, ext);
