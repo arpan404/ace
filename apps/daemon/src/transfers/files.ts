@@ -22,11 +22,18 @@ export async function fileBytes(path: string): Promise<number> {
 }
 
 /** Appends `data` when the file holds exactly `offset` bytes; answers what it holds after. */
-export async function appendAt(path: string, offset: number, data: Buffer): Promise<number> {
+export async function appendAt(
+  path: string,
+  offset: number,
+  data: Buffer,
+  /** Runs right before the bytes are written, after every wait; throwing writes nothing. */
+  before: () => void = () => undefined,
+): Promise<number> {
   const held = await fileBytes(path);
   if (held !== offset) return held;
   const handle = await open(path, "a", 0o600);
   try {
+    before();
     await handle.write(data);
     await handle.sync();
   } finally {

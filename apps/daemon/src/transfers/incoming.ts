@@ -57,6 +57,12 @@ export interface IncomingDeps {
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
+/**
+ * The asking device as its credential stands right now (`deviceNow` in `serve.ts`): it throws
+ * once the device is revoked or lost `operate` or `projects`. Every write and every state claim
+ * reads it again right before it happens, never across an await (ADR 0101).
+ */
+export type DeviceCheck = () => Device;
 /** The most registrations, most recently used first, a begin reads origins of. */
 const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
@@ -139,6 +145,8 @@ export class IncomingTransfers {
   private held = new Set<string>();
   /** Setups and starts being tried again, by key, so each runs once at a time. */
   private retries = new Set<string>();
+  /** Swept transfers whose files are still being removed: a begin of the same id waits. */
+  private sweeping = new Map<string, Promise<void>>();
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
   constructor(deps: IncomingDeps) {
@@ -190,6 +198,7 @@ export class IncomingTransfers {
       ...this.imports.values(),
       ...this.writes.values(),
       ...this.cancels.values(),
+      ...this.sweeping.values(),
     ]);
   }
   private file(transferId: string) {
@@ -245,9 +254,18 @@ export class IncomingTransfers {
       throw new TargetRefusal("not_found", "This machine has no such transfer.");
     return record;
   }
+  /** The device `check` reads now, refused unless it is still the one that asked. */
+  private still(device: Device, check: DeviceCheck): void {
+    if (check().id !== device.id)
+      throw new TargetRefusal(
+        "machine_forbidden",
+        "This machine's link isn't paired here anymore.",
+      );
+  }
   async call(
     device: Device,
     call: Exclude<MachineTransferCall, { op: "probe" }>,
+    check: DeviceCheck = () => device,
   ): Promise<IncomingTransfer> {
     // A moved thread's transfer whose row retention dropped is answered from its receipt, so a
     // lost answer and a repeat never land it twice (ADR 0191).
@@ -257,16 +275,20 @@ export class IncomingTransfers {
     if (receipt) return receipt;
     switch (call.op) {
       case "begin":
-        return this.begin(device, call);
+        return this.begin(device, call, check);
       case "status":
         return this.view(this.owned(device, call.transferId));
       case "commit":
-        return this.commit(device, call);
+        return this.commit(device, call, check);
       case "cancel":
         return this.cancel(device, call.transferId);
     }
   }
-  private async begin(device: Device, call: TransferBegin): Promise<IncomingTransfer> {
+  private async begin(
+    device: Device,
+    call: TransferBegin,
+    check: DeviceCheck,
+  ): Promise<IncomingTransfer> {
     if (call.live && !this.deps.live)
       throw new TargetRefusal("invalid", "This machine can't take a working thread.");
     if (call.remote) (this.deps.gitPolicy?.validateUrl ?? validateCloneUrl)(call.remote.url);
@@ -278,6 +300,16 @@ export class IncomingTransfers {
       call.method === "remote" && call.remote
         ? await this.sameOrigin(call.remote.normalized)
         : this.earlierCopy(device, call);
+    // A sweep still removing the files of an expired transfer with this id finishes first, so
+    // it never removes the files of the transfer this begin starts.
+    for (let swept = this.sweeping.get(call.transferId); swept;) {
+      await swept;
+      swept = this.sweeping.get(call.transferId);
+    }
+    const again = this.rows.get(call.transferId);
+    if (again) return this.view(this.owned(device, call.transferId));
+    // Awaited above: the device may have lost the scopes a transfer needs meanwhile.
+    this.still(device, check);
     const record: IncomingRecord = {
       transferId: call.transferId,
       deviceId: device.id,
@@ -368,6 +400,7 @@ export class IncomingTransfers {
     offset: number,
     data: Buffer,
     part: "code" | "ignored" | "final" = "code",
+    check: DeviceCheck = () => device,
   ) {
     const record = this.owned(device, transferId);
     if (data.length > transferChunkBytes) throw new TargetRefusal("invalid", "Chunk too large.");
@@ -394,7 +427,13 @@ export class IncomingTransfers {
           "invalid",
           "The transfer is larger than a transfer may be (20 GiB with the files Git ignores).",
         );
-      return appendAt(file, offset, data);
+      // Read again right before the bytes go in: a write queued behind others, or waiting on
+      // the disk, may run after the device lost its scopes, and then never appends.
+      return appendAt(file, offset, data, () => {
+        this.still(device, check);
+        if (this.rows.get(transferId)?.state !== "receiving")
+          throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
+      });
     });
     this.writes.set(
       transferId,
@@ -402,7 +441,11 @@ export class IncomingTransfers {
     );
     return { offset: await write };
   }
-  private async commit(device: Device, call: TransferCommit): Promise<IncomingTransfer> {
+  private async commit(
+    device: Device,
+    call: TransferCommit,
+    check: DeviceCheck,
+  ): Promise<IncomingTransfer> {
     const record = this.owned(device, call.transferId);
     if (record.state !== "receiving") return this.view(record);
     // What it checks below is this upload's; one reopened meanwhile is another (`reopen`).
@@ -413,8 +456,8 @@ export class IncomingTransfers {
       if (bytes !== call.file.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.file.bytes} bytes.`);
       if ((await fileDigest(file)) !== call.file.sha256) {
-        // Claimed before its files go, so a commit or cancel that came meanwhile keeps its own.
-        if (this.claimCorrupt(call.transferId)) await this.removeFiles(call.transferId);
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     } else if (record.method !== "remote")
@@ -428,8 +471,8 @@ export class IncomingTransfers {
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.ignored.bytes} bytes.`);
       // Checked before anything is written; the names inside are never read until it matches.
       if ((await fileDigest(ignored)) !== call.ignored.sha256) {
-        // Claimed before its files go, so a commit or cancel that came meanwhile keeps its own.
-        if (this.claimCorrupt(call.transferId)) await this.removeFiles(call.transferId);
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     }
@@ -439,8 +482,8 @@ export class IncomingTransfers {
       if (bytes !== call.final.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.final.bytes} bytes.`);
       if ((await fileDigest(final)) !== call.final.sha256) {
-        // Claimed before its files go, so a commit or cancel that came meanwhile keeps its own.
-        if (this.claimCorrupt(call.transferId)) await this.removeFiles(call.transferId);
+        if (this.claimCorrupt(device, check, call.transferId, upload))
+          await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     }
@@ -448,9 +491,11 @@ export class IncomingTransfers {
     const byIdentity = call.identity
       ? await this.identityLanding(record, call.identity)
       : undefined;
-    // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile.
-    // Only a transfer still receiving the upload it checked is claimed, so only one copy ever
-    // claims it. Nothing is awaited between the upload check and the claim.
+    // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile,
+    // and the device may have lost its scopes. Only a transfer still receiving the upload it
+    // checked is claimed, for a device that may still send it, so only one copy ever claims it.
+    // Nothing is awaited between these checks and the claim.
+    if (this.upload(call.transferId) === upload) this.still(device, check);
     const claimed =
       this.upload(call.transferId) === upload &&
       this.rows.claim(
@@ -799,8 +844,20 @@ export class IncomingTransfers {
       this.deps.now(),
     );
   }
-  /** A damaged upload fails the transfer, unless something else claimed it first. */
-  private claimCorrupt(transferId: string): boolean {
+  /**
+   * A damaged upload fails the transfer, unless something else claimed it first or the upload
+   * checked is no longer the transfer's: a commit of an upload reopened since (`reopen`) never
+   * fails the new one or removes its files. Claimed before its files go, so a commit or cancel
+   * that came meanwhile keeps its own.
+   */
+  private claimCorrupt(
+    device: Device,
+    check: DeviceCheck,
+    transferId: string,
+    upload: number,
+  ): boolean {
+    if (this.upload(transferId) !== upload) return false;
+    this.still(device, check);
     return this.rows.claim(
       transferId,
       ["receiving"],
@@ -865,9 +922,15 @@ export class IncomingTransfers {
   /** Settled rows and their files go after 24 hours. */
   private async sweep(): Promise<void> {
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
-      // Claimed before its files go: a row a commit or cancel moved on meanwhile stays.
-      if (!this.rows.expire(record.transferId, record.state, record.updatedAt)) continue;
-      await this.removeFiles(record.transferId);
+      const { transferId } = record;
+      if (this.sweeping.has(transferId)) continue;
+      // Claimed before its files go: a row a commit or cancel moved on meanwhile stays. Until
+      // they are gone the id is held (`sweeping`): a begin of it waits instead of making a row
+      // whose files this would remove.
+      if (!this.rows.expire(transferId, record.state, record.updatedAt)) continue;
+      const removing = this.removeFiles(transferId).finally(() => this.sweeping.delete(transferId));
+      this.sweeping.set(transferId, removing);
+      await removing;
     }
   }
 }
