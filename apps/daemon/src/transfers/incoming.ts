@@ -107,6 +107,8 @@ export class IncomingTransfers {
   private past = new Set<string>();
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
+  /** Cancels still undoing their transfer, so a copy of one answers when it is done. */
+  private cancels = new Map<string, Promise<IncomingTransfer>>();
   private held = new Set<string>();
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
@@ -209,7 +211,13 @@ export class IncomingTransfers {
       ...(reused ? { workspaceId: reused } : {}),
       updatedAt: this.deps.now(),
     };
-    this.rows.insert(record, this.deps.now());
+    try {
+      this.rows.insert(record, this.deps.now());
+    } catch (error) {
+      // Another copy of this begin, sent on another route, inserted it first: that row stands.
+      if (this.rows.get(call.transferId)) return this.view(this.owned(device, call.transferId));
+      throw error;
+    }
     this.deps.log("Transfer from another machine", {
       transferId: call.transferId,
       device: device.name,
@@ -317,6 +325,8 @@ export class IncomingTransfers {
       if (bytes !== call.file.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.file.bytes} bytes.`);
       if ((await fileDigest(file)) !== call.file.sha256) {
+        if (this.owned(device, call.transferId).state !== "receiving")
+          return this.view(this.owned(device, call.transferId));
         await this.removeFiles(call.transferId);
         this.settle(record.transferId, "failed", {
           code: "transfer_corrupt",
@@ -335,6 +345,8 @@ export class IncomingTransfers {
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.ignored.bytes} bytes.`);
       // Checked before anything is written; the names inside are never read until it matches.
       if ((await fileDigest(ignored)) !== call.ignored.sha256) {
+        if (this.owned(device, call.transferId).state !== "receiving")
+          return this.view(this.owned(device, call.transferId));
         await this.removeFiles(call.transferId);
         this.settle(record.transferId, "failed", {
           code: "transfer_corrupt",
@@ -347,6 +359,10 @@ export class IncomingTransfers {
     const byIdentity = call.identity
       ? await this.identityLanding(record, call.identity)
       : undefined;
+    // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile.
+    // Nothing is awaited from this check to the claim, so only one copy claims it.
+    const current = this.owned(device, call.transferId);
+    if (current.state !== "receiving") return this.view(current);
     this.rows.update(
       call.transferId,
       { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
@@ -566,6 +582,9 @@ export class IncomingTransfers {
    */
   async cancel(device: Device, transferId: string): Promise<IncomingTransfer> {
     const record = this.owned(device, transferId);
+    // A copy of a cancel still undoing the transfer answers once that is done.
+    const undoing = this.cancels.get(transferId);
+    if (undoing) return undoing;
     if (settled.has(record.state)) return this.view(record);
     const flight = this.imports.get(transferId);
     if (this.past.has(transferId) || record.result) {
@@ -580,12 +599,20 @@ export class IncomingTransfers {
       );
     }
     this.rows.update(transferId, { state: "cancelled" }, this.deps.now());
-    this.running.get(transferId)?.abort();
-    await flight;
-    await this.writes.get(transferId);
-    await this.rollback(this.owned(device, transferId));
-    await this.removeFiles(transferId);
-    return this.view(this.owned(device, transferId));
+    const undo = (async () => {
+      this.running.get(transferId)?.abort();
+      await flight;
+      await this.writes.get(transferId);
+      await this.rollback(this.owned(device, transferId));
+      await this.removeFiles(transferId);
+      return this.view(this.owned(device, transferId));
+    })();
+    this.cancels.set(transferId, undo);
+    try {
+      return await undo;
+    } finally {
+      this.cancels.delete(transferId);
+    }
   }
   /** Settled rows and their files go after 24 hours. */
   private async sweep(): Promise<void> {
