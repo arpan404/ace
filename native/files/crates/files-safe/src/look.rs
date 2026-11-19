@@ -82,8 +82,34 @@ impl Folder {
         root.still_names(&self.path, self.identity)
     }
 
-    /// The spelling this folder stores for the entry `metadata` describes, once it is known.
+    /// The spelling this folder stores for the entry `metadata` describes.
+    ///
+    /// A reading is older than the names being judged - a file may have been created after it, and
+    /// a rename may have put one file's name over another - so a spelling that differs from the
+    /// request is only believed after the folder is read again. The reading is never allowed to
+    /// decide that a name is missing: the caller has already seen the entry on disk, and a fresh
+    /// reading that still knows the entry under another spelling is what a rename looks like.
     fn stored(
+        &mut self,
+        requested: &OsStr,
+        metadata: &Metadata,
+    ) -> Result<Option<OsString>, Error> {
+        let found = self.name_in_reading(requested, metadata)?;
+        let Some(stored) = found else {
+            // The reading does not know the entry: it is newer than the reading, and a create
+            // stores the spelling it was given.
+            return Ok(None);
+        };
+        if stored == requested {
+            return Ok(Some(stored));
+        }
+        self.names = None;
+        self.name_in_reading(requested, metadata)
+    }
+
+    /// The spelling the current reading knows for this entry, reading the folder if it has not been
+    /// read yet.
+    fn name_in_reading(
         &mut self,
         requested: &OsStr,
         metadata: &Metadata,

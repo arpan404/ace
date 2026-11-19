@@ -364,12 +364,21 @@ fn a_folder_replaced_after_an_empty_window_is_read_again() {
     std::fs::write(session.path("d/transient.txt"), b"x").unwrap();
     std::thread::sleep(Duration::from_millis(2_000));
     std::fs::remove_file(session.path("d/transient.txt")).unwrap();
-    // The window closes with nothing to say about the pair, which is the window that must leave
-    // no reading behind for the next one.
+    // The pair cancels out: a window that holds both deliveries says nothing, and one the OS split
+    // says only that the name is gone. Either way the readings from this window must not be what
+    // the next one judges the replaced folder by.
     let reported = changes(&after_quiet(&session));
     assert!(
-        reported.is_empty(),
-        "a create and its delete in one window are not news, saw {reported:?}"
+        reported
+            .iter()
+            .all(|change| change.path == "d" || change.path == "d/transient.txt"),
+        "nothing but the transient name or its folder is news, saw {reported:?}"
+    );
+    assert!(
+        !reported
+            .iter()
+            .any(|change| change.path == "d/transient.txt" && change.kind == ChangeKind::Created),
+        "a creation for a file that is gone must not reach the caller, saw {reported:?}"
     );
 
     std::fs::remove_dir(session.path("d")).unwrap();

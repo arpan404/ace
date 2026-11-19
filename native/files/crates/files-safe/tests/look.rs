@@ -162,6 +162,40 @@ fn a_cached_folder_that_left_the_root_is_not_read() {
 }
 
 #[test]
+fn a_name_renamed_over_another_keeps_the_new_spelling() {
+    // An atomic save writes a temp file and renames it over the file it replaces. The folder's
+    // names may have been read before that, and the reading then knows the saved file's inode
+    // under the temp name; that must not turn the saved name into a rename of the temp one, which
+    // would drop a file that is there.
+    let (dir, root) = checkout();
+    fs::write(dir.path().join("many/x.txt"), "old").expect("a file");
+    fs::write(dir.path().join("many/x.tmp"), "new").expect("a temp file");
+    let mut readings = Readings::new();
+    assert_eq!(
+        root.look("many/x.txt", &mut readings).expect("a file"),
+        Found::Other
+    );
+    assert_eq!(
+        root.look("many/x.tmp", &mut readings).expect("a temp file"),
+        Found::Other
+    );
+
+    fs::rename(dir.path().join("many/x.tmp"), dir.path().join("many/x.txt")).expect("the save");
+    assert_eq!(
+        root.look("many/x.txt", &mut readings)
+            .expect("the saved file"),
+        Found::Other,
+        "the saved name is the one the folder stores now"
+    );
+    assert_eq!(
+        root.look("many/x.tmp", &mut readings)
+            .expect("the temp name"),
+        Found::Missing,
+        "the temp name is gone"
+    );
+}
+
+#[test]
 fn a_case_only_rename_leaves_the_old_spelling_gone() {
     let (dir, root) = checkout();
     fs::write(dir.path().join("many/Readme.txt"), "x").expect("a file");
