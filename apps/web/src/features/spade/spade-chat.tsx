@@ -361,7 +361,9 @@ function RunItem(props: {
                 )}
                 className={cn(chatBubble, framed)}
               >
-                {item.text && <SpadeBubbleText text={item.text} />}
+                {item.text && (
+                  <SpadeBubbleText text={item.text} stream={item.key} streaming={item.live} />
+                )}
                 {item.end === "failed" && item.failure ? (
                   <Failure
                     failure={item.failure}

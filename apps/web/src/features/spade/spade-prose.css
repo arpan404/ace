@@ -1,0 +1,86 @@
+/*
+ * markit inside a Spade bubble (docs/design/spade.md §3): the answers' renderer at the bubble's
+ * reading size, its blocks tight to the bubble's padding, code on the bubble's code well. Every
+ * rule is scoped to `.markit-ace.ace-spade-prose`, so it wins over markit's own sheet, which
+ * loads later as its own chunk.
+ */
+.markit-ace.ace-spade-prose {
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  white-space: normal;
+}
+.markit-ace.ace-spade-prose
+  :is(.mk-block, p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table) {
+  margin-bottom: 10px;
+}
+.markit-ace.ace-spade-prose
+  :is(.mk-block, p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table):last-child {
+  margin-bottom: 0;
+}
+.markit-ace.ace-spade-prose .mk-block + .mk-block:has(> :is(h1, h2, h3, h4, h5, h6):first-child) {
+  margin-top: 16px;
+}
+/* A bubble's headings step down by size once, then by weight alone. */
+.markit-ace.ace-spade-prose :is(h1, h2) {
+  font-size: 1.067em;
+  line-height: 24px;
+}
+.markit-ace.ace-spade-prose :is(h3, h4, h5, h6) {
+  font-size: 1em;
+  line-height: 24px;
+}
+
+.markit-ace.ace-spade-prose :is(a, [role="link"]) {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+.markit-ace.ace-spade-prose :is(a, [role="link"]):hover {
+  text-decoration-color: currentColor;
+}
+
+/* A code block hangs 6px in from the bubble's edge, concentric with it, on the code well. */
+.markit-ace.ace-spade-prose .mk-codeblock {
+  margin-inline: calc(var(--chat-code-inset) - var(--chat-bubble-x));
+  border-radius: var(--chat-code-radius);
+  background: var(--chat-code);
+  overflow: hidden;
+}
+.markit-ace.ace-spade-prose .mk-codeblock > header {
+  background: transparent;
+}
+.markit-ace.ace-spade-prose .mk-codeblock pre {
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+}
+.markit-ace.ace-spade-prose :not(pre) > code {
+  background: var(--chat-code);
+  white-space: pre-wrap;
+}
+
+/* Tables run inside the bubble and scroll in it, on the bubble itself with hairlines. */
+.markit-ace.ace-spade-prose table {
+  font-size: 13px;
+  line-height: 20px;
+}
+.markit-ace.ace-spade-prose :is(thead, th) {
+  background: transparent;
+}
+.markit-ace.ace-spade-prose th {
+  border-bottom-color: color-mix(in srgb, currentColor 20%, transparent);
+}
+.markit-ace.ace-spade-prose blockquote {
+  border-left-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* In the person's bubble, the accent: text in its label colour, code on its own well. */
+.markit-ace.ace-spade-prose-mine .mk-codeblock,
+.markit-ace.ace-spade-prose-mine :not(pre) > code {
+  background: var(--chat-mine-code);
+}
+.markit-ace.ace-spade-prose-mine :is(blockquote, li::marker) {
+  color: var(--chat-mine-meta);
+}
