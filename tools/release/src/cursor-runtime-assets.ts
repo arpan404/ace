@@ -15,7 +15,25 @@ const Manifest = z.object({
   dependencies: z.record(Name, z.string()).default({}),
   peerDependencies: z.record(Name, z.string()).default({}),
   optionalDependencies: z.record(Name, z.string()).default({}),
+  exports: z.unknown().optional(),
 });
+
+const DualFormat = z.object({
+  ".": z.object({
+    import: z.string().startsWith("./dist/esm/"),
+    require: z.string().startsWith("./dist/cjs/"),
+  }),
+});
+
+/**
+ * A dual-format package's CommonJS copy, which never loads: the daemon only imports the SDK (Bun
+ * takes its `bun` build, Node its ESM build), and both import their dependencies as ESM. Every
+ * file is an entry in the daemon archive, which installed updaters cap (`releaseArchiveLimits`
+ * in `@ace/service`).
+ */
+function unusedCommonJs(manifest: z.infer<typeof Manifest>): string[] {
+  return DualFormat.safeParse(manifest.exports).success ? ["dist/cjs"] : [];
+}
 
 async function manifestAt(root: string) {
   const file = await open(join(root, "package.json"), "r");
@@ -85,7 +103,7 @@ export async function stageCursorRuntime(source: string, destination: string, ta
       throw new Error("Cursor runtime helper version changed");
     staged.set(entry.name, manifest.version);
     const targetRoot = join(destination, "node_modules", entry.name);
-    await copyRuntimePackage(entry.source, targetRoot);
+    await copyRuntimePackage(entry.source, targetRoot, unusedCommonJs(manifest));
     manifests.push(join(entry.source, "package.json"));
     const dependencies = new Set([
       ...Object.keys(manifest.dependencies),
@@ -136,7 +154,11 @@ async function stageWin32CursorRuntime(source: string, destination: string, targ
     if (entry.name === helper && manifest.version !== sdk.version)
       throw new Error("Cursor runtime helper version changed");
     staged.set(entry.name, manifest.version);
-    await copyRuntimePackage(entry.source, join(destination, "node_modules", entry.name));
+    await copyRuntimePackage(
+      entry.source,
+      join(destination, "node_modules", entry.name),
+      unusedCommonJs(manifest),
+    );
     manifests.push(join(entry.source, "package.json"));
     if (entry.name !== sdk.name && Object.keys(manifest.optionalDependencies).length)
       throw new Error(`Unreviewed Cursor runtime optional dependencies: ${entry.name}`);

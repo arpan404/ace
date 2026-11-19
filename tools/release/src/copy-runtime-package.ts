@@ -1,5 +1,5 @@
 import { cp, mkdir } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join, sep } from "node:path";
 
 /** TypeScript sources and source maps: never run or loaded from an installed package. */
 const typeScriptOrMap = /\.(?:[cm]?ts|map)$/;
@@ -20,7 +20,19 @@ export function shipsAtRuntime(path: string): boolean {
   return !typeScriptOrMap.test(name) && !nativeSource.test(name) && !name.endsWith(".md");
 }
 
-export async function copyRuntimePackage(source: string, destination: string): Promise<void> {
+/**
+ * Copies a package's runtime files, leaving out `unused`: folders inside the package, relative to
+ * its root, that nothing loads at run time.
+ */
+export async function copyRuntimePackage(
+  source: string,
+  destination: string,
+  unused: readonly string[] = [],
+): Promise<void> {
+  const left = unused.map((folder) => join(source, folder));
+  const ships = (path: string) =>
+    shipsAtRuntime(path) &&
+    !left.some((folder) => path === folder || path.startsWith(folder + sep));
   await mkdir(destination, { recursive: true });
-  await cp(source, destination, { recursive: true, dereference: false, filter: shipsAtRuntime });
+  await cp(source, destination, { recursive: true, dereference: false, filter: ships });
 }

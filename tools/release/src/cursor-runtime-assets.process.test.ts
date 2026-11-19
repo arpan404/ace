@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,3 +58,25 @@ test("a Windows target other than x64 or ARM64 is refused", async () => {
     "Unsupported Cursor runtime target: win32-ia32",
   );
 });
+
+const host = `${process.platform}-${process.arch}`;
+test.runIf(/^(darwin|linux)-(arm64|x64)$/.test(host))(
+  "this machine's package leaves out CommonJS copies, and the SDK still imports under Bun and Node",
+  async () => {
+    await staged(host, async (modules) => {
+      for (const name of ["@cursor/sdk", "@connectrpc/connect", "@bufbuild/protobuf"]) {
+        expect(existsSync(join(modules, name, "dist/esm"))).toBe(true);
+        expect(existsSync(join(modules, name, "dist/cjs"))).toBe(false);
+      }
+      const probe = join(modules, "..", "probe.mjs");
+      await writeFile(
+        probe,
+        'const sdk = await import("@cursor/sdk"); console.log(typeof sdk.Agent);',
+      );
+      // Released daemons run the SDK on Bun (its `bun` build); Node takes the ESM build.
+      for (const runtime of ["bun", "node"])
+        expect(execFileSync(runtime, [probe], { encoding: "utf8" }).trim()).toBe("function");
+    });
+  },
+  60_000,
+);
