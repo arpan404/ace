@@ -2,9 +2,11 @@
 /*
  * What stands behind every page: ace's mark, set in the letters of its own name
  * (scripts/ascii-mark.ts) and printed so faintly it reads as the ground's grain rather than a
- * picture. It stays put while the page scrolls over it, and the letters near the pointer come
- * up a little, as if a lamp were held to them. Decoration only: it is hidden from assistive
- * technology and takes no clicks.
+ * picture. It prints itself row by row the first time a visitor sees it, then stays put while
+ * the page scrolls over it. Every few seconds a ring of light spreads through the letters from
+ * the diamond at the mark's heart, and the letters near the pointer come up a little, as if a
+ * lamp were held to them. Decoration only: it is hidden from assistive technology and takes no
+ * clicks, and with reduced motion it is a still print.
  */
 import { aceMarkBox, aceWing } from "../../brand/mark.ts";
 import { markRows } from "../../scripts/ascii-mark.ts";
@@ -31,10 +33,21 @@ const settings = [
 ---
 
 <div class="backdrop" aria-hidden="true" data-backdrop>
-  <div class="layer">
-    {settings.map((setting) => <pre class={setting.name} style={`--columns:${setting.width}`} set:text={setting.text} />)}
+  <div class="layer base">
+    {
+      settings.map((setting) => (
+        <pre class={setting.name} style={`--columns:${setting.width}`} set:text={setting.text} />
+      ))
+    }
   </div>
 </div>
+<script is:inline>
+  /* The mark prints itself once per visit, not on every page: later pages open with it there. */
+  try {
+    if (sessionStorage.getItem("ace-backdrop")) document.currentScript.previousElementSibling.dataset.seen = "";
+    else sessionStorage.setItem("ace-backdrop", "1");
+  } catch {}
+</script>
 
 <style>
   .backdrop {
@@ -46,6 +59,10 @@ const settings = [
     user-select: none;
     /* The mark's width; each setting sizes its type so its columns fill it. */
     --mark: min(150vw, 128vh);
+    /* Where the mark's heart is. It stands to the right, running off the page's edge, and from
+       tablet width up far enough over to leave the text column clear. */
+    --cx: 60%;
+    --cy: 56%;
     /* It fades toward the side the words are read from, so little prints under a headline. */
     mask-image: linear-gradient(to right, transparent 16%, #000 70%);
   }
@@ -56,8 +73,23 @@ const settings = [
     color: color-mix(in srgb, var(--foreground) 5%, transparent);
   }
 
-  /* The same letters again, brighter, seen only through a round opening at the pointer. The
-     script makes this layer the first time the pointer moves. */
+  /* Printing: the rows appear from the top down, a few at a time, as a line printer lays them. */
+  :global(html.motion) .backdrop:not([data-seen]) .base {
+    animation: print 1.5s steps(36) 0.25s both;
+  }
+
+  @keyframes print {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+
+    to {
+      clip-path: inset(0);
+    }
+  }
+
+  /* The lamp and the ring are the same letters again, brighter, each seen only through an
+     opening. The script makes these layers; they are not in the page without it. */
   .layer:global(.lamp) {
     color: color-mix(in srgb, var(--foreground) 22%, transparent);
     opacity: 0;
@@ -73,12 +105,59 @@ const settings = [
     opacity: 1;
   }
 
-  /* It stands to the right, running off the page's edge, and from tablet width up far enough
-     over to leave the text column clear. */
+  /*
+   * The ring: an opening in the shape of a ring, sharp at its leading edge and trailing off
+   * behind, that grows from the mark's heart until it has left the screen, then rests. It moves
+   * in steps, a dozen a second, which suits letters and costs little to draw.
+   */
+  .layer:global(.ring) {
+    --at: 0%;
+    color: color-mix(in srgb, var(--foreground) 17%, transparent);
+    opacity: 0;
+    mask-image: radial-gradient(
+      circle farthest-corner at var(--cx) var(--cy),
+      transparent calc(var(--at) - 26%),
+      #000 var(--at),
+      transparent calc(var(--at) + 3%)
+    );
+    animation: ring 10s steps(120) 2.2s infinite;
+  }
+
+  :global(html[data-theme="light"]) .layer:global(.ring) {
+    color: color-mix(in srgb, var(--foreground) 12%, transparent);
+  }
+
+  @property --at {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 0%;
+  }
+
+  @keyframes ring {
+    0% {
+      --at: 0%;
+      opacity: 0;
+    }
+
+    6% {
+      opacity: 1;
+    }
+
+    40% {
+      opacity: 0.7;
+    }
+
+    62%,
+    100% {
+      --at: 128%;
+      opacity: 0;
+    }
+  }
+
   pre {
     position: absolute;
-    top: 56%;
-    left: 60%;
+    top: var(--cy);
+    left: var(--cx);
     margin: 0;
     translate: -50% -50%;
     font-family: var(--font-mono);
@@ -92,9 +171,9 @@ const settings = [
   }
 
   @media (min-width: 760px) {
-    pre {
-      top: 50%;
-      left: 76%;
+    .backdrop {
+      --cx: 76%;
+      --cy: 50%;
     }
 
     .coarse {
@@ -129,37 +208,45 @@ const settings = [
 </style>
 
 <script>
-  /* The lamp: a brighter copy of the letters, shown through an opening that follows the pointer,
-     on devices that have one. */
+  /*
+   * The brighter copies of the letters: the ring, where motion is on, and the lamp that follows
+   * the pointer on devices that have one, made the first time the pointer moves.
+   */
   const backdrop = document.querySelector<HTMLElement>("[data-backdrop]");
-  const layer = backdrop?.querySelector<HTMLElement>(".layer");
-  if (backdrop && layer && matchMedia("(hover: hover) and (pointer: fine)").matches) {
-    let lamp: HTMLElement | undefined;
-    let x = 0;
-    let y = 0;
-    let waiting = false;
-    const light = () => {
-      waiting = false;
-      if (!lamp) {
-        lamp = layer.cloneNode(true) as HTMLElement;
-        lamp.classList.add("lamp");
-        backdrop.append(lamp);
-      }
-      lamp.style.setProperty("--mx", `${x}px`);
-      lamp.style.setProperty("--my", `${y}px`);
-      backdrop.dataset.lit = "";
+  const base = backdrop?.querySelector<HTMLElement>(".base");
+  if (backdrop && base) {
+    const copy = (name: string) => {
+      const layer = base.cloneNode(true) as HTMLElement;
+      layer.className = `${base.className.replace("base", "").trim()} ${name}`;
+      backdrop.append(layer);
+      return layer;
     };
-    addEventListener(
-      "pointermove",
-      (event) => {
-        x = event.clientX;
-        y = event.clientY;
-        if (waiting) return;
-        waiting = true;
-        requestAnimationFrame(light);
-      },
-      { passive: true },
-    );
-    document.documentElement.addEventListener("pointerleave", () => delete backdrop.dataset.lit);
+    if (document.documentElement.classList.contains("motion")) copy("ring");
+
+    if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      let lamp: HTMLElement | undefined;
+      let x = 0;
+      let y = 0;
+      let waiting = false;
+      const light = () => {
+        waiting = false;
+        lamp ??= copy("lamp");
+        lamp.style.setProperty("--mx", `${x}px`);
+        lamp.style.setProperty("--my", `${y}px`);
+        backdrop.dataset.lit = "";
+      };
+      addEventListener(
+        "pointermove",
+        (event) => {
+          x = event.clientX;
+          y = event.clientY;
+          if (waiting) return;
+          waiting = true;
+          requestAnimationFrame(light);
+        },
+        { passive: true },
+      );
+      document.documentElement.addEventListener("pointerleave", () => delete backdrop.dataset.lit);
+    }
   }
 </script>
