@@ -1,0 +1,84 @@
+---
+/*
+ * Spade: the crew gathers on the first screen; then its features, walked through one a step
+ * beside a drawn Spade messenger the bots act each one out in (components/spade/Tour.astro),
+ * as the features page walks through ace's. After it, only what the walkthrough didn't show: a
+ * face to make, how to switch it on, questions. Every word is in content/spade.ts.
+ */
+import Closing from "../components/Closing.astro";
+import DownloadButton from "../components/DownloadButton.astro";
+import Faq from "../components/Faq.astro";
+import Maker from "../components/spade/Maker.astro";
+import Opening from "../components/spade/Opening.astro";
+import RuledList from "../components/spade/RuledList.astro";
+import Say from "../components/spade/Say.astro";
+import Tour from "../components/spade/Tour.astro";
+import { spadePage, spadeQuestions, turnOn } from "../content/spade.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor, softwareApplication } from "../seo/schema.ts";
+
+const path = "/spade/";
+const schema = schemaFor(Astro.site);
+const questions = [...spadeQuestions];
+---
+
+<Page
+  path={path}
+  title={spadePage.title}
+  description={spadePage.description}
+  schema={[softwareApplication(schema), faqPage(schema, path, questions)]}
+>
+  <Opening />
+  <Tour />
+
+  <Maker />
+
+  <section id="turn-on" class="section page split">
+    <div>
+      <Say who="spade" heading={turnOn.heading} lines={turnOn.lines} id="switch-on" />
+      <div class="get reveal"><DownloadButton withNote /></div>
+    </div>
+    <div class="reveal">
+      <RuledList rows={turnOn.steps} numbered />
+    </div>
+  </section>
+
+  <Faq items={questions} heading="Questions about Spade." />
+
+  <Closing />
+</Page>
+
+<style>
+  .split {
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .split {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .split h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .split .lede {
+    max-width: 30em;
+    font-size: 17px;
+  }
+
+  .get {
+    margin-top: 28px;
+    padding-left: 78px;
+  }
+
+  @media (max-width: 599px) {
+    .get {
+      padding-left: 0;
+    }
+  }
+</style>

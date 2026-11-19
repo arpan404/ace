@@ -21,6 +21,9 @@ struct AutomationEditor: View {
     /// Fields the person changed: their problems show as they type. All show after a Save.
     @State private var touched: Set<String> = []
     @State private var attempted = false
+    /// The form as it opened, so Close knows whether there is anything to lose.
+    @State private var opened: AutomationFormValues?
+    @State private var discarding = false
     /// Fields changed since the bridge last checked the form: their old problem is stale.
     @State private var unchecked: Set<String> = []
     @State private var saving = false
@@ -46,6 +49,13 @@ struct AutomationEditor: View {
         Group {
             if let form = Binding($form) {
                 List {
+                    if problem != nil {
+                        Section {
+                            ProblemRow(problem ?? "", id: "automation.failure", disabled: saving) {
+                                Task { if retrySave { await save() } else { await preview(failedPreviewChange) } }
+                            }
+                        }
+                    }
                     ideasSection(form.wrappedValue)
                     about(form)
                     agentSection(form)
@@ -54,7 +64,7 @@ struct AutomationEditor: View {
                                               touch: { touched.insert($0) }, change: { change in Task { await preview(change) } })
                     }
                     if !model.canOperate {
-                        Section { ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.") }
+                        Section { ViewOnlyNote(message: "View only. To save automations from this iPhone, pair it again with View and act.") }
                             .insetRowBackground()
                     }
                 }
@@ -63,10 +73,10 @@ struct AutomationEditor: View {
                 .safeAreaInset(edge: .bottom) { footer }
                 .transition(.opacity)
             } else if let problem {
-                VStack {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await open() } }.buttonStyle(.textAction())
-                }.padding(AceDesign.Space.margin)
+                EmptyState(icon: nil, title: "Couldn't open the automation.", line: problem, failed: true) {
+                    Button("Try again") { Task { await open() } }
+                }
+                .frame(maxHeight: .infinity)
             } else {
                 SkeletonPage(label: "Opening the automation")
                     .transition(.opacity)
@@ -76,7 +86,24 @@ struct AutomationEditor: View {
         .background(AceDesign.Surface.background)
         .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.accessibilityIdentifier("automation.cancel") }
+            ToolbarItem(placement: .cancellationAction) {
+                Button { if dirty { discarding = true } else { dismiss() } } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("Close").accessibilityIdentifier("automation.cancel")
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if saving { WorkingMark(label: "Saving") } else {
+                    Button("Save") { Task { await save() } }
+                        .disabled(!model.canOperate || form == nil || view?.problem != nil)
+                        .accessibilityIdentifier("automation.save")
+                }
+            }
+        }
+        // A swipe down never throws a changed draft away; Close asks first.
+        .interactiveDismissDisabled(dirty)
+        // An alert, not a dialog: iOS 26 draws a toolbar button's dialog as a popover without Keep editing.
+        .alert("Discard your changes?", isPresented: $discarding) {
+            Button("Discard changes", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
         }
         .sensoryFeedback(.success, trigger: savedCount)
         .sheet(isPresented: $choosingModel) {
@@ -94,7 +121,11 @@ struct AutomationEditor: View {
         .onChange(of: accessKey) { _, _ in sendChoice() }
         // A new automation starts in the first project once the projects arrive.
         .onChange(of: model.compose.projects.first?.path) { _, path in
-            if let path, form?.workspace.isEmpty == true { form?.workspace = path }
+            guard let path, form?.workspace.isEmpty == true else { return }
+            // Filling in the project isn't the person's change: an untouched draft stays untouched.
+            let untouched = form == opened
+            form?.workspace = path
+            if untouched { opened = form }
         }
         .onDisappear { model.composeAction(["kind": "close"]) }
     }
@@ -172,12 +203,13 @@ struct AutomationEditor: View {
         .insetRowBackground()
     }
 
-    /// The bar at the foot: when it runs (or what to fix), and Save.
+    /// The strip at the foot: when it runs, or what to fix before it can be saved.
     private var footer: some View {
         HStack(spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if let shown = shownProblem {
-                    Text(shown).foregroundStyle(attempted || problem != nil ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
+                    // Why Save waits: quiet until the person has touched the form, then in the failed colour.
+                    Text(shown).foregroundStyle(attempted || !touched.isEmpty ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                         .accessibilityIdentifier("automation.problem")
                 } else {
                     Text(view?.summary ?? "").foregroundStyle(AceDesign.Ink.primary)
@@ -192,20 +224,10 @@ struct AutomationEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentTransition(.opacity)
             .animation(motion, value: shownProblem)
-            if problem != nil {
-                Button("Retry") { Task { if retrySave { await save() } else { await preview(failedPreviewChange) } } }.buttonStyle(.textAction())
-            }
-            Button { Task { await save() } } label: {
-                Text(saving ? "Saving…" : "Save").fontWeight(.semibold)
-                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
-            }
-            .modifier(PlainGlassButton())
-            .disabled(saving || !model.canOperate || form == nil)
-            .accessibilityIdentifier("automation.save")
         }
-        .padding(.leading, AceDesign.Space.margin)
-        .padding(.trailing, AceDesign.Space.tight)
-        .padding(.vertical, AceDesign.Space.tight)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.related)
+        .frame(minHeight: AceDesign.Size.tap)
         // Plain system glass, so the rows passing under it never read through the words.
         .floatingGlass()
         .padding(.horizontal, AceDesign.Space.row)
@@ -232,10 +254,10 @@ struct AutomationEditor: View {
         guard attempted || touched.contains(name), !unchecked.contains(name) else { return nil }
         return view?.errors?[name]
     }
-    private var shownProblem: String? {
-        if let problem { return problem }
-        return attempted ? view?.problem : nil
-    }
+    /// What the form still needs; a failed save or read shows once, as the row at the top.
+    private var shownProblem: String? { view?.problem }
+    /// The draft differs from what opened: a field, an idea taken or the model picked.
+    private var dirty: Bool { (form != nil && form != opened) || pickChanged }
     private var chosenModel: ComposeAgent.Model? {
         guard let pick else { return nil }
         let models = model.compose.agentsRead.agents.first { $0.provider == pick.provider }?.models ?? []
@@ -302,6 +324,7 @@ struct AutomationEditor: View {
                 form = reply.form
                 // A new automation starts in the first project, whenever the projects arrived.
                 if form?.workspace.isEmpty == true, let first = model.compose.projects.first { form?.workspace = first.path }
+                opened = form
             }
             sendChoice()
         } catch { problem = error.localizedDescription }
@@ -366,13 +389,5 @@ struct AutomationEditor: View {
             saved(id)
             dismiss()
         } catch { retrySave = true; problem = error.localizedDescription }
-    }
-}
-
-/// A capsule button on plain system glass (iOS 26), the bordered capsule before it.
-struct PlainGlassButton: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26, *) { content.buttonStyle(.glass).buttonBorderShape(.capsule) }
-        else { content.buttonStyle(.bordered).buttonBorderShape(.capsule) }
     }
 }

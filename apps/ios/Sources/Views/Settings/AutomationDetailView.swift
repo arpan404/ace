@@ -43,23 +43,17 @@ struct AutomationDetailView: View {
 
     var body: some View {
         List {
+            if let problem {
+                Section { ProblemRow(problem, id: "automation.problem", disabled: busy) { Task { await retryFailure() } } }
+            }
             if let row {
                 summary(row)
                 if let attention = row.attention { attentionSection(attention) }
                 actions(row)
             }
             if row == nil && problem == nil { Section { SkeletonRows(count: 2, label: "Loading automation") }.insetRowBackground() }
-            if let problem {
-                Section {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await retryFailure() } }.buttonStyle(.textAction()).disabled(busy)
-                }.insetRowBackground()
-            }
             if let historyProblem {
-                Section {
-                    ServiceProblem(message: historyProblem)
-                    Button("Retry") { Task { await readRuns() } }.buttonStyle(.textAction())
-                }.insetRowBackground()
+                Section { ProblemRow("Couldn't load runs.", detail: historyProblem, id: "automation.runs.problem") { Task { await readRuns() } } }
             }
             runsSection
         }
@@ -104,8 +98,33 @@ struct AutomationDetailView: View {
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
             .padding(.vertical, AceDesign.Space.tight)
+        } footer: {
+            if !row.enabled { Text("Paused. Resume it to run it or schedule its next run.") }
         }
         .insetRowBackground()
+    }
+
+    /// The way forward, Run now, with its note beside it: the page's two buttons.
+    private func runButtons(_ row: AutomationListRow) -> some View {
+        Section {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AceDesign.Space.related) { runNowButton; runNoteButton }
+                VStack(alignment: .leading, spacing: AceDesign.Space.related) { runNowButton; runNoteButton }
+            }
+            .disabled(!canAct || !row.enabled)
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+    }
+    private var runNowButton: some View {
+        Button("Run now") { Task { await runNow(note: nil) } }
+            .buttonStyle(.primaryAction).controlSize(.large)
+            .accessibilityIdentifier("automation.runNow")
+    }
+    private var runNoteButton: some View {
+        Button("Run with a note") { noting = true }
+            .buttonStyle(.secondaryAction).controlSize(.large)
+            .accessibilityIdentifier("automation.runNote")
     }
 
     private func attentionSection(_ attention: AutomationListRow.Attention) -> some View {
@@ -118,40 +137,32 @@ struct AutomationDetailView: View {
             }
             .padding(.vertical, AceDesign.Space.tight)
             if attention.retry && own {
-                textRow("Retry", id: "automation.retry") { Task { await retry() } }
+                textRow("Try again", id: "automation.retry") { Task { await retry() } }
             }
         }
         .insetRowBackground()
         .transition(.opacity)
     }
 
-    private func actions(_ row: AutomationListRow) -> some View {
+    @ViewBuilder private func actions(_ row: AutomationListRow) -> some View {
+        if model.canOperate {
+            runButtons(row)
+        } else {
+            Section {
+                ViewOnlyNote(message: "View only. To run or change automations from this iPhone, pair it again with View and act.")
+            }
+            .listRowBackground(Color.clear)
+        }
         Section {
-            textRow("Run now", id: "automation.runNow", strong: true) { Task { await runNow(note: nil) } }
-                .disabled(!row.enabled)
-            textRow("Run now with a note", id: "automation.runNote") { noting = true }
-                .disabled(!row.enabled)
             textRow(row.enabled ? "Pause" : "Resume", id: "automation.toggle") { Task { await setEnabled(!row.enabled) } }
             if own {
                 textRow("Edit", id: "automation.edit") { editing = true }
                 textRow("Duplicate", id: "automation.duplicate") { Task { await duplicate() } }
             }
-            Button(role: .destructive) { deleting = true } label: {
-                Text("Delete").font(AceDesign.Typeface.body)
-                    .foregroundStyle(AceTheme.StatusText.failed)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .disabled(!canAct)
-            .accessibilityIdentifier("automation.delete")
-            if !row.enabled {
-                Text("Paused. Resume to run it, or to schedule its next run.")
-                    .font(AceDesign.Typeface.meta)
-                    .foregroundStyle(AceDesign.Ink.muted)
-            }
-            if !model.canOperate {
-                ViewOnlyNote(message: "View only. To run or change automations from this phone, pair it again with View and act.")
-            }
+            Button("Delete", role: .destructive) { deleting = true }
+                .buttonStyle(.rowAction)
+                .disabled(!canAct)
+                .accessibilityIdentifier("automation.delete")
         }
         .insetRowBackground()
     }
@@ -161,19 +172,20 @@ struct AutomationDetailView: View {
             if !runsLoaded && problem == nil && historyProblem == nil {
                 ForEach(0..<2, id: \.self) { _ in AutomationRowPlaceholder() }
             } else if runsLoaded && runs.isEmpty && problem == nil && historyProblem == nil {
-                Text("No runs yet. Run it now, or wait for it to start.")
-                    .font(AceDesign.Typeface.title)
+                Text("No runs yet")
+                    .aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.muted)
-                    .padding(.vertical, AceDesign.Space.tight)
             }
             ForEach(runs) { run in
                 AutomationRunView(run: run, canRun: canAct && row?.enabled == true,
                                   open: opener(run.threadId),
                                   runAgain: { Task { await runNow(note: nil) } })
             }
-            ServiceProblem(message: olderProblem)
+            if let olderProblem {
+                Text(olderProblem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+            }
             if before != nil {
-                textRow(olderLoading ? "Loading older runs…" : olderProblem == nil ? "Show older runs" : "Retry", id: "automation.olderRuns") {
+                textRow(olderLoading ? "Loading older runs…" : olderProblem == nil ? "Show older runs" : "Try again", id: "automation.olderRuns") {
                     Task { await older() }
                 }
                 .disabled(olderLoading)
@@ -188,17 +200,11 @@ struct AutomationDetailView: View {
         return { links.thread(threadId) }
     }
 
-    private func textRow(_ title: String, id: String, strong: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(AceDesign.Typeface.body)
-                .fontWeight(strong ? .semibold : .regular)
-                .foregroundStyle(AceDesign.Ink.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!canAct)
-        .accessibilityIdentifier(id)
+    private func textRow(_ title: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.rowAction)
+            .disabled(!canAct)
+            .accessibilityIdentifier(id)
     }
 
     // MARK: Reads

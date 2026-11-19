@@ -1,0 +1,227 @@
+---
+/*
+ * The story scene's list (docs/design/spade.md §2): Spade's head, the club and each bot as a
+ * row whose face pose, needs-you dot and line follow the walkthrough, and the open row marked.
+ * Spans are the walkthrough's steps (content/spade.ts `tour.steps`, from 0).
+ */
+import { cast, type BotName } from "../../content/spade.ts";
+import SpadeFace from "../mac/SpadeFace.astro";
+import BotFace from "./BotFace.astro";
+import CastFace from "./CastFace.astro";
+import { offAtStart, poseAtStart } from "./scene-at.ts";
+
+interface Line {
+  in: string;
+  text: string;
+  tone?: "ask" | "work" | "new";
+}
+
+const rows: { who: BotName; open: string; poses: string; ask?: string; lines: Line[] }[] = [
+  {
+    who: "flights",
+    open: "0,3-4,9,11",
+    poses: "0:idle 3:working 4:idle 11:needs-you",
+    ask: "11",
+    lines: [
+      { in: "0-2", text: "Ready when you are." },
+      { in: "3", text: "Comparing fares", tone: "work" },
+      { in: "4-10", text: "Lisbon on the 12th" },
+      { in: "11", text: "Pay $268 to TAP?", tone: "ask" },
+    ],
+  },
+  {
+    who: "inbox",
+    open: "6",
+    poses: "6:done 7:idle",
+    lines: [
+      { in: "0-5", text: "Nothing new." },
+      { in: "6", text: "Keep it as a skill?", tone: "new" },
+      { in: "7-", text: "Skill saved" },
+    ],
+  },
+  {
+    who: "papers",
+    open: "7",
+    poses: "7:working 8:idle",
+    lines: [
+      { in: "0-6", text: "Ready." },
+      { in: "7", text: "Researching · 14 sources read", tone: "work" },
+      { in: "8-", text: "Report ready, 23 sources" },
+    ],
+  },
+  {
+    who: "builds",
+    open: "2,5,8,10",
+    poses: "2:working 3:idle 8:done 9:idle 10:working 11:idle",
+    lines: [
+      { in: "0-1", text: "Nightly build passed" },
+      { in: "2", text: "2 of 3 verified", tone: "work" },
+      { in: "3-4", text: "Fixed the date parser" },
+      { in: "5-7", text: "Sleeping until 14:05" },
+      { in: "8-9", text: "Digest ready", tone: "new" },
+      { in: "10", text: "Running the nightly build", tone: "work" },
+      { in: "11", text: "Nightly build passed" },
+    ],
+  },
+];
+const club: Line[] = [{ in: "0-", text: "Papers: Both in our Library." }];
+const members = ["spade", "flights", "papers", "inbox"] as const;
+---
+
+<aside class="list">
+  <div class="head">
+    <SpadeFace size={30} />
+    <span>Spade</span>
+  </div>
+  <ul>
+    <li class="row club">
+      <span class="open" data-in="1" hidden={offAtStart("1")}></span>
+      <span class="faces">
+        {
+          members.map((who) => (
+            <span class="stack">
+              <CastFace who={who} size={18} uid={`scene-club-${who}`} />
+            </span>
+          ))
+        }
+      </span>
+      <span class="text">
+        <span class="name">Lisbon talk</span>
+        {
+          club.map((line) => (
+            <span class:list={["line", line.tone]} data-in={line.in} hidden={offAtStart(line.in)}>
+              {line.text}
+            </span>
+          ))
+        }
+      </span>
+    </li>
+    {
+      rows.map((row, index) => (
+        <li class="row">
+          {row.open && <span class="open" data-in={row.open} hidden={offAtStart(row.open)} />}
+          <span class="face">
+            <BotFace
+              face={cast[row.who].face}
+              size={30}
+              uid={`scene-row-${index}`}
+              state={poseAtStart(row.poses)}
+              poses={row.poses}
+              live
+            />
+            {row.ask && <span class="dot" data-in={row.ask} hidden={offAtStart(row.ask)} />}
+          </span>
+          <span class="text">
+            <span class="name">{cast[row.who].name}</span>
+            {row.lines.map((line) => (
+              <span class:list={["line", line.tone]} data-in={line.in} hidden={offAtStart(line.in)}>
+                {line.text}
+              </span>
+            ))}
+          </span>
+        </li>
+      ))
+    }
+  </ul>
+</aside>
+
+<style>
+  .list {
+    display: none;
+    flex-direction: column;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  @container scene (min-width: 560px) {
+    .list {
+      display: flex;
+    }
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 14px 14px 10px;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  ul {
+    padding: 0 6px;
+  }
+
+  .row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    padding: 0 9px;
+  }
+
+  .open {
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    background: var(--active);
+  }
+
+  .face,
+  .faces,
+  .text {
+    position: relative;
+  }
+
+  .faces {
+    display: grid;
+    grid-template-columns: repeat(2, 15px);
+    grid-template-rows: repeat(2, 15px);
+    width: 30px;
+    flex: none;
+  }
+
+  .dot {
+    position: absolute;
+    right: -2px;
+    bottom: -1px;
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--status-needs-you);
+  }
+
+  .text {
+    display: grid;
+    min-width: 0;
+  }
+
+  .name {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .line {
+    overflow: hidden;
+    color: var(--subtle);
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .work {
+    color: var(--muted);
+  }
+
+  .new {
+    color: var(--foreground);
+  }
+
+  .ask {
+    color: var(--status-needs-you);
+  }
+</style>

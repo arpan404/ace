@@ -2,9 +2,13 @@ import * as z from "zod/mini";
 import {
   buildText,
   defaultArch,
+  formatSize,
+  isArch,
+  isFileKind,
   isPlatform,
   labelText,
   noteText,
+  pickFile,
   pickInstaller,
   platformInfo,
   readRelease,
@@ -26,6 +30,8 @@ import { archOf, platformOf, type ChipHints } from "./visitor.ts";
  *   [data-download-text]                    on such a link: "Download for X" or "Get X builds"
  *   [data-download-note="<platform>"]       "v0.1.0 for macOS on Apple silicon, 228 MB."
  *   [data-download-build="<platform>"]      "macOS on Apple silicon, 228 MB"
+ *   a[data-file="<platform>:<kind>:<chip>"] href, when the newest release has that file
+ *   [data-file-size]                        inside such a link: "228 MB"
  *   [data-release-version]                  "0.1.0"
  *   a[data-release-notes]                   the release page
  */
@@ -124,6 +130,17 @@ function update(release: Release, visitor: Platform | undefined, chip: Arch | un
     const arch = archFor(platform);
     element.textContent = buildText(platform, arch, pickInstaller(release, platform, arch).bytes);
   });
+  // Each build listed by kind and chip follows the newest release too; one the newest release
+  // lacks keeps the link the page was built with.
+  for (const link of document.querySelectorAll<HTMLElement>("a[data-file]")) {
+    const [platform, kind, arch] = (link.dataset.file ?? "").split(":");
+    if (!isPlatform(platform) || !isFileKind(kind) || !isArch(arch)) continue;
+    const pick = pickFile(release, platform, kind, arch);
+    if (!pick.bytes) continue;
+    link.setAttribute("href", pick.url);
+    const size = link.querySelector("[data-file-size]");
+    if (size) size.textContent = formatSize(pick.bytes);
+  }
   for (const element of document.querySelectorAll<HTMLElement>("[data-release-version]")) {
     element.textContent = version;
   }

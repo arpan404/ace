@@ -34,8 +34,8 @@ struct SkillOpenOnComputer: View {
             }
         } label: {
             HStack(spacing: AceDesign.Space.related) {
-                Text("Open on computer").aceFont(AceDesign.TextRole.action)
-                    .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
+                Text("Open on computer").aceFont(AceDesign.TextRole.rowTitle)
+                    .foregroundStyle(AceDesign.Ink.action)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 AceIcon(.caretUpDown, size: AceDesign.Size.chevron, weight: .bold, relativeTo: .caption)
                     .foregroundStyle(AceDesign.Ink.faint).accessibilityHidden(true)
@@ -48,7 +48,7 @@ struct SkillOpenOnComputer: View {
         .task(id: model.connection) { await read() }
         .sensoryFeedback(.success, trigger: opened)
         .alert("Couldn't open it", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-            Button("OK") { problem = nil }
+            Button("Dismiss", role: .cancel) { problem = nil }
         } message: { Text(problem ?? "") }
     }
 
