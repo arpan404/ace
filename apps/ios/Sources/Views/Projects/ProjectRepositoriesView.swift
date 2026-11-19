@@ -35,30 +35,16 @@ struct ProjectRepositoriesView: View {
     @State private var busy = false
     @State private var changes = 0
 
-    var body: some View {
+    private var list: some View {
         List {
+            if let problem {
+                Section { ProblemRow(problem, id: "repositories.problem") { Task { await read() } } }
+            }
             Section {
                 if loaded && rows.isEmpty {
-                    Text("No remote of this project is on one of your Git hosts.").foregroundStyle(AceDesign.Ink.muted)
+                    Text("No remotes on your Git hosts").aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.muted)
                 }
-                ForEach(rows) { row in
-                    rowView(row)
-                        .contextMenu { if model.canOperate { actions(row) } }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if model.canOperate {
-                                if row.canRemove {
-                                    Button("Remove", role: .destructive) { change("remove", row) }
-                                }
-                                if row.canHide { Button("Hide") { change("hide", row) }.tint(Color(uiColor: .systemGray2)) }
-                                if row.canShow { Button("Show") { change("show", row) } }
-                            }
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if model.canOperate, row.canMakePrimary {
-                                Button("Make primary") { change("primary", row) }.tint(AceDesign.Ink.action)
-                            }
-                        }
-                }
+                ForEach(rows) { row in managed(row) }
                 if !loaded, problem == nil { SkeletonRows(count: 2, label: "Reading repositories").listRowInsets(EdgeInsets()) }
             } header: { InsetHeader("Repositories") } footer: {
                 Text("New pull requests open on the primary. Hidden repositories stay out of Code review.")
@@ -72,6 +58,7 @@ struct ProjectRepositoriesView: View {
                         .submitLabel(.done).onSubmit { Task { await add() } }
                         .accessibilityIdentifier("repositories.address")
                     Button("Add repository") { Task { await add() } }
+                        .buttonStyle(.rowAction)
                         .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("repositories.add")
                 } header: { InsetHeader("Add a repository") } footer: {
@@ -79,8 +66,11 @@ struct ProjectRepositoriesView: View {
                 }
                 .insetRowBackground()
             }
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
+    }
+
+    var body: some View {
+        list
         .insetGroupedList()
         .smoothChange(rows)
         .smoothChange(loaded)
@@ -92,18 +82,38 @@ struct ProjectRepositoriesView: View {
         .refreshable { await read() }
     }
 
+    /// A row with its changes: a long press's menu, a swipe to hide or remove, and to make it primary.
+    private func managed(_ row: RepositoriesReply.Row) -> some View {
+        rowView(row)
+            .contextMenu { if model.canOperate { actions(row) } }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if model.canOperate {
+                    if row.canRemove {
+                        Button("Remove", role: .destructive) { change("remove", row) }
+                    }
+                    if row.canHide { Button("Hide") { change("hide", row) }.tint(Color(uiColor: .systemGray2)) }
+                    if row.canShow { Button("Show") { change("show", row) } }
+                }
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                if model.canOperate, row.canMakePrimary {
+                    Button("Make primary") { change("primary", row) }.tint(AceDesign.Ink.action)
+                }
+            }
+    }
+
     private func rowView(_ row: RepositoriesReply.Row) -> some View {
         HStack(spacing: AceDesign.Space.related) {
             GitHostMark(forge: row.forge)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.label).font(AceDesign.Typeface.body)
+                Text(row.label).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(row.visible && row.available ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(1).truncationMode(.middle)
-                Text(row.line).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
+                Text(row.line).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
             }
             Spacer(minLength: AceDesign.Space.related)
             if row.primary {
-                Text("Primary").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                Text("Primary").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                     .accessibilityIdentifier("repositories.primary")
             }
         }

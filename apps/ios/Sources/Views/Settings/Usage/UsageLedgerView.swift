@@ -133,10 +133,9 @@ private struct UsageLedgerLevel: View {
             Text(line).font(AceDesign.Typeface.meta)
                 .foregroundStyle(AceDesign.Ink.muted)
             Spacer(minLength: AceDesign.Space.related)
-            Button("Retry") { retries += 1 }
-                .font(AceDesign.Typeface.meta)
+            Button("Try again") { retries += 1 }
+                .buttonStyle(.textAction())
                 .disabled(reading)
-                .frame(minHeight: AceDesign.Size.tap)
                 .accessibilityIdentifier("usage.ledger.retry")
         }
         .padding(.leading, indent)
@@ -187,7 +186,7 @@ private struct UsageLedgerRow: View {
             Button(action: toggle) { content }
                 .buttonStyle(.plain)
                 .accessibilityValue(open ? "Expanded" : "Collapsed")
-                .accessibilityHint("Shows what is inside it")
+                .accessibilityHint(open ? "Hide breakdown" : "Show breakdown")
         } else {
             content
         }

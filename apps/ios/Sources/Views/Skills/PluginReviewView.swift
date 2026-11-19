@@ -39,7 +39,7 @@ struct PluginReviewView: View {
                     }
                     if review != nil {
                         Button("Accept and install") { accept() }
-                            .buttonStyle(.textAction(.prominent))
+                            .buttonStyle(.primaryAction).controlSize(.large)
                             .disabled(!complete || busy || !model.canOperate)
                             .padding(.horizontal, AceDesign.Space.margin)
                             .accessibilityIdentifier("plugins.accept")
