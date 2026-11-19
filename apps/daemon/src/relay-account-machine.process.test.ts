@@ -165,6 +165,7 @@ async function accountMachine(direct = false) {
       account: {
         ...(extra.directRoute ? { directRoute: extra.directRoute } : {}),
         ...(extra.watchNetwork ? { watchNetwork: extra.watchNetwork } : {}),
+        ...(extra.clock ? { clock: extra.clock } : {}),
         relayUrl: relay.url,
         deviceId: id,
         grant: async () =>
@@ -194,7 +195,7 @@ async function accountMachine(direct = false) {
   return { f, backend, device, pool, hostId, relay };
 }
 type PoolExtras = Partial<
-  Pick<AccountMachineOptions, "directRoute" | "watchNetwork"> & {
+  Pick<AccountMachineOptions, "directRoute" | "watchNetwork" | "clock"> & {
     now: () => number;
     off: OffMachines;
     /** Another pool's directory: the same app starting again. */
@@ -434,8 +435,11 @@ it("a machine paired directly and found through the account is one machine on th
       },
     };
   };
+  // Holds after a switch are measured on the monotonic clock (ADR 0150), so that is the clock
+  // this test moves past one.
   const machines = machine.pool("phone", {
     now: () => Date.now() + skew,
+    clock: () => performance.now() + skew,
     watchNetwork: (changed) => {
       networkChanged = changed;
       return () => {};
