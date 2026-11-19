@@ -34,19 +34,24 @@ export interface FolderWatchHandle {
  * sends `[]`; before that, leaving only narrows the union.
  */
 export function watchFolders(client: Send, threadId: string): FolderWatchHandle {
-  let registry = registries.get(client);
-  if (!registry) {
-    registry = new Map();
-    registries.set(client, registry);
-  }
-  let watch = registry.get(threadId);
-  if (!watch) {
-    watch = { trees: new Map(), timer: undefined, sent: undefined };
-    registry.set(threadId, watch);
-  }
-  const thread = watch;
   const id = ++nextTree;
-  const send = (folders: string[]): void => {
+  // The thread's set is looked up on every call, never held: after the last tree leaves, its set
+  // is gone, and a handle used again (a hidden tab shown again) joins whichever set the thread
+  // has now instead of sending a second, competing replacement set of its own.
+  const current = (): ThreadWatch => {
+    let registry = registries.get(client);
+    if (!registry) {
+      registry = new Map();
+      registries.set(client, registry);
+    }
+    let watch = registry.get(threadId);
+    if (!watch) {
+      watch = { trees: new Map(), timer: undefined, sent: undefined };
+      registry.set(threadId, watch);
+    }
+    return watch;
+  };
+  const send = (thread: ThreadWatch, folders: string[]): void => {
     const key = folders.join("\0");
     try {
       client.send({ type: "files.watch", threadId: ThreadId.parse(threadId), folders });
@@ -56,36 +61,39 @@ export function watchFolders(client: Send, threadId: string): FolderWatchHandle 
       thread.sent = undefined;
     }
   };
-  const flush = () => {
-    thread.timer = undefined;
-    const folders = watchedFolders([...thread.trees.values()].flat());
-    if (folders.join("\0") === thread.sent) return;
-    send(folders);
-  };
-  const schedule = () => {
+  const schedule = (thread: ThreadWatch) => {
     if (thread.timer !== undefined) return;
-    thread.timer = setTimeout(flush, watchDelay);
+    thread.timer = setTimeout(() => {
+      thread.timer = undefined;
+      const folders = watchedFolders([...thread.trees.values()].flat());
+      if (folders.join("\0") === thread.sent) return;
+      send(thread, folders);
+    }, watchDelay);
   };
   return {
     set(folders) {
+      const thread = current();
       thread.trees.set(id, [...folders]);
-      schedule();
+      schedule(thread);
     },
     resume() {
+      const thread = current();
       thread.sent = undefined;
-      schedule();
+      schedule(thread);
     },
     leave() {
-      thread.trees.delete(id);
+      const registry = registries.get(client);
+      const thread = registry?.get(threadId);
+      if (!registry || !thread || !thread.trees.delete(id)) return;
       if (thread.trees.size > 0) {
-        schedule();
+        schedule(thread);
         return;
       }
       if (thread.timer !== undefined) {
         clearTimeout(thread.timer);
         thread.timer = undefined;
       }
-      send([]);
+      send(thread, []);
       registry.delete(threadId);
     },
   };
