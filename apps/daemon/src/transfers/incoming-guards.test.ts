@@ -235,3 +235,23 @@ it("a begin of a transfer the sweep is still removing waits, so the sweep never 
   expect(state("t-again")).toBe("receiving");
   expect(await readFile(part("t-again"))).toEqual(bytes);
 });
+
+it("a transfer whose id ends like another's payload never reaches that payload's file", async () => {
+  const { incoming } = await target();
+  const other = Device.parse({ ...device, id: "device-other", name: "Studio" });
+  const ignored = Buffer.from("ignored files");
+  await incoming.call(device, begin("x"));
+  await incoming.chunk(device, "x", 0, ignored, "ignored");
+  // Another device's transfer is named as the first one's ignored payload would be on disk.
+  await incoming.call(other, begin("x.ignored"));
+  await expect(incoming.chunk(other, "x.ignored", 0, bytes)).resolves.toEqual({
+    offset: bytes.length,
+  });
+  await incoming.call(other, { op: "cancel", transferId: "x.ignored" });
+  // The first transfer still holds exactly what it was sent.
+  await expect(incoming.call(device, { op: "status", transferId: "x" })).resolves.toMatchObject({
+    state: "receiving",
+    offset: 0,
+    ignoredOffset: ignored.length,
+  });
+});

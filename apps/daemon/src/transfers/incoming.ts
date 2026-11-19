@@ -68,6 +68,19 @@ const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
 /** What a receiving transfer holds beside its id: the code, the ignored files, the final payload. */
 const incomingSuffixes = [".part", ".ignored.part", ".final.part", ".final.d"];
+/**
+ * A transfer's name on disk: its id with each `.` as `~`. Ids may hold dots, so the id itself
+ * followed by a suffix could name another transfer's file (`x.ignored` + `.part` is `x`'s ignored
+ * payload). `~` is never in an id, so each id has one stem, a stem has no dot, and every file
+ * name reads back to exactly one transfer. Ids without dots, as senders make them, keep their
+ * names.
+ */
+const stem = (transferId: string) => transferId.replaceAll(".", "~");
+/** The transfer a file here belongs to, from its stem. */
+const transferOfStem = (name: string) => {
+  const found = transferOfFile(name, incomingSuffixes);
+  return found === undefined || found.includes(".") ? undefined : found.replaceAll("~", ".");
+};
 
 /** Runs `each` over every row `page` returns, page after page by transfer id, to the end. */
 async function batches(
@@ -183,7 +196,7 @@ export class IncomingTransfers {
     // Files a crash left behind: removed only once their own transfer's row says it is settled
     // or gone, never by guess from a list that could be cut short.
     await removeStray(this.deps.directory, (name) => {
-      const transferId = transferOfFile(name, incomingSuffixes);
+      const transferId = transferOfStem(name);
       const record = transferId ? this.rows.get(transferId) : undefined;
       return record !== undefined && !settled.has(record.state);
     });
@@ -202,21 +215,25 @@ export class IncomingTransfers {
     ]);
   }
   private file(transferId: string) {
-    return join(this.deps.directory, `${transferId}.part`);
+    return join(this.deps.directory, `${stem(transferId)}.part`);
   }
   /** The archive of files Git ignores, uploaded beside the code (`part=ignored`). */
   private ignoredFile(transferId: string) {
-    return join(this.deps.directory, `${transferId}.ignored.part`);
+    return join(this.deps.directory, `${stem(transferId)}.ignored.part`);
   }
   /** A live move's final payload: what changed after the bulk, and the session (ADR 0191). */
   private finalFile(transferId: string) {
-    return join(this.deps.directory, `${transferId}.final.part`);
+    return join(this.deps.directory, `${stem(transferId)}.final.part`);
   }
   private async removeFiles(transferId: string) {
     await removeQuietly(this.file(transferId));
     await removeQuietly(this.ignoredFile(transferId));
     await removeQuietly(this.finalFile(transferId));
-    await rm(finalFolder(this.deps.directory, transferId), { recursive: true, force: true });
+    await rm(this.finalFolder(transferId), { recursive: true, force: true });
+  }
+  /** Where a live move's final payload is unpacked (ADR 0191), under the transfer's stem. */
+  private finalFolder(transferId: string) {
+    return finalFolder(this.deps.directory, stem(transferId));
   }
   async view(record: IncomingRecord): Promise<IncomingTransfer> {
     const receiving = record.state === "receiving";
@@ -558,7 +575,7 @@ export class IncomingTransfers {
     const mine: string[] = [];
     const commit = record.commit;
     const live = commit?.live && this.deps.live ? this.deps.live : undefined;
-    const folder = finalFolder(this.deps.directory, record.transferId);
+    const folder = this.finalFolder(record.transferId);
     try {
       if (live && commit?.final)
         await live.unpack(this.finalFile(record.transferId), folder, signal);
@@ -713,7 +730,7 @@ export class IncomingTransfers {
       threadId: landed.threadId,
       result: landed,
       live: carried,
-      folder: finalFolder(this.deps.directory, record.transferId),
+      folder: this.finalFolder(record.transferId),
     });
     await live.tidy(carried, landed.path);
   }
