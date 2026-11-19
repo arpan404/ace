@@ -259,3 +259,77 @@ test("Alt+Arrow moves a line while Alt+Cmd+Arrow leaves it alone", async () => {
   await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
   expect(ref.current?.text()).toBe("two\none");
 });
+
+test("Cmd+Up and Cmd+Down jump to the document's start and end, and Shift extends", async () => {
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+
+  await userEvent.keyboard("{Meta>}{ArrowDown}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(2, 5)]);
+
+  await userEvent.keyboard("{Meta>}{ArrowUp}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(0, 0)]);
+
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+  await userEvent.keyboard("{Meta>}{Shift>}{ArrowDown}{/Shift}{/Meta}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 1, column: 1 }, head: { line: 2, column: 5 } },
+  ]);
+  await userEvent.keyboard("{Meta>}{Shift>}{ArrowUp}{/Shift}{/Meta}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 1, column: 1 }, head: { line: 0, column: 0 } },
+  ]);
+});
+
+test("Ctrl+Home and Ctrl+End jump to the document's start and end off macOS", async () => {
+  Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+
+  await userEvent.keyboard("{Control>}{End}{/Control}");
+  expect(ref.current?.selections()).toEqual([caret(2, 5)]);
+  await userEvent.keyboard("{Control>}{Shift>}{Home}{/Shift}{/Control}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 2, column: 5 }, head: { line: 0, column: 0 } },
+  ]);
+});
+
+test("Cmd+Alt+Down and Cmd+Alt+Up add a cursor on the line below and above", async () => {
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 2)]));
+
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowDown}{/Alt}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(1, 2), caret(2, 2)]);
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
+  const carets = ref.current?.selections() ?? [];
+  expect(carets.map((one) => one.head.line).toSorted()).toEqual([0, 1, 2]);
+  expect(ref.current?.text()).toBe("one\ntwo\nthree");
+});
+
+test("Ctrl+Alt+Down adds a cursor below off macOS", async () => {
+  Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+  const { ref } = await openEditor({ text: "one\ntwo" });
+  act(() => ref.current?.setSelections([caret(0, 1)]));
+  await userEvent.keyboard("{Control>}{Alt>}{ArrowDown}{/Alt}{/Control}");
+  expect(ref.current?.selections()).toEqual([caret(0, 1), caret(1, 1)]);
+});
+
+test("the find bar takes its own row above the text, so it never covers the first lines", async () => {
+  const { box } = await openEditor({ text: "first line\nsecond line" });
+
+  await userEvent.keyboard("{Meta>}f{/Meta}");
+  const find = await screen.findByRole("textbox", { name: "Find in file" });
+  const bar = find.closest("search");
+  const scroller = document.querySelector("[data-editor-scroller]");
+  expect(bar).toBeTruthy();
+  expect(scroller).toBeTruthy();
+  // Not drawn over the scroller: a sibling row above it, out of the text's own box.
+  expect(bar?.className).not.toMatch(/\babsolute\b/);
+  expect(bar?.contains(scroller)).toBe(false);
+  expect(bar?.parentElement?.contains(box)).toBe(true);
+  expect(bar?.parentElement?.contains(scroller)).toBe(true);
+  const box2 = scroller?.parentElement;
+  expect(box2?.contains(bar)).toBe(false);
+  expect(box2?.contains(box)).toBe(true);
+});

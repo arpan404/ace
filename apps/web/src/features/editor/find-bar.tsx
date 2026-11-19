@@ -4,7 +4,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { FindResults } from "./use-find.ts";
 
-/** Find-in-file, in the editor's own top-right corner. */
+/** Find-in-file: a row above the text, so it never covers the first lines in a narrow panel. */
 export function EditorFindBar(props: {
   query: string;
   count: number;
@@ -22,7 +22,7 @@ export function EditorFindBar(props: {
   useEffect(() => input.current?.focus(), []);
   const canStep = props.status === "ready" && props.count > 0;
   return (
-    <search className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-md border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]">
+    <search className="flex h-9 shrink-0 items-center gap-1 border-b bg-popover pr-1 pl-2.5">
       <input
         ref={input}
         aria-label="Find in file"
@@ -40,7 +40,7 @@ export function EditorFindBar(props: {
             props.onClose();
           }
         }}
-        className="h-full w-40 bg-transparent text-ui text-foreground focus-ring placeholder:text-subtle-foreground"
+        className="h-full min-w-0 flex-1 bg-transparent text-ui text-foreground focus-ring placeholder:text-subtle-foreground"
       />
       <Toggle
         label="Match case"

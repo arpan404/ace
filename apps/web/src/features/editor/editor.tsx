@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Selection } from "@ace/editor";
-import { pathParts } from "@ace/ui-core";
+import { fileLanguage, pathParts } from "@ace/ui-core";
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -29,6 +29,9 @@ import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const paddingRight = 24;
+
+/** How long the first paint waits for colours before it shows plain text. */
+const firstPaintHold = 250;
 
 /**
  * The Files tab's text editor: virtualized visual rows with a sticky line-number gutter,
@@ -72,6 +75,21 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [paint, setPaint] = useState(0);
+  // A file with a grammar is first drawn with its colours: the plain text it would show while
+  // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
+  // or briefly after, so a slow or large file is never kept blank. Later changes keep the
+  // colours they had.
+  const [shown, setShown] = useState(false);
+  const held = !shown && fileLanguage(props.path) !== undefined;
+  useEffect(() => {
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
+    if (paint > 0) setShown(true);
+  }, [paint]);
+  useEffect(() => {
+    if (!held) return;
+    const timer = setTimeout(() => setShown(true), firstPaintHold);
+    return () => clearTimeout(timer);
+  }, [held]);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
 
@@ -274,125 +292,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       aria-label={props.label}
       data-selected-lines={selected}
       className={cn(
-        "relative h-full min-h-0 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]",
+        "flex h-full min-h-0 flex-col focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]",
         props.className,
       )}
     >
-      <div
-        ref={scroller}
-        data-editor-scroller
-        className="h-full min-h-0 overflow-auto focus-ring-inset"
-        onScroll={(event) => {
-          const element = event.currentTarget;
-          setScroll({ top: element.scrollTop, left: element.scrollLeft });
-        }}
-        onPointerDown={pointer.onPointerDown}
-        onPointerMove={pointer.onPointerMove}
-        onPointerUp={pointer.onPointerUp}
-        onPointerCancel={pointer.onPointerUp}
-        onDoubleClick={pointer.onDoubleClick}
-        onClick={pointer.onTripleClick}
-      >
-        <div
-          ref={host}
-          className="relative min-h-full min-w-full"
-          style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
-        >
-          <div aria-hidden>
-            {lines.map((text, offset) => {
-              const line = first + offset;
-              const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
-              const startRow = layout?.startOf(line) ?? line;
-              const long = text.length > longLine;
-              const lineTokens = tokens[offset];
-              const lineMatches = activeQuery ? byLine.get(line) : undefined;
-              // A line can be a megabyte long: only the rows inside the window are built, and a
-              // row outside it is never sliced, coloured or given a find match.
-              const from = Math.max(0, firstRow - startRow);
-              const to = Math.min(lineRows.length, lastRow - startRow);
-              const drawn = [];
-              for (let at = from; at < to; at++) {
-                const row = lineRows.at(at);
-                if (!row) continue;
-                const index = startRow + at;
-                const end = Math.min(row.end, text.length);
-                drawn.push(
-                  <EditorLine
-                    key={`${line}:${at}`}
-                    line={line}
-                    row={index}
-                    text={text.slice(row.start, end)}
-                    number={at === 0 ? line + 1 : undefined}
-                    indent={row.indent * cell}
-                    tokens={
-                      lineTokens && !long
-                        ? wrap
-                          ? sliceTokens(lineTokens, row.start, end)
-                          : lineTokens
-                        : undefined
-                    }
-                    gutter={gutter}
-                    top={index * lineHeight}
-                    mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
-                    current={line === caretLine}
-                    matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
-                    query={activeQuery}
-                    long={long}
-                    clip={!wrap}
-                  />,
-                );
-              }
-              return drawn;
-            })}
-            <CaretLayers
-              selections={state.selections}
-              lines={lineAt}
-              layout={layout}
-              firstLine={first}
-              lastLine={last - 1}
-              firstRow={firstRow}
-              lastRow={lastRow}
-              gutter={gutter}
-              cell={cell}
-              affinity={affinity}
-              primary={state.primary}
-              composing={
-                input.composingText === undefined ? undefined : { text: input.composingText }
-              }
-            />
-          </div>
-        </div>
-      </div>
-      {doc ? (
-        <textarea
-          ref={field}
-          aria-label={name}
-          aria-multiline="true"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          readOnly={readOnly}
-          onBlur={props.onBlur}
-          onFocus={mirror}
-          autoFocus={props.focusOnMount}
-          onKeyDown={onKeyDown}
-          onInput={input.onInput}
-          onCopy={input.onCopy}
-          onCut={input.onCut}
-          onPaste={input.onPaste}
-          onDrop={input.onDrop}
-          onCompositionStart={input.onCompositionStart}
-          onCompositionUpdate={input.onCompositionUpdate}
-          onCompositionEnd={input.onCompositionEnd}
-          className="absolute size-px resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-ui text-transparent caret-transparent outline-none"
-          style={{ left: textareaLeft, top: textareaTop }}
-        />
-      ) : null}
-      {announcement ? (
-        <span key={announcement.seq} aria-live="polite" className="sr-only">
-          {announcement.text}
-        </span>
-      ) : null}
       {finder.open ? (
         <EditorFindBar
           query={finder.query}
@@ -408,6 +311,124 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           onClose={finder.close}
         />
       ) : null}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scroller}
+          data-editor-scroller
+          className="h-full min-h-0 overflow-auto focus-ring-inset"
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            setScroll({ top: element.scrollTop, left: element.scrollLeft });
+          }}
+          onPointerDown={pointer.onPointerDown}
+          onPointerMove={pointer.onPointerMove}
+          onPointerUp={pointer.onPointerUp}
+          onPointerCancel={pointer.onPointerUp}
+          onDoubleClick={pointer.onDoubleClick}
+          onClick={pointer.onTripleClick}
+        >
+          <div
+            ref={host}
+            data-highlight-pending={held || undefined}
+            className={cn("relative min-h-full min-w-full", held && "opacity-0")}
+            style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
+          >
+            <div aria-hidden>
+              {lines.map((text, offset) => {
+                const line = first + offset;
+                const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
+                const startRow = layout?.startOf(line) ?? line;
+                const long = text.length > longLine;
+                const lineTokens = tokens[offset];
+                const lineMatches = activeQuery ? byLine.get(line) : undefined;
+                // A line can be a megabyte long: only the rows inside the window are built, and a
+                // row outside it is never sliced, coloured or given a find match.
+                const from = Math.max(0, firstRow - startRow);
+                const to = Math.min(lineRows.length, lastRow - startRow);
+                const drawn = [];
+                for (let at = from; at < to; at++) {
+                  const row = lineRows.at(at);
+                  if (!row) continue;
+                  const index = startRow + at;
+                  const end = Math.min(row.end, text.length);
+                  drawn.push(
+                    <EditorLine
+                      key={`${line}:${at}`}
+                      line={line}
+                      row={index}
+                      text={text.slice(row.start, end)}
+                      number={at === 0 ? line + 1 : undefined}
+                      indent={row.indent * cell}
+                      tokens={
+                        lineTokens && !long
+                          ? wrap
+                            ? sliceTokens(lineTokens, row.start, end)
+                            : lineTokens
+                          : undefined
+                      }
+                      gutter={gutter}
+                      top={index * lineHeight}
+                      mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
+                      current={line === caretLine}
+                      matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
+                      query={activeQuery}
+                      long={long}
+                      clip={!wrap}
+                    />,
+                  );
+                }
+                return drawn;
+              })}
+              <CaretLayers
+                selections={state.selections}
+                lines={lineAt}
+                layout={layout}
+                firstLine={first}
+                lastLine={last - 1}
+                firstRow={firstRow}
+                lastRow={lastRow}
+                gutter={gutter}
+                cell={cell}
+                affinity={affinity}
+                primary={state.primary}
+                composing={
+                  input.composingText === undefined ? undefined : { text: input.composingText }
+                }
+              />
+            </div>
+          </div>
+        </div>
+        {doc ? (
+          <textarea
+            ref={field}
+            aria-label={name}
+            aria-multiline="true"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            readOnly={readOnly}
+            onBlur={props.onBlur}
+            onFocus={mirror}
+            autoFocus={props.focusOnMount}
+            onKeyDown={onKeyDown}
+            onInput={input.onInput}
+            onCopy={input.onCopy}
+            onCut={input.onCut}
+            onPaste={input.onPaste}
+            onDrop={input.onDrop}
+            onCompositionStart={input.onCompositionStart}
+            onCompositionUpdate={input.onCompositionUpdate}
+            onCompositionEnd={input.onCompositionEnd}
+            className="absolute size-px resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-ui text-transparent caret-transparent outline-none"
+            style={{ left: textareaLeft, top: textareaTop }}
+          />
+        ) : null}
+        {announcement ? (
+          <span key={announcement.seq} aria-live="polite" className="sr-only">
+            {announcement.text}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
