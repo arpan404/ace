@@ -177,3 +177,16 @@ struct ProjectChoiceCache {
         return kept
     }
 }
+
+extension MachineInbox {
+    /// Everything waiting on the person in these rows, in the list's order: each request, and
+    /// each thread that needs the person with no request to answer here. The Threads list's
+    /// "3 need you" and the empty page beside it count the same.
+    func needs(in sections: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] {
+        sections.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key -> [NeedsRunQueue.Entry] in
+            let asks = client(key.machineId)?.needsYou(key.id) ?? []
+            if !asks.isEmpty { return asks.map { NeedsRunQueue.Entry(thread: key, request: $0.id) } }
+            return row(key)?.look?.level == "needs-you" ? [NeedsRunQueue.Entry(thread: key, request: nil)] : []
+        }
+    }
+}
