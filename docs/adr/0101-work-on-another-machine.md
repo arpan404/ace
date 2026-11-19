@@ -56,8 +56,19 @@ change without pairing again:
   away the last one is Remove.
 - The device keeps its id, credential and expiry. Every authority check reads the stored record,
   so the next transfer call, socket message or lease check sees the new scopes; nothing reconnects.
+  A transfer call already admitted reads the device again (active, `operate` and `projects`) after
+  every wait and right before each state claim or write: a commit that was hashing its upload,
+  a chunk whose write was queued, or a begin that was reading origins, never claims, writes or
+  starts an import once the scope is gone. TLS and relay calls go through the same check.
 - The command is durable (ADR 0057): it carries a `commandId`, and the change and its receipt
-  commit in one transaction. A retry after a lost reply returns the first outcome.
+  commit in one transaction. A retry after a lost reply returns the first outcome. Only a receipt
+  of that exact change answers it: a command id used before for anything else (another device,
+  scope or direction, or another kind of command) is refused as `invalid` and changes nothing.
+- Link all and a machine's Link only fill missing links. The `link` request carries `keep`, and
+  the linking machine refuses it as `exists`, right before redeeming, while it holds a link to that
+  machine or is making one: redeeming replaces the link's device there, so a link made meanwhile
+  in another window, perhaps with Projects, is never replaced by one granting less. The unused
+  pairing link is cancelled, and the toast names only links this action made.
 - A machine's page in Settings › Fleet lists each machine linked to it with "Allow projects" or
   "Don't allow projects".
 - In "Continue on…" and "Open on…", a machine that doesn't allow projects can be chosen. The step
@@ -252,7 +263,9 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   device, so Settings › Fleet and `machines` show which links take transfers even when that
   machine keeps agents out.
 - The target verifies the SHA-256 of the whole file before importing; a damaged file fails the
-  transfer with `transfer_corrupt`. A failed or cancelled import leaves no project registered
+  transfer with `transfer_corrupt`. Each digest failure is claimed only for the upload it checked:
+  a commit of an upload reopened since (sent again as a whole bundle) decides nothing and never
+  removes the new upload's files. A failed or cancelled import leaves no project registered
   (one it registered on the way is removed again) and removes only folders it created.
 - Cancel works until the import's cutoff: the moment the new thread is made, or, for a project
   without a thread, once everything has landed. The cutoff and a cancel are decided in one
@@ -274,7 +287,9 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 - A cancel or a shutdown stops waiting on a call to the target the moment it aborts, whatever the
   connection does; what the target made of that call is learnt again through status.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
-  both machines before the transfer reads settled; rows are kept 24 hours for the list. An
+  both machines before the transfer reads settled; rows are kept 24 hours for the list. While the
+  target's sweep removes an expired transfer's files, its id is held: a begin of the same id waits
+  for the removal, so the sweep never removes files of the transfer that begin starts. An
   agent's row whose result its thread hasn't been given yet is never deleted: retention skips it
   until the result is delivered and the background hold settled.
 - Transfers above 20 GiB are refused before sending, with the size in the message. The target

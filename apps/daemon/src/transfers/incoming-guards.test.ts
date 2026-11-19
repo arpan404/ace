@@ -17,27 +17,29 @@ import type { TransferArchive, TransferGit } from "./ports.ts";
  * window where a transfer call waits on the disk.
  */
 type Held = "removeQuietly" | "fileDigest" | "fileBytes";
-const holds = vi.hoisted(() => ({
-  next: new Map<string, { reached: () => void; until: Promise<void> }>(),
-}));
-vi.mock("./files.ts", async (original) => {
-  const real = await original<typeof import("./files.ts")>();
+const holds = vi.hoisted(() => {
+  const next = new Map<string, { reached: () => void; until: Promise<void> }>();
+  /** `run`, first waiting at a hold set for `name`, if there is one. */
   const holding =
-    <A extends unknown[], R>(name: Held, run: (...args: A) => Promise<R>) =>
+    <A extends unknown[], R>(name: string, run: (...args: A) => Promise<R>) =>
     async (...args: A): Promise<R> => {
-      const hold = holds.next.get(name);
-      holds.next.delete(name);
-      if (hold) {
-        hold.reached();
-        await hold.until;
+      const waiting = next.get(name);
+      next.delete(name);
+      if (waiting) {
+        waiting.reached();
+        await waiting.until;
       }
       return run(...args);
     };
+  return { next, holding };
+});
+vi.mock("./files.ts", async (original) => {
+  const real = await original<typeof import("./files.ts")>();
   return {
     ...real,
-    removeQuietly: holding("removeQuietly", real.removeQuietly),
-    fileDigest: holding("fileDigest", real.fileDigest),
-    fileBytes: holding("fileBytes", real.fileBytes),
+    removeQuietly: holds.holding("removeQuietly", real.removeQuietly),
+    fileDigest: holds.holding("fileDigest", real.fileDigest),
+    fileBytes: holds.holding("fileBytes", real.fileBytes),
   };
 });
 
