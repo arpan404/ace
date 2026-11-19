@@ -1,10 +1,11 @@
-import { spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeStateLine, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { LivePill, readingColumn } from "@/features/thread/index.ts";
 import { usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
+import { SpadeFace } from "./spade-face.tsx";
 import { useMarkSeen, type SeenTarget } from "./use-mark-seen.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -107,6 +108,21 @@ export function Scroller(props: {
       </div>
       {pill.mounted && <LivePill newItems={0} more={false} phase={pill.phase} onClick={toEnd} />}
     </>
+  );
+}
+
+/**
+ * A bot's conversation before anything is said in it: who this is, as a club shows its members.
+ * Its face at the profile's size, its name, and its task when it has one; no hint prose.
+ */
+export function ConversationStart(props: { avatar: SpadeAvatar; name: string; task: string }) {
+  const task = props.task.trim();
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+      <SpadeFace avatar={props.avatar} size={96} />
+      <p className="mt-1 text-lg leading-7 font-semibold text-foreground">{props.name}</p>
+      {task && <p className="line-clamp-3 max-w-[48ch] text-ui text-muted-foreground">{task}</p>}
+    </div>
   );
 }
 

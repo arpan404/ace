@@ -17,7 +17,7 @@ import {
   type SpadeDigest,
   type SpadeRestAction,
 } from "@ace/ui-core/spade-chat";
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -103,6 +103,8 @@ export function SpadeChat(props: {
   onOpenBot?(id: string): void;
   /** Open its profile's Work tab: a goal's and a check's quiet lines open it. */
   onOpenWork?(): void;
+  /** What shows before anything is said: who the bot is. */
+  start?: ReactNode;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -170,6 +172,7 @@ export function SpadeChat(props: {
       aria-busy={view.busy}
       className="flex flex-col"
     >
+      {rows.length === 0 && !lined && !rest && props.start}
       {rows.map((row, index) => (
         <Row key={row.key} row={row} previous={rows[index - 1]} bot={bot} handlers={handlers} />
       ))}

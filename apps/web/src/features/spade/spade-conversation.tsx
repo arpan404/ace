@@ -36,7 +36,13 @@ import {
 } from "./computer/panel-place.ts";
 import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
-import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
+import {
+  ConversationSkeleton,
+  ConversationStart,
+  message,
+  Problem,
+  Scroller,
+} from "./spade-screen-parts.tsx";
 import { questionAnchor } from "./spade-question-bubble.tsx";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -215,6 +221,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
             onWatch={
