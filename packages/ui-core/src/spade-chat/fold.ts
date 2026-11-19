@@ -1,7 +1,13 @@
 import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
 import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
-import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import type {
+  SpadeFailureKind,
+  SpadeKnownEvent,
+  SpadeLiveInput,
+  SpadeStored,
+  SpadeStoppedKind,
+} from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
 import {
@@ -217,6 +223,10 @@ export interface SpadeQuestionCard {
 
 export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
 
+/** Whether the person's answer to a request `stopped` asked holds for that call only. */
+export const spadeAnsweredOnce = (stopped: SpadeStoppedKind | undefined): boolean =>
+  stopped === "incomplete" || stopped === "unread" || stopped === "changed";
+
 export interface SpadeRequest {
   callId: string;
   name: string;
@@ -227,6 +237,8 @@ export interface SpadeRequest {
    * a step that acts in a page or app.
    */
   ask?: SpadeAskKind;
+  /** Which of Spade's judges put it to the person, when one did. */
+  stopped?: SpadeStoppedKind;
   /** For a driving step, the app or site its "always" allows for the bot. */
   app?: string;
   helper?: { job: string; task: string };
@@ -246,6 +258,7 @@ export interface SpadeApproval {
   /** Why the model review asked the person rather than let it run (ADR 0135). */
   reason: string | undefined;
   ask?: SpadeAskKind;
+  stopped?: SpadeStoppedKind;
   app?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
@@ -553,13 +566,24 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
+          ...(event.stopped ? { stopped: event.stopped } : {}),
           ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
-      // Asked again (a replay): the request already stands where it was first asked.
+      // Asked again: the request stands where it was first asked. Asked after the person
+      // answered (a file it runs changed before it started), it is open again, with why.
       const asked = state.approvals.at(-1);
-      if (asked && !updateRequest(state, event.call_id, (request) => request)) {
+      if (
+        asked &&
+        !updateRequest(state, event.call_id, (request) => ({
+          ...request,
+          reason: asked.reason,
+          ...(asked.stopped ? { stopped: asked.stopped } : {}),
+          answer: undefined,
+          always: false,
+        }))
+      ) {
         const request: { kind: "request"; key: string } & SpadeRequest = {
           kind: "request",
           key: `request:${event.call_id}`,
@@ -568,6 +592,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           arguments: asked.arguments,
           reason: asked.reason,
           ...(asked.ask ? { ask: asked.ask } : {}),
+          ...(asked.stopped ? { stopped: asked.stopped } : {}),
           ...(asked.app ? { app: asked.app } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,

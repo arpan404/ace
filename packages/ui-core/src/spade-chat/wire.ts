@@ -19,6 +19,22 @@ export const spadeFailureKinds = [
 ] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
+/**
+ * Which of Spade's judges stopped a call and put it to the person rather than refuse it (ADR 0163,
+ * amendment 3): the reviewer, the second review, Spade's classifier, or a check that couldn't
+ * vouch for what a command outside the sandbox runs (part of it unreadable, unreadable again
+ * before it started, or a file changed while it waited).
+ */
+export const spadeStoppedKinds = [
+  "reviewer",
+  "second_review",
+  "classifier",
+  "incomplete",
+  "unread",
+  "changed",
+] as const;
+export type SpadeStoppedKind = (typeof spadeStoppedKinds)[number];
+
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
  * daemon passes them through as text, so every client parses them here, leniently: an event
@@ -112,6 +128,11 @@ const known = z.discriminatedUnion("type", [
     reviewer_reason: z.string().nullish().catch(undefined),
     /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
     ask: z.enum(["undeclared", "outside_sandbox", "drive"]).nullish().catch(undefined),
+    /**
+     * Which of Spade's judges stopped the call and put it to the person (ADR 0163, amendment 3);
+     * missing on older events and other requests, or a word this client doesn't know.
+     */
+    stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
     /** A driving step's app or site its "always" allows for the bot, when it may be allowed. */
     app: z.string().min(1).max(200).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */

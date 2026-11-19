@@ -1,4 +1,5 @@
 import {
+  spadeAnsweredOnce,
   spadeAskedAgain,
   spadeRequestCard,
   type SpadeBubble,
@@ -41,8 +42,10 @@ export type RequestAnswer = "allow" | "always" | "deny";
  * A call the bot wants to make, as its card where it asked (ADR 0127). Open, it is raised: one
  * sentence in Spade's words, the reviewer's reason as one quiet line, the detail that matters for
  * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
- * the left and Allow on the right. Asked again after the auto-review refused it (ADR 0163), it
- * says so ("… asks again to …") and opens with what was refused before. With focus on it, Enter
+ * the left and Allow on the right. One of Spade's judges stopped (ADR 0163, amendment 3) says why
+ * in that line ("The reviewer stopped this: …") and its Allow is Allow once; a check that couldn't
+ * vouch for what a command runs offers no Always. An older Spade's "asked again" request says so
+ * ("… asks again to …") and opens with what was refused before. With focus on it, Enter
  * allows and Escape denies, and it takes focus as it opens unless the person is typing. Once
  * answered it leaves the chat.
  */
@@ -85,7 +88,8 @@ export function SpadeRequestBubble(props: {
   // What Enter and the main button answer: a tool Spade had no effect for is remembered for this
   // bot, so its one Allow is the always; outside the sandbox it is once.
   const main: RequestAnswer = item.ask === "undeclared" ? "always" : "allow";
-  const mainWord = item.ask === "undeclared" ? "Allow" : outside ? "Allow once" : "Allow";
+  const mainWord =
+    item.ask === "undeclared" ? "Allow" : outside || item.stopped ? "Allow once" : "Allow";
   // A step in a page or app (ADR 0171, amendment 3): its always allows that one app or site for
   // the bot, and only where Spade offers it; never an Always allow for the tool.
   const drive = item.ask === "drive";
@@ -94,9 +98,10 @@ export function SpadeRequestBubble(props: {
     : drive && item.app
       ? `Allow ${item.app} for this bot`
       : "Always allow";
-  const offersAlways = drive
-    ? item.app !== undefined
-    : outside || (card.always && item.ask !== "undeclared");
+  // A check that couldn't vouch for what a command runs is answered for this call only.
+  const offersAlways =
+    !spadeAnsweredOnce(item.stopped) &&
+    (drive ? item.app !== undefined : outside || (card.always && item.ask !== "undeclared"));
   return (
     <RaisedCard
       ref={raised}

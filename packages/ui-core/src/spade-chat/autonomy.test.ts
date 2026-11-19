@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { parseSpadeAgentValue } from "./agents.ts";
 import { spadeTaskLine } from "./autonomy.ts";
+import { spadeBubbles } from "./bubbles.ts";
 import { emptySpadeConversation, foldSpade } from "./fold.ts";
+import { spadeView } from "./view.ts";
+import { parseSpadeEvent } from "./wire.ts";
 
 const agent = (fields: Record<string, unknown>) =>
   parseSpadeAgentValue({
@@ -49,6 +52,27 @@ describe("a task that carries on", () => {
   });
 });
 
+/** A request for `sh build.sh`, put to the person by `stopped` with `reason`. */
+const asked = (reason: string, stopped: string) => ({
+  type: "approval_requested",
+  reply: "r",
+  call_id: "k",
+  name: "shell",
+  arguments: { command: "sh build.sh" },
+  reviewer_reason: reason,
+  stopped,
+});
+
+/** A request as this client reads it off the wire, stopped by `stopped`. */
+const read = (stopped: string) =>
+  parseSpadeEvent({
+    type: "approval_requested",
+    reply: "r",
+    call_id: "k",
+    name: "send_email",
+    stopped,
+  });
+
 describe("escalations", () => {
   test("an approval the reviewer escalated carries the reviewer's reason", () => {
     const state = emptySpadeConversation();
@@ -71,6 +95,40 @@ describe("escalations", () => {
       },
     });
     expect(state.approvals[0]?.reason).toBe("It sends as you to someone new");
+  });
+
+  test("a call asked about again after the person allowed it is open again, with the new reason", () => {
+    const state = emptySpadeConversation();
+    let seq = 0;
+    // Each event as it comes off the wire.
+    const store = (event: Record<string, unknown>) =>
+      foldSpade(state, {
+        kind: "stored",
+        stored: { seq: ++seq, at: seq, event: parseSpadeEvent(event) },
+      });
+    const open = () =>
+      spadeBubbles(spadeView(state)).flatMap((bubble) =>
+        bubble.kind === "ask" ? [{ reason: bubble.reason, stopped: bubble.stopped }] : [],
+      );
+    store({ type: "reply_started", reply: "r" });
+    store({ type: "step_finished", reply: "r", text: "", calls: [{ id: "k", name: "shell" }] });
+    store(asked("The reviewer stopped this: It rebuilds everything.", "reviewer"));
+    expect(open()).toEqual([
+      { reason: "The reviewer stopped this: It rebuilds everything.", stopped: "reviewer" },
+    ]);
+    store({ type: "approval_answered", reply: "r", call_id: "k", allowed: true, always: false });
+    expect(open()).toEqual([]);
+    // Its script changed before it started: the old answer doesn't run it, the person decides again.
+    const changed = "A file this command runs changed after it was checked, so you decide on it.";
+    store(asked(changed, "changed"));
+    expect(open()).toEqual([{ reason: changed, stopped: "changed" }]);
+  });
+
+  test("a judge this client doesn't know reads as no judge, and the request still stands", () => {
+    expect(read("reviewer")).toMatchObject({ type: "approval_requested", stopped: "reviewer" });
+    const unknown = read("a_newer_judge");
+    expect(unknown).toMatchObject({ type: "approval_requested", call_id: "k" });
+    expect(unknown).not.toHaveProperty("stopped", "a_newer_judge");
   });
 });
 
