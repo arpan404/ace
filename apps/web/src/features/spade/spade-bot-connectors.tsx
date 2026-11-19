@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { SettingAction } from "@/components/setting-row.tsx";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -84,6 +85,7 @@ export function ProfileApps(props: { bot: RosterBot }) {
           {...part("list-row", undefined, "connector")}
           className="flex min-h-(--setting-row-height) items-center gap-3 py-2"
         >
+          <AppMark catalogue={connector.catalogue} name={connector.name} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-ui font-medium text-foreground">{connector.name}</span>
             {connector.account && (
@@ -129,6 +131,7 @@ export function ProfileApps(props: { bot: RosterBot }) {
                 })
               }
             >
+              <AppMark catalogue={connector.catalogue} name={connector.name} size="inline" />
               {connector.name}
             </MenuItem>
           ))}

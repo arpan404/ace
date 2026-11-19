@@ -135,6 +135,11 @@ const turnEnds: Record<string, string> = {
   interrupted: "A turn was cut off",
 };
 
+/** The connector a connector call's tool name belongs to: `slack__send_message` → "slack". */
+export function spadeConnectorOf(name: string): string | undefined {
+  return connectorParts(name).app || undefined;
+}
+
 /** `slack__send_message` → app "slack", tool "send_message". */
 function connectorParts(name: string): { app: string; tool: string } {
   const at = name.indexOf("__");

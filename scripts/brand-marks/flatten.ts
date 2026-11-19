@@ -6,7 +6,8 @@
  * - `<g>` groups and their `transform` (translate, scale, matrix without rotation or skew), which
  *   are applied to the path data;
  * - presentation attributes, `style="…"` and a `<style>` sheet of tag and class rules;
- * - `<circle>`, turned into two arcs;
+ * - `<circle>`, turned into two arcs, and `<rect>` (with `rx`), into lines and arcs;
+ * - a `<defs>` holding only clip paths of the whole box (a no-op some kits add), dropped;
  * - strokes, turned into the filled outline they paint: a stroked circle is a ring, and a stroked
  *   path of lines and circular arcs that meet without corners is offset to both sides and closed
  *   with butt caps. This is exact geometry, not a redrawing.
@@ -304,15 +305,61 @@ function outline(commands: readonly Command[], width: number, file: string): Com
   ];
 }
 
+/** A rectangle, its corners rounded by `rx` (and `ry`), as path data. */
+function rectPath(own: Map<string, string>): string {
+  const [x, y, w, h] = ["x", "y", "width", "height"].map((name) => Number(own.get(name) ?? 0));
+  const rx = Math.min(Number(own.get("rx") ?? own.get("ry") ?? 0), w / 2);
+  const ry = Math.min(Number(own.get("ry") ?? own.get("rx") ?? 0), h / 2);
+  if (!rx || !ry) return `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+  const arc = (ex: number, ey: number) => `A${rx} ${ry} 0 0 1 ${ex} ${ey}`;
+  return (
+    `M${x + rx} ${y}H${x + w - rx}${arc(x + w, y + ry)}V${y + h - ry}${arc(x + w - rx, y + h)}` +
+    `H${x + rx}${arc(x, y + h - ry)}V${y + ry}${arc(x + rx, y)}Z`
+  );
+}
+
+/**
+ * Drops `<defs>` that only clip to the whole box, which paints the same as no clip. Any other
+ * definition is refused: it would change what the mark paints.
+ */
+function withoutWholeBoxClips(body: string, viewBox: string, file: string): string {
+  const [, , width, height] = viewBox.split(/[\s,]+/).map(Number);
+  return body.replace(/<defs\b[^>]*>([\s\S]*?)<\/defs>/g, (_, inner: string) => {
+    const left = inner.replace(
+      /<clipPath\b[^>]*>\s*(<rect\b[^>]*\/>)\s*<\/clipPath>/g,
+      (_whole: string, rect: string) => {
+        const own = attributes(rect);
+        const wholeBox =
+          Number(own.get("x") ?? 0) === 0 &&
+          Number(own.get("y") ?? 0) === 0 &&
+          Number(own.get("width")) === width &&
+          Number(own.get("height")) === height &&
+          !own.has("transform");
+        if (!wholeBox) throw new Error(`${file}: a clip path other than the whole box`);
+        return "";
+      },
+    );
+    if (left.trim()) throw new Error(`${file}: unsupported definitions`);
+    return "";
+  });
+}
+
 /** Every filled outline an official SVG paints, in paint order, with the fill it paints in. */
 export function flatten(svg: string, file: string): { viewBox: string; paths: FlatPath[] } {
-  const body = svg
+  const stripped = svg
     .replace(/<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<!--[\s\S]*?-->/g, "")
     .replace(/<(metadata|title|desc|style)\b[\s\S]*?<\/\1>/g, "");
   const rules = sheet(svg);
-  const root = /<svg\b[^>]*>/.exec(body);
-  const viewBox = attributes(root?.[0] ?? "").get("viewBox");
+  const rootAttributes = attributes(/<svg\b[^>]*>/.exec(stripped)?.[0] ?? "");
+  // A kit that gives only a size draws in a box of that size from the origin.
+  const sized = [rootAttributes.get("width"), rootAttributes.get("height")];
+  const viewBox =
+    rootAttributes.get("viewBox") ??
+    (sized.every((value) => value && /^[\d.]+$/.test(value))
+      ? `0 0 ${sized.join(" ")}`
+      : undefined);
   if (!viewBox) throw new Error(`${file}: no viewBox`);
+  const body = withoutWholeBoxClips(stripped, viewBox, file);
   const initial: Paint = { fill: "black", stroke: "none", strokeWidth: 1, fillRule: "nonzero" };
   const stack: { paint: Paint; matrix: Matrix; tag: string }[] = [];
   let paint = initial;
@@ -326,7 +373,7 @@ export function flatten(svg: string, file: string): { viewBox: string; paths: Fl
       ({ paint, matrix } = stack.at(-1) ?? { paint: initial, matrix: identity });
       continue;
     }
-    if (!["svg", "g", "path", "circle"].includes(tag))
+    if (!["svg", "g", "path", "circle", "rect"].includes(tag))
       throw new Error(`${file}: unsupported element ${tag}`);
     const own = attributes(rest);
     const style = new Map<string, string>();
@@ -354,11 +401,14 @@ export function flatten(svg: string, file: string): { viewBox: string; paths: Fl
       }
       continue;
     }
-    const shape = tag === "circle" ? undefined : absolute(own.get("d") ?? "", file);
+    const shape =
+      tag === "circle"
+        ? undefined
+        : absolute(tag === "rect" ? rectPath(own) : (own.get("d") ?? ""), file);
     const [cx, cy, r] = ["cx", "cy", "r"].map((name) => Number(own.get(name) ?? 0));
     if (next.fill !== "none") {
       // Untransformed path data is kept exactly as the kit wrote it.
-      const raw = own.get("d");
+      const raw = tag === "rect" ? rectPath(own) : own.get("d");
       const d =
         shape && raw && here.every((value, i) => value === identity[i])
           ? raw.replace(/\s+/g, " ").trim()

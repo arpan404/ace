@@ -144,23 +144,7 @@ export function BrandMark(
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label })}
     >
       {paths ? (
-        <>
-          {paths.some((path) => path.gradient) && (
-            <defs>{paths.map((path, index) => gradientDef(path, `${gradientId}g${index}`))}</defs>
-          )}
-          {paths.map((path, index) => (
-            <path
-              // A mark's paths never reorder, and some share an outline (Gemini's layers).
-              // oxlint-disable-next-line react/no-array-index-key
-              key={index}
-              d={path.d}
-              fill={path.gradient ? `url(#${gradientId}g${index})` : (path.fill ?? "currentColor")}
-              fillRule={path.fillRule}
-              clipRule={path.clipRule}
-              opacity={path.opacity}
-            />
-          ))}
-        </>
+        <MarkPaths paths={paths} gradientId={gradientId} />
       ) : choice && !brand ? (
         // ace's own mark for an agent without a brand of its own: a ring around a point.
         <>
@@ -169,6 +153,33 @@ export function BrandMark(
         </>
       ) : null}
     </svg>
+  );
+}
+
+/**
+ * A mark's outlines inside an `<svg>` whose viewBox is the mark's: every brand mark (provider,
+ * Git host, connected app) draws through here. `gradientId` is unique on the page.
+ */
+export function MarkPaths(props: { paths: readonly BrandPath[]; gradientId: string }) {
+  const { paths, gradientId } = props;
+  return (
+    <>
+      {paths.some((path) => path.gradient) && (
+        <defs>{paths.map((path, index) => gradientDef(path, `${gradientId}g${index}`))}</defs>
+      )}
+      {paths.map((path, index) => (
+        <path
+          // A mark's paths never reorder, and some share an outline (Gemini's layers).
+          // oxlint-disable-next-line react/no-array-index-key
+          key={index}
+          d={path.d}
+          fill={path.gradient ? `url(#${gradientId}g${index})` : (path.fill ?? "currentColor")}
+          fillRule={path.fillRule}
+          clipRule={path.clipRule}
+          opacity={path.opacity}
+        />
+      ))}
+    </>
   );
 }
 
