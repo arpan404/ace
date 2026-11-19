@@ -204,7 +204,7 @@ impl notify::EventHandler for Events {
 
 impl Events {
     /// Hands one event to the worker without ever blocking the OS watcher.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn send(&self, event: Event) {
         self.offer(Ok(event));
     }

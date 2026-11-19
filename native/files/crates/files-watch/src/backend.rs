@@ -4,7 +4,9 @@
 //!
 //! Linux watches one folder at a time with inotify so excluded folders never take a watch.
 //! Windows has its own `ReadDirectoryChangesW` backend, because `notify` hides the status that
-//! says the kernel lost events. Everywhere else `notify` provides the recursive watch.
+//! says the kernel lost events. macOS has its own FSEvents stream, because `notify`'s starts late
+//! and drops the records that stand for lost events. Everywhere else `notify` provides the
+//! recursive watch.
 
 use std::time::Duration;
 
@@ -18,6 +20,8 @@ use crate::watch::Events;
 
 #[cfg(target_os = "linux")]
 pub(crate) use crate::linux::Folders as Native;
+#[cfg(target_os = "macos")]
+pub(crate) use crate::macos::Stream as Native;
 #[cfg(windows)]
 pub(crate) use crate::windows::Watch as Native;
 
@@ -82,13 +86,13 @@ pub(crate) fn poll(root: &Root, events: Events) -> Result<PollWatcher, Error> {
     Ok(watcher)
 }
 
-/// One recursive OS watch: FSEvents on macOS, kqueue on the BSDs.
-#[cfg(all(not(target_os = "linux"), not(windows)))]
+/// One recursive OS watch: kqueue on the BSDs.
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
 pub(crate) struct Native {
     watcher: notify::RecommendedWatcher,
 }
 
-#[cfg(all(not(target_os = "linux"), not(windows)))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
 impl Native {
     pub(crate) fn start(
         root: &Root,
