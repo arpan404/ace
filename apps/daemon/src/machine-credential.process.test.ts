@@ -25,7 +25,7 @@ import type { Client } from "./socket-test-support.ts";
 // under Miniflare, against a fake WorkOS). A process holding only what the daemon writes to
 // ACE_HOME never gets the person's standing; the person, signed in in a browser, does, on the
 // socket that proves it. The person-only action observed is "Ask me before agents publish",
-// which the daemon changes for a credential that isn't the person's only after a fresh sign-in.
+// which the daemon changes only from a socket that proved the person's standing.
 
 let workos: Awaited<ReturnType<typeof fakeWorkos>>;
 let worker: Awaited<ReturnType<typeof startRelayWorker>>;
@@ -121,8 +121,6 @@ async function daemon() {
     account = machineAccount({
       relayKeys: () => relayKeysFor(dir),
       personKeys,
-      // The issuer the test Worker names: its public URL's host, http://127.0.0.1.
-      marketIssuer: "127.0.0.1",
       dataDir: dir,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -155,6 +153,13 @@ async function daemon() {
     if (!welcome.standingNonce) throw new Error("No standing nonce");
     return { client, grant, nonce: welcome.standingNonce };
   }
+  /** The app's own page: a host-token socket on loopback, its nonce from its welcome. */
+  async function pageSocket() {
+    const client = await f.connect();
+    const welcome = await answer(client, "welcome");
+    if (!welcome.standingNonce) throw new Error("No standing nonce");
+    return { client, nonce: welcome.standingNonce };
+  }
   return {
     f,
     account: machine,
@@ -162,6 +167,7 @@ async function daemon() {
     host,
     keys,
     accountSocket,
+    pageSocket,
     close: async () => {
       await machine.close();
       settings?.close();
@@ -216,7 +222,7 @@ it("a process that reads ace-account.json can't act as the person", async () => 
   const socket = await accountSocket(file.token, thief);
   expect(socket.grant.standing).toBeUndefined();
   const proof = await thief.sign(
-    standingProofText({ host, nonce: socket.nonce, grant: socket.grant.token }),
+    standingProofText({ host, nonce: socket.nonce, binding: undefined, grant: socket.grant.token }),
   );
   expect(await proves(socket.client, socket.grant.token, proof)).toBe(false);
   expect(await changesGuardedSetting(socket.client)).toBe(false);
@@ -230,7 +236,9 @@ it("the person signing in in a browser acts as the person on the socket that pro
   const socket = await accountSocket(session.token, key);
   const grant = socket.grant.standing;
   if (!grant) throw new Error("No person's grant");
-  const proof = await key.sign(standingProofText({ host, nonce: socket.nonce, grant }));
+  const proof = await key.sign(
+    standingProofText({ host, nonce: socket.nonce, binding: undefined, grant }),
+  );
   // Not the person until the socket proves it.
   expect(await changesGuardedSetting(socket.client)).toBe(false);
   expect(await proves(socket.client, grant, proof)).toBe(true);
@@ -239,6 +247,19 @@ it("the person signing in in a browser acts as the person on the socket that pro
   const replay = await accountSocket(session.token);
   expect(await proves(replay.client, grant, proof)).toBe(false);
   expect(await changesGuardedSetting(replay.client)).toBe(false);
+  // A proof the window made on another channel, as whoever answered it as this host (with the
+  // relay key read from ACE_HOME) would relay to the real daemon with this socket's nonce.
+  const relayed = await accountSocket(session.token, key);
+  const relayedGrant = relayed.grant.standing ?? "";
+  const elsewhere = await key.sign(
+    standingProofText({
+      host,
+      nonce: relayed.nonce,
+      binding: "their-own-handshake",
+      grant: relayedGrant,
+    }),
+  );
+  expect(await proves(relayed.client, relayedGrant, elsewhere)).toBe(false);
   // A pairing link the person's socket makes pairs a device that is the person's too.
   const url = await linkFrom(socket.client);
   expect(
@@ -247,22 +268,38 @@ it("the person signing in in a browser acts as the person on the socket that pro
   await daemonHome.close();
 });
 
-it("the host token makes a person's pairing link only right after a browser sign-in", async () => {
+it("the app's own page proves the person's standing over the host token, and the host token alone, right after a sign-in, does nothing of the person's", async () => {
   const daemonHome = await signedInDaemon();
-  const { f } = daemonHome;
-  // POST /v1/pairings with the host token, the sign-in seconds old: the person's.
-  const fresh = await pairedSocket(f, () => f.pair(["read", "operate", "admin"]));
-  expect(await changesGuardedSetting(fresh)).toBe(true);
-  // Ten minutes on, the host token alone, either way it makes a link, pairs no person.
-  await worker.ageSignIns(11 * 60_000);
-  const stale = await pairedSocket(f, () => f.pair(["read", "operate", "admin"]));
-  expect(await changesGuardedSetting(stale)).toBe(false);
-  const host = await f.connect();
-  await answer(host, "welcome");
-  const url = await linkFrom(host);
+  const { f, host, session } = daemonHome;
+  // A process with the host token, seconds after the person signed in: no person's setting and
+  // no person's pairing link, whichever way it asks for one.
+  const bare = await daemonHome.pageSocket();
+  expect(await changesGuardedSetting(bare.client)).toBe(false);
+  const viaHttp = await pairedSocket(f, () => f.pair(["read", "operate", "admin"]));
+  expect(await changesGuardedSetting(viaHttp)).toBe(false);
+  const viaSocket = await linkFrom(bare.client);
+  expect(
+    await changesGuardedSetting(await pairedSocket(f, () => redeemPairing(viaSocket, "Phone"))),
+  ).toBe(false);
+  // The app's page, its window signed in as the person, proves it on its own socket.
+  const key = await deviceKey();
+  const page = await daemonHome.pageSocket();
+  const minted = await accounts().grant(
+    session.token,
+    { kind: "device", subject: "device", host, key: key.raw },
+    signal(),
+  );
+  const grant = minted.standing ?? "";
+  const proof = await key.sign(
+    standingProofText({ host, nonce: page.nonce, binding: undefined, grant }),
+  );
+  expect(await proves(page.client, grant, proof)).toBe(true);
+  expect(await changesGuardedSetting(page.client)).toBe(true);
+  // A link it makes then pairs a device that is the person's.
+  const url = await linkFrom(page.client);
   expect(
     await changesGuardedSetting(await pairedSocket(f, () => redeemPairing(url, "Phone"))),
-  ).toBe(false);
+  ).toBe(true);
   await daemonHome.close();
 });
 
@@ -321,7 +358,7 @@ it("an existing session file is exchanged once and removed, and an answer lost o
   );
   await writeFile(
     join(second.home, "ace-account.pending.json"),
-    JSON.stringify({ origin: worker.http, credential, source: "login" }),
+    JSON.stringify({ origin: worker.http, credential, source: "login", predecessor: older.token }),
   );
   await second.account.load();
   await expect
@@ -340,5 +377,49 @@ it("the app hands its daemon a ticket for its host id, never its session, and ke
   expect(file.token).not.toBe(session.token);
   expect(await backendKnows(session.token)).toBe(true);
   expect(daemonHome.account.status().relayHostId).toBe(daemonHome.host);
+  await daemonHome.close();
+});
+
+it("a handover asked for before a stop, whose machine signed in otherwise since, is given back on the next start", async () => {
+  const daemonHome = await signedInDaemon();
+  const kept = await stored(daemonHome.home);
+  // Before a restart the daemon asked for a credential to replace a sign-in it no longer holds:
+  // the backend issued it, the daemon never took it up.
+  const later = await signInThroughWorker(worker.http, workos, person);
+  const { ticket } = await accounts().machineEnrollment(later.token, daemonHome.host, signal());
+  const exchangeKey = personKeys.exchangeKey;
+  if (!exchangeKey) throw new Error("No exchange key");
+  const stale = encodeBase64url(randomBytes(32));
+  await accounts().machineCredential(
+    undefined,
+    {
+      hostId: daemonHome.host,
+      hostKey: encodeBase64url(daemonHome.keys.publicKey),
+      credential: stale,
+      proof: machineCredentialProof({
+        hostPrivateKey: daemonHome.keys.privateKey,
+        exchangeKey,
+        hostId: daemonHome.host,
+        credential: stale,
+      }),
+      ticket,
+    },
+    signal(),
+  );
+  await writeFile(
+    join(daemonHome.home, "ace-account.pending.json"),
+    JSON.stringify({
+      origin: worker.http,
+      credential: stale,
+      source: "handover",
+      predecessor: "p".repeat(43),
+    }),
+  );
+  await daemonHome.account.load();
+  await daemonHome.account.renew();
+  // The machine keeps the sign-in it has; the stale credential is signed out at the backend.
+  expect((await stored(daemonHome.home)).token).toBe(kept.token);
+  expect(await backendKnows(stale)).toBe(false);
+  await expect(readFile(join(daemonHome.home, "ace-account.pending.json"))).rejects.toThrow();
   await daemonHome.close();
 });

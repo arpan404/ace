@@ -20,7 +20,6 @@ export async function daemonFixture(
     | "computer"
     | "outsideClients"
     | "spade"
-    | "personGrantKeys"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -56,7 +55,6 @@ export async function daemonFixture(
         ? (["codex", "claude"] as const).map((provider) => scriptedModelInstance(provider, h.home))
         : [],
       ...(options.accounts ? { accounts: options.accounts } : {}),
-      ...(options.personGrantKeys ? { personGrantKeys: options.personGrantKeys } : {}),
       ...(options.browser ? { browser: options.browser } : {}),
       ...(options.machines ? { machines: options.machines } : {}),
       ...(options.devices ? { devices: options.devices } : {}),

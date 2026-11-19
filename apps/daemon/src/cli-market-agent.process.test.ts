@@ -1,4 +1,3 @@
-import { grantPublicKey } from "@ace/account-grant";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,16 +56,9 @@ const draft = (hash: string): MarketDraft => ({
 });
 
 /** A daemon with the marketplace on, signed in to a fake ace account, beside a fake market. */
-async function world(options: { signedInAgoMs?: number } = {}) {
-  // The account backend keeps the daemon's time: a fresh sign-in is measured on the daemon's
-  // clock (ADR 0190), and this daemon runs on its test clock.
-  let clock: () => number = Date.now;
-  const backend = await startFakeAccountBackend(
-    () => clock(),
-    options.signedInAgoMs === undefined
-      ? {}
-      : { signedInAt: () => clock() - (options.signedInAgoMs ?? 0) },
-  );
+async function world() {
+  // Signed in seconds ago: a recent sign-in authorizes nothing of the person's (ADR 0190).
+  const backend = await startFakeAccountBackend(() => Date.now());
   cleanup.push(() => backend.close());
   const market = await fakeMarket();
   cleanup.push(() => market.close());
@@ -82,15 +74,13 @@ async function world(options: { signedInAgoMs?: number } = {}) {
   });
   const f = await daemonFixture(
     undefined,
-    // This test's account backend is the one whose fresh sign-ins count (ADR 0190).
-    { personGrantKeys: { keys: [grantPublicKey(backend.signingKey)] } },
+    {},
     {
       ACE_MARKET_URL: market.origin,
       ACE_ACCOUNT_URL: backend.origin,
     },
   );
   cleanup.push(() => f.daemon.close());
-  clock = () => f.h.clock.now();
   await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
   // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
   // access isn't what these tests are about, and left on it holds the daemon's shutdown.
@@ -171,76 +161,8 @@ test("market withdraw from an agent's shell exits 2 with the person's request, e
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
 });
 
-test("the same withdrawal from the person's own terminal goes to the market", async () => {
+test("the person's own terminal withdraws nothing, however lately they signed in: it says to use the app", async () => {
   const { market, cli } = await world();
-  const withdrawn = await cli([
-    "market",
-    "withdraw",
-    "spade-skill/triage-mail@1.0.0",
-    "--reason",
-    "Broken",
-    "--json",
-  ]);
-  expect(withdrawn.code, withdrawn.stderr).toBe(0);
-  expect(JSON.parse(withdrawn.stdout)).toEqual({ kind: "pending", what: "withdrawal" });
-  expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
-});
-
-const elevenMinutesAgo = 11 * 60_000;
-const install = {
-  op: "install",
-  id: "rv-unknown",
-  hash: "a".repeat(64),
-  choices: { bots: [], needs: {}, startRoutines: false },
-};
-
-test("a thread-less install over the host token needs a sign-in from the last ten minutes", async () => {
-  const stale = await world({ signedInAgoMs: elevenMinutesAgo });
-  const socket = await hostSocket(stale.home, "ace-cli", cleanup);
-  expect(await socket.market("stale", install)).toMatchObject({ op: "error", code: "reauth" });
-  const fresh = await world();
-  const again = await hostSocket(fresh.home, "ace-cli", cleanup);
-  // Past the sign-in check, the marketplace itself answers: there's no such review.
-  expect(await again.market("fresh", install)).not.toMatchObject({ code: "reauth" });
-});
-
-test("a person-only market request is answered over the host token only after a fresh sign-in", async () => {
-  for (const [signedInAt, answered] of [
-    [elevenMinutesAgo, false],
-    [undefined, true],
-  ] as const) {
-    const { f, cli, home, market } = await world(signedInAt ? { signedInAgoMs: signedInAt } : {});
-    const asked = await cli(
-      ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
-      { ACE_THREAD_ID: f.caller.threadId },
-    );
-    const request = z
-      .object({ request: z.string() })
-      .loose()
-      .parse(JSON.parse(asked.stdout)).request;
-    // An agent's device never answers it, signed in or not.
-    const agent = await hostSocket(home, "ace-agent", cleanup);
-    expect(await agent.answer("by-agent", request)).toMatchObject({
-      ok: false,
-      error: "human_answer_required",
-    });
-    const person = await hostSocket(home, "ace-cli", cleanup);
-    const reply = await person.answer("by-host", request);
-    if (answered) {
-      expect(reply).toMatchObject({ type: "commandResult", ok: true });
-      await expect
-        .poll(() => market.seen.some((seen) => seen.path.endsWith("/withdraw")))
-        .toBe(true);
-    } else {
-      expect(reply).toMatchObject({ type: "error", code: "reauth" });
-      expect(f.daemon.store.getInteraction(request)?.state).toBe("pending");
-      expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
-    }
-  }
-});
-
-test("the person's own terminal needs a fresh sign-in to withdraw, too", async () => {
-  const { market, cli } = await world({ signedInAgoMs: elevenMinutesAgo });
   const refused = await cli([
     "market",
     "withdraw",
@@ -251,5 +173,39 @@ test("the person's own terminal needs a fresh sign-in to withdraw, too", async (
   ]);
   expect(refused.code).toBe(2);
   expect(JSON.parse(refused.stdout)).toMatchObject({ code: "reauth" });
+  expect(refused.stdout + refused.stderr).toMatch(/app/);
+  expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
+});
+
+const install = {
+  op: "install",
+  id: "rv-unknown",
+  hash: "a".repeat(64),
+  choices: { bots: [], needs: {}, startRoutines: false },
+};
+
+test("a thread-less install over the host token is refused, however lately anyone signed in", async () => {
+  const { home } = await world();
+  const socket = await hostSocket(home, "ace-cli", cleanup);
+  expect(await socket.market("install", install)).toMatchObject({ op: "error", code: "reauth" });
+});
+
+test("a person-only market request is never answered over the host token, even right after a sign-in", async () => {
+  const { f, cli, home, market } = await world();
+  const asked = await cli(
+    ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
+    { ACE_THREAD_ID: f.caller.threadId },
+  );
+  const request = z.object({ request: z.string() }).loose().parse(JSON.parse(asked.stdout)).request;
+  // An agent's device never answers it.
+  const agent = await hostSocket(home, "ace-agent", cleanup);
+  expect(await agent.answer("by-agent", request)).toMatchObject({
+    ok: false,
+    error: "human_answer_required",
+  });
+  // Nor does the host token: any process of the person's can read it (ADR 0190).
+  const person = await hostSocket(home, "ace-cli", cleanup);
+  expect(await person.answer("by-host", request)).toMatchObject({ type: "error", code: "reauth" });
+  expect(f.daemon.store.getInteraction(request)?.state).toBe("pending");
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
 });
