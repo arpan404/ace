@@ -330,6 +330,13 @@ impl Worker {
                 }
                 Ok(Command::Event(Err(error))) => {
                     self.warn(format!("file watching degraded: {error}"));
+                    // An OS watch that reports an error, such as inotify failing a read, may have
+                    // lost the events it was reading: the root is walked again. The poller's
+                    // errors are about single paths its next pass reads again, so they lose
+                    // nothing.
+                    if matches!(self.backend, Backend::Native(_)) {
+                        coalescer.overflow(None, Instant::now());
+                    }
                 }
                 Ok(Command::Failed(message)) => self.backend_failed(message),
                 Err(RecvTimeoutError::Timeout) => {
@@ -472,6 +479,57 @@ mod tests {
     use files_safe::Root;
 
     use super::{Batch, Command, Mode, WatchOptions, Watcher};
+
+    #[test]
+    fn an_error_from_the_os_watch_rescans_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = Root::open(dir.path()).unwrap();
+        let batches = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&batches);
+        let watcher = Watcher::start(
+            root,
+            WatchOptions::default(),
+            Box::new(move |batch| {
+                recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(batch);
+            }),
+        )
+        .unwrap();
+        assert_eq!(watcher.mode(), Mode::Native);
+
+        watcher
+            .control
+            .try_send(Command::Event(Err(notify::Error::io(
+                std::io::Error::other("read failed"),
+            ))))
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let seen = batches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if seen
+                .iter()
+                .any(|batch| matches!(batch, Batch::Rescan { dir: None }))
+            {
+                assert!(
+                    seen.iter().any(|batch| matches!(batch, Batch::Warning(_))),
+                    "the error is reported too, saw {seen:?}"
+                );
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "an OS watch error may have lost events and must rescan the root, saw {seen:?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(watcher.mode(), Mode::Native, "the OS watch keeps running");
+    }
 
     #[test]
     fn a_failed_backend_switches_to_polling_and_asks_for_a_rescan() {
