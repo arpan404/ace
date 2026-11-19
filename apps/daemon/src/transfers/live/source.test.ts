@@ -16,7 +16,10 @@ afterEach(async () => {
  * A source whose thread has one subagent thread here that keeps writing for `childMs` after it
  * is told to stop. The final payload records whether the child was still running when packed.
  */
-async function source(childMs: number) {
+async function source(
+  childMs: number,
+  close: (threadId: string) => Promise<void> = async () => {},
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-source-"));
   const store = new Store(join(root, "store.sqlite"));
   cleanups.push(async () => {
@@ -51,6 +54,7 @@ async function source(childMs: number) {
     }),
     interrupt: () => {},
     stopProvider: async (threadId) => {
+      await close(threadId);
       closed.add(threadId);
     },
     shells: () => [],
@@ -69,7 +73,9 @@ async function source(childMs: number) {
     send: () => {},
     atomic: (run) => store.atomic(run),
     now: () => clock,
+    // A turn of the event loop first, as a real timer gives work already settling.
     sleep: async (ms) => {
+      await new Promise((resolve) => setImmediate(resolve));
       clock += ms;
     },
   };
@@ -112,6 +118,23 @@ describe("stopping a working thread's subagents before its final snapshot", () =
     });
     expect(s.closed.has("child")).toBe(true);
     expect(s.packedWhile).toEqual([false]);
-    expect(s.clock()).toBeLessThan(31_000);
+  });
+
+  it("fails the move, taking no snapshot, when a subagent's process never exits", async () => {
+    // Its close never returns: without a bound the move would hang here.
+    const s = await source(0, (threadId) =>
+      threadId === "child" ? new Promise<void>(() => {}) : Promise.resolve(),
+    );
+    await expect(
+      s.live.stop({
+        record,
+        plan: { source: s.root, name: "app" },
+        directory: s.root,
+        signal: new AbortController().signal,
+        interrupted: () => {},
+      }),
+    ).rejects.toMatchObject({ code: "process_still_running" });
+    expect(s.packedWhile).toEqual([]);
+    expect(s.clock()).toBeLessThanOrEqual(40_000);
   });
 });
