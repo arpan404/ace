@@ -46,10 +46,9 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         case confirm(Bool?)
         /// A date's text.
         case field(String)
-        /// A number as typed, with the language of the keyboard it was typed on
-        /// (`UITextInputMode.primaryLanguage`, nil when not known), or `mixed` when its edits
-        /// came from keyboards of more than one language.
-        case number(String, language: String?, mixed: Bool = false)
+        /// A number as typed, with the language of the keyboard every character of it was typed
+        /// on (`UITextInputMode.primaryLanguage`), nil when any arrived another way (`SpadeNumber`).
+        case number(String, language: String?)
 
         static func empty(for question: Question) -> Draft {
             switch question.kind {
@@ -62,16 +61,16 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         }
 
         /// What the card sends for it. A number goes as Spade reads one (`1,5` from a German
-        /// keyboard is `1.5`); one that isn't a plain number in its keyboard's locale goes as
-        /// typed and `unread`, so the shared rules ask again rather than guess.
+        /// keyboard is `1.5`); one that can't be read for certain goes as typed and `unread`, so
+        /// the shared rules ask again rather than guess.
         var payload: [String: Any] {
             switch self {
             case let .text(text): ["kind": "text", "text": text]
             case let .picks(picked, other): ["kind": "picks", "picked": picked, "other": other]
             case let .confirm(value): value.map { ["kind": "confirm", "value": $0] } ?? ["kind": "confirm"]
             case let .field(text): ["kind": "field", "text": text]
-            case let .number(typed, language, mixed):
-                if !mixed, let text = SpadeQuestionCard.numberText(typed, language: language, fallback: .current) {
+            case let .number(typed, language):
+                if case let .value(text) = SpadeNumber.reading(typed, keyboard: language) {
                     ["kind": "field", "text": text]
                 } else {
                     ["kind": "field", "text": typed, "unread": true]
@@ -79,49 +78,23 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             }
         }
 
-        /// The number edited to `text` on a keyboard of `language` (nil when not known). Edits
-        /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English
-        /// with `4` added in German is neither 1.234 nor 1,234; so is a number begun where the
-        /// keyboard wasn't known and finished on a known one. Only what is left of the earlier
-        /// text counts, and digits mean the same on any keyboard: an edit that keeps no decimal
-        /// or grouping mark of it (cleared, or Select All and paste) starts over.
-        func typingNumber(_ text: String, on language: String?) -> Draft {
-            guard case let .number(typed, had, mixed) = self, !text.isEmpty,
-                  Draft.kept(typed, editedTo: text).contains(where: { !$0.isNumber && $0 != "-" && $0 != "\u{2212}" }) else {
-                return replacingNumber(with: text, on: language)
+        /// The number edited to `text` on a keyboard of `language`: nil when not known, and for
+        /// Undo and Redo, which bring back text from whatever keyboard it was first typed on.
+        func editingNumber(_ text: String, on language: String?) -> Draft {
+            guard case let .number(old, had) = self else { return .number(text, language: nil) }
+            return .number(text, language: SpadeNumber.keyboard(after: old, had: had, editedTo: text, on: language))
+        }
+
+        /// Under a number with a decimal or grouping mark, what it sends (`Sends 1.5`) or, when it
+        /// reads two ways, the question; nil without a mark, or when it isn't a number at all.
+        var numberReadback: String? {
+            guard case let .number(typed, language) = self,
+                  typed.contains(where: { !$0.isNumber && !$0.isWhitespace && $0 != "-" && $0 != "\u{2212}" }) else { return nil }
+            switch SpadeNumber.reading(typed, keyboard: language) {
+            case let .value(text): return "Sends \(text)"
+            case let .either(one, other): return "Is this \(one) or \(other)? Type it again."
+            case .unreadable: return nil
             }
-            // Begun where the keyboard wasn't known, a known one taking over is a switch too.
-            let switched = language != nil && had != language
-            return .number(text, language: had ?? language, mixed: mixed || switched)
-        }
-
-        /// The number replaced whole by `text` typed or pasted on a keyboard of `language`, as
-        /// after Select All: nothing of the old one is kept, so it starts over on that keyboard,
-        /// even where the new text happens to begin like the old (#2297).
-        func replacingNumber(with text: String, on language: String?) -> Draft {
-            .number(text, language: text.isEmpty ? nil : language)
-        }
-
-        /// The number edited to `text` in its field: `selectedWhole` is the text Select All had
-        /// taken when the edit landed (nil when it hadn't), and `undoing` says the edit is Undo or
-        /// Redo. Only new text typed or pasted over all of the number replaces it; Undo and Redo
-        /// bring back text from earlier keyboards, so they are edits like any other.
-        func editingNumber(_ text: String, on language: String?, selectedWhole: String?, undoing: Bool) -> Draft {
-            if !undoing, case let .number(old, _, _) = self, !old.isEmpty, old == selectedWhole {
-                return replacingNumber(with: text, on: language)
-            }
-            return typingNumber(text, on: language)
-        }
-
-        /// What of `old` an edit to `new` left in place: their common start and end.
-        private static func kept(_ old: String, editedTo new: String) -> [Character] {
-            let before = Array(old), after = Array(new)
-            var start = 0
-            while start < before.count, start < after.count, before[start] == after[start] { start += 1 }
-            var end = 0
-            while end < before.count - start, end < after.count - start,
-                  before[before.count - 1 - end] == after[after.count - 1 - end] { end += 1 }
-            return Array(before[..<start] + before[(before.count - end)...])
         }
 
         /// Pick `label`: the one pick for `choice`, toggled for `choices`. A single pick clears
@@ -142,29 +115,6 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             guard case let .picks(picked, other) = self else { return 0 }
             return picked.count + (other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1)
         }
-    }
-
-    /// A number typed on a keyboard of `language` (else in `fallback`), with a point for its
-    /// decimal mark as Spade reads numbers, or nil when it isn't a plain number there: a grouping
-    /// mark (`1,500`, `1.500`) could mean either, so it is never read.
-    static func numberText(_ typed: String, language: String?, fallback: Locale) -> String? {
-        let keyboard = language.flatMap { ["emoji", "dictation"].contains($0) ? nil : Locale(identifier: $0) }
-        let mark = (keyboard ?? fallback).decimalSeparator ?? "."
-        var text = ""
-        var marked = false
-        for (at, each) in typed.trimmingCharacters(in: .whitespacesAndNewlines).enumerated() {
-            if at == 0, each == "-" || each == "\u{2212}" {
-                text.append("-")
-            } else if let digit = each.wholeNumberValue, each.unicodeScalars.first?.properties.numericType == .decimal {
-                text.append(String(digit))
-            } else if String(each) == mark, !marked {
-                text.append(".")
-                marked = true
-            } else {
-                return nil
-            }
-        }
-        return text.contains(where: \.isNumber) && text.last != "." ? text : nil
     }
 
     /// A date question's answer read back, for the picker to show what the card will send.

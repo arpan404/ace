@@ -9,12 +9,6 @@ struct SpadeQuestionInputs: View {
     /// A number's keypad may have no return key: Done above it puts the keyboard away so Send
     /// shows.
     @FocusState private var typingNumber: Bool
-    @State private var selection: TextSelection?
-    /// The number as it was when Select All took all of it, until the selection moves on. It is
-    /// kept from `onChange`, which runs after the edit's text and selection both land, in
-    /// whichever order the field reports them, so a paste over it is still seen as a
-    /// replacement.
-    @State private var selectedWhole: String?
 
     var body: some View {
         switch question.kind {
@@ -35,25 +29,12 @@ struct SpadeQuestionInputs: View {
     /// Typed into, a number keeps the keyboard's language too, so it is read the way that
     /// keyboard writes numbers, not the app's locale.
     private var numberBinding: Binding<String> {
-        Binding(get: { if case let .number(text, _, _) = draft { text } else { "" } },
-                set: { text in
-                    let field = TypingField.current()
-                    draft = draft.editingNumber(text, on: field?.textInputMode?.primaryLanguage,
-                                                selectedWhole: selectedWhole, undoing: TypingField.undoing(field))
-                    selectedWhole = nil
-                })
-    }
-
-    /// The number's text when `selection` covers all of it, else nil.
-    private func wholeNumber(selected selection: TextSelection?) -> String? {
-        guard case let .number(text, _, _) = draft, !text.isEmpty,
-              case let .selection(range) = selection?.indices,
-              range.lowerBound <= text.startIndex, range.upperBound >= text.endIndex else { return nil }
-        return text
+        Binding(get: { if case let .number(text, _) = draft { text } else { "" } },
+                set: { draft = draft.editingNumber($0, on: TypingField.keyboard()) })
     }
 
     private func field(_ prompt: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
-        TextField(prompt, text: text, selection: $selection, axis: .vertical)
+        TextField(prompt, text: text, axis: .vertical)
             .aceFont(AceDesign.TextRole.message)
             .lineLimit(lines)
             .padding(.horizontal, AceDesign.Space.row)
@@ -115,13 +96,25 @@ struct SpadeQuestionInputs: View {
         }
     }
 
+    /// The field, and under it what a number with a mark sends, so the person sees the value
+    /// that goes, or why it won't.
     private var number: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            numberField
+            if let readback = draft.numberReadback {
+                Text(readback).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .accessibilityIdentifier("spade.question.numberReadback")
+            }
+        }
+    }
+
+    private var numberField: some View {
         HStack(spacing: AceDesign.Space.related) {
             field("Number", text: numberBinding, lines: 1...1)
                 // The decimal pad has no minus key.
                 .keyboardType(question.signed ? .numbersAndPunctuation : .decimalPad)
                 .focused($typingNumber)
-                .onChange(of: selection) { _, now in selectedWhole = wholeNumber(selected: now) }
                 .accessibilityIdentifier("spade.question.number")
                 .toolbar {
                     if typingNumber {
@@ -187,18 +180,16 @@ private struct SpadeDateInput: View {
     }
 }
 
-/// The field being typed into: the first responder, whose text input mode is the keyboard's
-/// language and whose undo manager says whether an edit is Undo or Redo.
+/// The keyboard an edit is made on: the first responder's text input mode. Nil when it isn't
+/// known, for emoji and dictation, which don't type a locale's marks, and for Undo and Redo,
+/// which bring back text from whatever keyboard it was first typed on.
 @MainActor private enum TypingField {
-    static func current() -> UIResponder? {
+    static func keyboard() -> String? {
         let finder = FirstResponderFinder()
         UIApplication.shared.sendAction(#selector(UIResponder.aceReportFirstResponder(_:)), to: nil, from: finder, for: nil)
-        return finder.found
-    }
-
-    static func undoing(_ field: UIResponder?) -> Bool {
-        guard let undo = field?.undoManager else { return false }
-        return undo.isUndoing || undo.isRedoing
+        guard let field = finder.found else { return nil }
+        if let undo = field.undoManager, undo.isUndoing || undo.isRedoing { return nil }
+        return field.textInputMode?.primaryLanguage.flatMap { ["emoji", "dictation"].contains($0) ? nil : $0 }
     }
 }
 

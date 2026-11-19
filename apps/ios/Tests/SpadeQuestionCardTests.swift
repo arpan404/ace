@@ -34,86 +34,76 @@ import Testing
         #expect(SpadeQuestionCard.dateText(date, time: true, in: east) == "2026-11-17T21:15:00+05:45")
     }
 
+    /// A number's edits in order: each is the field's text after it and the keyboard it was
+    /// made on (nil when not known, and for Undo and Redo).
+    private func edited(_ edits: [(String, String?)]) -> SpadeQuestionCard.Draft {
+        edits.reduce(SpadeQuestionCard.Draft.number("", language: nil)) { $0.editingNumber($1.0, on: $1.1) }
+    }
+
+    /// `text` typed one character at a time on `keyboard`, after `before` is in the field.
+    private func typing(_ text: String, on keyboard: String?, after before: String = "") -> [(String, String?)] {
+        var now = before
+        return text.map { each in now.append(each); return (now, keyboard) }
+    }
+
+    private func sent(_ draft: SpadeQuestionCard.Draft) -> String? {
+        draft.payload["unread"] == nil ? draft.payload["text"] as? String : nil
+    }
+
     @Test(arguments: [
-        ("1,5", "de-DE", "1.5"),
-        ("-2,25", "de-DE", "-2.25"),
-        ("1.5", "en-US", "1.5"),
-        ("\u{2212}20", "en-US", "-20"),
-        // A comma isn't en_US's decimal mark, and a grouping mark never changes the value:
-        // sent unread, so the shared rules ask again.
-        ("1,5", "en-US", nil),
-        ("1,500", "en-US", nil),
-        ("1.500", "de-DE", nil),
-        ("lots", "de-DE", nil),
-    ] as [(String, String, String?)])
-    func aNumberIsSentInTheKeyboardsLocaleWithAPoint(typed: String, language: String, sent: String?) {
-        let payload = SpadeQuestionCard.Draft.number(typed, language: language).payload
-        #expect(payload["kind"] as? String == "field")
-        if let sent {
-            #expect(payload["text"] as? String == sent)
-            #expect(payload["unread"] == nil)
-        } else {
-            #expect(payload["text"] as? String == typed)
-            #expect(payload["unread"] as? Bool == true)
-        }
+        // Typed on a known keyboard, it is read in that keyboard's locale, grouping included.
+        ("1,234 typed in English", "1,234", "en-US", "1234"),
+        ("1,234 typed in German", "1,234", "de-DE", "1.234"),
+        ("1.500 typed in German", "1.500", "de-DE", "1500"),
+        ("1,5 typed in German", "1,5", "de-DE", "1.5"),
+        ("-2,25 typed in German", "-2,25", "de-DE", "-2.25"),
+        ("minus sign typed in English", "\u{2212}20", "en-US", "-20"),
+        ("1,5 typed in English", "1,5", "en-US", nil),
+        ("misplaced grouping in English", "1,50,0", "en-US", nil),
+        ("words", "lots", "de-DE", nil),
+        // With no keyboard known, only a number every reading agrees on is read.
+        ("1,5 with no keyboard", "1,5", nil, "1.5"),
+        ("1.5 with no keyboard", "1.5", nil, "1.5"),
+        ("1234 with no keyboard", "1234", nil, "1234"),
+        ("1.234.567 with no keyboard", "1.234.567", nil, "1234567"),
+        ("1,234 with no keyboard", "1,234", nil, nil),
+        ("1.234 with no keyboard", "1.234", nil, nil),
+    ] as [(String, String, String?, String?)])
+    func aTypedNumberIsSentOnlyAsItCanBeRead(_ name: String, typed: String, keyboard: String?, sent expected: String?) {
+        let draft = edited(typing(typed, on: keyboard))
+        #expect(sent(draft) == expected, "\(name)")
+        if expected == nil { #expect(draft.payload["text"] as? String == typed, "\(name)") }
     }
 
-    @Test func aNumberTypedAcrossTwoKeyboardsIsSentUnread() {
-        let empty = SpadeQuestionCard.Draft.number("", language: nil)
-        // `1,23` on an English keyboard, then `4` on a German one: neither reading is safe.
-        let both = empty.typingNumber("1,23", on: "en-US").typingNumber("1,234", on: "de-DE")
-        #expect(both.payload["unread"] as? Bool == true)
-        // Cleared and typed again on one keyboard, it is read again.
-        let again = both.typingNumber("", on: "de-DE").typingNumber("1,5", on: "de-DE")
-        #expect(again.payload["text"] as? String == "1.5")
-        // An edit whose keyboard isn't known keeps the one the number has.
-        let unknown = SpadeQuestionCard.Draft.number("1,5", language: "de-DE").typingNumber("1,55", on: nil)
-        #expect(unknown.payload["text"] as? String == "1.55")
-        // Begun where the keyboard wasn't known and finished on a known one: unread.
-        let late = empty.typingNumber("1,2", on: nil).typingNumber("1,25", on: "de-DE")
-        #expect(late.payload["unread"] as? Bool == true)
-        // Select All and paste on a known keyboard replaces it: read on that keyboard alone.
-        let pasted = empty.typingNumber("12", on: nil).typingNumber("1,5", on: "de-DE")
-        #expect(pasted.payload["text"] as? String == "1.5")
-        let mixedThenPasted = both.typingNumber("7", on: "de-DE").typingNumber("2,5", on: "de-DE")
-        #expect(mixedThenPasted.payload["text"] as? String == "2.5")
-    }
-
-    @Test func aNumberReplacedWholeStartsOverOnTheNewKeyboard() {
-        let empty = SpadeQuestionCard.Draft.number("", language: nil)
+    @Test func textThatWasNotTypedHasNoKeyboardSoOnlyAnAgreedReadingIsSent() {
         // #2297: `1,2` on an unknown keyboard, then Select All and paste `1,5` on a German one.
-        // The shared `1,` isn't kept: the whole field was replaced.
-        let unknown = empty.typingNumber("1,2", on: nil)
-        #expect(unknown.replacingNumber(with: "1,5", on: "de-DE").payload["text"] as? String == "1.5")
-        // Only the `2` changed on the German keyboard: the unknown keyboard's comma stays, so unread.
-        #expect(unknown.typingNumber("1,5", on: "de-DE").payload["unread"] as? Bool == true)
-        // Replacing a mixed number reads it again too.
-        let both = empty.typingNumber("1,23", on: "en-US").typingNumber("1,234", on: "de-DE")
-        #expect(both.replacingNumber(with: "1.5", on: "en-US").payload["text"] as? String == "1.5")
-        // Replaced with nothing, it has no keyboard yet.
-        #expect(both.replacingNumber(with: "", on: "de-DE") == empty)
+        #expect(sent(edited(typing("1,2", on: nil) + [("1,5", "de-DE")])) == "1.5")
+        // `1,234` in English, replaced by `2,5` in German, then Undo brings the English back.
+        let replaced = typing("1,234", on: "en-US") + [("2", "de-DE")] + typing(",5", on: "de-DE", after: "2")
+        #expect(sent(edited(replaced + [("1,234", nil)])) == nil)
+        // Undone to empty, then Redo brings back `1,234` from the English keyboard.
+        #expect(sent(edited(typing("2,5", on: "de-DE") + [("", nil), ("1,234", nil)])) == nil)
+        // Cut whole in English, pasted back with a German keyboard up.
+        #expect(sent(edited(typing("1,234", on: "en-US") + [("", "en-US"), ("1,234", "de-DE")])) == nil)
+        // Begun in English and finished in German: neither keyboard's reading is safe.
+        #expect(sent(edited(typing("1,23", on: "en-US") + typing("4", on: "de-DE", after: "1,23"))) == nil)
+        // Emptied, it is typed afresh on one keyboard and read again.
+        let mixed = typing("1,23", on: "en-US") + typing("4", on: "de-DE", after: "1,23")
+        #expect(sent(edited(mixed + [("", "de-DE")] + typing("1,234", on: "en-US"))) == "1234")
     }
 
-    @Test func onlyNewTextOverAWholeSelectionStartsANumberOver() {
-        let empty = SpadeQuestionCard.Draft.number("", language: nil)
-        let unknown = empty.typingNumber("1,2", on: nil)
-        // Select All, then paste `1,5` on a German keyboard: read on that keyboard.
-        let pasted = unknown.editingNumber("1,5", on: "de-DE", selectedWhole: "1,2", undoing: false)
-        #expect(pasted.payload["text"] as? String == "1.5")
-        // No whole selection: the kept comma is the unknown keyboard's, so unread.
-        let typed = unknown.editingNumber("1,5", on: "de-DE", selectedWhole: nil, undoing: false)
-        #expect(typed.payload["unread"] as? Bool == true)
-        // `1,234` in English, `5` pasted in German, then Select All and Undo: Undo brings back the
-        // English comma, so it stays unread rather than being read as German 1.234.
-        let mixed = empty.typingNumber("1,234", on: "en-US").typingNumber("1,2345", on: "de-DE")
-        let undone = mixed.editingNumber("1,234", on: "de-DE", selectedWhole: "1,2345", undoing: true)
-        #expect(undone.payload["unread"] as? Bool == true)
+    @Test func deletingKeepsTheKeyboardTheRestWasTypedOn() {
+        #expect(sent(edited(typing("1,2345", on: "de-DE") + [("1,234", "en-US")])) == "1.234")
+        // `12,345` typed in English, cut to `12,34`: still English, where that isn't a number,
+        // rather than read as 12.34.
+        #expect(sent(edited(typing("12,345", on: "en-US") + [("12,34", "de-DE")])) == nil)
     }
 
-    @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
-        #expect(SpadeQuestionCard.numberText("1,5", language: nil, fallback: Locale(identifier: "de_DE")) == "1.5")
-        #expect(SpadeQuestionCard.numberText("1,5", language: "emoji", fallback: Locale(identifier: "de_DE")) == "1.5")
-        #expect(SpadeQuestionCard.numberText("1,5", language: "dictation", fallback: Locale(identifier: "en_US")) == nil)
+    @Test func aNumberWithAMarkShowsWhatItSendsOrAsksAgain() {
+        #expect(edited(typing("1,5", on: "de-DE")).numberReadback == "Sends 1.5")
+        #expect(edited(typing("1,234", on: nil)).numberReadback == "Is this 1.234 or 1234? Type it again.")
+        #expect(edited(typing("1234", on: nil)).numberReadback == nil)
+        #expect(edited(typing("1,5", on: "en-US")).numberReadback == nil)
     }
 
     @Test func aPickedDateReadsBackFromTheDraftAsTheSameDay() throws {
