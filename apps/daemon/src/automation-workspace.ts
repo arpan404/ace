@@ -196,6 +196,14 @@ export function automationWorkspace(
           if (entry.type === "file") files.push(entry.path);
         }
         if (closed) return;
+        if (full) {
+          // Nothing read past the snapshot is remembered, and hashing what was read would only be
+          // thrown away: this baseline cannot reconcile anything until a complete scan seeds it.
+          known.clear();
+          complete = false;
+          context.log.log("warn", "Automation baseline exceeded its snapshot; changes may be lost");
+          return;
+        }
         for (const [path, digest] of await digests(tool, files)) {
           const held = seeded.get(path);
           if (held) held.digest = digest;
@@ -203,11 +211,7 @@ export function automationWorkspace(
         if (closed) return;
         known.clear();
         for (const [path, entry] of seeded) known.set(path, entry);
-        complete = !full;
-        if (full) {
-          known.clear();
-          context.log.log("warn", "Automation baseline exceeded its snapshot; changes may be lost");
-        }
+        complete = true;
       };
       /** One live batch: a version read now decides whether it names a real transition. */
       const batch = async (
@@ -255,9 +259,16 @@ export function automationWorkspace(
           else if (before.version !== now.version)
             matched.push({ path: change.path, kind: "changed" });
           else if (reported.get(change.path) === now.version) {
-            // The rescan that just walked this checkout reported exactly this version; the live
-            // batch that follows it names the same transition.
+            // The rescan that just walked this checkout reported this version. This live batch is
+            // that same transition unless the bytes moved again since: a save that kept the size
+            // and restored the mtime is a change the person made, and is never deduped away.
+            const digest = now.file
+              ? (await digests(tool, [change.path])).get(change.path)
+              : undefined;
             reported.delete(change.path);
+            if (digest === undefined || before.digest === undefined || digest === before.digest)
+              continue;
+            matched.push({ path: change.path, kind: "changed" });
           } else if (change.kind === "modified") {
             // An explicit live modification, even at a version the baseline already holds: a save
             // that kept the size and restored the mtime is still a change the person made. A

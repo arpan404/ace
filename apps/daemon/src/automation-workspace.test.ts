@@ -491,6 +491,52 @@ test("an incomplete scan keeps the last complete baseline instead of inventing c
   }
 });
 
+test("a live save that reuses the version a rescan reported is still a change", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
+  try {
+    const versions = new Map([["src/a.ts", { size: 4, mtime: 10 }]]);
+    const contents = new Map([["src/a.ts", "aaaa"]]);
+    const files = fakeCheckout(versions, contents);
+    const context = {
+      id: () => "trigger",
+      log: { log: () => {} },
+      resources: { own: () => {} },
+      store: { atomic: () => ({ path: root }) },
+      services: { filesNative: { tool: files.tool } },
+    } as unknown as ServiceContext;
+    const received: AutomationEvent[] = [];
+    const ready = Promise.withResolvers<void>();
+    const dispose = automationWorkspace(context).subscribe(
+      root,
+      ["src/**"],
+      async (event) => {
+        received.push(event);
+      },
+      { onReady: () => ready.resolve() },
+    );
+    await ready.promise;
+
+    versions.set("src/a.ts", { size: 5, mtime: 11 });
+    contents.set("src/a.ts", "bbbbb");
+    files.send({ type: "rescan" });
+    await until(() => received.length === 1);
+    expect(received[0]?.variables).toMatchObject({ path: "src/a.ts", kind: "changed" });
+
+    // Another save lands before the watcher's batch for the first one. It keeps the version the
+    // rescan reported but changes the bytes again, so dedup must not swallow it.
+    contents.set("src/a.ts", "ccccc");
+    files.send({
+      type: "changes",
+      changes: [{ path: "src/a.ts", kind: "modified", directory: false }],
+    });
+    await until(() => received.length === 2);
+    expect(received[1]?.variables).toMatchObject({ path: "src/a.ts", kind: "changed" });
+    dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a rescan of an untouched checkout reports nothing", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
   try {
