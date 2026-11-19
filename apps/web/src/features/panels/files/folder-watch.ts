@@ -26,10 +26,14 @@ let nextTree = 0;
 
 export interface FolderWatchHandle {
   /**
-   * What this tree shows open; the thread watches the union of every mounted tree's set. Once
-   * the union reaches the daemon (or already had), the handle's `onWatched` hears it.
+   * What this tree shows open; the thread watches the union of every mounted tree's set.
    */
   set(folders: Iterable<string>): void;
+  /**
+   * Hear the thread's folders each time its union reaches the daemon (or already had), while
+   * this tree has a set. Returns the unsubscribe.
+   */
+  listen(listener: Watched): () => void;
   /** After a reconnect: send the union again, even when it hasn't changed. */
   resume(): void;
   /** This tree is gone; the thread's last one stops watching with an empty set. */
@@ -41,12 +45,9 @@ export interface FolderWatchHandle {
  * hears one debounced union for the thread, however many trees show it. The last tree to leave
  * sends `[]`; before that, leaving only narrows the union.
  */
-export function watchFolders(
-  client: Send,
-  threadId: string,
-  onWatched?: Watched,
-): FolderWatchHandle {
+export function watchFolders(client: Send, threadId: string): FolderWatchHandle {
   const id = ++nextTree;
+  let onWatched: Watched | undefined;
   // The thread's set is looked up on every call, never held: after the last tree leaves, its set
   // is gone, and a handle used again (a hidden tab shown again) joins whichever set the thread
   // has now instead of sending a second, competing replacement set of its own.
@@ -90,6 +91,16 @@ export function watchFolders(
       thread.trees.set(id, [...folders]);
       if (onWatched) thread.listeners.set(id, onWatched);
       schedule(thread);
+    },
+    listen(listener) {
+      onWatched = listener;
+      const thread = registries.get(client)?.get(threadId);
+      if (thread?.trees.has(id)) thread.listeners.set(id, listener);
+      return () => {
+        if (onWatched !== listener) return;
+        onWatched = undefined;
+        registries.get(client)?.get(threadId)?.listeners.delete(id);
+      };
     },
     resume() {
       const thread = current();

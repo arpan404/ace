@@ -22,33 +22,31 @@ export function useOpenFileFollow(threadId: string, path: string | undefined): v
   const online = useConnectionState() === "ready";
   const folder = path === undefined ? undefined : folderOf(path);
 
-  // The file may have been read before its folder was watched, and a write in that gap names
-  // no folder: once the daemon is watching the folder, the file is read once more.
-  const unconfirmed = useRef<string | undefined>(undefined);
-  const watch = useMemo(
-    () =>
-      watchFolders(client, threadId, (folders) => {
-        const waiting = unconfirmed.current;
-        if (waiting === undefined || !folders.includes(folderOf(waiting))) return;
-        unconfirmed.current = undefined;
-        void queries.invalidateQueries({ queryKey: ["checkout", "file", threadId, waiting] });
-      }),
-    [client, queries, threadId],
-  );
+  const watch = useMemo(() => watchFolders(client, threadId), [client, threadId]);
   useEffect(() => () => watch.leave(), [watch]);
-  useEffect(() => {
-    unconfirmed.current = path;
-    watch.set(folder === undefined ? [] : [folder]);
-  }, [watch, folder, path]);
   const wasOnline = useRef(online);
   useEffect(() => {
-    if (online && !wasOnline.current) {
-      // A write while offline named no folder either.
-      unconfirmed.current = path;
-      watch.resume();
-    }
+    if (online && !wasOnline.current) watch.resume();
     wasOnline.current = online;
-  }, [online, watch, path]);
+  }, [online, watch]);
+  // The file may have been read before its folder was watched (or while offline, or while the
+  // tab was hidden), and a write in that gap names no folder: once the daemon is watching the
+  // folder, the file is read once more.
+  useEffect(() => {
+    if (path === undefined || folder === undefined) {
+      watch.set([]);
+      return;
+    }
+    let unconfirmed = true;
+    const stop = watch.listen((folders) => {
+      if (!unconfirmed || !folders.includes(folder)) return;
+      unconfirmed = false;
+      void queries.invalidateQueries({ queryKey: ["checkout", "file", threadId, path] });
+    });
+    watch.set([folder]);
+    return stop;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- coming back online is a new gap to read past.
+  }, [watch, queries, threadId, path, folder, online]);
 
   useEffect(() => {
     if (path === undefined || folder === undefined) return;
