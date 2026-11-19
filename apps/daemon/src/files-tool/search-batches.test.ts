@@ -8,7 +8,7 @@ function lines(count: number, preview = "a needle"): FileSearchLine[] {
     line: index + 1,
     column: 0,
     preview,
-    ranges: Array.from({ length: 64 }, (_, at) => [at, at + 1] as [number, number]),
+    ranges: Array.from({ length: 64 }, (_unused, at) => [at, at + 1] as [number, number]),
   }));
 }
 
