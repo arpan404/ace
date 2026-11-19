@@ -49,6 +49,8 @@ pub struct Assessment {
     pub finding: Option<Finding>,
     /// What the reviewer must read besides the command, in the order it runs.
     pub shown: Vec<Shown>,
+    /// Something it runs couldn't be read whole, so `shown` isn't all of it.
+    pub incomplete: bool,
 }
 
 /// What `command` needs, run from `place`. Refusing for credentials comes before any other
@@ -65,6 +67,7 @@ pub fn assess(command: &str, place: &dyn Place) -> Assessment {
     Assessment {
         finding,
         shown: walk.shown,
+        incomplete: walk.incomplete,
     }
 }
 
@@ -82,6 +85,10 @@ pub(super) struct Walk {
     pub ran: Vec<PathBuf>,
     /// What reading this command has used of its [`Budget`].
     pub spent: Budget,
+    /// Something it runs couldn't be read whole: a script over the read limit, outside the
+    /// folder or unreadable, or the reading's budget spent first. What was read can't stand for
+    /// what will run.
+    pub incomplete: bool,
 }
 
 /// What one classification may read, all told: files, their bytes, and command text checked
@@ -120,6 +127,9 @@ impl Budget {
 
 impl Walk {
     pub(super) fn kind(&mut self, kind: Sensitive) {
+        if kind == Sensitive::UnseenScript {
+            self.incomplete = true;
+        }
         let rank = |k: Sensitive| match k {
             _ if k.persons().is_some() => 2,
             Sensitive::Unclear | Sensitive::UnseenScript => 0,
@@ -135,6 +145,7 @@ impl Walk {
 /// [`assess`] for a command `depth` scripts deep, from `place`.
 fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
     if !walk.spent.check(command.len()) {
+        walk.incomplete = true;
         // Still refused if it plainly names a credential place.
         if super::secrets::names_place(command) {
             walk.credentials = true;
