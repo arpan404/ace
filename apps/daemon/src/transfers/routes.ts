@@ -73,12 +73,18 @@ export function routedTransfers(deps: TransferRoutesDeps): TransferTransport {
       heldBack && !directLately
         ? new MachineFailure("refused", "not_supported", hostedRelayRefusal, true)
         : undefined;
+    // An older machine's relay is the most useful reason to give, whichever route failed last.
+    let older = false;
     try {
       const { answer } = await machines.attempt(profile, allowed, {
         send: (route) => once(deps, links, profile, route, request, send, options),
-        moveOn: (error) =>
-          !(error instanceof MachineUnpaired) &&
-          !(error instanceof MachineFailure && error.kind === "refused"),
+        moveOn: (error) => {
+          if (error instanceof TransfersNotOffered) older = true;
+          return (
+            !(error instanceof MachineUnpaired) &&
+            !(error instanceof MachineFailure && error.kind === "refused")
+          );
+        },
         none: () =>
           refuse() ??
           new MachineFailure(
@@ -95,8 +101,9 @@ export function routedTransfers(deps: TransferRoutesDeps): TransferTransport {
       if (options.signal?.aborted) throw error;
       const refusal = refuse();
       if (refusal) throw refusal;
-      // Only an older machine's relay was left: what to do is to update ace there.
-      if (error instanceof TransfersNotOffered)
+      // An older machine's relay answered and no address did: what to do is to update ace there,
+      // unless an address answered lately, a blip waited out as any lost link is.
+      if (older && !directLately)
         throw new MachineFailure("refused", "not_supported", transfersNotOffered, true);
       throw error;
     }

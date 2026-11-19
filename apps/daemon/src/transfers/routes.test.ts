@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MachinePath, transferRelayPieceBytes, type TransferRelayRequest } from "@ace/protocol";
 import { RemoteProfile } from "../cli/profiles.ts";
+import { enrollPins } from "../machines/link-routes.ts";
 import { MachineLink } from "../machines/machine-link.ts";
 import {
   TransfersNotOffered,
@@ -33,8 +34,20 @@ const acePath = MachinePath.parse({ kind: "account", url: "wss://relay.acehq.dev
  */
 function machine() {
   let stored = Buffer.alloc(0);
-  const take = (offset: number, data: Buffer) => {
-    if (offset === stored.length) stored = Buffer.concat([stored, data]);
+  /** Bytes each route wrote, and copies of bytes it already held that each route carried. */
+  const wrote: Record<string, number> = {};
+  const checked: Record<string, number> = {};
+  const take = (via: string, offset: number, data: Buffer) => {
+    if (offset === stored.length) {
+      stored = Buffer.concat([stored, data]);
+      wrote[via] = (wrote[via] ?? 0) + data.length;
+    } else if (offset < stored.length) {
+      // A copy of bytes it holds: they must be the same bytes, or the upload is wrong.
+      const held = stored.subarray(offset, offset + data.length);
+      if (!held.equals(data.subarray(0, held.length)))
+        throw new Error("A copy of a chunk carried other bytes");
+      checked[via] = (checked[via] ?? 0) + held.length;
+    }
     return { offset: stored.length };
   };
   const status = (via: string) => ({
@@ -46,12 +59,14 @@ function machine() {
   });
   return {
     held: () => stored.length,
+    wrote: (via: string) => wrote[via] ?? 0,
+    checked: (via: string) => checked[via] ?? 0,
     /** The upload's bytes as the target wrote them. */
     bytes: () => stored,
     answer(via: string, request: PinnedRequest): unknown {
       const url = new URL(request.path, "https://ace.invalid");
       if (url.pathname.endsWith("/chunk"))
-        return take(Number(url.searchParams.get("offset")), Buffer.from(request.body));
+        return take(via, Number(url.searchParams.get("offset")), Buffer.from(request.body));
       return status(via);
     },
     relayed(via: string, request: TransferRelayRequest): unknown {
@@ -59,7 +74,7 @@ function machine() {
       const data = Buffer.from(request.data, "base64");
       if (data.length > transferRelayPieceBytes)
         throw new Error("A piece larger than a relay takes");
-      return take(request.offset, data);
+      return take(via, request.offset, data);
     },
   };
 }
@@ -91,6 +106,8 @@ function world(options: {
     machines: new MachineLink({
       paths: () => options.paths ?? [],
       hosted: (url) => url === acePath.url,
+      // The keys this pairing enrolled from the machine's description, as parcels keep them.
+      pins: (profile) => enrollPins(profile, {}, options.paths ?? []),
       now: () => at,
     }),
     relay: {
@@ -183,16 +200,23 @@ const hostedOnly = (direct: () => Reach) =>
 
 describe("a transfer stays correct and private however its routes fail", () => {
   it("lands the exact bytes when the address writes a chunk but its answer is lost, and the relay carries it again", async () => {
+    let address: Reach = "loses";
     const { client, there } = world({
       profile: studio({ ...linkedOnLan, relay: ownRelay }),
-      direct: () => "loses",
+      direct: () => address,
       relays: { [ownRelay.url]: "answers" },
     });
     const first = randomBytes(3 * MiB);
     const second = randomBytes(2 * MiB);
-    // The address wrote it; the relay is asked again from 0 and answers what the target holds.
+    // The address wrote the first chunk and its answer was lost: the relay carries it again, in
+    // pieces the target checks against what it holds.
     await expect(client.chunk("t-1", 0, first)).resolves.toBe(first.length);
+    expect(there.wrote(ownRelay.url)).toBe(0);
+    expect(there.checked(ownRelay.url)).toBeGreaterThan(0);
+    // Then the address is gone: the relay alone carries the second chunk's bytes.
+    address = "offline";
     await expect(client.chunk("t-1", first.length, second)).resolves.toBe(5 * MiB);
+    expect(there.wrote(ownRelay.url)).toBe(second.length);
     expect(there.bytes().equals(Buffer.concat([first, second]))).toBe(true);
   });
   it("goes on to the address when the relay that answered lately is an older machine's", async () => {
@@ -223,6 +247,23 @@ describe("a transfer stays correct and private however its routes fail", () => {
       kind: "refused",
       message: transfersNotOffered,
       final: true,
+    });
+  });
+  it("says to update ace there when an older machine's relay failed before an address that didn't answer", async () => {
+    let address: Reach = "offline";
+    const relays: Record<string, Reach> = { [ownRelay.url]: "answers" };
+    const { client } = world({
+      profile: studio({ ...linkedOnLan, relay: ownRelay }),
+      direct: () => address,
+      relays,
+    });
+    // The relay answered lately, so it goes first; then an older ace answers there.
+    await client.call({ op: "status", transferId: "t-1" });
+    relays[ownRelay.url] = "old";
+    address = "offline";
+    await expect(client.chunk("t-1", 0, randomBytes(MiB))).rejects.toMatchObject({
+      kind: "refused",
+      message: transfersNotOffered,
     });
   });
   it("sends nothing on any route once the pairing is no longer saved", async () => {
