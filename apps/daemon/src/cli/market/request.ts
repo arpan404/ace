@@ -38,7 +38,7 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
 
 const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
-  reauth: "Sign in again with ace login, then run it again.",
+  reauth: "Do this in the ace app signed in as you: the CLI can't prove it's you.",
   person_grant: "Do this in an ace app you're signed in on: the market takes it only from you.",
   unavailable:
     "Nothing was changed. Try again shortly; ace account status shows whether this machine is signed in.",

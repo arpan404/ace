@@ -82,11 +82,14 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
      * nothing, but the credential exchanged from it still renews it (ADR 0190).
      */
     held: (hash: string, now: number) => read(hash, now, true),
-    /** The session's standing now, read for the decision that issues a grant (ADR 0190). */
-    async standingNow(hash: string): Promise<SessionStanding | undefined> {
+    /**
+     * The session's standing now, read for the decision that issues a grant (ADR 0190).
+     * Undefined once it is gone, expired or retired.
+     */
+    async standingNow(hash: string, now: number): Promise<SessionStanding | undefined> {
       const raw = await db
-        .prepare("SELECT standing FROM sessions WHERE token = ?")
-        .bind(hash)
+        .prepare("SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ?")
+        .bind(hash, now)
         .first<{ standing: string }>();
       return raw ? Row.shape.standing.parse(raw.standing) : undefined;
     },

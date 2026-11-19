@@ -66,8 +66,6 @@ export function keepGrant(options: {
   id(): string;
   /** A refresh was refused for good (`code`): hand the socket to the normal refusal flow. */
   refused?(code: string): void;
-  /** A refresh was taken: the socket proves the person's standing again (ADR 0190). */
-  refreshed?(): void;
 }): GrantKeeper {
   let stopped = false;
   let cancel: () => void = noop;
@@ -114,7 +112,6 @@ export function keepGrant(options: {
         const ttlMs =
           lifetimeMs === undefined ? result.grantTtlMs : Math.min(result.grantTtlMs, lifetimeMs);
         schedule(grantRefreshDelay(ttlMs));
-        options.refreshed?.();
         return;
       }
       if (refreshRefusalIsFinal(result.code, previous)) {

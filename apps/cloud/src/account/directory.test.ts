@@ -11,7 +11,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import { readAccountSetup } from "./config.ts";
 import { admit } from "../admission.ts";
 import { encodeBase64url, GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
-import { directoryRoutes, speaksForPerson } from "./directory.ts";
+import { directoryRoutes } from "./directory.ts";
 
 const unused = async (): Promise<never> => {
   throw new Error("grant issuance must not touch the machine directory");
@@ -36,7 +36,7 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
           : undefined,
       revoke: unused,
     },
-    sessionStore: { expose: async () => {}, standingNow: async () => "person" },
+    sessionStore: { expose: async () => {}, standingNow: async () => "person" as const },
     machines: { register: unused, seen: unused, list: unused, forget: unused },
     keys,
     signingKey,
@@ -113,7 +113,7 @@ async function marketGrantFor(emailVerified: boolean) {
       }),
       revoke: unused,
     },
-    sessionStore: { expose: unused, standingNow: async () => "person" },
+    sessionStore: { expose: unused, standingNow: async () => "person" as const },
     machines: { register: unused, seen: unused, list: unused, forget: unused },
     keys,
     signingKey,
@@ -147,29 +147,4 @@ it("the account backend refuses a market publishing grant to an account whose em
   const { response } = await marketGrantFor(false);
   expect(response.status).toBe(403);
   expect(await response.json()).toMatchObject({ error: "email_unverified" });
-});
-
-const legacySetup = (until: string) =>
-  readAccountSetup({
-    ACE_ACCOUNT_PUBLIC_URL: "https://cloud.acehq.dev",
-    ACE_ACCOUNT_ALLOWED_ORIGINS: "app://ace",
-    WORKOS_CLIENT_ID: "client_test",
-    WORKOS_API_KEY: "test-key",
-    ACE_ACCOUNT_ENCRYPTION_KEY: "a".repeat(64),
-    ACE_GRANT_KEY: `k:${"A".repeat(43)}`,
-    ACE_LEGACY_PERSON_UNTIL: until,
-  });
-
-it("only a person's session speaks for the person, and an old session only within the chosen transition", () => {
-  expect(speaksForPerson("person", 1000, undefined)).toBe(true);
-  expect(speaksForPerson("legacy", 1000, undefined)).toBe(false);
-  expect(speaksForPerson("legacy", 1000, 2000)).toBe(true);
-  expect(speaksForPerson("legacy", 2000, 2000)).toBe(false);
-  expect(speaksForPerson("exposed", 1000, 2000)).toBe(false);
-  expect(speaksForPerson(undefined, 1000, 2000)).toBe(false);
-  const ready = legacySetup("2026-12-01T00:00:00Z");
-  expect(ready.status === "ready" && ready.config.legacyPersonUntil).toBe(
-    Date.parse("2026-12-01T00:00:00Z"),
-  );
-  expect(legacySetup("next week").status).toBe("invalid");
 });

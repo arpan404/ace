@@ -124,11 +124,6 @@ deploy wizard does steps 1 and 2 when it rotates. If the old key leaked, skip
 `ACE_GRANT_PREVIOUS_KEY`: its grants then fail at once, and clients and daemons
 fetch a new grant and retry.
 
-`ACE_LEGACY_PERSON_UNTIL` (an ISO date, unset by default) keeps sessions from before machine
-credentials at the person's standing until then, unless a machine was seen keeping them (ADR
-0190 §3). Unset, every such session has a machine's standing and its client signs in again to
-act as the person.
-
 For local development, `bun run dev` with the settings in `.dev.vars` (a loopback
 `ACE_ACCOUNT_PUBLIC_URL` is accepted) and `bun run migrate:local`. Register the
 loopback callback in a development WorkOS environment.

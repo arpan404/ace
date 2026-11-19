@@ -40,9 +40,33 @@ export interface Authed {
   publisher: AuthedPublisher | undefined;
   /**
    * The grant came from the person's own session and names this very request (ADR 0190): a
-   * `device` grant whose `action` is `METHOD /path`. Grants a machine holds never do.
+   * `device` grant whose `action` is `METHOD /path <SHA-256 of the body>`, spent by this request.
+   * Grants a machine holds never do.
    */
   personAction: boolean;
+}
+
+/** Base64url SHA-256. */
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  let binary = "";
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/** `METHOD /path <base64url SHA-256 of the body>`, as `@ace/client/market-intent` builds it. */
+async function requestIntent(method: string, path: string, body: Uint8Array): Promise<string> {
+  return `${method} ${path} ${await sha256(body)}`;
+}
+
+/** Marks a person's grant spent; false when it already was. */
+async function spend(context: Context, token: string, expires: number): Promise<boolean> {
+  const digest = await sha256(new TextEncoder().encode(token));
+  const result = await context.dbs.publishers
+    .prepare("INSERT OR IGNORE INTO spent_person_grants (digest, expires) VALUES (?1, ?2)")
+    .bind(digest, expires)
+    .run();
+  return result.meta.changes > 0;
 }
 
 /** Why a sensitive action is refused: it needs the person's own grant for it, signed in lately. */
@@ -128,11 +152,23 @@ export async function authenticate(
   if (!claims.emailVerified)
     return failure(403, "email_unverified", "Verify your account's email to publish.");
   const url = new URL(request.url);
+  // The request the grant names, target and payload both: another recipient, handle or reason
+  // than the person chose makes another digest (ADR 0190).
   const personAction =
-    claims.kind === "device" && claims.action === `${request.method} ${url.pathname}`;
+    claims.kind === "device" &&
+    claims.action !== undefined &&
+    claims.action ===
+      (await requestIntent(
+        request.method,
+        url.pathname,
+        new Uint8Array(await request.clone().arrayBuffer()),
+      ));
   if (options.sensitive && !personAction) return personGrantNeeded();
   if (options.sensitive && !(context.now - claims.authAt <= reauthMs))
     return failure(401, "reauth", "Sign in again to do this.");
+  // Once: a person's grant captured on the way and sent again does nothing.
+  if (personAction && !(await spend(context, token, claims.exp)))
+    return failure(401, "person_grant", "That sign-in was used already. Do it again in the app.");
   const publisher = await publisherFor(context.dbs, claims.account);
   if (publisher && publisher.state !== "active" && !options.allowInactive)
     return failure(403, "suspended", "This account can't publish right now.");

@@ -76,7 +76,6 @@ export function createSettingsSession(context: SocketContext): SocketService {
       const refused = await settingWriteRefusal(key, {
         device: context.device(),
         unproven: context.personProven?.() !== true,
-        fresh: () => market?.freshSignIn() ?? Promise.resolve(false),
       });
       if (refused) throw new SettingsError(refused.code, refused.message);
       const write = async () => {

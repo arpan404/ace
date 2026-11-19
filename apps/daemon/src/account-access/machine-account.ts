@@ -5,8 +5,7 @@ import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict, provenStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
-import { MARKET_GRANT_ISSUER, encodeBase64url, type GrantKeySet } from "@ace/account-grant";
-import { verifiedSignInFresh } from "../marketplace/fresh-sign-in.ts";
+import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
@@ -95,8 +94,6 @@ export function machineAccount(options: {
    * 0190); `shippedGrantKeys` unless a test injects its own. Never read from the environment.
    */
   personKeys?: GrantKeySet | undefined;
-  /** The `iss` market grants from this backend name; `cloud.acehq.dev` unless a test's. */
-  marketIssuer?: string | undefined;
   log?: (error: Error) => void;
 }) {
   const backend = accountBackend({ fetch: options.fetch });
@@ -675,31 +672,6 @@ export function machineAccount(options: {
      * that request only.
      */
     marketGrant,
-    /**
-     * Whether this machine's ace account signed in in a browser within ten minutes (ADR 0174 §2,
-     * ADR 0190), from a market grant taken for the check and verified against the keys this build
-     * pins, for this account and this machine's relay host id. False when signed out or
-     * unreachable, and for a backend whose key isn't pinned.
-     */
-    async freshSignIn(): Promise<boolean> {
-      const account = active()?.account.id;
-      if (account === undefined) return false;
-      try {
-        const grant = await marketGrant();
-        return (
-          grant !== undefined &&
-          verifiedSignInFresh(grant, {
-            keys: personKeys,
-            issuer: options.marketIssuer ?? MARKET_GRANT_ISSUER,
-            now: options.now(),
-            account,
-            subject: await ownHostId(),
-          })
-        );
-      } catch {
-        return false;
-      }
-    },
     /** Admit a hello's device grant, asking for the machine code when one is set. */
     async admitDevice(hello: {
       grant: string;
@@ -734,6 +706,8 @@ export function machineAccount(options: {
       grant: string;
       proof: string;
       nonce: string;
+      /** The socket's channel binding: a relayed stream's handshake hash; none on loopback. */
+      binding: string | undefined;
       deviceId: string;
       account: string;
     }): Promise<{ until: number } | undefined> {

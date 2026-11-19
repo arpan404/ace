@@ -44,16 +44,6 @@ export const AccountConfig = z.object({
   grantKey: GrantKey,
   previousGrantKey: PreviousGrantKey.optional(),
   allowedOrigins: z.array(Origin).min(1),
-  /**
-   * `ACE_LEGACY_PERSON_UNTIL`, an ISO date: until then, sessions from before ADR 0190 that no
-   * machine was seen keeping still mint person-standing device grants, so clients aren't asked to
-   * sign in again on the day it ships. Unset (the default) means never: every such session has a
-   * machine's standing from the start.
-   */
-  legacyPersonUntil: z.iso
-    .datetime({ offset: true })
-    .transform((value) => Date.parse(value))
-    .optional(),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
 
@@ -83,7 +73,6 @@ export type AccountEnv = {
       | "WORKOS_API_URL"
       | "ACE_GRANT_PREVIOUS_KEY"
       | "ACE_ACCOUNT_PUBLIC_ORIGINS"
-      | "ACE_LEGACY_PERSON_UNTIL"
   ]?: string;
 };
 
@@ -99,7 +88,6 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     encryptionKey: env.ACE_ACCOUNT_ENCRYPTION_KEY,
     grantKey: env.ACE_GRANT_KEY,
     previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
-    legacyPersonUntil: env.ACE_LEGACY_PERSON_UNTIL || undefined,
     allowedOrigins:
       typeof allowed === "string"
         ? allowed

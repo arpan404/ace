@@ -17,12 +17,30 @@ export interface GrantOptions {
   /** When the grant was minted; its lifetime runs from here. */
   iat?: number;
   /**
-   * The one request a person's grant names, `METHOD /path` (ADR 0190). With it the grant is a
+   * The one request a person's grant names (`intentOf`, ADR 0190). With it the grant is a
    * `device` grant from the person's own session, as an ace app sends for a sensitive action.
    */
   action?: string;
   /** Overrides the kind `action` implies: a machine's grant naming a request, say. */
   kind?: "machine" | "device";
+}
+
+/**
+ * What a person's grant names for a request (ADR 0190): method, path and the SHA-256 of the body
+ * exactly as sent, as `@ace/client/market-intent` builds it.
+ */
+export async function intentOf(method: string, path: string, body?: unknown): Promise<string> {
+  const bytes =
+    body === undefined
+      ? new Uint8Array()
+      : body instanceof Uint8Array
+        ? body
+        : new TextEncoder().encode(JSON.stringify(body));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  let binary = "";
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  const hash = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return `${method} ${new URL(path, "http://market").pathname} ${hash}`;
 }
 
 export function grantFor(account: string, options: GrantOptions = {}) {
@@ -59,7 +77,7 @@ export const bearerOf = (account: string, options?: GrantOptions) => ({
 });
 
 /** A request as `account` to a `/v1/me…` path; a JSON body unless it is bytes. */
-export function asAccount(
+export async function asAccount(
   market: Market,
   account: string,
   method: string,
@@ -69,7 +87,7 @@ export function asAccount(
 ) {
   const bytes = body instanceof Uint8Array;
   // As the person's app: a grant naming this one request, which sensitive actions need.
-  const action = `${method} ${new URL(path, "http://market").pathname}`;
+  const action = await intentOf(method, path, body);
   const init: RequestInit = {
     method,
     headers: {

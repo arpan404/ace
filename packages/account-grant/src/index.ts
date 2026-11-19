@@ -134,11 +134,19 @@ export function verifyStandingGrant(
 
 /**
  * What a device signs with its key to use a person's grant on one socket (ADR 0190): the
- * daemon's host id, the nonce that daemon gave this socket, and the grant itself. A proof made
- * for one socket, daemon or grant proves nothing on another.
+ * daemon's host id, the nonce that daemon gave this socket, the socket's channel binding and the
+ * grant itself. The binding is the Noise handshake hash of a relayed socket, which both ends
+ * derive and nobody between them can choose, or `none` on a socket with no secure channel of its
+ * own (loopback, a pinned direct path). A proof made for one socket, channel, daemon or grant
+ * proves nothing on another, so one relayed by whoever answered in the daemon's place fails.
  */
-export function standingProofText(input: { host: string; nonce: string; grant: string }): string {
-  return `ace-standing/v1\n${input.host}\n${input.nonce}\n${input.grant}`;
+export function standingProofText(input: {
+  host: string;
+  nonce: string;
+  binding: string | undefined;
+  grant: string;
+}): string {
+  return `ace-standing/v2\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.grant}`;
 }
 
 const AnyGrantClaims = z.union([

@@ -34,6 +34,11 @@ export interface PortableSocket {
   close(): void;
 }
 export interface PortableRelay {
+  /**
+   * The stream's Noise handshake hash, base64url: what this end and the daemon (or whoever holds
+   * its host key) both derived, and the binding a proof of the person's standing names (ADR 0190).
+   */
+  readonly channelBinding: string;
   send(message: ClientMessage): Promise<void>;
   receive(): Promise<ServerMessage | Uint8Array>;
   /**
@@ -322,7 +327,9 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   // and ahead of anything the caller sends.
   const usedNk = state instanceof NoiseNK;
   if (usedNk && nk) void sendBody(nk.confirm.slice()).catch(() => {});
+  if (!secured) throw new Error("Relay handshake failed");
   return {
+    channelBinding: encodeBase64url(secured.handshakeHash),
     earlyCapable,
     ...(hostKey ? { hostKey } : {}),
     handshake: usedNk ? "nk" : "xx",

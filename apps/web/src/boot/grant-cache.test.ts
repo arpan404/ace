@@ -347,23 +347,3 @@ test("a machine welcomed, closed or removed leaves no record behind", async () =
   }
   for (const name of machines) expect(b.cache.refused("grant-1", name)).toBe(false);
 });
-
-test("the person's grant from the latest fetch is there to prove with until it nears its end, and a sign-out forgets it", async () => {
-  let issued = 0;
-  let wall = 0;
-  const cache = grantCache(
-    async () => {
-      issued++;
-      return { token: `grant-${issued}`, expiresAt: wall + lifeMs, standing: `standing-${issued}` };
-    },
-    { wall: () => wall, elapsed: () => wall },
-  );
-  await cache.grant("session", "machine-a");
-  expect(cache.standing()).toBe("standing-1");
-  wall += lifeMs - 10_000;
-  expect(cache.standing()).toBeUndefined();
-  await cache.grant("session", "machine-a");
-  expect(cache.standing()).toBe("standing-2");
-  cache.clear();
-  expect(cache.standing()).toBeUndefined();
-});

@@ -1,3 +1,4 @@
+import { intentOf } from "./testing/publisher-harness.ts";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import {
   hashFiles,
@@ -116,10 +117,7 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     {
       method: "POST",
       headers: {
-        authorization: `Bearer ${personMarketGrant(
-          "acct_a",
-          "POST /v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw",
-        )}`,
+        authorization: `Bearer ${personMarketGrant("acct_a", await intentOf("POST", "/v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw", { reason: "Sends mail without asking" }))}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({ reason: "Sends mail without asking" }),

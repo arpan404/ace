@@ -35,6 +35,12 @@ export interface Transport {
    * one route never take each other's.
    */
   credential?(): Promise<Credential>;
+  /**
+   * The open socket's channel binding (ADR 0190): a relay stream's Noise handshake hash,
+   * base64url. Absent on a transport with no secure channel of its own (loopback, a pinned TLS
+   * path), where a proof names `none`.
+   */
+  channelBinding?(): string | undefined;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;
@@ -132,16 +138,6 @@ export interface ClientOptions {
    * stopping. False or absent: the refusal is final, as before.
    */
   grantRefused?(grant: string): boolean;
-  /**
-   * For an account device: prove the person's standing on a socket to daemon `host` (ADR 0190),
-   * against the nonce its welcome gave this socket. Answers the person's grant for that daemon
-   * and `proof`, its device key's signature of `standingProofText`; undefined when this app
-   * holds none (it isn't signed in as the person). Asked after each welcome and grant refresh.
-   */
-  prove?(input: {
-    host: string;
-    nonce: string;
-  }): Promise<{ grant: string; proof: string } | undefined>;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

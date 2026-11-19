@@ -13,11 +13,14 @@ import { authorizeDaemonUrl } from "./daemon-network.ts";
 export async function createDaemonClient(target: DaemonTarget): Promise<ClientApi> {
   await authorizeDaemonUrl(target.url);
   const device = target.pairedDeviceId ?? deviceId();
+  // Its sockets prove the person's standing from this window, when it is signed in as the
+  // person (ADR 0190): the host token alone never carries it.
+  const { proveFromWindow } = await import("./window-prover.ts");
   const worker = createWorkerClient(target, device);
-  if (worker) return worker;
+  if (worker) return proveFromWindow(worker);
   const key = outboxKey({ ...target, deviceId: device });
   return import("./page-client.ts").then(({ createPageClient }) =>
-    createPageClient(target, { deviceId: device, outboxKey: key }),
+    proveFromWindow(createPageClient(target, { deviceId: device, outboxKey: key })),
   );
 }
 

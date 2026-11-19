@@ -317,6 +317,8 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   pluginRequest: ["pluginResult"],
   suitRequest: ["suitResult"],
   "marketplace.request": ["marketplace.result"],
+  // A socket's proof of the person's standing (ADR 0190), sent from the tab that holds the key.
+  "account.standing": ["account.standing.result"],
   "diagnostics.health": ["diagnostics.health.result"],
   "diagnostics.request": ["diagnostics.result"],
   "screen.request": ["screen.result"],

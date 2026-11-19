@@ -65,7 +65,7 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       const app = await access.pairingApp?.();
       // The person's standing goes on only from someone who has it (ADR 0190): a device that is
       // the person's, or the host token right after a browser sign-in.
-      const person = await issuerIsPerson(context);
+      const person = issuerIsPerson(context);
       // The creator grants only scopes it holds; the host credential holds every one.
       const issued = issuePairing(
         auth,
@@ -198,13 +198,11 @@ export function createFleetSession(context: SocketContext): SocketService {
 }
 
 /**
- * Whether a pairing link this socket makes carries the person's standing (ADR 0190): its own
- * credential is the person's (a device the person paired, an account device that proved it on
- * this socket), or it is the host token and this machine's ace account signed in in a browser
- * in the last ten minutes, which a process holding only the token can't do.
+ * Whether a pairing link this socket makes carries the person's standing (ADR 0190): only when
+ * this socket proved it (a device the person paired, or a socket of an ace app signed in as the
+ * person that proved its grant). The host token alone, which any process of the person's can
+ * read, never does, however recently someone signed in.
  */
-async function issuerIsPerson(context: SocketContext): Promise<boolean> {
-  if (context.personProven?.() === true) return true;
-  if (context.hostCredential?.() !== true) return false;
-  return (await context.options.machineAccount?.freshSignIn()) ?? false;
+function issuerIsPerson(context: SocketContext): boolean {
+  return context.personProven?.() === true;
 }

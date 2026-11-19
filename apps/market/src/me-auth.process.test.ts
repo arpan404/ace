@@ -12,6 +12,7 @@ import {
   liveVersion,
   makeProfile,
   testPng,
+  intentOf,
 } from "./testing/publisher-harness.ts";
 
 /*
@@ -232,17 +233,19 @@ const writes: [string, Write][] = [
   ["read signals", { method: "GET", path: () => `${entry}/signals`, owned: true }],
 ];
 
-/** The request a write makes, `METHOD /path`, which a person's grant for it names. */
-const actionOf = (write: Write) => `${write.method} ${write.path()}`;
-
-function send(write: Write, token: string | undefined) {
+/**
+ * Sends `write` once with the grant `token` makes for it: given the request's intent (method,
+ * path and the digest of this very body), as a person's grant names it (ADR 0190).
+ */
+async function send(write: Write, token: (action: string) => string | undefined) {
   const body = write.body?.();
+  const grant = token(await intentOf(write.method, write.path(), body));
   const bytes = body instanceof Uint8Array;
   return market.fetch(write.path(), {
     method: write.method,
     headers: {
       "cf-connecting-ip": callerAddress(),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(grant ? { authorization: `Bearer ${grant}` } : {}),
       ...(body === undefined
         ? {}
         : { "content-type": bytes ? "application/octet-stream" : "application/json" }),
@@ -279,39 +282,43 @@ const refusals: [string, (action: string) => string | undefined, number, string]
 
 describe.each(writes)("%s", (_label, write) => {
   it.each(refusals)("refuses %s", async (_case, token, status, error) => {
-    const response = await send(write, token(actionOf(write)));
+    const response = await send(write, token);
     expect(response.status).toBe(status);
     expect(await jsonOf(response)).toMatchObject({ error, message: expect.any(String) });
   });
 
   it.runIf(write.owned === true)("refuses another account's entry", async () => {
-    const response = await send(write, grantFor("acct_intruder", { action: actionOf(write) }));
+    const response = await send(write, (action) => grantFor("acct_intruder", { action }));
     expect(response.status).toBe(403);
     expect((await jsonOf(response)).error).toBe("forbidden");
   });
 
   it.runIf(write.sensitive === true)("refuses a sign-in older than ten minutes", async () => {
-    const response = await send(
-      write,
-      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000, action: actionOf(write) }),
+    const response = await send(write, (action) =>
+      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000, action }),
     );
     expect(response.status).toBe(401);
     expect((await jsonOf(response)).error).toBe("reauth");
   });
 
-  // ADR 0190: only the person's own grant for this very request does a sensitive action.
-  it.runIf(write.sensitive === true).each<[string, () => string]>([
+  // ADR 0190: only the person's own grant for this very request, payload and all, does a
+  // sensitive action, and only once.
+  it.runIf(write.sensitive === true).each<[string, (action: string) => string]>([
     ["a machine's grant", () => grantFor("acct_owner")],
     [
       "a machine's grant naming the request",
-      () => grantFor("acct_owner", { action: actionOf(write), kind: "machine" }),
+      (action) => grantFor("acct_owner", { action, kind: "machine" }),
+    ],
+    [
+      "the person's grant for another payload",
+      (action) => grantFor("acct_owner", { action: `${action.slice(0, -4)}AAAA` }),
     ],
     [
       "the person's grant for another request",
-      () => grantFor("acct_owner", { action: "PUT /v1/me/handle-x" }),
+      () => grantFor("acct_owner", { action: "PUT /v1/me/handle-x AAAA" }),
     ],
   ])("refuses %s", async (_case, token) => {
-    const response = await send(write, token());
+    const response = await send(write, token);
     expect(response.status).toBe(401);
     expect((await jsonOf(response)).error).toBe("person_grant");
   });
@@ -325,4 +332,23 @@ it("nothing refused changed the owner's entry", async () => {
   }>(await market.fetch(entry, { headers: { authorization: `Bearer ${grantFor("acct_owner")}` } }));
   expect(own.summary).toMatchObject({ visibility: "listed", archived: false });
   expect(own.versions.map((row) => row.status)).toEqual(["not-reviewed"]);
+});
+
+it("a person's grant does its one request once: captured and sent again, it is refused", async () => {
+  const body = { handle: "gate-keeper-again" };
+  const grant = grantFor("acct_owner", { action: await intentOf("PUT", "/v1/me/handle", body) });
+  const again = () =>
+    market.fetch("/v1/me/handle", {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${grant}`,
+        "content-type": "application/json",
+        "cf-connecting-ip": callerAddress(),
+      },
+      body: JSON.stringify(body),
+    } as Parameters<Market["fetch"]>[1]);
+  await again();
+  const replayed = await again();
+  expect(replayed.status).toBe(401);
+  expect((await jsonOf(replayed)).error).toBe("person_grant");
 });

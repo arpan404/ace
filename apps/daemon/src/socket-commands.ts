@@ -124,7 +124,6 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     ? await hostAnswerRefusal(command, {
         unproven: !admission.personProven(),
         personOnlyMarket: (id) => market.requests.isPending(id),
-        fresh: () => market.freshSignIn(),
       })
     : undefined;
   if (held) {

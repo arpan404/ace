@@ -114,28 +114,21 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       // A publish mints its market grant through this machine's ace account, for this request
       // alone; it never reaches the socket, the disk or a log. An agent's shell names its thread
       // (ADR 0178 §12.5): its person-only actions become a request there instead.
-      // Without a thread the caller says it is the person, which the host token alone can't
-      // prove: person-only actions from it need a fresh ace sign-in (`fresh-sign-in.ts`).
+      // Without a thread the caller says it is the person, which only a socket that proved the
+      // person's standing may say for a person-only action (`fresh-sign-in.ts`, ADR 0190).
       // A person's market grant goes only with the person's own request, never an agent's.
       const { operation, thread } = message;
       const personGrant = thread ? undefined : message.personGrant;
       const agent = options.marketAgent;
+      const refusal = () =>
+        hostMarketRefusal({ operation, unproven: context.personProven?.() !== true });
       const asPerson = async (market: MarketAgent) =>
-        (await hostMarketRefusal({
-          operation,
-          unproven: context.personProven?.() !== true,
-          fresh: () => market.freshSignIn(),
-        })) ?? market.asPerson(operation, personGrant);
+        refusal() ?? market.asPerson(operation, personGrant);
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
         : // A server started with the marketplace service alone (tests): as the person.
           options.marketplace && !thread
-          ? async () =>
-              (await hostMarketRefusal({
-                operation,
-                unproven: context.personProven?.() !== true,
-                fresh: () => machineFresh(options),
-              })) ?? serviceAlone(options, operation, personGrant)
+          ? async () => refusal() ?? serviceAlone(options, operation, personGrant)
           : undefined;
       if (!run) {
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
@@ -176,9 +169,4 @@ function serviceAlone(
       message: "The marketplace isn't ready yet",
     })
   );
-}
-
-/** Whether the machine's account signed in within ten minutes, for a server without its agent. */
-async function machineFresh(options: SocketContext["options"]): Promise<boolean> {
-  return (await options.machineAccount?.freshSignIn()) ?? false;
 }

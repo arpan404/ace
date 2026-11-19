@@ -212,11 +212,9 @@ export function accessHttp({
           const app = await pairingApp?.();
           const input = pairing() ? await body(request) : undefined;
           // The person's standing goes on only from someone who has it (ADR 0190): a device the
-          // person paired, or the host token right after a browser sign-in. The host token alone
-          // is what any process that reads it holds, so its links make no person's device.
-          const person = auth.local(token)
-            ? ((await account?.()?.freshSignIn()) ?? false)
-            : auth.deviceBearer(token)?.person === true;
+          // person paired. The host token is what any process that reads it holds, so its links
+          // make no person's device, however recently someone signed in.
+          const person = !auth.local(token) && auth.deviceBearer(token)?.person === true;
           const creator = actor();
           const { id, url, expiresAt } = issuePairing(
             auth,

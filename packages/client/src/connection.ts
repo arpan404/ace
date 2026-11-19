@@ -180,6 +180,10 @@ export class Connection {
   get supportsBinary(): boolean {
     return this.#transport?.supportsBinary === true;
   }
+  /** The open socket's channel binding (ADR 0190), when its transport has a channel of its own. */
+  get channelBinding(): string | undefined {
+    return this.#transport?.channelBinding?.();
+  }
   start(): void {
     if (this.#active || this.state === "fatal") return;
     this.#active = true;
@@ -840,33 +844,11 @@ export class Connection {
     const grant = this.#options.grant;
     if (!transport || welcome.grantTtlMs === undefined || !grant) return;
     this.#unkeep(transport);
-    // The person's standing is proven on this socket alone, against its own nonce, and lasts
-    // only as long as the grant proving it: proven again after each refresh (ADR 0190).
-    const nonce = welcome.standingNonce;
-    const prove = this.#options.prove;
-    const proveStanding =
-      nonce !== undefined && prove
-        ? () => {
-            void prove({ host: welcome.hostId, nonce })
-              .then((proven) => {
-                if (!proven || !this.#keepers.has(transport)) return;
-                const message: ClientMessage = {
-                  type: "account.standing",
-                  requestId: this.#options.id(),
-                  grant: proven.grant,
-                  proof: proven.proof,
-                };
-                transport.send(JSON.stringify(this.#codec.encode(message)));
-              })
-              .catch(() => {});
-          }
-        : undefined;
     this.#keepers.set(
       transport,
       keepGrant({
         ttlMs: welcome.grantTtlMs,
         grant: () => grant(),
-        ...(proveStanding ? { refreshed: proveStanding } : {}),
         scheduler: this.#options.scheduler,
         id: () => this.#options.id(),
         send: (message) => {
@@ -880,7 +862,6 @@ export class Connection {
         refused: () => this.#grantRefused(transport),
       }),
     );
-    proveStanding?.();
   }
   #unkeep(transport: Transport | undefined): void {
     if (!transport) return;

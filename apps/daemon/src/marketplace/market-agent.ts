@@ -66,15 +66,6 @@ export class MarketAgent {
     this.account = { account };
   }
 
-  /**
-   * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-   * read from the `authAt` of a market grant taken for the check. False when signed out or
-   * the account service can't be reached.
-   */
-  async freshSignIn(): Promise<boolean> {
-    return (await this.account?.account.freshSignIn()) ?? false;
-  }
-
   /** `personGrant`: the person's own market grant for a sensitive action (ADR 0190). */
   asPerson(operation: MarketOperation, personGrant?: string): Promise<MarketResult> {
     const bound = this.account;

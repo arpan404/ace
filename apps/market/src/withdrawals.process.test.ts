@@ -1,3 +1,4 @@
+import { intentOf } from "./testing/publisher-harness.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { verifyWithdrawn } from "@ace/marketplace";
 import { signPending, signRevocation, type SignerIo } from "@ace/marketplace/signer";
@@ -73,10 +74,7 @@ describe("withdrawals", () => {
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${personMarketGrant(
-            "acct_copier",
-            "POST /v1/publish/spade-bot/same-bytes-copy/versions/1.0.0/withdraw",
-          )}`,
+          authorization: `Bearer ${personMarketGrant("acct_copier", await intentOf("POST", "/v1/publish/spade-bot/same-bytes-copy/versions/1.0.0/withdraw", { reason: "Not mine to share" }))}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ reason: "Not mine to share" }),

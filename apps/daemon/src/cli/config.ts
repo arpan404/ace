@@ -86,11 +86,11 @@ export async function configSet(
     if (!port.live && guardedSetting(entry.key))
       throw new CliFailure(
         "needs-human",
-        `${name} changes only through a running ace, after a fresh sign-in.`,
+        `${name} is yours to change, in the ace app.`,
         undefined,
         {
           code: "reauth",
-          hint: "Change it in the app, or start ace (ace start), sign in again (ace login) and set it within 10 minutes.",
+          hint: "Change it in the ace app signed in as you: the CLI can't prove it's you (ADR 0190).",
         },
       );
     if (value === undefined) await port.unset(entry.key);

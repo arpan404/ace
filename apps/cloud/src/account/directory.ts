@@ -15,17 +15,12 @@ import type { Principal, PrincipalReader } from "./principal.ts";
 import type { SessionStanding, SessionStore } from "./sessions.ts";
 
 /**
- * Whether a session's grants speak for the person (ADR 0190): one an app signed in to after
- * standing was kept, never seen on a machine's disk. A session from before is the person's only
- * until `legacyPersonUntil`, the transition a deployment may choose (none by default).
+ * Whether a session's grants speak for the person (ADR 0190): only one an app signed in to in a
+ * browser after standing was kept, never seen on a machine's disk. A session from before
+ * (`legacy`) may sit in any older daemon's file, so it never does: its client signs in again.
  */
-export function speaksForPerson(
-  standing: SessionStanding | undefined,
-  now: number,
-  legacyPersonUntil: number | undefined,
-): boolean {
-  if (standing === "person") return true;
-  return standing === "legacy" && legacyPersonUntil !== undefined && now < legacyPersonUntil;
+export function speaksForPerson(standing: SessionStanding | undefined): boolean {
+  return standing === "person";
 }
 
 /**
@@ -37,8 +32,6 @@ export function directoryRoutes(deps: {
   principals: PrincipalReader;
   /** To mark a session a machine kept on its disk, and read its standing as a grant is issued. */
   sessionStore: Pick<SessionStore, "expose" | "standingNow">;
-  /** Until when sessions from before ADR 0190 still speak for the person; undefined: never. */
-  legacyPersonUntil?: number | undefined;
   machines: ReturnType<typeof machineStore>;
   /** Runs after a machine is forgotten, so one still on the relay can list itself again. */
   forgotten?: (hostId: string, accountId: string) => Promise<void>;
@@ -69,10 +62,10 @@ export function directoryRoutes(deps: {
      *   with a machine's standing, which older daemons (which treat any format 1 device grant as
      *   the person) refuse; market grants as `machine`, which the market refuses for sensitive
      *   actions.
-     * - A session a machine kept (`exposed`): the same, but `machine` grants for any host, as an
-     *   older daemon asks for its own.
-     * - The person's session (or one from before, which older daemons still need): format 1
-     *   device grants, and with `host` and `key` the person's format 2 grant beside it.
+     * - A session a machine kept (`exposed`), or one from before standing was kept (`legacy`): the
+     *   same, but `machine` grants for any host, as an older daemon asks for its own.
+     * - The person's session: format 1 device grants, and with `host` and `key` the person's
+     *   format 2 grant beside it.
      *
      * A session asking for a `machine` grant is kept by an older daemon, so it is marked exposed
      * first; the standing is then read again for this decision, never from before it.
@@ -95,10 +88,14 @@ export function directoryRoutes(deps: {
         const iat = now();
         const standing =
           principal.kind === "session"
-            ? await deps.sessionStore.standingNow(principal.hash)
+            ? await deps.sessionStore.standingNow(principal.hash, iat)
             : "exposed";
-        const person = speaksForPerson(standing, iat, deps.legacyPersonUntil);
-        const fromMachine = principal.kind === "machine" || standing === "exposed";
+        // Signed out, expired or retired since it was read: nothing is issued, in any format.
+        if (standing === undefined) return fail(401, "unauthenticated");
+        const person = speaksForPerson(standing);
+        // Format 1 device grants only ever for the person's own session: older daemons take any
+        // format 1 device grant as the person, so a session that may sit on a disk never gets one.
+        const formatOne = person;
         // Publishing only ever as an account whose email WorkOS verified (ADR 0174 §2).
         if (purpose === "market-publish" && account.emailVerified !== true)
           return fail(403, "email_unverified");
@@ -125,7 +122,7 @@ export function directoryRoutes(deps: {
         }
         if (kind === "machine")
           return json(200, { token: signGrant(claims, signingKey), expiresAt: exp });
-        if (fromMachine)
+        if (!formatOne)
           return json(200, {
             token: signStandingGrant(
               {

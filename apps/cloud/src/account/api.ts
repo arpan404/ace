@@ -93,7 +93,6 @@ export function accountApi(
   const directory = directoryRoutes({
     principals,
     sessionStore: sessions,
-    legacyPersonUntil: config.legacyPersonUntil,
     machines: machineStore(deps.db),
     ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
     keys,

@@ -120,7 +120,7 @@ export function browserAccountRoutes(options: {
     return accountMainRoute(machine, {
       ...account,
       grant,
-      client: (route) => accountMachineClient(options.session, origin, owner, route, account.prove),
+      client: (route) => accountMachineClient(options.session, origin, owner, route),
     });
   };
 }

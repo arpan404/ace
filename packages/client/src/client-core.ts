@@ -50,6 +50,7 @@ import type {
   ConnectionControl,
   RegistryQuery,
   SidebarSource,
+  StandingChallenge,
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
@@ -188,6 +189,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #hostId: string | undefined;
   /** The daemon build's release line, from its last welcome (ADR 0177). */
   #releaseLine: string | undefined;
+  #standing: StandingChallenge | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
   #history: KeptHistory | undefined;
@@ -245,6 +247,15 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#releaseLine = message.releaseLine;
+            this.#standing =
+              message.standingNonce === undefined
+                ? undefined
+                : {
+                    host: message.hostId,
+                    nonce: message.standingNonce,
+                    binding: this.connection.channelBinding,
+                    device: this.options.deviceId,
+                  };
             this.#newSocket();
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
@@ -511,6 +522,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   releaseLine(): Selection<string | undefined> {
     return this.notifications.select(["connection", "socket"], () =>
       this.state === "ready" ? this.#releaseLine : undefined,
+    );
+  }
+  standingChallenge(): Selection<StandingChallenge | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#standing : undefined,
     );
   }
   #newSocket(): void {

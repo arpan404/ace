@@ -407,16 +407,20 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
-    // An account device proves the person's standing on this socket only, against this nonce,
-    // and only until its grant's expiry (ADR 0190); a grant refresh never carries it on.
+    // Any socket may prove the person's standing (ADR 0190): on this socket only, against this
+    // nonce and, relayed, this stream's Noise handshake hash, and only until the proving grant's
+    // expiry; a grant refresh never carries it on.
     const standingNonce = randomBytes(16).toString("base64url");
+    const channelBinding = relayed
+      ? Buffer.from(relayed.channel.channelBinding).toString("base64url")
+      : undefined;
     let personUntil = 0;
-    // Whether this socket's credential is the person's for person-only actions (ADR 0190): a
-    // paired device whose link the person made, an account device while its proven standing
-    // lasts; the host token never.
+    // Whether this socket's credential is the person's for person-only actions (ADR 0190): one
+    // that proved it, while that lasts; or a device paired from a link the person made. Never the
+    // host token or an account device on its own, and never because someone signed in lately.
     const personProven = () => {
-      if (hostCredential()) return false;
-      if (accountAdmitted !== undefined) return personUntil > auth.now();
+      if (personUntil > auth.now()) return true;
+      if (hostCredential() || accountAdmitted !== undefined) return false;
       return authenticated.get(socket)?.person === true;
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
@@ -716,7 +720,7 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
-          ...(accountAdmitted !== undefined ? { standingNonce } : {}),
+          standingNonce,
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
@@ -767,14 +771,17 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         case "account.standing": {
           const { requestId } = message;
+          // The account an account device was admitted for, else this machine's own.
+          const account = accountId ?? options.machineAccount?.account()?.id;
           const proven =
-            accountAdmitted?.() === true && accountId !== undefined
+            stillAdmitted() && account !== undefined
               ? await options.machineAccount?.proveStanding({
                   grant: message.grant,
                   proof: message.proof,
                   nonce: standingNonce,
+                  binding: channelBinding,
                   deviceId: actor,
-                  account: accountId,
+                  account,
                 })
               : undefined;
           if (proven) personUntil = Math.max(personUntil, proven.until);

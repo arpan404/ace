@@ -71,18 +71,21 @@ export function deviceGrantVerdict(
 }
 
 /**
- * The person's standing an account device proves on one socket (ADR 0190), or undefined. The
- * grant must be a format 2 person grant signed by a key this build pins (never one fetched from
- * the session's origin or named by the environment), for this daemon's account and host, the
- * socket's device, and not expired; and `proof` must be the signature, by the device key the
- * grant names, of `standingProofText` over this host, this socket's nonce and the grant. A
- * grant captured on the way is worthless without that key, and a proof made for one socket or
- * daemon fails on any other. `until`: when the standing ends, the grant's expiry.
+ * The person's standing a socket proves (ADR 0190), or undefined. The grant must be a format 2
+ * person grant signed by a key this build pins (never one fetched from the session's origin or
+ * named by the environment), for this daemon's account and host, the socket's device, and not
+ * expired; and `proof` must be the signature, by the device key the grant names, of
+ * `standingProofText` over this host, this socket's nonce, its channel binding and the grant. A
+ * grant captured on the way is worthless without that key, and a proof made for one socket,
+ * channel or daemon fails on any other: one relayed by whoever answered as this host, with its
+ * key read from ACE_HOME, names that other channel. `until`: the grant's expiry.
  */
 export async function provenStanding(input: {
   grant: string;
   proof: string;
   nonce: string;
+  /** The socket's channel binding (`standingProofText`); undefined on a socket with none. */
+  binding: string | undefined;
   keys: GrantKeySet;
   now: number;
   account: string;
@@ -116,7 +119,12 @@ export async function provenStanding(input: {
       key,
       new Uint8Array(decodeBase64url(input.proof)),
       new TextEncoder().encode(
-        standingProofText({ host: input.host, nonce: input.nonce, grant: input.grant }),
+        standingProofText({
+          host: input.host,
+          nonce: input.nonce,
+          binding: input.binding,
+          grant: input.grant,
+        }),
       ),
     );
     return signed ? { until: claims.exp } : undefined;

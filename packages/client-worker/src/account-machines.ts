@@ -49,14 +49,6 @@ export interface AccountMachineOptions {
    */
   grantRefused?(grant: string, machine?: string): boolean;
   /**
-   * Prove the person's standing on a socket to `host` (ADR 0190), as `ClientOptions.prove`.
-   * Absent: the app's account devices have a machine's standing.
-   */
-  prove?(input: {
-    host: string;
-    nonce: string;
-  }): Promise<{ grant: string; proof: string } | undefined>;
-  /**
    * `machine` (its host id) no longer needs the record of how it got its grant: its connection
    * was welcomed, or the machine was closed or removed. An app that keeps such records drops
    * this one.

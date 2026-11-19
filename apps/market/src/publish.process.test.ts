@@ -1,3 +1,4 @@
+import { intentOf } from "./testing/publisher-harness.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readArchive, typeLimits } from "@ace/marketplace";
 import { folder, sampleSkill, sampleSuit } from "@ace/marketplace/testing";
@@ -179,13 +180,17 @@ describe("publishing", () => {
     const path = "/v1/publish/spade-skill/own-skill/versions/1.0.0/withdraw";
     const theirs = await market.fetch(path, {
       method: "POST",
-      headers: { authorization: `Bearer ${personMarketGrant("acct_b", `POST ${path}`)}` },
+      headers: {
+        authorization: `Bearer ${personMarketGrant("acct_b", await intentOf("POST", path, { reason: "Not mine to pull." }))}`,
+      },
       body: JSON.stringify({ reason: "Not mine to pull." }),
     });
     expect(theirs.status).toBe(403);
     const mine = await market.fetch(path, {
       method: "POST",
-      headers: { authorization: `Bearer ${personMarketGrant("acct_a", `POST ${path}`)}` },
+      headers: {
+        authorization: `Bearer ${personMarketGrant("acct_a", await intentOf("POST", path, { reason: "Broken on Linux." }))}`,
+      },
       body: JSON.stringify({ reason: "Broken on Linux." }),
     });
     expect(mine.status).toBe(202);
