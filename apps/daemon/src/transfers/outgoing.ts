@@ -10,6 +10,7 @@ import {
   type ThreadId,
   type Transfer,
   type TransferBegin,
+  type TransferLiveStage,
   type TransferMethod,
   type TransferOrigin,
   type TransferPhase,
@@ -267,7 +268,7 @@ export class OutgoingTransfers {
     if (!record) throw new TransferError("not_found", "No such transfer.");
     if (!cancellable.has(record.transfer.phase)) return record.transfer;
     // A handed-over thread may already be the other machine's: only its answer settles it.
-    if (record.transfer.live?.stage === "handing")
+    if (this.liveStage(record) === "handing")
       throw new TransferError(
         "too_late",
         `It already reached ${record.transfer.target.name}; the thread is moving there and can't be cancelled.`,
@@ -319,7 +320,7 @@ export class OutgoingTransfers {
         const record = this.rows.get(transferId);
         if (!record || terminal.has(record.transfer.phase) || controller.signal.aborted) return;
         // Handed over: the commit may have landed, so nothing here settles it. Ask again.
-        if (record.transfer.live?.stage === "handing") {
+        if (this.liveStage(record) === "handing") {
           this.deps.log("Moving thread still waiting for its target", {
             transferId,
             error: String(error),
@@ -382,7 +383,7 @@ export class OutgoingTransfers {
     }
   }
   private async drive(transferId: string, signal: AbortSignal): Promise<void> {
-    let record = this.need(transferId);
+    let record = this.reconcileLive(this.need(transferId));
     const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
     if (!profile)
       throw new TransferError("machine_not_linked", "That machine isn't linked anymore.");
@@ -453,7 +454,7 @@ export class OutgoingTransfers {
         status = await this.reach(
           signal,
           () => client.call({ op: "status", transferId }, signal),
-          this.need(transferId).transfer.live?.stage === "handing",
+          this.liveStage(this.need(transferId)) === "handing",
         );
         continue;
       }
@@ -547,9 +548,12 @@ export class OutgoingTransfers {
       if (live) {
         sent.final = status.live?.finalOffset ?? 0;
         await upload("final", live.final.path, live.final.bytes);
-        // Recorded before the commit leaves: from here only the target's answer settles it.
-        this.deps.live?.handing(record);
-        record = this.cutover(this.need(transferId), { type: "committing" });
+        // Recorded before the commit leaves, the ownership record and the row in one transaction:
+        // from here only the target's answer settles it.
+        record = this.deps.store.atomic(() => {
+          this.deps.live?.handing(record);
+          return this.cutover(this.need(transferId), { type: "committing" });
+        });
       }
       const thread = record.request.thread;
       const threadId = record.transfer.threadId;
@@ -619,6 +623,23 @@ export class OutgoingTransfers {
     plan = { ...plan, live: stopped };
     current = this.update(this.need(current.transfer.transferId), {}, plan);
     return { record: current, plan };
+  }
+  /**
+   * A live move's stage, with the ownership record as the authority: a crash between two writes
+   * could leave it `handing` while the row says `stopping`, and the commit may have left by
+   * then, so the transfer is treated as handed over.
+   */
+  private liveStage(record: OutgoingRecord): TransferLiveStage | undefined {
+    const stage = record.transfer.live?.stage;
+    if (!stage || stage === "moved" || stage === "resumed") return stage;
+    const owner = this.deps.live?.owner(record);
+    return owner === "handing" || owner === "moved" ? "handing" : stage;
+  }
+  /** Brings the row's stage up to the ownership record before driving it again. */
+  private reconcileLive(record: OutgoingRecord): OutgoingRecord {
+    const stage = this.liveStage(record);
+    if (!stage || stage === record.transfer.live?.stage) return record;
+    return this.update(record, { live: { ...record.transfer.live, stage } });
   }
   /** One step of the live switch-over, kept on the row (see `cutover.ts`). */
   private cutover(record: OutgoingRecord, event: CutoverEvent): OutgoingRecord {
@@ -692,7 +713,7 @@ export class OutgoingTransfers {
    * handed over; a lost link keeps asking instead (see `run`).
    */
   private releaseLive(record: OutgoingRecord, change: Partial<Transfer>): OutgoingRecord {
-    const stage = record.transfer.live?.stage;
+    const stage = this.liveStage(record);
     if (!stage || change.phase === "completed" || !this.deps.live) return record;
     if (stage !== "stopping" && stage !== "handing")
       return this.cutover(record, { type: "failed", interrupted: false });

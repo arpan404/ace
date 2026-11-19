@@ -233,7 +233,9 @@ function bulkCommit(commit: TransferCommit): TransferCommit {
   const { head: _head, changes: _changes, branch: _branch, ...rest } = commit;
   return {
     ...rest,
-    ...((bulk.branch ?? commit.branch) ? { branch: bulk.branch ?? commit.branch } : {}),
+    // Exactly what the bulk carried: a detached HEAD then has no branch in it, even when the
+    // checkout moved onto one before the stop.
+    ...(bulk.branch ? { branch: bulk.branch } : {}),
     ...(bulk.head ? { head: bulk.head } : {}),
     ...(bulk.changes ? { changes: bulk.changes } : {}),
   };
