@@ -43,10 +43,11 @@ export interface LiveSourcePorts {
   children(threadId: string): string[];
   /**
    * The tree's children on other machines, by role: those still running, and those settled
-   * since `since` without their machine confirming they stopped (stopped after every cancel went
-   * unanswered, or lost). Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
+   * without their machine confirming they stopped (every cancel went unanswered, it can never
+   * answer, or lost), whenever that was: an earlier attempt's stays until its machine answers.
+   * Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
    */
-  remoteChildren(threadId: string, since: number): { running: string[]; unconfirmed: string[] };
+  remoteChildren(threadId: string): { running: string[]; unconfirmed: string[] };
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
@@ -111,9 +112,7 @@ export class LiveSource {
         .children(threadId)
         .map((title) => title.slice(0, 256))
         .slice(0, 32),
-      remoteChildren: ports
-        .remoteChildren(threadId, record.transfer.startedAt)
-        .running.slice(0, 32),
+      remoteChildren: ports.remoteChildren(threadId).running.slice(0, 32),
       queued: ports.queued(threadId),
     };
     // Always the whole Stop, even for a thread at rest: a shell its last turn left running
@@ -125,7 +124,7 @@ export class LiveSource {
     for (;;) {
       signal.throwIfAborted();
       // Only a stop its machine confirmed counts: a child that may still be writing stays here.
-      const remote = ports.remoteChildren(threadId, record.transfer.startedAt);
+      const remote = ports.remoteChildren(threadId);
       if (remote.unconfirmed.length)
         throw new TransferError(
           "remote_child_unconfirmed",

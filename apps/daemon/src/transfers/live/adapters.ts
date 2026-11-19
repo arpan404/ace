@@ -109,35 +109,28 @@ export function liveSourcePorts(
       (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? [])
         .filter((edge) => edge.phase !== "settled")
         .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
-    remoteChildren(threadId, since) {
+    remoteChildren(threadId) {
       const parents = tree(context, threadId).slice(0, 256);
-      let rows: Record<string, unknown>[];
+      const among = `parent_thread IN (${parents.map(() => "?").join(",")})`;
       try {
-        // Indexed by parent (machine_children_parent); bounded by the tree's size.
-        rows = store
+        // Both through machine_children_parent (parent_thread, settled), filtered before the
+        // limit, so a tree with many settled children still finds the one that matters.
+        const running = store
+          .statement(`SELECT role FROM machine_children WHERE ${among} AND settled=0 LIMIT 64`)
+          .all(...parents);
+        // Whenever it settled, in this attempt or an earlier one: unconfirmed until its machine
+        // answers. 1: every cancel went unanswered; 3: it can never answer; lost. 2 answered late.
+        const unconfirmed = store
           .statement(
-            `SELECT role, settled, stopped_unconfirmed, lost_at FROM machine_children
-             WHERE parent_thread IN (${parents.map(() => "?").join(",")})
-               AND (settled=0 OR settled_at>=?) LIMIT 64`,
+            `SELECT role FROM machine_children WHERE ${among} AND settled=1
+               AND (stopped_unconfirmed IN (1,3) OR lost_at IS NOT NULL) LIMIT 64`,
           )
-          .all(...parents, since);
+          .all(...parents);
+        return { running: running.map(role), unconfirmed: unconfirmed.map(role) };
       } catch {
         // No machine children were ever delegated here.
         return { running: [], unconfirmed: [] };
       }
-      return {
-        running: rows.filter((row) => row["settled"] === 0).map(role),
-        // 1: every cancel went unanswered; 3: it can never answer. 2 is a late confirmation.
-        unconfirmed: rows
-          .filter(
-            (row) =>
-              row["settled"] !== 0 &&
-              (row["stopped_unconfirmed"] === 1 ||
-                row["stopped_unconfirmed"] === 3 ||
-                row["lost_at"] !== null),
-          )
-          .map(role),
-      };
     },
     queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
     hold(threadId, transferId, change) {

@@ -56,9 +56,13 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
    - every child on another machine stopped with its machine's confirmation. Ordinary status
      reads a remote child stopped once every cancel went unanswered (ADR 0052, "Stop is
      final"), and that stays: the person's Stop must always settle. The move asks more: a child
-     settled since the move began without an answer from its machine (`stopped_unconfirmed` 1
-     or 3, or lost) may still be writing there, so it fails the move at once
-     (`remote_child_unconfirmed`); a late confirmation (2) counts.
+     settled without an answer from its machine (`stopped_unconfirmed` 1 or 3, or lost) may
+     still be writing there, so it fails the move at once (`remote_child_unconfirmed`); a late
+     confirmation (2) counts. Amended 2026-11-19 (post-merge review): that holds whenever the
+     child settled, so a second attempt after `remote_child_unconfirmed` fails the same way until
+     the machine answers. A child that can never answer (3) keeps the thread from moving while it
+     works; once it is at rest, ADR 0101's idle path moves it. The read filters before its limit
+     of 64, through `machine_children_parent`, so many settled children never hide that one.
 
    Bounded at 60 seconds; a tree that never comes to rest fails the move before the hand-over
    (`process_still_running` when a shell is what still runs, else `tree_still_working`), with
