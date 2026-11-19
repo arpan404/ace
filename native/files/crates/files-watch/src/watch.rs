@@ -138,7 +138,12 @@ impl Watcher {
             }
         };
         // Read before `start` returns, so a name that appears afterwards is news to the net too.
-        let net = Net::new(&root, &excluder, options.max_batch);
+        let net = Net::new(
+            &root,
+            &excluder,
+            options.max_batch,
+            std::time::SystemTime::now(),
+        );
         let mut wake = Wake::start(events.clone());
         if let Some(wake) = &mut wake {
             wake.follow(&root, net.folders());
@@ -479,7 +484,12 @@ impl Worker {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(folders) = folders {
-            self.net.focus(&self.root, &self.excluder, folders);
+            self.net.focus(
+                &self.root,
+                &self.excluder,
+                folders,
+                std::time::SystemTime::now(),
+            );
             if let Some(wake) = &mut self.wake {
                 wake.follow(&self.root, self.net.folders());
             }
@@ -636,7 +646,12 @@ impl Worker {
     }
 
     fn deliver(&mut self, batch: Batch) {
-        self.net.delivered(&self.root, &self.excluder, &batch);
+        self.net.delivered(
+            &self.root,
+            &self.excluder,
+            &batch,
+            std::time::SystemTime::now(),
+        );
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
