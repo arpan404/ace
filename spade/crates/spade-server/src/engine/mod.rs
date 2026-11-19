@@ -154,6 +154,8 @@ pub struct Engine {
     decisions: classify::Decisions,
     /// How long a call's classification may take, in milliseconds.
     classify_ms: std::sync::atomic::AtomicU64,
+    /// What a test runs right before a call is screened.
+    screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -296,6 +298,7 @@ impl Engine {
             images: setup.images,
             media,
             decisions,
+            screening_hook: Mutex::default(),
             classify_ms: std::sync::atomic::AtomicU64::new(
                 u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
             ),

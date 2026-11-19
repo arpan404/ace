@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -44,6 +44,12 @@ pub(super) struct Screening<'a> {
     /// For a connector's or plugin's tool, what its server says of it.
     pub hints: Option<Mcp>,
     pub reviewing: Reviewing,
+    /// Whether the classifier was on and loaded when the call was routed: the one reading used
+    /// for routing it and for screening it, so a switch in between never lets it skip both.
+    pub ready: bool,
+    /// The routing let it run counting on the screening (an app's write in Full access): if the
+    /// classifier can't screen it after all, the reviewer decides instead.
+    pub required: bool,
 }
 
 /// What the stored verdict of a settled call says, with the name of the overrides it runs with
@@ -143,6 +149,26 @@ impl Engine {
         )
     }
 
+    /// Calls `hook` right before a call is screened; for tests that must change a setting
+    /// between a call's routing and its screening.
+    pub fn before_screening(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        *self
+            .screening_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    pub(super) fn screening_now(&self) {
+        let hook = self
+            .screening_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
     /// Sets that budget; for tests that must see a classification run out of time.
     pub fn set_classify_time(&self, time: std::time::Duration) {
         self.classify_ms.store(
@@ -186,7 +212,7 @@ impl Engine {
             }
             return Ok(Screened::Review);
         }
-        if !self.classifier_on() {
+        if !s.ready {
             return Ok(Screened::Review);
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
@@ -232,11 +258,17 @@ impl Engine {
                 _ => Screened::Run,
             });
         }
-        if !self.classifier_on() {
-            return Ok(Screened::Run);
+        // Can't screen it: the reviewer decides one the routing counted on screening.
+        let unscreened = if s.required {
+            Screened::Review
+        } else {
+            Screened::Run
+        };
+        if !s.ready {
+            return Ok(unscreened);
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
-            return Ok(Screened::Run);
+            return Ok(unscreened);
         };
         match self.decided(id, s, model, &subject).screen {
             Screen::Person(effect) => {
