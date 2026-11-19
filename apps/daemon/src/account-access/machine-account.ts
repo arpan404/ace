@@ -165,6 +165,16 @@ export function machineAccount(options: {
     login?.stop();
     login = undefined;
   };
+  /**
+   * Sign-in changes, one at a time from start to finish (ADR 0190): an exchange, the adoption of
+   * what it issued and the recovery of one asked for before a stop never interleave.
+   */
+  let signIns: Promise<unknown> = Promise.resolve();
+  const oneSignIn = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = signIns.then(run);
+    signIns = next.catch(() => {});
+    return next;
+  };
   /** This machine's host id on ace's relay, which its credential and person grants name. */
   let hostIdKnown: string | undefined;
   const ownHostId = async () => (hostIdKnown ??= hostIdOf((await options.relayKeys()).publicKey));
@@ -231,7 +241,12 @@ export function machineAccount(options: {
     held: { sole: boolean; onDisk: boolean; source: StoredSession["source"] },
   ): Promise<AceAccountGrant | undefined> {
     const credential = newCredential();
-    await writePending(options.dataDir, { origin, credential, source: held.source });
+    await writePending(options.dataDir, {
+      origin,
+      credential,
+      source: held.source,
+      predecessor: session?.token ?? null,
+    });
     try {
       const issued = await exchange(origin, from, credential, held, request());
       if (!issued) await writePending(options.dataDir, null);
@@ -296,9 +311,18 @@ export function machineAccount(options: {
     });
   /**
    * A credential asked for before the daemon stopped or lost the answer (ADR 0190): kept if the
-   * backend issued it, dropped if it didn't. True when it is now the machine's sign-in.
+   * backend issued it and the sign-in it was to replace is still the machine's; given back if
+   * the machine signed in otherwise since (a stale handover), dropped if never issued. True when
+   * it is now the machine's sign-in.
    */
   async function recover(pending: PendingCredential): Promise<boolean> {
+    if ((session?.token ?? null) !== pending.predecessor) {
+      await client(pending.origin)
+        .logout(pending.credential, request())
+        .catch(() => {});
+      await writePending(options.dataDir, null);
+      return false;
+    }
     let checked;
     try {
       checked = await client(pending.origin).session(pending.credential, request());
@@ -360,12 +384,18 @@ export function machineAccount(options: {
    * Network failures keep what is stored and try again on the next round.
    */
   async function renew(): Promise<void> {
-    const pending = await readPending(options.dataDir);
-    if (pending && (await recover(pending))) return;
+    // One sign-in change at a time: a recovery or migration never interleaves with a handover or
+    // an `ace login` finishing (ADR 0190).
+    const handled = await oneSignIn(async () => {
+      const pending = await readPending(options.dataDir);
+      if (pending && (await recover(pending))) return true;
+      const current = session;
+      // Exchanging the session reads it at the backend too, which renews it.
+      return current !== undefined && current.kind !== "machine" && (await migrate(current));
+    });
+    if (handled) return;
     const current = session;
     if (!current) return;
-    // Exchanging the session reads it at the backend too, which renews it.
-    if (current.kind !== "machine" && (await migrate(current))) return;
     let checked;
     try {
       checked = await client(current.origin).session(current.token, request());
@@ -512,45 +542,47 @@ export function machineAccount(options: {
       from: { ticket: string } | { token: string },
       condition?: SessionCondition,
     ): Promise<MachineAccountStatus> {
-      let taken: StoredSession;
-      try {
-        const credential = await exchangeKept(origin, from, {
-          sole: false,
-          onDisk: false,
-          source: "handover",
-        });
-        if (credential) taken = asCredential(origin, credential, "handover");
-        // A backend without machine credentials: a session is kept as before; a ticket is
-        // something only a backend with them gives out.
-        else if ("token" in from)
-          taken = {
-            origin,
-            token: from.token,
-            ...(await client(origin).session(from.token, request())),
+      await oneSignIn(async () => {
+        let taken: StoredSession;
+        try {
+          const credential = await exchangeKept(origin, from, {
+            sole: false,
+            onDisk: false,
             source: "handover",
-          };
-        else throw new AccessError(502, "Couldn't reach your ace account.");
-      } catch (error) {
-        if (error instanceof AccessError) throw error;
-        throw new AccessError(
-          error instanceof AceAccountError && error.status === 401 ? 401 : 502,
-          error instanceof AceAccountError ? error.message : "Couldn't reach your ace account.",
-        );
-      }
-      try {
-        await adopt(taken, () => {
-          // Closed while the backend answered: nothing is taken up or written.
-          if (closed) throw unreachable();
-          if (condition && (condition.session !== sessionId || login)) throw accountChanged();
-          stopLogin();
-        });
-      } catch (error) {
-        // Not taken up: the credential made for it goes back.
-        giveBack(taken);
+          });
+          if (credential) taken = asCredential(origin, credential, "handover");
+          // A backend without machine credentials: a session is kept as before; a ticket is
+          // something only a backend with them gives out.
+          else if ("token" in from)
+            taken = {
+              origin,
+              token: from.token,
+              ...(await client(origin).session(from.token, request())),
+              source: "handover",
+            };
+          else throw new AccessError(502, "Couldn't reach your ace account.");
+        } catch (error) {
+          if (error instanceof AccessError) throw error;
+          throw new AccessError(
+            error instanceof AceAccountError && error.status === 401 ? 401 : 502,
+            error instanceof AceAccountError ? error.message : "Couldn't reach your ace account.",
+          );
+        }
+        try {
+          await adopt(taken, () => {
+            // Closed while the backend answered: nothing is taken up or written.
+            if (closed) throw unreachable();
+            if (condition && (condition.session !== sessionId || login)) throw accountChanged();
+            stopLogin();
+          });
+        } catch (error) {
+          // Not taken up: the credential made for it goes back.
+          giveBack(taken);
+          await writePending(options.dataDir, null);
+          throw error;
+        }
         await writePending(options.dataDir, null);
-        throw error;
-      }
-      await writePending(options.dataDir, null);
+      });
       return this.status();
     },
     /** Start signing in from this machine; the sign-in finishes when the person opens the URL. */
@@ -600,24 +632,26 @@ export function machineAccount(options: {
               // This daemon is the session's only holder: it keeps this machine's credential
               // instead, and the session's token is retired (ADR 0190). If that fails, the
               // sign-in ends without writing the session; the person signs in again.
-              let credential;
-              try {
-                credential = await exchangeKept(
-                  origin,
-                  { token },
-                  { sole: true, onDisk: false, source: "login" },
+              await oneSignIn(async () => {
+                let credential;
+                try {
+                  credential = await exchangeKept(
+                    origin,
+                    { token },
+                    { sole: true, onDisk: false, source: "login" },
+                  );
+                } catch {
+                  await account.logout(token, request()).catch(() => {});
+                  await writePending(options.dataDir, null);
+                  return;
+                }
+                await adopt(
+                  credential
+                    ? asCredential(origin, credential, "login")
+                    : { origin, token, account: who, expiresAt, source: "login" },
                 );
-              } catch {
-                await account.logout(token, request()).catch(() => {});
                 await writePending(options.dataDir, null);
-                return;
-              }
-              await adopt(
-                credential
-                  ? asCredential(origin, credential, "login")
-                  : { origin, token, account: who, expiresAt, source: "login" },
-              );
-              await writePending(options.dataDir, null);
+              });
             })
             .catch((error: unknown) => {
               if (closed || login !== current) return;

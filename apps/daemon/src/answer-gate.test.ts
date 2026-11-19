@@ -53,75 +53,52 @@ describe("agents never answer the person's requests", () => {
   });
 });
 
-const facts = (input: { host: boolean; market: boolean; fresh: boolean }) => ({
+const facts = (input: { host: boolean; market: boolean }) => ({
   unproven: input.host,
   personOnlyMarket: () => input.market,
-  fresh: async () => input.fresh,
 });
 
-describe("a person-only market request answered with the host token", () => {
-  it("needs a fresh sign-in: the host token may be an agent's", async () => {
+describe("a person-only market request", () => {
+  it("is never answered from a socket that hasn't proved the person, however lately anyone signed in", async () => {
     expect(
-      await hostAnswerRefusal(
-        resolve("ace-cli"),
-        facts({ host: true, market: true, fresh: false }),
-      ),
+      await hostAnswerRefusal(resolve("ace-cli"), facts({ host: true, market: true })),
     ).toMatchObject({ code: "reauth" });
   });
 
-  it("is answered after a sign-in in the last ten minutes", async () => {
+  it("is answered from a socket that proved the person's standing", async () => {
     expect(
-      await hostAnswerRefusal(resolve("ace-cli"), facts({ host: true, market: true, fresh: true })),
-    ).toBeUndefined();
-  });
-
-  it("from the app or a paired device needs nothing more", async () => {
-    expect(
-      await hostAnswerRefusal(
-        resolve("phone-7"),
-        facts({ host: false, market: true, fresh: false }),
-      ),
+      await hostAnswerRefusal(resolve("phone-7"), facts({ host: false, market: true })),
     ).toBeUndefined();
   });
 
   it("other requests aren't held to it", async () => {
     expect(
-      await hostAnswerRefusal(
-        resolve("ace-cli"),
-        facts({ host: true, market: false, fresh: false }),
-      ),
+      await hostAnswerRefusal(resolve("ace-cli"), facts({ host: true, market: false })),
     ).toBeUndefined();
   });
 });
 
-const write = (input: { key: string; device: string; host: boolean; fresh: boolean }) =>
-  settingWriteRefusal(input.key, {
-    device: input.device,
-    unproven: input.host,
-    fresh: async () => input.fresh,
-  });
+const write = (input: { key: string; device: string; host: boolean }) =>
+  settingWriteRefusal(input.key, { device: input.device, unproven: input.host });
 
 it("an agent's device never changes the person's settings", async () => {
   for (const device of ["ace-agent", "ace-reviewer"])
-    expect(await write({ key: "beta.marketplace", device, host: true, fresh: true })).toMatchObject(
-      { code: "validation" },
-    );
+    expect(await write({ key: "beta.marketplace", device, host: false })).toMatchObject({
+      code: "validation",
+    });
 });
 
 describe("who may change settings", () => {
-  it("Ask me before agents publish needs a fresh sign-in over the host token", async () => {
+  it("Ask me before agents publish changes only from a socket that proved the person", async () => {
     const key = "market.askBeforeAgentPublish";
-    expect(await write({ key, device: "ace-cli", host: true, fresh: false })).toMatchObject({
+    expect(await write({ key, device: "ace-cli", host: true })).toMatchObject({
       code: "validation",
     });
-    expect(await write({ key, device: "ace-cli", host: true, fresh: true })).toBeUndefined();
-    expect(await write({ key, device: "desktop-1", host: false, fresh: false })).toBeUndefined();
+    expect(await write({ key, device: "desktop-1", host: false })).toBeUndefined();
   });
 
   it("other settings from the person's devices change as before", async () => {
-    expect(
-      await write({ key: "logs.maxBytes", device: "ace-cli", host: true, fresh: false }),
-    ).toBeUndefined();
+    expect(await write({ key: "logs.maxBytes", device: "ace-cli", host: true })).toBeUndefined();
   });
 });
 

@@ -128,6 +128,7 @@ const prove = (
     grant,
     proof,
     nonce: "socket-nonce",
+    binding: "channel-a",
     keys,
     now: issued + 1_000,
     account: "user_1",
@@ -139,7 +140,9 @@ const prove = (
 it("a person's grant, proven with its device key over this socket's nonce, gives the person's standing until it expires", async () => {
   const device = await deviceKey();
   const token = personGrant(device.raw);
-  const proof = await device.sign(standingProofText({ host, nonce: "socket-nonce", grant: token }));
+  const proof = await device.sign(
+    standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
+  );
   expect(await prove(token, proof)).toEqual({ until: issued + GRANT_LIFETIME_MS });
   expect(await prove(token, proof, { now: issued + GRANT_LIFETIME_MS })).toBeUndefined();
 });
@@ -147,15 +150,23 @@ it("a person's grant, proven with its device key over this socket's nonce, gives
 it("a captured person's grant or proof gives nothing on another socket, daemon or device", async () => {
   const device = await deviceKey();
   const token = personGrant(device.raw);
-  const proof = await device.sign(standingProofText({ host, nonce: "socket-nonce", grant: token }));
+  const proof = await device.sign(
+    standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
+  );
   // Another socket's nonce, another daemon, another device id, another account.
   expect(await prove(token, proof, { nonce: "other-socket" })).toBeUndefined();
+  // The same nonce reaching the daemon over another channel: whoever answered the window as
+  // this host, with its key read from ACE_HOME, relaying the window's proof to the real daemon.
+  expect(await prove(token, proof, { binding: "channel-b" })).toBeUndefined();
+  expect(await prove(token, proof, { binding: undefined })).toBeUndefined();
   expect(await prove(token, proof, { host: otherHost })).toBeUndefined();
   expect(await prove(token, proof, { deviceId: "laptop" })).toBeUndefined();
   expect(await prove(token, proof, { account: "user_2" })).toBeUndefined();
   // Whoever holds the grant but not the device key can't sign for this socket.
   const thief = await deviceKey();
-  const forged = await thief.sign(standingProofText({ host, nonce: "socket-nonce", grant: token }));
+  const forged = await thief.sign(
+    standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
+  );
   expect(await prove(token, forged)).toBeUndefined();
 });
 
@@ -167,7 +178,9 @@ it.each([
 ])("%s never gives the person's standing", async (_case, make) => {
   const device = await deviceKey();
   const token = make(device.raw);
-  const proof = await device.sign(standingProofText({ host, nonce: "socket-nonce", grant: token }));
+  const proof = await device.sign(
+    standingProofText({ host, nonce: "socket-nonce", binding: "channel-a", grant: token }),
+  );
   expect(await prove(token, proof)).toBeUndefined();
 });
 

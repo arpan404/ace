@@ -63,6 +63,11 @@ export const PendingCredential = z.object({
   origin: StoredAceAccountOrigin,
   credential: AceAccountGrant.shape.token,
   source: StoredSession.shape.source,
+  /**
+   * The sign-in this credential is to replace: the stored token when it was asked for, or null
+   * for none. Recovered only while that is still the machine's sign-in; otherwise it is stale.
+   */
+  predecessor: AceAccountGrant.shape.token.nullable(),
 });
 export type PendingCredential = z.infer<typeof PendingCredential>;
 

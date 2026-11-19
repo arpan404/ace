@@ -244,7 +244,7 @@ it("a session exchanged by its only holder is retired in the same write, and two
     );
 });
 
-it("a session an older daemon keeps, or one from before standing was kept, never speaks for the person", async () => {
+it("a session an older daemon keeps never speaks for the person", async () => {
   const kept = await signInThroughWorker(worker.http, workos, person);
   await account().grant(
     kept.token,
@@ -252,12 +252,24 @@ it("a session an older daemon keeps, or one from before standing was kept, never
     signal(),
   );
   expect(await deviceGrant(kept.token)).toMatchObject({ format1: false, person: undefined });
+});
+
+it("an older daemon never takes a grant from an unexchanged session file as the person", async () => {
+  // A session from before this version, still in an older daemon's ace-account.json, copied by
+  // a process that reads it. Older daemons take any format 1 device grant as the person; this
+  // session gets none, so an older daemon's strict parser refuses what it mints.
   const old = await signInThroughWorker(worker.http, workos, person);
   await worker.db
     .prepare("UPDATE sessions SET standing = 'legacy' WHERE standing = 'person'")
     .run();
-  // Older apps still get format 1 for older daemons, but never a person's grant.
-  expect(await deviceGrant(old.token)).toMatchObject({ format1: true, person: undefined });
+  const minted = await deviceGrant(old.token);
+  expect(minted).toMatchObject({ format1: false, person: undefined });
+  expect(verifyStandingGrant(minted.grant.token, await keys(), Date.now()).standing).toBe(
+    "machine",
+  );
+  // The person signs in again in a browser: that session is theirs, format 1 included.
+  const again = await signInThroughWorker(worker.http, workos, person);
+  expect((await deviceGrant(again.token)).format1).toBe(true);
 });
 
 it("an older daemon keeping its session still connects to the relay, and the relay admits a machine's format 2 device grant only for its daemon", async () => {
