@@ -14,6 +14,7 @@ import {
 } from "@ace/marketplace";
 import {
   storedMarketInstall,
+  storedMarketProvenance,
   storedMarketJournal,
   storedMarketListing,
   storedMarketSource,
@@ -63,6 +64,9 @@ export interface StoredInstall extends MarketInstalled {
   approvedHash?: string | null | undefined;
 }
 
+/** Where an entry's bytes came from, as an install or its removal keeps it. */
+export type Provenance = Pick<StoredInstall, "source" | "signed" | "publisher">;
+
 /** Whether the person turned this very installed version on for their bots. */
 export function approvedForBots(install: StoredInstall): boolean {
   return install.approvedHash === undefined || install.approvedHash === install.hash;
@@ -107,7 +111,8 @@ export class MarketStore {
       CREATE TABLE IF NOT EXISTS installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS verified_publishers (key TEXT PRIMARY KEY, publisher TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS verified_publishers (key TEXT PRIMARY KEY, publisher TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS removed_installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));`);
     return new MarketStore(root, db);
   }
 
@@ -178,6 +183,36 @@ export class MarketStore {
 
   removeInstall(type: string, name: string): void {
     this.#db.prepare("DELETE FROM installs WHERE type = ? AND name = ?").run(type, name);
+  }
+
+  /**
+   * The person or a caller removed `install`: its row goes, and where its bytes came from stays
+   * behind (ADR 0178 §12.8), so a later install of the same type and name is judged against it
+   * as an update would be. Removing doesn't make a name a first install again.
+   */
+  removeInstallKeepingProvenance(install: StoredInstall): void {
+    const kept: Provenance = {
+      source: install.source,
+      ...(install.signed === undefined ? {} : { signed: install.signed }),
+      ...(install.publisher === undefined ? {} : { publisher: install.publisher }),
+    };
+    this.#db
+      .prepare("INSERT OR REPLACE INTO removed_installs (type, name, data) VALUES (?, ?, ?)")
+      .run(install.type, install.name, JSON.stringify(kept));
+    this.removeInstall(install.type, install.name);
+  }
+
+  /**
+   * Where the entry of `type` and `name` last came from: the installed record, else the one
+   * left by its removal; undefined for a name never installed here.
+   */
+  provenance(type: string, name: string): Provenance | undefined {
+    const installed = this.install(type, name);
+    if (installed) return installed;
+    const row = this.#db
+      .prepare("SELECT data FROM removed_installs WHERE type = ? AND name = ?")
+      .get(type, name);
+    return row ? storedMarketProvenance(String(row["data"])) : undefined;
   }
 
   /** Installs that started and didn't finish: each step written down before it was taken. */

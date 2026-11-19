@@ -92,7 +92,24 @@ async function world() {
       ? listed.skills.map(({ name, hash }) => ({ name, hash }))
       : [];
   };
-  return { ask, person, install, publish, prepare, forBots, root: harness.root };
+  /** A git catalog of this test's, holding `files` as the Suit `name`: its source id. */
+  const catalog = async (name: string, files: ArchiveFile[]) => {
+    const repo = await gitCatalog(
+      harness.root,
+      {
+        name: "elsewhere",
+        plugins: [],
+        entries: [{ type: "suit", name, source: "suits/one", title: "Harbour dusk" }],
+      },
+      { "suits/one": files },
+    );
+    const added = await ask({ op: "addSource", address: repo });
+    const git =
+      added?.op === "sources" ? added.sources.find((source) => source.kind === "git") : undefined;
+    if (!git) throw new Error(`No git source: ${JSON.stringify(added)}`);
+    return git.id;
+  };
+  return { ask, person, install, publish, prepare, forBots, catalog, socket };
 }
 
 async function until(client: Client, match: (message: ServerMessage) => boolean) {
@@ -217,31 +234,58 @@ test("an install whose id or hash doesn't match an open review gets no exemption
 });
 
 test("a same-name Suit from another catalog replacing a signed install is the person's", async () => {
-  const { ask, person, install, root } = await world();
+  const { ask, person, install, prepare, catalog } = await world();
   expect(await install("suit", "harbour-dusk", sampleSuit())).toMatchObject({ op: "done" });
-  const repo = await gitCatalog(
-    root,
-    {
-      name: "elsewhere",
-      plugins: [],
-      entries: [
-        { type: "suit", name: "harbour-dusk", source: "suits/dusk", title: "Harbour dusk" },
-      ],
-    },
-    { "suits/dusk": sampleSuit() },
-  );
-  const added = await ask({ op: "addSource", address: repo });
-  const git =
-    added?.op === "sources" ? added.sources.find((source) => source.kind === "git") : undefined;
-  if (!git) throw new Error(`No git source: ${JSON.stringify(added)}`);
-  const prepared = await ask({ op: "prepare", source: git.id, type: "suit", name: "harbour-dusk" });
-  if (prepared?.op !== "review") throw new Error(`Expected a review: ${JSON.stringify(prepared)}`);
-  const replace = {
-    op: "install",
-    id: prepared.review.id,
-    hash: prepared.review.hash,
-    choices: none,
-  };
+  const review = await prepare("suit", "harbour-dusk", await catalog("harbour-dusk", sampleSuit()));
+  const replace = { op: "install", id: review.id, hash: review.hash, choices: none };
   expect(await ask(replace)).toMatchObject(reauth);
   expect(await person(replace)).toMatchObject({ op: "done" });
+});
+
+test("removing an install doesn't make its name new: reinstalling from another catalog is the person's", async () => {
+  const { ask, person, install, prepare, catalog } = await world();
+  expect(await install("suit", "harbour-dusk", sampleSuit())).toMatchObject({ op: "done" });
+  expect(await ask({ op: "remove", type: "suit", name: "harbour-dusk" })).toMatchObject({
+    op: "done",
+  });
+  const review = await prepare("suit", "harbour-dusk", await catalog("harbour-dusk", sampleSuit()));
+  const reinstall = { op: "install", id: review.id, hash: review.hash, choices: none };
+  expect(await ask(reinstall)).toMatchObject(reauth);
+  expect(await person(reinstall)).toMatchObject({ op: "done" });
+});
+
+test("two installs of one name from two sources at once: the second is judged against the first", async () => {
+  const { ask, publish, prepare, catalog, socket } = await world();
+  publish("suit", "harbour-dusk", sampleSuit());
+  // Both reviewed while nothing of that name is installed, so both pass the gate.
+  const fromMarket = await prepare("suit", "harbour-dusk");
+  const fromGit = await prepare(
+    "suit",
+    "harbour-dusk",
+    await catalog("harbour-dusk", sampleSuit()),
+  );
+  const other = await socket(false);
+  const results = await Promise.all([
+    ask({ op: "install", id: fromMarket.id, hash: fromMarket.hash, choices: none }),
+    other({ op: "install", id: fromGit.id, hash: fromGit.hash, choices: none }),
+  ]);
+  expect(results.filter((result) => result?.op === "done")).toHaveLength(1);
+  expect(
+    results.filter((result) => result?.op === "error" && result.code === "reauth"),
+  ).toHaveLength(1);
+});
+
+test("reinstalling the very bytes of an approved skill over the host token keeps it on for bots", async () => {
+  const { ask, person, publish, prepare, forBots } = await world();
+  publish("spade-skill", "triage-mail", sampleSkill());
+  const first = await prepare("spade-skill", "triage-mail");
+  expect(
+    await person({ op: "install", id: first.id, hash: first.hash, choices: none }),
+  ).toMatchObject({ op: "done" });
+  const again = await prepare("spade-skill", "triage-mail");
+  expect(again.hash).toBe(first.hash);
+  expect(await ask({ op: "install", id: again.id, hash: again.hash, choices: none })).toMatchObject(
+    { op: "done" },
+  );
+  expect(await forBots()).toEqual([{ name: "triage-mail", hash: first.hash }]);
 });

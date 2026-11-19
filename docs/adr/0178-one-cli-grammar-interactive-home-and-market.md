@@ -789,6 +789,13 @@ publish". A credential that isn't the person's still does everything else it did
     person's: another catalog with the same name, unsigned over signed, another publisher, or
     over a record from before provenance was kept. Installed records now carry where their bytes
     came from: `source`, `signed`, and the publisher's id.
+  - Removing an entry doesn't make its name new again. The removal keeps where its bytes came
+    from (`removed_installs`: source, signed, publisher), and a later install of that type and name
+    is judged against it as an update would be. A rollback of a failed first install leaves
+    nothing behind, since nothing was there before.
+  - The gate judges provenance when the request arrives, and the install judges it again inside
+    the serialized install step, after recovery. So when two installs of one name arrive at once,
+    the second is judged against what the first landed.
   - An update is a review and an install like any other, so it follows the same rule. An install
     whose id or hash doesn't name an open review gets no exemption.
 - **A skill installed without the person reaches no bot until the person turns it on.**
@@ -799,7 +806,9 @@ publish". A credential that isn't the person's still does everything else it did
     `spadeSkillFiles`). Spade drops a copy the daemon stops listing, so such a skill is in no
     bot's index, standing instructions, search or `skill_load`.
   - An update to a new hash is unapproved again until the person turns that version on, and the
-    earlier copy leaves the bots rather than staying in use.
+    earlier copy leaves the bots rather than staying in use. Reinstalling the very bytes keeps the
+    approval they had. A removed skill loses its approval, so installing it again waits for the
+    person.
   - Turning a version on (`turnOnForBots`, naming its hash) is person-only, like install was. An
     agent asking for it gets the person-only request in its thread.
   - The app shows such a skill as "Installed · Turn on for your bots", with a text button.
@@ -990,7 +999,11 @@ no ace account, beside the app's page as the person:
   installs is on at once;
 - a Suit updates from the same source with no sign-in;
 - an install whose id or hash doesn't match an open review gets no exemption;
-- a same-name Suit from another catalog replacing a signed install is the person's.
+- a same-name Suit from another catalog replacing a signed install is the person's;
+- removing an install and then reinstalling the name from another catalog is the person's;
+- of two installs of one name from two sources at once, exactly one lands and the other gets
+  `reauth`;
+- reinstalling the very bytes of an approved skill over the host token keeps it on for bots.
 
 `content-only.test.ts` also covers provenance: same source and publisher, another source,
 unsigned over signed, another publisher, and a record from before provenance was kept. Spade's

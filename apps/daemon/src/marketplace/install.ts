@@ -120,8 +120,21 @@ function record(
  */
 export type Installer = "person" | "without-person";
 
-const botsApproval = (entry: PreparedEntry, by: Installer): Partial<StoredInstall> =>
-  entry.type === "spade-skill" ? { approvedHash: by === "person" ? entry.hash : null } : {};
+/**
+ * A skill's approval after this install: the person's install approves its hash; anyone else's
+ * leaves it waiting, except that the very bytes installed again keep the approval they had.
+ */
+function botsApproval(
+  entry: PreparedEntry,
+  by: Installer,
+  previous: StoredInstall | undefined,
+): Partial<StoredInstall> {
+  if (entry.type !== "spade-skill") return {};
+  if (by === "person") return { approvedHash: entry.hash };
+  if (previous?.hash === entry.hash)
+    return previous.approvedHash === undefined ? {} : { approvedHash: previous.approvedHash };
+  return { approvedHash: null };
+}
 
 /** Writes the marketplace's row for an install, noting the row it replaces. */
 function saveRecord(ports: InstallPorts, tx: Transaction, installed: StoredInstall): StoredInstall {
@@ -163,7 +176,7 @@ async function land(
       return saveRecord(
         ports,
         tx,
-        record(entry, ports.now(), { target: entry.name, ...botsApproval(entry, by) }),
+        record(entry, ports.now(), { target: entry.name, ...botsApproval(entry, by, previous) }),
       );
     case "spade-plugin": {
       const plugins = ports.plugins;
@@ -362,6 +375,6 @@ export async function removeInstall(ports: InstallPorts, install: StoredInstall)
   if (install.type === "suit" && install.state === "on")
     await ports.suits?.remove(install.target ?? install.name);
   if (install.type === "spade-plugin") await ports.plugins?.remove(install.name);
-  ports.store.removeInstall(install.type, install.name);
+  ports.store.removeInstallKeepingProvenance(install);
   await ports.store.collect();
 }

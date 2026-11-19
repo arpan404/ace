@@ -16,6 +16,7 @@ import { marketError as error } from "./market-error.ts";
 import { prepareWithBrings, Refused } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
 import { contentOnlyReview } from "./content-only.ts";
+import { reauthSentence } from "./fresh-sign-in.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { verifiedKey, type MarketStore } from "./store.ts";
 import { badgesOf, type Trust } from "./trust.ts";
@@ -154,7 +155,7 @@ export class OpenReviews {
     const pending = this.#pending.get(id);
     if (!pending || pending.review.hash !== hash) return false;
     const { review } = pending;
-    const previous = this.#ports.store.install(review.type, review.name);
+    const previous = this.#ports.store.provenance(review.type, review.name);
     return contentOnlyReview(review, buildReview(review).review.body, previous);
   }
 
@@ -174,6 +175,10 @@ export class OpenReviews {
     if (pending.review.type === "spade-bot" && !this.#ports.spade.ready())
       return error("unavailable", "Spade isn't running. Start Spade to make this bot.");
     await this.#ports.recover();
+    // On the exemption, judged again here, in turn with every other install and after recovery:
+    // an install that landed the same name since the gate looked is what this one replaces.
+    if (by === "without-person" && !this.contentOnly(id, hash))
+      return error("reauth", reauthSentence);
     // A withdrawal learned since the review counts: for the entry and for all it brings.
     await learnWithdrawn(store, this.#ports.http(), this.#ports.keys).catch(() => {});
     const state = readWithdrawn(store);

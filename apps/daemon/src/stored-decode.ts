@@ -239,6 +239,8 @@ export const storedMarketSource = (text: string) =>
   JSON.parse(text) as import("./marketplace/store.ts").StoredSource;
 export const storedMarketInstall = (text: string) =>
   JSON.parse(text) as import("./marketplace/store.ts").StoredInstall;
+export const storedMarketProvenance = (text: string) =>
+  JSON.parse(text) as import("./marketplace/store.ts").Provenance;
 export const storedMarketListing = (text: string) =>
   JSON.parse(text) as import("./marketplace/store.ts").StoredListing;
 export const storedMarketWithdrawn = (text: string) =>
