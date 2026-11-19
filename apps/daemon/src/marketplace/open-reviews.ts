@@ -4,7 +4,13 @@ import type { MarketKeySet, MarketPublisher, MarketResult } from "@ace/protocol/
 import { blockedEntry } from "./blocklist.ts";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
-import { installReview, type InstallPorts, type PluginPort, type SpadePort } from "./install.ts";
+import {
+  installReview,
+  type Installer,
+  type InstallPorts,
+  type PluginPort,
+  type SpadePort,
+} from "./install.ts";
 import { learnWithdrawn, readWithdrawn, withdrawalOf, type WithdrawnState } from "./listings.ts";
 import { marketError as error } from "./market-error.ts";
 import { prepareWithBrings, Refused } from "./prepare.ts";
@@ -147,13 +153,16 @@ export class OpenReviews {
   contentOnly(id: string, hash: string): boolean {
     const pending = this.#pending.get(id);
     if (!pending || pending.review.hash !== hash) return false;
-    return contentOnlyReview(pending.review, buildReview(pending.review).review.body);
+    const { review } = pending;
+    const previous = this.#ports.store.install(review.type, review.name);
+    return contentOnlyReview(review, buildReview(review).review.body, previous);
   }
 
   async install(
     id: string,
     hash: string,
     choices: Parameters<typeof installReview>[2],
+    by: Installer,
   ): Promise<MarketResult> {
     const { store, trust } = this.#ports;
     const pending = this.#pending.get(id);
@@ -197,6 +206,7 @@ export class OpenReviews {
         pending.review,
         choices,
         this.#transactionId(),
+        by,
       );
     } catch (thrown) {
       await this.#renewPluginReviews(pending.review);

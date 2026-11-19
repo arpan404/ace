@@ -16,7 +16,7 @@ import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { MarketAgent } from "../marketplace/market-agent.ts";
-import { hostMarketRefusal } from "../marketplace/fresh-sign-in.ts";
+import { hostMarketStanding } from "../marketplace/fresh-sign-in.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import type { ServiceContext } from "./types.ts";
@@ -123,24 +123,27 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       const contentOnly = () =>
         operation.op === "install" &&
         options.marketplace?.installIsContentOnly(operation.id, operation.hash) === true;
-      const asPerson = async (market: MarketAgent) =>
-        (await hostMarketRefusal({
+      const standing = (fresh: () => Promise<boolean>) =>
+        hostMarketStanding({
           operation,
           unproven: context.personProven?.() !== true,
-          fresh: () => market.freshSignIn(),
+          fresh,
           contentOnly,
-        })) ?? market.asPerson(operation);
+        });
+      const asPerson = async (market: MarketAgent) => {
+        const decided = await standing(() => market.freshSignIn());
+        return "refusal" in decided ? decided.refusal : market.asPerson(operation, decided.run);
+      };
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
         : // A server started with the marketplace service alone (tests): as the person.
           options.marketplace && !thread
-          ? async () =>
-              (await hostMarketRefusal({
-                operation,
-                unproven: context.personProven?.() !== true,
-                fresh: () => machineFresh(options),
-                contentOnly,
-              })) ?? serviceAlone(options, operation)
+          ? async () => {
+              const decided = await standing(() => machineFresh(options));
+              return "refusal" in decided
+                ? decided.refusal
+                : serviceAlone(options, operation, decided.run);
+            }
           : undefined;
       if (!run) {
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
@@ -169,11 +172,13 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
 function serviceAlone(
   options: SocketContext["options"],
   operation: MarketOperation,
+  by: "person" | "without-person",
 ): Promise<MarketResult> {
   const { marketplace, machineAccount: account, hostId } = options;
   const grant = account ? () => account.marketGrant(hostId) : undefined;
+  const withoutPerson = by === "without-person";
   return (
-    marketplace?.request(operation, operation.op === "publish" ? { grant } : {}) ??
+    marketplace?.request(operation, operation.op === "publish" ? { grant } : { withoutPerson }) ??
     Promise.resolve({
       op: "error",
       code: "unavailable",

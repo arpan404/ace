@@ -772,20 +772,43 @@ credential as the person's or not (`personProven`), and the §12.7 checks read t
 market actions, answering a person-only market request, and changing "Ask me before agents
 publish". A credential that isn't the person's still does everything else it did.
 
-**What needs a fresh sign-in, and what doesn't** (owner decision, 2026-11-18):
+**What needs a fresh sign-in, and what doesn't** (owner decisions, 2026-11-18):
 
 - **No sign-in: installing or updating a Suit or a Spade skill that runs nothing**, from the app,
-  the CLI or any host-token socket. A Suit's scenes run sandboxed in the page; a skill runs nothing
-  on the machine outside Spade's own gate. The daemon decides this from the review it built from
-  the bytes it fetched and checked (`marketplace/content-only.ts`), never from a field the client
-  sends. The review's type and its body's type must both be `suit` or `spade-skill`, and it must
-  carry nothing runnable: no executable file, no plugin executions, no entries it brings along. A
-  review that says `suit` but carries an executable file isn't content only. An update is a review
-  and an install like any other, so it follows the same rule.
+  the CLI or any host-token socket. A Suit's scenes run sandboxed in the page, and the person still
+  chooses which Suit to wear. A skill runs nothing on the machine outside Spade's own gate.
+  - The daemon decides this from the review it built from the bytes it fetched and checked
+    (`marketplace/content-only.ts`), never from a field the client sends. The review's type and
+    its body's type must both be `suit` or `spade-skill`, and it must carry nothing runnable: no
+    executable file, no plugin executions, no entries it brings along. A review that says `suit`
+    but carries an executable file isn't content only.
+  - The review must also come from where what it replaces came from. A first install (no
+    installed record of that type and name) qualifies. So does an update from the same source,
+    and when the installed one was signed, signed by the same publisher.
+  - Anything else replaces what the person chose with bytes from elsewhere, so it is the
+    person's: another catalog with the same name, unsigned over signed, another publisher, or
+    over a record from before provenance was kept. Installed records now carry where their bytes
+    came from: `source`, `signed`, and the publisher's id.
+  - An update is a review and an install like any other, so it follows the same rule. An install
+    whose id or hash doesn't name an open review gets no exemption.
+- **A skill installed without the person reaches no bot until the person turns it on.**
+  - An install or update that ran on the exemption records no approval (`approvedHash: null`).
+    An install with the person's standing approves its own hash: their credential, a fresh
+    sign-in, their answer to an agent's request, or a bot that brings the skill.
+  - The daemon gives Spade only market skills whose installed hash is approved (`spadeSkills`,
+    `spadeSkillFiles`). Spade drops a copy the daemon stops listing, so such a skill is in no
+    bot's index, standing instructions, search or `skill_load`.
+  - An update to a new hash is unapproved again until the person turns that version on, and the
+    earlier copy leaves the bots rather than staying in use.
+  - Turning a version on (`turnOnForBots`, naming its hash) is person-only, like install was. An
+    agent asking for it gets the person-only request in its thread.
+  - The app shows such a skill as "Installed · Turn on for your bots", with a text button.
+  - Records from before this change, which a person installed, count as approved.
 - **Still the person's: installing or updating a bot or a plugin** (they run commands or MCP
-  servers), withdraw, transfer and accepting one, handle changes, deleting an entry, verification,
-  answering a person-only market request, and changing "Ask me before agents publish". These
-  need the person's credential or a fresh sign-in, exactly as below.
+  servers), turning a skill on for bots, withdraw, transfer and accepting one, handle changes,
+  deleting an entry, verification, answering a person-only market request, and changing "Ask me
+  before agents publish". These need the person's credential or a fresh sign-in, exactly as
+  below.
 - **Agents are unchanged.** `install` was never on the agent allowlist (`agent-gate.ts`), so an
   agent asking to install anything, a Suit or a skill included, still gets the person-only
   request in its thread. Answering that request keeps the answer gate as it was.
@@ -958,10 +981,22 @@ Unit tests:
 - `pairing-codes.process.test.ts`, `app-key.test.ts`.
 
 `marketplace-content-install.process.test.ts`, on a real socket holding only the host token and
-no ace account:
+no ace account, beside the app's page as the person:
 
 - a Suit and a Spade skill install with no fresh sign-in;
-- a bot, a plugin, and a skill carrying an executable file, still get `reauth`.
+- a bot, a plugin, and a skill carrying an executable file, still get `reauth`;
+- a skill installed, then updated with `prepareUpdate`, over the host token reaches no bot until
+  the person turns that version on, and the old approval doesn't carry over; one the person
+  installs is on at once;
+- a Suit updates from the same source with no sign-in;
+- an install whose id or hash doesn't match an open review gets no exemption;
+- a same-name Suit from another catalog replacing a signed install is the person's.
+
+`content-only.test.ts` also covers provenance: same source and publisher, another source,
+unsigned over signed, another publisher, and a record from before provenance was kept. Spade's
+`market_skills.rs` shows that a skill the daemon holds back is in no bot's skills or index, and
+that an update held back takes the earlier copy away. `market-bots-approval.test.tsx` shows
+"Installed · Turn on for your bots" and its button turning the version on.
 
 ### 13. ADR 0092 still holds
 

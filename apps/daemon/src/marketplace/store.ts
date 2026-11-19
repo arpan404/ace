@@ -48,6 +48,29 @@ export interface StoredInstall extends MarketInstalled {
   pluginCommit?: string | undefined;
   /** A skill a recipe brought in its own folder: `spade-bot/<recipe>`. */
   bundledBy?: string | undefined;
+  /**
+   * Where these bytes came from (ADR 0178 §12.8): whether their manifest was signed, and by
+   * which publisher. With `source`, an update may skip the person only from the same place.
+   * Absent on records from before it, whose provenance is unknown.
+   */
+  signed?: boolean | undefined;
+  publisher?: string | undefined;
+  /**
+   * For a Spade skill: the hash the person turned on for their bots. `null` when no one with the
+   * person's standing has, so no bot sees it; absent on records from before it, which a person
+   * installed and which stay on.
+   */
+  approvedHash?: string | null | undefined;
+}
+
+/** Whether the person turned this very installed version on for their bots. */
+export function approvedForBots(install: StoredInstall): boolean {
+  return install.approvedHash === undefined || install.approvedHash === install.hash;
+}
+
+/** Whether Spade may give this installed skill to bots: on, and this very version approved. */
+export function onForBots(install: StoredInstall): boolean {
+  return install.state === "on" && approvedForBots(install);
 }
 
 export interface StoredListing {

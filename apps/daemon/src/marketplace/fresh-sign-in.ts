@@ -27,11 +27,12 @@ export const marketReauthSentence =
   "Sign in again to do this: the market needs a sign-in from the last 10 minutes. Sign in to ace again (ace login), then try it again.";
 
 /**
- * Install, withdraw, transfers, handle changes, deleting an entry and verification. An install
- * that lands content only is exempt (`hostMarketRefusal`'s `contentOnly`, ADR 0178 §12.8).
+ * Install, turning a skill on for bots, withdraw, transfers, handle changes, deleting an entry
+ * and verification. An install that lands content only is exempt (`hostMarketStanding`'s
+ * `contentOnly`, ADR 0178 §12.8).
  */
 export function needsFreshSignIn(operation: MarketOperation): boolean {
-  if (operation.op === "install") return true;
+  if (operation.op === "install" || operation.op === "turnOnForBots") return true;
   if (operation.op !== "publish") return false;
   switch (operation.request.action) {
     case "withdraw":
@@ -82,21 +83,23 @@ export function verifiedSignInFresh(
 }
 
 /**
- * The refusal for a market request a socket whose credential isn't the person's makes without
- * naming a thread, or undefined when it may run. The app's page, devices the person paired and
- * account devices pass as they are. Installing (or updating) a Suit or a Spade skill that runs
- * nothing (`contentOnly`, read from the daemon's own review) passes from anyone.
+ * What a market request a socket makes without naming a thread may do: run with the person's
+ * standing (their credential, or a fresh sign-in), run without it on the content-only exemption
+ * (installing or updating a Suit or a Spade skill that runs nothing, read from the daemon's own
+ * review), or be refused. Anything not person-only runs. A Spade skill installed without the
+ * person's standing reaches no bot until the person turns it on (ADR 0178 §12.8).
  */
-export async function hostMarketRefusal(input: {
+export async function hostMarketStanding(input: {
   readonly operation: MarketOperation;
   /** The socket's credential isn't the person's (`personProven`, ADR 0178 §12.8). */
   readonly unproven: boolean;
   readonly fresh: () => Promise<boolean>;
   /** For an install: whether its review installs content only (`content-only.ts`). */
   readonly contentOnly: () => boolean;
-}): Promise<MarketResult | undefined> {
-  if (!input.unproven || !needsFreshSignIn(input.operation)) return undefined;
-  if (input.operation.op === "install" && input.contentOnly()) return undefined;
-  if (await input.fresh()) return undefined;
-  return { op: "error", code: "reauth", message: reauthSentence };
+}): Promise<{ readonly run: "person" | "without-person" } | { readonly refusal: MarketResult }> {
+  if (!input.unproven) return { run: "person" };
+  if (!needsFreshSignIn(input.operation)) return { run: "without-person" };
+  if (await input.fresh()) return { run: "person" };
+  if (input.operation.op === "install" && input.contentOnly()) return { run: "without-person" };
+  return { refusal: { op: "error", code: "reauth", message: reauthSentence } };
 }

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useMarketSearch, type EntryKey } from "./market-api.ts";
+import { BotsApproval, waitsForBots } from "./market-bots-approval.tsx";
 import {
   Card,
   CardItem,
@@ -79,9 +80,14 @@ export function InstallAction(props: {
   if (action === "installed") {
     const target = props.detail.installed?.target;
     const bot = props.detail.summary.type === "spade-bot" && target;
+    const installed = props.detail.installed;
     return (
       <>
-        <span className="mk-state-word">Installed</span>
+        {waitsForBots(installed) ? (
+          <BotsApproval item={installed} />
+        ) : (
+          <span className="mk-state-word">Installed</span>
+        )}
         {props.extra}
         {bot && (
           <Button

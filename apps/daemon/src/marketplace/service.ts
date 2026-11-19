@@ -261,13 +261,29 @@ export class MarketplaceService {
         return this.#reviews.read(operation.id, operation.offset);
       case "install":
         return this.#serial(() =>
-          this.#reviews.install(operation.id, operation.hash, operation.choices),
+          this.#reviews.install(
+            operation.id,
+            operation.hash,
+            operation.choices,
+            ports.withoutPerson === true ? "without-person" : "person",
+          ),
         );
       case "cancel":
         await this.#reviews.cancel(operation.id);
         return { op: "done" };
       case "installed":
         return { op: "installed", installed: this.#installed() };
+      case "turnOnForBots":
+        return this.#serial(async () => {
+          const install = this.#store.install("spade-skill", operation.name);
+          if (!install) return error("not_found", "That skill isn't installed");
+          // Exactly the version the person looked at: one installed since is turned on anew.
+          if (install.hash !== operation.hash)
+            return error("conflict", "A newer version of this skill was installed. Look again.");
+          this.#store.saveInstall({ ...install, approvedHash: install.hash });
+          this.#emit();
+          return { op: "done" };
+        });
       case "prepareUpdate": {
         const install = this.#store.install(operation.type, operation.name);
         if (!install) return error("not_found", "That entry isn't installed");

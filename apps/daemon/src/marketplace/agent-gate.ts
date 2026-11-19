@@ -110,6 +110,12 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording {
       };
     case "remove":
       return { doing: `remove ${ref(operation)}`, gerund: "Removing it", action: "Remove…" };
+    case "turnOnForBots":
+      return {
+        doing: `turn the skill ${operation.name} on for your bots`,
+        gerund: "Turning a skill on for your bots",
+        action: "Turn on…",
+      };
     case "addSource":
       return {
         doing: `add the market source ${operation.address}`,

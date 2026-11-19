@@ -1,14 +1,18 @@
 import type { MarketResult } from "@ace/protocol/marketplace";
 import { marketError as error } from "./market-error.ts";
-import type { MarketStore } from "./store.ts";
+import { onForBots, type MarketStore } from "./store.ts";
 
-/** The market skills Spade may load: every installed `spade-skill` that is on. */
+/**
+ * The market skills Spade may load: every installed `spade-skill` that is on and whose installed
+ * version the person turned on for their bots (ADR 0178 §12.8). Spade drops a copy this stops
+ * listing, so an unapproved update takes the skill from every bot until it is turned on.
+ */
 export function spadeSkills(store: MarketStore): MarketResult {
   return {
     op: "spadeSkills",
     skills: store
       .installs()
-      .filter((install) => install.type === "spade-skill" && install.state === "on")
+      .filter((install) => install.type === "spade-skill" && onForBots(install))
       .map((install) => ({
         name: install.name,
         version: install.version,
@@ -25,7 +29,7 @@ export async function spadeSkillFiles(
   path: string | undefined,
 ): Promise<MarketResult> {
   const install = store.install("spade-skill", name);
-  if (!install || install.state !== "on")
+  if (!install || !onForBots(install))
     return error("not_found", `There is no market skill ${name}`);
   const files = await store.pinned(install.hash, "spade-skill");
   const list = install.files.map((file) => ({

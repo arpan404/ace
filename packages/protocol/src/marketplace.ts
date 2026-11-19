@@ -57,6 +57,12 @@ export const MarketInstalled = z.strictObject({
   update: MarketVersion.optional(),
   /** Where it landed: the Suit's id, the plugin's name, the bot's id. */
   target: z.string().max(200).optional(),
+  /**
+   * For a Spade skill: whether the person turned this installed version on for their bots (ADR
+   * 0178 §12.8). False after an install or update by a caller without the person's standing:
+   * the skill is installed but no bot sees it until the person turns it on.
+   */
+  botsApproved: z.boolean().optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -275,6 +281,11 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("remove"), ...installedKey }),
   /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
   z.strictObject({ op: z.literal("turnOn"), ...installedKey }),
+  /**
+   * The person turns an installed Spade skill on for their bots: exactly the version with this
+   * `hash`, so an update installed since needs turning on again (ADR 0178 §12.8). Person-only.
+   */
+  z.strictObject({ op: z.literal("turnOnForBots"), name: MarketEntryName, hash: MarketHash }),
   /** Spade's view (ADR 0168 §13, `marketplace.spade`): installed market skills with hashes. */
   z.strictObject({ op: z.literal("spadeSkills") }),
   ...marketPublishOperations,

@@ -77,7 +77,15 @@ export class MarketAgent {
     return bound ? bound.account.freshSignIn(bound.hostId) : false;
   }
 
-  asPerson(operation: MarketOperation): Promise<MarketResult> {
+  /**
+   * Runs `operation` for the person. `by` says whose standing it runs on: the person's (their
+   * credential, a fresh sign-in, their answer to an agent's request), or the content-only
+   * exemption's, when a Spade skill it installs waits for the person (ADR 0178 §12.8).
+   */
+  asPerson(
+    operation: MarketOperation,
+    by: "person" | "without-person" = "person",
+  ): Promise<MarketResult> {
     const bound = this.account;
     const grant = bound ? () => bound.account.marketGrant(bound.hostId) : undefined;
     // The signed-in person's name and email, for the privacy pass over what they publish.
@@ -87,7 +95,9 @@ export class MarketAgent {
       : [];
     return this.deps.marketplace.request(
       operation,
-      operation.op === "publish" ? { grant, names } : { names },
+      operation.op === "publish"
+        ? { grant, names }
+        : { names, withoutPerson: by === "without-person" },
     );
   }
 

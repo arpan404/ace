@@ -12,7 +12,7 @@ import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
 import type { PluginFilesInput } from "./prepare.ts";
 import type { PreparedEntry, PreparedReview } from "./review.ts";
-import type { MarketStore, StoredInstall } from "./store.ts";
+import { approvedForBots, type MarketStore, type StoredInstall } from "./store.ts";
 
 /*
  * Landing an accepted review with the part of ace that owns its type (ADR 0168 §8): a Suit in
@@ -106,9 +106,22 @@ function record(
     files: entry.checked.hashed,
     description:
       inspection?.type === "spade-skill" ? inspection.description : entry.checked.listing.line,
+    signed: entry.signed,
+    ...(entry.publisher ? { publisher: entry.publisher.id } : {}),
     ...extra,
   };
 }
+
+/**
+ * Who an install is by (ADR 0178 §12.8): the person (their credential, a fresh sign-in, or their
+ * answer to an agent's request), or a caller without their standing on the content-only
+ * exemption. A Spade skill the person installs is on for their bots; one anyone else installs
+ * waits for the person to turn it on.
+ */
+export type Installer = "person" | "without-person";
+
+const botsApproval = (entry: PreparedEntry, by: Installer): Partial<StoredInstall> =>
+  entry.type === "spade-skill" ? { approvedHash: by === "person" ? entry.hash : null } : {};
 
 /** Writes the marketplace's row for an install, noting the row it replaces. */
 function saveRecord(ports: InstallPorts, tx: Transaction, installed: StoredInstall): StoredInstall {
@@ -128,6 +141,7 @@ async function land(
   tx: Transaction,
   entry: PreparedEntry,
   choices: MarketInstallChoices,
+  by: Installer,
 ): Promise<StoredInstall> {
   const { store } = ports;
   const previous = store.install(entry.type, entry.name);
@@ -146,7 +160,11 @@ async function land(
     }
     case "spade-skill":
       await step(ports);
-      return saveRecord(ports, tx, record(entry, ports.now(), { target: entry.name }));
+      return saveRecord(
+        ports,
+        tx,
+        record(entry, ports.now(), { target: entry.name, ...botsApproval(entry, by) }),
+      );
     case "spade-plugin": {
       const plugins = ports.plugins;
       if (!plugins || !entry.plugin) throw new Error("Plugins aren't ready");
@@ -216,6 +234,10 @@ async function landFolders(
       description: folder.inspection.description,
       bundledBy: `spade-bot/${review.name}`,
       target: folder.name,
+      signed: review.signed,
+      ...(review.publisher ? { publisher: review.publisher.id } : {}),
+      // A bot is the person's to install, so the skills it brings are on for their bots.
+      approvedHash: hash,
     });
     names.push(folder.name);
   }
@@ -231,10 +253,11 @@ export async function installReview(
   review: PreparedReview,
   choices: MarketInstallChoices,
   id: string,
+  by: Installer,
 ): Promise<StoredInstall> {
   const tx = new Transaction(ports, id);
   try {
-    const installed = await installIn(ports, tx, review, choices);
+    const installed = await installIn(ports, tx, review, choices, by);
     tx.commit();
     return installed;
   } catch (error) {
@@ -248,8 +271,9 @@ async function installIn(
   tx: Transaction,
   review: PreparedReview,
   choices: MarketInstallChoices,
+  by: Installer,
 ): Promise<StoredInstall> {
-  if (review.type !== "spade-bot") return land(ports, tx, review, choices);
+  if (review.type !== "spade-bot") return land(ports, tx, review, choices, by);
   const inspection = review.checked.inspection;
   if (inspection?.type !== "spade-bot") throw new Error("The recipe didn't pass its checks");
   if (!ports.spade.ready()) throw new Error("Spade isn't running. Start Spade to make this bot.");
@@ -257,8 +281,15 @@ async function installIn(
   const plugins: string[] = [];
   for (const brought of review.brings) {
     const current = ports.store.install(brought.type, brought.name);
-    if (!current || current.hash !== brought.hash || current.state !== "on")
-      await land(ports, tx, brought, { bots: [], needs: {}, startRoutines: false });
+    // A bot is the person's to install, so a skill it brings is on for their bots too, also one
+    // already installed at these bytes by someone else and waiting to be turned on.
+    if (
+      !current ||
+      current.hash !== brought.hash ||
+      current.state !== "on" ||
+      !approvedForBots(current)
+    )
+      await land(ports, tx, brought, { bots: [], needs: {}, startRoutines: false }, "person");
     (brought.type === "spade-skill" ? skills : plugins).push(brought.name);
   }
   skills.push(...(await landFolders(ports, tx, review, inspection.folders)));

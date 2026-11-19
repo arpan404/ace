@@ -7,7 +7,7 @@ import {
   signMarketGrant,
 } from "@ace/account-grant";
 import type { MarketOperation } from "@ace/protocol/marketplace";
-import { hostMarketRefusal, needsFreshSignIn, verifiedSignInFresh } from "./fresh-sign-in.ts";
+import { hostMarketStanding, needsFreshSignIn, verifiedSignInFresh } from "./fresh-sign-in.ts";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 const publish = (
@@ -47,34 +47,36 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
   });
 });
 
-const fresh = (value: boolean) => async () => value;
+/** The gate's answer for `operation`, given what is known of the caller. */
+const standing = (
+  operation: MarketOperation,
+  facts: { unproven: boolean; fresh: boolean; contentOnly: boolean },
+) =>
+  hostMarketStanding({
+    operation,
+    unproven: facts.unproven,
+    fresh: async () => facts.fresh,
+    contentOnly: () => facts.contentOnly,
+  });
 
 describe("a person-only market action from the host token, with no thread", () => {
   it("is refused without a fresh sign-in: the host token alone may be an agent", async () => {
-    const refusal = await hostMarketRefusal({
-      operation: install,
-      unproven: true,
-      fresh: fresh(false),
-      contentOnly: () => false,
-    });
-    expect(refusal).toMatchObject({ op: "error", code: "reauth" });
-    expect(refusal?.op === "error" && refusal.message).toMatch(/app|paired device/);
-  });
-
-  it("runs after a sign-in in the last ten minutes", async () => {
+    const decided = await standing(install, { unproven: true, fresh: false, contentOnly: false });
+    expect(decided).toMatchObject({ refusal: { op: "error", code: "reauth" } });
     expect(
-      await hostMarketRefusal({
-        operation: install,
-        unproven: true,
-        fresh: fresh(true),
-        contentOnly: () => false,
-      }),
-    ).toBeUndefined();
+      "refusal" in decided && decided.refusal.op === "error" && decided.refusal.message,
+    ).toMatch(/app|paired device/);
   });
 
-  it("from the app or a paired device needs nothing more", async () => {
+  it("runs as the person after a sign-in in the last ten minutes", async () => {
+    expect(await standing(install, { unproven: true, fresh: true, contentOnly: false })).toEqual({
+      run: "person",
+    });
+  });
+
+  it("from the app or a paired device runs as the person without asking for a sign-in", async () => {
     let asked = false;
-    const result = await hostMarketRefusal({
+    const decided = await hostMarketStanding({
       operation: install,
       unproven: false,
       fresh: async () => {
@@ -83,41 +85,49 @@ describe("a person-only market action from the host token, with no thread", () =
       },
       contentOnly: () => false,
     });
-    expect(result).toBeUndefined();
+    expect(decided).toEqual({ run: "person" });
     expect(asked).toBe(false);
   });
 
   it("a search needs nothing more, wherever it comes from", async () => {
+    const search: MarketOperation = { op: "search", query: "", offset: 0, limit: 50 };
     expect(
-      await hostMarketRefusal({
-        operation: { op: "search", query: "", offset: 0, limit: 50 },
-        unproven: true,
-        fresh: fresh(false),
-        contentOnly: () => false,
-      }),
-    ).toBeUndefined();
+      await standing(search, { unproven: true, fresh: false, contentOnly: false }),
+    ).not.toHaveProperty("refusal");
   });
 
-  it("installing content only (a Suit, a Spade skill) needs no sign-in from anyone", async () => {
-    expect(
-      await hostMarketRefusal({
-        operation: install,
-        unproven: true,
-        fresh: fresh(false),
-        contentOnly: () => true,
-      }),
-    ).toBeUndefined();
+  it("installing content only runs without the person's standing, so a skill waits for them", async () => {
+    expect(await standing(install, { unproven: true, fresh: false, contentOnly: true })).toEqual({
+      run: "without-person",
+    });
+  });
+
+  it("content only after a fresh sign-in is the person's install", async () => {
+    expect(await standing(install, { unproven: true, fresh: true, contentOnly: true })).toEqual({
+      run: "person",
+    });
   });
 
   it("content only is an install's exemption: withdrawing still needs the sign-in", async () => {
+    const withdraw = publish({ action: "withdraw", ...entry, reason: "Broken" });
     expect(
-      await hostMarketRefusal({
-        operation: publish({ action: "withdraw", ...entry, reason: "Broken" }),
-        unproven: true,
-        fresh: fresh(false),
-        contentOnly: () => true,
-      }),
-    ).toMatchObject({ op: "error", code: "reauth" });
+      await standing(withdraw, { unproven: true, fresh: false, contentOnly: true }),
+    ).toMatchObject({
+      refusal: { code: "reauth" },
+    });
+  });
+
+  it("turning a skill on for bots is the person's", async () => {
+    const turnOn: MarketOperation = {
+      op: "turnOnForBots",
+      name: "triage-mail",
+      hash: "a".repeat(64),
+    };
+    expect(
+      await standing(turnOn, { unproven: true, fresh: false, contentOnly: true }),
+    ).toMatchObject({
+      refusal: { code: "reauth" },
+    });
   });
 });
 
