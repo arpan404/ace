@@ -95,7 +95,7 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
 ///
 /// The name comes from a walk that already resolved any final link inside the root, so a link
 /// here is one that appeared afterwards and is refused rather than followed.
-fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
+pub(crate) fn open_nofollow(dir: &Dir, name: &str) -> Result<File, Error> {
     use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 
     let mut options = cap_std::fs::OpenOptions::new();

@@ -51,3 +51,20 @@ fn only_a_file_has_a_content_digest() {
     let missing = fingerprint(fixture.root(), "gone.txt").expect_err("nothing is there");
     assert_eq!(missing.code(), "NOT_FOUND");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_fingerprint_holds_the_same_policy_as_a_read() {
+    let fixture = Fixture::new();
+    fixture.write(".git/config", b"[core]\n");
+    fixture.write("notes.txt", b"notes\n");
+    std::fs::write(fixture.dir().join("notes.txt"), b"notes\n").expect("notes");
+    std::os::unix::fs::symlink("notes.txt", fixture.path("fine.txt")).expect("inside link");
+    std::os::unix::fs::symlink(".git/config", fixture.path("secret.txt")).expect("git link");
+
+    let inside = fingerprint(fixture.root(), "fine.txt").expect("a link inside the root reads");
+    assert_eq!(inside.size, 6);
+
+    let reserved = fingerprint(fixture.root(), "secret.txt").expect_err("git's store is refused");
+    assert_eq!(reserved.code(), "INVALID_PATH");
+}

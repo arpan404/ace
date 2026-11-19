@@ -37,10 +37,11 @@ pub struct Fingerprint {
 /// A file that changes while it is being read is a `CONFLICT` carrying the version found, the same
 /// answer a read gives: the caller must not treat a mix of old and new bytes as either version.
 pub fn fingerprint(root: &Root, path: &str) -> Result<Fingerprint, Error> {
-    let parent = crate::handle::target_parent_stored(root, path)?;
-    crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+    // The same policy a read applies: a final link is followed only where it stays inside the
+    // root, and the bytes come from the name that walk authorized.
+    let parent = crate::policy::authorized_target(root, path)?;
     let (dir, name) = (parent.dir, parent.name);
-    let mut file = dir.open(&name)?;
+    let mut file = crate::read::open_nofollow(&dir, &name)?;
     let opened = file.metadata()?;
     if !opened.is_file() {
         return Err(Error::NotFile(path.to_owned()));
