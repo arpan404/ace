@@ -12,6 +12,7 @@ import {
   liveVersion,
   makeProfile,
   testPng,
+  intentOf,
 } from "./testing/publisher-harness.ts";
 
 /*
@@ -100,7 +101,10 @@ const writes: [string, Write][] = [
       sensitive: true,
     },
   ],
-  ["check verification", { method: "POST", path: () => "/v1/me/verification/check" }],
+  [
+    "check verification",
+    { method: "POST", path: () => "/v1/me/verification/check", sensitive: true },
+  ],
   [
     "create a draft",
     {
@@ -116,7 +120,7 @@ const writes: [string, Write][] = [
   ],
   ["delete a draft", { method: "DELETE", path: () => `/v1/me/drafts/${draft}` }],
   ["publish a draft", { method: "POST", path: () => `/v1/me/drafts/${draft}/publish` }],
-  ["delete an entry", { method: "DELETE", path: () => entry, owned: true }],
+  ["delete an entry", { method: "DELETE", path: () => entry, sensitive: true, owned: true }],
   [
     "edit a listing",
     { method: "PUT", path: () => `${entry}/listing`, body: () => listing, owned: true },
@@ -206,7 +210,11 @@ const writes: [string, Write][] = [
   ],
   [
     "decline a transfer",
-    { method: "POST", path: () => "/v1/me/transfers/trf_0123456789abcdef/decline" },
+    {
+      method: "POST",
+      path: () => "/v1/me/transfers/trf_0123456789abcdef/decline",
+      sensitive: true,
+    },
   ],
   [
     "publish from the CLI",
@@ -232,14 +240,19 @@ const writes: [string, Write][] = [
   ["read signals", { method: "GET", path: () => `${entry}/signals`, owned: true }],
 ];
 
-function send(write: Write, token: string | undefined) {
+/**
+ * Sends `write` once with the grant `token` makes for it: given the request's intent (method,
+ * path and the digest of this very body), as a person's grant names it (ADR 0190).
+ */
+async function send(write: Write, token: (action: string) => string | undefined) {
   const body = write.body?.();
+  const grant = token(await intentOf(write.method, write.path(), body));
   const bytes = body instanceof Uint8Array;
   return market.fetch(write.path(), {
     method: write.method,
     headers: {
       "cf-connecting-ip": callerAddress(),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(grant ? { authorization: `Bearer ${grant}` } : {}),
       ...(body === undefined
         ? {}
         : { "content-type": bytes ? "application/octet-stream" : "application/json" }),
@@ -249,11 +262,11 @@ function send(write: Write, token: string | undefined) {
 }
 
 const now = Date.now();
-const refusals: [string, () => string | undefined, number, string][] = [
+const refusals: [string, (action: string) => string | undefined, number, string][] = [
   ["no grant", () => undefined, 401, "unauthorized"],
   [
     "an expired grant",
-    () => grantFor("acct_owner", { iat: now - 10 * 60_000 }),
+    (action) => grantFor("acct_owner", { iat: now - 10 * 60_000, action }),
     401,
     "unauthorized",
   ],
@@ -261,39 +274,60 @@ const refusals: [string, () => string | undefined, number, string][] = [
   ["a cloud grant (the wrong purpose)", () => cloudGrant("acct_owner"), 401, "unauthorized"],
   [
     "the wrong issuer",
-    () => grantFor("acct_owner", { iss: "cloud.evil.dev" }),
+    (action) => grantFor("acct_owner", { iss: "cloud.evil.dev", action }),
     401,
     "unauthorized",
   ],
   [
     "an unverified email",
-    () => grantFor("acct_owner", { emailVerified: false }),
+    (action) => grantFor("acct_owner", { emailVerified: false, action }),
     403,
     "email_unverified",
   ],
-  ["a suspended account", () => grantFor("acct_suspended"), 403, "suspended"],
+  ["a suspended account", (action) => grantFor("acct_suspended", { action }), 403, "suspended"],
 ];
 
 describe.each(writes)("%s", (_label, write) => {
   it.each(refusals)("refuses %s", async (_case, token, status, error) => {
-    const response = await send(write, token());
+    const response = await send(write, token);
     expect(response.status).toBe(status);
     expect(await jsonOf(response)).toMatchObject({ error, message: expect.any(String) });
   });
 
   it.runIf(write.owned === true)("refuses another account's entry", async () => {
-    const response = await send(write, grantFor("acct_intruder"));
+    const response = await send(write, (action) => grantFor("acct_intruder", { action }));
     expect(response.status).toBe(403);
     expect((await jsonOf(response)).error).toBe("forbidden");
   });
 
   it.runIf(write.sensitive === true)("refuses a sign-in older than ten minutes", async () => {
-    const response = await send(
-      write,
-      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000 }),
+    const response = await send(write, (action) =>
+      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000, action }),
     );
     expect(response.status).toBe(401);
     expect((await jsonOf(response)).error).toBe("reauth");
+  });
+
+  // ADR 0190: only the person's own grant for this very request, payload and all, does a
+  // sensitive action, and only once.
+  it.runIf(write.sensitive === true).each<[string, (action: string) => string]>([
+    ["a machine's grant", () => grantFor("acct_owner")],
+    [
+      "a machine's grant naming the request",
+      (action) => grantFor("acct_owner", { action, kind: "machine" }),
+    ],
+    [
+      "the person's grant for another payload",
+      (action) => grantFor("acct_owner", { action: `${action.slice(0, -4)}AAAA` }),
+    ],
+    [
+      "the person's grant for another request",
+      () => grantFor("acct_owner", { action: "PUT /v1/me/handle-x AAAA" }),
+    ],
+  ])("refuses %s", async (_case, token) => {
+    const response = await send(write, token);
+    expect(response.status).toBe(401);
+    expect((await jsonOf(response)).error).toBe("person_grant");
   });
 });
 
@@ -305,4 +339,49 @@ it("nothing refused changed the owner's entry", async () => {
   }>(await market.fetch(entry, { headers: { authorization: `Bearer ${grantFor("acct_owner")}` } }));
   expect(own.summary).toMatchObject({ visibility: "listed", archived: false });
   expect(own.versions.map((row) => row.status)).toEqual(["not-reviewed"]);
+});
+
+it("a person's grant does its one request once: captured and sent again, it is refused", async () => {
+  const body = { handle: "gate-keeper-again" };
+  const grant = grantFor("acct_owner", { action: await intentOf("PUT", "/v1/me/handle", body) });
+  const again = () =>
+    market.fetch("/v1/me/handle", {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${grant}`,
+        "content-type": "application/json",
+        "cf-connecting-ip": callerAddress(),
+      },
+      body: JSON.stringify(body),
+    } as Parameters<Market["fetch"]>[1]);
+  await again();
+  const replayed = await again();
+  expect(replayed.status).toBe(401);
+  expect((await jsonOf(replayed)).error).toBe("person_grant");
+});
+
+it("a person's grant respelled in base64url is refused, so sent twice at once it still does one request", async () => {
+  const body = { handle: "gate-keeper-respelled" };
+  const grant = grantFor("acct_owner", { action: await intentOf("PUT", "/v1/me/handle", body) });
+  const [claims = "", signature = ""] = grant.split(".");
+  // Unused low bits in the signature's last character: the same bytes, another spelling.
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const last = signature.at(-1) ?? "A";
+  const respelled = `${claims}.${signature.slice(0, -1)}${alphabet[alphabet.indexOf(last) ^ 1]}`;
+  const put = (token: string) =>
+    market.fetch("/v1/me/handle", {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        "cf-connecting-ip": callerAddress(),
+      },
+      body: JSON.stringify(body),
+    } as Parameters<Market["fetch"]>[1]);
+  const [canonical, alternate] = await Promise.all([put(grant), put(respelled)]);
+  expect(alternate.status).toBe(401);
+  expect((await jsonOf(alternate)).error).toBe("unauthorized");
+  expect(canonical.status).not.toBe(401);
+  // And the canonical one, sent again, is spent.
+  expect((await jsonOf(await put(grant))).error).toBe("person_grant");
 });

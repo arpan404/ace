@@ -1,8 +1,9 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
+import { MarketOperation } from "@ace/protocol/marketplace";
+import { marketCallBody, marketIntent, personMarketCall } from "@ace/client/market-intent";
 import type {
   MarketInstallChoices,
-  MarketOperation,
   MarketResult,
   MarketReview,
   MarketReviewItem,
@@ -27,17 +28,48 @@ function answers<T extends MarketResult["op"]>(result: MarketResult, op: T): res
   return result.op === op;
 }
 
+/**
+ * A market grant from this window's own ace session naming one market request: its method, path
+ * and body digest (`marketIntent`, ADR 0190). Undefined when the window holds no session of the
+ * person's.
+ */
+export type PersonGrant = (intent: string) => Promise<string | undefined>;
+
+/**
+ * What the person asked for, as the market request it makes (ADR 0190): built here from the
+ * person's own operation, never taken from the daemon's answer, so a grant can only ever name
+ * what the person chose (this recipient, this handle, this reason).
+ */
+async function intentOf(operation: Operation): Promise<string | undefined> {
+  const parsed = MarketOperation.safeParse(operation);
+  if (!parsed.success || parsed.data.op !== "publish") return undefined;
+  const call = personMarketCall(parsed.data.request);
+  return call
+    ? marketIntent({ method: call.method, path: call.path, body: marketCallBody(call) })
+    : undefined;
+}
+
 export async function market<T extends MarketResult["op"]>(
   client: ClientApi,
   operation: Operation,
   expected: T,
   signal?: AbortSignal,
+  personGrant?: PersonGrant,
 ): Promise<Answer<T>> {
-  const reply = await client.request(
-    { type: "marketplace.request", operation },
-    signal ? { signal } : {},
-  );
-  const result = reply.result;
+  const ask = (grant?: string) =>
+    client.request(
+      { type: "marketplace.request", operation, ...(grant ? { personGrant: grant } : {}) },
+      signal ? { signal } : {},
+    );
+  let result = (await ask()).result;
+  // A sensitive action the market takes only from the person (ADR 0190): this window asks for a
+  // grant naming that one request, as it builds it from its own operation, with its own session,
+  // and sends the request again with it. What the daemon said the request was isn't used.
+  if (result.op === "error" && result.code === "person_grant" && personGrant) {
+    const intent = await intentOf(operation);
+    const grant = intent ? await personGrant(intent).catch(() => undefined) : undefined;
+    if (grant) result = (await ask(grant)).result;
+  }
   if (result.op === "error") throw new MarketFailure(result.code, result.scan, result.message);
   if (!answers(result, expected)) throw new MarketFailure("failed");
   return result;

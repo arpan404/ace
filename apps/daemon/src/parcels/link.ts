@@ -7,8 +7,9 @@ import {
 } from "../machines/transport.ts";
 import type { ConnectionProfile } from "../machines/connections.ts";
 import { NoRelayRoute } from "../machines/relay-fallback.ts";
-import type { RelayLink } from "./relay-link.ts";
-import { parcelRoutes, type ParcelRoute } from "./rules.ts";
+import type { EnrolledPins, MachineRoute, RouteKind } from "../machines/link-routes.ts";
+import { MachineLink } from "../machines/machine-link.ts";
+import type { RelayLink } from "../machines/relay-link.ts";
 
 export interface ParcelLinkDeps {
   /** One pinned HTTPS request to a direct address (`pinnedRequest`). */
@@ -22,48 +23,40 @@ export interface ParcelLinkDeps {
   relay: RelayLink;
   /** The paths the machine last said it serves (`describe`), kept across restarts. */
   paths(profile: RemoteProfile): MachinePath[];
+  /** Whether a relay address is ace's hosted relay, by this machine's own settings. */
+  hosted(url: string): boolean;
+  /** Keys the pairing enrolled after it was made (ADR 0192). */
+  pins?(profile: RemoteProfile): EnrolledPins;
   now(): number;
 }
-
-/** A route that answered is tried first for this long, so a dead address isn't waited on each call. */
-const PREFER_MS = 5 * 60 * 1000;
-
-/** How a parcel call went, for logs: never an address or a credential. */
-export type RouteKind = "saved" | "lan" | "tailscale" | "relay" | "account";
-
-const kindOf = (route: ParcelRoute): RouteKind =>
-  route.kind === "direct" ? route.path : route.hosted ? "account" : "relay";
 
 /**
  * Sends a parcel machine call by whatever path reaches the machine (ADR 0182): its linked
  * address, its other direct addresses under the same pinned key, then a relay. Parcel calls are
  * idempotent under their parcel id, so one lost on a path is sent again on the next. A refusal
- * is the machine's answer and is never retried elsewhere.
+ * is the machine's answer and is never retried elsewhere. Which routes there are and which
+ * answered last is `MachineLink`, shared with transfers.
  */
 export class ParcelLink {
   private deps: ParcelLinkDeps;
-  private preferred = new Map<string, { kind: RouteKind; url: string; at: number }>();
+  /** The routes to each machine and which answered last, shared with transfers (ADR 0192). */
+  readonly machines: MachineLink;
   constructor(deps: ParcelLinkDeps) {
     this.deps = deps;
+    this.machines = new MachineLink({
+      paths: deps.paths,
+      hosted: deps.hosted,
+      ...(deps.pins ? { pins: deps.pins } : {}),
+      now: deps.now,
+    });
   }
   /** The route that answered last for this machine, while it's still preferred. */
   lastRoute(profile: RemoteProfile): RouteKind | undefined {
-    const known = this.preferred.get(profile.id);
-    return known && this.deps.now() - known.at < PREFER_MS ? known.kind : undefined;
-  }
-  private order(profile: RemoteProfile): ParcelRoute[] {
-    const routes = parcelRoutes(profile, this.deps.paths(profile));
-    const known = this.preferred.get(profile.id);
-    if (!known || this.deps.now() - known.at >= PREFER_MS) return routes;
-    const first = routes.findIndex((route) => route.url === known.url);
-    if (first <= 0) return routes;
-    const chosen = routes[first];
-    return chosen ? [chosen, ...routes.slice(0, first), ...routes.slice(first + 1)] : routes;
+    return this.machines.lastRoute(profile);
   }
   /** The relay answered for this machine last, while that is still preferred. */
   prefersRelay(profile: RemoteProfile): boolean {
-    const route = this.lastRoute(profile);
-    return route === "relay" || route === "account";
+    return this.machines.prefersRelay(profile);
   }
   /**
    * One call through the machine's relays only, for machine calls whose direct attempt never
@@ -74,53 +67,40 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
-    let last: unknown = new NoRelayRoute("offline", undefined, "No relay to reach it through");
-    for (const route of parcelRoutes(profile, this.deps.paths(profile))) {
-      if (route.kind !== "relay") continue;
-      options.signal?.throwIfAborted();
-      try {
-        const answer = await this.once(profile, route, body, options);
-        this.preferred.set(profile.id, {
-          kind: kindOf(route),
-          url: route.url,
-          at: this.deps.now(),
-        });
-        return answer;
-      } catch (error) {
-        // A refusal is the machine's answer; a call that may have reached it isn't sent again.
-        if (error instanceof MachineFailure && error.kind !== "offline") throw error;
-        last = error;
-      }
-    }
-    throw last;
+    const { answer } = await this.machines.attempt(profile, this.machines.relays(profile), {
+      send: (route) => this.once(profile, route, body, options),
+      // A refusal is the machine's answer; a call that may have reached it isn't sent again.
+      moveOn: (error) => !(error instanceof MachineFailure && error.kind !== "offline"),
+      none: () => new NoRelayRoute("offline", undefined, "No relay to reach it through"),
+      signal: options.signal,
+    });
+    return answer;
   }
   async call(
     profile: RemoteProfile,
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<{ answer: unknown; route: RouteKind }> {
-    let last: unknown = new MachineFailure("offline");
-    for (const route of this.order(profile)) {
-      options.signal?.throwIfAborted();
-      try {
-        const answer = await this.once(profile, route, body, options);
-        this.preferred.set(profile.id, {
-          kind: kindOf(route),
-          url: route.url,
-          at: this.deps.now(),
-        });
-        return { answer, route: kindOf(route) };
-      } catch (error) {
-        if (error instanceof MachineFailure && error.kind === "refused") throw error;
-        last = error;
-      }
+    try {
+      return await this.machines.attempt(profile, this.machines.routes(profile), {
+        send: (route) => this.once(profile, route, body, options),
+        moveOn: (error) => !(error instanceof MachineFailure && error.kind === "refused"),
+        none: () => new MachineFailure("offline"),
+        signal: options.signal,
+      });
+    } catch (error) {
+      // Nothing answered on any route: none is preferred any more.
+      if (
+        !(error instanceof MachineFailure && error.kind === "refused") &&
+        !options.signal?.aborted
+      )
+        this.machines.forget(profile);
+      throw error;
     }
-    if (this.preferred.get(profile.id)) this.preferred.delete(profile.id);
-    throw last;
   }
   private once(
     profile: RemoteProfile,
-    route: ParcelRoute,
+    route: MachineRoute,
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {

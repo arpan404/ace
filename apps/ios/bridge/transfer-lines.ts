@@ -1,6 +1,7 @@
 import { transferCancellable } from "@ace/client";
 import type { Transfer } from "@ace/protocol";
 import {
+  continuedWords,
   doneWords,
   refusalWords,
   runningWords,
@@ -128,10 +129,10 @@ export function threadLine(
   if (!state) return null;
   if (state.kind === "transfer")
     return transferLine(state.transfer, { ...options, retry: true, dismiss: true });
-  const where = state.kind === "on" ? state.on : state.from;
+  const { words, where } = continuedWords(state);
   return {
     transferId: null,
-    words: state.kind === "on" ? `Continued on ${where.name}` : `Continued from ${where.name}`,
+    words,
     alert: false,
     actions: [action("open", "Open")],
     open: { hostId: where.hostId, threadId: where.threadId, workspaceId: null },

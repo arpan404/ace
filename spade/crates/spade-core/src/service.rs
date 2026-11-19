@@ -49,6 +49,12 @@ pub struct Service {
     pub keep: bool,
     /// How many times Spade started it again after a restart.
     pub restarts: u32,
+    /// The gate let it start only held by the sandbox.
+    pub contained_only: bool,
+    /// The launch the verdict that started it was given for; `None` for an older build's.
+    pub launch: Option<crate::event::Authorized>,
+    /// What its command ran when that verdict was given.
+    pub bound: Option<String>,
     /// `None` while it runs.
     pub ended: Option<(Ended, Option<i32>)>,
 }
@@ -76,6 +82,9 @@ pub fn services<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<Service>
                 cwd,
                 keep,
                 restarts,
+                contained_only,
+                launch,
+                bound,
             } => {
                 out.retain(|s| s.name != *name && s.service != *service);
                 out.push(Service {
@@ -85,6 +94,9 @@ pub fn services<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<Service>
                     cwd: cwd.clone(),
                     keep: *keep,
                     restarts: *restarts,
+                    contained_only: *contained_only,
+                    launch: *launch,
+                    bound: bound.clone(),
                     ended: None,
                 });
             }
@@ -139,6 +151,9 @@ mod tests {
             cwd: String::new(),
             keep,
             restarts: 0,
+            contained_only: false,
+            launch: None,
+            bound: None,
         })
     }
 

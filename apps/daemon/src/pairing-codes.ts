@@ -10,7 +10,7 @@ export interface PendingCode {
   scopes: Scope[];
   label?: string | undefined;
   deviceTtlMs?: number | undefined;
-  /** Made by someone proven to be the person (ADR 0178 §12.8); its device inherits that. */
+  /** Made by someone with the person's standing (ADR 0190); its device inherits that. */
   person: boolean;
 }
 

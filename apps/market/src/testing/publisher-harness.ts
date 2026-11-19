@@ -16,15 +16,41 @@ export interface GrantOptions {
   authAt?: number;
   /** When the grant was minted; its lifetime runs from here. */
   iat?: number;
+  /**
+   * The one request a person's grant names (`intentOf`, ADR 0190). With it the grant is a
+   * `device` grant from the person's own session, as an ace app sends for a sensitive action.
+   */
+  action?: string;
+  /** Overrides the kind `action` implies: a machine's grant naming a request, say. */
+  kind?: "machine" | "device";
+}
+
+/**
+ * What a person's grant names for a request (ADR 0190): method, path and the SHA-256 of the body
+ * exactly as sent, as `@ace/client/market-intent` builds it.
+ */
+export async function intentOf(method: string, path: string, body?: unknown): Promise<string> {
+  const bytes =
+    body === undefined
+      ? new Uint8Array()
+      : body instanceof Uint8Array
+        ? body
+        : new TextEncoder().encode(JSON.stringify(body));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  let binary = "";
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  const hash = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return `${method} ${new URL(path, "http://market").pathname} ${hash}`;
 }
 
 export function grantFor(account: string, options: GrantOptions = {}) {
   const iat = options.iat ?? Date.now();
   return signMarketGrant(
     {
-      kind: "machine",
+      kind: options.kind ?? (options.action === undefined ? "machine" : "device"),
       account,
-      subject: "host-a",
+      subject: options.action === undefined ? "host-a" : "phone",
+      ...(options.action === undefined ? {} : { action: options.action }),
       iss: options.iss ?? "cloud.acehq.dev",
       emailVerified: options.emailVerified ?? true,
       authAt: options.authAt ?? Date.now(),
@@ -51,7 +77,7 @@ export const bearerOf = (account: string, options?: GrantOptions) => ({
 });
 
 /** A request as `account` to a `/v1/me…` path; a JSON body unless it is bytes. */
-export function asAccount(
+export async function asAccount(
   market: Market,
   account: string,
   method: string,
@@ -60,10 +86,12 @@ export function asAccount(
   options?: GrantOptions,
 ) {
   const bytes = body instanceof Uint8Array;
+  // As the person's app: a grant naming this one request, which sensitive actions need.
+  const action = await intentOf(method, path, body);
   const init: RequestInit = {
     method,
     headers: {
-      ...bearerOf(account, options),
+      ...bearerOf(account, { action, ...options }),
       ...(body === undefined
         ? {}
         : { "content-type": bytes ? "application/octet-stream" : "application/json" }),

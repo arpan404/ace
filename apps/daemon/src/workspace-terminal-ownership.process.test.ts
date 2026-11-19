@@ -154,3 +154,35 @@ test.each(["same thread", "peer thread"])(
     }
   },
 );
+
+test("a terminal open that waits on cleanup spawns nothing once the thread starts moving", async () => {
+  const h = transitionHarness();
+  const backend = createPosixBackendFactory();
+  let moving: string | undefined;
+  const runtime = new WorkspaceRuntime(h.store, h.home, () => 1000, {
+    moveRefusal: () => moving,
+    terminal: {
+      graceMs: 0,
+      dependencies: {
+        resolveShell: () => "/bin/bash",
+        backendFactory: (options, shell, context) =>
+          backend({ ...options, args: ["--noprofile", "--norc", "-i"] }, shell, context),
+      },
+    },
+  });
+  try {
+    const thread = await h.create();
+    const first = await runtime.openTerminal(thread, "ends");
+    const ended = runtime.terminal(first, thread);
+    ended.write("exit\r");
+    await ended.exited;
+    // The open awaits the ended terminal's release; the move starts in between.
+    const opening = runtime.openTerminal(thread, "late");
+    moving = "thread_moving";
+    await expect(opening).rejects.toThrow("thread_moving");
+    expect(runtime.liveTerminalCount(thread)).toBe(0);
+  } finally {
+    await runtime.close();
+    await h.close();
+  }
+});

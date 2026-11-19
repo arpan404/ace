@@ -344,6 +344,8 @@ impl Engine {
         // client from before reads it rather than taking a missing one for `ask`.
         if let Some(shown) = oversight.as_object_mut() {
             shown.insert("access".into(), Access::AutoReview.name().into());
+            // How it decides (ADR 0163, amendment 2), for its profile and its conversation's head.
+            shown.insert("autonomy".into(), self.autonomy_of(&agent.id).name().into());
             // The marketplace recipe it was made from (ADR 0168), for its profile.
             if let Some(recipe) = self.bot_recipe(&agent.id) {
                 shown.insert(

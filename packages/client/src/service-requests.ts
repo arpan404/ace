@@ -18,27 +18,31 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
   ? Replies<"cli.result">
   : Q["type"] extends "suitRequest"
     ? Replies<"suitResult">
-    : Q["type"] extends "marketplace.request"
-      ? Replies<"marketplace.result">
-      : Q["type"] extends "user_browser.settings"
-        ? Replies<"user_browser.settings.result">
-        : Q["type"] extends `provider.accounts.${string}`
-          ? Replies<"provider.accounts.result">
-          : Q["type"] extends `provider.install.${string}`
-            ? Replies<"provider.install.result">
-            : Q["type"] extends `provider.login.${string}` | "provider.logout"
-              ? Replies<"provider.login.result">
-              : Q["type"] extends `onboarding.${string}`
-                ? Replies<"onboarding.result">
-                : Q["type"] extends "worktree.creation.request"
-                  ? Replies<"worktree.creation.result">
-                  : Q["type"] extends "verify.request"
-                    ? Replies<"verify.result">
-                    : Q["type"] extends "lockedUse.subscribe"
-                      ? Replies<"lockedUse.status">
-                      : Q["type"] extends `lockedUse.${string}`
-                        ? Replies<"lockedUse.result">
-                        : LegacyServiceResponse<Q>;
+    : Q["type"] extends "account.standing" | "device.standing"
+      ? Replies<"account.standing.result">
+      : Q["type"] extends "account.owner.release"
+        ? Replies<"account.owner.release.result">
+        : Q["type"] extends "marketplace.request"
+          ? Replies<"marketplace.result">
+          : Q["type"] extends "user_browser.settings"
+            ? Replies<"user_browser.settings.result">
+            : Q["type"] extends `provider.accounts.${string}`
+              ? Replies<"provider.accounts.result">
+              : Q["type"] extends `provider.install.${string}`
+                ? Replies<"provider.install.result">
+                : Q["type"] extends `provider.login.${string}` | "provider.logout"
+                  ? Replies<"provider.login.result">
+                  : Q["type"] extends `onboarding.${string}`
+                    ? Replies<"onboarding.result">
+                    : Q["type"] extends "worktree.creation.request"
+                      ? Replies<"worktree.creation.result">
+                      : Q["type"] extends "verify.request"
+                        ? Replies<"verify.result">
+                        : Q["type"] extends "lockedUse.subscribe"
+                          ? Replies<"lockedUse.status">
+                          : Q["type"] extends `lockedUse.${string}`
+                            ? Replies<"lockedUse.result">
+                            : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "outside.request"
   ? Replies<"outside.result">
@@ -317,6 +321,10 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   pluginRequest: ["pluginResult"],
   suitRequest: ["suitResult"],
   "marketplace.request": ["marketplace.result"],
+  // A socket's proof of the person's standing (ADR 0190), sent from the tab that holds the key.
+  "account.standing": ["account.standing.result"],
+  "device.standing": ["account.standing.result"],
+  "account.owner.release": ["account.owner.release.result"],
   "diagnostics.health": ["diagnostics.health.result"],
   "diagnostics.request": ["diagnostics.result"],
   "screen.request": ["screen.result"],

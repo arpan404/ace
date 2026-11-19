@@ -140,6 +140,7 @@ mod tests {
             cost_micros: 0,
             bound: None,
             acts_in: None,
+            launch: None,
         })
     }
 

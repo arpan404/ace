@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useNow } from "@/lib/time.ts";
 import { machineCodeSentence } from "./machine-account-copy.ts";
+import { MachineOwnerRow } from "./machine-owner-row.tsx";
 import { machineSignOutQuestion } from "./sign-out-copy.ts";
 import {
   useMachineAccountStatus,
@@ -47,6 +48,7 @@ export function MachineAccountSections(props: {
   return (
     <SettingSection label={label} anchor="ace-account">
       {props.local && <ThisMachineAccount status={status} access={props.access} onChange={write} />}
+      <MachineOwnerRow status={status} access={props.access} onReleased={() => query.refetch()} />
       <MachineCodeSetting status={status} access={props.access} onChange={write} />
     </SettingSection>
   );

@@ -1,28 +1,15 @@
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
-import { appSocketProof } from "@ace/service/app-key";
 import { hostConnection } from "./cli/connection.ts";
 
-/**
- * A raw socket on the host token, as any process that read `daemon-token` can open. With
- * `appKey`, its hello also carries the proof the desktop app's page makes with that key for the
- * daemon's port (ADR 0178 §12.8). `hello` replaces what the hello carries, for a paired
- * device's ticket.
- */
+/** A raw socket on the host token, as any process that read `daemon-token` can open. */
 export async function hostSocket(
   home: string,
   deviceId: string,
   cleanup: (() => Promise<unknown>)[],
-  options: {
-    appKey?: Uint8Array;
-    hello?: Record<string, unknown>;
-  } = {},
 ) {
   const { origin, token } = hostConnection(home);
-  const appProof = options.appKey
-    ? appSocketProof(options.appKey, Number(new URL(origin).port))
-    : undefined;
   const socket = new WebSocket(origin.replace("http:", "ws:"));
   cleanup.push(async () => socket.close());
   const frames: ServerMessage[] = [];
@@ -39,16 +26,7 @@ export async function hostSocket(
     }
   };
   await once(socket, "open");
-  socket.send(
-    JSON.stringify({
-      type: "hello",
-      protocolVersion: 1,
-      deviceId,
-      token,
-      ...(appProof ? { appProof } : {}),
-      ...options.hello,
-    }),
-  );
+  socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId, token }));
   await next((message) => message.type === "welcome");
   return {
     market: async (requestId: string, operation: unknown) => {

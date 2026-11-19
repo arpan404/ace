@@ -52,7 +52,7 @@ export interface ServerOptions {
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("./transfers/service.ts").DaemonTransfers;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("./transfers/http.ts").TransferTarget;
+  transferTarget?: import("./transfers/serve.ts").TransferTarget;
   /** This machine's links to other machines (`fleet.request`). */
   fleet?: import("./machines/fleet-links.ts").FleetLinks;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
@@ -122,11 +122,6 @@ export interface ServerOptions {
    */
   outsideMcpHttp?: import("./relay-http.ts").RelayHttpHandler | undefined;
   preview?: DaemonPreviewOptions;
-  /**
-   * The key the desktop app gave this daemon on stdin when it started it (ADR 0178 §12.8): a
-   * host-token hello proving it is the app's page. Unset for a daemon nothing gave a key.
-   */
-  appKey?: Uint8Array | undefined;
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;
   maintenance?: boolean;

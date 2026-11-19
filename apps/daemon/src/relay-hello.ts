@@ -14,8 +14,6 @@ export type RelayAdmission =
       account?: string;
       /** For an account device: when its grant runs out, unless the socket refreshes it. */
       grantExpiresAt?: number;
-      /** For an account device: its grant verified against a pinned key (§12.8). */
-      person?: boolean;
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -86,19 +84,16 @@ export async function accountHello(
     device: { id: hello.deviceId },
     account,
     grantExpiresAt: expiresAt,
-    person: admission.person === true,
     stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
   };
 }
 
 /**
- * An admitted account device: admin while it stays admitted, never revoked by device id. It
- * counts as the person for §12.7's checks only when its grant verified against a key this build
- * pins (`person`, ADR 0178 §12.8). That ADR names the gap left:
- * any holder of a real ace session, the one a machine keeps in `ace-account.json` included, can
- * mint a device grant for any device id there.
+ * An admitted account device: admin while it stays admitted, never revoked by device id. It is
+ * never the person by its admission; a socket proves that on its own (`account.standing`, ADR
+ * 0190).
  */
-export function accountDeviceActor(id: DeviceId, now: number, person: boolean): SessionActor {
+export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
   return {
     id,
     name: "ace account device",
@@ -107,7 +102,6 @@ export function accountDeviceActor(id: DeviceId, now: number, person: boolean): 
     lastSeenAt: now,
     revokedAt: null,
     revocable: false,
-    person,
   };
 }
 
@@ -120,10 +114,8 @@ export function mainActor(
   admitted: { id: DeviceId; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
-  /** For an account device: its grant verified against a pinned key (§12.8). */
-  person = false,
 ): SessionActor | undefined {
-  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now(), person);
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
   const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
   if (!device) return undefined;
   if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;

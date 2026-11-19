@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parcelChunkBytes, type MachinePath } from "@ace/protocol";
+import { parcelChunkBytes } from "@ace/protocol";
 import {
   admitChunk,
   heldAfterRestart,
   mayDeliverLocally,
   nextRange,
-  parcelRoutes,
   projectRelative,
   retryDelay,
   type TreeThread,
@@ -56,54 +55,6 @@ describe("a sender sends a parcel in bounded chunks from what is held", () => {
     expect(retryDelay(1)).toBe(1000);
     expect(retryDelay(2)).toBe(2000);
     expect(retryDelay(30)).toBe(60_000);
-  });
-});
-
-describe("a parcel tries every way to reach the machine, best first", () => {
-  const saved = { origin: "https://192.168.1.4:7443/", fingerprint: "a".repeat(64) };
-  const relayHostId = "A".repeat(52);
-  const paths: MachinePath[] = [
-    { kind: "relay", url: "wss://relay.example.com", relayHostId },
-    { kind: "account", url: "wss://relay.acehq.dev", relayHostId },
-    { kind: "loopback", url: "https://127.0.0.1:7443", fingerprint: "a".repeat(64) },
-    { kind: "tailscale", url: "https://100.64.0.2:7443", fingerprint: "a".repeat(64) },
-    { kind: "lan", url: "https://192.168.1.4:7443", fingerprint: "a".repeat(64) },
-    { kind: "lan", url: "https://10.0.0.9:7443", fingerprint: "b".repeat(64) },
-  ];
-  it("goes linked address, Tailscale, the person's relay, then ace's relay", () => {
-    expect(parcelRoutes(saved, paths).map((route) => [route.kind, route.url])).toEqual([
-      ["direct", "https://192.168.1.4:7443/"],
-      ["direct", "https://100.64.0.2:7443"],
-      ["relay", "wss://relay.example.com"],
-      ["relay", "wss://relay.acehq.dev"],
-    ]);
-  });
-  it("never tries loopback, which would reach this machine, or an address under another key", () => {
-    const urls = parcelRoutes(saved, paths).map((route) => route.url);
-    expect(urls).not.toContain("https://127.0.0.1:7443");
-    expect(urls).not.toContain("https://10.0.0.9:7443");
-  });
-  it("marks only ace's relay as needing an account grant", () => {
-    const relays = parcelRoutes(saved, paths).filter((route) => route.kind === "relay");
-    expect(relays.map((route) => route.kind === "relay" && route.hosted)).toEqual([false, true]);
-  });
-  it("tries the relay a machine was linked through before relays it only announced", () => {
-    const linked = { ...saved, relay: { url: "wss://own.example.com", relayHostId } };
-    const relays = parcelRoutes(linked, paths).filter((route) => route.kind === "relay");
-    expect(relays.map((route) => route.url)).toEqual([
-      "wss://own.example.com",
-      "wss://relay.example.com",
-      "wss://relay.acehq.dev",
-    ]);
-  });
-  it("reaches a machine linked through a relay only, and its announced addresses under their own key", () => {
-    const routes = parcelRoutes({ relay: { url: "wss://own.example.com", relayHostId } }, paths);
-    expect(routes[0]).toMatchObject({ kind: "direct", url: "https://192.168.1.4:7443" });
-    expect(routes.map((route) => route.url)).not.toContain("https://127.0.0.1:7443");
-    expect(routes.find((route) => route.kind === "relay")?.url).toBe("wss://own.example.com");
-  });
-  it("still has the linked address when the machine never said what else it serves", () => {
-    expect(parcelRoutes(saved, [])).toHaveLength(1);
   });
 });
 

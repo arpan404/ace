@@ -80,10 +80,10 @@ export interface SocketContext {
    */
   hostCredential?(): boolean;
   /**
-   * True when this socket's credential is the person's (ADR 0178 §12.8): the desktop app's page
-   * by its proof, a device whose pairing link the person made, an account device. False for the
-   * host token alone, which any process that read the file has, and for devices it paired.
-   * Person-only actions without a fresh sign-in check this one; absent counts as false.
+   * Whether this socket's credential is the person's for person-only actions (ADR 0178 §12.7,
+   * ADR 0190): a paired device, or an account device whose standing grant says person. Not the
+   * host token, which any process that reads it holds, and not an account device with only a
+   * machine's standing. Absent counts as not.
    */
   personProven?(): boolean;
   /** The ace account an account device's grant names (ADR 0111); undefined for others. */

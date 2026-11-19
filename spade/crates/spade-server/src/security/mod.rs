@@ -3,6 +3,7 @@
 //! command is confined. The policy and launch logic is in `spade-sandbox` and `spade_core::grant`;
 //! this holds the person's settings and joins them to each run.
 
+pub mod attest;
 pub mod checkpoints;
 mod confine;
 pub mod grants;
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
+use spade_core::autonomy::Mode;
 use spade_core::grant::{self, Grant, Scope};
 use spade_sandbox::Runner;
 use spade_sandbox::egress::{EgressLog, Entry, NetworkPolicy, Proxy, SystemResolver};
@@ -42,6 +44,9 @@ pub struct Setup {
     pub ids: Arc<dyn Ids>,
     /// The engine, for the tree grants pass down.
     pub bots: EngineHandle,
+    /// The key the daemon stamps the person's own changes with (`attest::KEY_FILE` in ace's
+    /// home); `None` takes no stamp, so nothing raises a bot to Full access.
+    pub person_key: Option<PathBuf>,
 }
 
 /// Why a change was refused.
@@ -49,6 +54,9 @@ pub struct Setup {
 pub enum SecurityError {
     #[error("there is no such bot")]
     NotFound,
+    /// Only the person may make this change, and the request doesn't carry their say.
+    #[error("{0}")]
+    PersonOnly(&'static str),
     #[error("{0}")]
     Invalid(String),
     #[error("the settings could not be saved: {0}")]
@@ -109,7 +117,14 @@ pub struct Security {
     /// Bots whose workspace is reserved for maintenance (a restore): no turn starts, no command
     /// runs and no file tool writes until it is released.
     maintenance: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// The person's stamps on changes only they may make.
+    attestor: attest::Attestor,
+    /// What a test runs while a change to how a bot decides is being decided.
+    autonomy_hook: Mutex<Option<AutonomyHook>>,
 }
+
+/// What a test runs, with the bot's id, while a change to how that bot decides is being decided.
+pub type AutonomyHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A bot's workspace held for maintenance; released when dropped.
 pub struct Reservation {
@@ -180,6 +195,8 @@ impl Security {
                 setup.spade_data.join("checkpoints"),
             )),
             maintenance: Arc::default(),
+            attestor: attest::Attestor::new(setup.person_key),
+            autonomy_hook: Mutex::default(),
         })
     }
 
@@ -248,6 +265,102 @@ impl Security {
     /// What holds for a bot: its own settings over the machine's.
     pub fn effective(&self, bot: &str) -> Effective {
         settings::effective(&self.bot(bot), &self.machine())
+    }
+
+    /// How the bot decides (ADR 0163, amendment 2): its own setting over its parent's or the
+    /// machine's, never freer than a bot above it.
+    pub fn autonomy(&self, bot: &str) -> Mode {
+        let mut chain = self.above(bot);
+        chain.push(self.bot(bot));
+        settings::autonomy(&chain, self.machine().autonomy)
+    }
+
+    /// The settings of the bots above `bot`, the top one first.
+    fn above(&self, bot: &str) -> Vec<BotSecurity> {
+        let mut chain: Vec<BotSecurity> = self
+            .ancestors(bot)
+            .iter()
+            .map(|above| self.bot(above))
+            .collect();
+        chain.reverse();
+        chain
+    }
+
+    /// Sets how the bot decides; `None` follows its parent's or the machine's. A change that
+    /// puts the bot in Full access is the person's alone: it needs their stamp (`stamp`, from
+    /// ace's daemon, `attest`), and records that they confirmed it. Going back to the
+    /// auto-review never does.
+    pub fn set_autonomy(
+        &self,
+        bot: &str,
+        mode: Option<Mode>,
+        stamp: Option<&str>,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.change(bot, |current| {
+            // Read under the same lock as the write, with the machine's: a parent raised or a
+            // machine default changed meanwhile is what this change is decided against.
+            let above = self.above(bot);
+            let machine = self.machine().autonomy;
+            self.deciding(bot);
+            let with = |own: Option<Mode>| {
+                let mut chain = above.clone();
+                chain.push(BotSecurity {
+                    autonomy: own,
+                    ..BotSecurity::default()
+                });
+                settings::autonomy(&chain, machine)
+            };
+            let raises = mode == Some(Mode::FullAccess)
+                || (with(mode) == Mode::FullAccess && with(current.autonomy) != Mode::FullAccess);
+            if raises {
+                let value = mode.map_or("null", Mode::name);
+                let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
+                if !self
+                    .attestor
+                    .person(stamp, bot, value, self.clock.now_ms(), &claim)
+                {
+                    return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
+                }
+                current.full_access_confirmed = true;
+            }
+            current.autonomy = mode;
+            Ok(())
+        })
+    }
+
+    /// Waits here, while a change to how `bot` decides is being decided, when a test holds it.
+    fn deciding(&self, bot: &str) {
+        let hook = self
+            .autonomy_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(bot);
+        }
+    }
+
+    /// Calls `hook` with the bot's id while a change to how it decides is being decided, under
+    /// the settings lock; for tests that must see two changes meet.
+    pub fn hold_autonomy_decisions(&self, hook: AutonomyHook) {
+        *self.autonomy_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    /// Sets how bots without their own setting decide; Full access needs the person's stamp.
+    pub fn set_machine_autonomy(
+        &self,
+        mode: Mode,
+        stamp: Option<&str>,
+    ) -> Result<MachineSecurity, SecurityError> {
+        let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
+        if mode == Mode::FullAccess
+            && !self
+                .attestor
+                .person(stamp, "machine", mode.name(), self.clock.now_ms(), &claim)
+        {
+            return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
+        }
+        self.change_machine(|machine| machine.autonomy = mode)
     }
 
     /// Whether the bot runs its commands outside the sandbox.

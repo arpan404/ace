@@ -29,7 +29,10 @@ export interface CommandAdmission {
   flights: { count: number };
   open(): boolean;
   authorize(scope: DeviceScope): boolean;
-  /** The socket's credential is the person's (`answer-gate.ts`, ADR 0178 §12.8). */
+  /**
+   * The socket's credential is the person's (`answer-gate.ts`): not the host token, and not an
+   * account device without the person's standing (ADR 0190).
+   */
   personProven(): boolean;
   send(message: ServerMessage): void;
   delay(run: () => void, milliseconds: number): () => void;
@@ -121,7 +124,6 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     ? await hostAnswerRefusal(command, {
         unproven: !admission.personProven(),
         personOnlyMarket: (id) => market.requests.isPending(id),
-        fresh: () => market.freshSignIn(),
       })
     : undefined;
   if (held) {

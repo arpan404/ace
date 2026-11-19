@@ -420,6 +420,7 @@ impl Tool for WorkspaceEdit {
     }
 }
 
+#[derive(Clone)]
 pub struct ShellTool {
     place: Place,
     shell: Commands,
@@ -433,7 +434,7 @@ struct ShellArgs {
 }
 
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
-fn asks_outside(arguments: &Value) -> bool {
+pub fn asks_outside(arguments: &Value) -> bool {
     arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
 }
 
@@ -515,18 +516,17 @@ impl Tool for ShellTool {
             .ok()
             .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
             .map(|_| workspace.clone());
-        let classed = match super::place::FsPlace::new(start.clone(), &workspace) {
-            Some(place) => classify_shell(arguments, &place),
-            None => classify_shell(arguments, &Lexical),
+        // What it runs, read as its start outside the sandbox will read it again
+        // (`outside::admit`): the scripts, the programs its `PATH` finds and the configuration
+        // of the tools it runs (ADR 0172, amendment 2). Without the command's environment
+        // nothing is found, and the reading is incomplete.
+        let read = super::outside::read(&workspace, &start, &env.unwrap_or_default(), arguments);
+        // The classifier settles only from the folder the command starts in, inside the bot's.
+        let config_clean = match &folder {
+            Some(_) => read.config_clean,
+            None => spade_core::autonomy::ConfigTools::default(),
         };
-        // What configuration around the folder could make git, a package manager, cargo or
-        // ripgrep run (ADR 0172, amendment 2); unknown without the command's environment.
-        let config_clean = match (&folder, env) {
-            (Some(_), Some(env)) => {
-                spade_classify::inspect(&super::ambient::Disk { env }, &start, &workspace)
-            }
-            _ => spade_core::autonomy::ConfigTools::default(),
-        };
+        let classed = read;
         // A command settles only if a read-only sandbox is available and every program it runs
         // resolves on the clean PATH (ADR 0172, amendment 7); otherwise it goes to the reviewer.
         let command = arguments
@@ -609,11 +609,16 @@ impl Tool for ShellTool {
             // only contained, and is refused if the sandbox no longer holds it. With no engine
             // (no gate), a command runs as the sandbox finds it.
             let contains_now = shell.contains(&dir);
-            let launch = match place.bots.get() {
+            // With it, the warrant of the verdict that let it run, which a start outside the
+            // sandbox must pass at its spawn (ADR 0171, amendment 5): under the terminal's lock for
+            // a terminal command, so no earlier command can rewrite what it runs in between. With
+            // no gate there is no warrant, and nothing starts plainly.
+            let (launch, warrant) = match place.bots.get() {
                 Some(engine) => engine.take_launch(&key),
-                None if contains_now => Launch::Contained,
-                None => Launch::Reviewed,
+                None if contains_now => (Launch::Contained, None),
+                None => (Launch::Reviewed, None),
             };
+            let by = crate::workspace::shell::By::Bot(warrant);
             let plan = match launch.plan(contains_now) {
                 Ok(plan) => plan,
                 Err(refused) => return ToolOutput::error(refused),
@@ -642,6 +647,7 @@ impl Tool for ShellTool {
                         .run_job(crate::workspace::shell::Job {
                             dir: &dir,
                             script: &args.command,
+                            asked: None,
                             timeout,
                             env: overrides,
                             tee: None,
@@ -652,22 +658,22 @@ impl Tool for ShellTool {
                             // Only a call reviewed or approved without relying on the sandbox
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
+                            contained_only: plan.contained_only(),
+                            by,
                             clean: form.is_some(),
                             read_only: form.is_some(),
                         })
                         .await
                 }
                 Commands::Terminal(terminals) => {
-                    in_terminal(
-                        &place,
-                        &key,
-                        terminals,
-                        &args.command,
+                    let run = TerminalRun {
+                        command: &args.command,
                         timeout,
-                        outside,
+                        plan,
                         overrides,
-                    )
-                    .await
+                        by,
+                    };
+                    in_terminal(&place, &key, terminals, run).await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -709,16 +715,25 @@ impl Tool for ShellTool {
 /// How a terminal command's scope names the state it was allowed in.
 const STATE: &str = "\n[terminal state ";
 
+/// A command for the bot's terminal, as the gate cleared it.
+struct TerminalRun<'a> {
+    command: &'a str,
+    timeout: Duration,
+    plan: crate::workspace::shell::LaunchPlan,
+    /// The classifier's configuration overrides it runs with, if any.
+    overrides: &'a [(String, String)],
+    /// A bot's, with the warrant its start outside the sandbox must pass, read again under the
+    /// terminal's lock right before it starts.
+    by: crate::workspace::shell::By,
+}
+
 /// Runs the bot's command in its terminal; refused while the person has its computer, and when
 /// the terminal is no longer in the state the command was allowed in.
 async fn in_terminal(
     place: &Place,
     key: &str,
     terminals: &crate::computer::Terminals,
-    command: &str,
-    timeout: Duration,
-    outside: bool,
-    overrides: &[(String, String)],
+    run: TerminalRun<'_>,
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -749,12 +764,13 @@ async fn in_terminal(
         .of(&bot)?
         .run_in_state(
             &session,
-            command,
-            timeout,
+            run.command,
+            run.timeout,
             expected.as_deref(),
-            outside,
-            overrides,
-            !overrides.is_empty(),
+            run.plan,
+            run.overrides,
+            !run.overrides.is_empty(),
+            run.by,
         )
         .await
 }

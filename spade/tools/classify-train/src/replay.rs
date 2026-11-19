@@ -295,6 +295,11 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                     checkpointed: false,
                     target: None,
                     drive,
+                    // Measured as bots decide by default, with the classifier on.
+                    mode: autonomy::Mode::AutoReview,
+                    // ace's own tools: none reaches a server as an app's tool does.
+                    remote: false,
+                    classifier: true,
                 });
                 // ace's tools declare what they do: the classifier isn't shown them.
                 count_route(&mut o, &route);
@@ -332,6 +337,12 @@ fn shell_call(
     } else {
         autonomy::classify_shell(&arguments, &Lexical)
     };
+    // As the server does: what it runs couldn't all be read, so it is refused outside the
+    // sandbox before any rule or review (ADR 0171, amendment 4).
+    if classed.incomplete {
+        o.refused += 1;
+        return;
+    }
     let credentials = classed.credentials || autonomy::reaches_credentials(&arguments);
     let route = effect::route(effect::Call {
         tool: autonomy::SHELL,
@@ -349,6 +360,9 @@ fn shell_call(
         checkpointed: false,
         target: None,
         drive: effect::Drive::default(),
+        mode: autonomy::Mode::AutoReview,
+        remote: false,
+        classifier: true,
     });
     let Route::Review(concern) = route else {
         count_route(o, &route);

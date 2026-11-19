@@ -1,5 +1,4 @@
-import { DeviceId, type ServerMessage } from "@ace/protocol";
-import { appSocketProof } from "@ace/service/app-key";
+import { CommandId, DeviceId, InteractionId, type ServerMessage } from "@ace/protocol";
 import type { ArchiveFile } from "@ace/marketplace";
 import {
   folder,
@@ -11,21 +10,46 @@ import {
 } from "@ace/marketplace/testing";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
 import { afterEach, expect, test } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { realpath } from "node:fs/promises";
+import { join } from "node:path";
+import { signInThroughWorker } from "@ace/cloud/testing";
+import { standingProofText } from "@ace/account-grant";
+import { hostId } from "@ace/secure-channel";
+import { relayKeysFor } from "./account-access/relay-host-id.ts";
+import { daemonFixture } from "./agent-control/daemon-test-support.ts";
+import { hostConnection } from "./cli/connection.ts";
+import { accessRequest } from "./client-access.ts";
+import {
+  accounts,
+  answer,
+  deviceKey,
+  pageProves,
+  person as personUser,
+  proves,
+  signal,
+  signedInDaemon,
+  useAccountBackend,
+} from "./machine-standing-test-support.ts";
 import {
   fakeMarket,
   fakeSpade,
   gitCatalog,
   marketplaceHarness,
 } from "./marketplace/test-support.ts";
-import { fixture, token, type Client } from "./socket-test-support.ts";
+import { Client } from "./socket-test-support.ts";
 
 /*
- * Installing content only over the host token (ADR 0178 §12.8): a real daemon socket holding
- * only the token file, with no ace account at all, so no sign-in can be fresh. A Suit and a Spade
- * skill install; a plugin, and a skill carrying an executable file, still need the sign-in. A
- * real socket: the exemption is decided on the daemon's own review of bytes it fetched, which
- * only a prepared review behind the socket has.
+ * Installing content only over the host token (ADR 0178 §12.8, ADR 0190): a real daemon signed in
+ * through ace's account backend, a socket holding only the token file, and the app's page that
+ * proved the person's standing. A Suit and a Spade skill install over the token; a skill so
+ * installed reaches no bot until the person turns that version on; a bot, a plugin, a skill
+ * carrying an executable file, and a replacement from elsewhere are the person's. A real socket:
+ * the exemption is decided on the daemon's own review of bytes it fetched, which only a prepared
+ * review behind the socket has, and the person's standing only on a socket that proved it.
  */
+
+const accountBackend = useAccountBackend();
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -35,6 +59,20 @@ afterEach(async () => {
 const none = { bots: [], needs: {}, startRoutines: false };
 const reauth = { op: "error", code: "reauth" };
 
+/** Asks `client`'s socket market requests, one at a time. */
+const asker = (client: Client) => {
+  let requests = 0;
+  return async (operation: unknown) => {
+    const requestId = `r${++requests}`;
+    client.socket.send(JSON.stringify({ type: "marketplace.request", requestId, operation }));
+    const reply = await until(
+      client,
+      (message) => message.type === "marketplace.result" && message.requestId === requestId,
+    );
+    return reply.type === "marketplace.result" ? reply.result : undefined;
+  };
+};
+
 async function world() {
   const market = await fakeMarket();
   cleanup.push(() => market.close());
@@ -42,35 +80,19 @@ async function world() {
   cleanup.push(() => spade.close());
   const harness = await marketplaceHarness({ origin: market.origin, spade });
   cleanup.push(() => harness.close());
-  // The key the app would give its daemon: a socket that proves it is the person's.
-  const appKey = new Uint8Array(32).fill(5);
-  const f = await fixture({ marketplace: harness.service, appKey });
-  cleanup.push(() => f.close());
-  const port = Number(new URL(f.server.url).port);
-  /** A socket on the host token; with `person`, also the app's proof. */
-  const socket = async (person: boolean) => {
-    const client = await f.open();
-    client.send({
-      type: "hello",
-      protocolVersion: 1,
-      deviceId: DeviceId.parse(person ? "desktop-page" : "ace-cli"),
-      token,
-      ...(person ? { appProof: appSocketProof(appKey, port) } : {}),
-    });
+  const signedIn = await signedInDaemon({ marketplace: harness.service });
+  cleanup.push(() => signedIn.close());
+  /** Another socket holding only the host token, as any process that read it can open. */
+  const socket = async () => {
+    const client = await signedIn.f.connect();
     await until(client, (message) => message.type === "welcome");
-    let requests = 0;
-    return async (operation: unknown) => {
-      const requestId = `r${++requests}`;
-      client.socket.send(JSON.stringify({ type: "marketplace.request", requestId, operation }));
-      const answer = await until(
-        client,
-        (message) => message.type === "marketplace.result" && message.requestId === requestId,
-      );
-      return answer.type === "marketplace.result" ? answer.result : undefined;
-    };
+    return asker(client);
   };
-  const ask = await socket(false);
-  const person = await socket(true);
+  const ask = await socket();
+  // The app's page, signed in as the person in their browser, proves their standing (ADR 0190).
+  const page = await pageProves(signedIn, signedIn.session.token);
+  if (!page.ok) throw new Error("The page didn't prove the person's standing");
+  const person = asker(page.client);
   const publish = (type: MarketEntryType, name: string, files: ArchiveFile[], version?: string) =>
     market.publish(signedVersion({ type, name, files, ...(version ? { version } : {}) }), files);
   /** Review `type/name` from `source` over the host token. */
@@ -111,6 +133,23 @@ async function world() {
   };
   return { ask, person, install, publish, prepare, forBots, catalog, socket };
 }
+
+/** One market request on `client`, in `thread` when an agent's shell names one; its result. */
+const market = async (client: Client, requestId: string, operation: unknown, thread?: string) => {
+  client.socket.send(
+    JSON.stringify({
+      type: "marketplace.request",
+      requestId,
+      operation,
+      ...(thread ? { thread } : {}),
+    }),
+  );
+  const result = await until(
+    client,
+    (message) => message.type === "marketplace.result" && message.requestId === requestId,
+  );
+  return result.type === "marketplace.result" ? result.result : undefined;
+};
 
 async function until(client: Client, match: (message: ServerMessage) => boolean) {
   for (;;) {
@@ -264,7 +303,7 @@ test("two installs of one name from two sources at once: the second is judged ag
     "harbour-dusk",
     await catalog("harbour-dusk", sampleSuit()),
   );
-  const other = await socket(false);
+  const other = await socket();
   const results = await Promise.all([
     ask({ op: "install", id: fromMarket.id, hash: fromMarket.hash, choices: none }),
     other({ op: "install", id: fromGit.id, hash: fromGit.hash, choices: none }),
@@ -288,4 +327,132 @@ test("reinstalling the very bytes of an approved skill over the host token keeps
     { op: "done" },
   );
   expect(await forBots()).toEqual([{ name: "triage-mail", hash: first.hash }]);
+});
+
+test("an agent asking in its thread to turn a skill on for bots waits for the person's proven page", async () => {
+  const { worker, workos, personKeys } = accountBackend;
+  const f = await daemonFixture(undefined, { personGrantKeys: personKeys }, {});
+  cleanup.push(() => f.daemon.close());
+  // The account backend's grants are on the wall clock; the daemon checks them on its own.
+  f.h.clock.time = Date.now();
+  await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
+  await f.daemon.settings.set("remote.enabled", false, { kind: "global" });
+  const home = join(f.h.home, "daemon");
+  // A skill a caller without the person installed over the host token: waiting for the person.
+  const hash = "c".repeat(64);
+  const registry = new DatabaseSync(join(await realpath(home), "marketplace", "registry.sqlite"));
+  registry.prepare("INSERT INTO installs (type, name, data) VALUES (?, ?, ?)").run(
+    "spade-skill",
+    "triage-mail",
+    JSON.stringify({
+      source: "market",
+      type: "spade-skill",
+      name: "triage-mail",
+      title: "Triage mail",
+      version: "1.0.0",
+      hash,
+      acceptedAt: Date.now(),
+      state: "on",
+      files: [],
+      description: "Sorts mail.",
+      signed: true,
+      approvedHash: null,
+    }),
+  );
+  registry.close();
+
+  // The person signs the app in in their browser; the app hands its daemon the enrollment.
+  const session = await signInThroughWorker(worker.http, workos, personUser);
+  const host = hostId((await relayKeysFor(home)).publicKey);
+  const { ticket } = await accounts().machineEnrollment(session.token, host, signal());
+  const { origin, token } = hostConnection(home);
+  await accessRequest(origin, "/v1/ace-account", {
+    method: "PUT",
+    token,
+    body: { origin: worker.http, ticket },
+  });
+
+  /** A welcomed socket on the host token, as `deviceId`. */
+  const connect = async (deviceId: string) => {
+    const client = new Client(origin.replace("http:", "ws:"));
+    cleanup.push(() => client.close());
+    await new Promise((resolve) => client.socket.once("open", resolve));
+    client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse(deviceId), token });
+    return { client, welcome: await answer(client, "welcome") };
+  };
+  // The app's page proves the person's standing, as the person signed in in their browser.
+  const page = await connect("desktop-page");
+  const key = await deviceKey();
+  const minted = await accounts().grant(
+    session.token,
+    {
+      kind: "device",
+      subject: "desktop-page",
+      host: page.welcome.standingHost ?? "",
+      key: key.raw,
+    },
+    signal(),
+  );
+  const grant = minted.standing ?? "";
+  const proof = await key.sign(
+    standingProofText({
+      host: page.welcome.standingHost ?? "",
+      nonce: page.welcome.standingNonce ?? "",
+      binding: undefined,
+      grant,
+    }),
+  );
+  expect(await proves(page.client, grant, proof)).toBe(true);
+  const tokenOnly = await connect("ace-cli");
+  const agent = await connect("ace-agent");
+
+  const forBots = async () => {
+    const listed = await market(tokenOnly.client, `bots-${Date.now()}`, { op: "spadeSkills" });
+    return listed?.op === "spadeSkills" ? listed.skills.map((skill) => skill.name) : [];
+  };
+  expect(await forBots()).toEqual([]);
+
+  // The agent asks in its thread: turning a skill on for bots is the person's, so it becomes
+  // the person-only request there.
+  const asked = await market(
+    agent.client,
+    "ask",
+    { op: "turnOnForBots", name: "triage-mail", hash },
+    f.caller.threadId,
+  );
+  expect(asked).toMatchObject({ op: "error", code: "person_only" });
+  const request = asked?.op === "error" ? (asked.request ?? "") : "";
+
+  const resolve = async (client: Client, deviceId: string, id: string) => {
+    client.send({
+      type: "command",
+      command: {
+        id: CommandId.parse(id),
+        deviceId: DeviceId.parse(deviceId),
+        payload: {
+          type: "interaction.resolve",
+          interactionId: InteractionId.parse(request),
+          resolution: { kind: "approval", optionId: "run" },
+        },
+      },
+    });
+    return until(
+      client,
+      (message) =>
+        (message.type === "commandResult" && message.commandId === id) ||
+        (message.type === "error" && message.commandId === id),
+    );
+  };
+  // The host token alone can't answer it.
+  expect(await resolve(tokenOnly.client, "ace-cli", "by-token")).toMatchObject({
+    type: "error",
+    code: "reauth",
+  });
+  expect(await forBots()).toEqual([]);
+  // The person's proven page answers it, and that version reaches the bots.
+  expect(await resolve(page.client, "desktop-page", "by-page")).toMatchObject({
+    type: "commandResult",
+    ok: true,
+  });
+  await expect.poll(forBots, { timeout: 10_000 }).toEqual(["triage-mail"]);
 });

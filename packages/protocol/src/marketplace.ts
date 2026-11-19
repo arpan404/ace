@@ -351,6 +351,12 @@ export const MarketErrorCode = z.enum([
    * the asking thread's strip, named by `request`, that only a person's device answers.
    */
   "person_only",
+  /**
+   * A sensitive action the market takes only with a grant from the person's own session naming
+   * this request (ADR 0190): the client asks for one with `action` and sends the request again
+   * with it as `personGrant`.
+   */
+  "person_grant",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -395,6 +401,8 @@ export const MarketResult = z.discriminatedUnion("op", [
     scan: MarketScanReport.optional(),
     /** The person's request ace opened, for `person_only`. */
     request: z.string().max(200).optional(),
+    /** For `person_grant`: the market request, `METHOD /path`, a person's grant must name. */
+    action: z.string().min(1).max(512).optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -408,6 +416,11 @@ export const MarketClientMessage = z.strictObject({
    * turns a person-only action into a request in that thread instead of running it.
    */
   thread: ThreadId.optional(),
+  /**
+   * A market grant the client got with the person's own session for this request's one market
+   * call (ADR 0190): the market takes a sensitive action only with it. Never a machine's.
+   */
+  personGrant: z.string().min(1).max(4096).optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

@@ -327,6 +327,7 @@ export class MarketplaceService {
             {
               http: this.#http(),
               grant: ports.grant,
+              personGrant: ports.personGrant,
               pick: () => this.#pick(ports.names),
               suits: () => this.#options.suits(),
             },

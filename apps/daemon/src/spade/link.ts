@@ -48,6 +48,8 @@ export interface SpadeLinkOptions {
   healthTimeoutMs?: number;
   /** A look that failed (a listener threw): reported, and the next look is still scheduled. */
   report?: (error: unknown) => void;
+  /** The key the person's own changes are stamped with (`person-stamp.ts`); none stamps none. */
+  personKey?: Uint8Array;
 }
 export interface SpadeReady {
   connection: SpadeConnection;
@@ -92,6 +94,10 @@ export class SpadeLink {
   private closed = false;
   constructor(options: SpadeLinkOptions) {
     this.options = options;
+  }
+  /** The key the person's own changes are stamped with, when this daemon has one. */
+  personKey(): Uint8Array | undefined {
+    return this.options.personKey;
   }
   status(): SpadeStatus {
     if (this.hidden) return hiddenStatus;

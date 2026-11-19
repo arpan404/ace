@@ -15,14 +15,15 @@ mod parse;
 mod paths;
 mod scripts;
 
+pub use effects::system_program;
 pub use parse::Simple;
-pub use paths::{Lexical, Place, Unseen, normalized};
+pub use paths::{Lexical, Place, Program, Unseen, normalized};
 pub use scripts::LONGEST_SCRIPT;
 
 use std::path::PathBuf;
 
-use super::Sensitive;
 use super::secrets::command_reads;
+use super::{ConfigTools, Sensitive};
 use parse::parse;
 
 /// What a command needs, beyond the reviewer.
@@ -49,6 +50,14 @@ pub struct Assessment {
     pub finding: Option<Finding>,
     /// What the reviewer must read besides the command, in the order it runs.
     pub shown: Vec<Shown>,
+    /// Something it runs couldn't be read whole, so `shown` isn't all of it.
+    pub incomplete: bool,
+    /// Programs it runs from outside the system's protected folders and the bot's, by real path,
+    /// with the SHA-256 of their content.
+    pub programs: Vec<(PathBuf, String)>,
+    /// The tools it runs whose configuration could run a program it never names, by the real
+    /// folder each runs in: that folder's configuration is the one to inspect.
+    pub config: Vec<(PathBuf, ConfigTools)>,
 }
 
 /// What `command` needs, run from `place`. Refusing for credentials comes before any other
@@ -65,6 +74,9 @@ pub fn assess(command: &str, place: &dyn Place) -> Assessment {
     Assessment {
         finding,
         shown: walk.shown,
+        incomplete: walk.incomplete,
+        programs: walk.programs,
+        config: walk.config,
     }
 }
 
@@ -82,6 +94,15 @@ pub(super) struct Walk {
     pub ran: Vec<PathBuf>,
     /// What reading this command has used of its [`Budget`].
     pub spent: Budget,
+    /// Something it runs couldn't be read whole: a script over the read limit, outside the
+    /// folder or unreadable, or the reading's budget spent first. What was read can't stand for
+    /// what will run.
+    pub incomplete: bool,
+    /// Programs it runs from outside the system's protected folders and the bot's
+    /// (`Program::At`), with their content's digest.
+    pub programs: Vec<(PathBuf, String)>,
+    /// The tools it runs that read configuration, by the real folder each runs in.
+    pub config: Vec<(PathBuf, ConfigTools)>,
 }
 
 /// What one classification may read, all told: files, their bytes, and command text checked
@@ -120,6 +141,12 @@ impl Budget {
 
 impl Walk {
     pub(super) fn kind(&mut self, kind: Sensitive) {
+        // Spade couldn't read or resolve all of what runs: a script it can't show, or anything
+        // unclear (the command doesn't parse, a folder or program it can't place, a command name
+        // built at run time, a script piped in or written and then run).
+        if matches!(kind, Sensitive::UnseenScript | Sensitive::Unclear) {
+            self.incomplete = true;
+        }
         let rank = |k: Sensitive| match k {
             _ if k.persons().is_some() => 2,
             Sensitive::Unclear | Sensitive::UnseenScript => 0,
@@ -135,6 +162,7 @@ impl Walk {
 /// [`assess`] for a command `depth` scripts deep, from `place`.
 fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
     if !walk.spent.check(command.len()) {
+        walk.incomplete = true;
         // Still refused if it plainly names a credential place.
         if super::secrets::names_place(command) {
             walk.credentials = true;
@@ -150,6 +178,11 @@ fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
         walk.kind(Sensitive::Unclear);
         return;
     };
+    // It sets its own `PATH`: which program a bare name runs can't be told from the one it
+    // starts with.
+    if sets_path(command) {
+        walk.kind(Sensitive::Unclear);
+    }
     let ran_before = walk.ran.len();
     let mut wrote: Vec<PathBuf> = Vec::new();
     let mut rewrites = false;
@@ -206,9 +239,15 @@ fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
             walk.credentials = true;
         }
         let effect = effects::classify(simple, at);
+        if effect.writes_outside {
+            walk.kind(Sensitive::WriteOutside);
+        }
         if let Some(kind) = effect.sensitive {
             walk.kind(kind);
         }
+        // What runs is found whatever the command does: kept apart from what it does, so no
+        // effect (a write outside, a program the rules don't know) hides an executable.
+        discover(simple, at, depth, walk);
         wrote.extend(effect.writes.iter().filter_map(|w| at.resolve(w)));
         rewrites |= effect.rewrites;
         for run in &effect.runs {
@@ -225,6 +264,115 @@ fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
                 .any(|run| wrote.iter().any(|written| run.starts_with(written))))
     {
         walk.kind(Sensitive::Unclear);
+    }
+}
+
+/// Names the shell runs itself, never looked up on `PATH`.
+pub fn shell_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        ":" | "."
+            | "["
+            | "alias"
+            | "bg"
+            | "break"
+            | "cd"
+            | "chdir"
+            | "command"
+            | "continue"
+            | "declare"
+            | "dirs"
+            | "echo"
+            | "eval"
+            | "exec"
+            | "exit"
+            | "export"
+            | "false"
+            | "fg"
+            | "getopts"
+            | "hash"
+            | "jobs"
+            | "let"
+            | "local"
+            | "popd"
+            | "printf"
+            | "pushd"
+            | "pwd"
+            | "read"
+            | "readonly"
+            | "return"
+            | "set"
+            | "shift"
+            | "source"
+            | "test"
+            | "times"
+            | "trap"
+            | "true"
+            | "type"
+            | "typeset"
+            | "ulimit"
+            | "umask"
+            | "unalias"
+            | "unset"
+            | "wait"
+    )
+}
+
+/// Whether `command` assigns `PATH` anywhere (`PATH=x cmd`, `export PATH=…`, `PATH+=…`).
+fn sets_path(command: &str) -> bool {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')' | '`'))
+        .map(|word| word.trim_start_matches(['"', '\'', '$', '{']))
+        .any(|word| word.starts_with("PATH=") || word.starts_with("PATH+="))
+}
+
+/// The executable `simple` starts, found from `place`: a program in the bot's folder is a script
+/// it runs (read and shown); one elsewhere outside the system's folders is kept so the call is
+/// bound to it; one that can't be found leaves the reading incomplete. And the tools it runs that
+/// read configuration, with the folder they run in, whose configuration is inspected.
+fn discover(simple: &Simple, place: &dyn Place, depth: usize, walk: &mut Walk) {
+    let Some(first) = simple.words.first() else {
+        return;
+    };
+    let program = super::secrets::basename(first);
+    let tools = ConfigTools::of(program);
+    if tools.any() {
+        match place.resolve(".") {
+            Some(dir) => match walk.config.iter_mut().find(|(d, _)| *d == dir) {
+                Some((_, had)) => *had = had.union(tools),
+                None => walk.config.push((dir, tools)),
+            },
+            None => walk.kind(Sensitive::Unclear),
+        }
+    }
+    // A name built at run time is already unclear (`effects`); a path not the system's is run as
+    // a script where it is named. One that looks like the system's is looked up like a bare name,
+    // so it is the system's only if its real path is.
+    let named = first.contains('/');
+    if first.contains('$')
+        || first.contains('`')
+        || shell_builtin(first)
+        || named && !(first.starts_with('/') && effects::system_program(first))
+    {
+        return;
+    }
+    match place.program(first) {
+        Program::System | Program::Unknown => {}
+        Program::Missing => walk.kind(Sensitive::Unclear),
+        Program::At(real) if place.contains(&real) => {
+            let run = effects::Run::Exec(real.to_string_lossy().into_owned());
+            scripts::show(&run, place, depth, walk);
+        }
+        Program::At(real) => match place.digest(&real) {
+            // Bound by what it is, not where: a rewrite in place is caught.
+            Some(digest) => {
+                if !walk.programs.iter().any(|(had, _)| *had == real) {
+                    walk.programs.push((real, digest));
+                }
+            }
+            // It can't be read whole: nothing can be bound to it.
+            None => walk.kind(Sensitive::Unclear),
+        },
     }
 }
 

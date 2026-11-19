@@ -642,11 +642,10 @@ sentence` and exit 1 before anything is uploaded.
 
 - **Signed out** (`signed_out`): "Sign in to publish." Exit 2, hint `ace login`. On a terminal the
   CLI offers to sign in now (the `ace login` flow) and then carries on.
-- **Sensitive actions** (installing or updating a bot or plugin, withdraw, transfer and accepting
-  one, changing the handle, deleting an entry, editing a verified profile, applying for or
-  checking verification) need a
+- **Sensitive actions** (install, withdraw, transfer and accepting one, changing the handle,
+  deleting an entry, editing a verified profile, applying for or checking verification) need a
   sign-in within ten minutes (`reauth`, ADR 0174 §2). The market checks its share on the grant;
-  the daemon checks install and the rest when they arrive over the host token alone (§12.7, §12.8). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
+  the daemon checks install and the rest when they arrive over the host token (§12.7). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
   once the new session is recorded. Without a terminal: exit 2, code `reauth`. The CLI never holds
   a grant: the daemon mints one per request and drops it, as ADR 0174 requires.
 - `suspended`, `quota`, `forbidden` and `conflict` exit 4 with the market's sentence.
@@ -699,8 +698,7 @@ person's tool and the fallback for a shell.
 - **The thread field is the caller's word.** `marketplace.request` names a thread when an agent
   asks, and the daemon can't verify that a host-token caller who names none is the person. So a
   request without a thread isn't trusted as the person's: over the host token, its person-only
-  actions need a fresh sign-in (§12.7). The app's own page is not "the host token" here: it proves
-  it is the app's (§12.8).
+  actions need a fresh sign-in (§12.7).
   How a coding agent publishes, in its own words:
 
 ```
@@ -734,22 +732,18 @@ follow:
 
 | Who asks                                              | Answers a request                                                                   | Person-only market action  | "Ask me before agents publish" |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------- | ------------------------------ |
-| The app's page, a device the person paired (§12.8)    | Yes                                                                                 | Yes                        | Yes                            |
+| The app, a paired device                              | Yes                                                                                 | Yes                        | Yes                            |
 | The host-token CLI, a person at a terminal            | Typed confirmation; a market request also needs a fresh sign-in                     | Fresh sign-in              | Fresh sign-in                  |
 | The host-token CLI off a terminal                     | Never (exit 2, `confirm`)                                                           | Fresh sign-in              | Fresh sign-in                  |
 | An agent's shell (`ACE_THREAD_ID` or `ACE_NO_INPUT`)  | Never (exit 2, `person_only`)                                                       | A request for the person   | Never                          |
 | `ace-agent`, `ace-reviewer` (ace's own agent devices) | Never (`human_answer_required`), except a parent answering its own child's question | Only through the allowlist | Never                          |
 
 - **Fresh sign-in** means this machine's ace account signed in within the last ten minutes (ADR
-  0174 §2), read from a market grant the daemon takes for the check. The grant must be signed by
-  an account grant key this build pins (never one the session's origin or the environment names),
-  be a machine grant for this machine's account and host, and carry an `authAt` within ten minutes
-  of the daemon's clock at the check, with a minute's allowance for the backend's clock running
-  ahead (§12.8). Measured then, a grant held after it was taken can't stretch the ten minutes. A
-  same-user process can't move the system clock; a root one is past what this guards. The sign-in happens in a browser, which an agent can't do for the
+  0174 §2), read from a market grant the daemon takes for the check: the gap between its `iat`
+  and its `authAt`, both on the account backend's clock, so this machine's clock can't make a
+  stale sign-in look fresh. The sign-in happens in a browser, which an agent can't do for the
   person. Refusals are `reauth`, saying to use the app or a paired device, or `ace login` and try
-  again within ten minutes. "The app" is the page that proved it is the app's, and "a paired
-  device" one paired from a link the person made (§12.8); holding the host token is not enough.
+  again within ten minutes.
 - **Typed confirmation.** Answering from the CLI needs a person at a terminal (stdin and stdout
   both terminals, no `--json`, `--quiet` or `--no-input`) who types the verb (`allow`, `deny`,
   `answer`); Enter alone doesn't confirm. Off a terminal nothing is answered, `ace chat`'s piped
@@ -761,255 +755,74 @@ follow:
   mistakes; the fresh sign-in and the app are the boundary. A request or setting that matters
   more than the host token goes behind them.
 
-#### 12.8 Who counts as the person (amended 2026-11-17)
+#### 12.8 Content-only installs and skills for bots (amended 2026-11-18)
 
-The desktop app's page reached its daemon with the host token, read from `ACE_HOME/daemon-token`
-like any other local client's. So the daemon counted it as the host token alone and refused install
-and the rest of §12.7 with `reauth`, the opposite of the table above. The token can't tell them
-apart: anything that reads ACE_HOME holds the same bytes. Reviews of the fix found more ways a
-process holding only the token became "the person". So the daemon now marks each socket's
-credential as the person's or not (`personProven`), and the §12.7 checks read that: person-only
-market actions, answering a person-only market request, and changing "Ask me before agents
-publish". A credential that isn't the person's still does everything else it did.
+Who has the person's standing is ADR 0190's rule: only a socket that proved it (the app signed in
+as the person, a device paired from the person's link). Neither the host token nor someone having
+signed in lately counts. On top of that, the owner decided which installs may run without it.
 
-**What needs a fresh sign-in, and what doesn't** (owner decisions, 2026-11-18):
-
-- **No sign-in: installing or updating a Suit or a Spade skill that runs nothing**, from the app,
-  the CLI or any host-token socket. A Suit's scenes run sandboxed in the page, and the person still
-  chooses which Suit to wear. A skill runs nothing on the machine outside Spade's own gate.
+- **No standing needed: installing or updating a Suit or a Spade skill that runs nothing**, from
+  the app, the CLI or any host-token socket. This is the `without-person` path
+  (`hostMarketStanding`, `marketplace/fresh-sign-in.ts`).
+  - A Suit's scenes run sandboxed in the page, and the person still chooses which Suit to wear. A
+    skill runs nothing outside Spade's own gate.
   - The daemon decides this from the review it built from the bytes it fetched and checked
     (`marketplace/content-only.ts`), never from a field the client sends. The review's type and
     its body's type must both be `suit` or `spade-skill`, and it must carry nothing runnable: no
-    executable file, no plugin executions, no entries it brings along. A review that says `suit`
-    but carries an executable file isn't content only.
-  - The review must also come from where what it replaces came from. A first install (no
-    installed record of that type and name) qualifies. So does an update from the same source,
-    and when the installed one was signed, signed by the same publisher.
-  - Anything else replaces what the person chose with bytes from elsewhere, so it is the
-    person's: another catalog with the same name, unsigned over signed, another publisher, or
-    over a record from before provenance was kept. Installed records now carry where their bytes
-    came from: `source`, `signed`, and the publisher's id.
-  - Removing an entry doesn't make its name new again. The removal keeps where its bytes came
-    from (`removed_installs`: source, signed, publisher), and a later install of that type and name
-    is judged against it as an update would be. A rollback of a failed first install leaves
-    nothing behind, since nothing was there before.
-  - The gate judges provenance when the request arrives, and the install judges it again inside
-    the serialized install step, after recovery. So when two installs of one name arrive at once,
-    the second is judged against what the first landed.
-  - An update is a review and an install like any other, so it follows the same rule. An install
-    whose id or hash doesn't name an open review gets no exemption.
+    executable file, no plugin executions, no entries it brings along.
+  - **Provenance.** A name never installed here qualifies. So does an update from the same source,
+    and when the installed one was signed, signed by the same publisher. Anything else replaces
+    what the person chose with bytes from elsewhere, so it needs the person: another catalog with
+    the same name, unsigned bytes over signed ones, another publisher, or a record from before
+    provenance was kept. Installed records carry `source`, `signed` and the publisher's id.
+  - **Removal doesn't make a name new.** A removal keeps where the bytes came from
+    (`removed_installs`), and a later install of that type and name is judged against it. A
+    rollback of a failed first install leaves nothing behind.
+  - **Judged twice.** The gate judges provenance when the request arrives, and the install judges
+    it again inside the serialized install step, after recovery. Of two installs of one name at
+    once, the second is judged against what the first landed. An install whose id or hash doesn't
+    name an open review gets no exemption.
 - **A skill installed without the person reaches no bot until the person turns it on.**
-  - An install or update that ran on the exemption records no approval (`approvedHash: null`).
-    An install with the person's standing approves its own hash: their credential, a fresh
-    sign-in, their answer to an agent's request, or a bot that brings the skill.
+  - An install on the `without-person` path records no approval. One with the person's standing
+    approves its own hash: a proven socket, their answer to an agent's request, or a bot they
+    install that brings the skill.
   - The daemon gives Spade only market skills whose installed hash is approved (`spadeSkills`,
     `spadeSkillFiles`). Spade drops a copy the daemon stops listing, so such a skill is in no
     bot's index, standing instructions, search or `skill_load`.
-  - An update to a new hash is unapproved again until the person turns that version on, and the
-    earlier copy leaves the bots rather than staying in use. Reinstalling the very bytes keeps the
-    approval they had. A removed skill loses its approval, so installing it again waits for the
-    person.
-  - Turning a version on (`turnOnForBots`, naming its hash) is person-only, like install was. An
-    agent asking for it gets the person-only request in its thread.
-  - The app shows such a skill as "Installed · Turn on for your bots", with a text button.
+  - An update to a new hash is unapproved again, and the earlier copy leaves the bots. Reinstalling
+    the very bytes keeps the approval they had. A removed skill loses its approval.
   - Records from before this change, which a person installed, count as approved.
-- **Still the person's: installing or updating a bot or a plugin** (they run commands or MCP
-  servers), turning a skill on for bots, withdraw, transfer and accepting one, handle changes,
-  deleting an entry, verification, answering a person-only market request, and changing "Ask me
-  before agents publish". These need the person's credential or a fresh sign-in, exactly as
-  below.
-- **Agents are unchanged.** `install` was never on the agent allowlist (`agent-gate.ts`), so an
-  agent asking to install anything, a Suit or a skill included, still gets the person-only
-  request in its thread. Answering that request keeps the answer gate as it was.
+  - The app shows a waiting skill as "Installed · Turn on for your bots", with a text button.
+- **`turnOnForBots {name, hash}` is person-only.** It approves exactly that version. It sits in
+  the shared table's daemon-local list (`personOnlyOperations`, `packages/marketplace/src/
+person-only.ts`) beside `install`; it calls no market route, so it isn't in `personOnlyActions`.
+  An agent asking for it in its thread gets the person-only request there, which only a proven
+  socket answers.
+- **Everything else person-only is unchanged:** installing or updating a bot or a plugin (they
+  run commands or MCP servers), withdraw, transfers and answering one, handle changes, deleting an
+  entry, verification, answering a person-only market request, and "Ask me before agents publish".
+- **Agents are unchanged.** `install` and `turnOnForBots` aren't on the agent allowlist
+  (`agent-gate.ts`), so an agent's request for either becomes the person-only request in its
+  thread.
 
-**The person's credentials:**
+Out of scope here, and tracked in #2322: the personal skill library and plugin acceptance put
+bot-visible skills there by scope alone.
 
-- **The app's page on a daemon the signed app started, once its launch can be trusted (not yet;
-  below).** The daemon side is in place:
-  - `ace start` reads a key from stdin when `ACE_APP_KEY=stdin` is set: at most 128 bytes within
-    5 seconds, before it listens. It removes the flag from its environment (`app-key-input.ts`).
-  - Any launcher can set that flag, so the key counts only when the launch passes this OS's check
-    (`app-launcher.ts`). The daemon's parent is read before the key and confirmed unchanged after
-    the check; otherwise the key is ignored, as if none came.
-  - A key that counts makes a hello's `appProof` the person's: base64url HMAC-SHA256 of
-    `ace-app/v1\n<port>`, checked against the port the socket reached.
+Tests: `marketplace-content-install.process.test.ts` runs a real daemon signed in through ace's
+account backend, a host-token socket, and the app's page proven as the person. It covers:
 
-  Since main's change that spawns the desktop's daemon detached, lets it outlive the app and
-  hands it the login PATH on stdin, the app sends no key at all. No release counts one anyway,
-  and a key would have to outlive the app with the daemon. Whatever gives the app's page standing
-  next (ADR 0190) replaces this.
+- content installs, and installs that need the person;
+- the bot hold across an install and a `prepareUpdate`, with direct `turnOnForBots` from the token
+  (refused) and from the page;
+- same-source updates, a mismatched id or hash, and replacement from another catalog;
+- removal then reinstall from elsewhere, two installs of one name at once, and a same-hash
+  reinstall;
+- the threaded case, on the full daemon: an agent's `turnOnForBots` in its thread, which the host
+  token can't answer and the proven page can.
 
-- **A device paired from a link the person made.** A link carries whether its maker was the
-  person: the app's page, or a device that is itself the person's. A link made with the host token
-  alone (`ace device pair`, `POST /v1/pairings` with the token) makes a device that, like the token,
-  needs a fresh sign-in for §12.7's actions. Without this, a process holding only the token could
-  pair itself in two requests and act as the person. Devices paired before this change keep the
-  standing they had: the daemon can't tell who made their links. Revoking a device ends its
-  sockets, as before (ADR 0115).
-- **An account device** (ADR 0111) whose grant verifies against the pinned keys (below). One
-  admitted only by keys fetched from the session's origin is admitted as before, but isn't the
-  person.
-
-**Which launches give the app's page the person's standing, per OS.** None yet, outside a
-development build. The key, the proof and the launcher check stay in place, but each OS lacks
-something the check needs before a key may count:
-
-- **macOS: not yet.** The daemon's code must ship inside the app's sealed, integrity-checked
-  archive (`ACE_DAEMON_CODE_SEALED`, a build-time constant no build sets), and the Security
-  framework must validate the running parent against the app's designated requirement
-  (`anchor apple generic`, identifier `dev.ace.app`, team `5J88TLUP2J`, checked through Apple's
-  `codesign`). A signed parent alone isn't enough. The daemon runs from
-  `Contents/Resources/daemon/` beside `app.asar`, which asar integrity doesn't cover, and in an
-  install the person can write to, a process of theirs can edit those files to leak the key. The
-  code it would have to guard isn't one file read at start:
-  - the bundle loads split chunks lazily for as long as it runs;
-  - it starts worker bundles;
-  - it loads native addons such as `descriptor.node`.
-
-  The runtime (`bin/node`) and its children carry `disable-library-validation`
-  (`entitlementsInherit`), so a replaced addon loads. And macOS doesn't require the team's
-  signature on `bin/node` at exec: it kills only a binary whose own signature is broken, so one
-  the person's process ad-hoc signs runs. A digest checked when the app starts the daemon
-  wouldn't cover what loads later, or a file swapped after the check. An in-memory start would
-  have to serve every chunk and worker through a loader of its own and re-enable library
-  validation. That is a packaging redesign, so this change takes the fallback: no app standing
-  on macOS until the daemon's code and runtime ship sealed.
-
-- **Linux: not yet.** It needs a launch-integrity boundary. Any process of the person's can start
-  the genuine installed app with `LD_PRELOAD`, or anything else the dynamic loader honours, and
-  read the key it writes. No check of where the parent's executable lives can see that, so there
-  is none, and the key is ignored.
-- **Windows: not yet.** The Authenticode signer of the parent's executable must be the pinned
-  publisher, read by `Get-AuthenticodeSignature` with an empty environment. No publisher is pinned
-  while Windows builds ship unsigned, so no launcher counts.
-- **A development build** accepts any launcher only when its bundler defines
-  `ACE_DEVELOPMENT_TRUST` as true. That is a build-time constant: no environment variable sets it,
-  and source runs and release bundles leave it undefined.
-
-So in every release the person in the app still meets `reauth` for a person-only action
-(installing a Suit or a skill that runs nothing isn't one) and signs in again, which the `reauth` sentence and the web's sign-in button lead them through. An app
-started with `--remote-debugging-port` or `--remote-debugging-pipe` could be driven by another
-process, so whatever gives the app standing next has to refuse such a launch too.
-
-**A fresh sign-in is read only from claims a pinned key signed, for this machine, now.** Every
-freshness decision goes through `MachineAccount.freshSignIn` (`account-access/machine-account.ts`):
-`hostMarketRefusal`, the answer gate, guarded settings, and a server without its market agent. It
-mints a market grant for the check and verifies it with `verifiedSignInFresh`
-(`marketplace/fresh-sign-in.ts`) against the grant keys this build pins (`shippedGrantKeys` in
-`@ace/account-grant/keys`). That list is `k20261102`, cloud.acehq.dev's key as its `/v1/keys`
-published it on 2026-11-18, and a rotation adds the next key a release ahead. The grant must:
-
-- be signed by a pinned key;
-- be unexpired, with the issuer `cloud.acehq.dev`;
-- be a machine grant for this machine's account and this host id;
-- carry a sign-in time no more than ten minutes before the daemon's clock now, and no more than a
-  minute after it (the backend's clock running ahead).
-
-Measuring the age at check time means a grant taken at 9m59s can't be replayed within its
-five-minute life. Neither the session's origin, which the host token sets (`PUT /v1/ace-account`),
-nor `ACE_ACCOUNT_URL`, which whoever starts the daemon sets, chooses the keys. `ACE_ACCOUNT_URL`
-may still point a daemon at another backend for development, but nothing from that backend
-carries the person's standing unless its key is pinned in source. Tests inject keys in code
-(`personGrantKeys`), never through the environment. Account devices count as the person by the
-same pinned keys. Before this, the daemon decoded `iat` and `authAt` without checking the
-signature, then checked them against keys from the session's origin or from `ACE_ACCOUNT_URL`. A
-host-token holder could name a backend of its own and pass. The age also used to be `iat - authAt`,
-which a held grant kept passing.
-
-**Not yet: the app's page on a daemon the app didn't start** (the login service's, `ace start` from
-a terminal, development's `bun run daemon`). The app attaches with no key, so its page is the host
-token alone and person-only actions there take a fresh sign-in. An earlier version of this change
-registered an app key over the host token after a fresh sign-in, and review rejected it:
-
-- a key's revocation didn't end sockets already open with it;
-- with freshness then unverified, a host-token holder could fake the sign-in;
-- even with a real sign-in, any host-token holder could register its own key first within the ten
-  minutes.
-
-Enrolling such a key needs a single-use challenge from the trusted account backend, approved by
-the person in a browser and bound to this daemon and this public key. That is follow-up work,
-alongside the `ace-account.json` gap below.
-
-Who now acts as the person without a fresh sign-in:
-
-| Daemon                                      | The app's page                                                                   | Paired devices                       | Account devices                      | CLI, other host-token clients |
-| ------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------ | ----------------------------- |
-| Started by the app                          | No on macOS, Linux or Windows (not yet); dev builds with `ACE_DEVELOPMENT_TRUST` | Those paired from the person's links | Grants a pinned key signed           | No                            |
-| Login service, terminal `ace start`, dev    | No (not yet)                                                                     | Those paired from the person's links | Grants a pinned key signed           | No                            |
-| Any, started with ACE_ACCOUNT_URL elsewhere | As above                                                                         | Those paired from the person's links | Only if that backend's key is pinned | No                            |
-
-The app's page is the host token alone in every release, so it still needs a fresh sign-in for
-person-only actions. Pairing from the app therefore makes devices that need one too, until a
-launch can be trusted. Devices paired from a device that is the person's, and devices paired
-before this change, keep their standing.
-
-**Open gap: the machine's own ace session.** When the app hands its ace sign-in to the daemon, the
-session is written to `ACE_HOME/ace-account.json` in the clear (mode 0600, readable by anything of
-that user). The real backend mints a device grant for any device id from any session
-(`POST /v1/grants`). So a process that reads that file can mint a genuine device grant and connect
-as an account device that counts as the person. It can also mint market grants, but their `authAt`
-is the person's real sign-in time, so freshness still holds. Closing this needs the backend: a
-session handed to a machine should be its own, marked as a machine's, and the device grants it mints
-should say so, so the daemon can refuse such grants the person's standing. That changes the grant
-format the daemons parse strictly, so it is a separate, versioned change.
-
-**Also left:**
-
-- **The market's own check** (ADR 0174 §2). Withdraw, transfers, handle changes and
-  verified-profile edits need a sign-in from the last ten minutes at the market itself, from the
-  app too. Its refusal keeps the code `reauth` and says to sign in and try again.
-- **A process that can read the app's or the daemon's memory** (a debugger, ptrace where the OS
-  allows it) gets the spawn key, as it gets everything else. "What this doesn't stop" in §12.7
-  holds.
-- **A backend whose key isn't pinned** (self-hosted, development, or one named by
-  `ACE_ACCOUNT_URL`) makes no sign-in fresh, and none of its account devices the person.
-
-Tests: `app-standing.process.test.ts` covers six cases against a real daemon:
-
-- The started-daemon page acts as the person.
-- A device a host-token link paired gets `reauth`; one the person's link paired doesn't.
-- A session pointed at a forged backend makes nothing fresh.
-- An account device acts as the person by a pinned key's grant, but not by a forged backend's.
-- A daemon restarted on the same home with `ACE_ACCOUNT_URL` at an attacker's backend gives
-  neither fresh sign-ins nor account devices any standing.
-- A real `ace start` launched by a process that isn't the app ignores the key it wrote.
-
-Unit tests:
-
-- `fresh-sign-in.test.ts`: replay of a grant taken at 9m59s, an old sign-in, a clock skew, another
-  account, another machine, a device grant, another key, no signature, another issuer, and a
-  malformed grant.
-- `app-launcher.test.ts`: on macOS a signed parent counts only once the daemon's code ships
-  sealed, so a packaged app whose daemon code sits beside the archive gets none; on Linux the key
-  never counts; on Windows nothing counts while no publisher is pinned; the test runner as
-  launcher.
-- `app-key-input.test.ts`: a key from another launcher, and a launcher that leaves while checked.
-- `content-only.test.ts`: a Suit and a skill are content only; a review that says suit but
-  carries an executable file or a plugin's executions, a body of another type, or a skill with an
-  executable script, isn't.
-- `pairing-codes.process.test.ts`, `app-key.test.ts`.
-
-`marketplace-content-install.process.test.ts`, on a real socket holding only the host token and
-no ace account, beside the app's page as the person:
-
-- a Suit and a Spade skill install with no fresh sign-in;
-- a bot, a plugin, and a skill carrying an executable file, still get `reauth`;
-- a skill installed, then updated with `prepareUpdate`, over the host token reaches no bot until
-  the person turns that version on, and the old approval doesn't carry over; one the person
-  installs is on at once;
-- a Suit updates from the same source with no sign-in;
-- an install whose id or hash doesn't match an open review gets no exemption;
-- a same-name Suit from another catalog replacing a signed install is the person's;
-- removing an install and then reinstalling the name from another catalog is the person's;
-- of two installs of one name from two sources at once, exactly one lands and the other gets
-  `reauth`;
-- reinstalling the very bytes of an approved skill over the host token keeps it on for bots.
-
-`content-only.test.ts` also covers provenance: same source and publisher, another source,
-unsigned over signed, another publisher, and a record from before provenance was kept. Spade's
-`market_skills.rs` shows that a skill the daemon holds back is in no bot's skills or index, and
-that an update held back takes the earlier copy away. `market-bots-approval.test.tsx` shows
-"Installed · Turn on for your bots" and its button turning the version on.
+Unit tests: `content-only.test.ts` (runnable parts and provenance) and `fresh-sign-in.test.ts` (the
+gate's three outcomes). Spade's `market_skills.rs` covers a held-back skill and update.
+`market-bots-approval.test.tsx` covers the app's row.
 
 ### 13. ADR 0092 still holds
 

@@ -114,35 +114,38 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       // A publish mints its market grant through this machine's ace account, for this request
       // alone; it never reaches the socket, the disk or a log. An agent's shell names its thread
       // (ADR 0178 §12.5): its person-only actions become a request there instead.
-      // Without a thread the caller says it is the person, which the host token alone can't
-      // prove: person-only actions from it need a fresh ace sign-in (`fresh-sign-in.ts`).
+      // Without a thread the caller says it is the person, which only a socket that proved the
+      // person's standing may say for a person-only action (`fresh-sign-in.ts`, ADR 0190).
+      // A person's market grant goes only with the person's own request, never an agent's.
       const { operation, thread } = message;
+      const personGrant = thread ? undefined : message.personGrant;
       const agent = options.marketAgent;
-      // A Suit or a Spade skill that runs nothing installs without a sign-in, judged from the
+      // A Suit or a Spade skill that runs nothing installs without the person, judged from the
       // daemon's own review of the bytes, never from the request (ADR 0178 §12.8).
       const contentOnly = () =>
         operation.op === "install" &&
         options.marketplace?.installIsContentOnly(operation.id, operation.hash) === true;
-      const standing = (fresh: () => Promise<boolean>) =>
+      const standing = () =>
         hostMarketStanding({
           operation,
           unproven: context.personProven?.() !== true,
-          fresh,
           contentOnly,
         });
       const asPerson = async (market: MarketAgent) => {
-        const decided = await standing(() => market.freshSignIn());
-        return "refusal" in decided ? decided.refusal : market.asPerson(operation, decided.run);
+        const decided = standing();
+        return "refusal" in decided
+          ? decided.refusal
+          : market.asPerson(operation, personGrant, decided.run);
       };
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
         : // A server started with the marketplace service alone (tests): as the person.
           options.marketplace && !thread
           ? async () => {
-              const decided = await standing(() => machineFresh(options));
+              const decided = standing();
               return "refusal" in decided
                 ? decided.refusal
-                : serviceAlone(options, operation, decided.run);
+                : serviceAlone(options, operation, personGrant, decided.run);
             }
           : undefined;
       if (!run) {
@@ -172,23 +175,21 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
 function serviceAlone(
   options: SocketContext["options"],
   operation: MarketOperation,
+  personGrant: string | undefined,
   by: "person" | "without-person",
 ): Promise<MarketResult> {
-  const { marketplace, machineAccount: account, hostId } = options;
-  const grant = account ? () => account.marketGrant(hostId) : undefined;
+  const { marketplace, machineAccount: account } = options;
+  const grant = account ? () => account.marketGrant() : undefined;
   const withoutPerson = by === "without-person";
   return (
-    marketplace?.request(operation, operation.op === "publish" ? { grant } : { withoutPerson }) ??
+    marketplace?.request(
+      operation,
+      operation.op === "publish" ? { grant, personGrant } : { withoutPerson },
+    ) ??
     Promise.resolve({
       op: "error",
       code: "unavailable",
       message: "The marketplace isn't ready yet",
     })
   );
-}
-
-/** Whether the machine's account signed in within ten minutes, for a server without its agent. */
-async function machineFresh(options: SocketContext["options"]): Promise<boolean> {
-  const { machineAccount: account, hostId } = options;
-  return account ? account.freshSignIn(hostId) : false;
 }

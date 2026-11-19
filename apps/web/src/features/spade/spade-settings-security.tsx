@@ -11,11 +11,13 @@ import {
   SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
+import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { PolicyRows } from "./spade-bot-network.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
   securityMachineKey,
+  setMachineAutonomy,
   setMachineCommands,
   setMachineNetwork,
   useSecurityMachine,
@@ -26,7 +28,7 @@ import { CouldNotRead, SpadeNotRunning, useSpadeRunning } from "./spade-settings
 
 /**
  * Settings › Spade › Security (ADR 0167, 0171): whether this machine seals commands off, said
- * once as the page's first line; then, for commands, where they run and what they may reach, and
+ * once as the page's first line; then how bots decide (ADR 0163, amendment 2); then, for commands, where they run and what they may reach, and
  * for plugins what they may reach: the rules every bot inherits. The sites listed by default
  * wait behind their count. Each bot's own rule, folders, grants and checkpoints are in its
  * profile.
@@ -71,6 +73,15 @@ export function SpadeSecuritySettings() {
       <p className="mb-6 text-ui text-muted-foreground">
         {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
       </p>
+      <SettingSection label="Bots" anchor="bots">
+        <AutonomyChoice
+          title="How they decide"
+          value={status.bots.autonomy}
+          who="every bot that doesn't set its own"
+          confirmed={false}
+          save={async (choice) => show(await setMachineAutonomy(client, choice))}
+        />
+      </SettingSection>
       <SettingSection label="Commands" anchor="commands">
         <CommandsChoice
           title="Where they run"

@@ -344,6 +344,11 @@ export type MarketSignals = z.infer<typeof MarketSignals>;
 export const MarketApiErrorCode = z.enum([
   "unauthorized",
   "reauth",
+  /**
+   * A sensitive action needs a grant from the person's own session naming this request (ADR
+   * 0190); a machine's grant never does.
+   */
+  "person_grant",
   "email_unverified",
   "suspended",
   "forbidden",

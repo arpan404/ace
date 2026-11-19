@@ -3786,6 +3786,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | token | no | string |  |
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
+| standing | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
 | link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
@@ -3799,12 +3800,9 @@ Example:
 
 ```json
 {
-  "compression": [],
   "deviceId": "example",
   "grant": "example",
-  "installId": "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
-  "machineCode": "example",
-  "mediaTicket": "T3UZAo7PT_5fJTG_-ZTQ577n5fJcbZMYIdsoEXz_iej",
+  "mediaTicket": "_zJEZrDf9Y-IYPxwVZG-FnBp-DC68g9ftbyth16Chna",
   "protocolVersion": 1,
   "type": "hello"
 }

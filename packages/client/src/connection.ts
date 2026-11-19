@@ -180,6 +180,10 @@ export class Connection {
   get supportsBinary(): boolean {
     return this.#transport?.supportsBinary === true;
   }
+  /** The open socket's channel binding (ADR 0190), when its transport has a channel of its own. */
+  get channelBinding(): string | undefined {
+    return this.#transport?.channelBinding?.();
+  }
   start(): void {
     if (this.#active || this.state === "fatal") return;
     this.#active = true;

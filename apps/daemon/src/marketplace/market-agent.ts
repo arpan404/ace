@@ -49,7 +49,7 @@ export interface MarketAgentDeps {
 export class MarketAgent {
   readonly requests: MarketPersonRequests;
   private readonly deps: MarketAgentDeps;
-  private account: { account: MachineAccount; hostId: string } | undefined;
+  private account: { account: MachineAccount } | undefined;
 
   constructor(deps: MarketAgentDeps) {
     this.deps = deps;
@@ -62,32 +62,23 @@ export class MarketAgent {
   }
 
   /** The machine's ace account, once the daemon has loaded it. */
-  bindAccount(account: MachineAccount, hostId: string): void {
-    this.account = { account, hostId };
+  bindAccount(account: MachineAccount): void {
+    this.account = { account };
   }
 
   /**
-   * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-   * from a market grant verified against the keys this build pins
-   * (`MachineAccount.freshSignIn`, ADR 0178 §12.8). False when signed out, unreachable, or
-   * when the grant doesn't verify.
-   */
-  async freshSignIn(): Promise<boolean> {
-    const bound = this.account;
-    return bound ? bound.account.freshSignIn(bound.hostId) : false;
-  }
-
-  /**
-   * Runs `operation` for the person. `by` says whose standing it runs on: the person's (their
-   * credential, a fresh sign-in, their answer to an agent's request), or the content-only
-   * exemption's, when a Spade skill it installs waits for the person (ADR 0178 §12.8).
+   * `personGrant`: the person's own market grant for a sensitive action (ADR 0190). `by`: whose
+   * standing it runs on, the person's (a proven socket, or their answer to an agent's request), or
+   * the content-only exemption's, when a Spade skill it installs waits for the person (ADR 0178
+   * §12.8).
    */
   asPerson(
     operation: MarketOperation,
+    personGrant?: string,
     by: "person" | "without-person" = "person",
   ): Promise<MarketResult> {
     const bound = this.account;
-    const grant = bound ? () => bound.account.marketGrant(bound.hostId) : undefined;
+    const grant = bound ? () => bound.account.marketGrant() : undefined;
     // The signed-in person's name and email, for the privacy pass over what they publish.
     const signedIn = bound?.account.account();
     const names = signedIn
@@ -96,7 +87,7 @@ export class MarketAgent {
     return this.deps.marketplace.request(
       operation,
       operation.op === "publish"
-        ? { grant, names }
+        ? { grant, names, personGrant }
         : { names, withoutPerson: by === "without-person" },
     );
   }

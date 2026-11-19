@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -31,6 +31,9 @@ pub(super) enum Screened {
     Ask(String),
     /// The reviewer decides.
     Review,
+    /// A verdict stored for it refused it (the reviewer's, or the rules'): it stays refused,
+    /// whatever mode the bot is in now.
+    Refuse(String),
     /// The reply was stopped meanwhile: nothing runs and nothing is asked.
     Stopped,
 }
@@ -44,6 +47,15 @@ pub(super) struct Screening<'a> {
     /// For a connector's or plugin's tool, what its server says of it.
     pub hints: Option<Mcp>,
     pub reviewing: Reviewing,
+    /// How far the call would launch: a stored verdict is reused only for that or narrower, and
+    /// one stored here records it.
+    pub launch: spade_core::event::Authorized,
+    /// Whether the classifier was on and loaded when the call was routed: the one reading used
+    /// for routing it and for screening it, so a switch in between never lets it skip both.
+    pub ready: bool,
+    /// The routing let it run counting on the screening (an app's write in Full access): if the
+    /// classifier can't screen it after all, the reviewer decides instead.
+    pub required: bool,
 }
 
 /// What the stored verdict of a settled call says, with the name of the overrides it runs with
@@ -135,6 +147,48 @@ impl Engine {
         self.oversight().map_or(true, |global| global.classifier)
     }
 
+    /// How long a call's classification may take before it is given up (where a call runs is
+    /// then never widened).
+    pub(crate) fn classify_time(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(
+            self.classify_ms.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Calls `hook` right before a call is screened; for tests that must change a setting
+    /// between a call's routing and its screening.
+    pub fn before_screening(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        *self
+            .screening_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    pub(super) fn screening_now(&self) {
+        let hook = self
+            .screening_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    /// Sets that budget; for tests that must see a classification run out of time.
+    pub fn set_classify_time(&self, time: std::time::Duration) {
+        self.classify_ms.store(
+            u64::try_from(time.as_millis()).unwrap_or(u64::MAX),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    /// Whether Spade's classifier can screen calls now: on, and its model built into this binary
+    /// loads. In Full access an app's write runs only then (ADR 0163, amendment 2).
+    pub(crate) fn classifier_ready(&self) -> bool {
+        self.classifier_on() && Model::embedded().is_some()
+    }
+
     /// Runs the classifier on a call the gate sent to review, storing what it settled or raised
     /// as the call's verdict, so a restart reaches the same answer without asking it again.
     pub(super) fn screen(
@@ -145,7 +199,7 @@ impl Engine {
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
         let key = format!("{id}.{}", s.call.id);
-        if let Some((verdict, reason)) = review::stored(events, &s.call.id) {
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             // A call this classifier settled before a restart runs only in the form it was
             // settled for, derived again from the command and checked against the record.
             if verdict == Verdict::Allow && settled_by_classifier(events, &s.call.id) {
@@ -164,23 +218,95 @@ impl Engine {
             }
             return Ok(Screened::Review);
         }
-        if !self.classifier_on() {
+        if !s.ready {
             return Ok(Screened::Review);
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
             return Ok(Screened::Review);
         };
         let Decision {
-            prediction,
-            screen,
-            hardening,
-        } = decide(
+            screen, hardening, ..
+        } = self.decided(id, s, model, &subject);
+        let (verdict, reason, screened) = match screen {
+            Screen::Abstain => return Ok(Screened::Review),
+            Screen::LowRisk => {
+                // Settled only with the form it runs in; recorded with the verdict and taken by
+                // the launch, which checks it again.
+                let Some(form) = hardening else {
+                    return Ok(Screened::Review);
+                };
+                let reason = settled(&form);
+                self.decisions.mark(&key, form);
+                (Verdict::Allow, reason, Screened::Run)
+            }
+            Screen::Person(effect) => {
+                let line = line(effect).to_owned();
+                (Verdict::Escalate, line.clone(), Screened::Ask(line))
+            }
+        };
+        self.store_screened(id, reply, s, model, verdict, reason, screened)
+    }
+
+    /// For a bot in Full access (ADR 0163, amendment 2), a call the gate let run: the classifier
+    /// may only raise it to the person, when it reads a payment, a send in their name, an access
+    /// change, a secret or a step in an app it can't place. It settles nothing and nothing goes
+    /// to the reviewer; a raise is stored as the call's verdict.
+    pub(super) fn raise_only(
+        &self,
+        id: &str,
+        reply: &str,
+        events: &[Event],
+        s: &Screening<'_>,
+    ) -> Result<Screened, spade_store::StoreError> {
+        // A verdict stored before (a restart, a mode switch since): what it decided stands. A
+        // refusal is never turned into a run, nor a question into one.
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
+            return Ok(match verdict {
+                Verdict::Escalate => Screened::Ask(reason),
+                Verdict::Refuse => Screened::Refuse(reason),
+                Verdict::Allow => Screened::Run,
+            });
+        }
+        // Can't screen it: the reviewer decides one the routing counted on screening.
+        let unscreened = if s.required {
+            Screened::Review
+        } else {
+            Screened::Run
+        };
+        if !s.ready {
+            return Ok(unscreened);
+        }
+        let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
+            return Ok(unscreened);
+        };
+        match self.decided(id, s, model, &subject).screen {
+            Screen::Person(effect) => {
+                let line = line(effect).to_owned();
+                let screened = Screened::Ask(line.clone());
+                self.store_screened(id, reply, s, model, Verdict::Escalate, line, screened)
+            }
+            Screen::LowRisk | Screen::Abstain => Ok(Screened::Run),
+        }
+    }
+
+    /// The model's decision on one call, logged (class and confidence, never the call).
+    fn decided(
+        &self,
+        id: &str,
+        s: &Screening<'_>,
+        model: &Model,
+        subject: &Subject<'_>,
+    ) -> Decision {
+        let decision = decide(
             model,
-            &subject,
+            subject,
             s.reviewing,
             s.classed.config_clean,
             s.classed.sandboxable,
         );
+        let Decision {
+            prediction, screen, ..
+        } = &decision;
         let (top, confidence) = prediction.top();
         self.decisions.append(&Logged {
             at: self.clock.now_ms(),
@@ -203,23 +329,21 @@ impl Engine {
             },
             model: model.id(),
         });
-        let (verdict, reason, screened) = match screen {
-            Screen::Abstain => return Ok(Screened::Review),
-            Screen::LowRisk => {
-                // Settled only with the form it runs in; recorded with the verdict and taken by
-                // the launch, which checks it again.
-                let Some(form) = hardening else {
-                    return Ok(Screened::Review);
-                };
-                let reason = settled(&form);
-                self.decisions.mark(&key, form);
-                (Verdict::Allow, reason, Screened::Run)
-            }
-            Screen::Person(effect) => {
-                let line = line(effect).to_owned();
-                (Verdict::Escalate, line.clone(), Screened::Ask(line))
-            }
-        };
+        decision
+    }
+
+    /// Stores what the classifier came to as the call's verdict; `Stopped` when the reply was.
+    #[allow(clippy::too_many_arguments)]
+    fn store_screened(
+        &self,
+        id: &str,
+        reply: &str,
+        s: &Screening<'_>,
+        model: &Model,
+        verdict: Verdict,
+        reason: String,
+        screened: Screened,
+    ) -> Result<Screened, spade_store::StoreError> {
         let event = Event::Known(spade_core::event::Known::CallReviewed {
             reply: reply.to_owned(),
             call_id: s.call.id.clone(),
@@ -228,8 +352,9 @@ impl Engine {
             reason,
             model: model.id().to_owned(),
             cost_micros: 0,
-            bound: super::autonomy::binding(&s.classed.shown),
+            bound: crate::workspace::outside::binding(s.classed).stored(),
             acts_in: None,
+            launch: Some(s.launch),
         });
         Ok(match self.record_unless_stopped(id, reply, &event)? {
             true => screened,

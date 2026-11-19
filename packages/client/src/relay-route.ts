@@ -138,6 +138,7 @@ export function relayRoute(options: RelayRouteOptions): {
         supportsBinary: true,
         compression: relayCompression(),
         flowControl: ["credit"],
+        channelBinding: () => relay?.channelBinding,
         // Several attempts on one route at once (a race and a side path) each send their own.
         async credential() {
           const credential = own;

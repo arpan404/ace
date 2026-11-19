@@ -15,6 +15,7 @@ import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import { betaKeys, foldLegacySpadeFlag } from "@ace/settings/beta";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
+import { loadSpadePersonKey } from "../local-files.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { startSpadeComputers } from "./spade-computers.ts";
 import { spadeSwitch } from "./spade-switch.ts";
@@ -55,6 +56,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     runtime: options.runtime ?? nodeSpadeLinkRuntime({ service, now: context.now }),
     ...(options.pollMs ? { pollMs: options.pollMs } : {}),
     report: (error) => log.log("error", "Spade's status check failed", logError(error)),
+    personKey: loadSpadePersonKey(config.dataDir),
   });
   services.spade = link;
   context.resources.own(() => link.close(), "spade");

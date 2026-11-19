@@ -32,6 +32,7 @@ import { assertModelTestIsolation } from "./models.ts";
 import { keepWasmWrappersGeneric } from "./wasm-wrappers.ts";
 import { homedir } from "node:os";
 import { randomBytes, randomUUID } from "node:crypto";
+import { relayKeysFor } from "./account-access/relay-host-id.ts";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -566,12 +567,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
         return () => clearTimeout(timer);
       },
       defaultOrigin: config.accountOrigin,
-      // In code only, for tests; a real daemon trusts the keys its build pins (ADR 0178 §12.8).
+      relayKeys: () => relayKeysFor(config.dataDir),
+      // In code only, for tests on a backend of their own; a real daemon trusts the keys its
+      // build pins (ADR 0190).
       ...(options.personGrantKeys ? { personKeys: options.personGrantKeys } : {}),
       log: (error) => log.log("warn", "ace account", logError(error)),
     });
     await account.load();
-    services.marketAgent?.bindAccount(account, hostId);
+    services.marketAgent?.bindAccount(account);
     resources.own(() => account.close(), "ace account");
 
     const socketReady = Promise.withResolvers<void>();
@@ -636,7 +639,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
         })(),
       }),
       ...(options.preview ? { preview: options.preview } : {}),
-      ...(options.appKey ? { appKey: options.appKey } : {}),
       health: health.collect,
       doctorFix: async (assertAuthorized) => {
         const result = await fixDoctorReport(config, process.env, now, { assertAuthorized });

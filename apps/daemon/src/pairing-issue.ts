@@ -36,9 +36,9 @@ const scopeNames: Record<DeviceScope, string> = {
 /**
  * One pairing link, as `POST /v1/pairings` and `fleet.request` issue it. The creator may grant
  * only scopes it holds itself (`holds`): `projects` and `accounts` are separate grants from admin
- * (ADR 0070). The code and fingerprint travel in the URL fragment, which no HTTP request carries.
- * With `app`, the link opens that web app and names this daemon in its fragment. `person`: the
- * creator is proven to be the person (ADR 0178 §12.8), and so is the device the link pairs.
+ * (ADR 0070), and the person's standing only if it has it (`person`, ADR 0190). The code and
+ * fingerprint travel in the URL fragment, which no HTTP request carries. With `app`, the link
+ * opens that web app and names this daemon in its fragment.
  */
 export function issuePairing(
   auth: RemoteAuth,

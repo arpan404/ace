@@ -2,14 +2,18 @@ import { useClient, useSidebar } from "@ace/client-react";
 import type { SidebarReader } from "@ace/client";
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useProjectScope } from "./use-project-scope.ts";
 
 const readWindow = (reader: SidebarReader) => reader.window;
 
-/** Keep the shared list subscription on the project filter and the screen (Home or the archive). */
+/**
+ * Keep the shared list subscription on the project filter and the screen (Home or the archive).
+ * The daemon narrows it only to one project of its own: a project with no checkout here, or
+ * two, reads the whole list and the panel narrows it (ADR 0189).
+ */
 export function useThreadsWindowSync(): string {
   const client = useClient();
-  const { project } = useOrganizerState();
+  const project = useProjectScope().window;
   const archived = useRouterState({ select: (state) => state.location.pathname === "/archived" });
   useEffect(() => {
     void client.threadsWindow({

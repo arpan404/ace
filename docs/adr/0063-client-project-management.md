@@ -61,3 +61,12 @@ are not executed; tests run at merge. Only the owner-approved static checks run 
 Git argument and transport choices follow the primary [clone](https://git-scm.com/docs/git-clone),
 [protocol policy](https://git-scm.com/docs/git-config#Documentation/git-config.txt-protocolallow)
 and [init](https://git-scm.com/docs/git-init) references.
+
+## Amendment 2026-11-18: machine links take projects
+
+A link between two of the person's machines (Settings › Fleet, ADR 0078) is not a phone or a
+browser. Its pairing now grants `projects` with `operate`, because the link also carries the
+person's own "Continue on…" and "Open on…" (ADR 0101). Admin still doesn't imply projects, and
+the pairing screen for phones, browsers and other devices still leaves Projects off by default.
+An administrator holding Projects on a machine can allow or stop allowing it for any paired
+device there without pairing again (ADR 0101, "Changing what a link allows").

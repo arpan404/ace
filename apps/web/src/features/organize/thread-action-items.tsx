@@ -163,7 +163,7 @@ export function threadActions(
         icon: DesktopIcon,
         section: "read",
         ...(continueBlocked(entry.status.state)
-          ? { disabled: "Available once the thread stops working" }
+          ? { disabled: "Its work already moved to another machine" }
           : {}),
         run: handlers.onContinueOn,
       });

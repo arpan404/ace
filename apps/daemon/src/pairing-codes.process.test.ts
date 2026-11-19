@@ -83,27 +83,3 @@ test("the database holds only the code's hash, and a cancelled link pairs nothin
   expect(() => restarted.redeem(cancelled.code, "Phone")).toThrow("Invalid or expired");
   expect(restarted.redeem(kept.code, "Phone").device.scopes).toEqual(["read"]);
 });
-
-test("a device paired from a link the host token alone made isn't the person's", () => {
-  const { auth } = home().start();
-  const { code } = auth.pairing(["admin"], { label: "Phone" });
-  const { token } = auth.redeem(code, "Phone");
-  expect(auth.deviceBearer(token)?.person).toBe(false);
-});
-
-test("a device paired from a link the person made is the person's, across a restart", () => {
-  const daemon = home();
-  const { code } = daemon.start().auth.pairing(["admin"], { label: "Phone", person: true });
-  const restarted = daemon.start().auth;
-  const { token } = restarted.redeem(code, "Phone");
-  expect(restarted.deviceBearer(token)?.person).toBe(true);
-});
-
-test("devices paired before links said who made them keep the standing they had", () => {
-  const daemon = home();
-  const { auth, db } = daemon.start();
-  const { code } = auth.pairing(["admin"], { label: "Phone" });
-  const { token } = auth.redeem(code, "Phone");
-  db.exec("UPDATE devices SET person = NULL");
-  expect(daemon.start().auth.deviceBearer(token)?.person).toBe(true);
-});

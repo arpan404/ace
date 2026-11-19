@@ -27,6 +27,7 @@ import { z } from "zod";
 import { message } from "./payload-test-support.ts";
 import type { CommandHandler } from "./commands.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
+import { relayKeysFor } from "./account-access/relay-host-id.ts";
 
 // ace's hosted relay end to end: a real daemon and real clients through the Cloudflare Worker
 // under Miniflare (local D1, its admission rules and Durable Object), signing in through the
@@ -127,6 +128,7 @@ async function hostedDaemon(direct = false) {
     },
     (store) => {
       account = machineAccount({
+        relayKeys: () => relayKeysFor(home),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -193,7 +195,7 @@ it("a daemon signed in through the Worker registers, and an app on its account r
   const { f, account } = await hostedDaemon();
   // The desktop app signs in through the Worker and hands the daemon its session.
   const session = await signInThroughWorker(worker.http, workos, owner);
-  await account.handover(worker.http, session.token);
+  await account.handover(worker.http, { token: session.token });
   await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeDefined();
   const hostId = f.server.relayHostId ?? "";
   await expect
@@ -232,7 +234,7 @@ it("a daemon signed in through the Worker registers, and an app on its account r
 it("a device on another account cannot reach the machine, and signing the machine out ends its registration", async () => {
   const { f, account } = await hostedDaemon();
   const session = await signInThroughWorker(worker.http, workos, owner);
-  await account.handover(worker.http, session.token);
+  await account.handover(worker.http, { token: session.token });
   await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeDefined();
   const hostId = f.server.relayHostId ?? "";
   await expect
@@ -276,7 +278,7 @@ it("a device on another account cannot reach the machine, and signing the machin
 it("a signed-in machine on the LAN and Tailscale is also on ace's relay; signing out leaves the LAN serving", async () => {
   const { f, account, fingerprint } = await hostedDaemon(true);
   const session = await signInThroughWorker(worker.http, workos, owner);
-  await account.handover(worker.http, session.token);
+  await account.handover(worker.http, { token: session.token });
   // Signing in is all it takes: the phone's account lists the machine and opens it.
   await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeDefined();
   const hostId = f.server.relayHostId ?? "";
@@ -330,7 +332,7 @@ it("a running daemon forgotten from its account registers again and is listed, a
       })
       .parse(await accessRequest(f.server.httpUrl, "/v1/status", { token: adminToken }))
       .remoteAccess.networks.account.state;
-  await account.handover(worker.http, session.token);
+  await account.handover(worker.http, { token: session.token });
   await expect.poll(accountNetwork, { timeout: 10_000, interval: 100 }).toBe("on");
   const hostId = f.server.relayHostId ?? "";
   // On means the account lists it: no wait between the two.

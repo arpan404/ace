@@ -58,15 +58,126 @@ export const MarketGrantClaims = GrantClaims.extend({
     .regex(/^[a-z0-9.-]+(?::\d{1,5})?$/),
   emailVerified: z.boolean(),
   authAt: z.number().int().nonnegative(),
+  /**
+   * The one market request this grant may make, `METHOD /path` (ADR 0190): a person's grant for a
+   * sensitive action names it, so a grant captured on the way can only make that same request.
+   * Only `device` grants from a person's own session carry it.
+   */
+  action: z.string().min(1).max(512).optional(),
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
 export const MARKET_GRANT_ISSUER = "cloud.acehq.dev";
-const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims, MarketGrantClaims]);
+
+/**
+ * Who asked for a device grant (ADR 0190): `person`, a session the person signed in to in a
+ * browser and that only the client they signed in on holds; `machine`, anything a machine keeps
+ * (a daemon's machine credential, or a session that was ever written to a machine's disk).
+ */
+export const GrantStanding = z.enum(["person", "machine"]);
+export type GrantStanding = z.infer<typeof GrantStanding>;
+/** A daemon is the only reader of a format 2 device grant (ADR 0190). */
+export const DEVICE_GRANT_AUDIENCE = "ace-daemon";
+/** A device's public key: an uncompressed P-256 point, base64url (ADR 0190). */
+export const DeviceKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const HostIdClaim = z.string().regex(/^[A-Z2-7]{52}$/);
+/**
+ * A format 2 device grant (ADR 0190). It says whose session asked (`standing`), for which daemon
+ * (`host`, `aud`) and, for the person's standing, which device key must prove each use (`key`).
+ * Format 1 parsers (older daemons, which would treat any device grant as the person) refuse it,
+ * and this parser refuses format 1, so neither stands in for the other. A person's grant always
+ * names its host and key.
+ */
+export const StandingGrantClaims = z
+  .strictObject({
+    v: z.literal(2),
+    kid: KeyId,
+    kind: z.literal("device"),
+    aud: z.literal(DEVICE_GRANT_AUDIENCE),
+    standing: GrantStanding,
+    account: GrantClaims.shape.account,
+    subject: GrantClaims.shape.subject,
+    host: HostIdClaim.optional(),
+    key: DeviceKey.optional(),
+    iat: GrantClaims.shape.iat,
+    exp: GrantClaims.shape.exp,
+  })
+  .refine((claims) => claims.standing !== "person" || (claims.host && claims.key), {
+    message: "A person's grant names its host and device key",
+  });
+export type StandingGrantClaims = z.infer<typeof StandingGrantClaims>;
+
+export function signStandingGrant(
+  claims: Omit<StandingGrantClaims, "v" | "kid" | "kind" | "aud">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    StandingGrantClaims.parse({
+      ...claims,
+      v: 2,
+      kid: key.id,
+      kind: "device",
+      aud: DEVICE_GRANT_AUDIENCE,
+    }),
+    key,
+  );
+}
+
+/** Verify a format 2 device grant's signature and lifetime. Throws `GrantError` on any failure. */
+export function verifyStandingGrant(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+): StandingGrantClaims {
+  return verifySigned(token, keys, now, "device", StandingGrantClaims);
+}
+
+/**
+ * What a device signs with its key to use a person's grant on one socket (ADR 0190): the
+ * daemon's host id, the nonce that daemon gave this socket, the socket's channel binding and the
+ * grant itself. The binding is the Noise handshake hash of a relayed socket, which both ends
+ * derive and nobody between them can choose, or `none` on a socket with no secure channel of its
+ * own (loopback, a pinned direct path). A proof made for one socket, channel, daemon or grant
+ * proves nothing on another, so one relayed by whoever answered in the daemon's place fails.
+ */
+export function standingProofText(input: {
+  host: string;
+  nonce: string;
+  binding: string | undefined;
+  grant: string;
+}): string {
+  return `ace-standing/v2\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.grant}`;
+}
+
+/**
+ * What a device paired from a person's link signs with its standing key to prove the person's
+ * standing on one socket (ADR 0190): the daemon's relay host, the socket's nonce and channel
+ * binding, and its own device id.
+ */
+export function pairedStandingText(input: {
+  host: string;
+  nonce: string;
+  binding: string | undefined;
+  deviceId: string;
+}): string {
+  return `ace-paired-standing/v1\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.deviceId}`;
+}
+
+const AnyGrantClaims = z.union([
+  GrantClaims,
+  CloudGrantClaims,
+  MarketGrantClaims,
+  StandingGrantClaims,
+]);
+
+function signClaims(claims: object, key: GrantSigningKey): string {
+  const body = new TextEncoder().encode(JSON.stringify(claims));
+  return `${encodeBase64url(body)}.${encodeBase64url(ed25519.sign(body, key.privateKey))}`;
+}
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
-    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt">,
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -101,6 +212,11 @@ export const GrantKeySet = z.object({
     .array(z.object({ id: KeyId, publicKey: Base64url32 }))
     .min(1)
     .max(8),
+  /**
+   * The backend's X25519 key a daemon proves its host key against when it asks for a machine
+   * credential (ADR 0190, `@ace/account-grant/machine-proof`). Absent from older backends.
+   */
+  exchangeKey: Base64url32.optional(),
 });
 export type GrantKeySet = z.infer<typeof GrantKeySet>;
 
@@ -116,11 +232,18 @@ export function encodeBase64url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
+/**
+ * Base64url, canonical only: unpadded, and with the unused low bits of the last character zero.
+ * Any other spelling of the same bytes is refused, so a grant, key or proof has exactly one
+ * text, and nothing keyed by its text (a spent grant, ADR 0190) can be got round by respelling.
+ */
 export function decodeBase64url(text: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1)
     throw new GrantError("Invalid base64url");
   const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  if (encodeBase64url(bytes) !== text) throw new GrantError("Invalid base64url");
+  return bytes;
 }
 
 /** The public half of a signing key, as published in the key set. */
@@ -172,7 +295,7 @@ export function verifyMarketGrant(
   return claims;
 }
 
-function verifySigned<Claims extends GrantClaims>(
+function verifySigned<Claims extends Pick<GrantClaims, "kid" | "kind" | "iat" | "exp">>(
   token: string,
   keys: GrantKeySet,
   now: number,

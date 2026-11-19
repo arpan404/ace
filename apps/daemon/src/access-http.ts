@@ -148,7 +148,12 @@ export function accessHttp({
         auth.pairingAttempt(sourceAddress(request));
         const data = PairingRedemption.safeParse(await body(request));
         if (!data.success) throw new AccessError(400, "Invalid pairing redemption");
-        result = auth.redeem(data.data.code, data.data.name, data.data.installId);
+        result = auth.redeem(
+          data.data.code,
+          data.data.name,
+          data.data.installId,
+          data.data.standingKey,
+        );
       } else if (path === "/v1/tickets" && request.method === "POST") {
         const device = auth.deviceBearer(token);
         if (!device) throw new AccessError(401, "Device token required");
@@ -211,6 +216,9 @@ export function accessHttp({
           // remote access can change or turn off while they wait.
           const app = await pairingApp?.();
           const input = pairing() ? await body(request) : undefined;
+          // A link made over HTTP is always an ordinary pairing (ADR 0190): a bearer token proves
+          // nothing of the person, whoever holds it, so a person's link comes only from a socket
+          // that proved the person's standing on that socket (`fleet.request pairing`).
           const creator = actor();
           const { id, url, expiresAt } = issuePairing(
             auth,
@@ -218,11 +226,7 @@ export function accessHttp({
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
-            // The host token alone proves no person: its links make devices that don't either.
-            !auth.local(token) &&
-              creator !== undefined &&
-              "person" in creator &&
-              creator.person === true,
+            false,
             app,
           );
           result = { url, expiresAt, id };
@@ -296,7 +300,12 @@ async function accountRoute(
   if (path === "/v1/ace-account" && request.method === "PUT") {
     const handover = AceAccountHandover.safeParse(await body(request));
     if (!handover.success) throw new AccessError(400, "Invalid ace session");
-    return account.handover(handover.data.origin, handover.data.token, sessionCondition(request));
+    const { origin } = handover.data;
+    return account.handover(
+      origin,
+      "ticket" in handover.data ? { ticket: handover.data.ticket } : { token: handover.data.token },
+      sessionCondition(request),
+    );
   }
   if (path === "/v1/ace-account" && request.method === "DELETE")
     return account.signOut(sessionCondition(request));

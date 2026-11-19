@@ -20,7 +20,6 @@ export async function daemonFixture(
     | "computer"
     | "outsideClients"
     | "spade"
-    | "appKey"
     | "personGrantKeys"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
@@ -67,7 +66,6 @@ export async function daemonFixture(
       ...(options.transfers ? { transfers: options.transfers } : {}),
       ...(options.parcels ? { parcels: options.parcels } : {}),
       ...(options.spade ? { spade: options.spade } : {}),
-      ...(options.appKey ? { appKey: options.appKey } : {}),
       ...(options.personGrantKeys ? { personGrantKeys: options.personGrantKeys } : {}),
       workspaceActions: {
         forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),

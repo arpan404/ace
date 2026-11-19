@@ -15,6 +15,11 @@ export interface LocalDaemon {
    * only when the file is missing or unreadable.
    */
   hostId?: string;
+  /**
+   * The host id the home's relay key proves on ace's relay (ADR 0190), derived here from the key
+   * file: the one machine an enrollment ticket the app hands this daemon may sign in.
+   */
+  relayHostId?: string;
 }
 
 const Origin = z
@@ -42,16 +47,33 @@ async function readHostId(home: string): Promise<string | undefined> {
   }
 }
 
+/** The relay host id the home's key names, or undefined before the daemon has made one. */
+async function readRelayHostId(home: string): Promise<string | undefined> {
+  try {
+    const secret = await readFile(join(home, "relay", "noise-static.key"));
+    if (secret.length !== 32) return undefined;
+    const { hostId, keyPair } = await import("@ace/secure-channel");
+    return hostId(keyPair(new Uint8Array(secret)).publicKey);
+  } catch {
+    return undefined;
+  }
+}
+
 /** The home's token and identity, which stay the same across its daemon's starts. */
 export async function readHomeCredentials(
   home: string,
-): Promise<{ token: string; hostId?: string } | undefined> {
+): Promise<{ token: string; hostId?: string; relayHostId?: string } | undefined> {
   try {
-    const [token, hostId] = await Promise.all([
+    const [token, hostId, relayHostId] = await Promise.all([
       readFile(join(home, "daemon-token"), "utf8"),
       readHostId(home),
+      readRelayHostId(home),
     ]);
-    return { token: Token.parse(token.trim()), ...(hostId ? { hostId } : {}) };
+    return {
+      token: Token.parse(token.trim()),
+      ...(hostId ? { hostId } : {}),
+      ...(relayHostId ? { relayHostId } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -60,7 +82,7 @@ export async function readHomeCredentials(
 /** The local daemon at a loopback origin (`http://127.0.0.1:<port>`), with the home's credentials. */
 export function localDaemonAt(
   origin: string,
-  credentials: { token: string; hostId?: string },
+  credentials: { token: string; hostId?: string; relayHostId?: string },
 ): LocalDaemon | undefined {
   const parsed = Origin.safeParse(origin);
   if (!parsed.success) return undefined;

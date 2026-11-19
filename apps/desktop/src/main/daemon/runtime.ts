@@ -267,6 +267,7 @@ export class DaemonRuntime {
       url: daemon.url,
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+      ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
     };
   }
 
@@ -287,6 +288,7 @@ export class DaemonRuntime {
           url: daemon.url,
           token: daemon.token,
           ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+          ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
         }
       : null;
   }

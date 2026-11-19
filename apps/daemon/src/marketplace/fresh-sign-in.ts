@@ -1,105 +1,45 @@
-import { verifyMarketGrant, type GrantKeySet } from "@ace/account-grant";
+import { isPersonOnlyAction, isPersonOnlyOperation } from "@ace/marketplace/person-only";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
- * The host token (`ACE_HOME/daemon-token`) is the person's whole authority: any process that
- * can read it acts as the person, an unsandboxed coding agent included. So for person-only
- * market actions, the host token alone isn't enough (ADR 0178 §12.5): they need the app or a
- * paired device, or an ace sign-in from the last ten minutes, which takes the person in a
- * browser (ADR 0174 §2's rule). The desktop app's page holds the host token too, and proves it
- * is the app with the key the app gave its daemon (§12.8), so it isn't "the host token alone".
- * Pure.
+ * Who may do a person-only market action (ADR 0178 §12.5, ADR 0190). The host token
+ * (`ACE_HOME/daemon-token`) is readable by any process of the person's, an unsandboxed coding
+ * agent included, and so is everything else in ACE_HOME. A sign-in that happened lately proves
+ * nothing about who is asking now, so it authorizes nothing: only a socket that proved the
+ * person's standing (an ace app signed in as the person, a device paired from a link the person
+ * made) does these. Pure.
  */
 
-/** ADR 0174 §2: a sensitive action needs a sign-in this recent. */
-export const freshSignInMs = 10 * 60_000;
-
-/** Says what to do: the code stays `reauth`, so a client can offer its sign-in. */
 export const reauthSentence =
-  "This needs the ace app, a paired device or a recent sign-in. Sign in to ace again (ace login), then do it within 10 minutes.";
+  "This is yours to do: do it in the ace app signed in as you, or on a device you paired from it.";
 
 /**
- * The market's own refusal of a stale sign-in (ADR 0174 §2), which no client of this daemon
- * can skip: withdraw, transfers, handle changes and verified-profile edits check it at the
- * market, from the app too.
+ * The daemon's person-only operations (`personOnlyOperations`: install, turning a skill on for
+ * bots), and the publish actions the market takes only from the person (`personOnlyActions`:
+ * withdraw, transfers and answering one, handle changes, deleting an entry and verification).
  */
-export const marketReauthSentence =
-  "Sign in again to do this: the market needs a sign-in from the last 10 minutes. Sign in to ace again (ace login), then try it again.";
-
-/**
- * Install, turning a skill on for bots, withdraw, transfers, handle changes, deleting an entry
- * and verification. An install that lands content only is exempt (`hostMarketStanding`'s
- * `contentOnly`, ADR 0178 §12.8).
- */
-export function needsFreshSignIn(operation: MarketOperation): boolean {
-  if (operation.op === "install" || operation.op === "turnOnForBots") return true;
-  if (operation.op !== "publish") return false;
-  switch (operation.request.action) {
-    case "withdraw":
-    case "transfer":
-    case "transferAnswer":
-    case "changeHandle":
-    case "deleteEntry":
-    case "applyVerification":
-    case "checkVerification":
-      return true;
-    default:
-      return false;
-  }
-}
-
-/** How far the backend's clock may run ahead of this daemon's for a sign-in time. */
-export const signInSkewMs = 60_000;
-
-/**
- * Whether market grant `grant` proves this machine's ace account signed in within ten minutes
- * (ADR 0178 §12.8). Only claims whose signature verifies against `keys` count: the keys this
- * build pins, never ones a caller or the environment can name. The grant must also be a machine
- * grant for this machine's account (`account`) and host (`subject`), so a grant minted for
- * another account or machine, or a device's, proves nothing here. The sign-in's age is measured
- * on this daemon's clock now (`now - authAt`), so a grant taken near the end of the ten minutes
- * can't be held for its five-minute life and replayed after them; a sign-in up to
- * `signInSkewMs` in the future is the backend's clock running ahead.
- */
-export function verifiedSignInFresh(
-  grant: string,
-  trust: {
-    readonly keys: GrantKeySet;
-    readonly issuer: string;
-    readonly now: number;
-    readonly account: string;
-    readonly subject: string;
-  },
-): boolean {
-  try {
-    const claims = verifyMarketGrant(grant, trust.keys, trust.now, trust.issuer);
-    if (claims.kind !== "machine") return false;
-    if (claims.account !== trust.account || claims.subject !== trust.subject) return false;
-    const age = trust.now - claims.authAt;
-    return age <= freshSignInMs && age >= -signInSkewMs;
-  } catch {
-    return false;
-  }
+export function needsPerson(operation: MarketOperation): boolean {
+  if (isPersonOnlyOperation(operation.op)) return true;
+  return operation.op === "publish" && isPersonOnlyAction(operation.request.action);
 }
 
 /**
- * What a market request a socket makes without naming a thread may do: run with the person's
- * standing (their credential, or a fresh sign-in), run without it on the content-only exemption
- * (installing or updating a Suit or a Spade skill that runs nothing, read from the daemon's own
- * review), or be refused. Anything not person-only runs. A Spade skill installed without the
- * person's standing reaches no bot until the person turns it on (ADR 0178 §12.8).
+ * What a market request a socket makes without naming a thread may do (ADR 0190, ADR 0178 §12.8):
+ * run with the person's standing, run without it, or be refused. A socket that proved the person's
+ * standing runs anything. One that hasn't runs what isn't person-only, and installing or updating
+ * content only (a Suit or a Spade skill that runs nothing, read from the daemon's own review), as
+ * the `without-person` path: a Spade skill it installs reaches no bot until the person turns it
+ * on. Everything else person-only is refused with `reauth`. Pure.
  */
-export async function hostMarketStanding(input: {
+export function hostMarketStanding(input: {
   readonly operation: MarketOperation;
-  /** The socket's credential isn't the person's (`personProven`, ADR 0178 §12.8). */
+  /** The socket hasn't proved the person's standing (ADR 0190). */
   readonly unproven: boolean;
-  readonly fresh: () => Promise<boolean>;
   /** For an install: whether its review installs content only (`content-only.ts`). */
   readonly contentOnly: () => boolean;
-}): Promise<{ readonly run: "person" | "without-person" } | { readonly refusal: MarketResult }> {
+}): { readonly run: "person" | "without-person" } | { readonly refusal: MarketResult } {
   if (!input.unproven) return { run: "person" };
-  if (!needsFreshSignIn(input.operation)) return { run: "without-person" };
-  if (await input.fresh()) return { run: "person" };
+  if (!needsPerson(input.operation)) return { run: "without-person" };
   if (input.operation.op === "install" && input.contentOnly()) return { run: "without-person" };
   return { refusal: { op: "error", code: "reauth", message: reauthSentence } };
 }

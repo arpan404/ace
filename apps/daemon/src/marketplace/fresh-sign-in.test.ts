@@ -1,13 +1,6 @@
-import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  encodeBase64url,
-  grantPublicKey,
-  MARKET_GRANT_ISSUER,
-  signMarketGrant,
-} from "@ace/account-grant";
 import type { MarketOperation } from "@ace/protocol/marketplace";
-import { hostMarketStanding, needsFreshSignIn, verifiedSignInFresh } from "./fresh-sign-in.ts";
+import { hostMarketStanding, needsPerson } from "./fresh-sign-in.ts";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 const publish = (
@@ -20,9 +13,13 @@ const install: MarketOperation = {
   choices: { bots: [], needs: {}, startRoutines: false },
 };
 
-describe("which market actions need a sign-in from the last ten minutes", () => {
+describe("which market actions are the person's", () => {
   it.each<[string, MarketOperation]>([
     ["installing", install],
+    [
+      "turning a skill on for bots",
+      { op: "turnOnForBots", name: "triage-mail", hash: "a".repeat(64) },
+    ],
     ["withdrawing", publish({ action: "withdraw", ...entry, reason: "Broken" })],
     ["transferring", publish({ action: "transfer", ...entry, to: "rijan" })],
     [
@@ -34,7 +31,7 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
     ["applying for verification", publish({ action: "applyVerification" })],
     ["checking verification", publish({ action: "checkVerification" })],
   ])("%s does", (_what, operation) => {
-    expect(needsFreshSignIn(operation)).toBe(true);
+    expect(needsPerson(operation)).toBe(true);
   });
 
   it.each<[string, MarketOperation]>([
@@ -43,160 +40,49 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
     ["publishing a draft", publish({ action: "draftPublish", id: "drf_abcdefgh" })],
     ["preparing a review", { op: "prepare", source: "market", ...entry }],
   ])("%s doesn't", (_what, operation) => {
-    expect(needsFreshSignIn(operation)).toBe(false);
+    expect(needsPerson(operation)).toBe(false);
   });
 });
 
-/** The gate's answer for `operation`, given what is known of the caller. */
-const standing = (
-  operation: MarketOperation,
-  facts: { unproven: boolean; fresh: boolean; contentOnly: boolean },
-) =>
-  hostMarketStanding({
-    operation,
-    unproven: facts.unproven,
-    fresh: async () => facts.fresh,
-    contentOnly: () => facts.contentOnly,
-  });
+/** The gate's answer for `operation`, from a socket that did or didn't prove the person. */
+const standing = (operation: MarketOperation, unproven: boolean, contentOnly = false) =>
+  hostMarketStanding({ operation, unproven, contentOnly: () => contentOnly });
 
-describe("a person-only market action from the host token, with no thread", () => {
-  it("is refused without a fresh sign-in: the host token alone may be an agent", async () => {
-    const decided = await standing(install, { unproven: true, fresh: false, contentOnly: false });
+describe("a person-only market action without a thread", () => {
+  it("is refused from a socket that hasn't proved the person's standing", () => {
+    const decided = standing(install, true);
     expect(decided).toMatchObject({ refusal: { op: "error", code: "reauth" } });
     expect(
       "refusal" in decided && decided.refusal.op === "error" && decided.refusal.message,
-    ).toMatch(/app|paired device/);
+    ).toMatch(/app/);
   });
 
-  it("runs as the person after a sign-in in the last ten minutes", async () => {
-    expect(await standing(install, { unproven: true, fresh: true, contentOnly: false })).toEqual({
-      run: "person",
-    });
+  it("runs as the person from a socket that proved it", () => {
+    expect(standing(install, false)).toEqual({ run: "person" });
   });
 
-  it("from the app or a paired device runs as the person without asking for a sign-in", async () => {
-    let asked = false;
-    const decided = await hostMarketStanding({
-      operation: install,
-      unproven: false,
-      fresh: async () => {
-        asked = true;
-        return false;
-      },
-      contentOnly: () => false,
-    });
-    expect(decided).toEqual({ run: "person" });
-    expect(asked).toBe(false);
+  it("a search needs nothing more, wherever it comes from", () => {
+    expect(standing({ op: "search", query: "", offset: 0, limit: 50 }, true)).not.toHaveProperty(
+      "refusal",
+    );
   });
 
-  it("a search needs nothing more, wherever it comes from", async () => {
-    const search: MarketOperation = { op: "search", query: "", offset: 0, limit: 50 };
-    expect(
-      await standing(search, { unproven: true, fresh: false, contentOnly: false }),
-    ).not.toHaveProperty("refusal");
+  it("installing content only runs without the person, so a skill waits for them", () => {
+    expect(standing(install, true, true)).toEqual({ run: "without-person" });
   });
 
-  it("installing content only runs without the person's standing, so a skill waits for them", async () => {
-    expect(await standing(install, { unproven: true, fresh: false, contentOnly: true })).toEqual({
-      run: "without-person",
-    });
+  it("content only from a proven socket is still the person's install", () => {
+    expect(standing(install, false, true)).toEqual({ run: "person" });
   });
 
-  it("content only after a fresh sign-in is the person's install", async () => {
-    expect(await standing(install, { unproven: true, fresh: true, contentOnly: true })).toEqual({
-      run: "person",
-    });
-  });
-
-  it("content only is an install's exemption: withdrawing still needs the sign-in", async () => {
+  it("content only is an install's exemption: withdrawing and turning a skill on for bots aren't", () => {
     const withdraw = publish({ action: "withdraw", ...entry, reason: "Broken" });
-    expect(
-      await standing(withdraw, { unproven: true, fresh: false, contentOnly: true }),
-    ).toMatchObject({
-      refusal: { code: "reauth" },
-    });
-  });
-
-  it("turning a skill on for bots is the person's", async () => {
     const turnOn: MarketOperation = {
       op: "turnOnForBots",
       name: "triage-mail",
       hash: "a".repeat(64),
     };
-    expect(
-      await standing(turnOn, { unproven: true, fresh: false, contentOnly: true }),
-    ).toMatchObject({
-      refusal: { code: "reauth" },
-    });
-  });
-});
-
-describe("a sign-in counts as fresh only from a grant this build trusts, for this machine, now", () => {
-  const trusted = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
-  // A backend a host-token holder runs, publishing a key under the same id.
-  const forger = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
-  const signedIn = 1_000_000_000;
-  const trust = (now: number) => ({
-    keys: { keys: [grantPublicKey(trusted)] },
-    issuer: MARKET_GRANT_ISSUER,
-    now,
-    account: "user_1",
-    subject: "host-1",
-  });
-  /** A market grant minted `at`, for a sign-in at `signedIn`. */
-  const grant = (
-    at: number,
-    claims: { key?: typeof trusted; iss?: string; account?: string; subject?: string } = {},
-    kind: "machine" | "device" = "machine",
-  ) =>
-    signMarketGrant(
-      {
-        kind,
-        account: claims.account ?? "user_1",
-        subject: claims.subject ?? "host-1",
-        iat: at,
-        exp: at + 5 * 60_000,
-        iss: claims.iss ?? MARKET_GRANT_ISSUER,
-        emailVerified: true,
-        authAt: signedIn,
-      },
-      claims.key ?? trusted,
-    );
-  const minute = 60_000;
-
-  it("is fresh for a grant taken and checked within ten minutes of the sign-in", () => {
-    expect(verifiedSignInFresh(grant(signedIn + minute), trust(signedIn + minute))).toBe(true);
-  });
-
-  it("isn't fresh for a grant taken at 9m59s and replayed 5 minutes later, still unexpired", () => {
-    const taken = signedIn + 9 * minute + 59_000;
-    expect(verifiedSignInFresh(grant(taken), trust(taken))).toBe(true);
-    expect(verifiedSignInFresh(grant(taken), trust(taken + 5 * minute - 1))).toBe(false);
-  });
-
-  it("isn't fresh for an old sign-in, however well signed", () => {
-    const later = signedIn + 11 * minute;
-    expect(verifiedSignInFresh(grant(later), trust(later))).toBe(false);
-  });
-
-  it("allows the backend's clock a minute ahead of this daemon's, and no more", () => {
-    expect(verifiedSignInFresh(grant(signedIn), trust(signedIn - 59_000))).toBe(true);
-    expect(verifiedSignInFresh(grant(signedIn), trust(signedIn - 2 * minute))).toBe(false);
-  });
-
-  const now = signedIn + minute;
-  it.each([
-    ["for another account", () => grant(now, { account: "user_2" })],
-    ["for another machine", () => grant(now, { subject: "host-2" })],
-    ["a device's grant rather than this machine's", () => grant(now, {}, "device")],
-    ["signed by a key this build doesn't pin", () => grant(now, { key: forger })],
-    [
-      "carrying no valid signature",
-      () => `${grant(now).split(".")[0]}.${encodeBase64url(new Uint8Array(64))}`,
-    ],
-    ["from another issuer", () => grant(now, { iss: "evil.example" })],
-    ["not a grant at all", () => "not-a-grant"],
-  ])("isn't fresh for a grant %s", (_what, make) => {
-    expect(verifiedSignInFresh(make(), trust(now))).toBe(false);
+    for (const operation of [withdraw, turnOn])
+      expect(standing(operation, true, true)).toMatchObject({ refusal: { code: "reauth" } });
   });
 });

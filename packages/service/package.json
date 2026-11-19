@@ -12,7 +12,6 @@
     "./exit-codes": "./src/exit-codes.ts",
     "./desktop-update": "./src/desktop-update.ts",
     "./desktop-update-argument": "./src/desktop-update-argument.ts",
-    "./app-key": "./src/app-key.ts",
     "./version": "./src/version.ts",
     "./client-features": "./src/client-features.ts",
     "./spade": "./src/spade/index.ts",

@@ -12,6 +12,9 @@ use spade_store::StoreError;
 
 use super::Engine;
 use crate::services::{Launch, Line, Services};
+use crate::workspace::outside::{Bound, Warrant};
+use crate::workspace::shell::Launch as Decided;
+use spade_core::event::Authorized;
 
 impl Engine {
     /// Where bots' services run. Set once, by the server; `keep` services start again once Spade
@@ -54,6 +57,8 @@ impl Engine {
             return Err("A service name is 1 to 40 of letters, digits, - _ and .".to_owned());
         }
         services.folder(&bot, cwd)?;
+        // What the gate authorized for this call, carried to the launch (ADR 0171).
+        let (decided, warrant) = self.take_launch(key);
         self.registering("service", id);
         let id_of = self.ids.next("s");
         {
@@ -82,10 +87,14 @@ impl Engine {
                 cwd: cwd.to_owned(),
                 keep,
                 restarts: 0,
+                contained_only: decided == Decided::Contained,
+                // Kept, so a start again after a restart is held to the same verdict.
+                launch: warrant.as_ref().map(|w| w.limit),
+                bound: warrant.as_ref().and_then(|w| w.bound.stored()),
             });
             self.append(id, &started).map_err(|e| e.to_string())?;
         }
-        self.launch(id, &bot, &id_of, name, command, cwd)?;
+        self.launch(id, &bot, &id_of, name, command, cwd, decided, warrant)?;
         // Stop came between the write and the launch, and may have ended the service before its
         // process ran: the process stops too.
         let stopped = call.is_some_and(|call| {
@@ -103,6 +112,7 @@ impl Engine {
         Ok(id_of)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn launch(
         self: &Arc<Self>,
         id: &str,
@@ -111,6 +121,8 @@ impl Engine {
         name: &str,
         command: &str,
         cwd: &str,
+        decided: Decided,
+        warrant: Option<Warrant>,
     ) -> Result<(), String> {
         let Some(services) = self.services() else {
             return Err("Services are not available here.".to_owned());
@@ -122,6 +134,8 @@ impl Engine {
             name: name.to_owned(),
             command: command.to_owned(),
             cwd: cwd.to_owned(),
+            decided,
+            warrant,
         });
         if let Err(why) = &launched {
             self.service_ended(id, service, Ended::Failed, None, why);
@@ -284,6 +298,9 @@ impl Engine {
                             cwd: found.cwd.clone(),
                             keep: true,
                             restarts: found.restarts.saturating_add(1),
+                            contained_only: found.contained_only,
+                            launch: found.launch,
+                            bound: found.bound.clone(),
                         });
                         if self.record(&id, &again).is_ok() {
                             let _ = self.launch(
@@ -293,6 +310,24 @@ impl Engine {
                                 &found.name,
                                 &found.command,
                                 &found.cwd,
+                                // No gate decides a restart: it is held to the verdict that
+                                // started it. One it let start only held starts only held again,
+                                // or not at all; so does one an older build recorded no launch
+                                // for. Elsewhere its start passes that verdict's warrant, read
+                                // against its folder as it is now.
+                                match found.launch {
+                                    Some(limit)
+                                        if limit != Authorized::Contained
+                                            && !found.contained_only =>
+                                    {
+                                        Decided::Reviewed
+                                    }
+                                    _ => Decided::Contained,
+                                },
+                                found.launch.map(|limit| Warrant {
+                                    limit,
+                                    bound: Bound::from_stored(found.bound.clone()),
+                                }),
                             );
                         }
                     }
