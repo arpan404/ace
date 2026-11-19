@@ -151,9 +151,13 @@ html {
 }
 
 /*
- * Every page stands on the same plain ground, with a soft light falling from the top right. No pattern anywhere: cards and drawings are what the eye lands on.
+ * Every page stands on the same plain ground, with a soft light falling from the top right and
+ * ace's mark printed faintly behind it (components/site/Backdrop.astro). No pattern anywhere:
+ * cards and drawings are what the eye lands on.
  */
 body {
+  /* Its own layer, so the backdrop behind the page sits over this ground and under the text. */
+  isolation: isolate;
   margin: 0;
   background-color: var(--background);
   background-image: radial-gradient(80rem 38rem at 80% -10rem, var(--glow), transparent 70%);
@@ -243,6 +247,12 @@ code {
 .section {
   position: relative;
   padding-top: var(--section);
+}
+
+/* A page that ends on an ordinary section leaves the same room above the footer as one that
+   ends on the closing block. */
+main > .section:last-child:not(.closing) {
+  padding-bottom: clamp(88px, 12vw, 160px);
 }
 
 .section::before {

@@ -1,0 +1,165 @@
+---
+/*
+ * What stands behind every page: ace's mark, set in the letters of its own name
+ * (scripts/ascii-mark.ts) and printed so faintly it reads as the ground's grain rather than a
+ * picture. It stays put while the page scrolls over it, and the letters near the pointer come
+ * up a little, as if a lamp were held to them. Decoration only: it is hidden from assistive
+ * technology and takes no clicks.
+ */
+import { aceMarkBox, aceWing } from "../../brand/mark.ts";
+import { markRows } from "../../scripts/ascii-mark.ts";
+
+/* Geist Mono's letters are 0.6em wide; the rows are set 1.15em apart. */
+const advance = 0.6;
+const leading = 1.15;
+/* Two settings of the same mark: fewer, larger letters for a narrow screen, where finer ones
+   would blur into a texture, and more for a wide one. */
+const settings = [
+  { name: "coarse", columns: 96 },
+  { name: "fine", columns: 150 },
+].map(({ name, columns }) => ({
+  name,
+  width: columns * advance,
+  text: markRows({
+    wing: aceWing,
+    box: aceMarkBox,
+    columns,
+    cell: advance / leading,
+    word: "ace",
+  }).join("\n"),
+}));
+---
+
+<div class="backdrop" aria-hidden="true" data-backdrop>
+  <div class="layer">
+    {settings.map((setting) => <pre class={setting.name} style={`--columns:${setting.width}`} set:text={setting.text} />)}
+  </div>
+</div>
+
+<style>
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    /* The mark's width; each setting sizes its type so its columns fill it. */
+    --mark: min(150vw, 128vh);
+    /* It fades toward the side the words are read from, so little prints under a headline. */
+    mask-image: linear-gradient(to right, transparent 16%, #000 70%);
+  }
+
+  .layer {
+    position: absolute;
+    inset: 0;
+    color: color-mix(in srgb, var(--foreground) 5%, transparent);
+  }
+
+  /* The same letters again, brighter, seen only through a round opening at the pointer. The
+     script makes this layer the first time the pointer moves. */
+  .layer:global(.lamp) {
+    color: color-mix(in srgb, var(--foreground) 22%, transparent);
+    opacity: 0;
+    mask-image: radial-gradient(circle 240px at var(--mx, 50%) var(--my, 50%), #000, transparent);
+    transition: opacity 0.6s var(--ease-out);
+  }
+
+  :global(html[data-theme="light"]) .layer:global(.lamp) {
+    color: color-mix(in srgb, var(--foreground) 15%, transparent);
+  }
+
+  .backdrop[data-lit] .layer:global(.lamp) {
+    opacity: 1;
+  }
+
+  /* It stands to the right, running off the page's edge, and from tablet width up far enough
+     over to leave the text column clear. */
+  pre {
+    position: absolute;
+    top: 56%;
+    left: 60%;
+    margin: 0;
+    translate: -50% -50%;
+    font-family: var(--font-mono);
+    font-size: calc(var(--mark) / var(--columns));
+    font-weight: 500;
+    line-height: 1.15;
+  }
+
+  .fine {
+    display: none;
+  }
+
+  @media (min-width: 760px) {
+    pre {
+      top: 50%;
+      left: 76%;
+    }
+
+    .coarse {
+      display: none;
+    }
+
+    .fine {
+      display: block;
+    }
+  }
+
+  /* The mark drifts a little against the page as it scrolls, where the browser can tie an
+     animation to scrolling. */
+  @supports (animation-timeline: scroll()) {
+    @media (prefers-reduced-motion: no-preference) {
+      pre {
+        animation: drift linear both;
+        animation-timeline: scroll(root);
+      }
+    }
+  }
+
+  @keyframes drift {
+    from {
+      translate: -50% calc(-50% + 6vh);
+    }
+
+    to {
+      translate: -50% calc(-50% - 6vh);
+    }
+  }
+</style>
+
+<script>
+  /* The lamp: a brighter copy of the letters, shown through an opening that follows the pointer,
+     on devices that have one. */
+  const backdrop = document.querySelector<HTMLElement>("[data-backdrop]");
+  const layer = backdrop?.querySelector<HTMLElement>(".layer");
+  if (backdrop && layer && matchMedia("(hover: hover) and (pointer: fine)").matches) {
+    let lamp: HTMLElement | undefined;
+    let x = 0;
+    let y = 0;
+    let waiting = false;
+    const light = () => {
+      waiting = false;
+      if (!lamp) {
+        lamp = layer.cloneNode(true) as HTMLElement;
+        lamp.classList.add("lamp");
+        backdrop.append(lamp);
+      }
+      lamp.style.setProperty("--mx", `${x}px`);
+      lamp.style.setProperty("--my", `${y}px`);
+      backdrop.dataset.lit = "";
+    };
+    addEventListener(
+      "pointermove",
+      (event) => {
+        x = event.clientX;
+        y = event.clientY;
+        if (waiting) return;
+        waiting = true;
+        requestAnimationFrame(light);
+      },
+      { passive: true },
+    );
+    document.documentElement.addEventListener("pointerleave", () => delete backdrop.dataset.lit);
+  }
+</script>
