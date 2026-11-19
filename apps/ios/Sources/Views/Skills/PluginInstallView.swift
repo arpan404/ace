@@ -36,7 +36,7 @@ struct PluginInstallView: View {
                     if let found { listing(found) }
                     if let problem { ProblemRow(problem, id: "plugins.install.problem") }
                     Button(busy ? "Fetching…" : found == nil ? "Find plugins" : "Review installation") { act() }
-                        .buttonStyle(.textAction(.prominent))
+                        .buttonStyle(.primaryAction).controlSize(.large)
                         .disabled(busy || repository.trimmingCharacters(in: .whitespaces).isEmpty || (found != nil && name.isEmpty) || !model.canOperate)
                         .padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("plugins.install.next")

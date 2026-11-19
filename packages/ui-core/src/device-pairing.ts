@@ -147,16 +147,21 @@ export function fleetRefusal(code: string, machine: string): string {
 /** What agents on a linked machine may do on the machine it reaches. */
 export type LinkAccess = "read" | "operate";
 
-/** The scopes the reached machine's pairing grants a link: never administrator. */
+/**
+ * The scopes the reached machine's pairing grants a link: never administrator. A link that acts
+ * there also takes the person's work there ("Continue on…", ADR 0101), so Projects comes with
+ * operate; the reached machine's Settings › Fleet can stop allowing it.
+ */
 export function linkScopes(access: LinkAccess): PairingScope[] {
-  return access === "operate" ? ["read", "operate"] : ["read"];
+  return access === "operate" ? ["read", "operate", "projects"] : ["read"];
 }
 
 /** Why `to` couldn't make a pairing link for a link, in words the person acts on. */
 export function linkPairingProblem(code: string, to: string): string {
   if (code === "unavailable") return `Turn on remote access on ${to}.`;
+  // Projects this device can't grant are already dropped from the link; this is administrator.
   if (code === "forbidden")
-    return `This device doesn't have administrator access to ${to}. Pair it again as Administrator.`;
+    return `This device isn't an administrator on ${to}, so it can't link it. Pair it again as Administrator.`;
   if (code === "busy") return `${to} has too many pairing links open. Cancel one first.`;
   return `${to} didn't make a pairing link.`;
 }

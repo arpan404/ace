@@ -40,6 +40,24 @@ function closeText(state: ThreadState, key: string, events: EventPayload[]): voi
   emit(events, { type: "item.updated", item });
 }
 
+/**
+ * The requests a turn that ended on its own leaves open: answers already on their way, and the
+ * host's browser help, which outlives the turn by design (the person's Done reaches the thread as
+ * its next message, and a new turn withdraws it). Interruption keeps none of them.
+ */
+export function outlivingTurn(
+  state: ThreadState,
+  resolving: ReadonlySet<InteractionId> | undefined,
+): ReadonlySet<InteractionId> {
+  const kept = new Set(resolving);
+  for (const key of pendingInteractionKeys(state)) {
+    const interaction = state.interactions[key];
+    if (interaction?.state === "pending" && interaction.request.kind === "browser_help")
+      kept.add(interaction.id);
+  }
+  return kept;
+}
+
 export function cancelOpenWork(
   state: ThreadState,
   agentId: AgentId,

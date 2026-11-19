@@ -67,7 +67,7 @@ struct BrowserTabsSheet: View {
                     .accessibilityIdentifier("browser.tab.\(tab.id)")
                 }
                 if let more = state?.moreTabs, more > 0 {
-                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.textAction())
+                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.rowAction)
                         .browserRow()
                 }
             }
@@ -177,7 +177,7 @@ struct BrowserDownloadsSheet: View {
             .accessibilityValue("\(Int((saving?.progress ?? 0) * 100)) percent")
             .transition(.opacity)
         } else if download.saveable == true {
-            Button(saving?.phase == "failed" ? "Retry" : "Save") { model.browserSave(download.id) }
+            Button(saving?.phase == "failed" ? "Try again" : "Save") { model.browserSave(download.id) }
                 .buttonStyle(.textAction())
                 .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)

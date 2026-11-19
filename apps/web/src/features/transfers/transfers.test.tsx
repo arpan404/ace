@@ -14,7 +14,7 @@ test("a thread continues on a linked machine: progress, then the project and a n
   await app.open("/t/thread-forecast");
   const dialog = await continueOn();
 
-  // Linked machines are listed; ones that can't take it now say why and can't be chosen.
+  // Linked machines are listed; ones that can't take it now say why, and an offline one can't be chosen.
   const machines = await within(dialog).findByRole("listbox", { name: "Machines" });
   await waitFor(() =>
     expect(

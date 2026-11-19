@@ -127,8 +127,9 @@ function codeWords(code: string | undefined, machine: string): string {
     case "machine_unavailable":
       return `${machine} is offline or unreachable. Try again once it's on.`;
     case "machine_forbidden":
+      return `${machine} doesn't allow projects from this machine. Allow them on ${machine} in Settings › Fleet.`;
     case "machine_refused":
-      return `${machine} doesn't allow projects from this machine. Link it again with Projects allowed.`;
+      return `${machine} doesn't accept this machine's link. Link them again in Settings › Fleet.`;
     // Cancelling.
     case "too_late":
       return `It already reached ${machine}; the work is there now.`;

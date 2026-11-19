@@ -152,7 +152,11 @@ struct AddRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.groupGlyph
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.defaultMinListRowHeight) private var listRowHeight
     var body: some View {
+        // As tall as the list's other rows, as a row action is (AceButtonStyles.swift): a list that
+        // holds rows to a tap's height gets no extra height, and the tap reaches into the row's padding.
+        let listHolds = listRowHeight >= AceDesign.Size.tap
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.groupGlyphGap) {
             Image(systemName: "plus").font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.strong))
                 .frame(width: glyphSize).accessibilityHidden(true)
@@ -161,8 +165,10 @@ struct AddRow: View {
         }
         .foregroundStyle(AceDesign.Ink.action)
         .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
-        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: listHolds ? nil : AceDesign.Size.rowLine, alignment: .leading)
+        .padding(.vertical, listHolds ? AceDesign.Space.row : 0)
         .contentShape(Rectangle())
+        .padding(.vertical, listHolds ? -AceDesign.Space.row : 0)
     }
 }
 

@@ -1,0 +1,56 @@
+---
+/*
+ * An agent's own pointer, with its name, in ace's orange. The drawing that holds it places it
+ * (`:global(.pointer)` with its own offsets); it arrives once as its tile comes into view and
+ * drifts against the window as the visitor's pointer moves (`--px`, `--py`).
+ */
+interface Props {
+  name: string;
+}
+
+const { name } = Astro.props;
+---
+
+<span class="pointer">
+  <svg width="18" height="18" viewBox="0 0 18 18">
+    <path d="M3 2l11 5.5-4.7 1.8L7.5 14z"></path>
+  </svg>
+  {name}
+</span>
+
+<style>
+  .pointer {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 9px 3px 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  svg {
+    margin: -12px 0 0 -14px;
+    fill: var(--accent);
+    stroke: #fff;
+    stroke-width: 1.2;
+  }
+
+  :global(html.motion .piece.is-in) .pointer {
+    animation: arrive 1.1s var(--ease-out) 0.5s both;
+  }
+
+  @keyframes arrive {
+    from {
+      transform: translate(-150px, -70px);
+      opacity: 0;
+    }
+  }
+</style>

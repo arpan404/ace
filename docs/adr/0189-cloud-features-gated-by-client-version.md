@@ -57,9 +57,11 @@ ace-client: <app>/<version>
 - **Browsers never send the header.** The web app, the desktop app's renderer and their
   workers carry the same value in the `ace-client` query parameter, on every request and
   upgrade. A WebSocket upgrade can't set headers, and a custom header on a cross-origin call
-  adds a CORS preflight: the web app at app.acehq.dev builds from `main` on merge, before the
-  cloud deploys, and an older cloud's preflight refuses the header, which would break sign-in.
-  A query parameter needs no preflight, so a browser build and any cloud work in either order.
+  adds a CORS preflight, and an older cloud's preflight refuses the header, which would break
+  sign-in for a browser build that reaches people before its cloud (the web app at
+  app.acehq.dev did, building from `main` on merge, and a person's own daemon serves its web app
+  at its own pace). A query parameter needs no preflight, so a browser build and any cloud work
+  in either order.
 - Apps outside a browser (daemon, CLI, desktop main process, Spade) send the header.
 - The servers read the header first, then the parameter, on every request. A present header
   wins over the parameter, even a garbled one.
@@ -123,6 +125,9 @@ cloud or the market goes through it, never a copy per call site.
 - **Web** (also the desktop app's renderer): `web/<version>` from the build's `ACE_VERSION`
   (`VITE_ACE_VERSION`), `web/development` under Vite's dev server, none otherwise; as the query
   parameter on account calls (`accountFetch`) and on the account machine's relay route.
+  app.acehq.dev carries the latest stable release's version: the release pipeline deploys it
+  from the tag with `ACE_VERSION` set ([ADR 0188](0188-tag-driven-release-pipeline.md), "The web
+  app follows releases"), so it is a known client, not an unknown one.
 - **CLI**: `cli/<version>` (as `ace --version` reads it) on the market maintainer tools' calls.
   The CLI's other traffic goes through the daemon.
 - **Spade** (Rust): `spade/<ACE_SPADE_VERSION>` or `spade/development` on its sign-in broker

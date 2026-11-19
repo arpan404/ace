@@ -201,7 +201,7 @@ export class OutgoingTransfers {
       throw error instanceof MachineFailure && error.kind === "refused"
         ? new TransferError(
             "machine_forbidden",
-            `${input.target.name} doesn't accept this machine's link. Link the machines again with Projects allowed.`,
+            `${input.target.name} doesn't accept this machine's link. Link the machines again in Settings › Fleet.`,
           )
         : new TransferError(
             "machine_offline",
@@ -211,7 +211,7 @@ export class OutgoingTransfers {
     if (!accepts)
       throw new TransferError(
         "machine_forbidden",
-        `${input.target.name} doesn't let this machine move projects there. Link the machines again with Projects allowed.`,
+        `${input.target.name} doesn't let this machine move projects there. Allow projects for it on ${input.target.name} in Settings › Fleet.`,
       );
     // One move of a thread at a time: checked right before the row is written, with nothing
     // awaited in between, so of two concurrent starts only one gets in.

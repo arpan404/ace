@@ -1,0 +1,278 @@
+---
+/*
+ * Computer use: a spreadsheet app on the Mac, with Codex filling in a total in the background
+ * while the strip at the foot says it is using the app. Its pointer arrives on the empty cell,
+ * the cell takes the selection and the sum appears in it and in the formula bar.
+ */
+import AgentPointer from "./AgentPointer.astro";
+import UsingStrip from "./UsingStrip.astro";
+
+const columns = ["A", "B", "C", "D", "E"];
+const rows = [
+  ["Item", "Q3", "Q4"],
+  ["Hosting", "4,200", "4,800"],
+  ["Contractors", "9,000", "7,500"],
+];
+---
+
+<div class="win app">
+  <div class="bar">
+    <span class="lights">
+      <i></i>
+      <i></i>
+      <i></i>
+    </span>
+    <span class="title">
+      <b>Q4 budget</b>
+      <span>Edited</span>
+    </span>
+    <span class="tools">
+      <span>Insert</span>
+      <span>Table</span>
+      <span>Chart</span>
+      <span>Share</span>
+    </span>
+  </div>
+  <div class="formula">
+    <span class="ref">C4</span>
+    <code>=SUM(C2:C3)</code>
+  </div>
+  <div class="sheet">
+    <div class="r head">
+      <span></span>
+      {columns.map((column) => <span>{column}</span>)}
+    </div>
+    {
+      rows.map((cells, index) => (
+        <div class:list={["r", index === 0 && "labels"]}>
+          <span>{index + 1}</span>
+          {columns.map((_, column) => (
+            <span>{cells[column] ?? ""}</span>
+          ))}
+        </div>
+      ))
+    }
+    <div class="r total">
+      <span>4</span>
+      <span>Total</span>
+      <span>13,200</span>
+      <span class="target">
+        <em>12,300</em>
+        <AgentPointer name="Codex" />
+      </span>
+      <span></span>
+      <span></span>
+    </div>
+    {
+      [5, 6].map((number) => (
+        <div class="r">
+          <span>{number}</span>
+          {columns.map(() => (
+            <span />
+          ))}
+        </div>
+      ))
+    }
+  </div>
+  <UsingStrip who="Codex" what="this app" />
+</div>
+
+<style>
+  .app {
+    bottom: -40px;
+  }
+
+  .app :global(.using) {
+    bottom: 40px;
+  }
+
+  /* A Mac window's unified title bar: the window's controls, the document, the app's tools. */
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 44px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--raised);
+  }
+
+  .lights {
+    display: flex;
+    gap: 7px;
+  }
+
+  .lights i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .title {
+    display: grid;
+    min-width: 0;
+    line-height: 1.2;
+  }
+
+  .title b {
+    font-weight: 600;
+  }
+
+  .title span {
+    color: var(--faint);
+    font-size: 11px;
+  }
+
+  .tools {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .tools span {
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  .tools span:last-child {
+    margin-left: 8px;
+    border: 1px solid var(--border-strong);
+  }
+
+  .formula {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 30px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .ref {
+    width: 32px;
+    color: var(--muted);
+  }
+
+  .formula code {
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
+  }
+
+  /* The sheet: column letters, row numbers, hairline cells. */
+  .sheet {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .r {
+    display: grid;
+    grid-template-columns: 30px 1.5fr repeat(4, 1fr);
+    height: 26px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .r > span {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 0 9px;
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .r > span:nth-child(2) {
+    justify-content: flex-start;
+  }
+
+  .r > span:first-child,
+  .head > span {
+    justify-content: center;
+    background: var(--raised);
+    color: var(--faint);
+    font-size: 11px;
+  }
+
+  .head {
+    height: 22px;
+  }
+
+  .labels > span:not(:first-child),
+  .total > span:not(:first-child) {
+    font-weight: 600;
+  }
+
+  .labels > span:not(:first-child) {
+    color: var(--muted);
+  }
+
+  /* The cell the agent fills: it takes the selection, and the sum appears in it. */
+  .target {
+    position: relative;
+    box-shadow: inset 0 0 0 2px var(--foreground);
+  }
+
+  .target em {
+    font-style: normal;
+  }
+
+  .target :global(.pointer) {
+    left: 10%;
+    top: 88%;
+  }
+
+  /* A narrow window drops the toolbar and the empty last column; a narrower one the formula bar
+     and both empty columns, so the total stays clear of the strip. */
+  @container (max-width: 420px) {
+    .tools {
+      display: none;
+    }
+
+    .r {
+      grid-template-columns: 26px 1.5fr repeat(3, 1fr);
+    }
+
+    .r > span:last-child {
+      display: none;
+    }
+  }
+
+  @container (max-width: 340px) {
+    .formula {
+      display: none;
+    }
+
+    .r {
+      grid-template-columns: 26px 1.4fr repeat(2, 1fr);
+    }
+
+    .r > span:nth-child(5) {
+      display: none;
+    }
+  }
+
+  :global(html.motion .piece.is-in) .target {
+    animation: select 0.3s var(--ease-out) 1.6s both;
+  }
+
+  :global(html.motion .piece.is-in) :is(.target em, .formula code) {
+    animation: appear 0.4s var(--ease-out) 1.75s both;
+  }
+
+  @keyframes select {
+    from {
+      box-shadow: inset 0 0 0 2px transparent;
+    }
+  }
+
+  @keyframes appear {
+    from {
+      opacity: 0;
+    }
+  }
+</style>

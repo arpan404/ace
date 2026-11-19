@@ -1,0 +1,111 @@
+---
+/* A thread's diff, with the person's comment landing on a line. */
+import { diff } from "../../../content/stage.ts";
+
+const file = diff.files[0];
+---
+
+{
+  file && (
+    <div class="win diff">
+      <div class="filehead">
+        <code>{file.path}</code>
+        <span>
+          <ins>+{file.added}</ins> <del>−{file.removed}</del>
+        </span>
+      </div>
+      <div class="lines">
+        {file.lines.map((line) => (
+          <span class:list={["line", "kind" in line ? line.kind : undefined]}>
+            <i>{"new" in line ? line.new : ""}</i>
+            {line.text}
+          </span>
+        ))}
+      </div>
+      <div class="comment">
+        <b>You</b>
+        Send the ack only after the last event.
+      </div>
+    </div>
+  )
+}
+
+<style>
+  .diff {
+    bottom: -30px;
+  }
+
+  .filehead {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .filehead ins,
+  .filehead del {
+    font-family: var(--font-mono);
+    text-decoration: none;
+  }
+
+  ins {
+    color: var(--status-done);
+  }
+
+  del {
+    color: var(--status-failed);
+  }
+
+  .lines {
+    display: grid;
+    padding: 6px 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.75;
+  }
+
+  .line {
+    overflow: hidden;
+    padding-right: 12px;
+    white-space: pre;
+    text-overflow: clip;
+  }
+
+  .line i {
+    display: inline-block;
+    width: 38px;
+    padding-right: 10px;
+    color: var(--faint);
+    font-style: normal;
+    text-align: right;
+  }
+
+  .line.add {
+    background: color-mix(in srgb, var(--status-done) 13%, transparent);
+  }
+
+  .line.del {
+    background: color-mix(in srgb, var(--status-failed) 12%, transparent);
+  }
+
+  .comment {
+    margin: 4px 14px 0 48px;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  .comment b {
+    margin-right: 8px;
+    font-weight: 600;
+  }
+
+  :global(html.motion .piece.is-in) .comment {
+    animation: rise 0.6s var(--ease-out) 0.7s both;
+  }
+</style>

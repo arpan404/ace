@@ -1,9 +1,9 @@
 ---
 /*
- * Questions with answers that open in place. Answers stay in the HTML when closed, so search
+ * Questions with answers that open in place: the heading on one side, the questions as ruled
+ * rows in a card on the other, as the site's other lists are laid out. Answers stay in the HTML when closed, so search
  * engines read them, and the page's FAQPage data (schema.ts) lists the same entries.
  */
-import Icon from "./Icon.astro";
 
 interface Props {
   items: { question: string; answer: string }[];
@@ -18,10 +18,17 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
 ---
 
 <section id={id} class="section page faq">
-  <div class="reveal">
+  <div class="say reveal">
     <h2 class="section-title">{heading}</h2>
+    {
+      moreHref && (
+        <a class="text-link" href={moreHref}>
+          All questions
+        </a>
+      )
+    }
   </div>
-  <div class="list reveal" data-stagger>
+  <div class="card list reveal">
     {
       items.map((entry) => (
         <details>
@@ -34,44 +41,38 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
       ))
     }
   </div>
-  {
-    moreHref && (
-      <p class="more">
-        <a class="text-link" href={moreHref}>
-          All questions
-        </a>
-        <Icon name="arrow-right" size={14} />
-      </p>
-    )
-  }
 </section>
 
 <style>
   .faq {
-    max-width: calc(760px + var(--gutter) * 2);
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: start;
   }
 
-  .faq > div:first-child {
-    text-align: center;
+  @media (min-width: 900px) {
+    .faq {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
   }
 
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(32px, 4.4vw, 56px);
+  }
+
+  .say .text-link {
+    display: inline-block;
+    margin-top: 20px;
+  }
+
+  /* The questions: flat rows ruled with hairlines, as the app rules a list. */
   .list {
-    margin-top: 48px;
+    padding: 6px;
+  }
+
+  details + details {
     border-top: 1px solid var(--border);
-  }
-
-  .more {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    margin-top: 32px;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  details {
-    border-bottom: 1px solid var(--border);
   }
 
   summary {
@@ -79,8 +80,10 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    padding: 22px 0;
+    padding: 17px 14px;
+    border-radius: 8px;
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease-out);
     list-style: none;
   }
 
@@ -88,8 +91,13 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
     display: none;
   }
 
+  summary:hover {
+    background: var(--wash);
+  }
+
   h3 {
     font-size: 16px;
+    font-weight: 500;
   }
 
   /* A plus that turns into a minus when the answer is open. */
@@ -121,9 +129,10 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
 
   details p {
     max-width: 40em;
-    padding-bottom: 24px;
+    padding: 0 14px 20px;
     color: var(--muted);
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.6;
   }
 
 </style>

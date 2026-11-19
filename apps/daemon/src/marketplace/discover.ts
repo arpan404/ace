@@ -61,10 +61,11 @@ function discoverOf(
       line: collection.line,
       entries: summaries(source, marks, collection.entries),
     })),
-    publishers: body.publishers.map((publisher) => ({
+    publishers: body.publishers.map(({ official: _claimed, ...publisher }) => ({
       ...publisher,
       // Top publishers carry handles, not ids: the signed list names both.
       verified: badges.verifiedHandle(publisher.handle),
+      ...(badges.officialHandle(publisher.handle) ? { official: true } : {}),
     })),
     rankedAt: body.rankedAt,
     readAt,
@@ -118,13 +119,18 @@ export async function publisherPage(
   const body = MarketPublisherBody.safeParse(raw);
   if (!body.success)
     return failure("failed", "The market's publisher page isn't in a form this build reads");
-  const { profile } = body.data;
+  const { official: _claimed, ...profile } = body.data.profile;
   const { badges } = ports.marks;
   const verified = badges.verified(profile.id);
   return {
     op: "publisher",
     page: {
-      profile: { ...profile, verified, proofs: verified ? badges.proofs(profile.id) : [] },
+      profile: {
+        ...profile,
+        verified,
+        ...(badges.official(profile.id) ? { official: true } : {}),
+        proofs: verified ? badges.proofs(profile.id) : [],
+      },
       pinned: summaries(source, ports.marks, body.data.pinned),
       entries: summaries(source, ports.marks, body.data.entries),
       downloads: body.data.downloads,
