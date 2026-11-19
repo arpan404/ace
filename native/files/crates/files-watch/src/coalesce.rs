@@ -8,6 +8,13 @@
 //! into one rescan of the narrowest folder that holds them; it is sent when the burst goes
 //! quiet, so the walk it starts sees the finished tree. A change that arrives after that is
 //! reported in the next window, and a fresh over-limit burst is a fresh rescan.
+//!
+//! A folder that keeps changing across several windows is walked once too. A backend may hand a
+//! burst over in chunks smaller than `max_batch`, and may lose some of them without saying so, so
+//! a burst that is replayed change by change depends on every one of them arriving. Past
+//! `BURST_LIMIT` changes in one folder inside `BURST_WINDOW` the window becomes a rescan of that
+//! folder instead: one walk finds what the events described, whatever the backend managed to
+//! deliver.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -23,6 +30,14 @@ const CHECKPOINT_PERIODS: u32 = 5;
 /// The shortest interval between checkpoint rescans, whatever `max_wait` is: each one starts a
 /// walk of the tree, and a short window must not turn a settling burst into a walk storm.
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
+
+/// How many changes one folder may report inside [`BURST_WINDOW`] before the window becomes a
+/// rescan of that folder. Ordinary editing is far below this; a checkout, a formatter or a burst
+/// of generated files is far above it.
+const BURST_LIMIT: usize = 500;
+
+/// How far back the changes counted against [`BURST_LIMIT`] reach.
+const BURST_WINDOW: Duration = Duration::from_secs(5);
 
 /// Collects events into windows and turns them into batches.
 pub(crate) struct Coalescer {
@@ -45,6 +60,9 @@ pub(crate) struct Coalescer {
     /// Whether anything arrived since the last settle, which is how a rescan tells a new
     /// burst from the tail of the one it already reported.
     activity: bool,
+    /// Changes per folder since that folder's first change inside [`BURST_WINDOW`], so a burst
+    /// that arrives in chunks smaller than `max_batch` still becomes one walk.
+    bursts: BTreeMap<String, (Instant, usize)>,
 }
 
 impl Coalescer {
@@ -59,6 +77,7 @@ impl Coalescer {
             first: None,
             last: None,
             activity: false,
+            bursts: BTreeMap::new(),
         }
     }
 
@@ -81,6 +100,7 @@ impl Coalescer {
             self.widen(&change);
             return;
         }
+        let folder_with_news = folder_of(&change).to_owned();
         let path = change.path;
         let holds_a_change = self.holds_a_change(&path);
         let observed = self.paths.entry(path.clone()).or_default();
@@ -97,6 +117,25 @@ impl Coalescer {
             folder = parent(folder);
         }
         if self.paths.len() > self.max_batch {
+            self.begin_from_paths(now);
+            return;
+        }
+        self.count_burst(&folder_with_news, now);
+    }
+
+    /// Turns a folder that keeps changing into one rescan of itself.
+    ///
+    /// The window is already over what one folder can reasonably re-report change by change, even
+    /// though each window stayed under `max_batch`: a backend handing a burst over in chunks, or
+    /// losing some of them, would leave the tree short of what happened. A walk of that folder
+    /// finds the truth instead of trusting the events.
+    fn count_burst(&mut self, folder: &str, now: Instant) {
+        let entry = self.bursts.entry(folder.to_owned()).or_insert((now, 0));
+        if now.saturating_duration_since(entry.0) > BURST_WINDOW {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        if entry.1 > BURST_LIMIT {
             self.begin_from_paths(now);
         }
     }
@@ -198,6 +237,7 @@ impl Coalescer {
                 // ends: report what the tree is now, and cover everything after it with the
                 // final rescan (or another checkpoint).
                 self.sent = Some(now);
+                self.bursts.clear();
                 return Some(Batch::Rescan {
                     dir: (!scope.is_empty()).then(|| scope.join("/")),
                 });
@@ -206,6 +246,7 @@ impl Coalescer {
             self.sent = None;
             self.first = None;
             self.last = None;
+            self.bursts.clear();
             return Some(Batch::Rescan {
                 dir: (!scope.is_empty()).then(|| scope.join("/")),
             });
@@ -427,6 +468,48 @@ mod tests {
                 dir: Some("burst".to_owned())
             }],
             "the burst reaches the caller as one rescan of its folder"
+        );
+    }
+
+    #[test]
+    fn a_folder_that_keeps_changing_becomes_one_rescan() {
+        // A backend may hand a burst over in chunks smaller than max_batch, and may lose some of
+        // them: past the burst limit a folder is walked once instead of being replayed change by
+        // change, so the tree ends up right whatever arrived.
+        let mut coalescer = Coalescer::new(DEBOUNCE, MAX_WAIT, 1_000_000);
+        let start = Instant::now();
+        for window in 0..3 {
+            for index in 0..300 {
+                coalescer.push(
+                    notice(
+                        &format!("many/file{}", window * 300 + index),
+                        ChangeKind::Created,
+                    ),
+                    start,
+                );
+            }
+            let settled = coalescer.settle(
+                start + Duration::from_millis(window as u64 + 1),
+                &mut Exists,
+            );
+            if window == 0 {
+                assert!(
+                    matches!(settled, Some(Batch::Changes(_))),
+                    "a window under the burst limit is replayed: {settled:?}"
+                );
+            } else {
+                assert_eq!(
+                    settled, None,
+                    "past the limit the window is a rescan, held until the burst is quiet"
+                );
+            }
+        }
+        assert_eq!(
+            coalescer.settle(start + Duration::from_secs(2), &mut Exists),
+            Some(Batch::Rescan {
+                dir: Some("many".to_owned())
+            }),
+            "the folder is walked once instead"
         );
     }
 
