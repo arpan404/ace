@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { landingBranchName, machineSlug, normalizeRemoteUrl } from "./index.ts";
+import { isLocalRemoteKey } from "./remote-url.ts";
 
 test("every spelling of one hosted repository normalises to the same key", () => {
   const spellings = [
@@ -146,4 +147,39 @@ test("a branch at the commit but checked out in a worktree is passed over for a 
       occupied: new Set(["main"]),
     }),
   ).toEqual({ branch: "main-from-studio", existing: false });
+});
+
+test("a remote on a non-default port is another repository; the scheme's default port is not", () => {
+  const keys = [
+    "ssh://git@forge:2222/team/app.git",
+    "ssh://git@forge:2223/team/app.git",
+    "git@forge:team/app.git",
+    "https://forge:8443/team/app.git",
+    "forge:2222/team/app.git",
+  ].map((url) => normalizeRemoteUrl(url));
+  expect(new Set(keys).size).toBe(keys.length);
+  expect(normalizeRemoteUrl("ssh://git@forge:22/team/app")).toBe(
+    normalizeRemoteUrl("git@forge:team/app.git"),
+  );
+  expect(normalizeRemoteUrl("https://forge:443/team/app")).toBe(
+    normalizeRemoteUrl("http://forge:80/team/app"),
+  );
+  expect(normalizeRemoteUrl("ssh://git@[::1]:2222/team/app")).not.toBe(
+    normalizeRemoteUrl("ssh://git@[::1]/team/app"),
+  );
+});
+
+test("a drive's root and every local spelling read as this machine's own disk", () => {
+  for (const url of [
+    "file:///C:/",
+    "file:///D:",
+    "C:\\",
+    "C:/repos/app",
+    "/srv/git/app.git",
+    "file://nas/repos/app",
+    "../app",
+  ])
+    expect(isLocalRemoteKey(normalizeRemoteUrl(url, "/home/me")), url).toBe(true);
+  for (const url of ["git@c:repo.git", "ssh://c:2222/repo", "https://github.com/o/r"])
+    expect(isLocalRemoteKey(normalizeRemoteUrl(url)), url).toBe(false);
 });
