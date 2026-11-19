@@ -16,7 +16,7 @@ use files_safe::Root;
 use crate::Error;
 use crate::describe::Walks;
 use crate::handle::{self, Noclobber, Staged};
-use crate::journal::Journal;
+use crate::journal::{self, Journal};
 use crate::version;
 
 /// What a save did.
@@ -124,6 +124,13 @@ fn save(
     // Open the folder for syncing before the rename. A folder this process may write but not
     // read cannot be synced, and the save must fail while the old file is still in place.
     let syncable = handle::syncable(&dir)?;
+    // A versioned save writes a journal beside the checkout's others and cleans up an entry it
+    // displaced, so it holds the one lock a start also takes: a second helper can never replay a
+    // save whose swap is still in flight.
+    let _lock = match expected {
+        Some(_) => Some(journal::lock_saves(root)?),
+        None => None,
+    };
     before_publish();
     let published = match expected {
         None => publish_new(&dir, &name, &mut staged)?,
@@ -305,6 +312,7 @@ fn exchange_publish(
         version::identity_of_entry(dir, name, guard)?,
         None,
     )?;
+    crate::hooks::reached(crate::hooks::Step::BeforeSaveSwap, path, path);
     if crate::hooks::halted(crate::hooks::Step::BeforeSaveSwap, path) {
         // A crash leaves the copy and the journal exactly where they are, so the staging name is
         // not given back to its drop guard.
@@ -316,15 +324,40 @@ fn exchange_publish(
         return Ok(None);
     }
     let displaced_name = staged.release();
+    crate::hooks::reached(crate::hooks::Step::AfterSaveSwap, path, path);
     if crate::hooks::halted(crate::hooks::Step::AfterSaveSwap, path) {
         return Err(Error::Aborted);
     }
     // Our copy holds the target from here on. Every failure below is about the entry that the
     // exchange displaced, never about the save: report it beside the committed outcome and keep
     // that entry where a person can find it.
-    let warning = settle_displaced(dir, name, &displaced_name, expected, guard);
-    journal.finish();
+    let mut warning = settle_displaced(dir, name, &displaced_name, expected, guard);
+    // The record names the entry the exchange displaced. It goes only once that entry is back at
+    // its own name or visibly beside it, and only after the folder says so durably: a crash in
+    // between must replay the recovery, not lose the entry and its record together.
+    if displaced_stays_hidden(dir, &displaced_name) {
+        warning = warning.or(Some(SaveWarning::NotCleanedUp(format!(
+            "{displaced_name} is still under a private name"
+        ))));
+    } else {
+        match handle::sync(dir) {
+            Ok(()) => journal.finish(),
+            Err(error) => {
+                warning = warning.or(Some(SaveWarning::NotDurable(error.to_string())));
+            }
+        }
+    }
     Ok(Some(Published::Done(warning)))
+}
+
+/// Whether a private name still holds an entry. A check that cannot read the name counts as
+/// hidden: the record is the only way a later start could find what is there.
+#[cfg(unix)]
+fn displaced_stays_hidden(dir: &Dir, name: &str) -> bool {
+    match dir.symlink_metadata(name) {
+        Ok(_) => true,
+        Err(error) => error.kind() != ErrorKind::NotFound,
+    }
 }
 
 /// Deals with the entry the exchange put at the staging name: the caller's own version goes, and
@@ -464,6 +497,7 @@ fn guarded_replace(
         version::identity_of_handle(&target, &metadata)?,
         Some(&preserved),
     )?;
+    crate::hooks::reached(crate::hooks::Step::BeforeSaveSwap, path, path);
     if crate::hooks::halted(crate::hooks::Step::BeforeSaveSwap, path) {
         return Err(Error::Aborted);
     }
@@ -486,13 +520,16 @@ fn guarded_replace(
             };
         }
     }
+    crate::hooks::reached(crate::hooks::Step::AfterSaveSwap, path, path);
     if crate::hooks::halted(crate::hooks::Step::AfterSaveSwap, path) {
         // A crash leaves the copy and the journal exactly where they are.
         let _ = staged.release();
         return Err(Error::Aborted);
     }
-    // The old file is whole under `preserved`; the name is free for the copy.
-    let published = match handle::rename_noclobber(dir, staged.name(), dir, name) {
+    // The old file is whole under `preserved`; the name is free for the copy. Each outcome says
+    // whether the guarded entry is still under a private name, because the record may only go once
+    // it is back at the name or visibly beside it.
+    let (mut published, hidden) = match handle::rename_noclobber(dir, staged.name(), dir, name) {
         Ok(Noclobber::Done) => {
             staged.release();
             // Delete only the entry this handle still proves is the guarded one. A write that
@@ -507,19 +544,29 @@ fn guarded_replace(
                     })
             });
             if guarded == Some(true) {
-                Ok(match handle::delete_by_handle(&target) {
-                    Ok(()) => Published::Done(None),
-                    Err(error) => Published::Done(Some(SaveWarning::NotCleanedUp(format!(
-                        "{preserved}: {error}"
-                    )))),
-                })
+                match handle::delete_by_handle(&target) {
+                    Ok(()) => (Ok(Published::Done(None)), false),
+                    Err(error) => (
+                        Ok(Published::Done(Some(SaveWarning::NotCleanedUp(format!(
+                            "{preserved}: {error}"
+                        ))))),
+                        true,
+                    ),
+                }
             } else {
                 let kept = handle::recovery_name(name);
-                let at = match handle::rename_handle_noclobber(&target, dir, &kept) {
-                    Ok(Noclobber::Done) => kept,
-                    _ => preserved.clone(),
-                };
-                Ok(Published::Done(Some(SaveWarning::Preserved(at))))
+                match handle::rename_handle_noclobber(&target, dir, &kept) {
+                    Ok(Noclobber::Done) => (
+                        Ok(Published::Done(Some(SaveWarning::Preserved(kept)))),
+                        false,
+                    ),
+                    _ => (
+                        Ok(Published::Done(Some(SaveWarning::Preserved(
+                            preserved.clone(),
+                        )))),
+                        true,
+                    ),
+                }
             }
         }
         refused => {
@@ -536,33 +583,57 @@ fn guarded_replace(
                 // The guarded file cannot go back, so it is kept whole under a name a person can
                 // see rather than left where no listing shows it.
                 let kept = handle::recovery_name(name);
-                let at = match handle::rename_handle_noclobber(&target, dir, &kept) {
-                    Ok(Noclobber::Done) => kept,
-                    _ => preserved.clone(),
-                };
-                Err(Error::Preserved {
-                    path: name.to_owned(),
-                    current: version_at_name(dir, name),
-                    at,
-                })
+                match handle::rename_handle_noclobber(&target, dir, &kept) {
+                    Ok(Noclobber::Done) => (
+                        Err(Error::Preserved {
+                            path: name.to_owned(),
+                            current: version_at_name(dir, name),
+                            at: kept,
+                        }),
+                        false,
+                    ),
+                    _ => (
+                        Err(Error::Preserved {
+                            path: name.to_owned(),
+                            current: version_at_name(dir, name),
+                            at: preserved.clone(),
+                        }),
+                        true,
+                    ),
+                }
             } else {
                 match refused {
-                    Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
-                        "this filesystem cannot put a save at {name} without replacing a name"
-                    ))),
-                    Ok(_) => Err(Error::Conflict {
-                        path: name.to_owned(),
-                        current: version_at_name(dir, name),
-                    }),
-                    Err(error) => Err(error),
+                    Ok(Noclobber::Unsupported) => (
+                        Err(Error::Unsupported(format!(
+                            "this filesystem cannot put a save at {name} without replacing a name"
+                        ))),
+                        false,
+                    ),
+                    Ok(_) => (
+                        Err(Error::Conflict {
+                            path: name.to_owned(),
+                            current: version_at_name(dir, name),
+                        }),
+                        false,
+                    ),
+                    Err(error) => (Err(error), false),
                 }
             }
         }
     };
-    // A displaced entry left under `preserved` keeps its record: the next start is what makes it
-    // visible. Every other outcome has no hidden entry left to resolve.
-    if !matches!(&published, Err(Error::Preserved { at, .. }) if *at == preserved) {
-        journal.finish();
+    // The record goes only once no displaced entry is hidden, and after the folder says so
+    // durably: a crash in between must replay the recovery, not lose the entry and its record.
+    if !hidden {
+        match handle::sync(dir) {
+            Ok(()) => journal.finish(),
+            Err(error) => {
+                if let Ok(Published::Done(warning)) = &mut published {
+                    *warning = warning
+                        .take()
+                        .or(Some(SaveWarning::NotDurable(error.to_string())));
+                }
+            }
+        }
     }
     published
 }
@@ -613,7 +684,7 @@ mod tests {
                     .to_string_lossy()
                     .into_owned()
             })
-            .filter(|name| name.starts_with(".ace-upload-"))
+            .filter(|name| name.starts_with(".ace-upload-") && name != crate::policy::LOCK)
             .collect()
     }
 

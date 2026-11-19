@@ -29,6 +29,16 @@ async function movedOutcome(
     : { version: version(info), identity: null, recovery: null };
 }
 
+/** A version with its change time left out: a rename moves the change time and nothing else. */
+function withoutChangeTime(value: string): string {
+  return value.slice(0, value.lastIndexOf(":"));
+}
+
+/** Whether a moved entry still has the version the caller expected. */
+function unchanged(current: string, expected: string): boolean {
+  return withoutChangeTime(current) === withoutChangeTime(expected);
+}
+
 /** A path that is not there: the caller decides whether that is `null` or a failure. */
 function absent(error: unknown): boolean {
   return ["ENOENT", "NOT_FOUND"].includes(codeOf(error));
@@ -239,14 +249,36 @@ export function localFilesIo(
       await destination.verify();
       return movedOutcome(safe, to);
     },
-    async trash(root, path, endpoint, expected, _own) {
+    async trash(root, path, endpoint, expected, own) {
       const safe = await safeRoot(root);
       const target = await safe.target(path);
       checkVersion(await observed(safe, path), expected);
+      const before = await lstat(target.path);
       const location = join(safe.root, endpoint);
       await target.verify();
       await exclusive.move(target.path, location);
       await target.verify();
+      // The check and the move are two steps, so another writer can change the entry between
+      // them. The moved entry is verified through the endpoint before the delete settles: a
+      // folder against its own version, a file against the version the client worked from.
+      const after = await lstat(location).catch(() => undefined);
+      const wanted = before.isDirectory() ? (own ?? version(before)) : expected;
+      if (after !== undefined && unchanged(version(after), wanted)) return;
+      const current = after === undefined ? null : version(after);
+      try {
+        // A changed entry goes back exactly where it was, never replacing a name.
+        await exclusive.move(location, target.path);
+      } catch {
+        // The name it came from is taken again, so the entry stays whole at the endpoint and the
+        // caller is told where it is rather than being told the delete failed.
+        throw new FileError(
+          "STRANDED",
+          `the change at ${path} could not be completed; the entry is preserved at ${endpoint}`,
+          undefined,
+          endpoint,
+        );
+      }
+      throw new FileError("CONFLICT", "The entry changed while it was being moved", current);
     },
     async untrash(root, endpoint, path) {
       const safe = await safeRoot(root);

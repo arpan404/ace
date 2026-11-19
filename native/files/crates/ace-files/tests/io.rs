@@ -717,7 +717,7 @@ fn opening_a_root_resolves_a_save_a_crash_interrupted() {
     let private: Vec<String> = fs::read_dir(checkout.path())
         .expect("list")
         .map(|entry| entry.expect("entry").file_name().into_string().unwrap())
-        .filter(|name| name.starts_with(".ace-upload-"))
+        .filter(|name| name.starts_with(".ace-upload-") && name != ".ace-upload-journal-lock")
         .collect();
     assert!(private.is_empty(), "{private:?}");
 }

@@ -1299,3 +1299,200 @@ it("keeps a journaled case-only rename whose entry was stranded in a subfolder",
   await f.connect();
   expect(await readFile(join(f.root, "docs/notes.md"), "utf8")).toBe("original");
 });
+
+it("preserves a journaled case-only rename whose parked entry changed", async () => {
+  let folding = true;
+  let parked = "";
+  const io = await port((base) => ({
+    async shallow(root, path, options) {
+      // A volume that folds the spellings answers both names with the one entry.
+      if (folding && (path === "docs/Notes.md" || path === "docs/notes.md"))
+        return { version: "1:2:3:4:5", shallow: false, size: 8, kind: "file", mode: 0o644 };
+      return base.shallow(root, path, options);
+    },
+    async move(root, from, _to, _expected, _own, staging) {
+      if (!staging) throw new Error("a case-only move must carry its journaled staging name");
+      parked = from.replace(/[^/]+$/, staging);
+      await rename(join(root, from), join(root, parked));
+      throw new FileError("FILES_RESTARTING", "the process went away between the two steps");
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await mkdir(join(f.root, "docs"));
+  await writeFile(join(f.root, "docs/Notes.md"), "original");
+
+  expect(
+    await client.request({
+      op: "rename",
+      path: "docs/Notes.md",
+      expected: await version(client, "docs/Notes.md"),
+      destination: "docs/notes.md",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.error", code: "FILES_RESTARTING" });
+  // Another program writes to the parked entry before the start that would finish the move.
+  await writeFile(join(f.root, parked), "changed while parked\n");
+
+  folding = false;
+  await f.restart();
+  await f.connect();
+
+  // The entry is the one the move parked, but its version is not what the client asked to move:
+  // it is kept beside the destination where a person can see it, never presented as the rename.
+  await expect(readFile(join(f.root, "docs/notes.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  const names = await readdir(join(f.root, "docs"));
+  expect(names).toEqual([expect.stringMatching(/^notes\.conflict-/)]);
+  expect(await readFile(join(f.root, "docs", names[0] ?? ""), "utf8")).toBe(
+    "changed while parked\n",
+  );
+});
+
+/** Inserts a trash receipt as an interrupted delete would have left it. */
+async function pendingReceipt(
+  home: string,
+  record: { id: string; path: string; version: string; identity?: string | null },
+): Promise<void> {
+  const database = new DatabaseSync(join(home, "data", "files.sqlite"));
+  try {
+    database.prepare("INSERT INTO resources VALUES(?,?,?,?,?)").run(
+      record.id,
+      "trash",
+      Number.MAX_SAFE_INTEGER,
+      8,
+      JSON.stringify({
+        kind: "trash",
+        id: record.id,
+        path: record.path,
+        bytes: 8,
+        version: record.version,
+        ...(record.identity === undefined ? {} : { identity: record.identity }),
+        location: `.ace-upload-trash-${record.id}`,
+        expires: Number.MAX_SAFE_INTEGER,
+        pending: true,
+      }),
+    );
+  } finally {
+    database.close();
+  }
+}
+
+it("clears a pending delete receipt whose endpoint is absent and whose source never moved", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await writeFile(join(f.root, "legacy.md"), "never moved\n");
+  // A receipt written before identities were recorded: only the version names the entry.
+  await pendingReceipt(f.home, {
+    id: "legacy-absent",
+    path: "legacy.md",
+    version: (await version(client, "legacy.md")) ?? "",
+  });
+
+  await f.restart();
+  const next = await f.connect();
+
+  // The endpoint holds nothing and the source still holds the entry, so the move never happened:
+  // the receipt goes instead of holding trash quota forever.
+  expect(await next.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [] },
+  });
+  expect(await readFile(join(f.root, "legacy.md"), "utf8")).toBe("never moved\n");
+});
+
+it("keeps a pending delete receipt whose endpoint cannot be read", async () => {
+  const io = await port((base) => ({
+    internal: {
+      ...base.internal,
+      async describe(root, path) {
+        // The endpoint cannot be read at all, which is not the same as being absent.
+        if (path.startsWith(".ace-upload-trash-"))
+          throw new FileError("IO_ERROR", "the probe failed");
+        return base.internal.describe(root, path);
+      },
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "unreadable.md"), "still here\n");
+  await pendingReceipt(f.home, {
+    id: "unreadable-endpoint",
+    path: "unreadable.md",
+    version: (await version(client, "unreadable.md")) ?? "",
+    identity: (await version(client, "unreadable.md")) ?? "",
+  });
+
+  await f.restart();
+  const next = await f.connect();
+
+  expect(await next.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [expect.objectContaining({ id: "unreadable-endpoint" })] },
+  });
+});
+
+it("verifies the entry a local delete moved, and puts a changed one back", async () => {
+  const real = createExclusiveRename();
+  cleanup.push(() => real.close());
+  const f = await setup({
+    exclusiveRename: {
+      async move(source, destination) {
+        // The entry changes between the delete's version check and the move itself.
+        if (source.endsWith("moved.md") && destination.includes(".ace-upload-trash-"))
+          await writeFile(source, "changed while moving\n");
+        await real.move(source, destination);
+      },
+      close: async () => {},
+    },
+  });
+  const client = await f.connect();
+  await writeFile(join(f.root, "moved.md"), "the version the client read\n");
+
+  const reply = await client.request({
+    op: "delete",
+    path: "moved.md",
+    expected: await version(client, "moved.md"),
+  });
+
+  // The moved entry is not the version the delete was guarded by, so the delete is refused and
+  // the entry is put back where it was, never replacing the name.
+  expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT" });
+  expect(await readFile(join(f.root, "moved.md"), "utf8")).toBe("changed while moving\n");
+  expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [] },
+  });
+});
+
+it("keeps a changed entry whole at its endpoint when a local delete cannot put it back", async () => {
+  const real = createExclusiveRename();
+  cleanup.push(() => real.close());
+  const f = await setup({
+    exclusiveRename: {
+      async move(source, destination) {
+        const deleting =
+          source.endsWith("blocked.md") && destination.includes(".ace-upload-trash-");
+        if (deleting) await writeFile(source, "changed while moving\n");
+        await real.move(source, destination);
+        // The name it came from is taken again before the rollback can happen.
+        if (deleting) await writeFile(source, "a new entry claimed the name\n");
+      },
+      close: async () => {},
+    },
+  });
+  const client = await f.connect();
+  await writeFile(join(f.root, "blocked.md"), "the version the client read\n");
+
+  const reply = await client.request({
+    op: "delete",
+    path: "blocked.md",
+    expected: await version(client, "blocked.md"),
+  });
+
+  // The entry cannot go back, so it is whole at the endpoint and the caller is told where it is.
+  expect(reply).toMatchObject({
+    type: "files.error",
+    code: "STRANDED",
+    recovery: expect.stringMatching(/^\.ace-upload-trash-/),
+  });
+  const { recovery } = reply as { recovery: string };
+  expect(await readFile(join(f.root, recovery), "utf8")).toBe("changed while moving\n");
+  expect(await readFile(join(f.root, "blocked.md"), "utf8")).toBe("a new entry claimed the name\n");
+});
