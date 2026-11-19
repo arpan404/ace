@@ -288,7 +288,9 @@ export function FileTab(props: TabViewProps) {
         />
       )}
       <div className="relative flex min-h-0 flex-1">
-        <div className={cn("relative min-w-0 flex-1", !path && treeShown && "hidden")}>
+        <div
+          className={cn("relative flex min-w-0 flex-1 flex-col", !path && treeShown && "hidden")}
+        >
           {find && (
             <FindBar
               query={find.query}
@@ -301,7 +303,7 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div className="relative h-full overflow-auto" tabIndex={-1}>
+          <div className="relative min-h-0 flex-1 overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
                 <FileEditor

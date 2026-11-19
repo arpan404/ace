@@ -43,6 +43,8 @@ export interface FolderFixture {
   readonly requests: readonly FolderRequestRecord[];
   /** Every `files.watch`, in order: the folders it named ("" is the root). */
   readonly watches: readonly (readonly string[])[];
+  /** Called with each `files.watch` as the app sends it, before anything else runs. */
+  onWatch(listener: (folders: readonly string[]) => void): void;
   /** How many times `folder` was listed ("src" or "src/" both mean src). */
   count(folder: string): number;
   /** Mark paths gitignored, so their rows carry `ignored: true`. */
@@ -73,6 +75,7 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
   const ignored = new Set<string>();
   const requests: FolderRequestRecord[] = [];
   const watches: string[][] = [];
+  const watchListeners: ((folders: readonly string[]) => void)[] = [];
   const listeners = new Set<(message: ServerMessage) => void>();
   const holds = new Map<string, Promise<void>>();
   const failures = new Map<string, string[]>();
@@ -167,6 +170,7 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
     const parsed = FilesClientMessage.safeParse(message);
     if (parsed.success && parsed.data.type === "files.watch" && parsed.data.threadId === threadId) {
       watches.push(parsed.data.folders);
+      for (const listener of watchListeners) listener(parsed.data.folders);
       return;
     }
     send(message);
@@ -175,6 +179,9 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
   return {
     requests,
     watches,
+    onWatch(listener) {
+      watchListeners.push(listener);
+    },
     count(folder) {
       return requests.filter((each) => each.path === clean(folder)).length;
     },

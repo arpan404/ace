@@ -47,7 +47,8 @@ export function useReveal(options: {
   onScroll(scroll: { top: number; left: number }): void;
 }): {
   caretBox(position: Position, side: boolean): { left: number; top: number };
-  reveal(position: Position, side: boolean): void;
+  /** False when there is nothing to scroll yet: no document, or a wrapped layout still coming. */
+  reveal(position: Position, side: boolean): boolean;
 } {
   const { doc, layout, scroller, gutter, cell, wrap, viewport, onScroll } = options;
   const box = useCallback(
@@ -58,9 +59,11 @@ export function useReveal(options: {
   // Every caller says which side of a hard break it wants, so the callback does not change when
   // a caret's stored side does: a jump that already ran must not run again for a move.
   const reveal = useCallback(
-    (position: Position, side: boolean) => {
+    (position: Position, side: boolean): boolean => {
       const element = scroller.current;
-      if (!element) return;
+      // Before the document (and, wrapped, its rows) exists the content has no height: a scroll
+      // now would clamp to the top and put the caret's box on the wrong row.
+      if (!element || !doc || (wrap && !layout)) return false;
       const caret = box(position, side);
       const heightNow = element.clientHeight || viewport.height;
       let top = element.scrollTop;
@@ -78,8 +81,9 @@ export function useReveal(options: {
       element.scrollTo({ top, left });
       // Read back what the browser allowed: a scroll past either end clamps.
       onScroll({ top: element.scrollTop, left: element.scrollLeft });
+      return true;
     },
-    [box, scroller, gutter, wrap, viewport.height, viewport.width, onScroll],
+    [box, scroller, doc, layout, gutter, wrap, viewport.height, viewport.width, onScroll],
   );
   return { caretBox: box, reveal };
 }
@@ -105,12 +109,14 @@ export function useAnnouncement(): {
  * Brings the editor to the line its tab asked for, and to the current find hit. A jump runs once
  * per request: the same line or hit arriving again in a render, or a scroll callback changing
  * because a caret's side did, never re-runs the scroll the reader has already moved away from.
+ * A request counts as done only once `reveal` says it landed: one asked for before the document
+ * loaded runs again when the view can scroll.
  */
 export function useRevealJump(options: {
   line: number | undefined;
   column?: number | undefined;
   hit: { line: number; column: number } | undefined;
-  reveal(position: Position, side: boolean): void;
+  reveal(position: Position, side: boolean): boolean;
   announce(position: Position): void;
 }): void {
   const { line, hit, reveal, announce } = options;
@@ -120,9 +126,9 @@ export function useRevealJump(options: {
     if (!line || line <= 0) return;
     const request = `${line}:${column}`;
     if (jumpedTo.current === request) return;
-    jumpedTo.current = request;
     const position = { line: line - 1, column };
-    reveal(position, false);
+    if (!reveal(position, false)) return;
+    jumpedTo.current = request;
     announce(position);
   }, [line, column, reveal, announce]);
 
@@ -133,9 +139,9 @@ export function useRevealJump(options: {
     if (hitLine === undefined || hitColumn === undefined) return;
     const request = `${hitLine}:${hitColumn}`;
     if (jumpedHit.current === request) return;
-    jumpedHit.current = request;
     const position = { line: hitLine, column: hitColumn };
-    reveal(position, false);
+    if (!reveal(position, false)) return;
+    jumpedHit.current = request;
     announce(position);
   }, [hitLine, hitColumn, reveal, announce]);
 }
