@@ -36,9 +36,10 @@ export function PageScroller(props: { children: ReactNode }) {
   );
 }
 
-function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
-  if (element && atEnd) element.scrollTop = element.scrollHeight;
-}
+/** Keys that scroll a transcript up: pressing one lets go of its end. */
+const readBackKeys = new Set(["ArrowUp", "PageUp", "Home"]);
+/** Where those keys move between choices or through words instead. */
+const controls = 'input, textarea, [contenteditable="true"], [role="radio"], [role="checkbox"]';
 
 /** How near the end still counts as at it, in pixels. */
 const endSlack = 48;
@@ -62,15 +63,33 @@ export function Scroller(props: {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
-  /** Where the last scroll left it, to tell a move up from following. */
-  const lastTop = useRef({ top: 0, height: 0 });
+  /** Where it was last left (by following or a scroll), to tell the person's move up from ours. */
+  const last = useRef({ top: 0, height: 0 });
   const [away, setAway] = useState(false);
   const pill = usePresence(away);
   const reportEnd = useMarkSeen(props.seen);
+  /** The person moved up since we last looked: following lets go at once, however near the end. */
+  const movedUp = (element: HTMLElement) =>
+    element.scrollTop < last.current.top - 1 && element.scrollHeight >= last.current.height;
+  const letGo = () => {
+    atEnd.current = false;
+    setAway(true);
+    reportEnd(false);
+  };
+  /** At the end, it stays there as the conversation grows; unless the person just moved up. */
+  const follow = () => {
+    const element = scroller.current;
+    if (!element || !atEnd.current) return;
+    // A move up the scroll event hasn't told us of yet (a smooth scroll, a drag) still counts.
+    if (movedUp(element)) return letGo();
+    element.scrollTop = element.scrollHeight;
+    last.current = { top: element.scrollTop, height: element.scrollHeight };
+  };
   const toEnd = () => {
     atEnd.current = true;
     setAway(false);
-    pinToEnd(scroller.current, true);
+    last.current = { top: 0, height: 0 };
+    follow();
     reportEnd(true);
   };
   // A message the person sends shows where they look for it: at the end.
@@ -79,33 +98,41 @@ export function Scroller(props: {
     if (sent.current === props.sent) return;
     sent.current = props.sent;
     atEnd.current = true;
+    last.current = { top: 0, height: 0 };
     setAway(false);
   }, [props.sent]);
-  useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
+  useLayoutEffect(follow);
   // It opens at its end.
   useEffect(() => reportEnd(atEnd.current), [reportEnd]);
   useLayoutEffect(() => {
     const inner = content.current;
     if (!inner || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => pinToEnd(scroller.current, atEnd.current));
+    const observer = new ResizeObserver(() => follow());
     observer.observe(inner);
     return () => observer.disconnect();
+    // `follow` reads only refs: the first one is as good as any.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <>
       <div
         ref={scroller}
+        onWheel={(event) => {
+          // A wheel or trackpad turned up is the person reading back, before it even scrolls.
+          if (event.deltaY < 0 && atEnd.current) letGo();
+        }}
+        onKeyDown={(event) => {
+          // So are the keys that scroll up, from inside the transcript (not a card's options
+          // or fields, where they move between choices).
+          const control = event.target instanceof Element && event.target.closest(controls);
+          if (readBackKeys.has(event.key) && !control && atEnd.current) letGo();
+        }}
         onScroll={(event) => {
           const element = event.currentTarget;
-          // Any move up is the person's (following only ever moves down, and content that
-          // shrank moves it up only by getting shorter): it lets go of the end at once, however
-          // near it still is, so a reply growing never pulls them back down.
-          const movedUp =
-            element.scrollTop < lastTop.current.top - 1 &&
-            element.scrollHeight >= lastTop.current.height;
-          lastTop.current = { top: element.scrollTop, height: element.scrollHeight };
+          const up = movedUp(element);
+          last.current = { top: element.scrollTop, height: element.scrollHeight };
           atEnd.current =
-            !movedUp && element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
+            !up && element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
           setAway(!atEnd.current);
           reportEnd(atEnd.current);
         }}
