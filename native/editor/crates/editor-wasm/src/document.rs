@@ -328,6 +328,18 @@ impl EditorDocument {
     pub fn select_next_occurrence(&mut self) -> bool {
         self.core.select_next_occurrence()
     }
+
+    /// Selects every occurrence of the primary selection's text, or of the word under a caret.
+    #[wasm_bindgen(js_name = selectAllOccurrences)]
+    pub fn select_all_occurrences(&mut self) -> bool {
+        self.core.select_all_occurrences()
+    }
+
+    /// Moves the newest selection on to the next occurrence of its text.
+    #[wasm_bindgen(js_name = skipOccurrence)]
+    pub fn skip_occurrence(&mut self) -> bool {
+        self.core.skip_occurrence()
+    }
 }
 
 fn query(pattern: &str, regex: bool, case_sensitive: bool, whole_word: bool) -> FindQuery {

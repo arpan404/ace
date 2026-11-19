@@ -2,6 +2,7 @@ import type { Position, Selection } from "@ace/editor";
 import { useRef, type KeyboardEvent } from "react";
 import {
   caret,
+  sameSelections,
   documentEnd,
   moveAll,
   nextWord as nextWordColumn,
@@ -12,7 +13,8 @@ import {
 } from "./cursor.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { lineCommand } from "./line-keys.ts";
-import { columnAtVisual } from "./geometry.ts";
+import { columnAtVisual, tabSize } from "./geometry.ts";
+import { boxFrom, boxHead, cursorsAtLineEnds, moveBox, type Box } from "./multi-cursor.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { atHardBreak, rowOffset, rowOfColumn, rowText } from "./wrap.ts";
@@ -51,6 +53,8 @@ export interface EditorKeyOptions {
   onToggleWrap?: (() => void) | undefined;
   /** Each caret's side of a hard break, as the last move left it (VS Code's Before). */
   affinity: Affinity;
+  /** The second key of a Cmd+K chord this file does not own (folding); true when handled. */
+  onChord?: ((event: KeyboardEvent<HTMLTextAreaElement>) => boolean) | undefined;
   /** Records every caret's side of a hard break after a move. */
   onBefore(affinity: Affinity): void;
   /** Brings a position into view, drawn on the side of a hard break the move asked for. */
@@ -61,6 +65,10 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const { state, path, layout } = options;
   const mac = isMacPlatform();
   const goal = useRef<number | undefined>(undefined);
+  /** Cmd+K was pressed: the next key completes a chord. */
+  const chord = useRef(false);
+  /** The keyboard box selection, while the selections are still the ones it made. */
+  const box = useRef<{ box: Box; selections: readonly Selection[] } | undefined>(undefined);
 
   const line = (index: number): string => state.doc?.line(index) ?? "";
   const lastLine = (): number => Math.max(0, (state.doc?.lenLines() ?? 1) - 1);
@@ -125,6 +133,13 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!doc) return;
     const primary = doc.primarySelection();
     options.reveal(doc.selections()[primary]?.head ?? head(), isBefore(affinity, primary));
+  };
+
+  /** After a selection command: no caret is on a hard break's side, and the newest is shown. */
+  const revealPrimary = () => {
+    options.onBefore(noAffinity);
+    const doc = state.doc;
+    if (doc) options.reveal(doc.selections()[doc.primarySelection()]?.head ?? head(), false);
   };
 
   const vertical = (delta: number, extend: boolean) => {
@@ -271,13 +286,71 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
+    // Cmd+K starts a chord: the next key decides (Cmd+K Cmd+D skips an occurrence).
+    // A modifier on its own (the Cmd held for a chord's second key) neither ends nor makes one.
+    if (/^(Shift|Control|Alt|Meta)$/.test(key)) return;
+    if (chord.current) {
+      chord.current = false;
+      if (mod && !event.altKey && key.toLowerCase() === "d") {
+        event.preventDefault();
+        if (state.selectBy((target) => target.skipOccurrence())) revealPrimary();
+        return;
+      }
+      if (options.onChord?.(event)) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (mod && !event.altKey && !event.shiftKey && event.code === "KeyK") {
+      event.preventDefault();
+      chord.current = true;
+      return;
+    }
+    if (mod && event.shiftKey && !event.altKey && event.code === "KeyL") {
+      event.preventDefault();
+      goal.current = undefined;
+      if (state.selectBy((target) => target.selectAllOccurrences())) revealPrimary();
+      return;
+    }
+    if (mod && !event.shiftKey && !event.altKey && event.code === "KeyU") {
+      event.preventDefault();
+      goal.current = undefined;
+      const back = state.undoCursor();
+      if (back) commitMove(back);
+      return;
+    }
+    if (!mod && event.altKey && event.shiftKey && event.code === "KeyI") {
+      event.preventDefault();
+      goal.current = undefined;
+      commitMove(cursorsAtLineEnds(doc));
+      return;
+    }
+    // Shift+Alt+Cmd+arrows (Shift+Alt+Ctrl elsewhere): grow a box selection from the keyboard.
+    if (mod && event.altKey && event.shiftKey && key.startsWith("Arrow")) {
+      event.preventDefault();
+      goal.current = undefined;
+      const current = doc.selections();
+      const start =
+        box.current && sameSelections(box.current.selections, current)
+          ? box.current.box
+          : boxFrom(doc);
+      const next = moveBox(start, key, doc.lenLines());
+      options.onBefore(noAffinity);
+      state.selectBy((target) =>
+        target.selectColumn(
+          { line: next.anchor.line, column: next.anchor.visual },
+          { line: next.head.line, column: next.head.visual },
+          tabSize,
+        ),
+      );
+      box.current = { box: next, selections: doc.selections() };
+      options.reveal(boxHead(doc, next), false);
+      return;
+    }
     // Shift+mod+D is ace's Changes shortcut: leave it for the page.
     if (!options.readOnly && mod && !event.shiftKey && key.toLowerCase() === "d") {
       event.preventDefault();
-      if (doc.selectNextOccurrence()) {
-        options.onBefore(noAffinity);
-        state.select(doc.selections());
-      }
+      if (state.selectBy((target) => target.selectNextOccurrence())) revealPrimary();
       return;
     }
     if (key === "Escape") {
@@ -286,7 +359,12 @@ export function useEditorKeys(options: EditorKeyOptions) {
       const position = head();
       goal.current = undefined;
       options.onBefore(noAffinity);
-      state.select([caret(position.line, position.column)]);
+      // More than one cursor: back to the primary one as it is; one selection: back to a caret.
+      const selections = doc.selections();
+      const primary = selections[doc.primarySelection()];
+      state.select(
+        selections.length > 1 && primary ? [primary] : [caret(position.line, position.column)],
+      );
       options.reveal(position, false);
       return;
     }

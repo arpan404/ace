@@ -232,6 +232,16 @@ export class EditorDocument {
     return this.#inner.selectNextOccurrence();
   }
 
+  /** Selects every occurrence of the primary selection's text, or of the word at a caret. */
+  selectAllOccurrences(): boolean {
+    return this.#inner.selectAllOccurrences();
+  }
+
+  /** Moves the newest selection on to the next occurrence of its text (Cmd+K Cmd+D). */
+  skipOccurrence(): boolean {
+    return this.#inner.skipOccurrence();
+  }
+
   /** Releases the Wasm-side document now instead of at garbage collection. */
   dispose(): void {
     this.#inner.free();

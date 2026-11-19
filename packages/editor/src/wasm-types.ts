@@ -81,6 +81,8 @@ export interface WasmDocument {
     tabSize: number,
   ): void;
   selectNextOccurrence(): boolean;
+  selectAllOccurrences(): boolean;
+  skipOccurrence(): boolean;
   free(): void;
 }
 

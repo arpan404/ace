@@ -8,6 +8,7 @@ import {
 } from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sameSelections } from "./cursor.ts";
 import { MarkitLineHighlighter } from "./highlighter.ts";
 import { ensureEditorReady } from "./wasm.ts";
 
@@ -17,6 +18,9 @@ import { ensureEditorReady } from "./wasm.ts";
  * a typing run one undo step. The rendering layer only reads what this returns. Nothing here
  * copies the whole text on a keystroke: drafts and saves read it through a getter when they need it.
  */
+
+/** How many cursor states Cmd+U can walk back through. */
+const cursorUndoDepth = 50;
 
 export interface EditorDocumentState {
   /** Undefined until the Wasm has loaded and the document exists. */
@@ -36,6 +40,16 @@ export interface EditorDocumentState {
   replaceText(text: string): void;
   /** Replaces the selections and ends the current typing run. */
   select(next: readonly Selection[]): void;
+  /**
+   * Cmd+U: the cursors as they were before the last cursor change, made current again; undefined
+   * when no change is left to undo. An edit starts the list afresh.
+   */
+  undoCursor(): readonly Selection[] | undefined;
+  /**
+   * Runs a selection command on the document itself (next occurrence, box selection), then
+   * publishes its cursors as `select` does; false from the command leaves everything as it was.
+   */
+  selectBy(run: (doc: EditorDocument) => boolean | void): boolean;
   /** Tries the Wasm load again after a failure. */
   retry(): void;
 }
@@ -96,6 +110,8 @@ export function useEditorDocument(options: {
   const onNoEdit = useRef(options.onNoEdit);
   const onApplied = useRef(options.onApplied);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** Earlier cursor states, newest last, for Cmd+U. */
+  const cursorPast = useRef<(readonly Selection[])[]>([]);
   const commitAfter = options.commitAfter ?? 1_000;
 
   useEffect(() => {
@@ -200,6 +216,7 @@ export function useEditorDocument(options: {
       // and the page's own callback only hears about it once that layout has the new rows.
       onApplied.current?.(batch);
       onEdit.current?.();
+      cursorPast.current = [];
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -259,16 +276,50 @@ export function useEditorDocument(options: {
     [doc, highlighter, after, commit],
   );
 
-  const select = useCallback(
-    (next: readonly Selection[]) => {
+  const publish = useCallback(
+    (before: readonly Selection[]) => {
       if (!doc) return;
-      doc.setSelections(next);
+      const now = doc.selections();
+      if (!sameSelections(before, now)) {
+        cursorPast.current.push(before);
+        if (cursorPast.current.length > cursorUndoDepth) cursorPast.current.shift();
+      }
       commit();
-      setSelections(doc.selections());
+      setSelections(now);
       setPrimary(doc.primarySelection());
     },
     [doc, commit],
   );
+
+  const select = useCallback(
+    (next: readonly Selection[]) => {
+      if (!doc) return;
+      const before = doc.selections();
+      doc.setSelections(next);
+      publish(before);
+    },
+    [doc, publish],
+  );
+
+  const selectBy = useCallback(
+    (run: (target: EditorDocument) => boolean | void): boolean => {
+      if (!doc) return false;
+      const before = doc.selections();
+      if (run(doc) === false) return false;
+      publish(before);
+      return true;
+    },
+    [doc, publish],
+  );
+
+  const undoCursor = useCallback((): readonly Selection[] | undefined => {
+    const previous = cursorPast.current.pop();
+    if (!doc || !previous) return undefined;
+    doc.setSelections(previous);
+    setSelections(doc.selections());
+    setPrimary(doc.primarySelection());
+    return doc.selections();
+  }, [doc]);
 
   useEffect(() => {
     if (!doc || !original) return;
@@ -308,6 +359,8 @@ export function useEditorDocument(options: {
     edit,
     replaceText,
     select,
+    undoCursor,
+    selectBy,
     retry: () => {
       setFailed(false);
       setAttempt((value) => value + 1);
