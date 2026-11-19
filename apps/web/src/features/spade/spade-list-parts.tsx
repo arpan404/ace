@@ -36,7 +36,7 @@ export function DottedFace(props: {
   size: number;
   state: BotFaceState;
   dot: FaceDot | undefined;
-  /** The head's bigger dot and ring. */
+  /** The profile's bigger dot and ring. */
   large?: boolean;
   dim?: boolean;
 }) {

@@ -148,9 +148,16 @@ export function spadeListEntries(
   return rows;
 }
 
-/** When the person pinned the conversation (ms); undefined when it isn't pinned. */
+/**
+ * When the person pinned the conversation (ms); undefined when it isn't pinned. Spade, the main
+ * bot, is never pinned: it is the list's first row wherever it was pinned before.
+ */
 export const pinnedAt = (entry: SpadeListEntry): number | undefined =>
-  entry.kind === "bot" ? entry.bot.pinnedAt : entry.group.pinnedAt;
+  entry.kind === "group"
+    ? entry.group.pinnedAt
+    : entry.bot.kind === "main"
+      ? undefined
+      : entry.bot.pinnedAt;
 
 /**
  * The pinned conversations, oldest pin first, which show as a strip under the list's buttons,
