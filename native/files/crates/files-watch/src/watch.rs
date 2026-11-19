@@ -86,6 +86,9 @@ pub struct Watcher {
     control: SyncSender<Command>,
     stop: Arc<AtomicBool>,
     polling: Arc<AtomicBool>,
+    /// The latest focus set, waiting for the worker; kept apart from the queue so a full queue
+    /// cannot lose it.
+    focus: Arc<Mutex<Option<Vec<String>>>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -116,6 +119,7 @@ impl Watcher {
         let overflow = Arc::new(AtomicBool::new(false));
         let polling = Arc::new(AtomicBool::new(false));
         let failure = Arc::new(Mutex::new(None));
+        let focus = Arc::new(Mutex::new(None));
         let events = Events {
             sender: control.clone(),
             overflow: Arc::clone(&overflow),
@@ -157,6 +161,7 @@ impl Watcher {
             overflow,
             polling: Arc::clone(&polling),
             failure,
+            focus: Arc::clone(&focus),
             warning: None,
             readings: Readings::new(),
         };
@@ -165,6 +170,7 @@ impl Watcher {
             control,
             stop,
             polling,
+            focus,
             worker: Some(running),
         })
     }
@@ -173,8 +179,10 @@ impl Watcher {
     /// them, and the root, about once a second, and reports a name that appeared or went away
     /// there even when the OS watch never said so. At most 512 folders are kept.
     pub fn focus(&self, folders: Vec<String>) {
-        // A full queue means the worker is busy with a burst; the next call replaces this one.
-        let _ = self.control.try_send(Command::Focus(folders));
+        *self.focus.lock().unwrap_or_else(PoisonError::into_inner) = Some(folders);
+        // The command wakes a worker blocked on an empty queue. A full queue drops it, which loses
+        // nothing: the worker is busy, and takes the set from the slot on its next turn.
+        let _ = self.control.try_send(Command::Focus);
     }
 
     /// The backend in use, including a switch to polling after a watch limit was hit.
@@ -206,8 +214,8 @@ enum Command {
     /// for a root rescan, so the tree is still tracked and the client hears what it missed.
     #[cfg_attr(not(windows), allow(dead_code))]
     Failed(String),
-    /// The folders the safety net checks, besides the root.
-    Focus(Vec<String>),
+    /// A new set of folders for the safety net is waiting in the focus slot.
+    Focus,
     /// The kernel said an open folder changed; `rearm` when its handle went with it.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Poke {
@@ -294,6 +302,8 @@ struct Worker {
     overflow: Arc<AtomicBool>,
     polling: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<String>>>,
+    /// The latest focus set from [`Watcher::focus`], not yet applied.
+    focus: Arc<Mutex<Option<Vec<String>>>>,
     warning: Option<String>,
     /// The folders and stored names this window has already read. Cleared when a batch is
     /// delivered, so the next window judges folders as they are then.
@@ -359,6 +369,7 @@ impl Worker {
             if self.overflow.swap(false, Ordering::AcqRel) {
                 coalescer.overflow(None, Instant::now());
             }
+            self.take_focus();
             let now = Instant::now();
             if now >= next_check {
                 self.check_net(&mut coalescer, now);
@@ -423,12 +434,7 @@ impl Worker {
                     };
                     self.report(notices, &mut coalescer, now);
                 }
-                Ok(Command::Focus(folders)) => {
-                    self.net.focus(&self.root, &self.excluder, folders);
-                    if let Some(wake) = &mut self.wake {
-                        wake.follow(&self.root, self.net.folders());
-                    }
-                }
+                Ok(Command::Focus) => self.take_focus(),
                 Ok(Command::Poke { folder, rearm }) => {
                     if rearm && let Some(wake) = &mut self.wake {
                         wake.rearm(&self.root, &folder);
@@ -463,6 +469,21 @@ impl Worker {
             }
         }
         self.backend.stop();
+    }
+
+    /// Applies the latest focus set, if one is waiting.
+    fn take_focus(&mut self) {
+        let folders = self
+            .focus
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(folders) = folders {
+            self.net.focus(&self.root, &self.excluder, folders);
+            if let Some(wake) = &mut self.wake {
+                wake.follow(&self.root, self.net.folders());
+            }
+        }
     }
 
     /// Adds what the OS watch reported to the window, with the files of folders that appeared.
@@ -758,5 +779,96 @@ mod tests {
             rescans, 1,
             "one fatal error starts one poller and one rescan, saw {seen:?}"
         );
+    }
+
+    #[test]
+    fn a_focus_sent_while_the_queue_is_full_still_takes_effect() {
+        // A folder opened during a burst must still be watched by the safety net. The net is
+        // what rescans an open folder too large to compare name by name when its stamp moves, so
+        // that rescan is the sign the folder is in focus.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("big")).unwrap();
+        for index in 0..5 {
+            std::fs::write(dir.path().join(format!("big/{index}")), b"x").unwrap();
+        }
+        let root = Root::open(dir.path()).unwrap();
+        let batches = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&batches);
+        let gate = Arc::new(Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let sink_gate = Arc::clone(&gate);
+        let (entered, blocked) = std::sync::mpsc::channel();
+        let entered = Mutex::new(entered);
+        let watcher = Watcher::start(
+            root,
+            WatchOptions {
+                max_batch: 3,
+                ..WatchOptions::default()
+            },
+            Box::new(move |batch| {
+                if matches!(batch, Batch::Warning(_)) {
+                    let _ = entered
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .send(());
+                    drop(sink_gate.lock().unwrap_or_else(PoisonError::into_inner));
+                }
+                recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(batch);
+            }),
+        )
+        .unwrap();
+
+        // Hold the worker inside the sink, then fill its queue.
+        watcher
+            .control
+            .try_send(Command::Event(Err(notify::Error::io(
+                std::io::Error::other("read failed"),
+            ))))
+            .unwrap();
+        blocked.recv_timeout(Duration::from_secs(10)).unwrap();
+        while watcher
+            .control
+            .try_send(Command::Poke {
+                folder: String::new(),
+                rearm: false,
+            })
+            .is_ok()
+        {}
+        watcher.focus(vec!["big".to_owned()]);
+        drop(held);
+
+        // The worker may take the focus a moment after the queue drains: keep adding names until
+        // one of them is found by the net.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut round = 0;
+        loop {
+            std::fs::write(dir.path().join(format!("big/new{round}")), b"x").unwrap();
+            round += 1;
+            let until = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < until {
+                let seen = batches
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                if seen
+                    .iter()
+                    .any(|batch| matches!(batch, Batch::Rescan { dir: Some(dir) } if dir == "big"))
+                {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let seen = batches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            assert!(
+                Instant::now() < deadline,
+                "the folder focused while the queue was full is never checked, saw {seen:?}"
+            );
+        }
     }
 }
