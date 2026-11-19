@@ -418,6 +418,79 @@ test("a rescan and the live batch that follows it report one change", async () =
   }
 });
 
+test("an incomplete scan keeps the last complete baseline instead of inventing creates", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
+  try {
+    // Three matching paths with room to remember two: every walk of the whole tree is too big.
+    const versions = new Map([
+      ["src/a.ts", { size: 1, mtime: 1 }],
+      ["src/b.ts", { size: 1, mtime: 1 }],
+      ["src/c.ts", { size: 1, mtime: 1 }],
+    ]);
+    const contents = new Map([
+      ["src/a.ts", "a"],
+      ["src/b.ts", "b"],
+      ["src/c.ts", "c"],
+    ]);
+    const files = fakeCheckout(versions, contents);
+    const context = {
+      id: () => "trigger",
+      log: { log: () => {} },
+      resources: { own: () => {} },
+      store: { atomic: () => ({ path: root }) },
+      services: { filesNative: { tool: files.tool } },
+    } as unknown as ServiceContext;
+    const received: AutomationEvent[] = [];
+    const ready = Promise.withResolvers<void>();
+    const dispose = automationWorkspace(context, {
+      snapshotLimit: 2,
+      bufferLimit: 100,
+    }).subscribe(
+      root,
+      ["src/**"],
+      async (event) => {
+        received.push(event);
+      },
+      { onReady: () => ready.resolve() },
+    );
+    await ready.promise;
+
+    // The seed could not read everything, so the first complete scan has no baseline to compare
+    // with. Reporting creates for the files that were there all along is the bug this guards.
+    files.send({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(received).toEqual([]);
+
+    versions.delete("src/c.ts");
+    contents.delete("src/c.ts");
+    files.send({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(received).toEqual([]);
+
+    // The scan that seeded silently is a valid baseline: content that moved is still a change.
+    contents.set("src/a.ts", "A");
+    files.send({ type: "rescan" });
+    await until(() => received.length === 1);
+    expect(received[0]?.variables).toMatchObject({ path: "src/a.ts", kind: "changed" });
+
+    // A later scan that cannot see everything leaves the complete baseline in place rather than
+    // emptying it, so the next complete scan does not read the tree as all new.
+    versions.set("src/d.ts", { size: 1, mtime: 1 });
+    contents.set("src/d.ts", "d");
+    files.send({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(received).toHaveLength(1);
+    versions.delete("src/d.ts");
+    contents.delete("src/d.ts");
+    files.send({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(received).toHaveLength(1);
+    dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a rescan of an untouched checkout reports nothing", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
   try {
