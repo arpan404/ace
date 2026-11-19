@@ -1,8 +1,10 @@
 import { useClient } from "@ace/client-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import {
+  readsAsText,
   readTextPrefix,
   readWhole,
+  sniffBytes,
   TooLargeToLoad,
   type TextPrefix,
 } from "./attachment-content.ts";
@@ -126,4 +128,19 @@ export function useTextPrefix(source: FileSource, limit?: number): Loaded<TextPr
     return () => abort.abort();
   }, [client, source, limit]);
   return loaded?.client === client && loaded.source === source ? loaded.value : loading;
+}
+
+/**
+ * A file of no kind ace knows, decided by its first bytes: `text` when they read as text,
+ * `other` when they don't or can't be read, `loading` while they arrive.
+ */
+export function TextOrOther(props: {
+  source: FileSource;
+  text: ReactNode;
+  other: ReactNode;
+  loading: ReactNode;
+}) {
+  const prefix = useTextPrefix(props.source, sniffBytes);
+  if (prefix.state === "loading") return props.loading;
+  return prefix.state === "ready" && readsAsText(prefix.value.text) ? props.text : props.other;
 }

@@ -147,8 +147,23 @@ const archives = new Set(["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "
 const audio = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "opus"]);
 const video = new Set(["mp4", "mov", "m4v", "webm", "mkv", "avi", "ogv"]);
 
-/** A raster image the browser draws by its name alone (SVG reads as source, not a picture). */
-const isImageName = (name: string, ext: string) => ext !== "svg" && imageType(name) !== undefined;
+/** Picture types the browser draws itself (HEIC and TIFF it can't; SVG reads as source). */
+const drawable = new Set([
+  "image/png",
+  "image/apng",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+]);
+
+/** A picture the browser draws, by its MIME type or else its name. */
+const isDrawable = (name: string, ext: string, mime: string) =>
+  ext !== "svg" &&
+  (drawable.has(mime) || (!mime.startsWith("image/") && imageType(name) !== undefined));
 
 /** A table's own entry, never one inherited from `Object` ("x.constructor" is no language). */
 const entry = (table: Record<string, string>, key: string) =>
@@ -170,11 +185,11 @@ export function describeFile(file: FileFacts): Described {
   const base = file.name.split(/[\\/]/).at(-1)?.toLowerCase() ?? "";
   if (file.kind === "pdf" || mime === "application/pdf" || (!file.kind && ext === "pdf"))
     return { kind: "pdf", label: "PDF", preview: "pdf" };
-  // A file an answer links by path comes with no MIME type and no daemon kind: its name decides.
-  if (
-    file.kind === "image" ||
-    (!file.kind && ext !== "svg" && (mime.startsWith("image/") || isImageName(file.name, ext)))
-  )
+  // A file an answer links by path has no MIME type or daemon kind, so its name decides. The
+  // daemon only calls PNG, JPEG, GIF and WebP images (and only ones it would hand an agent), so
+  // other pictures arrive as "binary": the viewer still tries them, and offers Download if the
+  // bytes don't draw.
+  if (file.kind === "image" || (file.kind !== "text" && isDrawable(file.name, ext, mime)))
     return { kind: "image", label: upper || "Image", preview: "image" };
   // Text the daemon validated, or what claims to be text before it has looked.
   const textual =
@@ -255,4 +270,12 @@ export function formatLimit(bytes: number): string {
   const gib = 1024 * 1024 * 1024;
   if (bytes >= gib && bytes % gib === 0) return `${bytes / gib} GB`;
   return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+/**
+ * Whether a file is worth reading to see if it is text: nothing named its kind (no daemon kind,
+ * no type or extension ace knows), so its first bytes are the only evidence left.
+ */
+export function unknownKind(file: FileFacts): boolean {
+  return !file.kind && describeFile(file).kind === "binary";
 }

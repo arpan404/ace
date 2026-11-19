@@ -3,11 +3,12 @@ import { checkoutViewLimit, isMarkdownPath } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import { wholeBudget, tooLargeToLoad } from "@/components/attachment-content.ts";
 import type { FileSource, PreviewFile } from "@/components/attachment-format.ts";
-import { describeFile, formatLimit } from "@/components/attachment-kind.ts";
+import { describeFile, formatLimit, unknownKind } from "@/components/attachment-kind.ts";
 import {
   FileMedia,
   isMediaMode,
   mediaType,
+  TextOrOther,
   useTextPrefix,
   useWholeUrl,
   type MediaMode,
@@ -77,8 +78,8 @@ function Body(props: { file: PreviewFile; source: FileSource }) {
   const described = describeFile(file);
   const download = <SaveButton file={file} />;
   if (described.preview === "text") return <TextBody file={file} source={source} />;
-  if (!isMediaMode(described.preview))
-    return (
+  if (!isMediaMode(described.preview)) {
+    const closed = (
       <EmptyState
         icon={FileIcon}
         title={file.name}
@@ -86,6 +87,16 @@ function Body(props: { file: PreviewFile; source: FileSource }) {
         action={download}
       />
     );
+    if (!unknownKind(file)) return closed;
+    return (
+      <TextOrOther
+        source={source}
+        text={<TextBody file={file} source={source} />}
+        other={closed}
+        loading={<TextLoading name={file.name} />}
+      />
+    );
+  }
   if (tooLargeToLoad(source))
     return (
       <EmptyState
@@ -146,18 +157,21 @@ function MediaBody(props: { file: PreviewFile; source: FileSource; mode: MediaMo
   );
 }
 
+function TextLoading(props: { name: string }) {
+  return (
+    <div role="status" aria-label={`Loading ${props.name}`} className="flex flex-col gap-2.5 p-4">
+      <Skeleton className="h-3 w-3/5" />
+      <Skeleton className="h-3 w-2/5" />
+      <Skeleton className="h-3 w-4/5" />
+    </div>
+  );
+}
+
 /** Text as the Files tool shows it: highlighted source, or markdown rendered. */
 function TextBody(props: { file: PreviewFile; source: FileSource }) {
   const { file } = props;
   const text = useTextPrefix(props.source, checkoutViewLimit);
-  if (text.state === "loading")
-    return (
-      <div role="status" aria-label={`Loading ${file.name}`} className="flex flex-col gap-2.5 p-4">
-        <Skeleton className="h-3 w-3/5" />
-        <Skeleton className="h-3 w-2/5" />
-        <Skeleton className="h-3 w-4/5" />
-      </div>
-    );
+  if (text.state === "loading") return <TextLoading name={file.name} />;
   if (text.state === "failed")
     return (
       <EmptyState

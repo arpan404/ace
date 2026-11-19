@@ -47,6 +47,18 @@ export function wholeBudget(source: FileSource): number {
   return source.kind === "attachment" ? wholePreviewBytes : wholeFileBytes;
 }
 
+/**
+ * Whether a file's decoded first bytes read as text: nothing undecodable (U+FFFD) and no control
+ * characters beyond tab, newlines, form feed and escape.
+ */
+export function readsAsText(prefix: string): boolean {
+  // oxlint-disable-next-line no-control-regex
+  return !/[\u0000-\u0008\u000e-\u001a\u001c-\u001f\u007f\ufffd]/.test(prefix);
+}
+
+/** How much of an unknown file is read to tell text from binary. */
+export const sniffBytes = 8 * 1024;
+
 /** A linked file was longer than the budget it was read with. */
 export class TooLargeToLoad extends Error {}
 

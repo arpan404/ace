@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeFile } from "./attachment-kind.ts";
+import { describeFile, unknownKind } from "./attachment-kind.ts";
 
 describe("describeFile", () => {
   it.each(["chart.png", "photo.JPG", "photo.jpeg", "loop.gif", "shot.webp", "pic.avif", "a.bmp"])(
@@ -17,8 +17,23 @@ describe("describeFile", () => {
     expect(describeFile({ name: "logo.svg" }).preview).toBe("text");
   });
 
-  it("the daemon calling the bytes binary wins over an image name", () => {
-    expect(describeFile({ name: "fake.png", kind: "binary" }).preview).toBe("none");
+  it.each([
+    ["big.png", "image/png"],
+    ["icon.ico", "image/x-icon"],
+    ["photo.avif", "image/avif"],
+  ])("%s the daemon left as binary still tries the image viewer", (name, mimeType) => {
+    expect(describeFile({ name, mimeType, kind: "binary" }).preview).toBe("image");
+  });
+
+  it.each([
+    ["photo.heic", "image/heic"],
+    ["scan.tiff", "image/tiff"],
+  ])("%s, which the browser can't draw, offers only Download", (name, mimeType) => {
+    expect(describeFile({ name, mimeType }).preview).toBe("none");
+  });
+
+  it("text the daemon validated stays text whatever its name says", () => {
+    expect(describeFile({ name: "notes.png", kind: "text" }).preview).toBe("text");
   });
 
   it.each([
@@ -38,5 +53,18 @@ describe("describeFile", () => {
 
   it("an unknown binary still offers only Download", () => {
     expect(describeFile({ name: "blob.bin" }).preview).toBe("none");
+  });
+});
+
+describe("unknownKind", () => {
+  it("a linked file of no known type is worth reading to see if it is text", () => {
+    expect(unknownKind({ name: "CHANGELOG" })).toBe(true);
+    expect(unknownKind({ name: "go.mod" })).toBe(true);
+  });
+
+  it("a file the daemon or its type already placed is not", () => {
+    expect(unknownKind({ name: "blob.bin", kind: "binary" })).toBe(false);
+    expect(unknownKind({ name: "bundle.zip" })).toBe(false);
+    expect(unknownKind({ name: "chart.png" })).toBe(false);
   });
 });

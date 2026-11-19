@@ -24,12 +24,14 @@ import {
   describeFile,
   fileMeta,
   formatLimit,
+  unknownKind,
   type Described,
 } from "./attachment-kind.ts";
 import {
   FileMedia,
   isMediaMode,
   mediaType,
+  TextOrOther,
   useTextPrefix,
   useWholeUrl,
   type MediaMode,
@@ -103,12 +105,22 @@ function Body(props: { file: PreviewFile; described: Described }) {
   const source = file.source;
   if (!source) return <Note kind={described.kind}>This file isn't readable from this device.</Note>;
   if (described.preview === "text") return <TextBody source={source} />;
-  if (described.preview === "none")
-    return (
+  if (described.preview === "none") {
+    const closed = (
       <Note kind={described.kind}>
         No preview for {described.label} files. Download it to open it in another app.
       </Note>
     );
+    if (!unknownKind(file)) return closed;
+    return (
+      <TextOrOther
+        source={source}
+        text={<TextBody source={source} />}
+        other={closed}
+        loading={<Skeleton className="h-40 w-full rounded-md" />}
+      />
+    );
+  }
   if (tooLargeToLoad(source))
     return (
       <Note kind={described.kind}>
