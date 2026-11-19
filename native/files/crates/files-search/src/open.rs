@@ -2,6 +2,8 @@
 
 //! Opens the file a walker saw, through the folder that holds it.
 
+use std::ffi::OsStr;
+
 use cap_fs_ext::{FollowSymlinks, OpenOptions, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, File};
 use ignore::DirEntry;
@@ -10,7 +12,7 @@ use ignore::DirEntry;
 ///
 /// `None` means the file could not be opened, or is no longer the file the walker saw, so it must
 /// not be searched.
-pub(crate) fn open(folder: &Dir, name: &str, seen: &DirEntry) -> Option<File> {
+pub(crate) fn open(folder: &Dir, name: &OsStr, seen: &DirEntry) -> Option<File> {
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
     let file = folder.open_with(name, &options).ok()?;

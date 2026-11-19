@@ -2,6 +2,7 @@
 
 //! The parallel walk behind a build and behind a created-folder update.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -72,16 +73,40 @@ impl Filters {
         let leaf = path.len();
         for prefix in prefixes(path) {
             let prefix_is_dir = prefix.len() < leaf || is_dir;
-            if self.hides(root, prefix, prefix_is_dir) {
-                return true;
-            }
-            if let Some(rules) = &self.rules
-                && rules.ignored(&root.path().join(prefix), prefix_is_dir, false)
-            {
+            if self.excludes_self(root, prefix, prefix_is_dir) {
                 return true;
             }
         }
         false
+    }
+
+    /// [`Filters::excludes`] for one batch of changes, with its folders judged once.
+    ///
+    /// A batch names many files in the same few folders. Without `folders`, each file walks every
+    /// ancestor prefix again, so a folder of ten thousand new files is judged ten thousand times;
+    /// with it, a file costs one lookup in its folder's already-decided verdict plus its own name.
+    pub fn excludes_in<'a>(
+        &self,
+        root: &Root,
+        folders: &mut Folders<'a>,
+        path: &'a str,
+        is_dir: bool,
+    ) -> bool {
+        match path.rsplit_once('/') {
+            Some((folder, _)) => {
+                folders.excluded(self, root, folder) || self.excludes_self(root, path, is_dir)
+            }
+            None => self.excludes_self(root, path, is_dir),
+        }
+    }
+
+    /// Whether this path itself, never an ancestor, is hidden or ignored.
+    fn excludes_self(&self, root: &Root, path: &str, is_dir: bool) -> bool {
+        self.hides(root, path, is_dir)
+            || self
+                .rules
+                .as_ref()
+                .is_some_and(|rules| rules.ignored(&root.path().join(path), is_dir, false))
     }
 
     /// Whether a path from a walk is excluded by rules the walk itself could not see.
@@ -109,6 +134,36 @@ fn prefixes(path: &str) -> impl Iterator<Item = &str> {
     path.match_indices('/')
         .map(move |(index, _)| &path[..index])
         .chain(std::iter::once(path))
+}
+
+/// Folder verdicts for one batch of watcher changes.
+///
+/// A folder is judged once, by its parent's verdict and its own name, so a file's verdict costs one
+/// lookup instead of one pass over every ancestor. The keys are borrowed from the batch the verdict
+/// is for, which is why a batch of a hundred thousand changes copies no folder name.
+#[derive(Debug, Default)]
+pub(crate) struct Folders<'a> {
+    decided: HashMap<&'a str, bool>,
+}
+
+impl<'a> Folders<'a> {
+    /// Whether `folder` or any folder above it is hidden or ignored. The empty folder is the root,
+    /// which is never either.
+    pub fn excluded(&mut self, filters: &Filters, root: &Root, folder: &'a str) -> bool {
+        if folder.is_empty() {
+            return false;
+        }
+        if let Some(&decided) = self.decided.get(folder) {
+            return decided;
+        }
+        let above = match folder.rsplit_once('/') {
+            Some((parent, _)) => self.excluded(filters, root, parent),
+            None => false,
+        };
+        let decided = above || filters.excludes_self(root, folder, true);
+        self.decided.insert(folder, decided);
+        decided
+    }
 }
 
 /// One request to walk files into a list.

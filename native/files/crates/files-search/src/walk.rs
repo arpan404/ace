@@ -14,6 +14,7 @@ use ignore::WalkBuilder;
 use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkState};
 
 use crate::error::Error;
+use crate::folders::Folders;
 use crate::parents::Inherited;
 use crate::pattern::{self, Plan};
 use crate::query::Query;
@@ -194,6 +195,7 @@ impl<'s, 'a: 's, 'shared: 's> ParallelVisitorBuilder<'s> for Workers<'a, 'shared
         Box::new(Worker {
             shared: self.shared,
             searcher: searcher(),
+            folders: Folders::default(),
         })
     }
 }
@@ -202,6 +204,8 @@ impl<'s, 'a: 's, 'shared: 's> ParallelVisitorBuilder<'s> for Workers<'a, 'shared
 struct Worker<'a> {
     shared: &'a Shared<'a>,
     searcher: Searcher,
+    /// The folders this thread already opened and proved, so a folder's files cost one open each.
+    folders: Folders,
 }
 
 impl ParallelVisitor for Worker<'_> {
@@ -232,7 +236,13 @@ impl Worker<'_> {
         if !self.shared.accepts(&relative) {
             return;
         }
-        search_file(&mut self.searcher, self.shared, entry, &relative);
+        search_file(
+            &mut self.searcher,
+            self.shared,
+            &mut self.folders,
+            entry,
+            &relative,
+        );
     }
 }
 
