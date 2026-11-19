@@ -68,7 +68,10 @@ change without pairing again:
   the linking machine refuses it as `exists`, right before redeeming, while it holds a link to that
   machine or is making one: redeeming replaces the link's device there, so a link made meanwhile
   in another window, perhaps with Projects, is never replaced by one granting less. The unused
-  pairing link is cancelled, and the toast names only links this action made. Every link, gap fill or not, holds its machine from right before
+  pairing link is cancelled, and the toast names only links this action made. A machine's `links`
+  answer says whether it honours `keep` (`keep: true`); older daemons drop the field unread. Link
+  all reads the source machine's links again before each fill and skips a gap already linked, and
+  sends `keep` only to a machine that advertises it, so it never replaces a held link. Every link, gap fill or not, holds its machine from right before
   redeeming until it is saved or fails: a second link to the same machine meanwhile is refused
   (`busy`, or `exists` for a gap fill), and links being made count toward the 64-link limit, so
   nothing is redeemed that couldn't be saved.
@@ -289,9 +292,13 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   import stopped before its cutoff is undone and runs again on the next start.
 - A cancel or a shutdown stops waiting on a call to the target the moment it aborts, whatever the
   connection does; what the target made of that call is learnt again through status.
-- The target names a transfer's files after its id with each `.` written as `~` (never in an
-  id), so no id's files can be another transfer's payload. Closing stops the retention sweep and
-  waits for all of it.
+- The target names a transfer's files by the lowercase hex SHA-256 of its id, so no id's files
+  can be another transfer's, even ids that differ only in dots or case on a case-insensitive
+  volume. On recovery, files an earlier build named after the id move to the hashed names, in
+  pages of transfers still receiving or importing (ADR 0170), and stray removal keeps every name
+  such a transfer can own, worked out from the rows rather than read back from names. Closing
+  stops the retention sweep and waits for all of it, and a begin that waited on it then refuses.
+  A chunk refused after its file was opened removes the file it made.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
   both machines before the transfer reads settled; rows are kept 24 hours for the list. While the
   target's sweep removes an expired transfer's files, its id is held: a begin of the same id waits
