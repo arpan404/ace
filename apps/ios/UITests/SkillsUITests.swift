@@ -151,12 +151,15 @@ import XCTest
             app.navigationBars.firstMatch.tap()
         }
         project.tap()
+        // At this size a row can sit under the bottom search field and still count as hittable, so
+        // the list scrolls until the row is clear of it.
+        let clear = app.frame.height * 0.75
         let row = app.buttons["skills.row.release-desktop"]
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 15))
+        for _ in 0..<8 where !(row.isHittable && row.frame.maxY < clear) { app.swipeUp() }
         row.tap()
         let change = app.buttons["skill.agents"]
-        for _ in 0..<6 where !(change.exists && change.isHittable) { app.swipeUp() }
+        for _ in 0..<8 where !(change.exists && change.isHittable && change.frame.maxY < clear) { app.swipeUp() }
         XCTAssertTrue(change.waitForExistence(timeout: 15))
         let words = app.staticTexts["Agents"].firstMatch
         XCTAssertTrue(words.exists)
