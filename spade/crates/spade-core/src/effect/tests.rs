@@ -992,6 +992,7 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
             app: None,
             acts_in: None,
             helper: None,
+            launch: None,
         })
     };
     let answered = |call: &str, always: bool| {
