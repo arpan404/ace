@@ -94,6 +94,16 @@ pub(crate) fn version_of(handle: Option<&File>, metadata: &Metadata) -> Result<S
     ))
 }
 
+/// A folder's own version, read through a handle to the folder itself.
+pub(crate) fn own_version(dir: &Dir) -> Result<String, Error> {
+    let metadata = dir.dir_metadata()?;
+    #[cfg(unix)]
+    let handle = None;
+    #[cfg(windows)]
+    let handle = Some(crate::handle::dir_handle(dir)?);
+    version_of(handle.as_ref(), &metadata)
+}
+
 /// Whether `name` in `dir` still has the identity recorded in `metadata`.
 #[cfg(unix)]
 pub(crate) fn still(dir: &Dir, name: &str, metadata: &Metadata) -> Result<bool, Error> {

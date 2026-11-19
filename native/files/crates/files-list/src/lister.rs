@@ -62,6 +62,22 @@ impl Lister {
     /// held then, and once the folder is past the racy window; otherwise it is `INVALID_CURSOR`
     /// and the caller starts again from the top.
     pub fn list(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
+        Root::check(dir)?;
+        let handle = self.root.open_dir(dir)?;
+        self.list_in(dir, &handle, options)
+    }
+
+    /// Lists one page of a folder the caller already opened, by the stored path that names it.
+    ///
+    /// A request that authorizes a folder and then lists it uses this: the handle the policy read
+    /// and the handle the page comes from are one walk, so a name rewritten in between cannot
+    /// make the listing answer with a folder nobody checked.
+    pub fn list_in(
+        &self,
+        dir: &str,
+        handle: &cap_std::fs::Dir,
+        options: &ListOptions,
+    ) -> Result<Page, Error> {
         if options.limit == 0 || options.limit > MAX_LIMIT {
             return Err(Error::InvalidArgument(format!(
                 "limit {} is outside 1..={MAX_LIMIT}",
@@ -77,9 +93,8 @@ impl Lister {
             ),
         };
         let hidden = Hidden::build(self.root.path(), &options.hide)?;
-        let handle = self.root.open_dir(dir)?;
         let rules = self.rules_for(dir)?;
-        let snapshot = self.snapshot(dir, &handle, &rules, &hidden)?;
+        let snapshot = self.snapshot(dir, handle, &rules, &hidden)?;
         let total = snapshot.total();
         let offset = match cursor {
             None => 0,
@@ -115,7 +130,7 @@ impl Lister {
             .encode()
         });
         Ok(Page {
-            entries: snapshot.entries(&handle, offset..end),
+            entries: snapshot.entries(handle, offset..end),
             next_cursor,
             total,
         })
@@ -131,20 +146,37 @@ impl Lister {
         if path.is_empty() {
             return Err(Error::Path(files_safe::Error::InvalidPath(String::new())));
         }
-        let (parent, _) = split_leaf(path);
         let (handle, name) = self.root.open_parent(path)?;
-        let metadata = handle.symlink_metadata(&name)?;
+        self.stat_in(path, &handle, &name)
+    }
+
+    /// Reports one entry from the folder the caller already opened, without following it.
+    ///
+    /// A request that authorizes a leaf and then reports it uses this, so the entry it reports is
+    /// the entry the policy read.
+    pub fn stat_in(
+        &self,
+        path: &str,
+        handle: &cap_std::fs::Dir,
+        name: &str,
+    ) -> Result<Entry, Error> {
+        Root::check(path)?;
+        if path.is_empty() {
+            return Err(Error::Path(files_safe::Error::InvalidPath(String::new())));
+        }
+        let (parent, _) = split_leaf(path);
+        let metadata = handle.symlink_metadata(name)?;
         let kind = if metadata.file_type().is_symlink() {
-            symlink_kind(&handle, &name)
+            symlink_kind(handle, name)
         } else {
             kind_of(&metadata.file_type())
         };
         let rules = self.rules_for(parent)?;
         let is_dir = matches!(kind, Kind::Directory);
         Ok(Entry {
-            ignored: rules.folder_ignored() || rules.ignored(&name, is_dir),
+            ignored: rules.folder_ignored() || rules.ignored(name, is_dir),
             path: path.to_owned(),
-            name,
+            name: name.to_owned(),
             size: size_of(&metadata, &kind),
             mtime_ms: metadata
                 .modified()

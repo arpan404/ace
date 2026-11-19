@@ -34,22 +34,22 @@ pub fn list(
     let limit = usize::try_from(limit)
         .map_err(|_| Error::InvalidArgument(format!("limit {limit} is out of range")))?;
     // Git's store and the daemon's transfer temporaries are never served, and neither is anything
-    // a link leads into: the check reads the stored names the walk found, so another spelling of
-    // the same folder is refused too.
-    files_io::refuse_reserved(entry.root(), dir)?;
+    // a link leads into: the walk that proves the names hands back the handle the page is read
+    // through, so the folder that answered is the folder the policy read.
+    let (handle, stored) = files_io::authorized_dir(entry.root(), dir)?;
     let options = ListOptions {
         limit,
         cursor,
         hide: hidden::listing_hide(hide),
     };
-    let page = entry.lister().list(dir, &options)?;
+    let page = entry.lister().list_in(&stored, &handle, &options)?;
     Ok(Reply::Page(convert::page(page)))
 }
 
 /// The description of one path.
 pub fn stat(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;
-    files_io::refuse_reserved(entry.root(), path)?;
-    let stat = entry.lister().stat(path)?;
+    let parent = files_io::authorized_parent(entry.root(), path)?;
+    let stat = entry.lister().stat_in(path, &parent.dir, &parent.name)?;
     Ok(Reply::Entry(convert::entry(stat)))
 }

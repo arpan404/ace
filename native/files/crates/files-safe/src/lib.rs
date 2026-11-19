@@ -22,7 +22,7 @@ mod walk;
 mod windows;
 
 pub use crate::error::Error;
-pub use crate::walk::Parent;
+pub use crate::walk::{Parent, Stored};
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -130,6 +130,15 @@ impl Root {
     /// operation lands on the entry a case-insensitive volume would match.
     pub fn open_parent(&self, rel: &str) -> Result<(cap_std::fs::Dir, String), Error> {
         walk::open_parent(self, rel)
+    }
+
+    /// Opens the folder `rel` names with the stored spelling of every folder on the way.
+    ///
+    /// A read-only request that authorizes names and then serves bytes uses this: the names the
+    /// policy reads and the handle the answer comes from are one walk, so a link swapped in
+    /// after the check cannot make the folder that answers differ from the one that was read.
+    pub fn open_dir_stored(&self, rel: &str) -> Result<Stored, Error> {
+        walk::open_dir_stored(self, rel)
     }
 
     /// [`Root::open_parent`], with the stored spelling of every folder on the way.
