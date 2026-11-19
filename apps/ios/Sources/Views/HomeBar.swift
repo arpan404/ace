@@ -164,18 +164,25 @@ extension View {
 }
 
 extension View {
-    /// The list scrolls back to its top when its place's tab is tapped again (`HomeRetap`).
-    func scrollsToTop(on place: InboxTab) -> some View { modifier(ScrollsToTop(place: place)) }
+    /// The list scrolls back to `first`, its first row's id, when its place's tab is tapped again
+    /// (`HomeRetap`). A List is a UIKit collection that a `ScrollPosition` edge doesn't move, so
+    /// a reader scrolls to the row itself.
+    func scrollsToTop(on place: InboxTab, first: AnyHashable?) -> some View {
+        modifier(ScrollsToTop(place: place, first: first))
+    }
 }
 
 private struct ScrollsToTop: ViewModifier {
     let place: InboxTab
+    let first: AnyHashable?
     @Environment(\.homeRetap) private var retap
-    @State private var position = ScrollPosition()
     func body(content: Content) -> some View {
-        content
-            .scrollPosition($position)
-            .onChange(of: retap?.count(place)) { withAnimation { position.scrollTo(edge: .top) } }
+        ScrollViewReader { proxy in
+            content.onChange(of: retap?.count(place)) {
+                guard let first else { return }
+                withAnimation { proxy.scrollTo(first, anchor: .top) }
+            }
+        }
     }
 }
 

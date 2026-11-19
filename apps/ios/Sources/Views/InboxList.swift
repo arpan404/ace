@@ -81,6 +81,8 @@ struct InboxList: View {
     /// open again over the tabs.
     @State private var position = ScrollPosition()
     @Environment(\.homeRetap) private var retap
+    /// The list's first row, the tabs header: where a second tap on Projects scrolls to.
+    static let top = "inbox.top"
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
@@ -93,6 +95,7 @@ struct InboxList: View {
             List(selection: selection) {
                 if let header {
                     header
+                        .id(Self.top)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(surface)
                         .listRowSeparator(.hidden)
@@ -146,8 +149,15 @@ struct InboxList: View {
             }
             .listStyle(.plain)
             .scrollPosition($position)
-            // Projects tapped again while it shows: back to the top.
-            .onChange(of: retap?.count(.threads)) { withAnimation { position.scrollTo(edge: .top) } }
+            // Projects tapped again while it shows: back to the top. A List is a UIKit collection
+            // that a `ScrollPosition` edge doesn't move, so the reader scrolls to the first row,
+            // the tabs over the rows where there are any.
+            .onChange(of: retap?.count(.threads)) {
+                let first: AnyHashable? = header != nil ? AnyHashable(Self.top)
+                    : shown.lazy.compactMap { $0.rows.first }.first.map(AnyHashable.init)
+                guard let first else { return }
+                withAnimation { proxy.scrollTo(first, anchor: .top) }
+            }
             .scrollContentBackground(.hidden)
             .background(surface)
             .environment(\.defaultMinListRowHeight, 0)

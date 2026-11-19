@@ -71,7 +71,7 @@ private struct SpadeList: View {
     var body: some View {
         List { rows }
             .listStyle(.plain)
-            .scrollsToTop(on: .spade)
+            .scrollsToTop(on: .spade, first: spade.bots?.first.map { AnyHashable($0.id) })
             .refreshable { client.spadeRefresh() }
             .accessibilityIdentifier("spade.list")
     }
