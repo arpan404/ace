@@ -9,10 +9,10 @@ import { TestClock } from "./test-clock.ts";
 
 const threadId = ThreadId.parse("main");
 
-function request(requestId: string, pattern = "needle"): SearchRequest {
+function request(requestId: string, pattern = "needle", thread = threadId): SearchRequest {
   const operation = FileOperation.parse({ op: "search", pattern });
   if (operation.op !== "search") throw new Error("expected a search");
-  return { requestId, threadId, operation };
+  return { requestId, threadId: thread, operation };
 }
 
 /** A stand-in ace-files whose searches the test drives: report files, then finish. */
@@ -145,6 +145,33 @@ it("a newer search of the same thread cancels the one before it", async () => {
   expect(h.end("old")).toMatchObject({ type: "files.error", code: "CANCELLED" });
   expect(h.lines("old")).toBe(0);
   expect(h.lines("new")).toBe(1);
+});
+
+it("a request id still in use is refused and the running search keeps its id", async () => {
+  const h = harness();
+  h.searches.start(request("same", "first"));
+  await h.settle();
+  h.searches.start(request("same", "second", ThreadId.parse("other")));
+  await h.settle();
+  expect(h.fake.running).toHaveLength(1);
+  expect(h.end("same")).toMatchObject({ type: "files.error", code: "INVALID_ARGUMENT" });
+  expect(h.searches.abort("same")).toBe(true);
+  await Promise.all(h.tasks);
+  expect(h.fake.running[0]?.options.signal?.aborted).toBe(true);
+});
+
+it("an id is free again once its search has ended", async () => {
+  const h = harness();
+  h.searches.start(request("reused", "first"));
+  await h.settle();
+  h.fake.running[0]?.finish();
+  await Promise.all(h.tasks);
+  h.searches.start(request("reused", "second", ThreadId.parse("other")));
+  await h.settle();
+  expect(h.fake.running).toHaveLength(2);
+  expect(h.searches.abort("reused")).toBe(true);
+  await h.settle();
+  expect(h.fake.running[1]?.options.signal?.aborted).toBe(true);
 });
 
 it("an abort or a closed connection stops the search", async () => {

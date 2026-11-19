@@ -138,6 +138,11 @@ export function contentSearches(options: ContentSearchOptions): ContentSearches 
     start(message) {
       const requestId = message.requestId;
       if (closed) return;
+      // Ids name one search at a time: a second one would take over the first's abort and cleanup.
+      if (running.has(requestId)) {
+        fail(requestId, "INVALID_ARGUMENT", "A search with this request id is still running");
+        return;
+      }
       const key = message.threadId ?? message.workspaceId ?? "";
       const previous = byScope.get(key);
       if (previous !== undefined) running.get(previous)?.controller.abort();
@@ -146,11 +151,12 @@ export function contentSearches(options: ContentSearchOptions): ContentSearches 
         return;
       }
       const controller = new AbortController();
-      running.set(requestId, { controller, key });
+      const entry = { controller, key };
+      running.set(requestId, entry);
       byScope.set(key, requestId);
       options.run(
         search(message, controller).finally(() => {
-          running.delete(requestId);
+          if (running.get(requestId) === entry) running.delete(requestId);
           if (byScope.get(key) === requestId) byScope.delete(key);
         }),
       );
