@@ -35,7 +35,7 @@
     "eval:mcp": "ACE_EVAL_REPORT=${ACE_EVAL_REPORT:-output/evals/mcp-latest} vitest run --project process apps/daemon/src/evals --no-file-parallelism --testTimeout=180000 && oxfmt docs/evals",
     "check:ui": "node scripts/check-ui-values.ts",
     "icons:providers": "node scripts/provider-icons.ts",
-    "icons:apps": "node scripts/app-icons.ts",
+    "icons:apps": "node scripts/app-icons.ts && oxfmt packages/ui-core/src/app-art",
     "check:deps": "depcruise apps/android/src apps/android/modules/ace-native/index.tsx apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
     "bench:daemon": "bun tools/daemon-bench/src/check.ts",
     "check:perf": "bun apps/daemon/bench/check.ts && node packages/browser/bench/video-link.ts && node packages/browser/bench/media-link.ts && bun run --filter @ace/web-perf check && node tools/web-perf/device/check.ts",

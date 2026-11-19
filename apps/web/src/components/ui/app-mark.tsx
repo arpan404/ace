@@ -21,6 +21,8 @@ let tablesLoading: Promise<void> | undefined;
 let version = 0;
 const marks = new Map<string, BrandArt>();
 const requested = new Set<string>();
+/** Apps asked for before the tables arrived; their marks load once the tables do. */
+const wanted = new Set<string>();
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
@@ -35,19 +37,22 @@ function changed() {
 
 /** Loads the tables, then the app's mark. A failed load (offline) retries on a later mount. */
 function load(id: string | undefined) {
-  if (!tables) {
-    tablesLoading ??= import("@ace/ui-core/app-icons").then(
-      (module) => {
-        tables = module;
-        changed();
-      },
-      () => {
-        tablesLoading = undefined;
-      },
-    );
-    return;
-  }
-  const loader = id ? tables.appArt[id] : undefined;
+  if (id) wanted.add(id);
+  if (tables) return loadMark(tables, id);
+  tablesLoading ??= import("@ace/ui-core/app-icons").then(
+    (module) => {
+      tables = module;
+      for (const each of wanted) loadMark(module, each);
+      changed();
+    },
+    () => {
+      tablesLoading = undefined;
+    },
+  );
+}
+
+function loadMark(from: Tables, id: string | undefined) {
+  const loader = id ? from.appArt[id] : undefined;
   if (!id || !loader || requested.has(id)) return;
   requested.add(id);
   loader().then(
@@ -80,9 +85,7 @@ export function AppMark(props: {
   const gradientId = useId();
   const size = sizes[props.size ?? "row"];
   const id = props.catalogue;
-  const loaded = tables !== undefined;
-  // Again once the tables arrive: only then is the app's own mark known.
-  useEffect(() => load(id), [id, loaded]);
+  useEffect(() => load(id), [id]);
   const art = id ? marks.get(id) : undefined;
   const marked = Boolean(id && tables?.appArt[id]);
   return (

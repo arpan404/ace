@@ -6,10 +6,7 @@
       "name": "Airtable",
       "category": "work",
       "url": "https://mcp.airtable.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "You choose which bases it can reach when you sign in. A personal access token also works.",
       "key_url": "https://airtable.com/create/tokens",
       "source": "https://airtable.com/developers/agents/mcp/getting-started",
@@ -20,9 +17,7 @@
       "name": "Amplitude",
       "category": "data",
       "url": "https://mcp.amplitude.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "US data center.",
       "source": "https://amplitude.com/docs/amplitude-ai/amplitude-mcp",
       "checked": "2026-11-19"
@@ -32,9 +27,7 @@
       "name": "Apollo.io",
       "category": "sales_support",
       "url": "https://mcp.apollo.io/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://docs.apollo.io/docs/apollo-mcp",
       "checked": "2026-11-19"
@@ -44,9 +37,7 @@
       "name": "Asana",
       "category": "work",
       "url": "https://mcp.asana.com/v2/mcp",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account, because Asana requires a client secret Spade can't ship. You can instead register your own MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
       "source": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
@@ -57,10 +48,7 @@
       "name": "Atlassian",
       "category": "work",
       "url": "https://mcp.atlassian.com/v2/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "Jira and Confluence. An admin decides whether API tokens may be used.",
       "key_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
       "source": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
@@ -71,9 +59,7 @@
       "name": "Attio",
       "category": "sales_support",
       "url": "https://mcp.attio.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://docs.attio.com/mcp/overview",
       "checked": "2026-11-19"
@@ -83,9 +69,7 @@
       "name": "Axiom",
       "category": "data",
       "url": "https://mcp.axiom.co/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://axiom.co/docs/console/intelligence/mcp-server",
       "checked": "2026-11-19"
@@ -95,9 +79,7 @@
       "name": "Basecamp",
       "category": "work",
       "url": "https://mcp.basecamp.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://basecamp.com/ai",
       "checked": "2026-11-19"
@@ -107,9 +89,7 @@
       "name": "Box",
       "category": "files",
       "url": "https://mcp.box.com",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account, because Box requires a client secret Spade can't ship. A Box admin turns the server on; you can instead use a client ID and secret from Box's Admin Console.",
       "source": "https://developer.box.com/guides/box-mcp/remote/",
@@ -120,9 +100,7 @@
       "name": "Buildkite",
       "category": "code",
       "url": "https://mcp.buildkite.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://buildkite.com/docs/apis/mcp-server/remote/configuring-ai-tools",
       "checked": "2026-11-19"
@@ -132,9 +110,7 @@
       "name": "Cal.com",
       "category": "meetings",
       "url": "https://mcp.cal.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://cal.com/docs/mcp-server",
       "checked": "2026-11-19"
@@ -144,9 +120,7 @@
       "name": "Calendly",
       "category": "meetings",
       "url": "https://mcp.calendly.com/",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Some tools, such as booking for an invitee, need a paid plan.",
       "source": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
       "checked": "2026-11-19"
@@ -156,9 +130,7 @@
       "name": "Canva",
       "category": "design",
       "url": "https://api.canva.com/connect/v1/mcp",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account, because Canva requires a client secret Spade can't ship. You can instead use a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
       "source": "https://www.canva.dev/docs/apps/mcp/access/",
@@ -169,9 +141,7 @@
       "name": "Clerk",
       "category": "code",
       "url": "https://mcp.clerk.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://clerk.com/docs/guides/ai/mcp/clerk-mcp-server",
       "checked": "2026-11-19"
@@ -181,9 +151,7 @@
       "name": "ClickUp",
       "category": "work",
       "url": "https://mcp.clickup.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Public beta.",
       "source": "https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server",
       "checked": "2026-11-19",
@@ -196,9 +164,7 @@
       "name": "Close",
       "category": "sales_support",
       "url": "https://mcp.close.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://help.close.com/docs/mcp-server",
       "checked": "2026-11-19"
@@ -208,10 +174,7 @@
       "name": "Cloudflare",
       "category": "code",
       "url": "https://mcp.cloudflare.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "Your Cloudflare account through one server. A user or account API token also works.",
       "key_url": "https://dash.cloudflare.com/profile/api-tokens",
       "source": "https://github.com/cloudflare/mcp-server-cloudflare",
@@ -222,9 +185,7 @@
       "name": "Cloudinary",
       "category": "design",
       "url": "https://asset-management.mcp.cloudinary.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Your media library.",
       "source": "https://cloudinary.com/documentation/cloudinary_llm_mcp",
       "checked": "2026-11-19"
@@ -234,9 +195,7 @@
       "name": "Contentful",
       "category": "design",
       "url": "https://mcp.contentful.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://www.contentful.com/developers/docs/tools/mcp-server/",
       "checked": "2026-11-19"
@@ -246,9 +205,7 @@
       "name": "Datadog",
       "category": "data",
       "url": "https://mcp.datadoghq.com/v1/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "The US1 site. Other Datadog sites add their own server by URL, such as https://mcp.datadoghq.eu/v1/mcp.",
       "source": "https://docs.datadoghq.com/mcp_server/setup/",
       "checked": "2026-11-19"
@@ -258,9 +215,7 @@
       "name": "Dropbox",
       "category": "files",
       "url": "https://mcp.dropbox.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Beta.",
       "source": "https://help.dropbox.com/integrations/connect-dropbox-mcp-server",
       "checked": "2026-11-19"
@@ -270,9 +225,7 @@
       "name": "Figma",
       "category": "design",
       "url": "https://mcp.figma.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "waits_for": "maker_approval",
       "notes": "Figma lets in only the apps in its MCP catalog.",
       "source": "https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/",
@@ -283,9 +236,7 @@
       "name": "Fireflies",
       "category": "meetings",
       "url": "https://api.fireflies.ai/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Your meeting transcripts and summaries.",
       "source": "https://docs.fireflies.ai/getting-started/mcp-configuration",
       "checked": "2026-11-19"
@@ -295,9 +246,7 @@
       "name": "Framer",
       "category": "design",
       "url": "https://mcp.framer.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Can publish your sites.",
       "source": "https://www.framer.com/developers/mcp",
       "checked": "2026-11-19"
@@ -307,9 +256,7 @@
       "name": "Front",
       "category": "mail_chat",
       "url": "https://mcp.frontapp.com/mcp",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account, because Front requires a client secret Spade can't ship. You can instead use a client ID and secret from an app you create in Front's developer settings.",
       "source": "https://dev.frontapp.com/docs/mcp-server",
@@ -324,9 +271,7 @@
       "name": "Gamma",
       "category": "work",
       "url": "https://mcp.gamma.app/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Makes presentations, documents and sites.",
       "source": "https://developers.gamma.app/docs/mcp",
       "checked": "2026-11-19"
@@ -336,10 +281,7 @@
       "name": "GitHub",
       "category": "code",
       "url": "https://api.githubcopilot.com/mcp/",
-      "sign_in": [
-        "token",
-        "oauth_client"
-      ],
+      "sign_in": ["token", "oauth_client"],
       "notes": "A personal access token always works. Sign in shows a code to enter on GitHub once Spade's own GitHub app is registered. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
       "key_url": "https://github.com/settings/personal-access-tokens",
       "source": "https://github.com/github/github-mcp-server",
@@ -354,9 +296,7 @@
       "name": "GitLab",
       "category": "code",
       "url": "https://gitlab.com/api/v4/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "GitLab.com. Self-managed GitLab adds its own server by URL.",
       "source": "https://docs.gitlab.com/user/model_context_protocol/mcp_server/",
       "checked": "2026-11-19"
@@ -366,9 +306,7 @@
       "name": "Gmail",
       "category": "mail_chat",
       "url": "https://gmailmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Reads mail and writes drafts; it never sends. Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Gmail MCP API turned on.",
       "source": "https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server",
@@ -379,9 +317,7 @@
       "name": "Google Calendar",
       "category": "meetings",
       "url": "https://calendarmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Calendar MCP API turned on.",
       "source": "https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server",
@@ -398,9 +334,7 @@
       "name": "Google Chat",
       "category": "mail_chat",
       "url": "https://chatmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Chat MCP API turned on.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
@@ -412,9 +346,7 @@
       "name": "Google Docs",
       "category": "work",
       "url": "https://docsmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Docs MCP API turned on.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
@@ -425,9 +357,7 @@
       "name": "Google Drive",
       "category": "files",
       "url": "https://drivemcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Drive MCP API turned on.",
       "source": "https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
@@ -438,9 +368,7 @@
       "name": "Google Sheets",
       "category": "work",
       "url": "https://sheetsmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Sheets MCP API turned on.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
@@ -451,9 +379,7 @@
       "name": "Google Slides",
       "category": "work",
       "url": "https://slidesmcp.googleapis.com/mcp/v1",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Google app is verified. You can instead use an OAuth client from your own Google Cloud project with the Slides MCP API turned on.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
@@ -464,9 +390,7 @@
       "name": "Grafana Cloud",
       "category": "data",
       "url": "https://mcp.grafana.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Needs Grafana Assistant on your stack; each person who connects counts toward its billing.",
       "source": "https://grafana.com/docs/grafana-cloud/ai-tools/mcp-servers/cloud-mcp/",
       "checked": "2026-11-19"
@@ -476,9 +400,7 @@
       "name": "Granola",
       "category": "meetings",
       "url": "https://mcp.granola.ai/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Your meeting notes and transcripts.",
       "source": "https://docs.granola.ai/help-center/sharing/integrations/mcp",
       "checked": "2026-11-19"
@@ -488,9 +410,7 @@
       "name": "Guru",
       "category": "work",
       "url": "https://mcp.api.getguru.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Your team's knowledge base.",
       "source": "https://help.getguru.com/docs/connecting-gurus-mcp-server",
       "checked": "2026-11-19"
@@ -500,9 +420,7 @@
       "name": "Help Scout",
       "category": "sales_support",
       "url": "https://mcp.helpscout.net/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Reads conversations, customers and reports; it can't send or change anything. Standard, Plus and Pro plans.",
       "source": "https://docs.helpscout.com/article/1779-connect-your-ai-agent-with-help-scout-to-search-conversations-and-pull-reports",
       "checked": "2026-11-19"
@@ -512,9 +430,7 @@
       "name": "Hex",
       "category": "data",
       "url": "https://app.hex.tech/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "US region. EU workspaces add https://eu.hex.tech/mcp by URL.",
       "source": "https://learn.hex.tech/docs/administration/mcp-server",
       "checked": "2026-11-19"
@@ -524,9 +440,7 @@
       "name": "HubSpot",
       "category": "sales_support",
       "url": "https://mcp.hubspot.com",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account, because HubSpot requires a client secret Spade can't ship. You can instead create an MCP connector in HubSpot (Development, then MCP Connectors) for a client ID and secret.",
       "source": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
@@ -537,9 +451,7 @@
       "name": "Hugging Face",
       "category": "code",
       "url": "https://huggingface.co/mcp",
-      "sign_in": [
-        "token"
-      ],
+      "sign_in": ["token"],
       "notes": "Uses a Hugging Face access token.",
       "key_url": "https://huggingface.co/settings/tokens",
       "source": "https://github.com/huggingface/hf-mcp-server",
@@ -550,10 +462,7 @@
       "name": "Intercom",
       "category": "sales_support",
       "url": "https://mcp.intercom.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "US workspaces. EU workspaces add the server by URL: https://mcp.eu.intercom.com/mcp",
       "key_url": "https://developers.intercom.com/docs/build-an-integration/learn-more/authentication",
       "source": "https://developers.intercom.com/docs/guides/mcp",
@@ -565,9 +474,7 @@
       "name": "Jam",
       "category": "code",
       "url": "https://mcp.jam.dev/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Bug reports with their recordings and logs.",
       "source": "https://jam.dev/docs/debug-a-jam/mcp",
       "checked": "2026-11-19"
@@ -577,9 +484,7 @@
       "name": "Jotform",
       "category": "work",
       "url": "https://mcp.jotform.com/",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Forms and their submissions.",
       "source": "https://www.jotform.com/developers/mcp/",
       "checked": "2026-11-19"
@@ -589,9 +494,7 @@
       "name": "Klaviyo",
       "category": "mail_chat",
       "url": "https://mcp.klaviyo.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "For Owner, Admin and Manager roles. Can schedule and send campaigns.",
       "source": "https://developers.klaviyo.com/en/docs/connect_to_the_klaviyo_mcp_server",
       "checked": "2026-11-19",
@@ -602,9 +505,7 @@
       "name": "LaunchDarkly",
       "category": "code",
       "url": "https://mcp.launchdarkly.com/mcp/launchdarkly",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Feature flags: changing one changes your live product.",
       "source": "https://launchdarkly.com/docs/home/getting-started/mcp-hosted",
       "checked": "2026-11-19"
@@ -614,10 +515,7 @@
       "name": "Linear",
       "category": "work",
       "url": "https://mcp.linear.app/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "An API key also works.",
       "key_url": "https://linear.app/settings/account/security",
       "source": "https://linear.app/docs/mcp",
@@ -628,9 +526,7 @@
       "name": "Lucid",
       "category": "work",
       "url": "https://mcp.lucid.app/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Lucidchart and Lucidspark.",
       "source": "https://help.lucid.co/hc/en-us/articles/42578801807508",
       "checked": "2026-11-19"
@@ -640,9 +536,7 @@
       "name": "Make",
       "category": "work",
       "url": "https://mcp.make.com/v2",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Runs your Make scenarios, which may send or pay in other apps.",
       "source": "https://developers.make.com/mcp-server/connect-using-oauth",
       "checked": "2026-11-19",
@@ -653,9 +547,7 @@
       "name": "Mercury",
       "category": "money",
       "url": "https://mcp.mercury.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Beta. Payments it requests still need approval in Mercury.",
       "source": "https://docs.mercury.com/docs/connecting-mercury-mcp",
       "checked": "2026-11-19",
@@ -666,9 +558,7 @@
       "name": "Miro",
       "category": "work",
       "url": "https://mcp.miro.com/",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "One team per sign-in. On Enterprise plans an admin turns it on first.",
       "source": "https://developers.miro.com/docs/miro-mcp",
       "checked": "2026-11-19"
@@ -678,9 +568,7 @@
       "name": "Mixpanel",
       "category": "data",
       "url": "https://mcp.mixpanel.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "US data residency.",
       "source": "https://docs.mixpanel.com/docs/features/mcp",
       "checked": "2026-11-19"
@@ -690,10 +578,7 @@
       "name": "monday.com",
       "category": "work",
       "url": "https://mcp.monday.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "Tool calls count toward your account's daily API limit. A personal API token also works (Developers, My access tokens).",
       "key_url": "https://developer.monday.com/api-reference/docs/authentication",
       "source": "https://developer.monday.com/api-reference/docs/mondaycom-mcp",
@@ -704,9 +589,7 @@
       "name": "MongoDB Atlas",
       "category": "code",
       "url": "https://mcp.mongodb.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://www.mongodb.com/docs/mcp-server/get-started/",
       "checked": "2026-11-19"
@@ -716,10 +599,7 @@
       "name": "Neon",
       "category": "code",
       "url": "https://mcp.neon.tech/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "An API key also works.",
       "key_url": "https://console.neon.tech/app/settings/api-keys",
       "source": "https://neon.com/docs/ai/neon-mcp-server",
@@ -730,9 +610,7 @@
       "name": "Netlify",
       "category": "code",
       "url": "https://netlify-mcp.netlify.app/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Can deploy your sites.",
       "source": "https://docs.netlify.com/build/build-with-ai/netlify-mcp-server/",
       "checked": "2026-11-19"
@@ -742,10 +620,7 @@
       "name": "Notion",
       "category": "work",
       "url": "https://mcp.notion.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "Workspace tokens are for Business and Enterprise plans; a workspace owner creates them.",
       "key_url": "https://www.notion.so/profile/integrations",
       "source": "https://developers.notion.com/docs/get-started-with-mcp",
@@ -756,9 +631,7 @@
       "name": "PagerDuty",
       "category": "code",
       "url": "https://mcp.pagerduty.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://support.pagerduty.com/main/docs/pagerduty-mcp-server-integration-guide",
       "checked": "2026-11-19"
@@ -768,9 +641,7 @@
       "name": "PayPal",
       "category": "money",
       "url": "https://mcp.paypal.com/http",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Live accounts. The sandbox server is https://mcp.sandbox.paypal.com/http",
       "source": "https://developer.paypal.com/tools/mcp-server/",
       "checked": "2026-11-19",
@@ -781,9 +652,7 @@
       "name": "Pipedrive",
       "category": "sales_support",
       "url": "https://mcp.pipedrive.ai/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "waits_for": "maker_approval",
       "notes": "Pipedrive approves each app before it can sign in.",
       "source": "https://support.pipedrive.com/en/article/mcp-chatgpt",
@@ -794,9 +663,7 @@
       "name": "PlanetScale",
       "category": "code",
       "url": "https://mcp.pscale.dev/mcp/planetscale",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://planetscale.com/docs/connect/mcp",
       "checked": "2026-11-19"
@@ -806,10 +673,7 @@
       "name": "PostHog",
       "category": "data",
       "url": "https://mcp.posthog.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "US Cloud. A personal API key made with the MCP Server preset also works.",
       "key_url": "https://app.posthog.com/settings/user-api-keys",
       "source": "https://posthog.com/docs/model-context-protocol",
@@ -820,10 +684,7 @@
       "name": "Postman",
       "category": "code",
       "url": "https://mcp.postman.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "US region. EU workspaces add https://mcp.eu.postman.com/mcp by URL with an API key.",
       "key_url": "https://web.postman.co/settings/me/api-keys",
       "source": "https://learning.postman.com/docs/reference/postman-api/postman-mcp-server/postman-mcp-remote-server",
@@ -834,9 +695,7 @@
       "name": "Prisma",
       "category": "code",
       "url": "https://mcp.prisma.io/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Prisma Postgres databases.",
       "source": "https://www.prisma.io/docs/postgres/integrations/mcp-server",
       "checked": "2026-11-19"
@@ -846,9 +705,7 @@
       "name": "Railway",
       "category": "code",
       "url": "https://mcp.railway.com",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Can deploy your services.",
       "source": "https://docs.railway.com/reference/mcp-server",
       "checked": "2026-11-19"
@@ -858,9 +715,7 @@
       "name": "Ramp",
       "category": "money",
       "url": "https://mcp.ramp.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "waits_for": "maker_approval",
       "notes": "Ramp allows each app's sign-in address before it can sign in.",
       "source": "https://support.ramp.com/ramp-mcp/",
@@ -872,9 +727,7 @@
       "name": "Readwise",
       "category": "work",
       "url": "https://mcp2.readwise.io/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Your highlights and Reader documents.",
       "source": "https://docs.readwise.io/readwise/guides/mcp",
       "checked": "2026-11-19"
@@ -884,9 +737,7 @@
       "name": "Render",
       "category": "code",
       "url": "https://mcp.render.com/mcp",
-      "sign_in": [
-        "token"
-      ],
+      "sign_in": ["token"],
       "notes": "In Render, open Account Settings, then API Keys, and create a key.",
       "key_url": "https://dashboard.render.com/u/settings#api-keys",
       "source": "https://render.com/docs/mcp-server",
@@ -897,9 +748,7 @@
       "name": "Resend",
       "category": "mail_chat",
       "url": "https://mcp.resend.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Sends email from your domains.",
       "source": "https://resend.com/docs/knowledge-base/mcp-server",
       "checked": "2026-11-19",
@@ -910,9 +759,7 @@
       "name": "Rootly",
       "category": "code",
       "url": "https://mcp.rootly.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Incidents and on-call.",
       "source": "https://docs.rootly.com/integrations/mcp-server",
       "checked": "2026-11-19"
@@ -922,9 +769,7 @@
       "name": "Sanity",
       "category": "design",
       "url": "https://mcp.sanity.io",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://www.sanity.io/docs/compute-and-ai/mcp-server",
       "checked": "2026-11-19"
@@ -934,9 +779,7 @@
       "name": "Sentry",
       "category": "code",
       "url": "https://mcp.sentry.dev/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://mcp.sentry.dev",
       "checked": "2026-11-19"
@@ -946,9 +789,7 @@
       "name": "Slack",
       "category": "mail_chat",
       "url": "https://mcp.slack.com/mcp",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Slack app is listed in Slack's directory: Slack lets only listed apps and a workspace's own internal apps use it. You can instead use the client ID and secret of an internal app in your workspace. Admins approve each app.",
       "source": "https://docs.slack.dev/ai/slack-mcp-server/",
@@ -964,9 +805,7 @@
       "name": "Smartsheet",
       "category": "work",
       "url": "https://mcp.smartsheet.com",
-      "sign_in": [
-        "token"
-      ],
+      "sign_in": ["token"],
       "notes": "Business, Enterprise and Advanced Work Management plans. In Smartsheet, open your account menu, then Apps & Integrations, then API Access, and generate a token.",
       "key_url": "https://app.smartsheet.com/",
       "source": "https://developers.smartsheet.com/ai-mcp/smartsheet/install-the-smartsheet-mcp-server",
@@ -977,9 +816,7 @@
       "name": "Square",
       "category": "money",
       "url": "https://mcp.squareup.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Production data only.",
       "source": "https://developer.squareup.com/docs/mcp",
       "checked": "2026-11-19",
@@ -990,10 +827,7 @@
       "name": "Stripe",
       "category": "money",
       "url": "https://mcp.stripe.com",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "For a key, use an agent API key: from December 2026 Stripe refuses plain secret keys here.",
       "key_url": "https://dashboard.stripe.com/apikeys",
       "source": "https://docs.stripe.com/mcp",
@@ -1005,10 +839,7 @@
       "name": "Supabase",
       "category": "code",
       "url": "https://mcp.supabase.com/mcp",
-      "sign_in": [
-        "oauth",
-        "token"
-      ],
+      "sign_in": ["oauth", "token"],
       "notes": "A personal access token also works.",
       "key_url": "https://supabase.com/dashboard/account/tokens",
       "source": "https://supabase.com/docs/guides/getting-started/mcp",
@@ -1019,9 +850,7 @@
       "name": "Tally",
       "category": "work",
       "url": "https://api.tally.so/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Forms and their responses.",
       "source": "https://tally.so/help/mcp",
       "checked": "2026-11-19"
@@ -1031,9 +860,7 @@
       "name": "Todoist",
       "category": "work",
       "url": "https://ai.todoist.net/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "",
       "source": "https://www.todoist.com/help/articles/connect-todoist-to-an-ai-assistant",
       "checked": "2026-11-19"
@@ -1043,9 +870,7 @@
       "name": "Vercel",
       "category": "code",
       "url": "https://mcp.vercel.com",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "waits_for": "maker_approval",
       "notes": "Can deploy your projects. Vercel lets in only the apps it has reviewed, until its sign-in names itself in its answers.",
       "source": "https://vercel.com/docs/agent-resources/vercel-mcp",
@@ -1056,9 +881,7 @@
       "name": "Webflow",
       "category": "design",
       "url": "https://mcp.webflow.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "One workspace per sign-in; sign in again to switch.",
       "source": "https://developers.webflow.com/mcp/reference/getting-started",
       "checked": "2026-11-19"
@@ -1068,9 +891,7 @@
       "name": "Wix",
       "category": "design",
       "url": "https://mcp.wix.com/mcp",
-      "sign_in": [
-        "oauth"
-      ],
+      "sign_in": ["oauth"],
       "notes": "Builds and manages your Wix sites.",
       "source": "https://dev.wix.com/docs/api-reference/articles/ai-tools/wix-mcp/about-the-wix-mcp",
       "checked": "2026-11-19"
@@ -1080,9 +901,7 @@
       "name": "Zapier",
       "category": "work",
       "url": "https://mcp.zapier.com/api/v1/connect",
-      "sign_in": [
-        "token"
-      ],
+      "sign_in": ["token"],
       "notes": "At mcp.zapier.com, create a server, pick its actions, then generate a connection token. Its actions may send or pay in other apps.",
       "key_url": "https://mcp.zapier.com/",
       "source": "https://docs.zapier.com/mcp/get-started/connect/other",
@@ -1094,9 +913,7 @@
       "name": "Zoom",
       "category": "meetings",
       "url": "https://mcp.zoom.us/mcp/meeting/streamable",
-      "sign_in": [
-        "oauth_client"
-      ],
+      "sign_in": ["oauth_client"],
       "via": "cloud",
       "notes": "Signs in through Spade Cloud with your ace account once Spade's Zoom app is registered: Zoom takes only apps registered with it, with a client secret. You can instead use a client ID and secret from your own app in Zoom's App Marketplace.",
       "source": "https://developers.zoom.us/docs/mcp/servers/connect-to-zoom-mcp-servers/",

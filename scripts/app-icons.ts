@@ -15,7 +15,7 @@ import { paddedViewBox } from "./brand-marks/view-box.ts";
  * `scripts/brand-marks/apps/` and read by `brand-marks/flatten.ts`. An app with neither gets no
  * mark and the app draws a neutral monogram; nothing is drawn to look like a logo.
  *
- *   node scripts/app-icons.ts
+ *   bun run icons:apps   (the script, then oxfmt on its output)
  *
  * Every catalogue entry must be listed below, so a new app can't ship without a decision.
  */
