@@ -187,24 +187,30 @@ describe("a target's recovery after a restart", () => {
     expect(ids.filter((id) => t.rows.get(id)?.state !== "completed")).toEqual([]);
   });
 
-  it("keeps every live transfer's payload, however many there are", async () => {
+  it("keeps every live transfer's payload, however many there are, and cancels those under old names", async () => {
     const t = await target();
     const ids = Array.from({ length: 1_100 }, (_, index) => `r${String(index).padStart(4, "0")}`);
+    // Every tenth upload is still under the name an earlier build gave it, the id itself.
+    const old = ids.filter((_, index) => index % 10 === 0);
     for (const id of ids) {
       t.rows.insert(record(id, { state: "receiving" }), 0);
-      await writeFile(join(t.directory, `${id}.part`), "bytes");
+      const name = old.includes(id)
+        ? `${id}.part`
+        : basename(incomingPath(t.directory, id, "code"));
+      await writeFile(join(t.directory, name), "bytes");
     }
     await writeFile(join(t.directory, "gone.part"), "left by a crash");
     await t.incoming.recover();
-    // Every upload an earlier build named after its id is under its own name now, nothing else.
+    // The rest are kept under their own names, nothing else is left, and each resumes in place.
+    const kept = ids.filter((id) => !old.includes(id));
     expect((await readdir(t.directory)).toSorted()).toEqual(
-      ids.map((id) => basename(incomingPath(t.directory, id, "code"))).toSorted(),
+      kept.map((id) => basename(incomingPath(t.directory, id, "code"))).toSorted(),
     );
-    // And resumes where it stood.
-    for (const id of [ids[0], ids[700], ids.at(-1)].filter((each) => each !== undefined)) {
+    for (const id of [kept[0], kept[700], kept.at(-1)].filter((each) => each !== undefined))
       await expect(
         t.incoming.call(device, { op: "status", transferId: id }),
       ).resolves.toMatchObject({ state: "receiving", offset: "bytes".length });
-    }
+    // Those under old names are cancelled, so their senders start them again.
+    expect(old.filter((id) => t.rows.get(id)?.state !== "cancelled")).toEqual([]);
   });
 });

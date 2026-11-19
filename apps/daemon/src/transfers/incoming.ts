@@ -1,5 +1,5 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
-import { rename, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   WorkspaceId,
@@ -35,12 +35,7 @@ import { TransferError, type TransferArchive, type TransferGit } from "./ports.t
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
 import type { LiveTarget } from "./live/target.ts";
-import {
-  incomingParts,
-  incomingPath,
-  legacyIncomingName,
-  type IncomingPart,
-} from "./incoming-files.ts";
+import { incomingParts, incomingPath, legacyIncomingName } from "./incoming-files.ts";
 import { persist } from "./retry.ts";
 
 export interface IncomingDeps {
@@ -167,9 +162,9 @@ export class IncomingTransfers {
     await ensureDirectory(this.deps.directory);
     // Rows from before the side tables are indexed first, in pages (ADR 0170).
     await this.rows.ready();
-    // Files named by an earlier build after the id itself move to their hashed names first, so
-    // the imports below find them; in pages of transfers still receiving or importing.
-    await this.adoptLegacy();
+    // A transfer whose upload an earlier build stored under the id itself can't go on here: it
+    // is cancelled before imports start, and the sender starts it again.
+    await this.holdingBegins(() => this.cancelStranded());
     // Every import a restart left, in batches until none are left.
     await batches(
       (after) => this.rows.unsettled(after),
@@ -191,33 +186,84 @@ export class IncomingTransfers {
       (after) => this.rows.leftovers(after),
       (record) => this.rollback(record),
     );
-    // Files a crash left behind. No transfer begins while this runs (`strays`), so the live rows
-    // it reads are all there are until it ends, and a chunk only ever writes for one of them.
-    const strays = this.removeStrays();
-    this.strays = strays;
-    try {
-      await strays;
-    } finally {
-      this.strays = undefined;
-    }
+    // Files a crash left behind, and the old-named files of transfers cancelled above.
+    await this.holdingBegins(() => this.removeStrays());
     await this.sweep();
   }
   /**
-   * Every name a transfer still receiving or importing could own, worked out from all of those
-   * rows, is kept; anything else is a settled or unknown transfer's and goes. Names are never
-   * parsed back to an id.
+   * Runs `run` with no transfer beginning meanwhile (`strays`), so the live rows it reads are all
+   * there are until it ends, and a chunk only ever writes for one of them. It reads only live
+   * rows, a page at a time, and one directory listing, so begins wait briefly.
    */
-  private async removeStrays(): Promise<void> {
-    const kept = new Set<string>();
+  private async holdingBegins(run: () => Promise<void>): Promise<void> {
+    const running = run();
+    this.strays = running;
+    try {
+      await running;
+    } finally {
+      this.strays = undefined;
+    }
+  }
+  /** Every name a transfer still receiving or importing owns here, from all of those rows. */
+  private async liveNames(): Promise<Set<string>> {
+    const names = new Set<string>();
+    await batches(
+      (after) => this.rows.live(after),
+      async (record) => {
+        for (const part of incomingParts)
+          names.add(basename(incomingPath(this.deps.directory, record.transferId, part)));
+      },
+    );
+    return names;
+  }
+  /**
+   * Cancels each live transfer with a part only under the name an earlier build gave it (the id
+   * with the suffix) and none under its hashed name. Such a file is never renamed or read: an old
+   * name can be another transfer's (`x.ignored.part`, or an id that is another's hash), so a name
+   * any live transfer owns now is never taken for an old one. The old files go with the strays.
+   */
+  private async cancelStranded(): Promise<void> {
+    const owned = await this.liveNames();
+    const stranded: string[] = [];
     await batches(
       (after) => this.rows.live(after),
       async (record) => {
         for (const part of incomingParts) {
-          kept.add(basename(incomingPath(this.deps.directory, record.transferId, part)));
-          kept.add(legacyIncomingName(record.transferId, part));
+          const name = legacyIncomingName(record.transferId, part);
+          if (owned.has(name)) continue;
+          if (!(await pathExists(join(this.deps.directory, name)))) continue;
+          if (await pathExists(incomingPath(this.deps.directory, record.transferId, part)))
+            continue;
+          stranded.push(record.transferId);
+          return;
         }
       },
     );
+    for (const transferId of stranded) {
+      const cancelled = this.rows.claim(
+        transferId,
+        ["receiving", "cloning", "importing"],
+        {
+          state: "cancelled",
+          error: {
+            code: "transfer_cancelled",
+            message:
+              "This machine's ace was updated while the transfer waited, and its upload can't be used. Start the transfer again.",
+          },
+        },
+        this.deps.now(),
+      );
+      if (cancelled)
+        this.deps.log("Transfer cancelled: its upload is under an old name", { transferId });
+    }
+  }
+  /**
+   * Every name a transfer still receiving or importing owns, worked out from all of those rows,
+   * is kept; anything else (a settled or unknown transfer's, or an old name) goes. Each file is
+   * decided by its exact name against that set; names are never parsed back to an id.
+   */
+  private async removeStrays(): Promise<void> {
+    const kept = await this.liveNames();
     await removeStray(this.deps.directory, (name) => kept.has(name));
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
@@ -231,46 +277,6 @@ export class IncomingTransfers {
       ...this.cancels.values(),
       ...this.sweeps,
     ]);
-  }
-  /**
-   * Moves transfers' files from the names an earlier build gave them (the id with the suffix) to
-   * their hashed names. With dots in ids one old name can be two transfers' (`x.ignored.part` is
-   * `x`'s ignored files or `x.ignored`'s code), so every live transfer's old names are gathered
-   * first, in pages (ADR 0170), and a file moves only when its name is exactly one live
-   * transfer's part. Any other is left where it is, kept by recovery, and logged. A hashed name
-   * already taken keeps its file; nothing is removed here.
-   */
-  private async adoptLegacy(): Promise<void> {
-    const owners = new Map<string, { transferId: string; part: IncomingPart }[]>();
-    await batches(
-      (after) => this.rows.live(after),
-      async (record) => {
-        for (const part of incomingParts) {
-          const name = legacyIncomingName(record.transferId, part);
-          owners.set(name, [...(owners.get(name) ?? []), { transferId: record.transferId, part }]);
-        }
-      },
-    );
-    for (const [name, claims] of owners) {
-      const legacy = join(this.deps.directory, name);
-      const [only] = claims;
-      if (!only || !(await pathExists(legacy))) continue;
-      if (claims.length > 1) {
-        this.deps.log("Transfer file left under its old name: more than one transfer names it", {
-          name,
-          transfers: claims.map((claim) => claim.transferId),
-        });
-        continue;
-      }
-      const target = incomingPath(this.deps.directory, only.transferId, only.part);
-      if (await pathExists(target)) continue;
-      await rename(legacy, target).catch((error: unknown) =>
-        this.deps.log("Transfer file not moved", {
-          transferId: only.transferId,
-          error: String(error),
-        }),
-      );
-    }
   }
   private file(transferId: string) {
     return incomingPath(this.deps.directory, transferId, "code");

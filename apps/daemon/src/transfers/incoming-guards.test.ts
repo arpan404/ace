@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { PinnedDirectory } from "@ace/workspace";
 import { Device, HostId, WorkspaceId, type TransferBegin } from "@ace/protocol";
@@ -323,30 +323,6 @@ it("two transfers whose ids differ only in case keep their own uploads", async (
   ).resolves.toMatchObject({ state: "receiving", offset: bytes.length });
 });
 
-it("an upload an earlier build named after its id is found again after the upgrade", async () => {
-  const fixture = await target();
-  await fixture.incoming.call(device, begin("move.1"));
-  await fixture.incoming.call(device, begin("t-gone"));
-  await fixture.incoming.call(device, { op: "cancel", transferId: "t-gone" });
-  // As an earlier build left them: the payload under the id itself, and a settled one's leftover.
-  await writeFile(join(fixture.directory, "move.1.part"), bytes);
-  await writeFile(join(fixture.directory, "move.1.ignored.part"), bytes);
-  await writeFile(join(fixture.directory, "t-gone.part"), bytes);
-  const incoming = await fixture.restart();
-  await expect(
-    incoming.call(device, { op: "status", transferId: "move.1" }),
-  ).resolves.toMatchObject({
-    state: "receiving",
-    offset: bytes.length,
-    ignoredOffset: bytes.length,
-  });
-  expect(await readFile(fixture.part("move.1"))).toEqual(bytes);
-  // The settled transfer's file still goes; nothing else is left under an old name.
-  expect(
-    (await readdir(fixture.directory)).filter((name) => !/^[0-9a-f]{64}\./.test(name)),
-  ).toEqual([]);
-});
-
 it("a begin waiting on the sweep when closing starts is refused and makes no row", async () => {
   const clock = { at: 2 };
   const { incoming, state } = await target({ clock });
@@ -382,28 +358,6 @@ it("a first chunk whose device loses Projects while its file opens leaves no fil
   await expect(stat(part("t-opening"))).rejects.toMatchObject({ code: "ENOENT" });
 });
 
-it("an old file name two live transfers could own is left alone, kept, and logged", async () => {
-  const fixture = await target();
-  await fixture.incoming.call(device, begin("x"));
-  await fixture.incoming.call(device, begin("x.ignored"));
-  // An earlier build named both `x`'s ignored files and `x.ignored`'s code `x.ignored.part`.
-  const old = join(fixture.directory, "x.ignored.part");
-  await writeFile(old, bytes);
-  const incoming = await fixture.restart();
-  // Neither transfer takes it, since it can't be told whose it is; the file stays as it was.
-  for (const transferId of ["x", "x.ignored"])
-    await expect(incoming.call(device, { op: "status", transferId })).resolves.toMatchObject({
-      state: "receiving",
-      offset: 0,
-      ignoredOffset: 0,
-    });
-  expect(await readFile(old)).toEqual(bytes);
-  expect(fixture.logs).toContainEqual({
-    message: expect.stringMatching(/old name/),
-    fields: { name: "x.ignored.part", transfers: ["x", "x.ignored"] },
-  });
-});
-
 it("a transfer begun while recovery removes strays keeps the bytes it was acknowledged", async () => {
   const fixture = await target();
   await fixture.incoming.call(device, begin("t-before"));
@@ -423,4 +377,32 @@ it("a transfer begun while recovery removes strays keeps the bytes it was acknow
     incoming.call(device, { op: "status", transferId: "t-during" }),
   ).resolves.toMatchObject({ state: "receiving", offset: bytes.length });
   expect(await readFile(fixture.part("t-during"))).toEqual(bytes);
+});
+
+it("a transfer whose upload has only an old name is cancelled at recovery, and no live file is touched", async () => {
+  const fixture = await target();
+  await fixture.incoming.call(device, begin("move.1"));
+  await fixture.incoming.call(device, begin("t-hashed"));
+  await fixture.incoming.chunk(device, "t-hashed", 0, bytes);
+  // A live transfer whose id is the other one's hashed name: its old name is that live file.
+  const twin = basename(fixture.part("t-hashed")).replace(/\.part$/, "");
+  await fixture.incoming.call(device, begin(twin));
+  // As an earlier build left it: move.1's upload under the id itself, and nothing under its hash.
+  const old = join(fixture.directory, "move.1.part");
+  await writeFile(old, bytes);
+  const incoming = await fixture.restart();
+  await expect(
+    incoming.call(device, { op: "status", transferId: "move.1" }),
+  ).resolves.toMatchObject({ state: "cancelled", error: { code: "transfer_cancelled" } });
+  await expect(stat(old)).rejects.toMatchObject({ code: "ENOENT" });
+  // The live upload, though another live transfer's old name is its name, is untouched.
+  for (const [transferId, offset] of [
+    ["t-hashed", bytes.length],
+    [twin, 0],
+  ] as const)
+    await expect(incoming.call(device, { op: "status", transferId })).resolves.toMatchObject({
+      state: "receiving",
+      offset,
+    });
+  expect(await readFile(fixture.part("t-hashed"))).toEqual(bytes);
 });
