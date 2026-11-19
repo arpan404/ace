@@ -29,8 +29,11 @@ export interface LiveSourcePorts {
   /** Open terminals by name, then stops them. */
   terminals(threadId: string): string[];
   stopTerminals(threadId: string): Promise<void>;
-  localChildren(threadId: string): { threadId: string; title: string }[];
+  /** Every subagent thread of the tree here, at any depth; `live` while it hasn't settled. */
+  descendants(threadId: string): { threadId: string; title: string; live: boolean }[];
   stopChild(threadId: string, key: string): void;
+  /** Of these threads, the ones with a provider process here: attached, opening or closing. */
+  withProcess(threadIds: readonly string[]): string[];
   remoteChildren(threadId: string): string[];
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
@@ -39,8 +42,8 @@ export interface LiveSourcePorts {
   moved(threadId: string, to: { hostId: string; name: string; threadId: string }): void;
   /** The fence lifted: work held while it stood (queued messages, controls) dispatches. */
   released(threadId: string): void;
-  /** Sends the agent a message, keyed so a repeat sends once. */
-  send(threadId: string, key: string, text: string): void;
+  /** Owes the agent a message, sent durably until the engine takes it. */
+  resume(threadId: string, transferId: string, text: string): void;
   atomic<T>(run: () => T): T;
   now(): number;
   sleep(ms: number, signal: AbortSignal): Promise<void>;
@@ -61,7 +64,9 @@ export const bulkHeadRef = (transferId: string) => `refs/ace/transfer-bulk/${tra
 
 /** How long an interrupt may take to end the turn before the move carries on regardless. */
 const interruptMs = 30_000;
-/** How long one provider process may take to exit once asked to close. */
+/** The one deadline for the whole tree here to stop: its turns, then every process's exit. */
+const treeStopMs = 40_000;
+/** Of that, what is kept for the processes to exit once asked to close. */
 const closeMs = 10_000;
 
 export class LiveSource {
@@ -85,28 +90,34 @@ export class LiveSource {
     const { record, plan, signal } = input;
     const { transferId, target } = record.transfer;
     const threadId = need(record.transfer.threadId);
-    ports.ownership.change(threadId, {
-      to: "stopping",
-      transferId,
-      peer: { hostId: target.hostId, name: target.name },
-      at: ports.now(),
+    // The whole tree here is fenced at once: no subagent starts anything while the move stops.
+    const tree = ports.descendants(threadId);
+    ports.atomic(() => {
+      ports.ownership.change(threadId, {
+        to: "stopping",
+        transferId,
+        peer: { hostId: target.hostId, name: target.name },
+        at: ports.now(),
+      });
+      ports.ownership.fenceTree(
+        threadId,
+        tree.map((child) => child.threadId),
+      );
     });
     if (!record.request.agent)
       ports.hold(threadId, transferId, { title: `Moving to ${target.name}` });
     await this.safePoint(threadId, transferId, signal, input.interrupted);
     const left = {
       shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
-      children: ports
-        .localChildren(threadId)
+      children: tree
+        .filter((child) => child.live)
         .map((child) => child.title.slice(0, 256))
         .slice(0, 32),
       remoteChildren: ports.remoteChildren(threadId).slice(0, 32),
       queued: ports.queued(threadId),
     };
     await ports.stopTerminals(threadId);
-    await this.stopChildren(threadId, transferId, signal);
-    // The provider's process goes, so its background shells stop and its session file is whole.
-    await this.closeWithin(threadId, ports.now() + closeMs, signal, "The agent");
+    await this.stopTree(threadId, tree, transferId, signal);
     const folder = join(input.directory, `${transferId}.final.d`);
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -141,57 +152,52 @@ export class LiveSource {
     }
   }
   /**
-   * Stops every subagent thread running here and waits until each has really stopped: its turn
-   * ended (up to 30 s from the interrupt, shared by all of them), then its provider process
-   * closed and exited (up to 10 s each). A child whose process is still running then fails the
-   * move before the hand-over, so no snapshot is taken while it writes, and no close that never
-   * returns can hang it.
+   * The invariant before the final snapshot (ADR 0191): every provider process of the thread's
+   * tree here, the thread and its subagents at any depth, including one still opening, has
+   * exited, as the engine's own process set says. One deadline covers it all: the subagents'
+   * turns are interrupted and waited on, leaving the last 10 seconds for every process to be
+   * closed and to exit. A process still there then fails the move before the hand-over, so no
+   * snapshot is taken while anything writes and no close that never returns can hang the move.
    */
-  private async stopChildren(threadId: string, transferId: string, signal: AbortSignal) {
+  private async stopTree(
+    threadId: string,
+    tree: { threadId: string; title: string; live: boolean }[],
+    transferId: string,
+    signal: AbortSignal,
+  ) {
     const { ports } = this;
-    const children = ports.localChildren(threadId);
-    for (const child of children)
+    const until = ports.now() + treeStopMs;
+    const live = tree.filter((child) => child.live);
+    for (const child of live)
       ports.stopChild(child.threadId, `transfer-live:${transferId}:stop:${child.threadId}`);
-    const until = ports.now() + interruptMs;
-    for (const child of children) {
-      while (ports.turnFacts(child.threadId).turnRunning && ports.now() < until) {
-        signal.throwIfAborted();
-        await ports.sleep(250, signal);
-      }
-      await this.closeWithin(
-        child.threadId,
-        ports.now() + closeMs,
-        signal,
-        `The subagent "${child.title}"`,
-      );
+    while (
+      live.some((child) => ports.turnFacts(child.threadId).turnRunning) &&
+      ports.now() < until - closeMs
+    ) {
+      signal.throwIfAborted();
+      await ports.sleep(250, signal);
     }
-  }
-  /** Ends a thread's provider process and waits for it to exit, by `until` at the latest. */
-  private async closeWithin(threadId: string, until: number, signal: AbortSignal, who: string) {
-    const { ports } = this;
-    const closed = ports.stopProvider(threadId).then(
-      () => "exited" as const,
-      () => "failed" as const,
-    );
+    const ids = [threadId, ...tree.map((child) => child.threadId)];
+    const closes = Promise.allSettled(ids.map((id) => ports.stopProvider(id)));
     const waited = new AbortController();
     const onAbort = () => waited.abort();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const outcome = await Promise.race([
-        closed,
-        ports
-          .sleep(Math.max(0, until - ports.now()), waited.signal)
-          .then(() => "timed_out" as const),
-      ]);
-      signal.throwIfAborted();
-      if (outcome !== "exited")
-        throw new TransferError(
-          "process_still_running",
-          `${who} on this machine didn't stop, so the work stayed here.`,
-        );
+      await Promise.race([closes, ports.sleep(Math.max(0, until - ports.now()), waited.signal)]);
     } finally {
       waited.abort();
       signal.removeEventListener("abort", onAbort);
+    }
+    signal.throwIfAborted();
+    const still = ports.withProcess(ids);
+    if (still.length) {
+      const first = tree.find((child) => still.includes(child.threadId));
+      const who =
+        still.includes(threadId) || !first ? "The agent" : `The subagent "${first.title}"`;
+      throw new TransferError(
+        "process_still_running",
+        `${who} on this machine didn't stop, so the work stayed here.`,
+      );
     }
   }
   private async safePoint(
@@ -340,13 +346,12 @@ export class LiveSource {
         at: this.ports.now(),
       });
     if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
+    // The tree runs here again: everything it held dispatches through normal scheduling.
+    for (const child of this.ports.ownership.unfenceTree(threadId)) this.ports.released(child);
     this.ports.released(threadId);
+    // Owed durably: sent once the engine takes it, however long a full engine refuses it.
     if (input.interrupted)
-      this.ports.send(
-        threadId,
-        `transfer-live:${transferId}:resume`,
-        resumeMessage(target.name, input.reason),
-      );
+      this.ports.resume(threadId, transferId, resumeMessage(target.name, input.reason));
   }
 }
 

@@ -4,6 +4,7 @@ import type { ServiceContext } from "../../services/types.ts";
 import type { TransferArchive, TransferGit } from "../ports.ts";
 import { TransferError } from "../ports.ts";
 import type { ThreadOwnership } from "./ownership.ts";
+import type { LiveResumes } from "./resumes.ts";
 import type { LiveSourcePorts } from "./source.ts";
 import type { LiveTargetPorts } from "./target.ts";
 import { LiveStarts } from "./target-rows.ts";
@@ -52,6 +53,7 @@ export function liveSourcePorts(
     ownership: ThreadOwnership;
     git: TransferGit;
     archive: TransferArchive;
+    resumes: LiveResumes;
     sleep(ms: number, signal: AbortSignal): Promise<void>;
   },
 ): LiveSourcePorts {
@@ -89,11 +91,15 @@ export function liveSourcePorts(
     stopTerminals: async (threadId) => {
       await services.workspaceActions?.stopThreadTerminals(id(threadId));
     },
-    localChildren: (threadId) =>
-      (services.agentControl?.delegations.journal.liveChildren(id(threadId)) ?? []).map((edge) => ({
+    // Every subagent thread of the tree here, at any depth, settled ones too: a settled child's
+    // warm session is a provider process as well.
+    descendants: (threadId) =>
+      (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? []).map((edge) => ({
         threadId: edge.childId,
         title: store.getThread(edge.childId)?.title ?? edge.childId,
+        live: edge.phase !== "settled",
       })),
+    withProcess: (threadIds) => engineOf(context).liveMove.withProcess(threadIds.map(id)),
     stopChild: (threadId, key) =>
       command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: true }),
     remoteChildren(threadId) {
@@ -127,7 +133,7 @@ export function liveSourcePorts(
         threadId: id(to.threadId),
       }),
     released: (threadId) => engineOf(context).liveMove.released(id(threadId)),
-    send: (threadId, key, text) => send(context, threadId, key, text),
+    resume: (threadId, transferId, text) => input.resumes.owe(threadId, transferId, text),
     atomic: (run) => store.atomic(run),
     now,
     sleep: input.sleep,
@@ -184,6 +190,24 @@ export function liveTargetPorts(
         const timer = setTimeout(resolve, ms);
         timer.unref();
       }),
+    log: input.log,
+  };
+}
+
+/** The durable resume after a failed move, sending through agent control as the person would. */
+export function liveResumePorts(
+  context: ServiceContext,
+  input: {
+    sleep(ms: number, signal: AbortSignal): Promise<void>;
+    log(message: string, fields: Record<string, unknown>): void;
+  },
+): import("./resumes.ts").LiveResumePorts {
+  return {
+    store: context.store,
+    send: (threadId, key, text) => send(context, threadId, key, text),
+    status: (threadId) => context.store.getThread(id(threadId))?.status,
+    now: context.now,
+    sleep: input.sleep,
     log: input.log,
   };
 }

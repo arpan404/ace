@@ -60,7 +60,9 @@ async function source(
     shells: () => [],
     terminals: () => [],
     stopTerminals: async () => {},
-    localChildren: () => [{ threadId: "child", title: "Write the tests" }],
+    descendants: () => [{ threadId: "child", title: "Write the tests", live: true }],
+    // The engine's own process set: a thread has one until its provider was closed.
+    withProcess: (ids) => ids.filter((id) => !closed.has(id)),
     // Admission returns at once; the child's own turn ends later.
     stopChild: () => {
       childStopsAt = clock + childMs;
@@ -70,7 +72,7 @@ async function source(
     hold: () => {},
     moved: () => {},
     released: () => {},
-    send: () => {},
+    resume: () => {},
     atomic: (run) => store.atomic(run),
     now: () => clock,
     // A turn of the event loop first, as a real timer gives work already settling.

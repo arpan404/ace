@@ -19,7 +19,8 @@ import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
 import { threadGone } from "../thread-gone.ts";
 import { sourceThreads, targetProjects, targetThreads } from "./service-adapters.ts";
-import { liveSourcePorts, liveTargetPorts } from "./live/adapters.ts";
+import { liveResumePorts, liveSourcePorts, liveTargetPorts } from "./live/adapters.ts";
+import { LiveResumes } from "./live/resumes.ts";
 import { ThreadOwnership } from "./live/ownership.ts";
 import { LiveSource } from "./live/source.ts";
 import { LiveTarget } from "./live/target.ts";
@@ -92,6 +93,11 @@ export function startTransfers(context: ServiceContext): void {
 
   // Which machine owns each thread (ADR 0191); the engine's fence reads the same record.
   const ownership = new ThreadOwnership(store);
+  // What a failed move owes the agent, sent until it goes, across restarts.
+  const resumes = new LiveResumes(
+    liveResumePorts(context, { sleep: options.transfers?.sleep ?? sleep, log: record("warn") }),
+  );
+  resources.own(() => resumes.close());
   const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({
     store,
@@ -137,6 +143,7 @@ export function startTransfers(context: ServiceContext): void {
         ownership,
         git,
         archive,
+        resumes,
         sleep: options.transfers?.sleep ?? sleep,
       }),
     ),
@@ -208,11 +215,16 @@ export function startTransfers(context: ServiceContext): void {
       );
   });
   services.transfers = { outgoing, incoming, commands, agents };
-  void (async () => {
-    await incoming.recover();
+  // Each side recovers on its own: a home indexing its incoming history doesn't hold up the
+  // transfers it is sending (ADR 0170).
+  const recovering = (side: string, run: () => Promise<void>) =>
+    run().catch((error: unknown) =>
+      record("warn")("Transfers could not recover", { side, error: String(error) }),
+    );
+  void recovering("incoming", () => incoming.recover());
+  void recovering("outgoing", async () => {
     await outgoing.recover();
     for (const pending of outgoing.undelivered()) agents.settled(pending);
-  })().catch((error: unknown) =>
-    record("warn")("Transfers could not recover", { error: String(error) }),
-  );
+  });
+  resumes.start();
 }
