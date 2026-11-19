@@ -15,7 +15,7 @@ import {
 import type { DelegationDependencies } from "./delegations.ts";
 import type { DelegationJournal, DelegationReservation } from "./journal.ts";
 import { controlCommandId } from "./command-id.ts";
-import { turnFenceLifts } from "./turn-fence.ts";
+import { turnFence } from "./turn-fence.ts";
 
 /** Reserve durable capacity before asynchronous owners perform filesystem effects. */
 export class DelegationAdmission {
@@ -78,22 +78,19 @@ export class DelegationAdmission {
       throw controlAdmissionError("launch_options_unsupported");
   }
   /**
-   * The call comes from a turn a Stop ended. Only a call made from a newer turn lifts the fence
-   * (`turnFenceLifts`); a provider subagent still running from the stopped turn, or a call the
-   * stopped turn had on its way, never does.
+   * The call comes from work a Stop ended (`turn-fence.ts`): the stopped turn, a run that began
+   * before the turn that followed it, or a delegation it had on its way. The first call made
+   * from a newer turn lifts the fence; what it recorded stays refused.
    */
   private stoppedTurn(caller: McpAttribution, requestId: string): boolean {
     const fence = this.journal.turnFence(caller.threadId);
     if (fence === undefined) return false;
-    const lifts = turnFenceLifts({
-      fenced: fence.run,
-      inFlight: fence.inFlight,
+    const answer = turnFence(fence, {
       ...this.deps.engine.turnOrigin(caller.threadId, caller.agentId),
       requestId,
     });
-    if (!lifts) return true;
-    this.journal.liftTurnFence(caller.threadId);
-    return false;
+    if (answer.kind === "lift") this.journal.liftTurnFence(caller.threadId, answer.seq);
+    return answer.kind === "refuse";
   }
   /** One parent never shows two live children under the same display name. */
   private rejectDuplicateSibling(parent: ThreadId, requestId: string, role: string): void {

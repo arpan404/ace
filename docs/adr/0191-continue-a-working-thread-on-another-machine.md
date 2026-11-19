@@ -108,13 +108,16 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   review): the fence used to compare the caller's own current run with the stopped one, so a
   provider subagent's run (a different id) lifted it while the cascade was still stopping it,
   and a late root call that arrived after the next turn began counted as that turn's. Now only a
-  call made from the new turn lifts it (`agent-control/turn-fence.ts`, pure): the root must be
-  running a turn other than the stopped one, the calling agent's own run must be that turn or
-  have started after it began (a tie counts as the stopped turn's), and the call must not be one
-  the stopped turn had on its way. Those are the `delegate` calls the provider had reported and
-  not finished when the Stop came, recorded by request id with the fence
-  (`delegation_turn_fence_calls`, at most 64). A call the provider never reported before the
-  Stop can't be told from a new one, and is judged by its agent's run.
+  call made from the new turn lifts it (`agent-control/turn-fence.ts`, pure). Runs are ordered by
+  `Run.seq`, a number core gives each run of a thread as it starts, subagents' included, never by
+  the clock, so two runs that start in the same millisecond are still told apart. A Stop records
+  the thread's last `seq`; the fence lifts on the first call whose own run is a root turn that
+  began after it, or a run that began within that turn. What the Stop recorded then stays until
+  the thread's next Stop (`delegation_turn_bounds`): a run that began before the lifting turn (a
+  provider subagent still running from the stopped work) stays refused, and so do the `delegate`
+  calls the provider had reported and not finished when the Stop came, by request id
+  (`delegation_stopped_calls`, at most 64), however late they arrive. A call the provider never
+  reported before the Stop can't be told from a new one, and is judged by its agent's run.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the
   provider's own task stop, bounded like the interrupt, and closes the session when one won't

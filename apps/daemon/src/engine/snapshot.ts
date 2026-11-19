@@ -119,6 +119,7 @@ const snapshot = z.object({
     pendingItemLinks: keys,
   }),
   outcomeOrder: Timestamp,
+  runSeq: z.number().int().positive().optional(),
   pendingNotices: z.array(
     z.object({ createdAt: Timestamp, text: z.string(), raw: z.array(RawPayload) }),
   ),

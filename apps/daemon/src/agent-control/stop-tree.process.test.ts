@@ -93,6 +93,10 @@ test("a delegation the stopped turn had on its way is refused even once the next
   });
   // A call the new turn makes delegates as any turn's does.
   await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
+  // The new turn's call lifted the fence; the old call, arriving later still, stays refused.
+  await expect(delegateFrom(h, root, "late")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
 });
 
 test("a provider subagent still running from the stopped turn delegates nothing, before or after the next turn", async () => {
@@ -125,7 +129,7 @@ test("a provider subagent still running from the stopped turn delegates nothing,
   await expect(fromHelper("late-helper")).rejects.toMatchObject({
     code: "delegation_cancelled",
   });
-  h.clock.advance(h.clock.now() + 1_000);
+  // The clock never moves in this test: runs are told apart by their order, not their time.
   h.service.command("next", {
     type: "thread.send",
     threadId: root,
@@ -137,6 +141,47 @@ test("a provider subagent still running from the stopped turn delegates nothing,
     code: "delegation_cancelled",
   });
   await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
+  // The new turn's call lifted the fence; the old subagent stays refused.
+  await expect(fromHelper("latest-helper")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+});
+
+test("a provider subagent the new turn starts delegates, though it starts in the same millisecond", async () => {
+  const h = setup();
+  const root = await working(h, "root");
+  h.service.command("stop-root", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  h.service.command("next", {
+    type: "thread.send",
+    threadId: root,
+    input: [{ type: "text", text: "Carry on" }],
+  });
+  await h.engine.flush();
+  // The clock never moves: the new turn and its subagent start at the same time.
+  await h.emit(
+    root,
+    {
+      type: "agent.seen",
+      agent: "fresh",
+      parent: "root",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: "fresh-native" },
+      cwd: "/repo",
+    },
+    { type: "turn.started", agent: "fresh", trigger: "spawn" },
+  );
+  const fresh = Object.values(h.store.snapshotThread(root).agents).find(
+    (agent) => agent.native.nativeId === "fresh-native",
+  );
+  if (!fresh) throw new Error("No subagent");
+  // Its first call is the new turn's first delegation: it lifts the fence.
+  await expect(
+    Promise.resolve().then(() =>
+      h.delegate({ ...h.caller(root), agentId: fresh.id }, "from-fresh"),
+    ),
+  ).resolves.toBeDefined();
 });
 
 test("a stopped child sent a new task delegates again once that task's turn runs, not before", async () => {

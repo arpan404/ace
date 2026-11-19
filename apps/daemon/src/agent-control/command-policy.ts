@@ -45,7 +45,10 @@ export function delegationCommandPolicy(deps: {
         deps.journal.fenceTurn(
           p.threadId,
           (root && deps.engine.activeRun(p.threadId, root)) || "",
-          deps.engine.delegationsInFlight(p.threadId),
+          {
+            stopSeq: root ? deps.engine.turnOrigin(p.threadId, root).latest : 0,
+            inFlight: deps.engine.delegationsInFlight(p.threadId),
+          },
         );
       if (
         accepted.ok &&

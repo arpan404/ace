@@ -95,6 +95,8 @@ export interface ThreadState {
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;
   outcomeOrder: number;
+  /** The last run's `seq`; absent until the thread's first run since it existed. */
+  runSeq?: number;
   /** Rejected facts wait for a real fact to establish their root owner. */
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
   /**

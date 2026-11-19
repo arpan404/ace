@@ -8,29 +8,32 @@ import type { ThreadState } from "@ace/core";
 
 export interface RunAt {
   id: string;
-  startedAt: number;
+  /** Its place among the thread's runs (`Run.seq`); 0 for a run recorded before there was one. */
+  seq: number;
 }
 
 function runAt(state: ThreadState, run: string | undefined): RunAt | undefined {
   const found = run === undefined ? undefined : state.runs[run];
-  return found ? { id: found.id, startedAt: found.startedAt } : undefined;
+  return found ? { id: found.id, seq: found.seq ?? 0 } : undefined;
 }
 
 /**
- * The turn running now (the root agent's run) and the run the calling agent is in itself: the
- * root's for the root, a provider subagent's own for that subagent. No fallback from one to the
- * other, so a subagent still running from a stopped turn is never taken for the new one.
+ * The root's turn (its running run, else its last) and the run the calling agent is in itself:
+ * the root's for the root, a provider subagent's own for that subagent. No fallback from one to
+ * the other, so a subagent still running from a stopped turn is never taken for the new one.
+ * `latest`: the thread's last run's `seq`, the boundary a Stop records.
  */
 export function turnOrigin(
   state: ThreadState | undefined,
   agentId: string,
-): { root?: RunAt | undefined; origin?: RunAt | undefined } {
-  if (!state) return {};
-  const rootKey = state.rootKey;
+): { root?: RunAt | undefined; origin?: RunAt | undefined; latest: number } {
+  if (!state) return { latest: 0 };
+  const rootRecord = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
   const key = state.indexes.agentKeysById[agentId];
   return {
-    root: rootKey === undefined ? undefined : runAt(state, state.agents[rootKey]?.activeRun),
+    root: runAt(state, rootRecord?.activeRun ?? rootRecord?.lastRun),
     origin: key === undefined ? undefined : runAt(state, state.agents[key]?.activeRun),
+    latest: state.runSeq ?? 0,
   };
 }
 

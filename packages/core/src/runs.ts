@@ -14,6 +14,12 @@ function matchingRun(state: ThreadState, record: AgentRecord, nativeId: string):
   return id === undefined ? undefined : get(state.runs, id);
 }
 
+/** The next run's place among the thread's runs (`Run.seq`). */
+function nextRunSeq(state: ThreadState): number {
+  state.runSeq = (state.runSeq ?? 0) + 1;
+  return state.runSeq;
+}
+
 function storeRun(state: ThreadState, record: AgentRecord, run: Run): void {
   put(state.runs, run.id, run);
   if (run.nativeId === undefined) return;
@@ -48,6 +54,7 @@ export function startTurn(
   }
   const run: Run = {
     id: RunId.parse(ctx.ids.next("run")),
+    seq: nextRunSeq(state),
     threadId: state.threadId,
     agentId: record.agent.id,
     trigger: fact.trigger,
@@ -98,6 +105,7 @@ export function endTurn(
     // A partial stream can contain the end boundary without the start.
     run = {
       id: RunId.parse(ctx.ids.next("run")),
+      seq: nextRunSeq(state),
       threadId: state.threadId,
       agentId: record.agent.id,
       trigger: fact.trigger ?? "unknown",
