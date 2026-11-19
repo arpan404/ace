@@ -414,3 +414,26 @@ test("an open file shows what another program wrote to it, once the watcher name
     ).toContain("fromDisk"),
   );
 });
+
+test("a write that lands after the file was read but before its folder is watched still shows", async () => {
+  const { app, folders } = await openThread();
+  const path = "apps/web/src/relay/socket.ts";
+  let readFirst = false;
+  // The shell writes in the gap: the file was already read, the daemon is not watching yet.
+  folders.onWatch((watched) => {
+    if (readFirst || !watched.includes("apps/web/src/relay")) return;
+    readFirst = document.body.textContent?.includes("export class RelaySocket {") ?? false;
+    app.daemon.checkouts.overwrite("thread-cold-start", path, "export const fromDisk = 1;\n");
+  });
+  await quickOpen("sock");
+  await screen.findByRole("option", { name: /socket\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  await waitFor(() => expect(readFirst).toBe(true));
+  // No change notice comes for that write: the watch went in after it.
+  await waitFor(() =>
+    expect(within(side).getByRole("region", { name: `Source of ${path}` }).textContent).toContain(
+      "fromDisk",
+    ),
+  );
+});

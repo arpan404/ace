@@ -22,16 +22,33 @@ export function useOpenFileFollow(threadId: string, path: string | undefined): v
   const online = useConnectionState() === "ready";
   const folder = path === undefined ? undefined : folderOf(path);
 
-  const watch = useMemo(() => watchFolders(client, threadId), [client, threadId]);
+  // The file may have been read before its folder was watched, and a write in that gap names
+  // no folder: once the daemon is watching the folder, the file is read once more.
+  const unconfirmed = useRef<string | undefined>(undefined);
+  const watch = useMemo(
+    () =>
+      watchFolders(client, threadId, (folders) => {
+        const waiting = unconfirmed.current;
+        if (waiting === undefined || !folders.includes(folderOf(waiting))) return;
+        unconfirmed.current = undefined;
+        void queries.invalidateQueries({ queryKey: ["checkout", "file", threadId, waiting] });
+      }),
+    [client, queries, threadId],
+  );
   useEffect(() => () => watch.leave(), [watch]);
   useEffect(() => {
+    unconfirmed.current = path;
     watch.set(folder === undefined ? [] : [folder]);
-  }, [watch, folder]);
+  }, [watch, folder, path]);
   const wasOnline = useRef(online);
   useEffect(() => {
-    if (online && !wasOnline.current) watch.resume();
+    if (online && !wasOnline.current) {
+      // A write while offline named no folder either.
+      unconfirmed.current = path;
+      watch.resume();
+    }
     wasOnline.current = online;
-  }, [online, watch]);
+  }, [online, watch, path]);
 
   useEffect(() => {
     if (path === undefined || folder === undefined) return;
