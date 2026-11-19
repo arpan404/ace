@@ -127,7 +127,10 @@ impl Budget {
 
 impl Walk {
     pub(super) fn kind(&mut self, kind: Sensitive) {
-        if kind == Sensitive::UnseenScript {
+        // Spade couldn't read or resolve all of what runs: a script it can't show, or anything
+        // unclear (the command doesn't parse, a folder or program it can't place, a command name
+        // built at run time, a script piped in or written and then run).
+        if matches!(kind, Sensitive::UnseenScript | Sensitive::Unclear) {
             self.incomplete = true;
         }
         let rank = |k: Sensitive| match k {

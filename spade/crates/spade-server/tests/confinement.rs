@@ -34,6 +34,7 @@ fn job<'a>(dir: &'a Path, script: &'a str, may_run_uncontained: bool) -> Job<'a>
         outside: false,
         may_run_uncontained,
         contained_only: false,
+        verify: None,
         clean: false,
         read_only: false,
     }

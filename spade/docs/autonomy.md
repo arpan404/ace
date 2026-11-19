@@ -307,10 +307,16 @@ everywhere else, and recipes that don't expand are checked as written.
 **Precedence.** Everything a command reaches is read before deciding: a credential read found
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
 (`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
-over "unclear" or "unseen script". The approval is bound to the SHA-256 of what was shown
-(`call_reviewed.bound`): if any file differs when the call is about to start, it isn't run and
-the bot gets `Not run: A file it runs changed after it was reviewed.` Paths are resolved against
-the terminal's current folder.
+over "unclear" or "unseen script". An "unclear" or "unseen script" finding also marks the
+reading incomplete: a command that would run outside the sandbox with one is refused, never
+asked about or reviewed (ADR 0171, amendment 4). The approval is bound to the SHA-256 of what
+was shown (`call_reviewed.bound`): if any file differs when the call is about to start, it isn't
+run and the bot gets `Not run: A file it runs changed after it was reviewed.` The run checks it
+once more after everything it waits on (in a terminal, under the terminal's lock, from the
+folder and variables it starts with): `Not run: A file it runs changed while it waited to start,
+after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
+verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
+narrower one; one that records none, and a grant, holds for a contained launch only.
 
 **Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a

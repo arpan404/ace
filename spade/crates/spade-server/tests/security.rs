@@ -974,3 +974,80 @@ async fn an_answer_for_a_contained_command_never_runs_it_outside_once_the_bot_mo
     assert!(!root.join("outside.txt").exists(), "it ran outside");
     Ok(())
 }
+
+#[tokio::test]
+async fn an_outside_request_spade_cant_parse_is_refused_and_never_asked_about() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": "echo 'unterminated > ../outside.txt", "outside_sandbox": true }),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Run it outside").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    // What it would run can't be told from the text: nothing can be held to it outside.
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    let said = output(&events, "c1");
+    assert!(said.contains("couldn't be read whole"), "{said}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_script_an_earlier_terminal_command_rewrites_after_the_check_doesnt_start_outside()
+-> Result {
+    const APPROVE: &str = r#"{"verdict":"approve","reason":"It serves the task."}"#;
+    let w = support::sandbox::reviewed_world_in(true, true, vec![], |_| {
+        vec![
+            // Both in one step, both reviewed and allowed: the first holds the bot's terminal
+            // while the second's script is checked, then rewrites it before the second starts.
+            Script::reply("")
+                .call(
+                    "c0",
+                    "shell",
+                    json!({ "command": "sleep 2; cp next.sh run.sh" }),
+                )
+                .call("c1", "shell", json!({ "command": "sh run.sh" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    let (status, body) = w
+        .spade
+        .put(
+            &format!("/v1/agents/{}/security/commands", w.bot),
+            json!({ "commands": "outside" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    std::fs::write(workspace.join("run.sh"), "echo fine\n")?;
+    std::fs::write(workspace.join("next.sh"), writes_outside(&root, 0))?;
+    w.spade.say(&w.conversation, "Run them").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let reviewed = events
+        .iter()
+        .filter(|e| e["type"] == "call_reviewed" && e["verdict"] == "allow")
+        .count();
+    assert_eq!(reviewed, 2, "{:?}", types(&events));
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("run.sh"))?,
+        writes_outside(&root, 0),
+        "the first command rewrote it"
+    );
+    // Checked as it started, under the terminal's lock: the check before it waited passed.
+    let said = output(&events, "c1");
+    assert!(said.contains("changed while it waited to start"), "{said}");
+    assert!(
+        !root.join("outside.txt").exists(),
+        "the rewritten script ran outside"
+    );
+    Ok(())
+}

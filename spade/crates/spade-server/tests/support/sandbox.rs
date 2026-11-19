@@ -144,11 +144,21 @@ pub async fn reviewed_world(
     extra: Vec<Arc<dyn Tool>>,
     scripts: impl FnOnce(&Places) -> Vec<Script>,
 ) -> Result<World> {
+    reviewed_world_in(false, sandboxed, extra, scripts).await
+}
+
+/// [`reviewed_world`], its commands run in the bot's terminal when `terminal`.
+pub async fn reviewed_world_in(
+    terminal: bool,
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
     let options = super::Options {
         reviewer: None,
         ..super::Options::default()
     };
-    world_with(options, false, sandboxed, extra, scripts).await
+    world_with(options, terminal, sandboxed, extra, scripts).await
 }
 
 /// [`world`] (sandboxed) whose bots' shell goes through `wrap` around the security service, so a

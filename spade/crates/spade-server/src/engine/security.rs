@@ -88,6 +88,23 @@ impl Engine {
     }
 
     /// Records what the gate authorized for the call `key`, for its launch.
+    /// Keeps the binding the call `key` was allowed with, for its run to check last.
+    pub(super) fn expect_binding(&self, key: &str, bound: Option<String>) {
+        self.bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.to_owned(), bound);
+    }
+
+    /// The binding the call `key` must still match when it starts, taken; `None` when it was
+    /// allowed with none to check.
+    pub(crate) fn take_binding(&self, key: &str) -> Option<Option<String>> {
+        self.bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key)
+    }
+
     pub(super) fn mark_launch(&self, key: &str, launch: Launch) {
         self.launches
             .lock()

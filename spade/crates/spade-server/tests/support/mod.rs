@@ -52,6 +52,8 @@ pub struct FakeTool {
     pub no_sandbox: bool,
     /// Answers given in turn before `answer`, the last of them again and again.
     pub answers: Arc<Mutex<Vec<String>>>,
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub scoped: bool,
 }
 
 impl FakeTool {
@@ -77,7 +79,14 @@ impl FakeTool {
             unplaced: false,
             no_sandbox: false,
             answers: Arc::default(),
+            scoped: false,
         }
+    }
+
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub fn scoped(mut self) -> Self {
+        self.scoped = true;
+        self
     }
 
     /// A fake `shell` on a machine with no read-only sandbox.
@@ -183,6 +192,13 @@ impl Tool for FakeTool {
         } else {
             spade_core::autonomy::Classed::default()
         }
+    }
+
+    fn always_scope(&self, arguments: &Value) -> Option<String> {
+        self.scoped
+            .then(|| arguments.get("command").and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned)
     }
 
     /// An app tool's server facts: its catalogue entry declares it (as a write outside the box

@@ -44,6 +44,9 @@ pub(super) struct Screening<'a> {
     /// For a connector's or plugin's tool, what its server says of it.
     pub hints: Option<Mcp>,
     pub reviewing: Reviewing,
+    /// How far the call would launch: a stored verdict is reused only for that or narrower, and
+    /// one stored here records it.
+    pub launch: spade_core::event::Authorized,
     /// Whether the classifier was on and loaded when the call was routed: the one reading used
     /// for routing it and for screening it, so a switch in between never lets it skip both.
     pub ready: bool,
@@ -193,7 +196,7 @@ impl Engine {
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
         let key = format!("{id}.{}", s.call.id);
-        if let Some((verdict, reason)) = review::stored(events, &s.call.id) {
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             // A call this classifier settled before a restart runs only in the form it was
             // settled for, derived again from the command and checked against the record.
             if verdict == Verdict::Allow && settled_by_classifier(events, &s.call.id) {
@@ -252,7 +255,7 @@ impl Engine {
         events: &[Event],
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
-        if let Some((verdict, reason)) = review::stored(events, &s.call.id) {
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             return Ok(match verdict {
                 Verdict::Escalate => Screened::Ask(reason),
                 _ => Screened::Run,
@@ -345,6 +348,7 @@ impl Engine {
             cost_micros: 0,
             bound: super::autonomy::binding(&s.classed.shown),
             acts_in: None,
+            launch: Some(s.launch),
         });
         Ok(match self.record_unless_stopped(id, reply, &event)? {
             true => screened,
