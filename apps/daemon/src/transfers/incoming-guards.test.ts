@@ -355,3 +355,18 @@ it("a begin waiting on the sweep when closing starts is refused and makes no row
   await sweeping;
   expect(state("t-reused")).toBeUndefined();
 });
+
+it("a first chunk whose device loses Projects while its file opens leaves no file", async () => {
+  const { incoming, part } = await target();
+  await incoming.call(device, begin("t-opening"));
+  // Projects go after the check before opening and before the one right before the write.
+  let checks = 0;
+  const check = () => {
+    if (++checks > 1) throw new TargetRefusal("machine_forbidden", "No Projects here.");
+    return device;
+  };
+  await expect(incoming.chunk(device, "t-opening", 0, bytes, "code", check)).rejects.toMatchObject({
+    code: "machine_forbidden",
+  });
+  await expect(stat(part("t-opening"))).rejects.toMatchObject({ code: "ENOENT" });
+});

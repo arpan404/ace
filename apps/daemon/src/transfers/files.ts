@@ -35,13 +35,22 @@ export async function appendAt(
   const held = await fileBytes(path);
   if (held !== offset) return held;
   before();
+  // Writes to one file are serialised by the caller, so nothing else makes it meanwhile.
+  const created = !(await exists(path));
   const handle = await open(path, "a", 0o600);
   try {
-    before();
+    try {
+      before();
+    } catch (error) {
+      // Refused after opening: a file this call made goes again, so a refusal leaves nothing.
+      await handle.close();
+      if (created) await rm(path, { force: true });
+      throw error;
+    }
     await handle.write(data);
     await handle.sync();
   } finally {
-    await handle.close();
+    await handle.close().catch(() => undefined);
   }
   return held + data.length;
 }
