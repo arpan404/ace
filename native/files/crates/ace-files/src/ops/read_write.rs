@@ -105,6 +105,18 @@ pub fn describe_entry(shared: &Shared, root: u64, path: &str) -> Result<Reply, E
     Ok(Reply::Description(convert::description(description)))
 }
 
+/// Digest one file's bytes, so a caller can tell a version that looks unchanged from one whose
+/// content moved. The bytes stay in ace-files; only the digest goes back.
+pub fn fingerprint(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+    let entry = shared.roots.get(root)?;
+    let found = files_io::fingerprint(entry.root(), path)?;
+    Ok(Reply::Fingerprint {
+        version: found.version,
+        size: found.size,
+        digest: found.digest,
+    })
+}
+
 /// How many bytes of files a path holds, for the trash quota a delete reserves.
 pub fn measure(shared: &Shared, root: u64, path: &str, walks: &Walks) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;

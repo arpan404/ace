@@ -10,25 +10,41 @@ import type { ServiceContext } from "./services/types.ts";
 
 const WorkspacePathRow = z.object({ path: z.string() });
 /** Matching paths one trigger remembers; a lost watcher past this cannot be reconciled. */
-const snapshotLimit = 100_000;
+const defaultSnapshotLimit = 100_000;
 /** Events one trigger holds while its baseline is read; past this it rescans after instead. */
-const bufferLimit = 10_000;
+const defaultBufferLimit = 10_000;
+
+/** What one reconciliation may hold, for tests that cannot build a checkout of 100,000 paths. */
+export type AutomationWorkspaceLimits = {
+  snapshotLimit: number;
+  bufferLimit: number;
+};
 
 type TriggerChange = { path: string; kind: "created" | "changed" | "deleted" };
 type ChangesPayload = Extract<EventPayload, { type: "changes" }>;
 
 /**
- * A path's version for reconciliation: what a file looked like the last time it was read, and a
- * constant for a folder, whose mtime moves whenever anything inside it does.
+ * The version a listing reports for a path: what a file looked like the last time it was read, and
+ * a constant for a folder, whose mtime moves whenever anything inside it does.
  */
 function version(entry: { type: string; size: number; mtime: number }): string {
   return entry.type === "directory" ? "directory" : `${entry.type}:${entry.size}:${entry.mtime}`;
 }
 
 /**
+ * What a path looked like when it was last reconciled: the version above and, for a file, the
+ * digest of the bytes that version had.
+ *
+ * The version names size and times, so an edit that keeps the size and restores the modification
+ * time leaves it unchanged. The digest is what tells that edit apart from an untouched file when
+ * the watcher was not running.
+ */
+type Known = { version: string; digest?: string };
+
+/**
  * Automation file triggers over ace-files' watch (ADR 0178): one checkout watch shared by every
  * automation on that folder, gitignore rules applied as the TypeScript watcher did, and a rescan
- * reconciled against the (path, kind, version) baseline last seen.
+ * reconciled against the (path, version, content) baseline last seen.
  *
  * The baseline is seeded before `onReady`, so the first rescan names real changes instead of
  * inventing a create for every file already there. Everything after that is serialized: a batch
@@ -36,7 +52,14 @@ function version(entry: { type: string; size: number; mtime: number }): string {
  * the version it read differs from the baseline, so a create the watcher saw and a rescan also
  * finds fires once.
  */
-export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
+export function automationWorkspace(
+  context: ServiceContext,
+  limits: AutomationWorkspaceLimits = {
+    snapshotLimit: defaultSnapshotLimit,
+    bufferLimit: defaultBufferLimit,
+  },
+): WorkspaceChanges {
+  const { snapshotLimit, bufferLimit } = limits;
   let subscriptions = 0;
   const pending = new Set<Promise<void>>();
   context.resources.own(async () => {
@@ -60,8 +83,16 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       }
       subscriptions++;
       const matches = (path: string) => patterns.some((pattern) => matchesGlob(path, pattern));
-      /** The baseline: each matching path and the version it had when it was last read. */
-      const known = new Map<string, string>();
+      /** The baseline: each matching path and what it looked like when last reconciled. */
+      const known = new Map<string, Known>();
+      /**
+       * Versions a rescan has already reported, against a live batch that names the same version:
+       * that is the only duplicate this watcher has to suppress. A live modification is never
+       * dropped because its version happens to equal the baseline.
+       */
+      let reported = new Map<string, string>();
+      /** Whether `known` came from a scan that saw every matching path. */
+      let complete = false;
       let closed = false;
       let stop: (() => Promise<void>) | undefined;
       let ignore: Promise<GitIgnore> | undefined;
@@ -104,25 +135,56 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           .finally(() => pending.delete(next))
           .catch(() => {});
       };
-      /** The version the folder holds now, or undefined when the path is gone. */
-      const currentVersion = async (tool: FilesTool, path: string): Promise<string | undefined> => {
+      /** The version the folder holds now, and whether it holds a file, or nothing at all. */
+      const currentEntry = async (
+        tool: FilesTool,
+        path: string,
+      ): Promise<{ version: string; file: boolean } | undefined> => {
         try {
           const entry = await tool.run(workspace.path, (client, number) =>
             client.stat(number, path),
           );
-          return version({
-            type: entry.kind.type,
-            size: entry.size,
-            mtime: entry.mtimeMs,
-          });
+          return {
+            version: version({
+              type: entry.kind.type,
+              size: entry.size,
+              mtime: entry.mtimeMs,
+            }),
+            file: entry.kind.type === "file",
+          };
         } catch (error) {
           if (filesErrorCode(error) === "NOT_FOUND") return undefined;
           throw error;
         }
       };
+      /**
+       * The content digests of `paths`, hashed in one pass through ace-files. A file that is gone
+       * or cannot be read has no digest: its version still decides, and it is hashed again on the
+       * next scan.
+       */
+      const digests = async (
+        tool: FilesTool,
+        paths: readonly string[],
+      ): Promise<Map<string, string>> => {
+        const found = new Map<string, string>();
+        if (!paths.length) return found;
+        await tool.run(workspace.path, async (client, number) => {
+          for (const path of paths) {
+            try {
+              const reply = await client.fingerprint(number, path);
+              found.set(path, reply.digest);
+            } catch {
+              // A file written while it is hashed is a conflict, and one that vanished is a
+              // delete the version already shows. Neither may fail the whole reconciliation.
+            }
+          }
+        });
+        return found;
+      };
       /** Read the matching tree into a baseline, before anything is reported ready. */
       const seed = async (tool: FilesTool) => {
-        const seeded = new Map<string, string>();
+        const seeded = new Map<string, Known>();
+        const files: string[] = [];
         let full = false;
         for await (const entry of aceFilesIo(tool).walk(workspace.path, "")) {
           if (entry.ignored || !matches(entry.path)) continue;
@@ -130,11 +192,18 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             full = true;
             break;
           }
-          seeded.set(entry.path, version(entry));
+          seeded.set(entry.path, { version: version(entry) });
+          if (entry.type === "file") files.push(entry.path);
+        }
+        if (closed) return;
+        for (const [path, digest] of await digests(tool, files)) {
+          const held = seeded.get(path);
+          if (held) held.digest = digest;
         }
         if (closed) return;
         known.clear();
         for (const [path, entry] of seeded) known.set(path, entry);
+        complete = !full;
         if (full) {
           known.clear();
           context.log.log("warn", "Automation baseline exceeded its snapshot; changes may be lost");
@@ -149,20 +218,24 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
         const rules = await ignoring();
         const ignored = await rules.ignored(changes.map((change) => change.path));
         const matched: TriggerChange[] = [];
+        /** The files this batch reports or whose version moved, whose digest it must refresh. */
+        const hashed: { path: string; version: string }[] = [];
         for (const change of changes) {
           if (ignored.has(change.path) || !matches(change.path)) continue;
           const before = known.get(change.path);
           if (change.kind === "deleted") {
             if (!before && !announce) continue;
             known.delete(change.path);
+            reported.delete(change.path);
             matched.push({ path: change.path, kind: "deleted" });
             continue;
           }
-          const now = await currentVersion(tool, change.path);
-          if (now === undefined) {
+          const now = await currentEntry(tool, change.path);
+          if (!now) {
             // Gone before it could be read; a delete of a path we knew is still a transition.
             if (before !== undefined) {
               known.delete(change.path);
+              reported.delete(change.path);
               matched.push({ path: change.path, kind: "deleted" });
             }
             continue;
@@ -174,16 +247,40 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
               path: change.path,
               kind: change.kind === "modified" ? "changed" : change.kind,
             });
-          } else if (before === undefined) matched.push({ path: change.path, kind: "created" });
-          else if (before !== now) matched.push({ path: change.path, kind: "changed" });
+          } else if (before === undefined)
+            matched.push({
+              path: change.path,
+              kind: change.kind === "modified" ? "changed" : "created",
+            });
+          else if (before.version !== now.version)
+            matched.push({ path: change.path, kind: "changed" });
+          else if (reported.get(change.path) === now.version) {
+            // The rescan that just walked this checkout reported exactly this version; the live
+            // batch that follows it names the same transition.
+            reported.delete(change.path);
+          } else if (change.kind === "modified") {
+            // An explicit live modification, even at a version the baseline already holds: a save
+            // that kept the size and restored the mtime is still a change the person made. A
+            // watcher's `created` for a path the seed already saw is that file, not a change.
+            matched.push({ path: change.path, kind: "changed" });
+          }
           if (!known.has(change.path) && known.size >= snapshotLimit) continue;
-          known.set(change.path, now);
+          if (now.file) hashed.push({ path: change.path, version: now.version });
+          known.set(change.path, { version: now.version });
+        }
+        for (const [path, digest] of await digests(
+          tool,
+          hashed.map((entry) => entry.path),
+        )) {
+          const held = known.get(path);
+          if (held) held.digest = digest;
         }
         fire(matched);
       };
-      /** A rescan names no paths: compare the versions now with the ones last read. */
+      /** A rescan names no paths: compare the versions and content now with the baseline. */
       const rescan = async (tool: FilesTool) => {
-        const current = new Map<string, string>();
+        const current = new Map<string, Known>();
+        const files: string[] = [];
         let full = false;
         for await (const entry of aceFilesIo(tool).walk(workspace.path, "")) {
           if (entry.ignored || !matches(entry.path)) continue;
@@ -191,24 +288,52 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             full = true;
             break;
           }
-          current.set(entry.path, version(entry));
+          current.set(entry.path, { version: version(entry) });
+          if (entry.type === "file") files.push(entry.path);
         }
         if (closed) return;
         if (full) {
+          // The scan cannot see everything, so it cannot tell a create from a path that was
+          // always there. Keep the last complete baseline; the next complete scan seeds it.
+          complete = false;
+          context.log.log("warn", "Automation rescan exceeded its snapshot; the baseline was kept");
+          return;
+        }
+        for (const [path, digest] of await digests(tool, files)) {
+          const held = current.get(path);
+          if (held) held.digest = digest;
+        }
+        if (closed) return;
+        if (!complete) {
+          // The previous scan missed paths, so reporting creates now would invent them. Seed the
+          // complete baseline silently instead, and report from the scan after this one.
           known.clear();
-          context.log.log("warn", "Automation rescan exceeded its snapshot; changes were lost");
+          for (const [path, entry] of current) known.set(path, entry);
+          complete = true;
           return;
         }
         const changes: TriggerChange[] = [];
         for (const [path, now] of current) {
           const before = known.get(path);
           if (before === undefined) changes.push({ path, kind: "created" });
-          else if (before !== now) changes.push({ path, kind: "changed" });
+          else if (before.version !== now.version) changes.push({ path, kind: "changed" });
+          else if (
+            before.digest !== undefined &&
+            now.digest !== undefined &&
+            before.digest !== now.digest
+          )
+            changes.push({ path, kind: "changed" });
         }
         for (const path of known.keys())
           if (!current.has(path)) changes.push({ path, kind: "deleted" });
         known.clear();
         for (const [path, now] of current) known.set(path, now);
+        reported = new Map();
+        for (const change of changes) {
+          if (change.kind === "deleted") continue;
+          const at = current.get(change.path)?.version;
+          if (at !== undefined) reported.set(change.path, at);
+        }
         fire(changes);
       };
       const receivePayload = (tool: FilesTool, payload: EventPayload, announce = false) => {

@@ -15,6 +15,7 @@ pub(crate) const TAGS: &[&str] = &[
     "stat",
     "describe",
     "describeEntry",
+    "fingerprint",
     "measure",
     "read",
     "write",
@@ -91,6 +92,16 @@ pub enum Op {
     },
     /// The entry itself: its own version, never a folder's tree digest, so a guard is cheap.
     DescribeEntry {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path.
+        path: String,
+    },
+    /// Digest a file's bytes, for a caller reconciling changes it could not watch.
+    ///
+    /// A file whose version looks unchanged can still hold different bytes: the version records
+    /// size and times, not content. This reads the file without sending its bytes.
+    Fingerprint {
         /// The root's number.
         root: u64,
         /// Root-relative path.
@@ -257,6 +268,10 @@ mod tests {
                 full: false,
             },
             Op::DescribeEntry {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Fingerprint {
                 root: 0,
                 path: String::new(),
             },

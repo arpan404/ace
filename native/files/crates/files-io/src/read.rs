@@ -90,7 +90,7 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
 }
 
 /// The version the path names now, or `None` when the path no longer names a file.
-fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
+pub(crate) fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
     let parent = match crate::handle::target_parent_stored(root, path) {
         Ok(found) => found,
         Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
@@ -109,7 +109,7 @@ fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
     }
 }
 
-fn conflict(path: &str, current: Option<String>) -> Error {
+pub(crate) fn conflict(path: &str, current: Option<String>) -> Error {
     Error::Conflict {
         path: path.to_owned(),
         current,

@@ -10,6 +10,7 @@
 mod describe;
 mod encoding;
 mod error;
+mod fingerprint;
 mod handle;
 mod mutate;
 mod number;
@@ -23,6 +24,7 @@ pub use describe::{
     Description, Kind, Measurement, Walks, describe, describe_entry, entry_version, measure,
 };
 pub use error::Error;
+pub use fingerprint::{Fingerprint, fingerprint};
 pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
 pub use policy::refuse_reserved;
 pub use read::{Read, ReadRange, read};

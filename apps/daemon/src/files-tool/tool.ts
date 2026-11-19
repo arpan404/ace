@@ -11,6 +11,7 @@ import {
   type FilesHost,
   type FilesLog,
   type FilesWatch,
+  type FingerprintReply,
   type IndexReply,
   type PageReply,
   type ReadReply,
@@ -86,6 +87,11 @@ export type FilesToolClient = {
     path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<DescriptionReply>;
+  fingerprint(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<FingerprintReply>;
   measure(
     root: number,
     path: string,

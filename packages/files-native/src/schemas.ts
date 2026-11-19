@@ -138,6 +138,7 @@ export const opSchema = z.discriminatedUnion("op", [
     full: z.boolean().optional(),
   }),
   z.object({ op: z.literal("describeEntry"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("fingerprint"), root: u64, path: z.string() }),
   z.object({ op: z.literal("measure"), root: u64, path: z.string() }),
   z.object({
     op: z.literal("read"),
@@ -195,6 +196,12 @@ export const replySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("measure"), bytes: u64, shallow: z.boolean() }),
   z.object({ type: z.literal("read"), ...readMetaSchema.shape }),
   z.object({ type: z.literal("version"), version: z.string() }),
+  z.object({
+    type: z.literal("fingerprint"),
+    version: z.string(),
+    size: u64,
+    digest: z.string(),
+  }),
   z.object({ type: z.literal("index"), ...indexResultSchema.shape }),
 ]);
 
