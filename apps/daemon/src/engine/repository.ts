@@ -1,4 +1,5 @@
 import { hasUnresponsiveAncestor } from "@ace/core";
+import { threadOwnershipTable } from "../thread-ownership-table.ts";
 import { streamFacts } from "./stream-facts.ts";
 import { streamedFactsBytes } from "./fact-bytes.ts";
 import { RecordBudget } from "./records.ts";
@@ -146,6 +147,8 @@ export class EngineRepository {
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((_db) => new TransitionReadiness(_db, now));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
+    // Read by `runnableThreads`, which leaves threads moving to another machine out (ADR 0191).
+    store.atomic((db) => db.exec(threadOwnershipTable));
     this.admissionStatements = store.atomic((_db) => ({
       has: this.store.statement(
         "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",

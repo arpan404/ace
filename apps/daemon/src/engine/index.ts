@@ -437,25 +437,23 @@ export class Engine {
       await this.settledTrees.stop(id, this.settleFailed);
   }
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
-  /** Moving or moved (ADR 0191): nothing new runs here, at admission, dispatch or session open. */
+  /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
   private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
-  /** A thread moving or moved to another machine refuses new turns (ADR 0191). */
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
-  /** ADR 0191's live move: safe-point facts, the moved state, a carried native session. */
-  readonly liveMove = {
-    turnFacts: (id: ThreadId) => liveMove.turnFacts(this.repo, id),
-    markMoved: (id: ThreadId, to: Parameters<typeof liveMove.markMoved>[2]) =>
-      liveMove.markMoved(this.repo, id, to, this.clock.now()),
-    adoptSession: (id: ThreadId, session: Parameters<typeof liveMove.adoptCarriedSession>[2]) =>
-      liveMove.adoptCarriedSession(this.repo, id, session),
-    dropSession: (id: ThreadId) => liveMove.dropCarriedSession(this.repo, id),
-    shells: (id: ThreadId) => liveMove.runningShells(this.repo, id),
-    closeProvider: (id: ThreadId) => this.liveness.closeProvider(id),
-    /** The fence lifted: anything held while it stood dispatches now. */
-    released: (id: ThreadId) => this.wake(id),
-  };
+  readonly liveMove = liveMove.api(
+    () => this.repo,
+    () => this.clock.now(),
+    {
+      closeProvider: (id) => this.liveness.closeProvider(id),
+      // The fence lifted: what it held dispatches, given a slot first.
+      released: (id) => {
+        this.wakeQueued();
+        this.wake(id);
+      },
+    },
+  );
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;
@@ -1271,11 +1269,13 @@ export class Engine {
     )
       return;
     const queue = this.repo.queue.get(id);
+    // A fenced thread holds no slot for work it won't run here (ADR 0191).
     if (
-      this.repo.pending.recovery(id) ||
-      this.repo.pending.transition(id) ||
-      this.repo.pending.controls(id).length ||
-      (!queue.paused && !queue.limited && this.repo.pending.message(id))
+      !this.fenced(id) &&
+      (this.repo.pending.recovery(id) ||
+        this.repo.pending.transition(id) ||
+        this.repo.pending.controls(id).length ||
+        (!queue.paused && !queue.limited && this.repo.pending.message(id)))
     )
       return;
     if (actor && !actor.poisoned && !actor.backlog().frames) {

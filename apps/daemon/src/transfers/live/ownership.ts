@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../../store.ts";
+import { threadOwnershipTable } from "../../thread-ownership-table.ts";
 import {
   nextOwnership,
   ownershipRefusal,
@@ -35,11 +36,7 @@ export class ThreadOwnership {
   constructor(store: Store) {
     this.store = store;
     // A new, empty table: nothing here grows with stored history at open (ADR 0170).
-    store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS thread_ownership (
-        thread_id TEXT PRIMARY KEY, state TEXT NOT NULL, transfer_id TEXT NOT NULL,
-        peer TEXT NOT NULL, epoch INTEGER NOT NULL, prior TEXT, at INTEGER NOT NULL)`),
-    );
+    store.atomic((db) => db.exec(threadOwnershipTable));
   }
   get(threadId: string): Ownership | undefined {
     const raw = this.store

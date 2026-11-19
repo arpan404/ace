@@ -1,4 +1,5 @@
 import { contextNotice } from "@ace/context";
+import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import { Command, ContextDiagnostic } from "@ace/protocol";
@@ -51,6 +52,8 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
+      // Fenced by a move (ADR 0191): the send waits in the queue, held.
+      if (error instanceof SessionFenced) throw new DeliveryDeferred(error.message);
       // A provider returning to the thread resumes the session it left; if that is gone, it
       // opens once more as a fresh session with the full handoff.
       let failure = error;

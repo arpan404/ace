@@ -111,3 +111,23 @@ export function runningShells(repo: EngineRepository, id: ThreadId): string[] {
     .map((task) => task.title.slice(0, 256))
     .slice(0, 32);
 }
+
+/** The engine's live-move surface (ADR 0191), bound to its repository and clock. */
+export function api(
+  repo: () => EngineRepository,
+  now: () => number,
+  host: { closeProvider(id: ThreadId): Promise<void>; released(id: ThreadId): void },
+) {
+  return {
+    turnFacts: (id: ThreadId) => turnFacts(repo(), id),
+    markMoved: (id: ThreadId, to: Parameters<typeof markMoved>[2]) =>
+      markMoved(repo(), id, to, now()),
+    adoptSession: (id: ThreadId, session: Parameters<typeof adoptCarriedSession>[2]) =>
+      adoptCarriedSession(repo(), id, session),
+    dropSession: (id: ThreadId) => dropCarriedSession(repo(), id),
+    shells: (id: ThreadId) => runningShells(repo(), id),
+    /** Ends the provider's process, waiting for it to exit; nothing pending is retired. */
+    closeProvider: host.closeProvider,
+    released: host.released,
+  };
+}

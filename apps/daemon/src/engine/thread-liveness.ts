@@ -169,10 +169,18 @@ export class ThreadLiveness {
     const actor = this.ports.actor(id);
     if (!actor) return;
     actor.lifetime?.abort();
-    if (actor.session) await this.ports.sessions.close(actor, "user");
-    await actor.flush();
-    // Opening can finish meanwhile; the fence refuses a new one, but close any that slipped in.
-    if (actor.session) await this.ports.sessions.close(actor, "user");
+    const { sessions } = this.ports;
+    // A close already in flight has cleared the session before its process exits: wait for it.
+    // A close that fails leaves the session in place, and it is tried once more.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const inFlight = sessions.closed(id);
+      if (inFlight) await inFlight;
+      else if (actor.session) await sessions.close(actor, "user").catch(() => undefined);
+      else break;
+      await actor.flush();
+    }
+    if (actor.session || sessions.isClosing(id))
+      throw new Error("The provider's process didn't exit");
   }
   /** Idle retained sessions need cleanup, but have no unfinished outcome to cancel. */
   unfinished(id: ThreadId): boolean {
