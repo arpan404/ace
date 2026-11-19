@@ -56,9 +56,9 @@ function useMarkitLoaded(): boolean {
  */
 export function Prose(props: {
   text: string;
-  stream?: string;
-  streaming?: boolean;
-  className?: string;
+  stream?: string | undefined;
+  streaming?: boolean | undefined;
+  className?: string | undefined;
   thread?: { threadId: string; cwd?: string; itemId?: string };
   /** Forge text: draws `@name`, `#12` and commit hashes as links to these addresses. */
   forgeReference?: (reference: { kind: string; target: string }) => string | undefined;

@@ -1,8 +1,9 @@
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
-import { readingColumn } from "@/features/thread/index.ts";
+import { LivePill, readingColumn } from "@/features/thread/index.ts";
+import { usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
 import { useMarkSeen, type SeenTarget } from "./use-mark-seen.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
@@ -38,21 +39,45 @@ function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
   if (element && atEnd) element.scrollTop = element.scrollHeight;
 }
 
+/** How near the end still counts as at it, in pixels. */
+const endSlack = 48;
+
 /**
  * A scroller that stays at its end while the person is there, as the conversation grows: on
- * every render and whenever the content's height changes after it. A short conversation starts
- * at the top. With `seen`, being at the end marks the conversation seen (`useMarkSeen`).
+ * every render and whenever the content's height changes after it. Scrolled up, it stays where
+ * they are, however much arrives, and Scroll to end floats over the composer to take them back.
+ * Each message they send (`sent` grows) brings them to the end, where it shows. A short
+ * conversation starts at the top. With `seen`, being at the end marks the conversation seen
+ * (`useMarkSeen`).
  */
 export function Scroller(props: {
   /** What floats over its top: the pill of a bot's conversation, which the first line clears. */
   top?: "pill" | undefined;
   seen?: SeenTarget | undefined;
+  /** How many messages the person sent from here; each new one goes to the end. */
+  sent?: number | undefined;
   children: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
+  const [away, setAway] = useState(false);
+  const pill = usePresence(away);
   const reportEnd = useMarkSeen(props.seen);
+  const toEnd = () => {
+    atEnd.current = true;
+    setAway(false);
+    pinToEnd(scroller.current, true);
+    reportEnd(true);
+  };
+  // A message the person sends shows where they look for it: at the end.
+  const sent = useRef(props.sent);
+  useLayoutEffect(() => {
+    if (sent.current === props.sent) return;
+    sent.current = props.sent;
+    atEnd.current = true;
+    setAway(false);
+  }, [props.sent]);
   useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
   // It opens at its end.
   useEffect(() => reportEnd(atEnd.current), [reportEnd]);
@@ -64,19 +89,24 @@ export function Scroller(props: {
     return () => observer.disconnect();
   }, []);
   return (
-    <div
-      ref={scroller}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-        reportEnd(atEnd.current);
-      }}
-      className={scrollerClass}
-    >
-      <div ref={content} className={cn(columnClass, props.top === "pill" ? "pt-18" : "pt-6")}>
-        {props.children}
+    <>
+      <div
+        ref={scroller}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          atEnd.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
+          setAway(!atEnd.current);
+          reportEnd(atEnd.current);
+        }}
+        className={scrollerClass}
+      >
+        <div ref={content} className={cn(columnClass, props.top === "pill" ? "pt-18" : "pt-6")}>
+          {props.children}
+        </div>
       </div>
-    </div>
+      {pill.mounted && <LivePill newItems={0} more={false} phase={pill.phase} onClick={toEnd} />}
+    </>
   );
 }
 

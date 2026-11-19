@@ -65,3 +65,5 @@ export { ComposerDock } from "./composer/composer-dock.tsx";
 export { StripSurface } from "./composer/strip-surface.tsx";
 export { BubbleText } from "./items/bubble-text.tsx";
 export { userBubble } from "./items/user-bubble.ts";
+/** Scroll to end over a transcript (Spade's conversations reuse it). */
+export { LivePill } from "./long/live-pill.tsx";

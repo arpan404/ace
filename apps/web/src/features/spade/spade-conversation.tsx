@@ -97,6 +97,8 @@ export function Conversation(props: {
     void navigate({ to: "/settings/spade/models" });
   };
   const [stopping, setStopping] = useState(false);
+  // Messages sent from here: each one takes the conversation to its end.
+  const [sent, setSent] = useState(0);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
   const covering = useMediaQuery(coverQuery, false);
@@ -193,6 +195,7 @@ export function Conversation(props: {
       <ConversationPill bot={bot} onOpen={() => openProfile()} />
       <Scroller
         top="pill"
+        sent={sent}
         seen={
           view.loaded
             ? { conversation: bot.conversation, unseen: bot.unseen, seq: bot.lastMessage?.seq }
@@ -304,7 +307,10 @@ export function Conversation(props: {
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
-        send={conversation.send}
+        send={(message) => {
+          setSent((count) => count + 1);
+          return conversation.send(message);
+        }}
       />
     </div>
   );

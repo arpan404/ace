@@ -142,6 +142,8 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
   const covering = useMediaQuery(coverQuery, false);
   const members = shownMembers(machines, group, bots);
   const [stopping, setStopping] = useState(false);
+  // Messages sent from here: each one takes the conversation to its end.
+  const [sent, setSent] = useState(0);
   if (stopping && !view.busy) setStopping(false);
   const stop = () => {
     setStopping(true);
@@ -194,6 +196,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
       />
       <Scroller
         top="pill"
+        sent={sent}
         seen={
           view.loaded
             ? {
@@ -247,7 +250,10 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
               }))
             : undefined
         }
-        send={conversation.send}
+        send={(message) => {
+          setSent((count) => count + 1);
+          return conversation.send(message);
+        }}
       />
     </div>
   );
