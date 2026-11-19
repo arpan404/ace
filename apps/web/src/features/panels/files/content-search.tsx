@@ -1,7 +1,7 @@
 import { CaretRightIcon, XIcon } from "@ace/icons";
 import type { FileSearchFile, FileSearchLine } from "@ace/protocol";
 import { useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
-import { LongRows } from "@/components/virtual-rows.tsx";
+import { VirtualList } from "@/components/virtual-rows.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { Button } from "@/components/ui/button.tsx";
@@ -245,10 +245,10 @@ export function ContentSearch({
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         onKeyDown={onListKeys}
       >
-        <LongRows
+        <VirtualList
           items={rows}
           virtualAbove={virtualAbove}
-          list={{ label: "Search results" }}
+          label="Search results"
           rowKey={(row) => row.key}
           estimate={28}
           render={(row) =>
