@@ -237,11 +237,13 @@ only the OS watch knows; it is held until the OS watch names it, so the old path
 the new name land in one batch, or for at most 5 s, after which the root is rescanned (an OS watch
 that late has lost track, and only a walk drops the old path). On macOS FSEvents also splits a
 rename's two records (consecutive event ids, old path first) across deliveries in either order;
-a rename record that names an entry present now waits up to 2 s for the record one id before it,
-so the old path's deletion and the new name are always in one window. A folder with more than `max_batch` names is rescanned
-instead whenever its stamp moves, because one event about it does not vouch for the rest; the
-rescan waits while events about it keep arriving, for at most 10 s, and its new stamp is only
-taken with the rescan. A change inside a file does not move a
+whichever half arrives first waits up to 2 s for the other (a record naming an entry present now
+is the new name, its partner one id before; any other is the old path, its partner one id after),
+so the old path's deletion and the new name are always in one window; a half whose partner never
+comes (a move into or out of the root) is then reported alone. A folder with more than
+`max_batch` names is rescanned instead whenever its stamp moves, because one event about it does
+not vouch for the rest; the rescan waits while events about it keep arriving, for at most 10 s,
+and its new stamp is only taken with the rescan. A change inside a file does not move a
 folder's stamp; the net covers what the tree shows. On macOS a kqueue `NOTE_WRITE` handle on each
 of the first 64 open folders (descriptors: macOS starts processes with 256) wakes the check as the
 kernel changes the folder, at most every 50 ms, so a lone change in an open folder reaches the sink

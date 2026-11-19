@@ -304,7 +304,7 @@ struct Worker {
     wake: Option<Wake>,
     /// Open folders the kernel said changed, waiting for their check.
     poked: BTreeSet<String>,
-    /// FSEvents renames whose new name waits for its old path.
+    /// FSEvents rename halves waiting for their partners.
     pairs: Pairs,
     /// When the poked folders are checked: at once after a quiet spell, then at most every
     /// [`POKE_GAP`], so a burst in an open folder does not list it for every file.
