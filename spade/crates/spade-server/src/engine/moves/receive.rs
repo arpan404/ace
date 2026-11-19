@@ -14,8 +14,8 @@ use spade_store::{Store, StoredMove};
 
 use super::paths::{self, plain_id};
 use super::{
-    ABORTED, ACCEPTED, ACTIVATING, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING, UNDOING,
-    VERSION, budget, detail,
+    ABORTED, ABORTING, ACCEPTED, ACTIVATING, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING,
+    UNDOING, VERSION, budget, detail,
 };
 use crate::engine::inbox::{InboxAnswer, Sender};
 
@@ -159,6 +159,24 @@ impl Engine {
         }
     }
 
+    /// Moves arrival `id` on from one of `from` to `to` with `detail`, durably, checked in one
+    /// transaction: answers whether it did. Each step must be in the target's table (or stay).
+    fn target_to(
+        &self,
+        id: &str,
+        from: &[&str],
+        to: &str,
+        detail: &str,
+    ) -> Result<bool, spade_store::StoreError> {
+        debug_assert!(
+            from.iter()
+                .all(|f| *f == to || super::states::TARGET.contains(&(*f, to))),
+            "{from:?} -> {to} isn't in the target's table"
+        );
+        self.store
+            .advance_move(id, Some(from), to, detail, self.now_ms())
+    }
+
     /// What the move's state and the arrival read, for the source.
     fn move_answer(entry: &StoredMove) -> Value {
         let kept = detail(entry);
@@ -166,6 +184,9 @@ impl Engine {
     }
 
     async fn move_begin(&self, entry: StoredMove, manifest: &Value) -> InboxAnswer {
+        if let Err(problem) = paths::moves_here() {
+            return refuse(409, &problem);
+        }
         let host = self.host_record().ok().flatten().map(|r| r.to_json());
         let kept = detail(&entry);
         let sha = manifest_sha(manifest);
@@ -297,16 +318,8 @@ impl Engine {
         begun["from_name"] = json!(from_name);
         begun["staged"] = json!(0);
         begun["listed"] = json!(0);
-        let now = self.now_ms();
         let stored = self
-            .store
-            .advance_move(
-                &entry.id,
-                Some(&[ACCEPTED]),
-                RECEIVING,
-                &begun.to_string(),
-                now,
-            )
+            .target_to(&entry.id, &[ACCEPTED], RECEIVING, &begun.to_string())
             .and_then(|_| self.store.set_move_peer(&entry.id, &from, &from_name));
         if let Err(error) = stored {
             return refuse(500, &error.to_string());
@@ -410,13 +423,7 @@ impl Engine {
             kept["staged"] = json!(staged);
             kept["listed"] = json!(named);
         }
-        let _ = self.store.advance_move(
-            &entry.id,
-            Some(&[RECEIVING]),
-            RECEIVING,
-            &kept.to_string(),
-            self.now_ms(),
-        );
+        let _ = self.target_to(&entry.id, &[RECEIVING], RECEIVING, &kept.to_string());
         (200, json!({}))
     }
 
@@ -436,18 +443,28 @@ impl Engine {
         .map_err(|e| e.to_string())
     }
 
+    /// What the move reads here now, as stored: the only answer the source acts on. A move
+    /// committed or given up answers 200; one still on its way 503 (ask again).
+    fn stored_answer(&self, id: &str) -> InboxAnswer {
+        match self.store.stored_move(id) {
+            Ok(Some(entry)) => {
+                let mut answer = Self::move_answer(&entry);
+                answer["error"] = detail(&entry)["problem"].clone();
+                let settled = entry.state == COMMITTED || entry.state == ABORTED;
+                answer["committed"] = json!(entry.state == COMMITTED);
+                (if settled { 200 } else { 503 }, answer)
+            }
+            _ => refuse(500, "the move's state can't be read"),
+        }
+    }
+
     async fn move_commit(
         self: &Arc<Self>,
         held: tokio::sync::OwnedMutexGuard<()>,
         entry: StoredMove,
     ) -> InboxAnswer {
         match entry.state.as_str() {
-            COMMITTED => {
-                let mut answer = Self::move_answer(&entry);
-                answer["committed"] = json!(true);
-                return (200, answer);
-            }
-            ABORTED => return refuse(409, "this move was given up here; start it again"),
+            COMMITTED | ABORTED => return self.stored_answer(&entry.id),
             ACCEPTED => return refuse(409, "this move hasn't begun"),
             _ => {}
         }
@@ -461,15 +478,16 @@ impl Engine {
             if !missing.is_empty() {
                 return (
                     409,
-                    json!({ "error": "parts are missing", "missing": missing }),
+                    json!({ "error": "parts are missing", "missing": missing, "state": RECEIVING }),
                 );
             }
         }
         let id = entry.id.clone();
-        let written = self
+        let done = self
             .blocking(held, move |engine| {
-                // A copy that was cut off comes out first; then it runs again from its parts.
-                if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+                // What was cut off carries on first, from what it stored: a copy comes out (and
+                // runs again from its parts), a give-up finishes giving up.
+                if matches!(entry.state.as_str(), ACTIVATING | UNDOING | ABORTING) {
                     engine.recover(&entry.id);
                 }
                 let entry = engine
@@ -479,52 +497,42 @@ impl Engine {
                     .flatten()
                     .unwrap_or(entry);
                 match entry.state.as_str() {
-                    RECEIVING => engine.arrive(&entry),
+                    RECEIVING => engine.arrive(&entry).map(|_| ()),
                     // Its rows are in: only its files and the cutover are left.
-                    PLACING => engine.finish_placing(&entry),
-                    _ => Err(super::arrive::Failed::Placing(format!(
-                        "this move reads {} here",
-                        entry.state
-                    ))),
+                    PLACING => engine.finish_placing(&entry).map(|_| ()),
+                    _ => Ok(()),
                 }
             })
             .await;
-        match written {
-            Ok(Ok(_)) => {
-                let entry = self.store.stored_move(&id).ok().flatten();
-                let mut answer = entry
-                    .as_ref()
-                    .map(Self::move_answer)
-                    .unwrap_or_else(|| json!({}));
-                answer["committed"] = json!(true);
-                (200, answer)
+        match done {
+            Ok(Err(super::arrive::Failed::Refused(problem))) => {
+                tracing::warn!(%problem, "a move to here was refused");
             }
-            Ok(Err(super::arrive::Failed::Refused(problem))) => refuse(422, &problem),
-            Ok(Err(super::arrive::Failed::Placing(problem))) => (
-                503,
-                json!({ "state": PLACING, "error": format!("the move isn't done here yet: {problem}") }),
-            ),
-            Err(error) => refuse(500, &error),
+            Ok(Err(super::arrive::Failed::Placing(problem))) => {
+                tracing::info!(%problem, "a move to here isn't done yet");
+            }
+            Err(problem) => tracing::error!(%problem, "a move to here stopped short"),
+            Ok(Ok(())) => {}
         }
+        self.stored_answer(&id)
     }
 
-    /// The move as it stands here; one cut off mid-copy is carried on first, so the answer is
-    /// one the source can act on.
+    /// The move as it stands here; one cut off mid-copy, or being given up, is carried on first,
+    /// so the answer is one the source can act on.
     async fn move_status(
         self: &Arc<Self>,
         held: tokio::sync::OwnedMutexGuard<()>,
         entry: StoredMove,
     ) -> InboxAnswer {
         let id = entry.id.clone();
-        if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+        if matches!(entry.state.as_str(), ACTIVATING | UNDOING | ABORTING) {
             let _ = self.blocking(held, move |engine| engine.recover(&id)).await;
         }
-        match self.store.stored_move(&entry.id) {
-            Ok(Some(entry)) => (200, Self::move_answer(&entry)),
-            _ => refuse(500, "the move's state can't be read"),
-        }
+        self.stored_answer(&entry.id)
     }
 
+    /// Gives the move up here, unless it took. Answers `aborted` only once that is on disk, with
+    /// every file it placed and every row it inserted out again; until then 503 (ask again).
     async fn move_abort(
         self: &Arc<Self>,
         held: tokio::sync::OwnedMutexGuard<()>,
@@ -533,21 +541,22 @@ impl Engine {
         match entry.state.as_str() {
             RECEIVING | ACCEPTED => {
                 self.drop_staging(&entry, "the other machine gave the move up");
-                (200, json!({ "state": ABORTED }))
             }
-            // Not this machine's yet: exactly what it inserted comes out.
-            ACTIVATING | UNDOING | PLACING => {
+            ACTIVATING | UNDOING | PLACING | ABORTING => {
                 let id = entry.id.clone();
                 let _ = self
                     .blocking(held, move |engine| {
                         engine.abandon(&id, "the other machine gave the move up")
                     })
                     .await;
-                (200, json!({ "state": ABORTED }))
             }
-            COMMITTED => refuse(409, "the move already took here"),
-            _ => (200, json!({ "state": ABORTED })),
+            _ => {}
         }
+        let (status, answer) = self.stored_answer(&entry.id);
+        if answer["state"] == COMMITTED {
+            return (409, answer);
+        }
+        (status, answer)
     }
 
     /// Gives a move to here up while nothing of it is copied in (accepted or receiving): it is
@@ -555,12 +564,11 @@ impl Engine {
     pub(super) fn drop_staging(&self, entry: &StoredMove, why: &str) {
         let mut kept = detail(entry);
         kept["problem"] = json!(why);
-        match self.store.advance_move(
+        match self.target_to(
             &entry.id,
-            Some(&[ACCEPTED, RECEIVING]),
+            &[ACCEPTED, RECEIVING],
             ABORTED,
             &kept.to_string(),
-            self.now_ms(),
         ) {
             Ok(true) => {}
             Ok(false) => return,
@@ -585,7 +593,10 @@ impl Engine {
             let engine = self.clone();
             tokio::spawn(async move {
                 let held = engine.steps_of(&entry.id).lock_owned().await;
-                if matches!(entry.state.as_str(), ACTIVATING | UNDOING | PLACING) {
+                if matches!(
+                    entry.state.as_str(),
+                    ACTIVATING | UNDOING | ABORTING | PLACING
+                ) {
                     let id = entry.id.clone();
                     let _ = engine
                         .blocking(held, move |engine| engine.recover(&id))
@@ -621,7 +632,7 @@ impl Engine {
             if stale {
                 self.drop_staging(&entry, "nothing came for this move for too long");
                 done += 1;
-            } else if matches!(entry.state.as_str(), ACTIVATING | UNDOING) {
+            } else if matches!(entry.state.as_str(), ACTIVATING | UNDOING | ABORTING) {
                 self.recover(&entry.id);
                 done += 1;
             }

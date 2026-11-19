@@ -11,9 +11,10 @@ use spade_store::{Selection, StoredMove};
 
 use super::host::HostRecord;
 use super::paths;
+use super::states::{self, Then};
 use super::{
-    CANCELLED, COMMITTING, DONE, Engine, FAILED, FINISHING, MOVED, PACKING, SENDING, detail, lock,
-    strings,
+    CANCELLED, COMMITTING, DONE, Engine, FAILED, FINISHING, MOVED, PACKING, SENDING,
+    SOURCE_ABORTING, detail, lock, strings,
 };
 use crate::teams::RemoteError;
 
@@ -74,38 +75,63 @@ impl Engine {
             };
             // Before its commit a move has a deadline, retries and disconnects included: past
             // it the move gives up and the bot carries on here.
-            let pre_commit = matches!(entry.state.as_str(), PACKING | SENDING);
-            if pre_commit && self.past_deadline(&entry) {
-                let why = format!("it took too long to reach {}", entry.peer_name);
-                return self.give_up(&entry, FAILED, Some(why)).await;
-            }
-            let next = match entry.state.as_str() {
-                PACKING => self.step_pack(&entry).await,
-                SENDING => self.step_send(&entry).await,
-                COMMITTING => self.step_commit(&entry).await,
-                FINISHING => self.step_finish(&entry).await,
-                _ => return,
+            let pre_commit = matches!(entry.state.as_str(), PACKING | SENDING)
+                && detail(&entry)["commit_sent"] != json!(true);
+            let next = if pre_commit && self.past_deadline(&entry) {
+                Next::Fail(format!("it took too long to reach {}", entry.peer_name))
+            } else {
+                match entry.state.as_str() {
+                    PACKING => self.step_pack(&entry).await,
+                    SENDING => self.step_send(&entry).await,
+                    COMMITTING => self.step_commit(&entry).await,
+                    SOURCE_ABORTING => self.step_abort(&entry).await,
+                    FINISHING => self.step_finish(&entry).await,
+                    _ => return,
+                }
             };
             match next {
                 Next::Again => {}
-                Next::Fail(problem) => return self.give_up(&entry, FAILED, Some(problem)).await,
-                Next::Cancel => return self.give_up(&entry, CANCELLED, None).await,
+                Next::Fail(problem) => self.stop_move(&entry, false, Some(problem)).await,
+                Next::Cancel => self.stop_move(&entry, true, None).await,
             }
         }
     }
 
-    fn update(&self, entry: &StoredMove, state: &str, change: impl FnOnce(&mut Value)) {
-        let mut kept = self
+    /// Moves `entry` on to `state` (or keeps it there) with `change`, durably, only from the
+    /// state it was read in and only as the source's table allows: answers whether it did.
+    fn persist(
+        &self,
+        entry: &StoredMove,
+        state: &str,
+        change: impl FnOnce(&mut Value),
+    ) -> Result<bool, String> {
+        let held = self
             .store
             .stored_move(&entry.id)
-            .ok()
-            .flatten()
-            .map_or_else(|| detail(entry), |now| detail(&now));
+            .map_err(|e| e.to_string())?
+            .ok_or("the move is gone")?;
+        if held.state != entry.state {
+            return Ok(false);
+        }
+        if held.state != state && !states::SOURCE.contains(&(held.state.as_str(), state)) {
+            return Err(format!("a move doesn't go from {} to {state}", held.state));
+        }
+        let mut kept = detail(&held);
         change(&mut kept);
-        if let Err(error) = self
-            .store
-            .set_move(&entry.id, state, &kept.to_string(), self.now_ms())
-        {
+        self.store
+            .advance_move(
+                &entry.id,
+                Some(&[held.state.as_str()]),
+                state,
+                &kept.to_string(),
+                self.now_ms(),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// `persist`, where a failure is only said.
+    fn update(&self, entry: &StoredMove, state: &str, change: impl FnOnce(&mut Value)) {
+        if let Err(error) = self.persist(entry, state, change) {
             tracing::error!(%error, "a move's state could not be stored");
         }
     }
@@ -302,85 +328,142 @@ impl Engine {
     }
 
     async fn step_commit(self: &Arc<Self>, entry: &StoredMove) -> Next {
-        // Spade's host choice made again since the move began (elsewhere, by the person): the
-        // move is stale, and given up before anything can take. Once a commit was sent only the
-        // other machine knows (and it refuses a stale one itself).
-        if entry.main && detail(entry)["commit_sent"] != json!(true) {
-            let began = self.began_host(entry);
-            let held = self.host_record().ok().flatten();
-            if held.is_some_and(|held| began.as_ref().is_none_or(|began| held.newer_than(began))) {
-                return Next::Fail(
-                    "Spade's host was chosen again since this move began; start it again"
-                        .to_owned(),
-                );
-            }
-        }
-        self.update(entry, COMMITTING, |kept| kept["commit_sent"] = json!(true));
-        let request = json!({ "op": "move", "step": "commit", "move": entry.id });
-        // Only the other machine knows whether a commit took: from here on the bot waits for
-        // its answer, however long that machine is away.
-        let (status, body) = match self.call_peer(entry, request, false).await {
-            Ok(answer) => answer,
-            Err(Next::Fail(_)) => {
-                let status = json!({ "op": "move", "step": "status", "move": entry.id });
-                match self.call_peer(entry, status, false).await {
-                    Ok((200, body)) if body["state"] == "committed" => (200, body),
-                    Ok((_, body))
-                        if matches!(
-                            body["state"].as_str(),
-                            Some("receiving" | "placing" | "activating" | "undoing")
-                        ) =>
-                    {
-                        tokio::time::sleep(FIRST_WAIT).await;
-                        return Next::Again;
-                    }
-                    Ok((_, body)) => return Next::Fail(error_of(&body)),
-                    // Spade, the main bot: only the other machine knows whether it took, and
-                    // giving up here could leave two Spades in use. It waits, however long.
-                    Err(Next::Fail(_)) if entry.main => {
-                        self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
-                        tokio::time::sleep(LONGEST_WAIT).await;
-                        return Next::Again;
-                    }
-                    Err(next) => return next,
+        let kept = detail(entry);
+        if kept["commit_sent"] != json!(true) {
+            // Spade's host choice made again since the move began (elsewhere, by the person):
+            // the move is stale, and given up before anything can take.
+            if entry.main {
+                let began = self.began_host(entry);
+                let held = self.host_record().ok().flatten();
+                if held
+                    .is_some_and(|held| began.as_ref().is_none_or(|began| held.newer_than(began)))
+                {
+                    return Next::Fail(
+                        "Spade's host was chosen again since this move began; start it again"
+                            .to_owned(),
+                    );
                 }
             }
-            Err(next) => return next,
-        };
-        match status {
-            200 => {
-                let arrival = body["arrival"].clone();
+            // On disk before the commit leaves: from here only the other machine's word lets
+            // the bot go.
+            match self.persist(entry, COMMITTING, |kept| kept["commit_sent"] = json!(true)) {
+                Ok(true) => {}
+                _ => {
+                    tokio::time::sleep(FIRST_WAIT).await;
+                    return Next::Again;
+                }
+            }
+        }
+        let request = json!({ "op": "move", "step": "commit", "move": entry.id });
+        let answer = self.call_peer(entry, request, false).await;
+        // A machine that left the fleet: the person may keep the bot here (Keep it here),
+        // until it answers again.
+        let gone = matches!(answer, Err(Next::Fail(_)));
+        if gone != (detail(entry)["peer_gone"] == json!(true)) {
+            self.update(entry, COMMITTING, |kept| kept["peer_gone"] = json!(gone));
+        }
+        let answer = answer.ok();
+        let heard = states::hear(answer.as_ref().map(|(status, body)| (*status, body)));
+        let body = answer.map(|(_, body)| body).unwrap_or(Value::Null);
+        match states::committing(&heard) {
+            Then::Finish => {
                 // The choice the other machine made as it took Spade, and only that: it names
-                // that machine, exactly one version on from the choice the move began with. Any
-                // other answer is asked again; none is ever made up here.
+                // that machine, exactly one version on from the choice the move began with.
+                // Any other answer is asked again; none is ever made up here.
                 let expected = self.began_host(entry).map_or(0, |r| r.version) + 1;
                 let host = HostRecord::parse(&body["host"]).filter(|record| {
                     record.host == entry.peer && record.version == expected && record.by == "move"
                 });
                 if entry.main && host.is_none() {
-                    self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
-                    tokio::time::sleep(FIRST_WAIT).await;
-                    return Next::Again;
+                    return self.retry(entry, COMMITTING).await;
                 }
+                let arrival = body["arrival"].clone();
                 self.update(entry, FINISHING, |kept| {
                     kept["arrival"] = arrival;
                     kept["host"] = host.as_ref().map_or(Value::Null, HostRecord::to_json);
                 });
                 Next::Again
             }
-            // Parts went missing there: send them again.
-            409 if body["missing"].is_array() => {
+            Then::Thaw => {
+                self.give_up(entry, FAILED, Some(error_of(&body))).await;
+                Next::Again
+            }
+            Then::Resend => {
                 self.update(entry, SENDING, |_| {});
                 Next::Again
             }
-            // Written there but its files are still being placed, or that machine stumbled:
-            // only it knows when the move took, so ask again.
-            500..=599 => {
-                self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
-                tokio::time::sleep(LONGEST_WAIT.min(FIRST_WAIT * 8)).await;
+            Then::Retry | Then::Abort => self.retry(entry, COMMITTING).await,
+        }
+    }
+
+    /// The commit was sent, and the move is being stopped: the other machine is asked to give it
+    /// up, and the bot is let go only once it says it has (or archived, if it took after all).
+    async fn step_abort(self: &Arc<Self>, entry: &StoredMove) -> Next {
+        let request = json!({ "op": "move", "step": "abort", "move": entry.id });
+        let answer = self.call_peer(entry, request, false).await;
+        // A machine that left the fleet: the person may keep the bot here (Keep it here),
+        // until it answers again.
+        let gone = matches!(answer, Err(Next::Fail(_)));
+        if gone != (detail(entry)["peer_gone"] == json!(true)) {
+            self.update(entry, SOURCE_ABORTING, |kept| {
+                kept["peer_gone"] = json!(gone)
+            });
+        }
+        let answer = answer.ok();
+        let heard = states::hear(answer.as_ref().map(|(status, body)| (*status, body)));
+        match states::aborting(&heard) {
+            // It took after all: the commit's answer, asked again, says how.
+            Then::Finish => {
+                self.update(entry, COMMITTING, |_| {});
                 Next::Again
             }
-            _ => Next::Fail(error_of(&body)),
+            Then::Thaw => {
+                let kept = detail(entry);
+                let state = if kept["stopped"] == "cancelled" {
+                    CANCELLED
+                } else {
+                    FAILED
+                };
+                let problem = kept["problem"].as_str().map(str::to_owned);
+                self.give_up(entry, state, problem).await;
+                Next::Again
+            }
+            _ => self.retry(entry, SOURCE_ABORTING).await,
+        }
+    }
+
+    /// Stays in `state`, says it waits, and asks again after a while.
+    async fn retry(&self, entry: &StoredMove, state: &str) -> Next {
+        self.update(entry, state, |kept| kept["waiting"] = json!(true));
+        let wake = self.wake_of(&entry.id);
+        tokio::select! {
+            () = tokio::time::sleep(LONGEST_WAIT.min(FIRST_WAIT * 8)) => {}
+            () = wake.notified() => {}
+        }
+        Next::Again
+    }
+
+    /// The move is stopped (`problem`, or the person's cancel) before it took: with no commit
+    /// sent the bot carries on here; once one was, the other machine is asked to give it up first.
+    async fn stop_move(
+        self: &Arc<Self>,
+        entry: &StoredMove,
+        cancelled: bool,
+        problem: Option<String>,
+    ) {
+        let sent = detail(entry)["commit_sent"] == json!(true);
+        match states::stopping(sent) {
+            Then::Abort => {
+                let stopped = if cancelled { "cancelled" } else { "failed" };
+                self.update(entry, SOURCE_ABORTING, |kept| {
+                    kept["stopped"] = json!(stopped);
+                    kept["problem"] = json!(problem);
+                });
+            }
+            _ => {
+                let state = if cancelled { CANCELLED } else { FAILED };
+                self.give_up(entry, state, problem).await;
+            }
         }
     }
 
@@ -432,13 +515,16 @@ impl Engine {
         let agents = strings(&kept["agents"]);
         let archive = paths::child(&self.data_dir().join("moved"), &entry.id)?;
         let kept_files = paths::child(&archive, "workspace")?;
-        std::fs::create_dir_all(&kept_files).map_err(|e| e.to_string())?;
+        // `moved/<move>/workspace`, each folder on the way linked in on disk first.
+        paths::make_dirs(&kept_files)?;
         let workspaces = self.data_dir().join("workspace");
         for agent in &agents {
             let folder = paths::child(&workspaces, agent)?;
             if folder.exists() {
                 std::fs::rename(&folder, paths::child(&kept_files, agent)?)
                     .map_err(|e| e.to_string())?;
+                paths::sync_dir(&kept_files)?;
+                paths::sync_dir(&workspaces)?;
             }
             let moved = json!({ "to": entry.peer, "name": entry.peer_name, "at": self.now_ms() });
             self.store
@@ -449,6 +535,7 @@ impl Engine {
         let parts = self.packed(&entry.id)?;
         if parts.exists() {
             std::fs::rename(&parts, paths::child(&archive, "parts")?).map_err(|e| e.to_string())?;
+            paths::sync_dir(&archive)?;
         }
         paths::remove_child(&self.data_dir().join("moves"), &entry.id)?;
         let list = |name: &str| strings(&kept["selection"][name]);
@@ -501,12 +588,20 @@ impl Engine {
             let _ = tokio::time::timeout(Duration::from_secs(10), remote.call(&entry.peer, abort))
                 .await;
         }
-        let _ = paths::remove_child(&self.data_dir().join("moves"), &entry.id);
         let kept = detail(entry);
-        self.update(entry, state, |kept| {
+        // The bot is let go only once the move's end is on disk.
+        let ended = self.persist(entry, state, |kept| {
             kept["problem"] = json!(problem);
             kept["waiting"] = json!(false);
         });
+        if !matches!(ended, Ok(true)) {
+            tracing::error!(
+                ?ended,
+                "a stopped move couldn't be stored; the bot stays frozen"
+            );
+            return;
+        }
+        let _ = paths::remove_child(&self.data_dir().join("moves"), &entry.id);
         self.thaw(&entry.id, &strings(&kept["conversations"]));
         lock(&self.moves.cancelled).remove(&entry.id);
         for conversation in strings(&kept["conversations"]) {

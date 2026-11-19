@@ -52,6 +52,8 @@ pub struct Fleet {
     pub change_file_path: AtomicBool,
     /// Delivers the next commit, then says the connection was lost.
     pub lose_commit_answer: AtomicBool,
+    /// Answers this many commits and statuses, once delivered, with a 500 instead of the reply.
+    pub garble_answers: AtomicU64,
     /// Every request body carried, as sent.
     pub carried: Mutex<Vec<String>>,
     /// Each machine's ace home, by host id, for restarts.
@@ -163,6 +165,18 @@ impl Remote for Link {
                 && self.fleet.lose_commit_answer.swap(false, Ordering::SeqCst)
             {
                 return Err(RemoteError::Disconnected);
+            }
+            if matches!(request["step"].as_str(), Some("commit" | "status"))
+                && self
+                    .fleet
+                    .garble_answers
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok()
+            {
+                return Ok((
+                    500,
+                    serde_json::json!({ "error": "the state couldn't be read" }),
+                ));
             }
             Ok(answer)
         })

@@ -175,3 +175,25 @@ test("a move waiting on the other machine after its commit says so, and Check ag
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/agents/research/move/check")).toHaveLength(1));
 });
+
+test("a move whose machine left after its commit offers Keep it here, which keeps the bot", async () => {
+  const { spade } = await spadeApp(
+    "/spade/research?profile=details",
+    (api) => {
+      withResearch(api);
+      const research = api.agents.find((agent) => agent.id === "research");
+      if (research)
+        research.move = {
+          id: "mv_1",
+          to: { host: "studio", name: "Studio Mac" },
+          state: "committing",
+          waiting: true,
+          can_cancel: false,
+          can_keep: true,
+        };
+    },
+    { machines: studio },
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Keep it here" }));
+  await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/research/move")).toHaveLength(1));
+});

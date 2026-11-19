@@ -100,7 +100,7 @@ impl Engine {
     ) -> Result<String, AgentError> {
         Ok(match input {
             Some(AvatarInput::Image(bytes)) => {
-                let image = self.images.put(&bytes)?;
+                let image = self.put_image(&bytes)?;
                 json!({ "kind": "image", "sha256": image.sha256 }).to_string()
             }
             Some(AvatarInput::Character(raw)) => face::repair(&raw).to_json().to_string(),

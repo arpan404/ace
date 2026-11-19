@@ -1198,7 +1198,7 @@ async fn finish_tool(
     let mut content = super::trim::trim(&output.content, engine.limits.result_chars);
     let mut images = Vec::new();
     for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {
-        match engine.images.put(bytes) {
+        match engine.put_image(bytes) {
             Ok(image) => images.push(image),
             Err(error) => {
                 content.push_str(&format!("\n[An image it returned was not kept: {error}]"))

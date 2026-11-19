@@ -326,7 +326,7 @@ async fn a_move_that_cant_reach_its_machine_in_time_gives_up_and_the_bot_carries
 }
 
 #[tokio::test]
-async fn check_again_asks_at_once_and_a_machine_that_left_the_fleet_lets_the_bot_stay() -> Result {
+async fn check_again_asks_at_once() -> Result {
     let (fleet, laptop, studio) = pair().await?;
     let (bot, _) = research(&laptop).await?;
     // The commit reaches the studio but its answer is lost, and the studio goes away a while.
@@ -349,8 +349,8 @@ async fn check_again_asks_at_once_and_a_machine_that_left_the_fleet_lets_the_bot
         // The answer came back before it could be lost: nothing to check.
         return Ok(());
     }
-    // Long enough for its waits to have grown.
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    // Long enough for its waits to have grown past the bound below.
+    tokio::time::sleep(Duration::from_secs(9)).await;
     fleet.unreachable.store(false, Ordering::SeqCst);
     let started = std::time::Instant::now();
     let (_, checked) = laptop
@@ -359,7 +359,7 @@ async fn check_again_asks_at_once_and_a_machine_that_left_the_fleet_lets_the_bot
     assert_eq!(checked["checking"], true);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < Duration::from_secs(6),
         "asked at once: {:?}",
         started.elapsed()
     );
@@ -367,20 +367,31 @@ async fn check_again_asks_at_once_and_a_machine_that_left_the_fleet_lets_the_bot
 }
 
 #[tokio::test]
-async fn a_bot_whose_machine_left_the_fleet_before_it_answered_stays_where_it_is() -> Result {
+async fn a_bot_whose_machine_left_after_its_commit_stays_frozen_until_the_person_keeps_it_here()
+-> Result {
     let (fleet, laptop, studio) = pair().await?;
     let (bot, conversation) = research(&laptop).await?;
     fleet.lose_commit_answer.store(true, Ordering::SeqCst);
     let (status, _) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
     assert_eq!(status, 202);
+    let mut committing = false;
     for _ in 0..400 {
         let seen = laptop.get(&format!("/v1/agents/{bot}/move")).await?.1;
-        if seen["move"]["state"] == "committing" || seen["move"].is_null() {
+        if seen["move"]["state"] == "committing" {
+            committing = true;
+            break;
+        }
+        if seen["move"].is_null() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    // The person removes the studio from their machines.
+    if !committing {
+        // It finished before its answer could be lost: nothing to check.
+        return Ok(());
+    }
+    // The person removes the studio from their machines: the laptop can't learn whether the
+    // move took, so the bot stays frozen, however long; nothing gives it up by itself.
     fleet
         .spades
         .lock()
@@ -389,12 +400,35 @@ async fn a_bot_whose_machine_left_the_fleet_before_it_answered_stays_where_it_is
     let _ = laptop
         .post(&format!("/v1/agents/{bot}/move/check"), json!({}))
         .await?;
-    let ended = move_ends(&laptop, &bot).await?;
-    if ended.is_null() {
-        // It finished before the studio left.
-        return Ok(());
+    let mut seen = Value::Null;
+    for _ in 0..400 {
+        seen = laptop.get(&format!("/v1/agents/{bot}/move")).await?.1;
+        if seen["move"]["can_keep"] == true {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    assert_eq!(seen["move"]["state"], "committing", "{seen}");
+    assert_eq!(seen["move"]["can_keep"], true, "{seen}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (status, _) = laptop
+        .post(
+            &format!("/v1/conversations/{conversation}/messages"),
+            json!({ "text": "Hi" }),
+        )
+        .await?;
+    assert_eq!(status, 409, "still frozen: only the person lets it go now");
+    // The person keeps it here.
+    let (status, body) = laptop.delete(&format!("/v1/agents/{bot}/move")).await?;
+    assert!(status < 300, "{body}");
+    let ended = move_ends(&laptop, &bot).await?;
     assert_eq!(ended["state"], "failed", "{ended}");
+    assert!(
+        ended["problem"]
+            .as_str()
+            .is_some_and(|p| p.starts_with("You kept")),
+        "{ended}"
+    );
     let (status, body) = laptop
         .post(
             &format!("/v1/conversations/{conversation}/messages"),

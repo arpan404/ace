@@ -131,7 +131,10 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
    already taken here refuses the move. Each batch that copies rows in records each inserted
    row's key (`move_rows`) in the same transaction, so what a move inserted is known exactly
    through any crash; undoing deletes only those rows. Nothing of this machine is ever deleted by
-   an arrival. A staged worker's link must name a maker that came with it (by its id and its
+   an arrival. Every event number (and a cursor or answer pointing at one) must lie below 2^53, so
+   the arrival's own marker and every later event follow in order: numbers are counted with
+   checked arithmetic, and a conversation at the last refuses more rather than wrap. A staged
+   worker's link must name a maker that came with it (by its id and its
    conversation), the bot itself is no one's worker, and links make one tree, never a circle: a
    link to a bot of this machine would make it the arriving bot's maker and open its knowledge.
    The one replacement is Spade's own: an incoming main retires this machine's quiet main,
@@ -161,7 +164,8 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     setting is keyed by): reads in each query, and writes by triggers on every moved table that
     refuse any insert, change or delete of such a row on every connection, whatever store
     operation makes it (so no operation can change a key an undo deletes by), unless the arrival
-    itself writes. So no message, routine,
+    itself writes, and then only the rows its own claims name: one arrival never writes another's
+    (its cutover's update of club members skips every club still arriving). So no message, routine,
     club, club run, note, knowledge entry, file, conversation list or API request reaches an
     arriving bot or acts as it, and no worker link of it reaches the index; no caller can forget
     the check. The claims are rows, so the gate holds through a restart with nothing to rebuild.
@@ -176,9 +180,14 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     durably (`move_files`) before it is done, and undoing puts back exactly what was recorded,
     each record going only once that is on disk; the gate and the claims stay until every file
     is back. Every folder made for the files, nested ones included, and every folder a rename
-    touched, is flushed to disk before anything acts on it. An image a move brings reads as none
-    until the move is this machine's; one the machine already had stays its own and is never
-    touched. Then the moved bots' app access is set to none in the person's apps (the hub's own
+    touched, is flushed to disk before anything acts on it: every folder made on the way (into
+    `moved`, for one), both folders of every rename, before a record is cleared or anything is
+    acknowledged. Where a folder can't be flushed (Windows, for now), moves to and from that
+    machine are refused. An image's name must be its own hash; it is read, uploaded, placed and
+    put back under one lock per hash, in lowercase. An image a move brings reads as none until
+    the move is this machine's; one the machine already had stays its own and is never touched;
+    one uploaded independently while the move holds it becomes the upload's, and the move no
+    longer takes it out. Then the moved bots' app access is set to none in the person's apps (the hub's own
     record) and, again, in one transaction that makes the move this machine's: the bots get
     their kinds, the gate opens, routines and webhooks, clubs, consent and `arrived` markers
     change, app access is none, Spade's host choice is written and this machine's quiet main
@@ -196,17 +205,22 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     uses them. An abort before the cutover takes out what was inserted and placed; after it, it
     is refused. A copy cut off (an error, a crash) is undone as soon as the next step, the sweep
     or a restart finds it, and the source's next commit writes it afresh.
-13. **A failure leaves the bot where it was, and a move never holds a bot forever.** Any refusal
-    or check that fails before the commit undoes the move on both sides: the target drops its
-    staging, the source unfreezes the bot, untouched. Before its commit a move has a stored
-    deadline (two hours, retries and disconnects included): past it the move gives up and the bot
-    carries on where it is. An unreachable target is retried with backoff while the person
-    watches; they can cancel up to the commit. Once the commit is sent only the target knows
-    whether it took, so the source keeps the bot, frozen, and its profile says "Waiting for Studio
-    to finish the move. Research stays here until Studio answers." with **Check again**, which asks
-    at once. The way out if that machine is gone for good: remove it from your machines (ace's
-    Machines); the move then gives up and the bot carries on here. If that machine had taken it,
-    it shows there too when it comes back, and the person deletes the copy they don't want.
+13. **A failure leaves the bot where it was, and nothing gives a move up on a guess.** Any
+    refusal or check that fails before the commit is sent undoes the move on both sides: the
+    target drops its staging, the source unfreezes the bot, untouched. Before its commit a move
+    has a stored deadline (two hours, retries and disconnects included): past it the move gives
+    up and the bot carries on where it is. An unreachable target is retried with backoff while
+    the person watches; they can cancel up to the commit. That the commit is sent is stored,
+    durably, before it leaves; from then on only the target's stored word lets the bot go: it
+    took (the source archives) or it was given up (the source thaws). Any other answer (an error,
+    a refusal that doesn't say the move is given up there, no answer, one this build can't read)
+    means stay and ask again. Stopping then (a refusal, the person) is `aborting`: the target is
+    asked to give the move up, and the bot thaws only once it says it has. Meanwhile the profile
+    says "Waiting for Studio to finish the move. Research stays here until Studio answers." with
+    **Check again**, which asks at once. The way out if that machine is gone for good: remove it
+    from your machines (ace's Machines); the profile then offers **Keep it here**, the person's
+    choice, which lets the bot carry on here. If that machine had taken it, it shows there too
+    when it comes back, and the person deletes the copy they don't want.
 14. **Idempotent and self-healing.** Every step is keyed by the move's id: a part sent twice is
     stored once, a second `begin` (with the same manifest) answers which parts are already there,
     a second `commit` answers the first commit's result. Both sides store the move's state, so a
@@ -248,6 +262,43 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     waits. The source stores the record as it finishes, so the old machine's main goes quiet;
     its copy there is archived like any moved bot's and its rows removed, and a new, quiet main
     takes its place.
+
+### The move's states
+
+Each side keeps one state machine (`engine/moves/states.rs`), stored with the move; every change
+is made only from the state it expects, in the same transaction (`advance_move`), and each state
+is on disk (SQLite's full sync) before the message that follows it. An answer the source can't
+place means "stay and ask again".
+
+**Source** (the machine the bot is on):
+
+| State                         | Means                                                    | Durable before the next message          | Goes to                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `reserved`                    | Claimed and frozen, nothing sent                         | the move, its claims, its deadline       | `packing`; `cancelled`                                                                                                           |
+| `packing`                     | Writing the parts and manifest; `whoami`                 | the manifest, `via`                      | `sending`; `failed`, `cancelled` (nothing sent can take)                                                                         |
+| `sending`                     | `begin`, then each part the target lacks                 | parts sent so far                        | `committing`; before a commit was sent: `failed`, `cancelled`; after one: `aborting`                                             |
+| `committing`                  | `commit` sent, waiting for its outcome                   | `commit_sent`, before the commit leaves  | `finishing` (target says committed); `failed` (target says aborted); `sending` (parts missing); `aborting` (stopped); else stays |
+| `aborting`                    | Stopping after a commit was sent: `abort` until answered | `stopped`, the problem                   | `failed` or `cancelled` (target says aborted: thaw); `committing` (target says committed); else stays                            |
+| `finishing`                   | The move took: host record, archive, rows removed        | the host record, the archive, each batch | `done` once all of it is done; else stays                                                                                        |
+| `done`, `failed`, `cancelled` | Ended                                                    |                                          | none (`failed` from `committing`/`aborting` also by the person's Keep it here, once the target left the fleet)                   |
+
+**Target** (the machine it goes to):
+
+| State        | Means                                                          | Durable before answering                           | Goes to                                                                |
+| ------------ | -------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `accepted`   | The person's stamped say, within the hour                      | the acceptance                                     | `receiving` (`begin`); `aborted` (expiry, `abort`)                     |
+| `receiving`  | Parts staged                                                   | the manifest's hash, `via`, the vouched name       | `activating` (`commit`); `aborted` (`abort`, a day stale, over budget) |
+| `activating` | Rows copied in behind the gate, each key recorded              | claims hidden, then each batch with its keys       | `placing`; `undoing` (cut off); `aborting` (refused, `abort`)          |
+| `placing`    | Files placed, each recorded before it moves; rows still hidden | each placement's record, then both folders flushed | `committed` (cutover); `undoing`; `aborting` (refused, `abort`)        |
+| `undoing`    | A cut-off copy coming out, to copy again                       | `undoing`, before any file or row goes back        | `receiving`; `aborting`                                                |
+| `aborting`   | Being given up                                                 | `aborting`, before any file or row goes back       | `aborted`, only once every file and row is back and the gate let go    |
+| `committed`  | This machine's: answered "committed"                           | the cutover transaction                            | none                                                                   |
+| `aborted`    | Given up: answered "aborted"                                   | files, rows and gate undone, then this state       | none                                                                   |
+
+Every `commit`, `status` and `abort` answer is the state stored at that moment (200 once
+`committed` or `aborted`, 503 while on its way); an abort is acknowledged only once `aborted` is
+on disk. A restart, the sweep or the next step carries on from whatever is stored: `activating`
+becomes `undoing`, `undoing` and `aborting` carry on, `placing` finishes.
 
 ### What the person sees
 

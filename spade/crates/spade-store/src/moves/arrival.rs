@@ -11,7 +11,9 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 use spade_core::Event;
 
-use super::state::arrival::{ACTIVATING, COMMITTED, PLACING, UNDOING};
+use super::state::arrival::{
+    ABORTED, ABORTING, ACTIVATING, COMMITTED, PLACING, RECEIVING, UNDOING,
+};
 use super::state::gated_move;
 use super::tables::MoveTable;
 use super::{MOVE_BATCH, MOVE_TABLES, Selection, Stage, open_state, setting_in};
@@ -149,8 +151,13 @@ fn arrive_in(tx: &Transaction<'_>, cutover: &Cutover<'_>) -> rusqlite::Result<Ar
     arrived.webhooks = hooks.len() as u64;
     // The bot is this machine's now; a club it brought keeps its other members where they are.
     tx.execute(
-        "UPDATE group_members SET machine = '' WHERE machine = ?1
-         AND agent_id IN (SELECT value FROM json_each(?2))",
+        // Never a club still arriving with another move: its rows are that move's.
+        &format!(
+            "UPDATE group_members SET machine = '' WHERE machine = ?1
+             AND agent_id IN (SELECT value FROM json_each(?2))
+             AND group_id NOT IN {}",
+            crate::gate::ARRIVING_GROUPS
+        ),
         params![cutover.from, list],
     )?;
     tx.execute(
@@ -228,7 +235,7 @@ impl Store {
                 if !in_state(&tx, id, ACTIVATING)? {
                     return Ok(Err("the move was given up while it was copied".to_owned()));
                 }
-                crate::gate::bypass(&tx)?;
+                crate::gate::bypass(&tx, id)?;
                 for mut values in rows {
                     if table.name == "agents"
                         && let Some(at) = kind
@@ -272,26 +279,55 @@ impl Store {
         })
     }
 
-    /// Takes out exactly the rows this arrival inserted, by the keys recorded with them, a batch
-    /// per transaction, then lets go of its gate and moves it to `then` (`receiving` to copy
-    /// again, or given up) with `detail`, in one last transaction. Never touches a row it didn't
-    /// insert. False when there is no arrival to undo (it was committed, or never copied).
-    /// Runs again after a crash: the move reads `undoing` until it is done.
-    pub fn move_arrive_undo(
+    /// Decides, durably and before anything is put back, that this arrival is undone: to copy
+    /// again (`then` is `receiving`: it reads `undoing`) or given up (`aborted`: it reads
+    /// `aborting`). A move being given up stays so. Answers the state it reads now, or `None`
+    /// when there is nothing to undo (committed, or never copied). Recovery carries on from it.
+    pub fn move_arrive_undo_begin(
         &self,
         id: &str,
         then: &str,
-        detail: &str,
         now_ms: i64,
-    ) -> Result<bool> {
-        let undoing = self.lock_durable()?.execute(
-            "UPDATE moves SET state = ?2, updated_ms = ?3
-             WHERE id = ?1 AND state IN (?4, ?5, ?2)",
-            params![id, UNDOING, now_ms, ACTIVATING, PLACING],
+    ) -> Result<Option<String>> {
+        let connection = self.lock_durable()?;
+        let held: Option<String> = connection
+            .query_row("SELECT state FROM moves WHERE id = ?1", params![id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let Some(held) = held else {
+            return Ok(None);
+        };
+        let next = match (held.as_str(), then) {
+            (ABORTING, _) => ABORTING,
+            (ACTIVATING | PLACING | UNDOING, t) if t == ABORTED => ABORTING,
+            (ACTIVATING | PLACING | UNDOING, _) => UNDOING,
+            _ => return Ok(None),
+        };
+        connection.execute(
+            "UPDATE moves SET state = ?2, updated_ms = ?3 WHERE id = ?1",
+            params![id, next, now_ms],
         )?;
-        if undoing == 0 {
-            return Ok(false);
-        }
+        Ok(Some(next.to_owned()))
+    }
+
+    /// Takes out exactly the rows this arrival inserted (it reads `undoing` or `aborting`, and its
+    /// placed files are back), by the keys recorded with them, a batch per transaction; then, in
+    /// one last durable transaction, lets go of its gate and reads `receiving` (from `undoing`)
+    /// or `aborted` (from `aborting`) with `detail`. Never touches a row it didn't insert. Answers
+    /// the state it reads after, `None` when it isn't being undone. Runs again after a crash.
+    pub fn move_arrive_undo(&self, id: &str, detail: &str, now_ms: i64) -> Result<Option<String>> {
+        let held: Option<String> = self
+            .lock()?
+            .query_row("SELECT state FROM moves WHERE id = ?1", params![id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let then = match held.as_deref() {
+            Some(UNDOING) => RECEIVING,
+            Some(ABORTING) => ABORTED,
+            _ => return Ok(None),
+        };
         for table in MOVE_TABLES.iter().rev() {
             let delete = format!(
                 "DELETE FROM {} WHERE {}",
@@ -310,7 +346,7 @@ impl Store {
                 if keys.is_empty() {
                     break;
                 }
-                crate::gate::bypass(&tx)?;
+                crate::gate::bypass(&tx, id)?;
                 for key in &keys {
                     tx.prepare_cached(&delete)?
                         .execute(rusqlite::params_from_iter(key_values(key).iter()))?;
@@ -340,7 +376,7 @@ impl Store {
             params![id, then, detail, now_ms, open_state(then)],
         )?;
         tx.commit()?;
-        Ok(true)
+        Ok(Some(then.to_owned()))
     }
 
     /// The one transaction that makes a placed arrival this machine's: only from `placing`, so
@@ -361,7 +397,7 @@ impl Store {
                 "this move isn't ready to be made this machine's".to_owned()
             ));
         }
-        crate::gate::bypass(&tx)?;
+        crate::gate::bypass(&tx, id)?;
         for (key, merge) in cutover.merges {
             let held = setting_in(&tx, key)?;
             tx.execute(
@@ -492,6 +528,26 @@ impl Store {
             params![id, kind, name],
         )?;
         Ok(())
+    }
+
+    /// The image `sha256` was put here independently of any arrival (an upload): no arrival not
+    /// yet this machine's may take it out again, so their records of it go, durably.
+    pub fn move_image_adopt(&self, sha256: &str) -> Result<()> {
+        self.lock_durable()?.execute(
+            "DELETE FROM move_files WHERE kind = 'image' AND name = ?1
+             AND move_id IN (SELECT id FROM moves WHERE state != ?2)",
+            params![sha256, COMMITTED],
+        )?;
+        Ok(())
+    }
+
+    /// Whether this arrival still records placing `kind` `name`.
+    pub fn move_file_held(&self, id: &str, kind: &str, name: &str) -> Result<bool> {
+        Ok(self.lock()?.query_row(
+            "SELECT EXISTS (SELECT 1 FROM move_files WHERE move_id = ?1 AND kind = ?2 AND name = ?3)",
+            params![id, kind, name],
+            |r| r.get(0),
+        )?)
     }
 
     /// Whether the image `sha256` came with an arrival not yet this machine's: nothing reads it

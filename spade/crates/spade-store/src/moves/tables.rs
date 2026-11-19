@@ -445,7 +445,13 @@ pub(super) fn typed(table: &MoveTable, row: &Row) -> Result<Vec<Sql>, String> {
             Ok(match (column.kind, value) {
                 (Kind::Text | Kind::OptText, Value::String(s)) => Sql::Text(s.clone()),
                 (Kind::Int | Kind::OptInt, Value::Number(n)) => {
-                    Sql::Integer(n.as_i64().ok_or_else(wrong)?)
+                    let n = n.as_i64().ok_or_else(wrong)?;
+                    // An event's number (and a cursor or answer pointing at one) stays in the
+                    // range this machine counts in, so its own next one can always follow.
+                    if column.name == "seq" && !(0..crate::MOST_SEQ).contains(&n) {
+                        return Err(format!("{}.seq is out of range", table.name));
+                    }
+                    Sql::Integer(n)
                 }
                 (Kind::OptText | Kind::OptInt, Value::Null) => Sql::Null,
                 _ => return Err(wrong()),

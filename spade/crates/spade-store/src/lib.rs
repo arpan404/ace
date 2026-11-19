@@ -60,12 +60,19 @@ pub enum StoreError {
     /// Only its arrival moves an arriving move on (ADR 0187).
     #[error("move {0} is arriving; only its arrival moves it on")]
     Arriving(String),
+    /// No event number is left in the conversation.
+    #[error("conversation {0} has no event numbers left")]
+    NoSeqLeft(String),
     /// An arrival's placed files go back before its rows and its gate (ADR 0187).
     #[error("move {0} still has files placed; they go back first")]
     FilesPlaced(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+/// The largest event number a conversation reaches (2^53, exact in every client's numbers); a
+/// move brings none past it (ADR 0187).
+pub const MOST_SEQ: i64 = 1 << 53;
 
 /// The store's connection while what is written through it must reach the disk before each
 /// commit returns; back to the everyday `NORMAL` once let go.
@@ -375,7 +382,10 @@ pub(crate) fn append_in(
     )?;
     let mut stored = Vec::with_capacity(events.len());
     for event in events {
-        seq += 1;
+        seq = seq
+            .checked_add(1)
+            .filter(|next| *next <= MOST_SEQ)
+            .ok_or_else(|| StoreError::NoSeqLeft(conversation.to_owned()))?;
         tx.execute(
             "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
             params![conversation, seq, now_ms, event.to_json().to_string()],

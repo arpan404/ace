@@ -116,11 +116,45 @@ pub(super) fn sync_dir(path: &Path) -> Result<(), String> {
             .and_then(|dir| dir.sync_all())
             .map_err(|e| e.to_string())
     }
+    // A folder can't be flushed this way here: nothing a move acknowledges may rest on it, and
+    // moves to and from such a machine are refused (`MOVES_HERE`).
     #[cfg(not(unix))]
     {
         let _ = path;
-        Ok(())
+        Err("folders can't be flushed to disk on this system".to_owned())
     }
+}
+
+/// Moves of bots here, or `Err` with why not: only where a folder's entries can be flushed to
+/// disk (ADR 0187), so on Unix; moves to and from Windows are refused until that is done there.
+pub(super) fn moves_here() -> Result<(), String> {
+    if cfg!(unix) {
+        Ok(())
+    } else {
+        Err("Moving bots to or from this computer isn't supported yet: it is Windows".to_owned())
+    }
+}
+
+/// Makes `path` and any folder missing on the way to it, then flushes each one made and the
+/// folder that holds the first, so each is linked in on disk before anything acts on it.
+pub(super) fn make_dirs(path: &Path) -> Result<(), String> {
+    let mut missing = Vec::new();
+    let mut at = path;
+    while !at.exists() {
+        missing.push(at.to_path_buf());
+        match at.parent() {
+            Some(parent) => at = parent,
+            None => break,
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    for dir in &missing {
+        sync_dir(dir)?;
+    }
+    sync_dir(at)
 }
 
 #[cfg(test)]

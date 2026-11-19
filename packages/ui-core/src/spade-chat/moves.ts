@@ -12,6 +12,7 @@ export type SpadeMoveState =
   | "sending"
   | "committing"
   | "finishing"
+  | "aborting"
   | "done"
   | "failed"
   | "cancelled";
@@ -28,6 +29,11 @@ export interface SpadeMove {
   /** Cancel still stops it: the commit hasn't been sent. */
   canCancel: boolean;
   /**
+   * The commit was sent and the other machine left the person's machines before it answered:
+   * Keep it here lets the bot carry on here (ADR 0187).
+   */
+  canKeep: boolean;
+  /**
    * What the person accepts on the machine it goes to, once it is packed: the machine it comes
    * from, the manifest by its hash, and whether it replaces Spade there.
    */
@@ -42,6 +48,7 @@ const moveShape = z.object({
     "awaiting",
     "sending",
     "committing",
+    "aborting",
     "finishing",
     "done",
     "failed",
@@ -60,6 +67,7 @@ const moveShape = z.object({
   waiting: z.boolean().catch(false).default(false),
   problem: z.string().nullish().catch(undefined),
   can_cancel: z.boolean().catch(false).default(false),
+  can_keep: z.boolean().catch(false).default(false),
 });
 
 export function parseSpadeMove(raw: unknown): SpadeMove | undefined {
@@ -75,6 +83,7 @@ export function parseSpadeMove(raw: unknown): SpadeMove | undefined {
     waiting: move.waiting,
     problem: move.problem ?? undefined,
     canCancel: move.can_cancel,
+    canKeep: move.can_keep,
     accept:
       move.from && move.via && move.digest
         ? { from: move.from, via: move.via, digest: move.digest, replaces: move.replaces }
@@ -150,6 +159,8 @@ export function spadeMoveLine(move: SpadeMove, name: string): string {
       return move.waiting
         ? `Waiting for ${to} to finish the move. ${name} stays here until ${to} answers.`
         : `Arriving on ${to}.`;
+    case "aborting":
+      return `Asking ${to} to give the move up. ${name} stays here until it answers.`;
     case "finishing":
     case "done":
       return `Arriving on ${to}.`;

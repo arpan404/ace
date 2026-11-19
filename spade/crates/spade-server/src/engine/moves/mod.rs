@@ -16,6 +16,7 @@ mod pack;
 mod paths;
 mod receive;
 mod send;
+mod states;
 
 pub use host::{HostRecord, HostRefused};
 
@@ -43,11 +44,16 @@ const FINISHING: &str = "finishing";
 const DONE: &str = "done";
 const FAILED: &str = "failed";
 const CANCELLED: &str = "cancelled";
+/// Its commit was sent and the move is being stopped: the bot is let go once the other machine
+/// says it gave the move up.
+const SOURCE_ABORTING: &str = "aborting";
 
 // The target's: the person accepted it, it receives, copies its rows in behind the gate, places
 // its files, then has it; or it was given up. The store moves an arrival through its own.
 const ACCEPTED: &str = "accepted";
-use spade_store::arrival_state::{ABORTED, ACTIVATING, COMMITTED, PLACING, RECEIVING, UNDOING};
+use spade_store::arrival_state::{
+    ABORTED, ABORTING, ACTIVATING, COMMITTED, PLACING, RECEIVING, UNDOING,
+};
 
 /// What a move's export says it is.
 pub const FORMAT: &str = "spade-move";
@@ -94,8 +100,8 @@ pub(crate) struct Shared {
     #[cfg(feature = "test-hooks")]
     pub(crate) after_batch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Told at each point of an arrival (`copied`: its rows are in, nothing else; `placed`: just
-    /// before its cutover; `committed`: just after it, before the answer), so a test can stop
-    /// the machine there.
+    /// before its cutover; `committed`: just after it, before the answer; `unplacing`: as its
+    /// placed files start going back), so a test can stop the machine there.
     #[cfg(feature = "test-hooks")]
     pub(crate) at_point: Mutex<Option<PointHook>>,
 }
@@ -263,6 +269,7 @@ impl Engine {
         accept: &AcceptFor,
         stamp: Option<&str>,
     ) -> Result<(), MoveError> {
+        paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) || !accept.plain() {
             return Err(MoveError::Invalid(
                 "a move names plain ids, its manifest's hash and what it replaces".to_owned(),
@@ -347,6 +354,7 @@ impl Engine {
         id: &str,
         connectors: Option<&spade_connect::Connectors>,
     ) -> Result<Value, MoveError> {
+        paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) {
             return Err(MoveError::Invalid(
                 "a move is named by a plain id".to_owned(),
@@ -506,7 +514,32 @@ impl Engine {
                 lock(&self.moves.cancelled).insert(entry.id.clone());
                 Ok(Some(move_json(&entry)))
             }
-            COMMITTING | FINISHING => Err(MoveError::Refused(format!(
+            // Its commit was sent: only the other machine's word lets the bot go, unless that
+            // machine left the person's machines and the person keeps the bot here.
+            COMMITTING | SOURCE_ABORTING if detail(&entry)["peer_gone"] == json!(true) => {
+                let mut kept = detail(&entry);
+                kept["problem"] = json!(format!(
+                    "You kept {} here; {} left your machines before it answered.",
+                    entry.agent_name, entry.peer_name
+                ));
+                kept["waiting"] = json!(false);
+                let kept_here = self.store.advance_move(
+                    &entry.id,
+                    Some(&[COMMITTING, SOURCE_ABORTING]),
+                    FAILED,
+                    &kept.to_string(),
+                    self.now_ms(),
+                )?;
+                if !kept_here {
+                    return Err(MoveError::Refused(
+                        "the move moved on meanwhile; look again".to_owned(),
+                    ));
+                }
+                self.thaw(&entry.id, &strings(&kept["conversations"]));
+                lock(&self.moves.cancelled).insert(entry.id.clone());
+                Ok(None)
+            }
+            COMMITTING | SOURCE_ABORTING | FINISHING => Err(MoveError::Refused(format!(
                 "{} is already arriving on {}; it can't be stopped now.",
                 entry.agent_name, entry.peer_name
             ))),
@@ -702,6 +735,9 @@ fn move_json(entry: &StoredMove) -> Value {
         "waiting": kept["waiting"].as_bool().unwrap_or(false),
         "problem": kept["problem"],
         "can_cancel": matches!(entry.state.as_str(), RESERVED | PACKING | SENDING),
+        // Its commit was sent and that machine left the person's machines: Keep it here.
+        "can_keep": matches!(entry.state.as_str(), COMMITTING | SOURCE_ABORTING)
+            && kept["peer_gone"] == json!(true),
     })
 }
 

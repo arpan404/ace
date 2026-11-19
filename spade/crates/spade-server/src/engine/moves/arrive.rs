@@ -23,7 +23,8 @@ use super::host::{HostRecord, MAIN_ENABLED, MAIN_HOST, MAIN_OFF, main_active_wit
 use super::paths::{self, under};
 use super::receive::manifest_agents;
 use super::{
-    ABORTED, ACTIVATING, ARRIVED, Engine, PLACING, RECEIVING, UNDOING, budget, consent, detail,
+    ABORTED, ABORTING, ACTIVATING, ARRIVED, Engine, PLACING, RECEIVING, UNDOING, budget, consent,
+    detail,
 };
 
 /// Why a commit didn't end with the bot here.
@@ -154,7 +155,8 @@ fn inventory(
         let (Some(size), Some(hash)) = (entry["size"].as_u64(), entry["sha256"].as_str()) else {
             return Err("the inventory has an entry without its size and hash".to_owned());
         };
-        if !fine || !is_sha256(hash) {
+        // An image is named by its own hash, and its bytes are checked against it.
+        if !fine || !is_sha256(hash) || (key.0 == "image" && key.2 != hash) {
             return Err("the inventory names a file Spade can't place".to_owned());
         }
         total = total.saturating_add(size);
@@ -392,49 +394,80 @@ impl Engine {
         self.finish_placing(&placing)
     }
 
-    /// Gives up an arrival whose gate is closed: exactly the rows it inserted come out, its
-    /// placed files go, its staging goes, and it reads given up. If taking them out stops
-    /// short, the move reads `undoing` and the next step, the sweep or a restart carries on.
+    /// Gives up an arrival whose gate is closed. `aborting` is stored first, before anything is
+    /// put back, so a crash or an error carries on giving it up, never placing it; then exactly
+    /// the files it placed go back, then the rows it inserted, then its gate and staging.
+    /// Answers `Refused` only once it reads `aborted`, durably; else `Placing` (ask again).
     pub(super) fn abandon(&self, id: &str, problem: &str) -> Failed {
-        let held = self.store.stored_move(id).ok().flatten();
-        let mut kept = held.as_ref().map(detail).unwrap_or_else(|| json!({}));
-        kept["problem"] = json!(problem);
+        let decided = self
+            .store
+            .move_arrive_undo_begin(id, ABORTED, self.now_ms());
+        if let Err(error) = &decided {
+            tracing::error!(%error, "a given-up move couldn't be stored as given up yet");
+            return Failed::Placing(error.to_string());
+        }
+        let mut kept = self
+            .store
+            .stored_move(id)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(detail)
+            .unwrap_or_else(|| json!({}));
+        if kept["problem"].is_null() {
+            kept["problem"] = json!(problem);
+        }
+        match self.undo(id, &kept.to_string()) {
+            Some(state) if state == ABORTED => Failed::Refused(problem.to_owned()),
+            _ => Failed::Placing("it is still being given up here".to_owned()),
+        }
+    }
+
+    /// Carries an undo on from its stored state (`undoing` or `aborting`): the files it placed
+    /// go back, then its rows, then its gate. Answers the state it reads after.
+    fn undo(&self, id: &str, detail_text: &str) -> Option<String> {
         let undone = self.unplace(id).and_then(|()| {
             self.store
-                .move_arrive_undo(id, ABORTED, &kept.to_string(), self.now_ms())
+                .move_arrive_undo(id, detail_text, self.now_ms())
                 .map_err(|e| e.to_string())
         });
         match undone {
-            Ok(_) => {
-                if let Err(error) = paths::remove_child(&self.data_dir().join("moves"), id) {
+            Ok(Some(state)) => {
+                if state == ABORTED
+                    && let Err(error) = paths::remove_child(&self.data_dir().join("moves"), id)
+                {
                     tracing::warn!(%error, "a given-up move's staging could not be removed");
                 }
+                Some(state)
             }
+            Ok(None) => self.store.stored_move(id).ok().flatten().map(|m| m.state),
             Err(error) => {
-                tracing::error!(%error, "a given-up move isn't taken out yet; it carries on later")
+                tracing::error!(%error, "an undone move isn't taken out yet; it carries on later");
+                self.store.stored_move(id).ok().flatten().map(|m| m.state)
             }
         }
-        Failed::Refused(problem.to_owned())
     }
 
-    /// Carries on an arrival cut off while its rows were copied in or taken out (it reads
-    /// `activating` or `undoing` with nobody working on it): what it inserted comes out, and it
-    /// reads `receiving` again, so the source's next commit copies it afresh. A move placing
-    /// its files finishes instead. Run under the move's lock.
+    /// Carries on an arrival nobody is working on, from what it stored (run under the move's
+    /// lock): one cut off mid-copy is decided `undoing` and taken out, to be copied afresh; one
+    /// `undoing` or `aborting` carries on that; one placing its files finishes.
     pub(super) fn recover(&self, id: &str) {
         let Ok(Some(entry)) = self.store.stored_move(id) else {
             return;
         };
         match entry.state.as_str() {
-            ACTIVATING | UNDOING => {
-                let undone = self.unplace(id).and_then(|()| {
-                    self.store
-                        .move_arrive_undo(id, RECEIVING, &entry.detail, self.now_ms())
-                        .map_err(|e| e.to_string())
-                });
-                if let Err(error) = undone {
-                    tracing::error!(%error, "a cut-off move's rows could not be taken out yet");
+            ACTIVATING => {
+                if let Err(error) = self
+                    .store
+                    .move_arrive_undo_begin(id, RECEIVING, self.now_ms())
+                {
+                    tracing::error!(%error, "a cut-off move couldn't be stored as undone yet");
+                    return;
                 }
+                self.undo(id, &entry.detail);
+            }
+            UNDOING | ABORTING => {
+                self.undo(id, &entry.detail);
             }
             PLACING => {
                 if let Err(error) = self.finish_placing(&entry) {
@@ -667,7 +700,7 @@ impl Engine {
                 .map_err(|e| e.to_string())
         };
         let workspaces = data.join("workspace");
-        std::fs::create_dir_all(&workspaces).map_err(|e| e.to_string())?;
+        paths::make_dirs(&workspaces)?;
         let files = paths::child(&staging, "files")?;
         let aside = paths::child(&data.join("moved"), id)
             .and_then(|archive| paths::child(&archive, "replaced"))?;
@@ -679,25 +712,18 @@ impl Engine {
             }
             let to = paths::child(&workspaces, agent)?;
             if to.exists() && !has("workspace", agent) {
-                std::fs::create_dir_all(&aside).map_err(|e| e.to_string())?;
+                // `moved/<move>/replaced`, every folder on the way linked in on disk first.
+                paths::make_dirs(&aside)?;
                 record("aside", agent)?;
                 std::fs::rename(&to, paths::child(&aside, agent)?).map_err(|e| e.to_string())?;
                 paths::sync_dir(&aside)?;
-                paths::sync_dir(aside.parent().unwrap_or(&aside))?;
+                paths::sync_dir(&workspaces)?;
             }
             record("workspace", agent)?;
             std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
+            paths::sync_dir(&workspaces)?;
+            paths::sync_dir(&files)?;
         }
-        paths::sync_dir(&workspaces)?;
-        // A move that brought no files or images made no folder for them.
-        let flush = |dir: &std::path::Path| {
-            if dir.is_dir() {
-                paths::sync_dir(dir)
-            } else {
-                Ok(())
-            }
-        };
-        flush(&files)?;
         let images = paths::child(&staging, "images")?;
         if let Ok(staged) = std::fs::read_dir(&images) {
             for image in staged.filter_map(|e| e.ok()) {
@@ -705,21 +731,27 @@ impl Engine {
                 if !is_sha256(&name) {
                     continue;
                 }
+                // Under the image's lock: no read, upload or undo of it meanwhile.
+                let _held = self.image_lock(&name);
                 let to = self.images.dir().join(&name);
                 if to.exists() {
+                    // One this machine has stays its own.
                     continue;
                 }
                 record("image", &name)?;
                 std::fs::rename(image.path(), to).map_err(|e| e.to_string())?;
+                paths::sync_dir(self.images.dir())?;
+                paths::sync_dir(&images)?;
             }
         }
-        paths::sync_dir(self.images.dir())?;
-        flush(&images)
+        Ok(())
     }
 
     /// Puts back what this arrival placed, as recorded and only that: each image it added and
-    /// each workspace folder goes back into its staging, each folder it set aside returns; each
-    /// record goes only once that is on disk. The move's rows and gate stay until none is left.
+    /// each workspace folder goes back into its staging, each folder it set aside returns. A
+    /// record goes only once both folders of its rename are flushed. An image an upload made
+    /// this machine's meanwhile is no longer the arrival's: it stays. The move's rows and gate
+    /// stay until no record is left.
     fn unplace(&self, id: &str) -> Result<(), String> {
         let data = self.data_dir();
         let staging = self
@@ -730,14 +762,10 @@ impl Engine {
         let workspaces = data.join("workspace");
         let aside = paths::child(&data.join("moved"), id)
             .and_then(|archive| paths::child(&archive, "replaced"))?;
-        let journal = self.store.move_files_of(id).map_err(|e| e.to_string())?;
+        let mut journal = self.store.move_files_of(id).map_err(|e| e.to_string())?;
+        self.at_point("unplacing");
         // Placed ones first, then what was set aside, into the places they free.
-        let order = |kind: &str| match kind {
-            "aside" => 1,
-            _ => 0,
-        };
-        let mut journal = journal;
-        journal.sort_by_key(|(kind, _)| order(kind));
+        journal.sort_by_key(|(kind, _)| kind == "aside");
         for (kind, name) in journal {
             let (placed, back) = match kind.as_str() {
                 "workspace" => (
@@ -751,13 +779,25 @@ impl Engine {
                 ),
                 _ => continue,
             };
+            let _held = (kind == "image").then(|| self.image_lock(&name));
+            if kind == "image"
+                && !self
+                    .store
+                    .move_file_held(id, &kind, &name)
+                    .map_err(|e| e.to_string())?
+            {
+                continue;
+            }
             // Recorded before it was done: if it never was, there is nothing to put back.
             if placed.exists() && !back.exists() {
                 if let Some(parent) = back.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    paths::make_dirs(parent)?;
                 }
                 std::fs::rename(&placed, &back).map_err(|e| e.to_string())?;
-                for dir in [placed.parent(), back.parent()].into_iter().flatten() {
+            }
+            // Flushed whether this pass renamed or an earlier one did before it stopped.
+            for dir in [placed.parent(), back.parent()].into_iter().flatten() {
+                if dir.is_dir() {
                     paths::sync_dir(dir)?;
                 }
             }
@@ -856,6 +896,29 @@ mod tests {
         // More files than declared, or larger together than declared.
         assert!(inventory(&staged, &manifest(&entries, 1, 20), &agents).is_err());
         assert!(inventory(&staged, &manifest(&entries, 2, 19), &agents).is_err());
+    }
+
+    #[test]
+    fn an_image_not_named_by_its_own_hash_is_refused() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let image = |name: &str| json!({ "kind": "image", "name": name, "size": 4, "sha256": "a".repeat(64) });
+        let agents = ["a_1".to_owned()];
+        for (name, ok) in [
+            ("a".repeat(64), true),
+            ("b".repeat(64), false),
+            ("A".repeat(64), false),
+        ] {
+            let entries = [image(&name)];
+            let staged = parts(
+                dir.path(),
+                &[json!({ "kind": "inventory", "entries": entries })],
+            );
+            assert_eq!(
+                inventory(&staged, &manifest(&entries, 1, 4), &agents).is_ok(),
+                ok,
+                "{name}"
+            );
+        }
     }
 
     #[test]

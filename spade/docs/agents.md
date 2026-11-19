@@ -153,6 +153,17 @@ arrival}`; `DELETE /agents/{id}/move` cancels or dismisses. The Agent JSON carri
 to: {host, name}, state, sent, total, waiting, problem, can_cancel}`, while one is open or failed)
 and `arrived`.
 
+Both sides' states and their transitions are `engine/moves/states.rs` (ADR 0187, "The move's
+states"): the source stores `commit_sent` before its commit leaves and from then on archives only
+on `committed` and thaws only on `aborted` (`states::hear`); stopping then is `aborting` (it asks
+`abort` until answered). The target answers `commit`, `status` and `abort` with the state it
+stored (`stored_answer`), stores `aborting` (`move_arrive_undo_begin`) before putting anything
+back, and acknowledges `aborted` only once it is on disk. Keep it here (`DELETE
+/agents/{id}/move`, `can_keep`) is the person's way out once the target left the fleet. Event
+numbers stay below `MOST_SEQ` (2^53). Images go through `Engine::image` and `Engine::put_image`
+under one lock per hash; an upload adopts an image an arrival holds (`move_image_adopt`). Moves to
+and from a machine whose folders can't be flushed (Windows) are refused (`paths::moves_here`).
+
 ### Bots talking
 
 Every agent has two tools:

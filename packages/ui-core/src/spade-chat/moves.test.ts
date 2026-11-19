@@ -84,3 +84,15 @@ test("a moving bot's row, here and on the phone, says where it is going", () => 
     line: "Copying Research to Studio, 2 of 8.",
   });
 });
+
+const raw = (extra: object) =>
+  parseSpadeMove({ id: "mv_1", to: { host: "h", name: "Studio" }, ...extra });
+
+test("a move asking the other machine to give up says so, and one whose machine left can be kept here", () => {
+  const asking = raw({ state: "aborting", waiting: true });
+  expect(asking && spadeMoveLine(asking, "Research")).toBe(
+    "Asking Studio to give the move up. Research stays here until it answers.",
+  );
+  expect(asking?.canKeep).toBe(false);
+  expect(raw({ state: "committing", waiting: true, can_keep: true })?.canKeep).toBe(true);
+});

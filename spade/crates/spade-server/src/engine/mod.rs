@@ -75,6 +75,9 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+/// How many locks images are spread over, by the first digit of their hash.
+const IMAGE_LOCKS: usize = 16;
+
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -151,6 +154,8 @@ pub struct Engine {
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
+    /// Image reads, uploads and an arrival's placing and undoing, by hash (ADR 0187).
+    image_locks: [std::sync::Mutex<()>; IMAGE_LOCKS],
     /// Attached documents and recordings, beside the images (ADR 0134).
     media: Arc<crate::media::Media>,
     /// Spade's classifier's decisions, logged on this machine (ADR 0172).
@@ -304,6 +309,7 @@ impl Engine {
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
+            image_locks: Default::default(),
             media,
             decisions,
             screening_hook: Mutex::default(),
@@ -634,13 +640,44 @@ impl Engine {
         )
     }
 
-    /// A stored image and its media type, by hash; one an arrival brought here reads as
-    /// none until it is this machine's (ADR 0187).
+    /// A stored image and its media type, by hash (any case: it is checked in lowercase, as
+    /// stored); one an arrival brought here reads as none until it is this machine's (ADR 0187).
     pub fn image(&self, sha256: &str) -> Option<(Vec<u8>, &'static str)> {
-        if self.store.image_arriving(sha256).unwrap_or(true) {
+        let hash = sha256.to_ascii_lowercase();
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
-        self.images.read(sha256)
+        let _held = self.image_lock(&hash);
+        if self.store.image_arriving(&hash).unwrap_or(true) {
+            return None;
+        }
+        self.images.read(&hash)
+    }
+
+    /// Stores an uploaded image. One an arrival brought here and has yet to make this
+    /// machine's is the upload's from now: that arrival never takes it out (ADR 0187).
+    pub(crate) fn put_image(
+        &self,
+        bytes: &[u8],
+    ) -> Result<spade_core::event::ImageRef, crate::images::ImageError> {
+        let hash = crate::images::ImageStore::hash_of(bytes);
+        let _held = self.image_lock(&hash);
+        self.store
+            .move_image_adopt(&hash)
+            .map_err(|e| crate::images::ImageError::Io(e.to_string()))?;
+        self.images.put(bytes)
+    }
+
+    /// The lock every read, upload, placement and undo of image `hash` holds.
+    pub(crate) fn image_lock(&self, hash: &str) -> std::sync::MutexGuard<'_, ()> {
+        let stripe = hash
+            .bytes()
+            .next()
+            .and_then(|b| (b as char).to_digit(16))
+            .unwrap_or(0) as usize;
+        self.image_locks[stripe % IMAGE_LOCKS]
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Images as a prompt for `model` shows them: as images if it can see them.

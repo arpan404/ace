@@ -44,21 +44,25 @@ pub(crate) fn setting_arriving(connection: &Connection, key: &str) -> rusqlite::
     arriving(connection, AGENT, agent)
 }
 
-/// Whether `row`'s owner (as `row` names it, `NEW` or `OLD`) is still arriving, per moved table.
+/// A claim held by a move other than the one writing now (`bypass`).
+const OTHER: &str = "move_id NOT IN (SELECT move_id FROM temp.move_bypass)";
+
+/// Whether `row`'s owner (as `row` names it, `NEW` or `OLD`) is still arriving with a move other
+/// than the one writing now, per moved table.
 fn owner_hidden(table: &str, row: &str) -> Option<String> {
     let conversation = |c: &str| {
         format!(
-            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'conversation' AND id = {c} AND hidden = 1)"
+            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'conversation' AND id = {c} AND hidden = 1 AND {OTHER})"
         )
     };
     let agent = |a: &str| {
         format!(
-            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'agent' AND id = {a} AND hidden = 1)"
+            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'agent' AND id = {a} AND hidden = 1 AND {OTHER})"
         )
     };
     let group = |g: &str| {
         format!(
-            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'group' AND id = {g} AND hidden = 1)"
+            "EXISTS (SELECT 1 FROM main.move_claims WHERE kind = 'group' AND id = {g} AND hidden = 1 AND {OTHER})"
         )
     };
     Some(match table {
@@ -90,6 +94,7 @@ fn owner_hidden(table: &str, row: &str) -> Option<String> {
                 .collect();
             format!(
                 "EXISTS (SELECT 1 FROM main.move_claims c WHERE c.kind = 'agent' AND c.hidden = 1
+                         AND c.move_id NOT IN (SELECT move_id FROM temp.move_bypass)
                          AND {row}.key IN ({}))",
                 keys.join(", ")
             )
@@ -100,16 +105,16 @@ fn owner_hidden(table: &str, row: &str) -> Option<String> {
 
 /// Holds the gate inside SQLite for every write on this connection, whatever store operation
 /// makes it: an insert, change or delete of a row a bot, conversation or club still arriving owns
-/// is refused (`arriving`), unless the arrival itself writes (`bypass`). Temporary triggers, so
+/// is refused (`arriving`), unless the move that owns it writes it (`bypass`): one arrival never
+/// writes another's rows. Temporary triggers, so
 /// they are this build's on every connection and never part of the schema.
 pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
-    let mut sql = String::from("CREATE TEMP TABLE IF NOT EXISTS move_bypass (held INTEGER);\n");
+    let mut sql = String::from("CREATE TEMP TABLE IF NOT EXISTS move_bypass (move_id TEXT);\n");
     for table in crate::moves::MOVE_TABLES {
         let name = table.name;
         let (Some(new), Some(old)) = (owner_hidden(name, "NEW"), owner_hidden(name, "OLD")) else {
             continue;
         };
-        let open = "NOT EXISTS (SELECT 1 FROM temp.move_bypass)";
         for (op, when) in [
             ("INSERT", new.clone()),
             ("UPDATE", format!("({old} OR {new})")),
@@ -117,7 +122,7 @@ pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
         ] {
             sql.push_str(&format!(
                 "CREATE TEMP TRIGGER IF NOT EXISTS arriving_{name}_{op} BEFORE {op} ON main.{name}
-                 WHEN {open} AND {when}
+                 WHEN {when}
                  BEGIN SELECT RAISE(ABORT, 'arriving'); END;\n",
                 op = op.to_lowercase(),
             ));
@@ -126,10 +131,10 @@ pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(&sql)
 }
 
-/// Lets the arrival itself write past the gate, inside `tx` only: dropped with it, and taken
-/// back (`close`) before it commits.
-pub(crate) fn bypass(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
-    tx.execute("INSERT INTO temp.move_bypass (held) VALUES (1)", [])
+/// Lets move `id` write its own rows past the gate, inside `tx` only: dropped with it, and taken
+/// back (`close`) before it commits. Another move's rows stay shut.
+pub(crate) fn bypass(tx: &rusqlite::Transaction<'_>, id: &str) -> rusqlite::Result<()> {
+    tx.execute("INSERT INTO temp.move_bypass (move_id) VALUES (?1)", [id])
         .map(|_| ())
 }
 

@@ -222,7 +222,7 @@ function MoveSentence(props: { bot: RosterBot; move: SpadeMove; actions: Actions
           Cancel
         </Button>
       )}
-      {move.state === "committing" && move.waiting && (
+      {(move.state === "committing" || move.state === "aborting") && move.waiting && (
         <Button
           variant="ghost"
           className={pillButton}
@@ -230,6 +230,16 @@ function MoveSentence(props: { bot: RosterBot; move: SpadeMove; actions: Actions
           onClick={() => void actions.check()}
         >
           Check again
+        </Button>
+      )}
+      {move.canKeep && (
+        <Button
+          variant="ghost"
+          className={pillButton}
+          disabled={actions.busy}
+          onClick={() => void actions.cancel()}
+        >
+          Keep it here
         </Button>
       )}
       {failed && (

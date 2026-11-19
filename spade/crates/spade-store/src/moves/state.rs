@@ -50,13 +50,17 @@ pub(crate) const SCHEMA: &str = "
 
 /// An arrival's states as the store moves it on (ADR 0187): staged parts `receiving`; its rows
 /// copied in behind the gate (`activating`); its files being placed (`placing`); then the one
-/// transaction that makes it this machine's (`committed`). A failed copy is `undoing` until every
-/// row it inserted is out again.
+/// transaction that makes it this machine's (`committed`). A copy cut off is `undoing` (back to
+/// `receiving`), one given up `aborting` (to `aborted`), until every file it placed and every row
+/// it inserted is out again.
 pub mod arrival {
     pub const RECEIVING: &str = "receiving";
     pub const ACTIVATING: &str = "activating";
     pub const PLACING: &str = "placing";
     pub const UNDOING: &str = "undoing";
+    /// Being given up: decided durably before any of it is put back, so it only ever ends
+    /// `aborted`.
+    pub const ABORTING: &str = "aborting";
     pub const COMMITTED: &str = "committed";
     pub const ABORTED: &str = "aborted";
 }

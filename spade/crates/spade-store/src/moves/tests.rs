@@ -103,14 +103,28 @@ fn export_of(store: &Store, agents: &[String]) -> (Rows, BTreeMap<String, TableS
     (rows, sums)
 }
 
+/// Undoes arrival `mv_1` as Spade does, to `then`: decided durably first, then its rows out.
+/// Whether it reads `then` after.
+fn undo_to(store: &Store, then: &str) -> crate::Result<bool> {
+    if store.move_arrive_undo_begin("mv_1", then, 8)?.is_none() {
+        return Ok(false);
+    }
+    Ok(store.move_arrive_undo("mv_1", "{}", 9)?.as_deref() == Some(then))
+}
+
 /// An accepted move to here that is receiving its parts.
 fn receiving(store: &Store) {
+    receiving_as(store, "mv_1", "a_1");
+}
+
+/// `receiving`, for move `id` of `agent`.
+fn receiving_as(store: &Store, id: &str, agent: &str) {
     store
         .insert_move(&super::StoredMove {
-            id: "mv_1".into(),
+            id: id.into(),
             direction: "in".into(),
-            agent_id: "a_1".into(),
-            agent_name: "a_1".into(),
+            agent_id: agent.into(),
+            agent_name: agent.into(),
             peer: "host-laptop".into(),
             peer_name: "Laptop".into(),
             main: false,
@@ -129,9 +143,19 @@ fn staged(
     sums: &BTreeMap<String, TableSum>,
     main: bool,
 ) -> Result<(Stage, Selection), String> {
-    let agents = vec!["a_1".to_owned()];
+    staged_as(dir, rows, sums, main, &["a_1".to_owned()])
+}
+
+/// `staged`, for `agents` (the bot first).
+fn staged_as(
+    dir: &std::path::Path,
+    rows: Rows,
+    sums: &BTreeMap<String, TableSum>,
+    main: bool,
+    agents: &[String],
+) -> Result<(Stage, Selection), String> {
     let mut stage =
-        Stage::create(&dir.join("stage.sqlite"), &agents, main).map_err(|e| e.to_string())?;
+        Stage::create(&dir.join("stage.sqlite"), agents, main).map_err(|e| e.to_string())?;
     for (table, rows) in rows {
         stage.add(&table, rows).map_err(|e| e.to_string())??;
     }
@@ -156,9 +180,7 @@ fn import_as(
         .map_err(|e| e.to_string())?;
     assert_eq!(begun, Begun::Begun);
     let undo = |problem: String| {
-        store
-            .move_arrive_undo("mv_1", arrival::ABORTED, "{}", 9)
-            .map_err(|e| e.to_string())?;
+        undo_to(store, arrival::ABORTED).map_err(|e| e.to_string())?;
         Err(problem)
     };
     if let Err(problem) = store
@@ -537,10 +559,7 @@ fn a_crash_before_the_collision_check_takes_out_nothing_this_machine_had() {
     // arrival is undone.
     drop(to);
     let to = Store::open(&dir.path().join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
-    assert!(
-        to.move_arrive_undo("mv_1", arrival::RECEIVING, "{}", 3)
-            .unwrap_or(false)
-    );
+    assert!(undo_to(&to, arrival::RECEIVING).unwrap_or(false));
     assert_eq!(
         to.events("c_a_9", 0).unwrap_or_default(),
         before,
@@ -594,10 +613,7 @@ fn a_crash_between_batches_takes_out_exactly_what_the_copy_inserted() {
     );
     drop(to);
     let to = Store::open(&dir.path().join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
-    assert!(
-        to.move_arrive_undo("mv_1", arrival::RECEIVING, "{}", 4)
-            .unwrap_or(false)
-    );
+    assert!(undo_to(&to, arrival::RECEIVING).unwrap_or(false));
     for (table, column, value) in [
         ("events", "conversation_id", "c_a_1"),
         ("conversations", "id", "c_a_1"),
@@ -716,10 +732,7 @@ fn rows_copied_in_are_found_by_no_read_or_write_until_the_cutover_and_by_all_aft
     );
     assert_eq!(raw_count(dir.path(), "move_rows", "move_id", "mv_1"), 0);
     // Undone after it took, it does nothing.
-    assert!(
-        !to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 6)
-            .unwrap_or(true)
-    );
+    assert!(!undo_to(&to, arrival::ABORTED).unwrap_or(true));
     assert!(to.agent("a_1").ok().flatten().is_some());
 }
 
@@ -838,10 +851,7 @@ fn mid_copy_no_store_operation_writes_an_arriving_club_and_an_abort_takes_out_al
     assert!(to.setting("oversight:a_1").ok().flatten().is_none());
     assert!(to.delete_agent("a_1").is_ok_and(|gone| !gone));
     // Given up: every row it brought goes, the club's members by the keys they came with.
-    assert!(
-        to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 5)
-            .unwrap_or(false)
-    );
+    assert!(undo_to(&to, arrival::ABORTED).unwrap_or(false));
     for (table, column, value) in [
         ("group_members", "group_id", "g_1"),
         ("groups", "id", "g_1"),
@@ -879,7 +889,7 @@ fn an_undo_keeps_the_gate_until_the_files_it_placed_are_back() {
     );
     assert!(
         matches!(
-            to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 4),
+            undo_to(&to, arrival::ABORTED),
             Err(crate::StoreError::FilesPlaced(_))
         ),
         "rows and gate stay while a placed file isn't back"
@@ -887,10 +897,171 @@ fn an_undo_keeps_the_gate_until_the_files_it_placed_are_back() {
     assert!(raw_count(dir.path(), "move_claims", "move_id", "mv_1") > 0);
     to.move_file_reverted("mv_1", "image", &"ab".repeat(32))
         .unwrap_or_else(|e| panic!("{e}"));
-    assert!(
-        to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 5)
-            .unwrap_or(false)
-    );
+    assert!(undo_to(&to, arrival::ABORTED).unwrap_or(false));
     assert_eq!(raw_count(dir.path(), "move_claims", "move_id", "mv_1"), 0);
     assert!(!to.image_arriving(&"ab".repeat(32)).unwrap_or(true));
+}
+
+/// Makes arrival `id` (copied, `placing`) this machine's, as a plain bot from `from`.
+fn cut(store: &Store, id: &str, stage: &Stage, selection: &Selection, from: &str) -> bool {
+    let marker = Event::Known(Known::Arrived {
+        from: "Laptop".into(),
+    });
+    let kinds = stage.kinds().unwrap_or_default();
+    store
+        .move_arrive_cutover(&Cutover {
+            move_id: id,
+            now_ms: 5,
+            selection,
+            kinds: &kinds,
+            routines_paused: 0,
+            from,
+            secret: &|| "new-secret".to_owned(),
+            security_key: &|agent| format!("security:{agent}"),
+            reset: &|text| (text.to_owned(), Vec::new()),
+            marker: &marker,
+            main: None,
+            arrival: &|_| (format!("arrived:{id}"), "{}".to_owned(), "{}".to_owned()),
+            merges: &[],
+        })
+        .is_ok_and(|cut| cut.is_ok())
+}
+
+#[test]
+fn an_event_number_out_of_range_is_refused_and_none_wraps_past_the_last() {
+    let (_a, from) = source();
+    let (rows, _) = export(&from);
+    let rows = rows
+        .into_iter()
+        .map(|(name, list)| {
+            let list = list
+                .into_iter()
+                .map(|mut row| {
+                    if name == "events" {
+                        row.insert("seq".into(), json!(i64::MAX));
+                    }
+                    row
+                })
+                .collect();
+            (name, list)
+        })
+        .collect::<Rows>();
+    let sums = sums_of(&rows);
+    let staging = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let refused = staged(staging.path(), rows, &sums, false);
+    assert!(refused.is_err_and(|why| why.contains("out of range")));
+    // A conversation at the last number takes no more, and says so: nothing wraps.
+    let (dir, to) = target();
+    let raw = rusqlite::Connection::open(dir.path().join("spade.sqlite"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    raw.execute(
+        "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES ('c_a_9', ?1, 1, '{}')",
+        [crate::MOST_SEQ],
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(
+        to.append("c_a_9", &Event::user_message("Hi"), 2),
+        Err(crate::StoreError::NoSeqLeft(_))
+    ));
+}
+
+#[test]
+fn every_answer_given_where_it_came_from_ends_before_the_arrival_here() {
+    let (_a, from) = source();
+    let answered = Event::from_json(json!({
+        "type": "approval_answered", "reply": "r", "call_id": "x", "allowed": true, "always": true,
+    }));
+    from.append_all("c_a_1", &[answered.clone(), answered], 2)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let (rows, sums) = export(&from);
+    let (_b, to) = target();
+    assert_eq!(import(&to, rows, &sums), Ok(()));
+    let events: Vec<Event> = to
+        .events("c_a_1", 0)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.event)
+        .collect();
+    assert!(
+        matches!(events.last(), Some(Event::Known(Known::Arrived { .. }))),
+        "the arrival is its last event"
+    );
+    assert!(
+        spade_core::event::since_arrival(&events).is_empty(),
+        "no answer from before it counts here"
+    );
+}
+
+#[test]
+fn one_arrivals_cutover_never_rewrites_another_arrivals_club() {
+    // The laptop's bot a_1 moves here, and so does a_2 with its club, which lists a_1 as the
+    // laptop's.
+    let (_a, from) = source();
+    bot(&from, "a_2");
+    from.create_group(&crate::StoredGroup {
+        id: "g_2".into(),
+        name: "Launch".into(),
+        lead_id: "a_2".into(),
+        conversation: "c_club".into(),
+        members: vec![crate::StoredMember {
+            agent_id: "a_1".into(),
+            machine: "host-laptop".into(),
+            name: "Research".into(),
+            avatar: None,
+        }],
+        created_ms: 1,
+        updated_ms: 1,
+        pinned_ms: None,
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    let (one, one_sums) = export_of(&from, &["a_1".to_owned()]);
+    let (two, two_sums) = export_of(&from, &["a_2".to_owned()]);
+    let (dir, to) = target();
+    let (first, second) = (
+        tempfile::tempdir().unwrap_or_else(|e| panic!("{e}")),
+        tempfile::tempdir().unwrap_or_else(|e| panic!("{e}")),
+    );
+    let (stage_1, sel_1) =
+        staged(first.path(), one, &one_sums, false).unwrap_or_else(|e| panic!("{e}"));
+    let (stage_2, sel_2) = staged_as(second.path(), two, &two_sums, false, &["a_2".to_owned()])
+        .unwrap_or_else(|e| panic!("{e}"));
+    receiving_as(&to, "mv_1", "a_1");
+    receiving_as(&to, "mv_2", "a_2");
+    for (id, stage, sel) in [("mv_1", &stage_1, &sel_1), ("mv_2", &stage_2, &sel_2)] {
+        assert!(
+            to.move_arrive_begin(id, "{}", 2, sel)
+                .is_ok_and(|b| b == Begun::Begun)
+        );
+        assert!(
+            to.move_arrive_copy(id, stage, &|| {}, "{}", 3)
+                .is_ok_and(|copied| copied.is_ok())
+        );
+    }
+    assert!(
+        cut(&to, "mv_1", &stage_1, &sel_1, "host-laptop"),
+        "a_1 is the target's"
+    );
+    assert_eq!(
+        raw_count(dir.path(), "group_members", "machine", "host-laptop"),
+        1,
+        "the other arrival's club row is as it came"
+    );
+    // That one given up: all it brought goes, its club's rows by their keys.
+    assert_eq!(
+        to.move_arrive_undo_begin("mv_2", arrival::ABORTED, 4)
+            .ok()
+            .flatten()
+            .as_deref(),
+        Some(arrival::ABORTING)
+    );
+    assert_eq!(
+        to.move_arrive_undo("mv_2", "{}", 5)
+            .ok()
+            .flatten()
+            .as_deref(),
+        Some(arrival::ABORTED)
+    );
+    assert_eq!(raw_count(dir.path(), "group_members", "group_id", "g_2"), 0);
+    assert_eq!(raw_count(dir.path(), "groups", "id", "g_2"), 0);
+    assert!(to.agent("a_1").ok().flatten().is_some());
 }
