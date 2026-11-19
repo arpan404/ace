@@ -1,7 +1,8 @@
-import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { CommandId, HostId, ThreadId } from "@ace/protocol";
+import { CommandId, Device, HostId, ThreadId } from "@ace/protocol";
 import {
   git,
   registered,
@@ -75,16 +76,17 @@ it("a link allowed Projects there takes the transfer it refused, without pairing
   expect(await send()).toMatchObject({ ok: false, error: "machine_forbidden" });
 }, 120_000);
 
-/**
- * One call on the target's transfer routes whose body arrives in two halves, with `between` run
- * after the first half is in: the status and body it answers.
- */
-function slowCall(
+/** One call on the target's transfer routes, as the source's link sends it. */
+function routeCall(
   m: Awaited<ReturnType<typeof transferMachines>>,
   route: { method: "POST" | "PUT"; path: string; body: Buffer },
-  between: () => Promise<unknown>,
+  /** Run once the first half of the body is in; the rest is sent after it. */
+  between: () => Promise<unknown> = async () => undefined,
 ) {
-  return new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+  /** Whether the target answered before `between` ran, i.e. before it had the whole body. */
+  let early = false;
+  let answered = false;
+  return new Promise<{ status: number; body: unknown; early: boolean }>((resolve, reject) => {
     const sent = httpsRequest(
       `${m.targetOrigin}${route.path}`,
       {
@@ -97,12 +99,14 @@ function slowCall(
         },
       },
       (response) => {
+        answered = true;
         const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
         response.on("end", () =>
           resolve({
             status: response.statusCode ?? 0,
             body: JSON.parse(Buffer.concat(chunks).toString() || "null"),
+            early,
           }),
         );
       },
@@ -110,18 +114,44 @@ function slowCall(
     sent.on("error", reject);
     const half = Math.floor(route.body.length / 2);
     sent.write(route.body.subarray(0, half));
-    // Long enough for the target to have authenticated and begun reading the body.
+    // Long enough for the target to have authenticated, admitted the call and begun reading.
     void new Promise((settle) => setTimeout(settle, 200))
+      .then(() => {
+        early = answered;
+      })
       .then(between)
       .then(() => sent.end(route.body.subarray(half)), reject);
   });
 }
 
+/** A transfer the link begins on the target, through the same route. */
+async function begun(m: Awaited<ReturnType<typeof transferMachines>>, transferId: string) {
+  const call = {
+    op: "begin",
+    transferId,
+    origin: { hostId: "host-macbook", hostName: "MacBook" },
+    method: "bundle",
+    name: "app",
+  };
+  const answer = await routeCall(m, {
+    method: "POST",
+    path: "/v1/transfers",
+    body: Buffer.from(JSON.stringify(call)),
+  });
+  expect(answer).toMatchObject({ status: 200, body: { transferId, state: "receiving" } });
+}
+
+const chunkRoute = (transferId: string, body: Buffer) => ({
+  method: "PUT" as const,
+  path: `/v1/transfers/chunk?transfer=${transferId}&offset=0`,
+  body,
+});
+
 it("a call or chunk whose body is still arriving when Projects is taken away is refused", async () => {
   const m = await transferMachines();
   const studio = await m.targetWindow();
   let turn = 0;
-  const narrow = (allowed: boolean) => () =>
+  const allow = (allowed: boolean) => () =>
     studio.fleet({
       op: "scope",
       commandId: CommandId.parse(`narrow-${++turn}`),
@@ -129,28 +159,91 @@ it("a call or chunk whose body is still arriving when Projects is taken away is 
       scope: "projects",
       allowed,
     });
-  const call = await slowCall(
+  const incoming = m.target.daemon.transfers.incoming;
+  const held = (transferId: string) =>
+    incoming.call(
+      Device.parse({
+        id: m.linkDevice,
+        name: "MacBook",
+        scopes: ["read"],
+        createdAt: 0,
+        lastSeenAt: 0,
+        revokedAt: null,
+      }),
+      { op: "status", transferId },
+    );
+  await begun(m, "transfer-slow");
+  const bytes = Buffer.alloc(64 * 1024, 1);
+
+  // Left alone, the same slow chunk is taken: the route reads it to the end and appends it.
+  const control = await routeCall(m, chunkRoute("transfer-slow", bytes));
+  expect(control).toMatchObject({ status: 200, body: { offset: bytes.length } });
+  await begun(m, "transfer-narrowed");
+
+  // Admitted and reading its body (no answer yet) when Projects goes: refused, nothing appended.
+  const chunk = await routeCall(m, chunkRoute("transfer-narrowed", bytes), allow(false));
+  expect(chunk).toMatchObject({ status: 403, body: { error: "machine_forbidden" }, early: false });
+  await allow(true)();
+  expect(await held("transfer-narrowed")).toMatchObject({ state: "receiving", offset: 0 });
+
+  // A commit of the real transfer, the same way: refused, and it never starts importing.
+  await routeCall(m, chunkRoute("transfer-narrowed", bytes));
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const commit = await routeCall(
     m,
     {
       method: "POST",
       path: "/v1/transfers",
-      body: Buffer.from(JSON.stringify({ op: "cancel", transferId: "transfer-unknown" })),
+      body: Buffer.from(
+        JSON.stringify({
+          op: "commit",
+          transferId: "transfer-narrowed",
+          file: { bytes: bytes.length, sha256 },
+        }),
+      ),
     },
-    narrow(false),
+    allow(false),
   );
-  expect(call).toMatchObject({ status: 403, body: { error: "machine_forbidden" } });
+  expect(commit).toMatchObject({ status: 403, body: { error: "machine_forbidden" }, early: false });
+  await allow(true)();
+  expect(await held("transfer-narrowed")).toMatchObject({ state: "receiving" });
+}, 120_000);
 
-  await narrow(true)();
-  const chunk = await slowCall(
-    m,
-    {
-      method: "PUT",
-      path: "/v1/transfers/chunk?transfer=transfer-unknown&offset=0",
-      body: Buffer.alloc(64 * 1024, 1),
-    },
-    narrow(false),
-  );
-  expect(chunk).toMatchObject({ status: 403, body: { error: "machine_forbidden" } });
+it("a chunk whose whole body is in, and whose write is queued when Projects goes, never appends", async () => {
+  const m = await transferMachines();
+  const studio = await m.targetWindow();
+  const incoming = m.target.daemon.transfers.incoming;
+  await begun(m, "transfer-queued");
+  // The chunk is admitted and handed on to be written; its write waits until Projects is gone.
+  const { promise: narrowed, resolve: narrow } = Promise.withResolvers<void>();
+  const { promise: queued, resolve: queue } = Promise.withResolvers<void>();
+  const write = incoming.chunk.bind(incoming);
+  incoming.chunk = async (...args) => {
+    queue();
+    await narrowed;
+    return write(...args);
+  };
+  const answer = routeCall(m, chunkRoute("transfer-queued", Buffer.alloc(1024, 1)));
+  await queued;
+  await studio.fleet({
+    op: "scope",
+    commandId: CommandId.parse("narrow-queued"),
+    deviceId: m.linkDevice,
+    scope: "projects",
+    allowed: false,
+  });
+  narrow();
+  expect(await answer).toMatchObject({ status: 403, body: { error: "machine_forbidden" } });
+  const stored = m.target.daemon.store
+    .statement("SELECT state FROM transfer_incoming WHERE transfer_id=?")
+    .get("transfer-queued");
+  expect(stored?.["state"]).toBe("receiving");
+  const part = join(m.target.h.home, "daemon", "transfers", "incoming", "transfer-queued.part");
+  expect(
+    await stat(part)
+      .then((info) => info.size)
+      .catch(() => 0),
+  ).toBe(0);
 }, 120_000);
 
 it("refuses a machine this one has no link to", async () => {
