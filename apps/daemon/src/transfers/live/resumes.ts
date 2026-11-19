@@ -28,8 +28,12 @@ export interface LiveResumePorts {
 }
 
 const maxWaitMs = 60_000;
-/** A thread at rest still needs telling; one already working carried on by itself. */
+/** A thread at rest is told now. */
 const atRest = new Set<ThreadStatus["state"]>(["done", "new", "failed"]);
+/** One working, or asking the person, already carried on: nothing is owed any more. */
+const carryingOn = new Set<ThreadStatus["state"]>(["working", "needs_you"]);
+/** How long a thread that is neither at rest nor carrying on is left before it is looked at again. */
+const lookAgainMs = 5_000;
 
 export class LiveResumes {
   private ports: LiveResumePorts;
@@ -70,8 +74,17 @@ export class LiveResumes {
       }
       const status = ports.status(row.thread_id);
       // Gone, or already carrying on (the person, or its own queue, moved it on).
-      if (!status || !atRest.has(status.state)) {
+      if (!status || carryingOn.has(status.state)) {
         this.forget(row.thread_id);
+        continue;
+      }
+      // Paused, limited or waiting: still owed, looked at again shortly. Never dropped for it.
+      if (!atRest.has(status.state)) {
+        const due = ports.now() + lookAgainMs;
+        ports.store
+          .statement("UPDATE transfer_live_resume SET next_at=? WHERE thread_id=?")
+          .run(due, row.thread_id);
+        next = Math.min(next ?? due, due);
         continue;
       }
       try {

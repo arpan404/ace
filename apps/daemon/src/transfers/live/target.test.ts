@@ -21,7 +21,15 @@ afterEach(async () => {
 });
 
 /** A target with a real store and account home; the thread's status follows `statuses`. */
-async function target(statuses: ThreadStatus[], refusals = 0) {
+async function target(
+  statuses: ThreadStatus[],
+  refusals = 0,
+  options: {
+    refusal?: string;
+    /** The thread's status as time and actions go by; by default the next of `statuses`. */
+    statusAt?: (clock: number, actions: number) => ThreadStatus;
+  } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-target-"));
   const store = new Store(join(root, "store.sqlite"));
   cleanups.push(async () => {
@@ -34,6 +42,7 @@ async function target(statuses: ThreadStatus[], refusals = 0) {
   const sent: string[] = [];
   const sessions: string[] = [];
   const notices: string[] = [];
+  const retried: string[] = [];
   let refused = refusals;
   let clock = 0;
   const ports: LiveTargetPorts = {
@@ -43,18 +52,26 @@ async function target(statuses: ThreadStatus[], refusals = 0) {
     archive: { unpackArchive: async () => ({ entries: 0 }) },
     account: () => ({ instanceId: "claude-cli-default", home }),
     threadCwd: () => "/srv/app",
-    // The thread answers each continue message with the next status, and stays there.
-    threadStatus: () => statuses[Math.min(sent.length, statuses.length) - 1] ?? { state: "new" },
+    // The thread answers each message, or each retry of a held one, with the next status.
+    threadStatus: () => {
+      const actions = sent.length + retried.length;
+      if (options.statusAt) return options.statusAt(clock, actions);
+      return statuses[Math.min(actions, statuses.length) - 1] ?? { state: "new" };
+    },
     adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
     send: (_thread, _key, text) => {
       if (refused > 0) {
         refused--;
-        throw new Error("engine full");
+        throw new Error(options.refusal ?? "engine_capacity_exceeded");
       }
       sent.push(text);
     },
+    retryHeld: (_thread, key) => {
+      retried.push(key);
+    },
+    atomic: (run) => store.atomic(run),
     notice: (_thread, text) => notices.push(text),
     now: () => clock,
     sleep: async (ms) => {
@@ -68,6 +85,7 @@ async function target(statuses: ThreadStatus[], refusals = 0) {
     sent,
     sessions,
     notices,
+    retried,
     home,
     folder,
     store,
@@ -135,8 +153,9 @@ describe("a moved thread starting on this machine", () => {
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.sessions).toEqual(["adopt:resume", "drop", "handoff"]);
-    expect(t.sent).toHaveLength(2);
-    expect(t.sent[1]).toContain("Your conversation came as the summary above");
+    // Still one continue message: the one the failed open held unsent goes again.
+    expect(t.sent).toHaveLength(1);
+    expect(t.retried).toHaveLength(1);
     expect(t.live.state("x")).toMatchObject({ running: true, session: { kind: "summary" } });
   });
 
@@ -199,7 +218,7 @@ describe("a moved thread starting on this machine", () => {
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.sent).toEqual([]);
     expect(t.live.state("x")).toMatchObject({ running: false });
-    expect(t.notices[0]).toContain("couldn't start");
+    expect(t.notices[0]).toContain("kept refusing it");
     expect(t.live.receipt("x", "macbook-device")).toMatchObject({
       state: "completed",
       live: { running: false },
@@ -226,5 +245,33 @@ describe("a moved thread starting on this machine", () => {
     t.ports.starts.started("x000", true, 1);
     const pending = (await all(t.live.unfinished())).map((start) => start.transferId);
     expect(pending).toEqual(ids.slice(1));
+  });
+
+  it("sends no second continue message however long the first waits in the queue", async () => {
+    // Queued behind other work there for an hour before its turn starts.
+    const t = await target([], 0, {
+      statusAt: (clock, actions) =>
+        actions === 0
+          ? { state: "new" }
+          : clock < 60 * 60_000
+            ? { state: "waiting", on: "queue" }
+            : { state: "working", agents: 1 },
+    });
+    const live = carried([await staged(t.folder)]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.sent).toHaveLength(1);
+    expect(t.retried).toEqual([]);
+    expect(t.live.state("x")).toMatchObject({ running: true, session: { kind: "native" } });
+  });
+
+  it("ends the start at once on a refusal that won't pass, with no retries", async () => {
+    const t = await target([], 1, { refusal: "thread_not_found" });
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.sent).toEqual([]);
+    expect(t.live.state("x")).toMatchObject({ running: false, attempts: 0 });
+    expect(t.notices[0]).toContain("refused it (thread_not_found)");
   });
 });

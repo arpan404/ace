@@ -35,6 +35,9 @@ export interface LiveTargetPorts {
   dropSession(threadId: string): void;
   adoptHandoff(threadId: string, handoff: PortableHandoff, machine: string): void;
   send(threadId: string, key: string, text: string): void;
+  /** Sends the thread's held unsent message again (the person's "Try again"), keyed. */
+  retryHeld(threadId: string, key: string): void;
+  atomic<T>(run: () => T): T;
   /** A line on the thread the person reads, for a start that couldn't happen. */
   notice(threadId: string, text: string): void;
   now(): number;
@@ -197,29 +200,34 @@ export class LiveTarget {
     reason: string;
   }): void {
     const { ports } = this;
-    const start = ports.starts.get(input.transferId);
-    if (start?.running !== undefined) return;
-    if (!start)
-      ports.starts.begin(
-        {
-          transferId: input.transferId,
-          deviceId: input.deviceId,
-          method: input.method,
-          threadId: input.threadId,
-          session: { kind: "summary", reason: input.reason },
-          result: input.result,
-        },
-        ports.now(),
-      );
-    ports.starts.started(input.transferId, false, ports.now(), input.reason);
-    try {
-      ports.notice(
-        input.threadId,
-        `This thread moved here from ${input.from}, but ${input.reason}. Send a message to carry on.`,
-      );
-    } catch (error) {
-      ports.log("Moved thread's notice not shown", { error: String(error) });
-    }
+    // One transaction: the start's final state and the line the person reads there.
+    ports.atomic(() => {
+      const start = ports.starts.get(input.transferId);
+      if (start?.running !== undefined) return;
+      if (!start)
+        ports.starts.begin(
+          {
+            transferId: input.transferId,
+            deviceId: input.deviceId,
+            method: input.method,
+            threadId: input.threadId,
+            session: { kind: "summary", reason: input.reason },
+            result: input.result,
+          },
+          ports.now(),
+        );
+      ports.starts.started(input.transferId, false, ports.now(), input.reason);
+      // Said on the thread when it can be; a thread that can't be read still gets its final state.
+      try {
+        if (ports.threadStatus(input.threadId))
+          ports.notice(
+            input.threadId,
+            `This thread moved here from ${input.from}, but ${input.reason}. Send a message to carry on.`,
+          );
+      } catch (error) {
+        ports.log("Moved thread's notice not shown", { error: String(error) });
+      }
+    });
   }
   /** Records that this machine owns the thread; called inside the thread's own transaction. */
   own(input: {
@@ -255,70 +263,70 @@ export class LiveTarget {
     try {
       let session = start.session;
       let attempts = start.attempts;
+      const giveUp = (reason: string) =>
+        this.giveUp({ ...start, from: input.from, reason, result: start.result });
+      // Exactly one continue message, ever. Only a refusal at admission, which makes no message,
+      // is tried again, under a fresh id, so its receipt never answers the next try; a restart
+      // finds the one that went through by the same id and sends nothing more.
       for (;;) {
-        // A retry waits out its backoff, which a restart keeps.
         const due = ports.starts.get(input.transferId)?.nextAt ?? 0;
         while (!this.closed && ports.now() < due)
           await ports.sleep(Math.min(due - ports.now(), 1_000));
         if (this.closed) return;
-        if (!ports.threadStatus(start.threadId)) {
-          ports.starts.started(input.transferId, false, ports.now(), "the thread was deleted here");
-          return;
-        }
+        if (!ports.threadStatus(start.threadId)) return giveUp("the thread was deleted here");
         const path = ports.threadCwd(start.threadId) ?? input.path;
         try {
           ports.send(
             start.threadId,
-            // A fresh id per attempt: a refusal's receipt never answers the next try.
-            `transfer-live:${input.transferId}:continue:${session.kind}:${attempts}`,
+            `transfer-live:${input.transferId}:continue:${attempts}`,
             continueMessage({ from: input.from, path, live: input.live, session }),
           );
+          break;
         } catch (error) {
-          // Refused for now (the engine is full, starting, or out of slots): try again later.
           const next = startRetry(attempts, error);
+          if (next.kind === "give_up") return giveUp(next.reason);
           attempts++;
-          if (next.kind === "retry") {
-            ports.starts.deferred(input.transferId, ports.now() + next.delayMs, ports.now());
-            continue;
-          }
-          ports.starts.started(input.transferId, false, ports.now(), next.reason);
-          ports.notice(
-            start.threadId,
-            `This thread moved here from ${input.from}, but it couldn't start: ${next.reason}. Send a message to carry on.`,
-          );
-          return;
+          ports.starts.deferred(input.transferId, ports.now() + next.delayMs, ports.now());
         }
-        const outcome = await this.watch(start.threadId, session.kind === "native");
+      }
+      for (;;) {
+        // After a restart that already fell back, the held message is sent again by the same id.
+        if (session.reason === fallbackReason) ports.retryHeld(start.threadId, fallbackKey(input));
+        const outcome = await this.watch(start.threadId);
         if (outcome === "closed") return;
-        if (outcome === "running" || outcome === "failed") {
-          ports.starts.started(input.transferId, outcome === "running", ports.now());
+        if (outcome === "running") {
+          ports.starts.started(input.transferId, true, ports.now());
           return;
         }
-        // The carried session didn't open: the handoff goes in front of the next try.
-        const reason = "the carried session didn't open here";
-        ports.dropSession(start.threadId);
-        ports.adoptHandoff(start.threadId, input.handoff, input.from);
-        ports.starts.summary(input.transferId, reason, ports.now());
-        session = { kind: "summary", reason };
+        if (session.kind !== "native") return giveUp("its first turn didn't start here");
+        // The carried session didn't open. The same continue message, held unsent by the failed
+        // open, goes again with the handoff in front of it: still one message.
+        ports.atomic(() => {
+          ports.dropSession(start.threadId);
+          ports.adoptHandoff(start.threadId, input.handoff, input.from);
+          ports.starts.summary(input.transferId, fallbackReason, ports.now());
+        });
+        session = { kind: "summary", reason: fallbackReason };
       }
     } finally {
       this.running.delete(input.transferId);
     }
   }
-  private async watch(threadId: string, native: boolean) {
-    const started = this.ports.now();
+  /** Until the first turn runs, or the message it was given is held unsent by a failure. */
+  private async watch(threadId: string): Promise<"running" | "failed" | "closed"> {
     for (;;) {
       if (this.closed) return "closed";
       const status = this.ports.threadStatus(threadId);
       if (!status) return "failed";
-      const next = turnStart(status, { native, waitedMs: this.ports.now() - started });
-      if (next.kind === "running") return "running";
-      if (next.kind === "failed") return "failed";
-      if (next.kind === "retry_with_summary") return "retry";
+      const next = turnStart(status);
+      if (next.kind !== "wait") return next.kind;
       await this.ports.sleep(500);
     }
   }
 }
+
+const fallbackReason = "the carried session didn't open here";
+const fallbackKey = (input: { transferId: string }) => `transfer-live:${input.transferId}:fallback`;
 
 async function present(path: string): Promise<boolean> {
   try {
@@ -329,22 +337,32 @@ async function present(path: string): Promise<boolean> {
   }
 }
 
-/** The longest one attempt waits, and how many the engine may refuse before the start gives up. */
+/** The longest one attempt waits, and how many times a full engine may refuse it. */
 const maxRetryMs = 60_000;
 export const maxStartAttempts = 40;
 
+/** Refusals that pass: the engine is full, starting or shutting down, agent control not ready. */
+const transient = new Set([
+  "engine_capacity_exceeded",
+  "engine_starting",
+  "daemon_shutting_down",
+  "admission_closed",
+  "Agent control is not ready",
+]);
+
 /**
- * After the engine refused the continue message: wait and try again, doubling up to a minute,
- * for about half an hour in all; then the start is final and the thread says why.
+ * After the engine refused the continue message: a refusal that passes is tried again, waiting
+ * 1 second, doubling up to a minute, for about half an hour in all; any other ends the start at
+ * once, said on the thread.
  */
 export function startRetry(
   attempts: number,
   error: unknown,
 ): { kind: "retry"; delayMs: number } | { kind: "give_up"; reason: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!transient.has(message))
+    return { kind: "give_up", reason: `this machine refused it (${message.slice(0, 120)})` };
   if (attempts + 1 >= maxStartAttempts)
-    return {
-      kind: "give_up",
-      reason: `this machine kept refusing it (${error instanceof Error ? error.message.slice(0, 120) : "refused"})`,
-    };
+    return { kind: "give_up", reason: `this machine kept refusing it (${message.slice(0, 120)})` };
   return { kind: "retry", delayMs: Math.min(1_000 * 2 ** attempts, maxRetryMs) };
 }

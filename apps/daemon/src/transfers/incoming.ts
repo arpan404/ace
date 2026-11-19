@@ -585,23 +585,22 @@ export class IncomingTransfers {
         transferId: record.transferId,
         error: String(error),
       });
-      // Tried again without a restart; when it keeps failing the transfer still ends, so the
-      // sender is answered and never waits on it (ADR 0191).
-      void this.retrying(`setup:${record.transferId}`, setUp, (lastError) =>
-        this.endWithoutSetup(record, result, lastError),
-      );
+      // Tried again without a restart until it goes: the transfer never completes without its
+      // handoff and its link back, and the sender waits for it (ADR 0191).
+      void this.retrying(`setup:${record.transferId}`, setUp, Number.POSITIVE_INFINITY);
     }
   }
   /** Retries `run` in the background, once per key at a time; see `persist`. */
   private retrying(
     key: string,
     run: () => Promise<void>,
-    giveUp: (error: unknown) => Promise<void> | void,
+    attempts: number,
+    giveUp: (error: unknown) => Promise<void> | void = () => undefined,
   ): Promise<void> {
     if (this.retries.has(key)) return Promise.resolve();
     this.retries.add(key);
     return persist({
-      attempts: 8,
+      attempts,
       run,
       giveUp,
       sleep: this.deps.sleep ?? realSleep,
@@ -611,30 +610,6 @@ export class IncomingTransfers {
     })
       .catch((error: unknown) => this.deps.log("Retry ended", { key, error: String(error) }))
       .finally(() => this.retries.delete(key));
-  }
-  /**
-   * Past the cutoff the thread is this machine's, but its setup keeps failing: the transfer
-   * completes without it, and a moved thread's start is recorded as not started, said on the
-   * thread, so the sender moves on and the person sees why there.
-   */
-  private async endWithoutSetup(
-    record: IncomingRecord,
-    result: NonNullable<IncomingRecord["result"]>,
-    error: unknown,
-  ): Promise<void> {
-    const reason = `the thread couldn't be set up here (${String(error).slice(0, 120)})`;
-    this.rows.update(record.transferId, { state: "completed", result }, this.deps.now());
-    if (record.commit?.live && result.threadId)
-      this.deps.live?.giveUp({
-        transferId: record.transferId,
-        deviceId: record.deviceId,
-        method: record.method,
-        threadId: result.threadId,
-        result,
-        from: record.begin.origin.hostName,
-        reason,
-      });
-    await this.removeFiles(record.transferId);
   }
   /**
    * A moved thread (ADR 0191): its carried session placed, or the summary chosen, before its
@@ -680,6 +655,7 @@ export class IncomingTransfers {
           path: result.path,
           handoff: thread.handoff,
         }),
+      8,
       (error) =>
         live.giveUp({
           transferId,

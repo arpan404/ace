@@ -59,6 +59,8 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     dropSession: () => {},
     adoptHandoff: () => {},
     send: () => {},
+    retryHeld: () => {},
+    atomic: (run) => store.atomic(run),
     notice: () => {},
     now: () => 0,
     sleep: async () => {},
@@ -81,7 +83,8 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     },
     live: new LiveTarget(ports),
     now: () => 0,
-    sleep: async () => {},
+    // A turn of the event loop, as a real timer gives, so retries never starve the rest.
+    sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
     log: () => {},
   } as unknown as IncomingDeps;
   const incoming = new IncomingTransfers(deps);
@@ -119,7 +122,7 @@ const thread = {
 };
 
 describe("a target's recovery after a restart", () => {
-  it("answers the sender once a setup that keeps failing is given up on, never leaving it waiting", async () => {
+  it("never completes a transfer without its setup, however long the setup keeps failing", async () => {
     const t = await target({
       setUp: () => {
         throw new Error("disk full");
@@ -128,12 +131,27 @@ describe("a target's recovery after a restart", () => {
     t.rows.insert(record("x"), 0);
     t.rows.update("x", { commit: { op: "commit", transferId: "x", live, thread }, result }, 0);
     await t.incoming.recover();
+    // Well past any number of tries: the thread there has no handoff or link back yet, so the
+    // sender is still told it is importing, never that it completed.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await t.incoming.call(device, { op: "status", transferId: "x" })).toMatchObject({
+      state: "importing",
+    });
+  });
+
+  it("completes and starts the thread once a failing setup goes through", async () => {
+    let failures = 3;
+    const t = await target({
+      setUp: () => {
+        if (failures-- > 0) throw new Error("busy");
+      },
+    });
+    t.rows.insert(record("x"), 0);
+    t.rows.update("x", { commit: { op: "commit", transferId: "x", live, thread }, result }, 0);
+    await t.incoming.recover();
     await expect
       .poll(() => t.incoming.call(device, { op: "status", transferId: "x" }))
-      .toMatchObject({
-        state: "completed",
-        live: { running: false },
-      });
+      .toMatchObject({ state: "completed", live: { running: true } });
   });
 
   it("answers the sender when its moved thread's start keeps throwing", async () => {
