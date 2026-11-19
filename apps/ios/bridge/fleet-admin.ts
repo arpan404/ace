@@ -128,11 +128,20 @@ export async function answerFleet(owner: FleetOwner, input: NativeFleetRequest):
         return { ok: true, count: result.kind === "revoked" ? (result.count ?? 0) : 0 };
       }
       case "issueLink": {
-        const result = await ask({ op: "pairing", scopes: linkScopes(request.access) }).catch(
-          (error: unknown) => {
+        const wanted = linkScopes(request.access);
+        const result = await ask({ op: "pairing", scopes: wanted })
+          // A device grants only what it holds there: without Projects, link without them; they
+          // can be allowed later on that machine in Settings › Fleet.
+          .catch((error: unknown) => {
+            if (!wanted.includes("projects") || refusalCode(error) !== "forbidden") throw error;
+            return ask({
+              op: "pairing",
+              scopes: wanted.filter((scope) => scope !== "projects"),
+            });
+          })
+          .catch((error: unknown) => {
             throw new Refusal(refusalCode(error), linkPairingProblem(refusalCode(error), machine));
-          },
-        );
+          });
         if (result.kind !== "pairing")
           return refused("unavailable", linkPairingProblem("", machine));
         return { ok: true, url: result.url };

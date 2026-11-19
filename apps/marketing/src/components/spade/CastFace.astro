@@ -1,0 +1,67 @@
+---
+/*
+ * One of the page's cast at a size: Spade with its own mark (blinking, its pupils following the
+ * pointer), any other bot with its character face, live.
+ */
+import { cast, type CastName } from "../../content/spade.ts";
+import SpadeFace from "../mac/SpadeFace.astro";
+import BotFace, { type FacePose } from "./BotFace.astro";
+
+interface Props {
+  who: CastName;
+  size: number;
+  uid: string;
+  state?: FacePose;
+  rest?: string;
+}
+
+const { who, size, uid, state = "idle", rest } = Astro.props;
+---
+
+{
+  who === "spade" ? (
+    <span class="spade-mark" data-spade-host>
+      <SpadeFace size={size} />
+    </span>
+  ) : (
+    <BotFace face={cast[who].face} size={size} uid={uid} state={state} rest={rest} live />
+  )
+}
+
+<style>
+  .spade-mark {
+    display: block;
+    color: var(--foreground);
+  }
+
+  .spade-mark :global(.eye) {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /* Spade blinks on the mark's own slow schedule. */
+  html.motion .spade-mark :global(.eye) {
+    animation: spade-blink 5.2s infinite;
+  }
+
+  @keyframes spade-blink {
+    0%,
+    94% {
+      transform: scaleY(1);
+    }
+
+    95.5% {
+      transform: scaleY(0.08);
+    }
+
+    97% {
+      transform: scaleY(1);
+    }
+  }
+</style>
+
+<script>
+  import { spadeLook } from "../../scripts/spade-look.ts";
+
+  for (const host of document.querySelectorAll<HTMLElement>("[data-spade-host]")) spadeLook(host);
+</script>

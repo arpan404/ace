@@ -24,58 +24,57 @@ struct ProjectDetailView: View {
     }
 
     var body: some View {
-        QuietPage {
+        List {
             if let refreshProblem {
-                QuietGroup {
-                    ServiceProblem(message: refreshProblem)
-                    Button("Retry") { Task { await reread() } }.buttonStyle(.textAction())
-                }
+                Section { ProblemRow("Couldn't refresh this project.", detail: refreshProblem, id: "project.problem") { Task { await reread() } } }
             }
-            QuietGroup {
-                Text(project.path).font(AceDesign.Typeface.code)
+            Section {
+                Text(verbatim: project.path).aceMonospace(AceDesign.TextRole.code)
                     .foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
                     .accessibilityIdentifier("project.path")
-            }
+            } header: { InsetHeader("Folder") }
+            .insetRowBackground()
 
-            QuietGroup {
-                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { HStack { QuietRowText(title: "Files"); RowCaret() } }
-                NavigationLink { PastSessionsView(model: model, project: project) } label: { HStack { QuietRowText(title: "Past CLI sessions"); RowCaret() } }
+            Section {
+                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: nil) }
+                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: nil) }
                 NavigationLink { ProjectRepositoriesView(model: model, project: project) } label: {
-                    HStack { QuietRowText(title: "Repositories", detail: "Where reviews are read and pull requests open"); RowCaret() }
+                    InsetRow("Repositories", systemImage: nil, subtitle: "Where reviews are read and pull requests open")
                 }
                 .accessibilityIdentifier("project.repositories")
                 OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: project.id)) {
-                    HStack { QuietRowText(title: "Open in…", detail: "An editor or the file manager on the computer"); RowCaret() }
+                    InsetRow(systemImage: nil, title: "Open in…", subtitle: "An editor or the file manager on the computer") { RowCaret() }
                 }
                 .accessibilityIdentifier("project.openIn")
                 if model.canOperate {
                     Button { publishing = true } label: {
-                        HStack { QuietRowText(title: "Publish repository…", detail: "A new GitHub repository for this project"); RowCaret() }
+                        InsetRow(systemImage: nil, title: "Publish repository…", subtitle: "A new GitHub repository for this project") { RowCaret() }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("project.publish")
                 }
+                // Shown only while this machine links to another (ADR 0101).
+                if model.canOperate, model.transfers.linked {
+                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: {
+                        InsetRow(systemImage: nil, title: "Open on…") { RowCaret() }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("project.openOn")
+                }
             }
+            .insetRowBackground()
 
             notes
-            // Shown only while this machine links to another (ADR 0101).
-            if model.canOperate, model.transfers.linked {
-                QuietGroup {
-                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: { HStack { QuietRowText(title: "Open on…"); RowCaret() } }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("project.openOn")
-                }
-
-            }
             if model.canOperate {
-                QuietGroup {
+                Section {
                     Button("Remove project…", role: .destructive) { removing = true }
+                        .buttonStyle(.rowAction)
                         .accessibilityIdentifier("project.remove")
                 } footer: { Text("Its threads are deleted. The folder stays on the computer.") }
-
+                .insetRowBackground()
             }
         }
-
+        .insetGroupedList()
         .smoothChange(project.notes.map(\.id) + project.notes.map(\.text))
         .smoothChange(gone)
         .sensoryFeedback(.success, trigger: saves)
@@ -115,38 +114,37 @@ struct ProjectDetailView: View {
     }
 
     @ViewBuilder private var notes: some View {
-        QuietGroup {
-            if project.notes.isEmpty {
-                Text("No notes yet. Agents add what they learn about the project here, and so can you.")
-                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-            }
+        Section {
             ForEach(project.notes) { note in
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(note.text).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                    Text(note.text).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if note.threadId != nil {
-                        Text("From an agent").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                        Text("From an agent").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
                 }
                 .padding(.vertical, AceDesign.Space.tight)
             }
             if model.canOperate {
                 Button(project.notes.isEmpty ? "Add a note" : "Edit notes") { editing = true }
+                    .buttonStyle(.rowAction)
                     .accessibilityIdentifier("project.notes.edit")
+            } else if project.notes.isEmpty {
+                Text("No notes yet").aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.muted)
             }
-        } header: { InsetHeader("Notes") } footer: { Text("Every thread and agent in this project reads these. They stay in ace, never in the repository.") }
-
+        } header: { InsetHeader("Notes") } footer: { Text("Every agent in this project reads these. They stay in ace, not in the repository.") }
+        .insetRowBackground()
     }
 
     private func reread() async {
-        guard model.connection == "ready" else { refreshProblem = "Can’t reach this machine. Reconnect and retry."; return }
+        guard model.connection == "ready" else { refreshProblem = "Your computer isn't connected."; return }
         let reply: ProjectReply
         do { reply = try await model.service(["type": "projects.request", "operation": ["op": "workspace.get", "workspaceId": project.id]], as: ProjectReply.self) }
         catch { if !Task.isCancelled { refreshProblem = error.localizedDescription }; return }
         refreshProblem = nil
         if let fresh = reply.result.project { project = fresh; gone = false }
         else if reply.result.code?.contains("not_found") == true { gone = true }
-        else { refreshProblem = "Couldn’t refresh this project: \(reply.result.code ?? "unavailable")." }
+        else { refreshProblem = "Your computer answered \(reply.result.code ?? "unavailable")." }
     }
 }
 
@@ -186,7 +184,7 @@ private struct ProjectRemoval: ViewModifier {
                     .accessibilityIdentifier("project.remove.stop")
             } message: { Text("Stop them to remove the project now. The folder stays on the computer.") }
             .alert("Couldn't remove \(project.name)", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK") { problem = nil }
+                Button("Dismiss", role: .cancel) { problem = nil }
             } message: { Text(problem ?? "") }
             .disabled(busy)
     }

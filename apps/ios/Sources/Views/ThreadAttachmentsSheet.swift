@@ -42,55 +42,21 @@ struct ThreadFilesSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Text("Files stored for this thread. Removing a file frees space and stops it opening from older messages.")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                if let problem {
+                    ProblemRow(problem, id: "attachments.problem", disabled: busy != nil) { load() }
                 }
                 if let files {
-                    if files.isEmpty {
-                        Text("No attachments in this thread.").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                    }
                     ForEach(files) { file in
-                        HStack(spacing: AceDesign.Space.row) {
-                          Button { open(file) } label: {
-                           HStack(spacing: AceDesign.Space.row) {
-                            AceIcon(file.kind == "image" ? .image : file.mimeType.hasPrefix("video/") ? .playCircle : .fileText, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.mutedForeground)
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                                Text(file.name).lineLimit(1).truncationMode(.middle).foregroundStyle(AceTheme.Colours.foreground)
-                                Text(opening == file.ref ? "Opening…" : file.size).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                            }
-                            Spacer(minLength: AceDesign.Space.related)
-                           }
-                           .contentShape(Rectangle())
-                          }
-                          .buttonStyle(.plain)
-                          .disabled(opening != nil)
-                          .accessibilityHint("Opens it")
-                          .accessibilityIdentifier("file.open.\(file.name)")
-                            if model.canOperate {
-                                Button(busy == file.ref ? "Removing…" : "Remove") { removing = file }
-                                    .buttonStyle(.textAction(.destructive))
-                                    .disabled(busy != nil)
-                                    .accessibilityLabel("Remove \(file.name)")
-                            }
-                        }
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                        row(file)
+                            .listRowBackground(AceTheme.Colours.background)
+                    }
+                    if files.isEmpty && problem == nil {
+                        EmptyState(icon: .paperclip, title: "No attachments")
+                            .padding(.vertical, AceDesign.Space.group)
+                            .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                     }
                 } else if problem == nil {
                     ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                }
-                if let problem {
-                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                        Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        Button("Try again") { load() }.foregroundStyle(AceTheme.Colours.foreground)
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                 }
             }
             .listStyle(.plain)
@@ -99,11 +65,7 @@ struct ThreadFilesSheet: View {
             .navigationTitle("Attachments")
             .navigationBarTitleDisplayMode(.inline)
             .escapeCloses { dismiss() }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
-                }
-            }
+            .toolbar { SheetClose() }
             .fullScreenCover(item: $picture) { file in
                 MediaViewer(title: file.name) { await original(file) }
             }
@@ -112,10 +74,10 @@ struct ThreadFilesSheet: View {
             }
             .quickLookPreview($document)
             .alert("The file stays", isPresented: Binding(get: { kept != nil }, set: { if !$0 { kept = nil } })) {
-                Button("OK") { kept = nil }
+                Button("Dismiss") { kept = nil }
             } message: { Text(kept ?? "") }
             .alert("Couldn't open the file", isPresented: Binding(get: { openProblem != nil }, set: { if !$0 { openProblem = nil } })) {
-                Button("OK") { openProblem = nil }
+                Button("Dismiss") { openProblem = nil }
             } message: { Text(openProblem ?? "") }
             .alert("Remove \(removing?.name ?? "this file")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
                 Button("Cancel", role: .cancel) {}
@@ -127,6 +89,46 @@ struct ThreadFilesSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .task { load() }
+    }
+    /// One stored file: its kind's glyph, name and size; tap opens it. Remove is the row's
+    /// trailing swipe and its long-press menu, and asks first.
+    private func row(_ file: ThreadFilesPage.File) -> some View {
+        Button { open(file) } label: {
+            HStack(spacing: AceDesign.Space.row) {
+                AceIcon(glyph(file), size: AceDesign.Size.barIcon).foregroundStyle(AceDesign.Ink.muted)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    Text(file.name).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(status(file)).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                }
+                Spacer(minLength: AceDesign.Space.related)
+            }
+            .frame(minHeight: AceDesign.Size.rowLine)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(opening != nil || busy == file.ref)
+        .accessibilityHint("Opens it")
+        .accessibilityIdentifier("file.open.\(file.name)")
+        .swipeActions(edge: .trailing) {
+            if model.canOperate {
+                Button("Remove", role: .destructive) { removing = file }.disabled(busy != nil)
+                    .accessibilityLabel("Remove \(file.name)")
+            }
+        }
+        .contextMenu {
+            if model.canOperate {
+                Button("Remove", systemImage: "trash", role: .destructive) { removing = file }.disabled(busy != nil)
+                    .accessibilityLabel("Remove \(file.name)")
+            }
+        }
+    }
+    private func glyph(_ file: ThreadFilesPage.File) -> AceIcon.Name {
+        file.kind == "image" ? .image : file.mimeType.hasPrefix("video/") ? .playCircle : .fileText
+    }
+    private func status(_ file: ThreadFilesPage.File) -> String {
+        if busy == file.ref { return "Removing…" }
+        return opening == file.ref ? "Opening…" : file.size
     }
     /// A picture in the full-screen viewer; a video in the player; anything else in Quick Look,
     /// which shares it. Each read because the thread holds the file.

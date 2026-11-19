@@ -1,0 +1,128 @@
+---
+/*
+ * The top of an agent's page: its own mark large beside the page's one H1 and a sentence, the
+ * model ace's picker opens on for it (content/agents.ts), and the download.
+ */
+import type { AgentGuide } from "../../content/agent-guides.ts";
+import { currentModels } from "../../content/agents.ts";
+import BrandMark from "../BrandMark.astro";
+import DownloadButton from "../DownloadButton.astro";
+
+interface Props {
+  guide: AgentGuide;
+}
+
+const { guide } = Astro.props;
+const model = currentModels[guide.label];
+---
+
+<header class="page hero">
+  <span class="mark" aria-hidden="true"><BrandMark brand={guide.brand} size={52} /></span>
+  <div class="words">
+    <h1>Run {guide.label} in ace</h1>
+    <p class="lead">
+      {guide.what} ace gives it a thread for every task, a status you can trust and your phone for
+      approvals.
+    </p>
+    {
+      model && (
+        <p class="model">
+          <span class="pick">
+            <BrandMark brand={guide.brand} size={15} />
+            {model.model}
+            {model.effort && <span>· {model.effort}</span>}
+          </span>
+          <span class="note">the model {guide.label} offers first</span>
+        </p>
+      )
+    }
+    <div class="actions">
+      <DownloadButton />
+      <a class="button button-secondary" href="/agents/">All agents</a>
+    </div>
+  </div>
+</header>
+
+<style>
+  .hero {
+    display: grid;
+    gap: 28px clamp(28px, 4vw, 48px);
+    padding-top: clamp(40px, 6vw, 80px);
+  }
+
+  @media (min-width: 768px) {
+    .hero {
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+
+  /* The agent's mark on a plain tile, the size of the headline's first line. */
+  .mark {
+    display: grid;
+    place-items: center;
+    width: clamp(76px, 9vw, 112px);
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--surface);
+  }
+
+  .mark :global(svg) {
+    width: 50%;
+    height: 50%;
+  }
+
+  h1 {
+    max-width: 12em;
+    font-size: clamp(40px, 6.4vw, 84px);
+    letter-spacing: -0.055em;
+    line-height: 0.98;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 26px);
+    max-width: 32em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  /* The model as ace's picker shows it: the mark, the model, its effort. */
+  .model {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin-top: 22px;
+  }
+
+  .pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .pick span {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .note {
+    color: var(--subtle);
+    font-size: 13.5px;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+</style>

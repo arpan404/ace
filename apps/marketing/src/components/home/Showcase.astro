@@ -1,0 +1,213 @@
+---
+/*
+ * Six things agents do in ace, each a tile with a piece of the app drawn in it: ace's browser
+ * with an agent paying at a checkout, a thread's diff with a comment, the iOS Simulator, a
+ * desktop app an agent is using, an account at its limit, and a list of automations. Each
+ * drawing lives in showcase/ and plays once as its tile comes into view; the pages they link
+ * to play the full scenes. Words come from content/showcase.ts.
+ */
+import { showcase, type ShowcaseId } from "../../content/showcase.ts";
+import Icon from "../Icon.astro";
+import AccountsArt from "./showcase/AccountsArt.astro";
+import AutomationsArt from "./showcase/AutomationsArt.astro";
+import BrowserArt from "./showcase/BrowserArt.astro";
+import ComputerArt from "./showcase/ComputerArt.astro";
+import DevicesArt from "./showcase/DevicesArt.astro";
+import ReviewArt from "./showcase/ReviewArt.astro";
+
+const art = {
+  browser: BrowserArt,
+  review: ReviewArt,
+  devices: DevicesArt,
+  computer: ComputerArt,
+  accounts: AccountsArt,
+  automations: AutomationsArt,
+} satisfies Record<ShowcaseId, unknown>;
+
+/* How many of the wide screen's twelve columns each tile takes: rows of 7/5, 5/7 and 6/6. */
+const span: Record<ShowcaseId, string> = {
+  browser: "span-7",
+  review: "span-5",
+  devices: "span-5",
+  computer: "span-7",
+  accounts: "span-6",
+  automations: "span-6",
+};
+---
+
+<section class="section page showcase">
+  <header class="head reveal">
+    <h2 class="section-title">{showcase.heading}</h2>
+    <p class="lede">{showcase.lede}</p>
+  </header>
+
+  <div class="tiles">
+    {
+      showcase.tiles.map((tile) => {
+        const Tag = tile.href ? "a" : "div";
+        const Art = art[tile.id];
+        return (
+          <Tag class:list={["piece", span[tile.id], "reveal"]} href={tile.href} data-piece>
+            <div class="art" aria-hidden="true">
+              <Art />
+            </div>
+            <div class="words">
+              <h3>
+                {tile.title}
+                {tile.href && <Icon name="arrow-right" size={16} />}
+              </h3>
+              <p>{tile.body}</p>
+            </div>
+          </Tag>
+        );
+      })
+    }
+  </div>
+</section>
+
+<style>
+  .head h2 {
+    font-size: clamp(36px, 5.6vw, 72px);
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: clamp(36px, 5vw, 64px);
+  }
+
+  .piece {
+    grid-column: span 12;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color var(--motion-base) var(--ease-out);
+  }
+
+  a.piece:hover {
+    border-color: var(--border-strong);
+  }
+
+  /* One column on a phone, pairs on a tablet, and on a wide screen rows of 7/5, 5/7 and 6/6.
+     Six tiles never leave a hole. */
+  @media (min-width: 760px) {
+    .piece {
+      grid-column: span 6;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    .span-7 {
+      grid-column: span 7;
+    }
+
+    .span-5 {
+      grid-column: span 5;
+    }
+  }
+
+  /*
+   * The picture: a piece of the app on the tile's own flat ground, cut off by the tile's edge
+   * and ruled off from the words by a hairline. The window and what floats over it shift
+   * against each other as the pointer moves (`--px`, `--py`, set by the script below).
+   */
+  .art {
+    position: relative;
+    height: 300px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .words {
+    padding: 22px 24px 26px;
+  }
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+
+  h3 :global(svg) {
+    margin-left: auto;
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  a.piece:hover h3 :global(svg) {
+    color: var(--line);
+    transform: translateX(3px);
+  }
+
+  .words p {
+    margin-top: 8px;
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  /* A window of the app: every drawing in showcase/ sits in one, and places it with its own
+     class. The window drifts against the pointer; what floats over it drifts the other way. */
+  :global(:where(.art .win)) {
+    position: absolute;
+    left: 28px;
+    right: 28px;
+    top: 28px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border-strong);
+    font-size: 13px;
+    line-height: 1.4;
+    container-type: inline-size;
+    translate: calc(var(--px, 0) * -8px) calc(var(--py, 0) * -6px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  /* Keyframes the drawings in showcase/ share. */
+  @keyframes press {
+    50% {
+      scale: 0.96;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      transform: translateY(12px);
+      opacity: 0;
+    }
+  }
+</style>
+
+
+<script>
+  /* Each tile learns where the pointer is over it, from -1 to 1, for the shift between its
+     layers. Leaving a tile settles it back. */
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  for (const piece of document.querySelectorAll<HTMLElement>("[data-piece]")) {
+    piece.addEventListener("pointermove", (event) => {
+      if (still) return;
+      const box = piece.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      piece.style.setProperty("--px", ((x / box.width) * 2 - 1).toFixed(3));
+      piece.style.setProperty("--py", ((y / box.height) * 2 - 1).toFixed(3));
+    });
+    piece.addEventListener("pointerleave", () => {
+      for (const name of ["--px", "--py"]) piece.style.removeProperty(name);
+    });
+  }
+</script>

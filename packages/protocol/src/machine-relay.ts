@@ -57,7 +57,8 @@ export const TransferRelayRequest = z.discriminatedUnion("kind", [
     kind: z.literal("chunk"),
     transferId: TransferKey,
     offset: z.int().min(0).max(maxTransferBytes),
-    part: z.enum(["code", "ignored"]),
+    /** The code, the files Git ignores, or a live move's final payload (ADR 0191). */
+    part: z.enum(["code", "ignored", "final"]),
     data: z
       .string()
       .min(1)

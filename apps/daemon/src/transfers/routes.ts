@@ -168,13 +168,8 @@ async function relayChunk(
   options: { timeoutMs: number; signal?: AbortSignal },
   now: () => number,
 ): Promise<{ offset: number }> {
-  if (send.part !== "code" && send.part !== "ignored")
-    throw new MachineFailure(
-      "refused",
-      "not_supported",
-      "This part of a transfer can't go through a relay yet.",
-      true,
-    );
+  if (send.part !== "code" && send.part !== "ignored" && send.part !== "final")
+    throw new MachineFailure("refused", "invalid", "No such part of a transfer.", true);
   const part = send.part;
   const deadline = now() + options.timeoutMs;
   const chunk = { offset: send.offset, length: send.data.length };

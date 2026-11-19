@@ -2,7 +2,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { MachineTransferCall, TransferKey, transferChunkBytes, type Device } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import { keepTrusted } from "../sni-listener.ts";
-import { answerTransfer, refused, type TransferRequest, type TransferTarget } from "./serve.ts";
+import {
+  answerTransfer,
+  assertMayTransfer,
+  deviceNow,
+  refused,
+  type TransferRequest,
+  type TransferTarget,
+} from "./serve.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
 
@@ -63,13 +70,21 @@ export function transfersHttp(
     void (async () => {
       let parsed: TransferRequest;
       try {
+        // A chunk's bytes are read only for a device that may send them.
+        if (route === "chunk") assertMayTransfer(device);
         parsed = await readRequest(request, url, route);
       } catch (error) {
         const answer = refused(owner, device, error);
         reply(answer.status, answer.body);
         return;
       }
-      const answer = await answerTransfer(owner, device, parsed);
+      // Read again right before each write or import: scopes may have narrowed meanwhile.
+      const answer = await answerTransfer(
+        owner,
+        device,
+        parsed,
+        deviceNow(() => authenticate(token)),
+      );
       reply(answer.status, answer.body);
     })().catch((error: unknown) =>
       owner.log("Serving a transfer call failed", {
@@ -99,7 +114,8 @@ async function readRequest(
   if (!Number.isSafeInteger(offset) || offset < 0)
     throw new TargetRefusal("invalid", "Bad offset.");
   const part = url.searchParams.get("part") ?? "code";
-  if (part !== "code" && part !== "ignored") throw new TargetRefusal("invalid", "Bad part.");
+  if (part !== "code" && part !== "ignored" && part !== "final")
+    throw new TargetRefusal("invalid", "Bad part.");
   return {
     kind: "chunk",
     transferId,

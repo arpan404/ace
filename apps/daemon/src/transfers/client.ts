@@ -89,14 +89,14 @@ export class TransferClient {
     offset: number,
     data: Buffer,
     signal?: AbortSignal,
-    part: "code" | "ignored" = "code",
+    part: "code" | "ignored" | "final" = "code",
     /** How long the chunk may take; follows the link's measured throughput. */
     timeoutMs = 120_000,
   ): Promise<number> {
     const query = `transfer=${encodeURIComponent(transferId)}&offset=${offset}`;
     const answer = await this.request(
       {
-        path: `/v1/transfers/chunk?${query}${part === "ignored" ? "&part=ignored" : ""}`,
+        path: `/v1/transfers/chunk?${query}${part === "code" ? "" : `&part=${part}`}`,
         method: "PUT",
         body: data,
         contentType: "application/octet-stream",

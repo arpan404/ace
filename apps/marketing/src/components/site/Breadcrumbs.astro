@@ -26,27 +26,44 @@ const steps = trail(Astro.props.path);
 </nav>
 
 <style>
+  /* A quiet line under the header: it sits in the page's flow, so the floating bar never covers it. */
   .crumbs {
-    padding-top: 28px;
+    padding-top: clamp(18px, 2.4vw, 28px);
   }
 
   ol {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     color: var(--subtle);
     font-size: 13px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  /* The current page gives way first when the line is too long for the screen. */
+  li:last-child {
+    flex: 0 1 auto;
+    min-width: 0;
   }
 
   li:not(:last-child)::after {
     content: "/";
-    margin-left: 8px;
     color: var(--faint);
   }
 
   a {
-    color: var(--muted);
+    color: var(--subtle);
     text-decoration: none;
+    transition: color var(--motion-fast) var(--ease-out);
   }
 
   a:hover {
@@ -54,6 +71,8 @@ const steps = trail(Astro.props.path);
   }
 
   [aria-current] {
-    color: var(--foreground);
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
   }
 </style>

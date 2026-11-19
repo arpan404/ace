@@ -30,6 +30,7 @@ const tokens: Record<ThreadStatus["state"], StatusToken> = {
   failed: "failed",
   unresponsive: "unresponsive",
   new: "neutral",
+  moved: "neutral",
 };
 
 /**

@@ -21,48 +21,58 @@ struct CreateProjectView: View {
         _drafts = State(initialValue: ProjectCreationDraftModel(hostId: model.hostId ?? "unpaired", cloning: cloning))
     }
     var body: some View {
-        QuietPage {
-            Group {
-                if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
-                if cloning {
-                    QuietGroup {
-                        NavigationLink {
-                            GitHubRepositoriesView(model: model) { row in
-                                drafts.edit { $0.url = row.cloneUrl; $0.name = row.name }
-                                problem = nil
-                            }
-                        } label: { HStack { QuietRowText(title: "Choose from GitHub", detail: "Your repositories, through gh on the machine"); RowCaret() } }
-                        .accessibilityIdentifier("project.clone.github")
-                    }
-                }
-                QuietGroup {
-                    if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
-                    TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
-                    TextField("Parent folder on Mac", text: field(\.parent)).font(AceDesign.Typeface.code).accessibilityIdentifier("project.create.parent")
-                } footer: { Text("Created on your connected machine. The folder and repository are kept there.") }
-                if !cloning {
-                    QuietGroup {
-                        Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
-                        if draft.git {
-                            TextField("Initial branch (\(initialBranch))", text: field(\.branch))
-                            TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
+        List {
+            if model.connection != "ready" {
+                Section { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
+                    .listRowBackground(Color.clear)
+            }
+            if let message = problem ?? drafts.problem {
+                Section { ProblemRow(message, id: "project.create.problem") }
+            }
+            if cloning {
+                Section {
+                    NavigationLink {
+                        GitHubRepositoriesView(model: model) { row in
+                            drafts.edit { $0.url = row.cloneUrl; $0.name = row.name }
+                            problem = nil
                         }
-                    } header: { InsetHeader("Git") }
+                    } label: { InsetRow("Choose from GitHub", systemImage: nil, subtitle: "Your repositories, through gh on the computer") }
+                    .accessibilityIdentifier("project.clone.github")
                 }
-                ServiceProblem(message: problem ?? drafts.problem)
-                if busy {
-                    if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
-                        if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
-                        else { HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(progress.label) } }
-                    } else { HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(cloning ? "Cloning repository…" : "Creating project…") } }
-                }
-                Button(cloning ? "Clone repository" : "Create project") { submission = Task { await submit() } }
+                .insetRowBackground()
+            }
+            Section {
+                if cloning { TextField("Repository URL", text: field(\.url)).keyboardType(.URL).accessibilityIdentifier("project.clone.url") }
+                TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
+                TextField("Parent folder", text: field(\.parent)).font(AceDesign.Typeface.code).accessibilityIdentifier("project.create.parent")
+            } footer: { Text("The folder is made on your computer.") }
+            .insetRowBackground()
+            if !cloning {
+                Section {
+                    Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
+                    if draft.git {
+                        TextField("Initial branch (\(initialBranch))", text: field(\.branch))
+                        TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
+                    }
+                } header: { InsetHeader("Git") }
+                .insetRowBackground()
+            }
+            Section {
+                VStack(spacing: AceDesign.Space.related) {
+                    if busy { progress }
+                    Button { submission = Task { await submit() } } label: {
+                        Text(cloning ? "Clone repository" : "Create project").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.primaryAction).controlSize(.large)
                     .disabled(!ready || busy || !model.canOperate || model.connection != "ready")
                     .accessibilityIdentifier("project.create.submit")
+                }
             }
-
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
         }
-
+        .insetGroupedList()
+        .smoothChange(busy)
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .disabled(busy)
         .navigationTitle(cloning ? "Clone repository" : "New project").navigationBarTitleDisplayMode(.inline)
@@ -76,6 +86,16 @@ struct CreateProjectView: View {
             }
         }
     }
+    @ViewBuilder private var progress: some View {
+        if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
+            if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
+            else { HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(progress.label) } }
+        } else {
+            HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(cloning ? "Cloning repository…" : "Creating project…") }
+                .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+        }
+    }
+
     private var ready: Bool {
         !draft.parent.isEmpty && draft.parent.utf16.count <= 4096 && !draft.name.isEmpty && draft.name.utf16.count <= 256 &&
         draft.branch.utf16.count <= 1024 && draft.gitignore.utf16.count <= 65536 && (!cloning || (!draft.url.isEmpty && draft.url.utf16.count <= 4096))
@@ -96,7 +116,7 @@ struct CreateProjectView: View {
         guard ready, !busy, model.canOperate, model.connection == "ready", let id = drafts.reserve(make: { "project-" + UUID().uuidString.lowercased() }) else { return }
         busy = true; problem = nil
         defer { busy = false }
-        guard await model.createProject(draft, cloning: cloning, requestId: id) else { problem = model.error ?? "Couldn't save the request. Your draft is still here."; return }
+        guard await model.createProject(draft, cloning: cloning, requestId: id) else { problem = model.error ?? "Couldn't send it. Your draft is kept."; return }
         guard !Task.isCancelled else { return }
         // Clones can outlive the sheet. The durable command continues and keeps this identity.
         for _ in 0..<600 {
@@ -108,7 +128,7 @@ struct CreateProjectView: View {
             }
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
         }
-        problem = "Saved on this phone. You can leave this screen; retrying checks the same request."
+        problem = "Your computer hasn't answered yet. You can leave this screen; it keeps going."
     }
     private func cancelClone() async {
         guard let id = draft.commandId, !cancelling else { return }

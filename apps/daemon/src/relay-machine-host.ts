@@ -12,6 +12,7 @@ import { TargetRefusal } from "./machines/target-refusal.ts";
 import { hostedRelayCarries, hostedRelayRefusal } from "./transfers/route-policy.ts";
 import {
   answerTransfer,
+  deviceNow,
   refused,
   type TransferRequest,
   type TransferTarget,
@@ -128,7 +129,13 @@ export async function serveRelayMachineCalls(
     const request = transferRequest(call);
     if (options.hostedRelay && !hostedRelayCarries(request))
       return refused(owner, device, new TargetRefusal("not_supported", hostedRelayRefusal, true));
-    return answerTransfer(owner, device, request);
+    // As on the TLS listener: the device is read again right before each write or import.
+    return answerTransfer(
+      owner,
+      device,
+      request,
+      deviceNow(() => options.device()),
+    );
   };
   /** A finished work slot goes to the next waiting call, or is given back. */
   function handOn() {

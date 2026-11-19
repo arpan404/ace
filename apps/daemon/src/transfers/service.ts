@@ -20,6 +20,11 @@ import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
 import { threadGone } from "../thread-gone.ts";
 import { sourceThreads, targetProjects, targetThreads } from "./service-adapters.ts";
+import { liveResumePorts, liveSourcePorts, liveTargetPorts } from "./live/adapters.ts";
+import { LiveResumes } from "./live/resumes.ts";
+import { ThreadOwnership } from "./live/ownership.ts";
+import { LiveSource } from "./live/source.ts";
+import { LiveTarget } from "./live/target.ts";
 
 export interface DaemonTransfers {
   outgoing: OutgoingTransfers;
@@ -92,6 +97,13 @@ export function startTransfers(context: ServiceContext): void {
     now,
   });
 
+  // Which machine owns each thread (ADR 0191); the engine's fence reads the same record.
+  const ownership = new ThreadOwnership(store);
+  // What a failed move owes the agent, sent until it goes, across restarts.
+  const resumes = new LiveResumes(
+    liveResumePorts(context, { sleep: options.transfers?.sleep ?? sleep, log: record("warn") }),
+  );
+  resources.own(() => resumes.close());
   const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({
     store,
@@ -102,6 +114,9 @@ export function startTransfers(context: ServiceContext): void {
     projects: targetProjects(context),
     threads: targetThreads(context),
     identities,
+    live: new LiveTarget(
+      liveTargetPorts(context, { ownership, git, archive, log: record("warn") }),
+    ),
     now,
     log: record("info"),
   });
@@ -129,6 +144,15 @@ export function startTransfers(context: ServiceContext): void {
     sleep: options.transfers?.sleep ?? sleep,
     nextId: randomUUID,
     identities,
+    live: new LiveSource(
+      liveSourcePorts(context, {
+        ownership,
+        git,
+        archive,
+        resumes,
+        sleep: options.transfers?.sleep ?? sleep,
+      }),
+    ),
     log: record("info"),
     ...(options.transfers?.offlineMs ? { offlineMs: options.transfers.offlineMs } : {}),
   });
@@ -143,6 +167,11 @@ export function startTransfers(context: ServiceContext): void {
       if (!runtime) return "workspace_unavailable";
       return runtime.continueRefusal(id);
     },
+    // A delegated child moves with its parent; a thread already moving can't move again.
+    liveRefusal: (id) =>
+      services.agentControl?.delegations.journal.get(id)
+        ? "thread_is_child"
+        : ownership.refusal(id)?.code,
   });
   const agents = new AgentTransfers({
     store,
@@ -192,11 +221,16 @@ export function startTransfers(context: ServiceContext): void {
       );
   });
   services.transfers = { outgoing, incoming, commands, agents };
-  void (async () => {
-    await incoming.recover();
+  // Each side recovers on its own: a home indexing its incoming history doesn't hold up the
+  // transfers it is sending (ADR 0170).
+  const recovering = (side: string, run: () => Promise<void>) =>
+    run().catch((error: unknown) =>
+      record("warn")("Transfers could not recover", { side, error: String(error) }),
+    );
+  void recovering("incoming", () => incoming.recover());
+  void recovering("outgoing", async () => {
     await outgoing.recover();
     for (const pending of outgoing.undelivered()) agents.settled(pending);
-  })().catch((error: unknown) =>
-    record("warn")("Transfers could not recover", { error: String(error) }),
-  );
+  });
+  resumes.start();
 }

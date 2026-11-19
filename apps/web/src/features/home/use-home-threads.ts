@@ -5,7 +5,6 @@ import { useCallback, useDeferredValue, useMemo } from "react";
 import { useNow } from "@/lib/time.ts";
 import {
   activityOf,
-  archivedOrder,
   placeReader,
   projectCounts,
   standingReader,
@@ -20,11 +19,13 @@ import {
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useIsChatThread, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
-import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+import { useOrganizeOverlay, useOrganizer } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
+import { archivedInScope, inProjectScope } from "./project-scope.ts";
+import { useProjectScope } from "./use-project-scope.ts";
 
 /** How Home orders the threads below Pinned (Settings › Agents › Sort threads). */
 export function useHomeSort(): HomeSort {
@@ -150,7 +151,7 @@ export function useHomeList(
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
-  const state = useOrganizerState();
+  const scope = useProjectScope().checkouts;
   const now = useNow();
   const read = useEntries();
   const placed = usePlaceOf(now, false);
@@ -164,9 +165,11 @@ export function useHomeList(
       const onDevice = device
         ? all.filter((entry) => inScope(device, machineRow(entry.id)?.hostId ?? ownDevice))
         : all;
-      const project = state.project;
+      // A project covers its checkouts on every machine (ADR 0189).
       const work = onDevice.filter(
-        (entry) => !isChatThread(entry) && (project === null || entry.workspaceId === project),
+        (entry) =>
+          !isChatThread(entry) &&
+          inProjectScope(scope, machineRow(entry.id)?.hostId ?? ownDevice, entry.workspaceId),
       );
       const entries =
         query.trim().length > 0
@@ -193,7 +196,7 @@ export function useHomeList(
       };
     },
     [
-      state,
+      scope,
       read,
       others,
       device,
@@ -303,16 +306,18 @@ export function useProjects(): ProjectCount[] {
 const noIds: readonly string[] = [];
 
 /**
- * The archive, within the project filter: archived threads not deleted, most recently archived
- * first, with organize actions not yet confirmed (a Restore leaves it at once).
+ * The archive, within the project filter as the panel scopes it (every checkout here of the
+ * chosen project): archived threads not deleted, most recently archived first, with organize
+ * actions not yet confirmed (a Restore leaves it at once).
  */
 export function useArchivedList(): readonly string[] {
   const keys = useEveryEntryKey();
-  const { project } = useOrganizerState();
+  const scope = useProjectScope().checkouts;
+  const own = usePrimaryMachine().id;
   const read = useEntries();
   const select = useCallback(
-    (reader: SidebarReader) => archivedOrder(read(reader), { project }),
-    [read, project],
+    (reader: SidebarReader) => archivedInScope(read(reader), scope, own),
+    [read, scope, own],
   );
   return useSidebar(keys, select, arrayEqual) ?? noIds;
 }

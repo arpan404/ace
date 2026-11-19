@@ -17,17 +17,35 @@ export type TransferRequest =
       kind: "chunk";
       transferId: string;
       offset: number;
-      part: "code" | "ignored";
+      part: "code" | "ignored" | "final";
       data: Buffer;
     };
 
 /** Transfers are the person's or their agents' moves of work, so they need both scopes. */
-function assertMayTransfer(device: Device): void {
+export function assertMayTransfer(device: Device): void {
   if (!allows(device, "operate") || !allows(device, "projects"))
     throw new TargetRefusal(
       "machine_forbidden",
-      "This machine's link doesn't allow moving projects here. Link the machines again with Projects allowed.",
+      "This machine's link doesn't allow moving projects here. Allow projects for it in Settings › Fleet.",
     );
+}
+
+/**
+ * The device as its credential stands now, from `lookup`: a body can take long to arrive, and the
+ * device's scopes can be narrowed or its credential revoked meanwhile. So each write and import
+ * checks again right before it is accepted, never with what the request started with.
+ */
+export function deviceNow(lookup: () => Device | undefined): () => Device {
+  return () => {
+    const current = lookup();
+    if (!current)
+      throw new TargetRefusal(
+        "machine_forbidden",
+        "This machine's link isn't paired here anymore.",
+      );
+    assertMayTransfer(current);
+    return current;
+  };
 }
 
 /** A failure as the refusal the caller is answered with. */
@@ -42,20 +60,21 @@ export function transferRefusal(error: unknown): TargetRefusal {
 /**
  * Answers one transfer call from a paired device: on the TLS listener (`/v1/transfers`,
  * `/v1/transfers/chunk`) and on a relay `machine` stream (`machine.transfer`) alike, so both
- * apply the same authority, read again on every call. `remote.agentAccess` does not apply.
+ * apply the same authority. `device` is who asked; `now` reads the device again right before
+ * each write or import (`deviceNow`). `remote.agentAccess` does not apply.
  */
 export async function answerTransfer(
   owner: TransferTarget,
   device: Device,
   request: TransferRequest,
+  now: () => Device,
 ): Promise<{ status: number; body: unknown }> {
   try {
     if (request.kind === "chunk") {
-      assertMayTransfer(device);
       const { transferId, offset, data, part } = request;
       return {
         status: 200,
-        body: await owner.incoming.chunk(device, transferId, offset, data, part),
+        body: await owner.incoming.chunk(now(), transferId, offset, data, part),
       };
     }
     const { call } = request;
@@ -67,8 +86,7 @@ export async function answerTransfer(
       };
       return { status: 200, body: probe };
     }
-    assertMayTransfer(device);
-    return { status: 200, body: await owner.incoming.call(device, call) };
+    return { status: 200, body: await owner.incoming.call(now(), call) };
   } catch (error) {
     return refused(owner, device, error);
   }

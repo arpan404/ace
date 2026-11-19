@@ -21,6 +21,8 @@ struct SubagentView: View {
     let push: (SubagentRoute) -> Void
     /// A child that runs as its own ace thread: leaves the sheet and opens it.
     let openThread: (String) -> Void
+    /// Shows the thread's browser, for this agent's browser help; nil where this view can't.
+    var openBrowser: (() -> Void)? = nil
     @State private var questionDraft = QuestionDraftState()
     @State private var showLog = false
     private var lane: LaneModel? { thread.screen.lane?.agentId == route.agentId ? thread.screen.lane : nil }
@@ -99,7 +101,7 @@ struct SubagentView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 if let request {
                     StripSurface(maxHeight: 360) {
-                        RequestCard(request: request, model: model, maxHeight: 320, questionDraft: $questionDraft, openBrowser: {})
+                        RequestCard(request: request, model: model, maxHeight: 320, questionDraft: $questionDraft, openBrowser: openBrowser)
                     }
                     .transition(.opacity)
                 }

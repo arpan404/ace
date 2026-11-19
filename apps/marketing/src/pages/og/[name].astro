@@ -1,0 +1,173 @@
+---
+/*
+ * A social card, laid out at exactly 1200 by 630 for scripts/og.ts to photograph into
+ * public/og.png (the home card) and public/og/<name>.png (seo/cards.ts). Not a page for people:
+ * it is noindex and in neither the sitemap nor routes.ts.
+ *
+ * Near-black, ace's logo and name, the headline large in Geist, one line under it, and ace's
+ * mark set in the letters of its name standing behind on the right, as on every page of the site.
+ * One touch of orange: the dot before the address.
+ */
+/* The fonts are imported here, not from the style block, so the build rewrites their file
+   paths; from a style block they stay relative and the card would be set in a fallback face. */
+import "@fontsource-variable/geist/index.css";
+import "@fontsource-variable/geist-mono/index.css";
+import { aceMarkBox, aceWing } from "../../brand/mark.ts";
+import { markRows } from "../../scripts/ascii-mark.ts";
+import { cards, cardSize, type Card } from "../../seo/cards.ts";
+
+export function getStaticPaths() {
+  return cards.map((card) => ({ params: { name: card.name }, props: { card } }));
+}
+
+interface Props {
+  card: Card;
+}
+
+const { card } = Astro.props;
+/* Two sentences take a line each; a longer single one is set smaller so it fits in three. */
+const sentences = card.headline.match(/[^.]+\.?/g)?.map((part) => part.trim()) ?? [card.headline];
+const size = card.headline.length <= 34 ? 104 : card.headline.length <= 42 ? 88 : 76;
+/* Geist Mono's letters are 0.6em wide and the rows 1.15em apart, as in the page backdrop. */
+const columns = 64;
+const rows = markRows({ wing: aceWing, box: aceMarkBox, columns, cell: 0.6 / 1.15, word: "ace" });
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="viewport" content={`width=${cardSize.width}`} />
+    <title>{`Social card: ${card.name}`}</title>
+  </head>
+  <body style={`--size:${size}px;--width:${cardSize.width}px;--height:${cardSize.height}px`}>
+    <pre class="mark" aria-hidden="true">{rows.join("\n")}</pre>
+
+    <header>
+      <span class="brand">
+        <svg class="logo" width="60" height="60" viewBox="0 0 20 20" aria-hidden="true">
+          <g fill="currentColor" transform="translate(1 1.83) scale(0.75)">
+            <path d={aceWing}></path>
+            <path transform="translate(24 0) scale(-1 1)" d={aceWing}></path>
+          </g>
+        </svg>
+        <span class="word">ace</span>
+      </span>
+      <span class="address"><i></i>acehq.dev</span>
+    </header>
+
+    <main>
+      <h1>{sentences.map((sentence) => <span>{sentence}</span>)}</h1>
+      <p>{card.line}</p>
+    </main>
+  </body>
+</html>
+
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+  }
+
+  html,
+  body {
+    width: var(--width);
+    height: var(--height);
+    overflow: hidden;
+  }
+
+  body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 64px 72px 68px;
+    background: #0b0d10;
+    color: #eceef0;
+    font-family: "Geist Variable", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The mark in its own letters, faint, standing to the right and fading toward the words. */
+  .mark {
+    position: absolute;
+    top: 59%;
+    left: 79%;
+    translate: -50% -50%;
+    color: rgb(236 238 240 / 0.2);
+    font-family: "Geist Mono Variable", monospace;
+    font-size: 14.5px;
+    font-weight: 500;
+    line-height: 1.15;
+    mask-image: linear-gradient(to right, transparent 10%, #000 62%);
+  }
+
+  header,
+  main {
+    position: relative;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .logo {
+    border-radius: 30%;
+    background: #eceef0;
+    color: #0b0d10;
+  }
+
+  .word {
+    font-size: 50px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+  }
+
+  .address {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #a2aab4;
+    font-family: "Geist Mono Variable", monospace;
+    font-size: 24px;
+  }
+
+  .address i {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ff7a2f;
+  }
+
+  h1 {
+    max-width: 960px;
+    font-size: var(--size);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    text-wrap: balance;
+  }
+
+  h1 span {
+    display: block;
+  }
+
+  p {
+    max-width: 860px;
+    margin-top: 28px;
+    color: #a2aab4;
+    font-size: 30px;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    text-wrap: balance;
+  }
+</style>

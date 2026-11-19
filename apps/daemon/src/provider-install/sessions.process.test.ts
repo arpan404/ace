@@ -50,6 +50,38 @@ test("official npm install, update and uninstall stream bounded sanitized progre
   }
 });
 
+test("Codex verifies a Bun update after a temporary version probe failure", async () => {
+  let failed = false;
+  const f = await installFixture({
+    managers: ["bun"],
+    async probe(command, args, options) {
+      const result = await probeOutput(command, args, options);
+      if (!failed && args.join(" ") === "--version" && result.stdout === "2.0.0") {
+        failed = true;
+        throw new Error("Probe timed out");
+      }
+      return result;
+    },
+  });
+  try {
+    await f.existing("codex", "bun");
+    await f.request({
+      type: "provider.install.run",
+      requestId: "update",
+      provider: "codex",
+      action: "update",
+      method: "bun",
+    });
+    expect(await f.wait((event) => ["succeeded", "failed"].includes(event.state))).toMatchObject({
+      state: "succeeded",
+      version: "2.0.0",
+    });
+    expect((await f.calls()).filter((call) => call[1] === "install")).toHaveLength(1);
+  } finally {
+    await f.close();
+  }
+});
+
 test("cancellation stops the package manager and its stubborn child before another provider operation is admitted", async () => {
   const f = await installFixture({ managers: ["npm"] });
   try {

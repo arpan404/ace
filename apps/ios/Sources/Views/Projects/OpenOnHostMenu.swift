@@ -55,7 +55,7 @@ struct OpenOnHostMenu<Label: View>: View {
         .task(id: model.connection) { await read() }
         .sensoryFeedback(.success, trigger: opened)
         .alert("Couldn't open it", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-            Button("OK") { problem = nil }
+            Button("Dismiss", role: .cancel) { problem = nil }
         } message: { Text(problem ?? "") }
     }
 

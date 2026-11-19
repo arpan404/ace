@@ -16,12 +16,12 @@ struct AgentsSheet: View {
         NavigationStack(path: $path) {
             AgentTreePage(model: model, thread: thread, openAgent: { path.append($0) },
                           openThread: openThread.map { open in { child in dismiss(); open(child) } },
-                          openChat: panelHost == nil ? { dismiss() } : nil)
+                          openChat: panelHost == nil ? { dismiss() } : nil, openBrowser: showBrowser)
                 .navigationTitle("Agents")
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: SubagentRoute.self) { route in
                     SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
-                                 openThread: { child in dismiss(); openThread?(child) })
+                                 openThread: { child in dismiss(); openThread?(child) }, openBrowser: showBrowser)
                 }
                 .sheetEscape { dismiss() }
                 .toolbar {
@@ -34,5 +34,10 @@ struct AgentsSheet: View {
                 }
         }
         .tint(AceDesign.Ink.action)
+    }
+
+    /// Browser help from an agent here opens the panel's Browser tab.
+    private func showBrowser() {
+        model.panel(thread.id, ["op": "open", "kind": PanelTool.browser.rawValue])
     }
 }

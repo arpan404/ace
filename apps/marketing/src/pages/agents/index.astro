@@ -6,6 +6,7 @@ import PageIntro from "../../components/site/PageIntro.astro";
 import { agentGuides } from "../../content/agent-guides.ts";
 import { faq } from "../../content/product.ts";
 import Page from "../../layouts/Page.astro";
+import { agentsMeta } from "../../seo/meta.ts";
 import { faqPage, itemList, schemaFor } from "../../seo/schema.ts";
 
 const path = "/agents/";
@@ -23,8 +24,8 @@ const list = itemList(
 
 <Page
   path={path}
-  title="Claude Code, Codex, Cursor and every ACP agent in one app: ace"
-  description="ace runs Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any Agent Client Protocol agent side by side, through the CLIs you already have."
+  title={agentsMeta.title}
+  description={agentsMeta.description}
   pageType="CollectionPage"
   schema={[list, faqPage(schema, path, questions)]}
 >
@@ -33,7 +34,7 @@ const list = itemList(
     intro="ace drives the agent CLIs you already have signed in. Six are built in, and any agent that speaks the Agent Client Protocol works too. Mix them freely: one thread per task, each with the agent that fits it."
     secondary={{ href: "/features/", label: "What ace adds" }}
   />
-  <Agents intro={false} />
+  <Agents />
   <Faq items={questions} heading="Questions about agents" moreHref="/faq/" />
   <Closing />
 </Page>

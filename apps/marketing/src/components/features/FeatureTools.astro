@@ -1,0 +1,105 @@
+---
+/*
+ * The MCP tools behind a feature: a short statement beside the tools as ruled rows, each its
+ * name in mono and the line /mcp/ gives it (content/mcp.ts). Nothing shows for a feature
+ * without tools.
+ */
+import { toolReference } from "../../content/mcp.ts";
+
+interface Props {
+  tools: string[];
+}
+
+const { tools } = Astro.props;
+
+const lines = new Map(
+  toolReference.flatMap((family) => family.tools.map((tool) => [tool.name, tool.does] as const)),
+);
+const rows = tools.map((tool) => ({ name: tool, does: lines.get(tool) }));
+---
+
+{
+  rows.length > 0 && (
+    <section class="section page tools">
+      <header class="say reveal">
+        <h2 class="section-title">The tools behind it.</h2>
+        <p class="lede">
+          MCP tools every agent in ace gets, whichever CLI runs it.
+        </p>
+        <a class="text-link" href="/mcp/">
+          Every tool ace gives agents
+        </a>
+      </header>
+      <ul class="card reveal">
+        {rows.map((row) => (
+          <li>
+            <code>{row.name}</code>
+            {row.does && <span>{row.does}</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+<style>
+  .tools {
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .tools {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .lede {
+    margin-top: 20px;
+  }
+
+  .say .text-link {
+    display: inline-block;
+    margin-top: 20px;
+    font-size: 15px;
+  }
+
+  ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li {
+    display: grid;
+    gap: 4px;
+    padding: 14px 14px 15px;
+  }
+
+  @media (min-width: 640px) {
+    li {
+      grid-template-columns: 180px 1fr;
+      gap: 20px;
+      align-items: baseline;
+    }
+  }
+
+  code {
+    color: var(--foreground);
+    font-size: 13.5px;
+  }
+
+  span {
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+</style>

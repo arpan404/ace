@@ -1,0 +1,102 @@
+---
+/*
+ * A MacBook Pro seen from the front: the lid with its black bezel and camera notch, and the
+ * edge of the aluminium body under it. The slot is the 1352 × 880 screen. The lid carries
+ * `data-lid` so a label can stand over the screen's corner and not the wider body's.
+ */
+---
+
+<div class="macbook">
+  <div class="lid" data-lid>
+    <div class="screen"><slot /></div>
+    <span class="notch"><i></i></span>
+  </div>
+  <div class="body"></div>
+</div>
+
+<style>
+  .macbook {
+    position: relative;
+    width: 1616px;
+    height: 968px;
+  }
+
+  .lid {
+    position: absolute;
+    left: 110px;
+    top: 0;
+    width: 1396px;
+    height: 926px;
+    border-radius: 36px 36px 10px 10px;
+    background: #08080a;
+    box-shadow:
+      inset 0 0 0 2px #1d1e21,
+      0 0 0 2px var(--metal-rim);
+  }
+
+  .screen {
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    width: 1352px;
+    height: 880px;
+    overflow: hidden;
+    border-radius: 16px 16px 4px 4px;
+  }
+
+  /* The camera housing dips into the menu bar, between the menus and the status items. */
+  .notch {
+    position: absolute;
+    left: 50%;
+    top: 20px;
+    z-index: 5;
+    width: 204px;
+    height: 30px;
+    margin-left: -102px;
+    border-radius: 0 0 12px 12px;
+    background: #08080a;
+  }
+
+  .notch i {
+    position: absolute;
+    left: 50%;
+    top: 9px;
+    width: 9px;
+    height: 9px;
+    margin-left: -4.5px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #2a3350, #07080c 70%);
+  }
+
+  /* The body's front edge: wider than the lid, rounded underneath, with the thumb scoop. */
+  .body {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 1616px;
+    height: 44px;
+    border-radius: 4px 4px 30px 30px / 4px 4px 40px 40px;
+    background: linear-gradient(
+      to bottom,
+      var(--metal-hi) 0%,
+      var(--metal) 14%,
+      var(--metal) 52%,
+      var(--metal-lo) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 40px 60px -28px var(--frame-shadow);
+  }
+
+  .body::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 236px;
+    height: 12px;
+    margin-left: -118px;
+    border-radius: 0 0 14px 14px;
+    background: linear-gradient(to bottom, var(--metal-lo), var(--metal));
+  }
+</style>
