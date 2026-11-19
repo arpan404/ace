@@ -661,6 +661,9 @@ export class IncomingTransfers {
     const live = this.deps.live;
     const commit = record?.commit;
     if (!record || !live || !commit?.live || !commit.thread || !record.result?.threadId) return;
+    // Only a thread whose setup finished starts: its handoff and its link back are in place.
+    // An unfinished setup starts it itself once done, or records why it never did.
+    if (record.state !== "completed") return;
     const threadId = record.result.threadId;
     const result = record.result;
     const thread = commit.thread;
