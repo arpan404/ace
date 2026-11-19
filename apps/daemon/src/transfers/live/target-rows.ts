@@ -141,7 +141,7 @@ export class LiveStarts {
   unfinished(after = ""): LiveStart[] {
     return this.store
       .statement(
-        `SELECT s.* FROM transfer_live_pending p JOIN transfer_live_start s USING (transfer_id)
+        `SELECT s.* FROM transfer_live_pending p CROSS JOIN transfer_live_start s USING (transfer_id)
         WHERE p.transfer_id>? ORDER BY p.transfer_id LIMIT ${pendingBatch}`,
       )
       .all(after)

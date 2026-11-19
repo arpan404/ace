@@ -155,6 +155,11 @@ export class IncomingRows {
       .get(transferId);
     return raw ? decode(Row.parse(raw)) : undefined;
   }
+  /*
+   * Each read below starts from a side table (see incoming-index.ts) and reaches the row by its
+   * key. CROSS JOIN keeps that order: without statistics SQLite would otherwise scan the
+   * transfers table and look the side table up.
+   */
   /**
    * Rows a restart left mid-import: with a `result` they passed the cutoff and are finished,
    * otherwise they are rolled back and run again.
@@ -162,7 +167,7 @@ export class IncomingRows {
   unsettled(): IncomingRecord[] {
     return this.store
       .statement(
-        `SELECT t.* FROM transfer_incoming_open o JOIN transfer_incoming t USING (transfer_id)
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
         WHERE t.state IN ('cloning','importing') ORDER BY t.created_at LIMIT 64`,
       )
       .all()
@@ -172,7 +177,7 @@ export class IncomingRows {
   leftovers(): IncomingRecord[] {
     return this.store
       .statement(
-        `SELECT t.* FROM transfer_incoming_open o JOIN transfer_incoming t USING (transfer_id)
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
         WHERE t.state IN ('failed','cancelled')
         AND (t.registered_id IS NOT NULL OR t.created_path IS NOT NULL) LIMIT 64`,
       )
@@ -183,7 +188,7 @@ export class IncomingRows {
   live(): string[] {
     return this.store
       .statement(
-        `SELECT t.transfer_id FROM transfer_incoming_open o JOIN transfer_incoming t USING (transfer_id)
+        `SELECT t.transfer_id FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
         WHERE t.state IN ('receiving','cloning','importing') LIMIT 1024`,
       )
       .all()
@@ -196,7 +201,7 @@ export class IncomingRows {
   expired(before: number): IncomingRecord[] {
     return this.store
       .statement(
-        `SELECT t.* FROM transfer_incoming_expiry e JOIN transfer_incoming t USING (transfer_id)
+        `SELECT t.* FROM transfer_incoming_expiry e CROSS JOIN transfer_incoming t USING (transfer_id)
         WHERE e.at<? AND NOT EXISTS (SELECT 1 FROM transfer_live_pending p WHERE p.transfer_id=e.transfer_id)
         ORDER BY e.at LIMIT 64`,
       )
