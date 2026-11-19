@@ -166,6 +166,30 @@ export class EditorDocument {
     return readApplied(this.#inner.toggleBlockComment(open, close));
   }
 
+  /**
+   * Types one keystroke at every cursor: brackets and quotes close themselves, a closer types
+   * over the same character, and a bracket over a selection wraps it. Pastes use `insertText`.
+   */
+  typeText(text: string): Applied {
+    return readApplied(this.#inner.typeText(text));
+  }
+
+  /** Enter: the line's indentation, one step more after an opening bracket, split in a pair. */
+  smartNewline(): Applied {
+    return readApplied(this.#inner.smartNewline());
+  }
+
+  /** Backspace: one indent step in leading spaces, both halves of an empty pair, else one grapheme. */
+  smartBackspace(): Applied {
+    return readApplied(this.#inner.smartBackspace());
+  }
+
+  /** The indentation the start of the text uses, or undefined when no line is indented. */
+  detectIndent(): Indent | undefined {
+    const [tabs, size] = this.#inner.detectIndent();
+    return size === undefined ? undefined : { tabs: tabs === 1, size };
+  }
+
   /** How one indent step is written. */
   indent(): Indent {
     const [tabs = 0, size = 2] = this.#inner.indent();

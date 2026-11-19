@@ -142,6 +142,9 @@ export function useEditorDocument(options: {
         () => {
           if (!live || owned.current) return;
           const created = new EditorDocument(initial);
+          // Tab, Enter and the indent keys write what the file already uses.
+          const detected = created.detectIndent();
+          if (detected) created.setIndent(detected);
           owned.current = created;
           setDoc(created);
           setSelections(created.selections());

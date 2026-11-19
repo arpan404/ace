@@ -6,6 +6,7 @@ mod comment;
 mod line_edit;
 mod lines;
 mod select;
+mod smart;
 mod typing;
 
 use crate::buffer::Buffer;

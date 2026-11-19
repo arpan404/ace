@@ -52,6 +52,15 @@ impl Document {
         self.indent
     }
 
+    /// The indentation the start of the text uses, or `None` when no line is indented. Reads at
+    /// most a fixed number of lines, so it costs the same on any file size.
+    pub fn detect_indent(&self) -> Option<Indent> {
+        let lines: Vec<_> = (0..self.buffer.len_lines().min(crate::indent::DETECT_LINES))
+            .map(|index| self.buffer.line(index))
+            .collect();
+        crate::indent::detect_indent(lines.iter().map(|line| line.as_ref()))
+    }
+
     /// Sets how indent commands, Tab and new lines write one indent step.
     pub fn set_indent(&mut self, indent: Indent) {
         self.indent = Indent {

@@ -37,6 +37,10 @@ export interface WasmDocument {
   joinLines(): WasmApplied;
   tab(): WasmApplied;
   toggleBlockComment(open: string, close: string): WasmApplied;
+  typeText(text: string): WasmApplied;
+  smartNewline(): WasmApplied;
+  smartBackspace(): WasmApplied;
+  detectIndent(): Uint32Array;
   indent(): Uint32Array;
   setIndent(tabs: boolean, size: number): void;
   undo(): WasmApplied | undefined;

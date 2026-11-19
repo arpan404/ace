@@ -199,6 +199,32 @@ impl EditorDocument {
         Applied::new(self.core.toggle_block_comment(open, close))
     }
 
+    /// Types one keystroke at every selection, with brackets and quotes that close themselves.
+    #[wasm_bindgen(js_name = typeText)]
+    pub fn type_text(&mut self, text: &str) -> Applied {
+        Applied::new(self.core.type_text(text))
+    }
+
+    /// Enter with indentation: one step more after an opening bracket, split between a pair.
+    #[wasm_bindgen(js_name = smartNewline)]
+    pub fn smart_newline(&mut self) -> Applied {
+        Applied::new(self.core.smart_newline())
+    }
+
+    /// Backspace that removes an indent step in leading spaces, or both halves of an empty pair.
+    #[wasm_bindgen(js_name = smartBackspace)]
+    pub fn smart_backspace(&mut self) -> Applied {
+        Applied::new(self.core.smart_backspace())
+    }
+
+    /// The indentation the text uses as `[tabs (0 or 1), size]`, or empty when none is seen.
+    #[wasm_bindgen(js_name = detectIndent)]
+    pub fn detect_indent(&self) -> Vec<u32> {
+        self.core
+            .detect_indent()
+            .map_or_else(Vec::new, |indent| vec![u32::from(indent.tabs), indent.size])
+    }
+
     /// The indent step as `[tabs (0 or 1), size]`.
     pub fn indent(&self) -> Vec<u32> {
         let indent = self.core.indent();
