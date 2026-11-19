@@ -51,7 +51,7 @@ class Patches {
   }
 }
 
-async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}) {
+async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}, wait: typeof later = later) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
   daemon.services.settings.write("spade.enabled", true);
@@ -76,7 +76,7 @@ async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}) {
   const spade = new NativeSpade(owner, patches, {
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
-    later,
+    later: wait,
   });
   stops.push(() => spade.stop());
   spade.start();
@@ -91,6 +91,11 @@ async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}) {
   return { daemon, api, spade, patches, ask };
 }
 
+/** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */
+function quick(delay: number, callback: () => void) {
+  return later(delay / 100, callback);
+}
+
 function later(delay: number, callback: () => void) {
   const timer = setTimeout(callback, delay);
   return () => clearTimeout(timer);
@@ -103,6 +108,45 @@ test("the Spade tab shows while Beta's switch is on, and goes the moment it is t
   daemon.spade.setStatus({ state: "off", hidden: true });
 
   await until(() => patches.state?.shown === false);
+});
+
+test("with the Spade tab away, a bot starting or ending work still shows, at the slower pace", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Research" });
+  }, quick);
+  if (!bot) throw new Error("no bot");
+  const research = () => patches.state?.list.rows?.find((row) => row.name === "Research");
+  await until(() => research()?.state === "rest");
+
+  api.status(bot, "working", "Reading the notes");
+  await until(() => research()?.state === "working");
+
+  api.status(bot, "idle", null);
+  await until(() => research()?.state === "rest");
+});
+
+/** Waits long enough for several reads at the quick away pace. */
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 1_000));
+
+test("while the app isn't active the bots aren't read, and they are read the moment it is", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Research" });
+  }, quick);
+  if (!bot) throw new Error("no bot");
+  const research = () => patches.state?.list.rows?.find((row) => row.name === "Research");
+  await until(() => research()?.state === "rest");
+
+  spade.handle({ type: "spade.active", active: false });
+  const reads = api.sent("GET", "/v1/agents").length;
+  api.status(bot, "working", "Reading the notes");
+  await quiet();
+  expect(api.sent("GET", "/v1/agents").length).toBe(reads);
+  expect(research()?.state).toBe("rest");
+
+  spade.handle({ type: "spade.active", active: true });
+  await until(() => research()?.state === "working");
 });
 
 test("the list puts Spade first, then whoever needs the person, then working, then the rest", async () => {

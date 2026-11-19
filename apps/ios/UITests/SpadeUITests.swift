@@ -30,7 +30,7 @@ import XCTest
     }
 
     private func openSpade(_ app: XCUIApplication) -> XCUIElement {
-        let tab = app.tabBars.buttons["Spade"]
+        let tab = app.homeTab("spade")
         XCTAssertTrue(tab.waitForExistence(timeout: 30))
         tab.tap()
         return tab
@@ -50,7 +50,7 @@ import XCTest
 
         notes.tap()
         XCTAssertTrue(app.staticTexts["Summarise yesterday's PRs"].waitForExistence(timeout: 15))
-        XCTAssertFalse(app.tabBars.buttons["Spade"].isHittable)
+        XCTAssertFalse(app.homeTab("spade").isHittable)
         screenshot("spade-2-conversation")
     }
 
@@ -210,7 +210,7 @@ import XCTest
 
         XCTAssertTrue(tab.waitForNonExistence(timeout: 15))
         // Back on Projects, the place it left for.
-        XCTAssertTrue(app.tabBars.buttons["Projects"].isSelected)
+        XCTAssertTrue(app.homeTab("threads").isSelected)
         screenshot("spade-6-tab-off")
         try await stage("on")
     }

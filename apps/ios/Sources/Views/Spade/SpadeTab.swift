@@ -4,13 +4,13 @@ import SwiftUI
 /// first, then whoever needs the person, then working, failed, finished and the rest, each with
 /// its face, its name and one line. A bot opens its conversation. With several machines showing
 /// Spade, the title's menu picks whose bots these are. Every word is the bridge's.
-struct SpadeTab: View {
+struct SpadeTab<Bar: View>: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
-    /// The system tab bar is this page's (a phone): it shows over the list and steps away for a
+    /// The phone's tab bar (`HomeBar`), at the list's foot: it steps away with the list for a
     /// conversation, as Projects' does for a page.
-    let tabBar: Bool
+    @ViewBuilder let bar: () -> Bar
     @State private var machine: String?
     @State private var path: [String] = []
     @State private var watch = SpadeWatch()
@@ -25,6 +25,7 @@ struct SpadeTab: View {
             Group {
                 if let session { SpadeList(client: session.client) } else { Color.clear }
             }
+            .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar { if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarTrailing) { machineMenu } } }
             .navigationDestination(for: String.self) { conversation in
@@ -40,7 +41,7 @@ struct SpadeTab: View {
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
         }
-        .modifier(HomeTabBar(shown: tabBar && path.isEmpty))
+        .modifier(HomeTabBar(relayout: "spade \(path.count)"))
         .onChange(of: session?.hostId) { path = [] }
     }
 
@@ -68,29 +69,33 @@ private struct SpadeList: View {
     private var spade: SpadeModel { client.spade }
 
     var body: some View {
-        List {
-            if let line = spade.line, !line.ready {
-                Section { placeLine(line) }
-            }
-            if let bots = spade.bots {
-                ForEach(bots) { bot in
-                    NavigationLink(value: bot.conversation) { SpadeBotRow(bot: bot) }
-                        .accessibilityIdentifier("spade.bot.\(bot.id)")
-                }
-            } else if spade.listFailed {
-                EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
-                    Button("Try again") { client.spadeRefresh() }
-                }
-                .listRowSeparator(.hidden)
-            } else if spade.line?.ready == true {
-                SkeletonRows(count: 4, retry: { client.spadeRefresh() })
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-            }
+        List { rows }
+            .listStyle(.plain)
+            .scrollsToTop(on: .spade, first: spade.bots?.first.map { AnyHashable($0.id) })
+            .refreshable { client.spadeRefresh() }
+            .accessibilityIdentifier("spade.list")
+    }
+
+    /// Why Spade isn't running, then its bots, the failure or skeleton rows while they load.
+    @ViewBuilder private var rows: some View {
+        if let line = spade.line, !line.ready {
+            Section { placeLine(line) }
         }
-        .listStyle(.plain)
-        .refreshable { client.spadeRefresh() }
-        .accessibilityIdentifier("spade.list")
+        if let bots = spade.bots {
+            ForEach(bots) { bot in
+                NavigationLink(value: bot.conversation) { SpadeBotRow(bot: bot) }
+                    .accessibilityIdentifier("spade.bot.\(bot.id)")
+            }
+        } else if spade.listFailed {
+            EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
+                Button("Try again") { client.spadeRefresh() }
+            }
+            .listRowSeparator(.hidden)
+        } else if spade.line?.ready == true {
+            SkeletonRows(count: 4, retry: { client.spadeRefresh() })
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+        }
     }
 
     /// Spade isn't running here: why, in its words, and Turn on where the setting is off.
@@ -160,7 +165,7 @@ struct SpadeBotFace: View {
     var body: some View {
         Group {
             if bot.main {
-                SpadeMark(size: Self.size).foregroundStyle(AceDesign.Ink.primary)
+                SpadeMark(size: Self.size, moving: bot.state == "working").foregroundStyle(AceDesign.Ink.primary)
             } else {
                 Text(bot.initial)
                     .aceFont(AceDesign.TextRole.header)

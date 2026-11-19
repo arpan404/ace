@@ -8,6 +8,11 @@ extension View {
     func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         modifier(SurfaceGlass(shape: shape, composer: false, interactive: interactive))
     }
+    /// The home screen's bar of places (the phone's tab bar, the iPad sidebar's foot): glass that
+    /// carries the page's colour, so the rows scrolling under it stay out of its words.
+    func barGlass<S: Shape>(in shape: S) -> some View {
+        modifier(BarGlass(shape: shape))
+    }
     /// Liquid glass for the composer: the system's own, untinted, so the transcript scrolling
     /// behind it shows through as in the system's own apps.
     @available(iOS 26, *) static var composerLiquidGlass: Glass { .regular.interactive() }
@@ -39,6 +44,32 @@ private struct SurfaceGlass<S: Shape>: ViewModifier {
             content.glassEffect(composer ? Content.composerLiquidGlass : .regular.interactive(interactive), in: shape)
         } else {
             content.background(composer ? .thinMaterial : .regularMaterial, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        }
+    }
+}
+
+/// `barGlass`: the system's glass tinted with the page colour; the solid card with a hairline
+/// when Translucency is off; the thick material before iOS 26.
+private struct BarGlass<S: Shape>: ViewModifier {
+    let shape: S
+    /// How much of the page colour the glass carries: enough that a row's words behind it fade
+    /// to a shape, not so much that it stops reading as glass.
+    private static var tint: Double { 0.8 }
+    private static var veil: Double { 0.6 }
+    @Environment(\.aceSolidSurfaces) private var solid
+
+    func body(content: Content) -> some View {
+        if solid {
+            content.background(AceTheme.Colours.card, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        } else if #available(iOS 26, *) {
+            // The tint alone lets a dark page's words through; a veil of the page colour under
+            // the bar's glyphs holds them back in both themes.
+            content.background(AceTheme.Colours.background.opacity(Self.veil), in: shape)
+                .glassEffect(.regular.tint(AceTheme.Colours.background.opacity(Self.tint)).interactive(), in: shape)
+        } else {
+            content.background(.thickMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }

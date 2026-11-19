@@ -31,7 +31,7 @@ import XCTest
         expectOpen(app, title: "Plan the launch", says: "Project plan, as a thread.", never: "Launch ideas, as a chat.")
         app.tapBack()
 
-        app.tabBars.firstMatch.buttons["Chats"].tap()
+        app.homeTab("chats").tap()
         let chat = app.buttons["chat.\(machine).ios-routing-chat"]
         XCTAssertTrue(chat.waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["chat.\(machine).ios-routing-thread"].exists, "a project thread is never listed in Chats")

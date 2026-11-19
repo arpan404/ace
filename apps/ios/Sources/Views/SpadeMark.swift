@@ -4,33 +4,70 @@ import SwiftUI
 /// round head in the current text colour with two egg-shaped eyes resting low and a hair left,
 /// the face tilted -4°. The eyes are always paper white with near-black outlines and pupils,
 /// whatever the theme. At 24pt and under the outline thickens, the pupils grow and the
-/// catchlight goes, so the face still reads. Decorative: the button around it carries the name.
+/// catchlight goes, so the face still reads. While a Spade bot works the eyes move (`moving`).
+/// Decorative: the button around it carries the name.
 struct SpadeMark: View {
     var size: CGFloat = AceDesign.Size.barIcon
+    /// A Spade bot works: the pupils look around and the eyes blink now and then (`SpadeMotion`),
+    /// until it stops. Still under Reduce Motion and while the app isn't active.
+    var moving = false
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    /// In the background, the app switcher or behind the lock screen the face is still.
+    @Environment(\.scenePhase) private var scenePhase
 
     private static let paper = Color(red: 0xF6 / 255, green: 0xF6 / 255, blue: 0xF7 / 255)
     private static let ink = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255)
 
     var body: some View {
+        Group {
+            if moving && !reduceMotion && scenePhase == .active {
+                // Only this mark redraws, and only while its eyes move (`SpadeMotion.Schedule`);
+                // a timeline slowed below live (the lock screen's always-on) holds the face still.
+                TimelineView(SpadeMotion.Schedule()) { context in
+                    let seconds = context.date.timeIntervalSinceReferenceDate
+                    if context.cadence == .live {
+                        face(look: SpadeMotion.look(at: seconds), open: SpadeMotion.blink(at: seconds))
+                    } else {
+                        face(look: .zero, open: 1)
+                    }
+                }
+            } else {
+                face(look: .zero, open: 1)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    /// The face with its pupils moved by `look` (24-unit box) and its eyes `open` (1 open).
+    private func face(look: CGPoint, open: CGFloat) -> some View {
         let face = SpadeFace(size: size)
-        ZStack {
+        return ZStack {
             // The head, r = 10.6 of 24, in the current text colour.
             Circle().inset(by: 1.4 * face.unit)
             ZStack {
                 ForEach(SpadeFace.eyes.indices, id: \.self) { index in
-                    let centre = SpadeFace.eyes[index]
-                    SpadeEgg(centre: centre, rx: SpadeFace.eye.width + face.ring, ry: SpadeFace.eye.height + face.ring).fill(Self.ink)
-                    SpadeEgg(centre: centre, rx: SpadeFace.eye.width, ry: SpadeFace.eye.height).fill(Self.paper)
-                    SpadeDot(centre: face.pupil(in: centre), rx: face.pupilSize.width, ry: face.pupilSize.height).fill(Self.ink)
-                    if let glint = face.glint(in: centre) {
-                        SpadeDot(centre: glint.centre, rx: glint.radius, ry: glint.radius).fill(Self.paper)
-                    }
+                    eye(face, centre: SpadeFace.eyes[index], look: look)
+                        // Each eye closes about its own middle, as the web's `fill-box` origin.
+                        .scaleEffect(x: 1, y: open, anchor: UnitPoint(x: SpadeFace.eyes[index].x / 24, y: SpadeFace.eyes[index].y / 24))
                 }
             }
             .rotationEffect(.degrees(SpadeFace.tilt))
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+    }
+
+    private func eye(_ face: SpadeFace, centre: CGPoint, look: CGPoint) -> some View {
+        ZStack {
+            SpadeEgg(centre: centre, rx: SpadeFace.eye.width + face.ring, ry: SpadeFace.eye.height + face.ring).fill(Self.ink)
+            SpadeEgg(centre: centre, rx: SpadeFace.eye.width, ry: SpadeFace.eye.height).fill(Self.paper)
+            ZStack {
+                SpadeDot(centre: face.pupil(in: centre), rx: face.pupilSize.width, ry: face.pupilSize.height).fill(Self.ink)
+                if let glint = face.glint(in: centre) {
+                    SpadeDot(centre: glint.centre, rx: glint.radius, ry: glint.radius).fill(Self.paper)
+                }
+            }
+            .offset(x: look.x * face.unit, y: look.y * face.unit)
+        }
     }
 }
 

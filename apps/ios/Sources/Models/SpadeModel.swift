@@ -135,6 +135,8 @@ import Observation
     /// Whether the Spade tab shows, and the conversation it follows: sent again to a new
     /// runtime (`ClientModel.spadeResume`).
     var watching = false
+    /// The app's scene is active, as the bridge was last told (`spadeActive`).
+    var active = true
     var opened: String?
 
     func apply(_ patch: Patch) {
