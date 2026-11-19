@@ -94,7 +94,7 @@ export type DaemonOptions = {
   };
   /** Data between agents (ADR 0182): the relay dialer, the pinned request and the pull pace. */
   parcels?: {
-    connectRelay?: import("../parcels/relay-link.ts").RelayLinkDeps["connect"];
+    connectRelay?: import("../machines/relay-link.ts").RelayLinkDeps["connect"];
     pinned?: import("../parcels/link.ts").ParcelLinkDeps["pinned"];
     pollMs?: number;
   };

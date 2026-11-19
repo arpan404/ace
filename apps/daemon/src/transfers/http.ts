@@ -1,25 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  HostId,
-  MachineTransferCall,
-  TransferKey,
-  transferChunkBytes,
-  type Device,
-  type TransferProbe,
-} from "@ace/protocol";
-import { allows } from "../devices.ts";
+import { MachineTransferCall, TransferKey, transferChunkBytes, type Device } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
-import type { IncomingTransfers } from "./incoming.ts";
 import { keepTrusted } from "../sni-listener.ts";
+import {
+  answerTransfer,
+  assertMayTransfer,
+  deviceNow,
+  refused,
+  type TransferRequest,
+  type TransferTarget,
+} from "./serve.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
-
-export interface TransferTarget {
-  incoming: IncomingTransfers;
-  hostId: string;
-  hostName(): Promise<string>;
-  log(message: string, fields: Record<string, unknown>): void;
-}
 
 async function readBody(request: IncomingMessage, limit: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -33,19 +25,10 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Buffer
   return Buffer.concat(chunks);
 }
 
-/** Transfers are the person's or their agents' moves of work, so they need both scopes. */
-function assertMayTransfer(device: Device): void {
-  if (!allows(device, "operate") || !allows(device, "projects"))
-    throw new TargetRefusal(
-      "machine_forbidden",
-      "This machine's link doesn't allow moving projects here. Allow projects for it in Settings › Fleet.",
-    );
-}
-
 /**
  * `POST /v1/transfers` and `PUT /v1/transfers/chunk` on the paired-device TLS listener
  * (ADR 0101): the same pinned key and device token as `/v1/machine-calls`. Every request
- * authenticates again; `remote.agentAccess` does not apply to transfers.
+ * authenticates again; `answerTransfer` decides it, as it does for one through a relay.
  */
 export function transfersHttp(
   target: () => TransferTarget | undefined,
@@ -84,65 +67,25 @@ export function transfersHttp(
       });
       return;
     }
-    /**
-     * The device as its credential stands now. A body can take long to arrive, and its scopes can
-     * be narrowed or its credential revoked meanwhile, so each write and import checks again
-     * right before it is accepted, never with what the request started with.
-     */
-    const now = (): Device => {
-      const current = authenticate(token);
-      if (!current)
-        throw new TargetRefusal(
-          "machine_forbidden",
-          "This machine's link isn't paired here anymore.",
-        );
-      assertMayTransfer(current);
-      return current;
-    };
     void (async () => {
+      let parsed: TransferRequest;
       try {
-        if (route === "chunk") {
-          assertMayTransfer(device);
-          const transferId = TransferKey.parse(url.searchParams.get("transfer"));
-          const offset = Number(url.searchParams.get("offset"));
-          if (!Number.isSafeInteger(offset) || offset < 0)
-            throw new TargetRefusal("invalid", "Bad offset.");
-          const part = url.searchParams.get("part") ?? "code";
-          if (part !== "code" && part !== "ignored" && part !== "final")
-            throw new TargetRefusal("invalid", "Bad part.");
-          const data = await readBody(request, transferChunkBytes);
-          reply(200, await owner.incoming.chunk(now(), transferId, offset, data, part));
-          return;
-        }
-        const parsed = MachineTransferCall.safeParse(
-          JSON.parse((await readBody(request, 1024 * 1024)).toString()),
-        );
-        if (!parsed.success) throw new TargetRefusal("invalid");
-        const call = parsed.data;
-        if (call.op === "probe") {
-          const probe: TransferProbe = {
-            hostId: HostId.parse(owner.hostId),
-            name: (await owner.hostName()).slice(0, 256) || "ace",
-            accepts: allows(device, "operate") && allows(device, "projects"),
-          };
-          reply(200, probe);
-          return;
-        }
-        reply(200, await owner.incoming.call(now(), call));
+        // A chunk's bytes are read only for a device that may send them.
+        if (route === "chunk") assertMayTransfer(device);
+        parsed = await readRequest(request, url, route);
       } catch (error) {
-        const refusal =
-          error instanceof TargetRefusal
-            ? error
-            : error instanceof SyntaxError || (error instanceof Error && error.name === "ZodError")
-              ? new TargetRefusal("invalid")
-              : new TargetRefusal("unavailable");
-        owner.log("Transfer call from another device refused", {
-          device: device.name,
-          deviceId: device.id,
-          outcome: refusal.code,
-        });
-        reply(refusal.status, refusal.body());
+        const answer = refused(owner, device, error);
+        reply(answer.status, answer.body);
+        return;
       }
+      // Read again right before each write or import: scopes may have narrowed meanwhile.
+      const answer = await answerTransfer(
+        owner,
+        device,
+        parsed,
+        deviceNow(() => authenticate(token)),
+      );
+      reply(answer.status, answer.body);
     })().catch((error: unknown) =>
       owner.log("Serving a transfer call failed", {
         device: device.name,
@@ -150,5 +93,34 @@ export function transfersHttp(
         error,
       }),
     );
+  };
+}
+
+/** The call a request carries; a malformed one is refused as invalid. */
+async function readRequest(
+  request: IncomingMessage,
+  url: URL,
+  route: "call" | "chunk",
+): Promise<TransferRequest> {
+  if (route === "call")
+    return {
+      kind: "call",
+      call: MachineTransferCall.parse(
+        JSON.parse((await readBody(request, 1024 * 1024)).toString()),
+      ),
+    };
+  const transferId = TransferKey.parse(url.searchParams.get("transfer"));
+  const offset = Number(url.searchParams.get("offset"));
+  if (!Number.isSafeInteger(offset) || offset < 0)
+    throw new TargetRefusal("invalid", "Bad offset.");
+  const part = url.searchParams.get("part") ?? "code";
+  if (part !== "code" && part !== "ignored" && part !== "final")
+    throw new TargetRefusal("invalid", "Bad part.");
+  return {
+    kind: "chunk",
+    transferId,
+    offset,
+    part,
+    data: await readBody(request, transferChunkBytes),
   };
 }
