@@ -99,7 +99,10 @@ export function useTreeCommands(inputs: TreeCommandInputs): TreeCommands {
         entries.map((entry) => (relative ? entry.path : absolute(entry.path))).join("\n"),
       ),
     mention: (entries) => {
-      for (const entry of entries) mentionInComposer(threadId, { path: entry.path });
+      mentionInComposer(
+        threadId,
+        entries.map((entry) => ({ path: entry.path })),
+      );
     },
     findInFolder: inputs.findInFolder,
     download: inputs.download,

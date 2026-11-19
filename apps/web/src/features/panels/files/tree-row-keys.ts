@@ -3,11 +3,13 @@ import type { KeyboardEvent } from "react";
 import { openContextMenuFromKeyboard } from "@/components/ui/context-menu.tsx";
 import type { OpenHow, TreeCommands, TreeEntry } from "./tree-commands.ts";
 import { treeAction, type TreeAction } from "./tree-keys.ts";
+import type { TreeSelection } from "./use-tree-selection.ts";
 
 /** What a key press on a tree row can reach. */
 export interface RowKeyContext {
   rows: readonly FolderRow[];
   commands: TreeCommands;
+  selection: TreeSelection;
   focusRow(key: string | undefined): void;
   /** Up from the first row goes back to the filter field. */
   focusFilter(): void;
@@ -52,6 +54,9 @@ function runAction(ctx: RowKeyContext, action: TreeAction, row: FolderRow): bool
     case "findInFolder":
       commands.findInFolder(folderOf(row));
       return true;
+    case "selectAll":
+      ctx.selection.all();
+      return true;
     case "reveal":
       commands.reveal?.run(entry.path);
       return true;
@@ -85,6 +90,15 @@ export function onRowKey(
       if (listed(rows[at])) return rows[at];
     return undefined;
   };
+  if (event.shiftKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    // Shift+arrows grow or shrink the selection from its anchor as focus moves.
+    const next = step(event.key === "ArrowDown" ? 1 : -1);
+    event.preventDefault();
+    if (!next || next.kind === "more") return;
+    ctx.focusRow(next.key);
+    ctx.selection.extend(next.key);
+    return;
+  }
   switch (event.key) {
     case "ArrowDown":
       ctx.focusRow(step(1)?.key);

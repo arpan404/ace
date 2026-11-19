@@ -1,6 +1,13 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
-import { useEffect, useRef, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
@@ -34,6 +41,10 @@ export interface FileTreeRowViewProps {
   dropTarget: string | undefined;
   /** `at`: a click's time, so a second click on a file soon after keeps it. */
   onActivate(row: FolderRow, how: OpenHow, at?: number): void;
+  /** In the tree's selection. */
+  selected: boolean;
+  /** A click on the row, with its modifiers: pick, toggle or extend the selection. */
+  onPick(row: FolderRow, event: MouseEvent<HTMLElement>): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
   commands: TreeCommands;
@@ -112,13 +123,13 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-level={row.depth + 1}
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
-        aria-selected={row.key === props.current}
+        aria-selected={props.selected}
         tabIndex={props.focusable ? 0 : -1}
         title={row.key}
         onFocus={() => props.onFocus(row.key)}
         onPointerEnter={() => props.onHoverStart(row)}
         onPointerLeave={props.onHoverEnd}
-        onClick={(event) => props.onActivate(row, "preview", event.timeStamp)}
+        onClick={(event) => props.onPick(row, event)}
         onDoubleClick={() => !folder && props.onActivate(row, "keep")}
         // A middle click opens a file in a tab of its own, as a browser opens a link.
         onMouseDown={(event) => event.button === 1 && event.preventDefault()}

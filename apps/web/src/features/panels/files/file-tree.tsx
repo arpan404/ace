@@ -17,6 +17,7 @@ import {
   useState,
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
@@ -26,6 +27,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { keyboardEnv } from "@/lib/keybindings.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { FileRowItems } from "./file-row-items.tsx";
@@ -35,7 +37,8 @@ import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
-import { onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
+import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
+import { useTreeSelection } from "./use-tree-selection.ts";
 import { TreeStatus } from "./tree-status.tsx";
 
 /** Past this many rows, only those near the viewport mount: each row carries two menus. */
@@ -166,10 +169,31 @@ export function FileTree(props: {
       how === "preview" && at !== undefined && isSecondClick(client, props.threadId, row.key, at);
     props.onOpen(row.key, second ? "keep" : how);
   };
+  const order = useMemo(
+    () => navigable.filter((row) => row.kind !== "more").map((row) => row.key),
+    [navigable],
+  );
+  const selection = useTreeSelection(order, currentPath);
+  /** A plain click picks one row and opens it; Ctrl/⌘ toggles it and Shift extends, no more. */
+  const pick = (row: FolderRow, event: MouseEvent<HTMLElement>) => {
+    if (row.kind === "more") return activate(row, "preview");
+    if (event.shiftKey) return selection.extend(row.key);
+    if (keyboardEnv().apple ? event.metaKey : event.ctrlKey) return selection.toggle(row.key);
+    selection.only(row.key);
+    activate(row, "preview", event.timeStamp);
+  };
+  const byKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const commands = useTreeCommands({
     threadId: props.threadId,
     online,
-    covered: (entry) => [entry],
+    covered: (entry) => {
+      const key = entry.folder ? folderKey(entry.path) : entry.path;
+      if (!selection.has(key) || selection.keys.size < 2) return [entry];
+      return [...selection.keys].flatMap((each) => {
+        const listedRow = byKey.get(each);
+        return listedRow ? [entryOf(listedRow)] : [];
+      });
+    },
     open: props.onOpen,
     operation: props.onOperation,
     findInFolder: props.onFindInFolder,
@@ -181,6 +205,7 @@ export function FileTree(props: {
   const keys: RowKeyContext = {
     rows,
     commands,
+    selection,
     focusRow,
     focusFilter: () => list.current?.parentElement?.parentElement?.querySelector("input")?.focus(),
     toggle,
@@ -248,6 +273,7 @@ export function FileTree(props: {
           data-part="file-tree"
           data-variant="files"
           aria-busy={searching && search.pending}
+          aria-multiselectable
           className={cn(
             "flex flex-col rounded-md",
             dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
@@ -269,6 +295,8 @@ export function FileTree(props: {
                 query={query}
                 online={online}
                 dropTarget={dropTarget}
+                selected={selection.has(row.key)}
+                onPick={pick}
                 onActivate={activate}
                 onKeyDown={onRowKey}
                 onFocus={setFocusKey}
