@@ -162,6 +162,8 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
+  /** Threads a live move is stopping (ADR 0191), counted per hold: they open no terminal. */
+  private terminalHolds = new Map<ThreadId, number>();
   private opened = new Set<(threadId: ThreadId, terminalId: string) => void>();
   private terminalId: () => string;
   private writing = new Set<AbortController>();
@@ -477,8 +479,27 @@ export class WorkspaceRuntime {
       this.pendingOpens--;
     }
   }
+  /**
+   * From the moment a live move starts stopping these threads until the returned release: no
+   * terminal opens for them, before the ownership record holds them (ADR 0191).
+   */
+  holdTerminals(threadIds: ThreadId[]): () => void {
+    const held = [...new Set(threadIds)];
+    for (const id of held) this.terminalHolds.set(id, (this.terminalHolds.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of held) {
+        const count = (this.terminalHolds.get(id) ?? 1) - 1;
+        if (count > 0) this.terminalHolds.set(id, count);
+        else this.terminalHolds.delete(id);
+      }
+    };
+  }
   private mayOpen(threadId: ThreadId): void {
     if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    if (this.terminalHolds.has(threadId)) throw new Error("thread_moving");
     const moving = this.options.moveRefusal?.(threadId);
     if (moving) throw new Error(moving);
   }

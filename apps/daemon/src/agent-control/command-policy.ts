@@ -42,7 +42,14 @@ export function delegationCommandPolicy(deps: {
       const whole = stopsWholeThread(p, root);
       if (accepted.ok && targetsRoot(p, root))
         // The turn it stops can't delegate any more; a newer turn can (see admission).
-        deps.journal.fenceTurn(p.threadId, (root && deps.engine.activeRun(p.threadId, root)) || "");
+        deps.journal.fenceTurn(
+          p.threadId,
+          (root && deps.engine.activeRun(p.threadId, root)) || "",
+          {
+            stopSeq: root ? deps.engine.turnOrigin(p.threadId, root).latest : 0,
+            inFlight: deps.engine.delegationsInFlight(p.threadId),
+          },
+        );
       if (
         accepted.ok &&
         p.cascade &&

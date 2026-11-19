@@ -1,4 +1,5 @@
 import type { ThreadId, EventPayload } from "@ace/protocol";
+import { cancelledByStop } from "./input-fate.ts";
 import type { EngineRepository } from "./repository.ts";
 
 export function cancelPending(repo: EngineRepository, id: ThreadId, now: number): ThreadId[] {
@@ -10,12 +11,12 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
       if (["thread.resume", "queue.resume", "thread.limit"].includes(kind)) {
         // Stop supersedes recovery authorized before its hold token. Keep the
         // durable continuation for a later explicit Resume, without dispatch.
-        repo.mark(intent, "failed", "Cancelled before delivery");
+        repo.mark(intent, "failed", cancelledByStop);
         continue;
       }
       // Stop ends execution, not the replacement provider the person already selected.
       if (kind !== "thread.merge") continue;
-      repo.mark(intent, "failed", "Cancelled before delivery");
+      repo.mark(intent, "failed", cancelledByStop);
       for (const thread of repo.transitions.releaseGuards(intent.commandId)) released.add(thread);
     }
     // Fork intents belong to their new thread, never to the lineage source.
@@ -55,7 +56,7 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
         state.items[key] = updated;
         stoppedInputs.push({ type: "item.updated", item: updated });
       }
-      repo.mark(intent, "failed", "Cancelled before delivery");
+      repo.mark(intent, "failed", cancelledByStop);
     }
     if (stoppedInputs.length) repo.save(state, stoppedInputs, now);
     repo.queue.set(id, {}, now);
@@ -81,7 +82,7 @@ export function cancelDelegatedInputs(
         (!["pending", "queued", "running"].includes(intent.status) && !intent.awaiting)
       )
         continue;
-      repo.mark(intent, "failed", "Cancelled before delivery");
+      repo.mark(intent, "failed", cancelledByStop);
       repo.queue.prune(intent.id);
       if (intent.kind !== "thread.switch") continue;
       for (const thread of repo.transitions.releaseGuards(intent.commandId)) released.add(thread);
@@ -93,7 +94,7 @@ export function cancelDelegatedInputs(
           [
             {
               type: "thread.updated",
-              switch: { ...pending, state: "failed", error: "Cancelled before delivery", at: now },
+              switch: { ...pending, state: "failed", error: cancelledByStop, at: now },
             },
           ],
           now,

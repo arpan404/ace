@@ -111,3 +111,28 @@ test("an uncertain input the person sends again is replaced by the resend's comm
   await h.engine.flush();
   expect(h.engine.inputFate(id, CommandId.parse("resent-input")).state).toBe("delivered");
 });
+
+test("an input the person's Stop cancels after it was written, before any run took it, is not delivered", async () => {
+  const frames = scriptFrames();
+  // The provider takes the send but no turn starts on it.
+  const h = await harness(
+    [{ on: "send", frames: [frames.frame(start, end)] }, { on: "send" }],
+    frames,
+  );
+  try {
+    const id = await h.create();
+    h.command(
+      { type: "thread.send", threadId: id, input: [{ type: "text", text: "go on" }] },
+      "device",
+      "go-on",
+    );
+    await h.engine.flush();
+    // Written to the transcript; no run has it yet.
+    expect(h.engine.inputFate(id, CommandId.parse("go-on"))).toEqual({ state: "delivered" });
+    expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+    await h.engine.flush();
+    expect(h.engine.inputFate(id, CommandId.parse("go-on"))).toMatchObject({ state: "failed" });
+  } finally {
+    await h.close();
+  }
+});

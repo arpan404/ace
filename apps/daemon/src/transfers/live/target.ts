@@ -294,10 +294,22 @@ export class LiveTarget {
       for (;;) {
         // After a restart that already fell back, the held message is sent again by the same id.
         if (session.reason === fallbackReason) ports.retryHeld(start.threadId, fallbackKey(input));
-        const outcome = await this.watch(start.threadId, continueKey(input.transferId, attempts));
+        const outcome = await this.watch(
+          input.transferId,
+          start.threadId,
+          continueKey(input.transferId, attempts),
+        );
         if (outcome === "closed") return;
         if (outcome === "running") {
           ports.starts.started(input.transferId, true, ports.now());
+          return;
+        }
+        if (outcome === "uncertain")
+          return giveUp("its first message may not have reached the agent");
+        // The thread is this machine's and the person acted on it: final, not started, and
+        // nothing said on the thread, which shows what they did.
+        if (typeof outcome === "object") {
+          ports.starts.started(input.transferId, false, ports.now(), outcome.person);
           return;
         }
         if (session.kind !== "native") return giveUp("its first turn didn't start here");
@@ -314,13 +326,33 @@ export class LiveTarget {
       this.running.delete(input.transferId);
     }
   }
-  /** Until the continue message `key` reaches its run, or is held unsent by a failure. */
-  private async watch(threadId: string, key: string): Promise<"running" | "failed" | "closed"> {
+  /**
+   * Until a run takes the continue message `key`, a failure holds it unsent, or the person acts
+   * on it. One the engine can't say reached its run is read again for `uncertainMs` from when it
+   * first read so, kept across restarts, then given up on.
+   */
+  private async watch(
+    transferId: string,
+    threadId: string,
+    key: string,
+  ): Promise<"running" | "failed" | "closed" | "uncertain" | { person: string }> {
+    const { starts } = this.ports;
+    // A deadline left from before a restart is cleared once the message reads certain.
+    let clear = true;
     for (;;) {
       if (this.closed) return "closed";
       if (!this.ports.threadStatus(threadId)) return "failed";
       const next = turnStart(this.ports.continueFate(threadId, key));
-      if (next.kind !== "wait") return next.kind;
+      if (next.kind === "person") return { person: next.reason };
+      if (next.kind === "uncertain") {
+        const now = this.ports.now();
+        if (now - starts.uncertainSince(transferId, now) >= uncertainMs) return "uncertain";
+        clear = true;
+      } else if (next.kind !== "wait") return next.kind;
+      else if (clear) {
+        starts.certain(transferId);
+        clear = false;
+      }
       await this.ports.sleep(500);
     }
   }
@@ -340,6 +372,9 @@ async function present(path: string): Promise<boolean> {
     return false;
   }
 }
+
+/** How long a continue message may read uncertain before the start gives up on it. */
+export const uncertainMs = 10 * 60_000;
 
 /** The longest one attempt waits, and how many times a full engine may refuse it. */
 const maxRetryMs = 60_000;

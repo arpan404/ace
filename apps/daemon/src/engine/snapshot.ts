@@ -95,6 +95,7 @@ const snapshot = z.object({
       deliberate: z.boolean(),
       message: z.string().optional(),
       unsettled: z.array(z.string()).optional(),
+      unconfirmed: z.literal(true).optional(),
     })
     .optional(),
   lastTransportSignalAt: Timestamp.optional(),
@@ -118,6 +119,7 @@ const snapshot = z.object({
     pendingItemLinks: keys,
   }),
   outcomeOrder: Timestamp,
+  runSeq: z.number().int().positive().optional(),
   pendingNotices: z.array(
     z.object({ createdAt: Timestamp, text: z.string(), raw: z.array(RawPayload) }),
   ),

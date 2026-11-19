@@ -186,3 +186,40 @@ test("a terminal open that waits on cleanup spawns nothing once the thread start
     await h.close();
   }
 });
+
+test("no terminal opens in a tree a live move is stopping, until the move lets go", async () => {
+  const h = transitionHarness();
+  const backend = createPosixBackendFactory();
+  const runtime = new WorkspaceRuntime(h.store, h.home, () => 1000, {
+    terminal: {
+      graceMs: 0,
+      dependencies: {
+        resolveShell: () => "/bin/bash",
+        backendFactory: (options, shell, context) =>
+          backend({ ...options, args: ["--noprofile", "--norc", "-i"] }, shell, context),
+      },
+    },
+  });
+  try {
+    const thread = await h.create();
+    const child = await h.create();
+    const other = await h.create();
+    const release = runtime.holdTerminals([thread, child]);
+    // A second hold of the same thread (a restarted stop) keeps it held after the first goes.
+    const again = runtime.holdTerminals([thread]);
+    await expect(runtime.openTerminal(thread, "dev")).rejects.toThrow("thread_moving");
+    await expect(runtime.openTerminal(child, "dev")).rejects.toThrow("thread_moving");
+    expect(runtime.liveTerminalCount(thread) + runtime.liveTerminalCount(child)).toBe(0);
+    // A thread outside the moving tree opens as ever.
+    await runtime.openTerminal(other, "dev");
+    release();
+    await expect(runtime.openTerminal(thread, "dev")).rejects.toThrow("thread_moving");
+    await runtime.openTerminal(child, "dev");
+    again();
+    await runtime.openTerminal(thread, "dev");
+    expect(runtime.liveTerminalCount(thread)).toBe(1);
+  } finally {
+    await runtime.close();
+    await h.close();
+  }
+});

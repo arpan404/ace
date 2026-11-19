@@ -43,7 +43,12 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
    move then fails.
 2. **Stops the tree's terminals** with the same call settling a thread uses
    (`stopThreadTerminals` for the thread and every child it owns here). Their output stays
-   readable. ace's Stop itself leaves terminals alone: they are the person's shells.
+   readable. ace's Stop itself leaves terminals alone: they are the person's shells. Amended
+   2026-11-19 (post-merge review): from the moment the move starts stopping, before the Stop is
+   sent, no terminal opens for any thread of the tree (`holdTerminals` on the workspace, refused
+   as `thread_moving`, checked at the open and again right before the shell spawns). It lifts
+   when the stop ends: by then the ownership record holds the thread, or the move failed. The
+   hold lives in memory; a stop run again after a restart takes it again.
 3. **Waits until the tree reads at rest, with nothing of it still running.** Three things, read
    together on each look:
    - the normal status rules: the root's status, which folds in every child through its summary
@@ -53,12 +58,41 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
      reads done by design (ADR 0116), so status alone never shows it ended. The list is the one
      the whole-thread Stop stops (`stoppableTasks`, `engine/stop-scope.ts`), read for the root
      and every child here;
+   - every Stop in the tree finished (amended 2026-11-19, second review): no `thread.interrupt`
+     still accepted and unfinished. A provider can report its turn ended while its interrupt
+     call never answers; status then reads done while Stop still waits to close the session,
+     and the close's outcome isn't known yet. The move waits for the Stop itself, so the check
+     below reads the close's real outcome;
+   - every provider close in the tree confirmed. Amended 2026-11-19 (post-merge review): when
+     both the shell stop and the provider's close time out, ADR 0052's Stop still ends the
+     session and the thread reads stopped, its shells `unknown`; that stays, so the person's
+     Stop always settles. The provider's exit fact now says so (`process.exited` with
+     `unconfirmed`, kept on `processExit` until a new session starts), and the move reads it as
+     not stopped: the old process, and a shell under it, may still write. It fails the move
+     before the hand-over (`process_unconfirmed`). A confirmed close ended the process group,
+     shells included, so their `unknown` counts as ended;
+   - no terminal of the tree open. One still open (opened before a restart, whose hold was
+     lost) is stopped and the tree looked at again, so the record below never holds a thread
+     with a terminal running;
    - every child on another machine stopped with its machine's confirmation. Ordinary status
      reads a remote child stopped once every cancel went unanswered (ADR 0052, "Stop is
      final"), and that stays: the person's Stop must always settle. The move asks more: a child
-     settled since the move began without an answer from its machine (`stopped_unconfirmed` 1
-     or 3, or lost) may still be writing there, so it fails the move at once
-     (`remote_child_unconfirmed`); a late confirmation (2) counts.
+     settled without an answer from its machine (`stopped_unconfirmed` 1 or 3, or lost) may
+     still be writing there, so it fails the move at once (`remote_child_unconfirmed`); a late
+     confirmation (2) counts. Amended 2026-11-19 (post-merge review): that holds whenever the
+     child settled, so a second attempt after `remote_child_unconfirmed` fails the same way until
+     the machine answers. A child that can never answer (3) keeps the thread from moving while it
+     works; once it is at rest, ADR 0101's idle path moves it. The read filters before its limit
+     of 64, through `machine_children_parent`, so many settled children never hide that one. It
+     covers every parent of the tree, 256 a query; a tree of more than 4,096 threads, or any read
+     that fails, fails the move (`remote_children_unread`) instead of passing on part of it.
+     Amended 2026-11-19 (third review): the unconfirmed ones are read from a table of only them
+     (`machine_children_unconfirmed`, `machines/unconfirmed-stops.ts`), kept current by triggers
+     on `machine_children`, so a look costs what the unconfirmed children do, not a parent's
+     history of confirmed ones (ADR 0170). The table and triggers are made empty on first use;
+     rows from before are found per parent in batches of 2,000 settled rows, resumed across
+     looks and restarts. Until a parent's are all found the read says it isn't complete, and the
+     move waits, then fails with `remote_children_unread` if the 60 seconds run out.
 
    Bounded at 60 seconds; a tree that never comes to rest fails the move before the hand-over
    (`process_still_running` when a shell is what still runs, else `tree_still_working`), with
@@ -77,7 +111,25 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   different turn. So the fence lifts exactly when the next message from the person or the parent
   is dispatched as a new turn, not when it is accepted into the queue. It works the same for a
   root and for a delegated child sent a new task. A late tool call from the interrupted turn
-  that arrives while the next message still waits is refused.
+  that arrives while the next message still waits is refused. Amended 2026-11-19 (post-merge
+  review): the fence used to compare the caller's own current run with the stopped one, so a
+  provider subagent's run (a different id) lifted it while the cascade was still stopping it,
+  and a late root call that arrived after the next turn began counted as that turn's. Now only a
+  call made from the new turn lifts it (`agent-control/turn-fence.ts`, pure). Runs are ordered by
+  `Run.seq`, a number core gives each run of a thread as it starts, subagents' included, never by
+  the clock, so two runs that start in the same millisecond are still told apart. A Stop records
+  the thread's last `seq`; the fence lifts on the first call whose own run is a root turn that
+  began after it, or a run that began within that turn. What the Stop recorded then stays until
+  the thread's next Stop (`delegation_turn_bounds`): a run that began before the lifting turn (a
+  provider subagent still running from the stopped work) stays refused, and so do the `delegate`
+  calls the provider had reported and not finished when the Stop came, by request id
+  (`delegation_refused_calls`). Each Stop adds its calls to those earlier Stops caught, so one
+  caught by an earlier Stop stays refused under any later turn, until it is resolved: it arrived
+  and was refused. That write waits until every transaction the refused call ran in has ended,
+  so their rollback can't undo it. A thread keeps its newest 256. A tool item closing is no
+  sign the request won't still come: the Stop itself closes the item, while the provider's
+  request may still be on its way. A call the provider never
+  reported before the Stop can't be told from a new one, and is judged by its agent's run.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the
   provider's own task stop, bounded like the interrupt, and closes the session when one won't
@@ -177,11 +229,20 @@ carried session) and a short continue message. The target:
 5. watches the turn start on the continue message itself (`live/turn-start.ts`, pure), read by
    its command id through the engine's `inputFate`, never on the thread's status. A turn the
    person starts there would change the status too, while the continue message still waits.
-   Running means a run took it (`delivered` with its run id), or it is uncertain, which the
-   person settles as on any thread. Taken from the queue with no run yet is not: an open that
-   fails then puts it back. Waiting in the queue is not either, however long it waits. Waiting in a queue paused on a failure (`not_sent`,
-   `model_unavailable`), or failed, means it was held unsent. A message the person sent again or
-   took out leaves the thread to them. There is exactly
+   Running means only that a run took that exact message (`delivered` with its run id). Taken
+   from the queue with no run yet is not: an open that fails then puts it back. Waiting in the
+   queue is not either, however long it waits. Waiting in a queue paused on a failure
+   (`not_sent`, `model_unavailable`), or failed, means it was held unsent. Amended 2026-11-19
+   (post-merge review): the person's own act on it is a defined outcome, not a start. Waiting in
+   a queue the person's Stop paused (`stopped`, kept across restarts), taken out (`removed`) or
+   sent again (`replaced`) ends the start as not started, with why ("the person stopped it"),
+   and so does a Stop that cancels it once written but before any run took it (`inputFate` now
+   reads such an input `failed`, not `delivered` without a run, so nothing waits on it),
+   and no line on the thread, which already shows what they did. The target owns the thread
+   from its cutoff, so the sender is answered and the source settles as moved. An `uncertain`
+   message (it may have reached its run) is read again every half second for up to 10 minutes
+   from when it first read so, a time kept across restarts (`transfer_live_uncertain`), then the
+   start gives up as not started, said on the thread. There is exactly
    one continue message, ever. A resumed native session that fails to open leaves that message
    held unsent; the carried session is dropped, the handoff goes in front, and the same message
    is sent again with the person's own "Try again" (`queue.resume`). A turn that still fails is

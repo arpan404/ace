@@ -81,7 +81,29 @@ export class LiveStarts {
         attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL DEFAULT 0,
         at INTEGER NOT NULL)`);
       db.exec(livePendingTable);
+      // When a start's continue message first read uncertain: a new, small table, so the
+      // deadline outlives a restart without changing the start's own.
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_live_uncertain (
+        transfer_id TEXT PRIMARY KEY, since INTEGER NOT NULL)`);
     });
+  }
+  /** When the continue message first read uncertain, kept across restarts; `at` if now. */
+  uncertainSince(transferId: string, at: number): number {
+    return this.store.atomic(() => {
+      this.store
+        .statement(
+          "INSERT OR IGNORE INTO transfer_live_uncertain (transfer_id, since) VALUES (?,?)",
+        )
+        .run(transferId, at);
+      const row = this.store
+        .statement("SELECT since FROM transfer_live_uncertain WHERE transfer_id=?")
+        .get(transferId);
+      return typeof row?.["since"] === "number" ? row["since"] : at;
+    });
+  }
+  /** The continue message reads certain again: its uncertainty deadline goes. */
+  certain(transferId: string): void {
+    this.store.statement("DELETE FROM transfer_live_uncertain WHERE transfer_id=?").run(transferId);
   }
   get(transferId: string): LiveStart | undefined {
     const raw = this.store
@@ -135,6 +157,7 @@ export class LiveStarts {
         .statement("UPDATE transfer_live_start SET running=?, failure=?, at=? WHERE transfer_id=?")
         .run(running ? 1 : 0, failure ?? null, at, transferId);
       this.store.statement("DELETE FROM transfer_live_pending WHERE transfer_id=?").run(transferId);
+      this.certain(transferId);
     });
   }
   /** One batch of starts a restart left unfinished, after `after` in id order. */

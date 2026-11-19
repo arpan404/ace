@@ -73,6 +73,9 @@ async function source(over: Partial<LiveSourcePorts>) {
     stop: () => undefined,
     atRest: () => true,
     shells: () => [],
+    stopping: () => [],
+    unconfirmedExits: () => [],
+    holdTerminals: () => () => undefined,
     terminals: () => [],
     stopTerminals: async () => undefined,
     children: () => [],
@@ -127,6 +130,48 @@ it("fails before the hand-over when a child on another machine never confirmed i
   expect(ownership.get("t-1")).toBeUndefined();
 });
 
+it("fails before the hand-over when a provider never confirmed its close", async () => {
+  let checks = 0;
+  const { stop, ownership } = await source({
+    // The Stop's close gives up waiting on the second look; status reads the tree stopped and
+    // every shell ended (`unknown`), but the old process may still run.
+    unconfirmedExits: () => (++checks >= 2 ? ["Write the tests"] : []),
+    remoteChildren: () => ({ running: checks < 2 ? ["reviewer"] : [], unconfirmed: [] }),
+  });
+  await expect(stop()).rejects.toMatchObject({ code: "process_unconfirmed" });
+  expect(ownership.get("t-1")).toBeUndefined();
+});
+
+it("waits for Stop's own escalation before the safe point, and fails if it ends unconfirmed", async () => {
+  let looks = 0;
+  const { stop, ownership } = await source({
+    // The provider ended its turn, so the tree reads at rest; its interrupt never answered, so
+    // Stop is still escalating for three looks, then gives up and marks the close unconfirmed.
+    unconfirmedExits: () => (++looks > 3 ? ["Build it"] : []),
+    stopping: () => (looks <= 3 ? ["Build it"] : []),
+  });
+  await expect(stop()).rejects.toMatchObject({ code: "process_unconfirmed" });
+  expect(ownership.get("t-1")).toBeUndefined();
+});
+
+it("waits while the children elsewhere are still being looked through, then holds", async () => {
+  let looks = 0;
+  const { stop, ownership } = await source({
+    remoteChildren: () => ({ running: [], unconfirmed: [], complete: ++looks > 3 }),
+  });
+  await stop();
+  expect(looks).toBeGreaterThan(3);
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+});
+
+it("fails before the hand-over when the children elsewhere never finish being looked through", async () => {
+  const { stop, ownership } = await source({
+    remoteChildren: () => ({ running: [], unconfirmed: [], complete: false }),
+  });
+  await expect(stop()).rejects.toMatchObject({ code: "remote_children_unread" });
+  expect(ownership.get("t-1")).toBeUndefined();
+});
+
 it("waits for a child on another machine to confirm its stop", async () => {
   let checks = 0;
   const { stop, ownership } = await source({
@@ -135,4 +180,77 @@ it("waits for a child on another machine to confirm its stop", async () => {
   await stop();
   expect(checks).toBeGreaterThanOrEqual(3);
   expect(ownership.get("t-1")?.state).toBe("stopping");
+});
+
+/**
+ * The tree's terminals as the workspace keeps them: an open is refused while the move holds
+ * them (`holdOpens`; false is a restart that lost the hold), and stopping ends every open one.
+ */
+function terminalWorld(holdOpens = true) {
+  const open: string[] = [];
+  let held = false;
+  return {
+    open,
+    tryOpen(name: string) {
+      if (held) return "thread_moving";
+      open.push(name);
+      return "opened";
+    },
+    ports: {
+      holdTerminals: () => {
+        held = holdOpens;
+        return () => {
+          held = false;
+        };
+      },
+      terminals: () => [...open],
+      stopTerminals: async () => {
+        open.length = 0;
+      },
+    } satisfies Partial<LiveSourcePorts>,
+  };
+}
+
+it("refuses a terminal opened while the move waits on a child elsewhere", async () => {
+  const world = terminalWorld();
+  let checks = 0;
+  let opened: string | undefined;
+  const { stop, ownership } = await source({
+    ...world.ports,
+    remoteChildren: () => {
+      // While the child there is still stopping, the person opens a terminal.
+      if (++checks === 2) opened = world.tryOpen("dev server");
+      return { running: checks < 4 ? ["reviewer"] : [], unconfirmed: [] };
+    },
+  });
+  await stop();
+  expect(opened).toBe("thread_moving");
+  expect(world.open).toEqual([]);
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+  // The hold on opens lifts with the stop: the ownership record holds the thread from here.
+  expect(world.tryOpen("after")).toBe("opened");
+});
+
+it("stops a terminal still open at the safe point before it holds the thread", async () => {
+  // After a restart, the stop runs again; a terminal opened meanwhile was never held.
+  const world = terminalWorld(false);
+  let checks = 0;
+  let openAtHold: string[] | undefined;
+  const { stop, ownership } = await source({
+    ...world.ports,
+    remoteChildren: () => {
+      if (++checks === 2) world.tryOpen("dev server");
+      return { running: checks < 3 ? ["reviewer"] : [], unconfirmed: [] };
+    },
+    // The final payload is packed after the hold: what was open then.
+    archive: {
+      packFolder: async () => {
+        openAtHold = [...world.open];
+        return { bytes: 1, sha256: "0".repeat(64), entries: 0, skipped: 0, files: 0 };
+      },
+    },
+  });
+  await stop();
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+  expect(openAtHold).toEqual([]);
 });

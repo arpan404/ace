@@ -220,7 +220,11 @@ export type Fact =
     }
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
-  | { type: "process.exited"; deliberate: boolean; message?: string }
+  /**
+   * The provider's process ended. `unconfirmed`: ace stopped waiting on a close the provider
+   * never confirmed, so its process may still run; the thread settles all the same (ADR 0052).
+   */
+  | { type: "process.exited"; deliberate: boolean; message?: string; unconfirmed?: boolean }
   | {
       type: "queue.changed";
       count: number;

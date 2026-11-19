@@ -7,6 +7,7 @@ import type { ThreadOwnership } from "./ownership.ts";
 import type { LiveResumes } from "./resumes.ts";
 import type { LiveSourcePorts } from "./source.ts";
 import type { LiveTargetPorts } from "./target.ts";
+import { UnconfirmedStops } from "../../machines/unconfirmed-stops.ts";
 import { LiveStarts } from "./target-rows.ts";
 
 /*
@@ -49,6 +50,9 @@ function account(context: ServiceContext, provider: ProviderKind, instanceId?: s
 
 const role = (row: Record<string, unknown>) => String(row["role"]).slice(0, 256);
 
+/** The most threads one move's tree may hold for its children elsewhere to be read whole. */
+const maxTreeThreads = 4096;
+
 /** The thread and every delegated child it owns here, as settling reads it. */
 function tree(context: ServiceContext, threadId: string): ThreadId[] {
   return context.services.engine?.cleanupThreads(id(threadId)) ?? [id(threadId)];
@@ -65,6 +69,7 @@ export function liveSourcePorts(
   },
 ): LiveSourcePorts {
   const { services, store, now } = context;
+  const unconfirmedStops = new UnconfirmedStops(store);
   return {
     ownership: input.ownership,
     git: input.git,
@@ -94,12 +99,22 @@ export function liveSourcePorts(
       tree(context, threadId)
         .flatMap((owner) => engineOf(context).liveMove.shells(owner))
         .slice(0, 32),
+    stopping: (threadId) =>
+      tree(context, threadId)
+        .filter((owner) => engineOf(context).liveMove.stopInFlight(owner))
+        .map((owner) => (store.getThread(owner)?.title ?? owner).slice(0, 256)),
+    unconfirmedExits: (threadId) =>
+      tree(context, threadId)
+        .filter((owner) => engineOf(context).liveMove.unconfirmedExit(owner))
+        .map((owner) => (store.getThread(owner)?.title ?? owner).slice(0, 256)),
     terminals: (threadId) =>
       tree(context, threadId).flatMap((owner) =>
         (services.workspaceActions?.listTerminals(owner) ?? [])
           .filter((terminal) => !terminal.exited)
           .map((terminal) => terminal.name.slice(0, 256)),
       ),
+    holdTerminals: (threadId) =>
+      services.workspaceActions?.holdTerminals(tree(context, threadId)) ?? (() => {}),
     // The tree's terminals end as settling a thread ends them; their output stays readable.
     stopTerminals: async (threadId) => {
       for (const owner of tree(context, threadId).toReversed())
@@ -109,35 +124,42 @@ export function liveSourcePorts(
       (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? [])
         .filter((edge) => edge.phase !== "settled")
         .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
-    remoteChildren(threadId, since) {
-      const parents = tree(context, threadId).slice(0, 256);
-      let rows: Record<string, unknown>[];
+    remoteChildren(threadId) {
+      const parents = tree(context, threadId);
+      // Every parent of the tree is read; one too large to read whole fails the move.
+      if (parents.length > maxTreeThreads)
+        throw new TransferError(
+          "remote_children_unread",
+          "The thread has too many subagents to check them all, so it stayed here.",
+        );
       try {
-        // Indexed by parent (machine_children_parent); bounded by the tree's size.
-        rows = store
-          .statement(
-            `SELECT role, settled, stopped_unconfirmed, lost_at FROM machine_children
-             WHERE parent_thread IN (${parents.map(() => "?").join(",")})
-               AND (settled=0 OR settled_at>=?) LIMIT 64`,
-          )
-          .all(...parents, since);
-      } catch {
-        // No machine children were ever delegated here.
-        return { running: [], unconfirmed: [] };
+        const running: string[] = [];
+        // Running children through machine_children_parent (parent_thread, settled), 256
+        // parents a read, filtered before the limit.
+        for (let at = 0; at < parents.length && running.length < 64; at += 256) {
+          const chunk = parents.slice(at, at + 256);
+          running.push(
+            ...store
+              .statement(
+                `SELECT role FROM machine_children
+                  WHERE parent_thread IN (${chunk.map(() => "?").join(",")}) AND settled=0
+                  LIMIT ${64 - running.length}`,
+              )
+              .all(...chunk)
+              .map(role),
+          );
+        }
+        // Whenever they settled, in this attempt or an earlier one: unconfirmed until their
+        // machine answers, read from a table of only those (`machines/unconfirmed-stops.ts`).
+        const found = unconfirmedStops.read(parents, 64);
+        return { running, unconfirmed: found.roles, complete: found.complete };
+      } catch (error) {
+        // Any read that fails fails the move: an unread tree is never taken for a stopped one.
+        throw new TransferError(
+          "remote_children_unread",
+          `The subagents on other machines couldn't be checked (${String(error).slice(0, 200)}), so the thread stayed here.`,
+        );
       }
-      return {
-        running: rows.filter((row) => row["settled"] === 0).map(role),
-        // 1: every cancel went unanswered; 3: it can never answer. 2 is a late confirmation.
-        unconfirmed: rows
-          .filter(
-            (row) =>
-              row["settled"] !== 0 &&
-              (row["stopped_unconfirmed"] === 1 ||
-                row["stopped_unconfirmed"] === 3 ||
-                row["lost_at"] !== null),
-          )
-          .map(role),
-      };
     },
     queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
     hold(threadId, transferId, change) {
@@ -194,6 +216,8 @@ export function liveTargetPorts(
       return {
         fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)),
         held: queue.paused && (queue.reason === "not_sent" || queue.reason === "model_unavailable"),
+        // The person's Stop there paused the queue with the message in it (kept across restarts).
+        stopped: queue.paused && queue.reason === "stopped",
       };
     },
     adoptSession: (threadId, session) =>
