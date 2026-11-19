@@ -308,6 +308,14 @@ struct Worker {
     last_poke: Option<Instant>,
 }
 
+/// The time a check of the net runs at; the wall clock dates new entries by their birth time.
+fn moment(instant: Instant) -> net::Moment {
+    net::Moment {
+        instant,
+        wall: std::time::SystemTime::now(),
+    }
+}
+
 /// The shortest time between two checks the kernel's word starts.
 const POKE_GAP: Duration = Duration::from_millis(50);
 
@@ -343,6 +351,17 @@ impl Worker {
             if self.poke_due.is_some_and(|due| now >= due) {
                 self.check_poked(&mut coalescer, now);
             }
+            if self.net.next_due().is_some_and(|due| now >= due) {
+                let released = self.net.release_due(now);
+                self.absorb(
+                    net::Found {
+                        notices: released,
+                        rescans: Vec::new(),
+                    },
+                    &mut coalescer,
+                    now,
+                );
+            }
             let wait = coalescer.wait(now);
             // A queued event is always ready, so receiving first would let a burst that never
             // stops hold `recv_timeout(0)` open forever and the window would never close. The
@@ -351,9 +370,10 @@ impl Worker {
                 self.settle(&mut coalescer, now);
                 continue;
             }
-            let until_check = self
-                .poke_due
-                .map_or(next_check, |due| due.min(next_check))
+            let until_check = [self.poke_due, self.net.next_due()]
+                .into_iter()
+                .flatten()
+                .fold(next_check, Instant::min)
                 .saturating_duration_since(now);
             let received = self
                 .commands
@@ -430,7 +450,7 @@ impl Worker {
 
     /// Checks the open folders, and adds what the OS watch did not report to the window.
     fn check_net(&mut self, coalescer: &mut Coalescer, now: Instant) {
-        let found = self.net.check(&self.root, &self.excluder);
+        let found = self.net.check(&self.root, &self.excluder, moment(now));
         self.absorb(found, coalescer, now);
     }
 
@@ -438,10 +458,11 @@ impl Worker {
     fn check_poked(&mut self, coalescer: &mut Coalescer, now: Instant) {
         self.poke_due = None;
         self.last_poke = Some(now);
-        for folder in std::mem::take(&mut self.poked) {
-            let found = self.net.check_folder(&self.root, &self.excluder, &folder);
-            self.absorb(found, coalescer, now);
-        }
+        let poked: Vec<String> = std::mem::take(&mut self.poked).into_iter().collect();
+        let found = self
+            .net
+            .check_folders(&self.root, &self.excluder, &poked, moment(now));
+        self.absorb(found, coalescer, now);
     }
 
     /// Adds what a check of the net found to the window.
