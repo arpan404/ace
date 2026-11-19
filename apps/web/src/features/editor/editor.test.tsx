@@ -293,3 +293,24 @@ test("Ctrl+Home and Ctrl+End jump to the document's start and end off macOS", as
     { anchor: { line: 2, column: 5 }, head: { line: 0, column: 0 } },
   ]);
 });
+
+test("Cmd+Alt+Down and Cmd+Alt+Up add a cursor on the line below and above", async () => {
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 2)]));
+
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowDown}{/Alt}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(1, 2), caret(2, 2)]);
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
+  const carets = ref.current?.selections() ?? [];
+  expect(carets.map((one) => one.head.line).sort()).toEqual([0, 1, 2]);
+  expect(ref.current?.text()).toBe("one\ntwo\nthree");
+});
+
+test("Ctrl+Alt+Down adds a cursor below off macOS", async () => {
+  Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+  const { ref } = await openEditor({ text: "one\ntwo" });
+  act(() => ref.current?.setSelections([caret(0, 1)]));
+  await userEvent.keyboard("{Control>}{Alt>}{ArrowDown}{/Alt}{/Control}");
+  expect(ref.current?.selections()).toEqual([caret(0, 1), caret(1, 1)]);
+});

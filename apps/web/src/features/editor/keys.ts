@@ -279,6 +279,25 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(position, false);
       return;
     }
+    // Cmd+Alt+Up/Down (Ctrl+Alt elsewhere): another cursor on the line above or below each cursor.
+    if (mod && event.altKey && !event.shiftKey && (key === "ArrowUp" || key === "ArrowDown")) {
+      event.preventDefault();
+      goal.current = undefined;
+      const delta = key === "ArrowUp" ? -1 : 1;
+      const selections = doc.selections();
+      const seen = new Set(selections.map((one) => `${one.head.line}:${one.head.column}`));
+      const added: Selection[] = [];
+      for (const selection of selections) {
+        const target = selection.head.line + delta;
+        if (target < 0 || target > lastLine()) continue;
+        const column = Math.min(selection.head.column, line(target).length);
+        if (seen.has(`${target}:${column}`)) continue;
+        seen.add(`${target}:${column}`);
+        added.push(caret(target, column));
+      }
+      if (added.length) commitMove([...selections, ...added]);
+      return;
+    }
     // Cmd+Up/Down on macOS, Ctrl+Home/End elsewhere: the document's first and last position.
     const toDocument = mac
       ? mod && !event.altKey && (key === "ArrowUp" || key === "ArrowDown")
