@@ -70,10 +70,9 @@ change without pairing again:
   in another window, perhaps with Projects, is never replaced by one granting less. The unused
   pairing link is cancelled, and the toast names only links this action made. A machine's `links`
   answer says whether it honours `keep` (`keep: true`); older daemons drop the field unread. Link
-  all reads the source machine's links again before each fill and skips a gap already linked, and
-  sends `keep` only to a machine that advertises it. To one that doesn't, it reads the links once
-  more right before the link request and skips on any link there; only a link another window
-  makes within that one request's round trip can still be replaced there. Every link, gap fill or not, holds its machine from right before
+  all reads the source machine's links again before each fill and skips a gap already linked. A
+  source that doesn't advertise `keep` is never asked to link at all: the toast says that machine
+  needs ace updated before Link all can link it. Every link, gap fill or not, holds its machine from right before
   redeeming until it is saved or fails: a second link to the same machine meanwhile is refused
   (`busy`, or `exists` for a gap fill), and links being made count toward the 64-link limit, so
   nothing is redeemed that couldn't be saved.
@@ -296,12 +295,14 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   connection does; what the target made of that call is learnt again through status.
 - The target names a transfer's files by the lowercase hex SHA-256 of its id, so no id's files
   can be another transfer's, even ids that differ only in dots or case on a case-insensitive
-  volume. On recovery, files an earlier build named after the id move to the hashed names, in
-  pages of transfers still receiving or importing (ADR 0170). An old name that more than one
-  live transfer's part could be (`x.ignored.part`: `x`'s ignored files or `x.ignored`'s code)
-  stays where it is, kept and logged. Stray removal keeps every name such a transfer can own,
-  worked out from the rows rather than read back from names, and no transfer begins while it
-  runs, so a transfer begun meanwhile never loses its upload. Closing
+  volume. Files an earlier build named after the id are never renamed or read: an old name can be
+  another transfer's (`x.ignored.part`, or an id that is another's hash). On recovery, a
+  transfer still receiving or importing with a part only under its old name, and none under its
+  hashed name, is cancelled with a reason and its sender starts it again; a name any live
+  transfer owns now is never taken for an old one. Stray removal keeps every name a live
+  transfer owns, worked out from the rows in pages (ADR 0170) and decided per file by exact
+  name, so old files go and live ones stay. No transfer begins while either step runs, so a
+  transfer begun meanwhile never loses its upload. Closing
   stops the retention sweep and waits for all of it, and a begin that waited on it then refuses.
   A chunk refused after its file was opened removes the file it made.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
