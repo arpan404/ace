@@ -205,6 +205,15 @@ pub enum Known {
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         helper: Option<Box<HelperAsk>>,
+        /// Where the call was decided to run when the person was asked: the most their answer
+        /// lets it run (ADR 0171, amendment 4). A call that would run anywhere wider at the
+        /// launch doesn't run on it. Absent for older events and calls that run nothing.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
     },
     ApprovalAnswered {
         reply: String,
@@ -728,6 +737,24 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+}
+
+/// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
+/// the sandbox finds it (held where it can be, plainly where it can't), or outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Authorized {
+    Contained,
+    AsFound,
+    Outside,
+}
+
+/// A stored authorization read leniently: a word this build doesn't know is the narrowest.
+fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Authorized>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
 }
 
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).
