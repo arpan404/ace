@@ -43,7 +43,8 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             limit,
             cursor,
             hide,
-        } => list::list(shared, root, &dir, limit, cursor, hide),
+            snapshot,
+        } => list::list(shared, root, &dir, limit, cursor, hide, snapshot),
         Op::Stat { root, path } => list::stat(shared, root, &path),
         Op::Describe { root, path, full } => {
             let walks = if full {

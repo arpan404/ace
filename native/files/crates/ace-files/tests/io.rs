@@ -476,6 +476,7 @@ fn a_read_and_a_listing_never_serve_a_link_into_the_daemons_names() {
             limit: 10,
             cursor: None,
             hide: Vec::new(),
+            snapshot: false,
         },
         Op::List {
             root,
@@ -483,6 +484,7 @@ fn a_read_and_a_listing_never_serve_a_link_into_the_daemons_names() {
             limit: 10,
             cursor: None,
             hide: Vec::new(),
+            snapshot: false,
         },
     ] {
         let id = client.request(operation);

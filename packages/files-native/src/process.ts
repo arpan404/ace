@@ -65,6 +65,8 @@ export class FilesProcess {
   #state: FilesState = "idle";
   #attempt = 0;
   #restartTimer: (() => void) | undefined;
+  /** A pass to retry watches whose re-open failed retryably while the run is up. */
+  #restoreTimer: (() => void) | undefined;
   #disposed = false;
   #stdin: StdinQueue | undefined;
   /** One log line per process for a stale binary, however many ops it refuses. */
@@ -159,6 +161,8 @@ export class FilesProcess {
     this.#disposed = true;
     this.#restartTimer?.();
     this.#restartTimer = undefined;
+    this.#restoreTimer?.();
+    this.#restoreTimer = undefined;
     const run = this.#run;
     if (run) {
       run.dead = true;
@@ -299,10 +303,16 @@ export class FilesProcess {
     }
   }
 
-  /** A run that cannot re-open the callers' roots is killed, never left half restored. */
+  /**
+   * Re-open every root and watch on a fresh process, then mark the run up before telling the
+   * re-subscribed watches to re-list: their rescan makes them ask the process for a listing, and a
+   * process still marked starting would refuse it. A watch whose re-open failed retryably keeps the
+   * run alive and gets another pass shortly.
+   */
   async #restore(run: Run): Promise<void> {
+    let outcome: { restored: readonly number[]; pending: boolean };
     try {
-      await this.#operations.restore(this.#timeoutMs);
+      outcome = await this.#operations.restore(this.#timeoutMs);
     } catch (error) {
       if (run !== this.#run || run.dead) return;
       this.#log?.("error", "ace-files could not re-open its roots", { error: String(error) });
@@ -310,9 +320,21 @@ export class FilesProcess {
       return;
     }
     if (run !== this.#run || run.dead) return;
+    const wasUp = this.#state === "up";
     this.#state = "up";
     for (const waiter of this.#waiters.splice(0)) waiter.resolve();
-    this.#log?.("info", "ace-files is ready", { pid: run.child.pid, version: run.version });
+    if (!wasUp)
+      this.#log?.("info", "ace-files is ready", { pid: run.child.pid, version: run.version });
+    // The process answers now, so the catch-up is real: deliver it after the state moved.
+    for (const subscription of outcome.restored) this.#operations.rescan(subscription);
+    if (!outcome.pending) return;
+    this.#restoreTimer?.();
+    this.#restoreTimer = this.#clock.setTimeout(() => {
+      this.#restoreTimer = undefined;
+      if (run !== this.#run || run.dead) return;
+      // The pass reports its own failures; this only keeps the timer's promise handled.
+      void this.#restore(run).catch(() => {});
+    }, supervisionTimings.restoreRetryMs);
   }
 
   #onExit(run: Run, exit: { code: number | null; signal: string | null }): void {
@@ -321,6 +343,8 @@ export class FilesProcess {
     this.#run = undefined;
     run.dead = true;
     run.stopHelloTimer();
+    this.#restoreTimer?.();
+    this.#restoreTimer = undefined;
     this.#stdin?.discard();
     this.#stdin = undefined;
     this.#log?.("warn", "ace-files exited", { code: exit.code, signal: exit.signal });

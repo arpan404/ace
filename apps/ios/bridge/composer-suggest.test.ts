@@ -11,6 +11,7 @@ import {
   connect,
   fixture,
   latest,
+  native,
   open,
   pump,
   reset,
@@ -176,6 +177,79 @@ test("a message carries the references still written in it, and a picked skill g
     context: { mentions: [{ path: "README.md" }] },
   });
   expect(commands("thread.send")[0]?.context).not.toHaveProperty("items");
+});
+
+test("@ gives up on a building index with Try again instead of searching forever", async () => {
+  const held: (() => void)[] = [];
+  let clock = 0;
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async () => ({
+        result: { kind: "completion", paths: [], ready: false },
+      }),
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => clock,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 1 });
+  // The pause after typing, then the first wait before asking the building index again.
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.();
+  await until(() => held.length === 1, "the wait on the building index");
+  clock = 6_000;
+  held.shift()?.();
+  const failed = await until(() => list()?.state === "failed" && list(), "the retryable failure");
+  expect(failed?.seq).toBe(1);
+});
+
+test("a newer @ query cancels the wait on a building index", async () => {
+  const held: (() => void)[] = [];
+  const replies = [
+    async () => ({ result: { kind: "completion", paths: [], ready: false } }),
+    async () => ({ result: { kind: "completion", paths: ["src/main.ts"], ready: true } }),
+  ];
+  const lists = new ComposerSuggest({
+    owner: {
+      request: async (input: { type: string }) => {
+        if (input.type === "browser.tabs.list") return { ok: true, result: [] };
+        return (replies.shift() ?? (async () => ({ result: { kind: "empty" } })))();
+      },
+    } as unknown as ClientCore,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => 0,
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => [],
+    draft: { draftScope: async () => "draft", complete: async () => ({ paths: [], ready: true }) },
+  });
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "s", seq: 1 });
+  await until(() => held.length === 1, "the typing pause");
+  held.shift()?.();
+  await until(() => held.length === 1, "the wait on the building index");
+  // The person typed again: the old wait stops and never reports its failure.
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "src", seq: 2 });
+  await until(() => held.length === 2, "the newer typing pause");
+  held.pop()?.();
+  const shown = await until(() => list()?.seq === 2 && list(), "the newer list");
+  expect(shown?.state).toBe("ready");
+  expect(
+    native.frames.some(
+      (frame) =>
+        frame.type === "composer.suggestions" && frame.seq === 1 && frame.state === "failed",
+    ),
+  ).toBe(false);
 });
 
 test("lists keep answering after a thousand queries", async () => {

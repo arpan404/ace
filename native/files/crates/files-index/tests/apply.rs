@@ -33,14 +33,14 @@ fn apply_adds_and_removes_files() {
         .index
         .apply(&fixture.root, &[created("src/new.rs", false)]);
     assert_eq!(paths(&fixture.index.search("new.rs", 5)), ["src/new.rs"]);
-    assert_eq!(fixture.index.len(), 3);
+    assert_eq!(fixture.index.len(), 4);
 
     fixture
         .index
         .apply(&fixture.root, &[created("src/new.rs", false)]);
     assert_eq!(
         fixture.index.len(),
-        3,
+        4,
         "a repeated save is not a second file"
     );
 
@@ -49,7 +49,7 @@ fn apply_adds_and_removes_files() {
         .index
         .apply(&fixture.root, &[deleted("src/old.rs", false)]);
     assert!(fixture.index.search("old.rs", 5).is_empty());
-    assert_eq!(fixture.index.len(), 2);
+    assert_eq!(fixture.index.len(), 3);
 }
 
 #[test]
@@ -60,11 +60,11 @@ fn prepare_runs_before_the_index_changes() {
         &fixture.root,
         &[created("src/new", true), deleted("src/main.rs", false)],
     );
-    assert_eq!(fixture.index.len(), 1, "prepare leaves the index alone");
+    assert_eq!(fixture.index.len(), 2, "prepare leaves the index alone");
     assert_eq!(paths(&fixture.index.search("main.rs", 5)), ["src/main.rs"]);
 
     fixture.index.commit(prepared);
-    assert_eq!(fixture.index.len(), 1);
+    assert_eq!(fixture.index.len(), 3);
     assert!(fixture.index.search("main.rs", 5).is_empty());
     assert_eq!(
         paths(&fixture.index.search("one.rs", 5)),
@@ -83,7 +83,7 @@ fn deleted_folder_drops_its_subtree() {
     fixture
         .index
         .apply(&fixture.root, &[deleted("src/a", true)]);
-    assert_eq!(fixture.index.len(), 1);
+    assert_eq!(fixture.index.len(), 3);
     assert_eq!(
         paths(&fixture.index.search("four.rs", 5)),
         ["src/b/four.rs"]
@@ -99,7 +99,7 @@ fn deleted_folder_reported_as_a_file_drops_its_subtree() {
     fixture
         .index
         .apply(&fixture.root, &[deleted("src/a", false)]);
-    assert_eq!(fixture.index.len(), 1);
+    assert_eq!(fixture.index.len(), 3);
     assert!(fixture.index.search("one.rs", 5).is_empty());
     assert!(fixture.index.search("two.rs", 5).is_empty());
     assert_eq!(
@@ -116,7 +116,7 @@ fn created_folder_adds_its_subtree() {
     fixture
         .index
         .apply(&fixture.root, &[created("src/new", true)]);
-    assert_eq!(fixture.index.len(), 3);
+    assert_eq!(fixture.index.len(), 6);
     assert_eq!(
         paths(&fixture.index.search("one.rs", 5)),
         ["src/new/one.rs"]
@@ -150,7 +150,7 @@ fn apply_skips_a_gitignored_folder() {
         .index
         .apply(&fixture.root, &[created("src/build", true)]);
     assert!(fixture.index.search("out.rs", 5).is_empty());
-    assert_eq!(fixture.index.len(), 2);
+    assert_eq!(fixture.index.len(), 3);
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn apply_skips_a_gitignored_file() {
         .index
         .apply(&fixture.root, &[created("target/debug/foo.d", false)]);
     assert!(fixture.index.search("foo.d", 5).is_empty());
-    assert_eq!(fixture.index.len(), 2);
+    assert_eq!(fixture.index.len(), 3);
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn apply_skips_a_hidden_folder() {
         ],
     );
     assert!(index.search("y.js", 5).is_empty());
-    assert_eq!(index.len(), 1);
+    assert_eq!(index.len(), 2);
 }
 
 #[test]
@@ -203,7 +203,8 @@ fn deletions_clear_truncation() {
         .map(|number| deleted(&format!("src/file{number}.rs"), false))
         .collect();
     index.apply(&root, &deletes);
-    assert_eq!(index.len(), 0);
+    // The folder itself stays: its files are gone, the path is not.
+    assert_eq!(index.len(), 1);
     assert!(!index.truncated(), "the index is under its cap again");
 }
 
@@ -216,7 +217,7 @@ fn apply_never_adds_paths_inside_dot_git() {
         &fixture.root,
         &[created(".git", true), created(".git/config", false)],
     );
-    assert_eq!(fixture.index.len(), 1);
+    assert_eq!(fixture.index.len(), 2);
     assert!(fixture.index.search("config", 5).is_empty());
     assert!(fixture.index.search("precommit", 5).is_empty());
 }

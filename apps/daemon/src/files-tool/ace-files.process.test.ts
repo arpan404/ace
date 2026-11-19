@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { systemFilesClock } from "@ace/files-native";
 import { ThreadId } from "@ace/protocol";
 import { FolderWatch, type FoldersChanged } from "./folder-watch.ts";
+import { aceFilesIo } from "./io.ts";
 import { findFilesBinary, FilesTool } from "./tool.ts";
 
 const binary = findFilesBinary();
@@ -108,6 +109,19 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     expect((await tool.quickOpen(checkout, "README", 20)).paths).toContain("README.md");
   });
 
+  it("@ offers a folder with its slash and a bare @ suggests shallow paths", async () => {
+    await until(async () => (await tool.quickOpen(checkout, "main", 20)).ready);
+    const typed = await tool.quickOpen(checkout, "src", 20);
+    expect(typed.paths).toContain("src/");
+    expect(typed.paths).toContain("src/main.ts");
+
+    const bare = await tool.quickOpen(checkout, "", 20);
+    expect(bare.paths.length).toBeGreaterThan(0);
+    expect(bare.paths).toContain("src/");
+    // Nothing typed is the same list every time.
+    expect((await tool.quickOpen(checkout, "", 20)).paths).toEqual(bare.paths);
+  });
+
   it("answers the quick-open shapes the panel sends", async () => {
     await tool.listFolder(checkout, "");
     // The Rust index ranks like VS Code's quick open; the paths a person expects are the
@@ -126,6 +140,26 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
           throw new Error(`quick open missed ${path} for ${JSON.stringify(query)}`);
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+    }
+  });
+
+  it("walks a folder of 2,000 entries listed the moment it was populated", async () => {
+    const fresh = await mkdtemp(join(tmpdir(), "ace-files-fresh-"));
+    try {
+      await Promise.all(
+        Array.from({ length: 2_000 }, (_, index) =>
+          writeFile(join(fresh, `f${String(index).padStart(4, "0")}.txt`), "x"),
+        ),
+      );
+      // Four pages of a folder still inside files-list's racy window: a cursor that needs the
+      // folder's stamp would be refused, so a traversal pins its own listing instead.
+      const walked: string[] = [];
+      for await (const entry of aceFilesIo(tool).walk(fresh, "")) walked.push(entry.path);
+      expect(walked).toHaveLength(2_000);
+      expect(walked[0]).toBe("f0000.txt");
+      expect(walked.at(-1)).toBe("f1999.txt");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
     }
   });
 });

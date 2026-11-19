@@ -61,6 +61,9 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
         do {
           const page = await tool.listFolder(root, folder, {
             limit: filesListDefaults.limit,
+            // A checkout listing walks many pages; a folder that just changed must not refuse
+            // the traversal's next page.
+            snapshot: true,
             ...(cursor === undefined ? {} : { cursor }),
             ...(options.signal === undefined ? {} : { signal: options.signal }),
           });
@@ -152,6 +155,9 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
         do {
           const page = await tool.listFolder(root, dir, {
             limit: filesListDefaults.limit,
+            // One traversal, many pages: pin each folder's listing so a folder somebody is
+            // writing to cannot refuse the next page and truncate an archive or a walk.
+            snapshot: true,
             ...(cursor === undefined ? {} : { cursor }),
             ...(options.signal === undefined ? {} : { signal: options.signal }),
           });

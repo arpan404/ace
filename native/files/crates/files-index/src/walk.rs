@@ -144,12 +144,13 @@ impl Collected {
     }
 }
 
-/// Walk `root` and collect every file, up to `max_files`.
+/// Walk `root` and collect every path, up to `max_files`.
 ///
-/// Hidden files are included, because a person can open a dotfile. Nothing inside a `.git` folder is
-/// ever indexed, at any depth or as the root itself: that store is never a quick-open target and
-/// would fill any cap on its own. Symlinks are indexed when they point at a file inside the root;
-/// symlinked folders are never followed.
+/// A folder is collected as itself with a trailing `/`, so quick open can offer it beside files.
+/// Hidden files are included, because a person can open a dotfile. Nothing inside a `.git` folder
+/// is ever indexed, at any depth or as the root itself: that store is never a quick-open target
+/// and would fill any cap on its own. Symlinks are indexed when they point at a file inside the
+/// root; symlinked folders are never followed.
 pub(crate) fn run(walk: Walk<'_>) -> Result<Collected, Error> {
     if inside_git_store(walk.root) {
         return Ok(Collected {
@@ -263,7 +264,7 @@ impl ParallelVisitor for CollectVisitor<'_> {
         let Some(kind) = entry.file_type() else {
             return WalkState::Continue;
         };
-        if !kind.is_file() && !kind.is_symlink() {
+        if !kind.is_file() && !kind.is_symlink() && !kind.is_dir() {
             return WalkState::Continue;
         }
         if kind.is_symlink() && !self.links_to_file(&entry) {
@@ -278,6 +279,16 @@ impl ParallelVisitor for CollectVisitor<'_> {
         if self.shared.recheck && self.shared.filters.recheck(self.shared.root, &path) {
             return WalkState::Continue;
         }
+        // A folder is indexed as itself, ending in `/` so it can never be mistaken for a file and
+        // is offered as a folder in the `@` menu. One its own ignore rules hide is not indexed.
+        let found = if kind.is_dir() {
+            if self.shared.filters.excludes(self.shared.root, &path, true) {
+                return WalkState::Continue;
+            }
+            format!("{path}/")
+        } else {
+            path
+        };
         let seen = self.shared.count.fetch_add(1, Ordering::Relaxed);
         if seen >= self.shared.max_files {
             self.shared.cap_hit.store(true, Ordering::Relaxed);
@@ -290,7 +301,7 @@ impl ParallelVisitor for CollectVisitor<'_> {
             self.shared.cancelled.store(true, Ordering::Relaxed);
             return WalkState::Quit;
         }
-        self.local.push(path);
+        self.local.push(found);
         WalkState::Continue
     }
 }

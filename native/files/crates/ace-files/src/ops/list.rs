@@ -24,6 +24,7 @@ pub fn list(
     limit: u64,
     cursor: Option<String>,
     hide: Vec<String>,
+    snapshot: bool,
 ) -> Result<Reply, Error> {
     if !(1..=MAX_LIMIT as u64).contains(&limit) {
         return Err(Error::InvalidArgument(format!(
@@ -42,7 +43,11 @@ pub fn list(
         cursor,
         hide: hidden::listing_hide(hide),
     };
-    let page = entry.lister().list_in(&stored, &handle, &options)?;
+    let page = if snapshot {
+        entry.lister().list_pinned_in(&stored, &handle, &options)?
+    } else {
+        entry.lister().list_in(&stored, &handle, &options)?
+    };
     Ok(Reply::Page(convert::page(page)))
 }
 

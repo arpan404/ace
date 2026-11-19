@@ -2,6 +2,8 @@
 
 //! Fuzzy search over the arena.
 
+use std::collections::BinaryHeap;
+
 use frizbee::{CaseMatching, Config, Matcher, SortStrategy};
 use rayon::prelude::*;
 
@@ -44,8 +46,11 @@ impl Parsed {
 
 pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
     let parsed = Parsed::new(query);
-    if parsed.terms.is_empty() || limit == 0 {
+    if limit == 0 {
         return Vec::new();
+    }
+    if parsed.terms.is_empty() {
+        return shallow(arena, limit);
     }
     let config = config();
     let starts: Vec<u32> = (0..arena.slots()).step_by(CHUNK as usize).collect();
@@ -68,8 +73,8 @@ pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
         .into_iter()
         .map(|candidate| {
             let path = arena.get(candidate.slot).unwrap_or_default();
-            let (score, positions) =
-                score_path(&mut matchers, &parsed, path).unwrap_or((candidate.score, Vec::new()));
+            let (score, positions) = score_path(&mut matchers, &parsed, matchable(path))
+                .unwrap_or((candidate.score, Vec::new()));
             Hit {
                 path: path.to_owned(),
                 score,
@@ -77,6 +82,44 @@ pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
             }
         })
         .collect()
+}
+
+/// Nothing typed: the shallowest paths, then by path, so the `@` menu opens on a stable answer
+/// with the checkout's top-level files and folders before anything deep.
+///
+/// It is one pass over the live slots and keeps only the best `limit`, so the answer costs the
+/// index size rather than sorting all of it.
+fn shallow(arena: &PathArena, limit: usize) -> Vec<Hit> {
+    let mut best: BinaryHeap<(usize, &str)> = BinaryHeap::with_capacity(limit + 1);
+    for slot in 0..arena.slots() {
+        if !arena.is_live(slot) {
+            continue;
+        }
+        let Some(path) = arena.get(slot) else {
+            continue;
+        };
+        let visible = matchable(path);
+        best.push((visible.matches('/').count(), path));
+        if best.len() > limit {
+            best.pop();
+        }
+    }
+    let mut chosen = best.into_vec();
+    chosen.sort_unstable();
+    chosen
+        .into_iter()
+        .map(|(_, path)| Hit {
+            path: path.to_owned(),
+            score: 0,
+            positions: Vec::new(),
+        })
+        .collect()
+}
+
+/// The part of a stored path the matcher scores: a folder is stored with a trailing `/`, which is
+/// a separator and not part of its name. Byte offsets stay valid because the slash is last.
+fn matchable(path: &str) -> &str {
+    path.strip_suffix('/').unwrap_or(path)
 }
 
 fn search_chunk<'a>(
@@ -94,7 +137,7 @@ fn search_chunk<'a>(
             continue;
         }
         if let Some(path) = arena.get(slot) {
-            paths.push(path);
+            paths.push(matchable(path));
             slots.push(slot);
         }
     }

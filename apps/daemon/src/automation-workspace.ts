@@ -5,19 +5,36 @@ import { GitIgnore, SafeRoot } from "@ace/workspace";
 import type { WorkspaceChanges } from "@ace/automations";
 import type { EventPayload } from "@ace/files-native";
 import { aceFilesIo } from "./files-tool/io.ts";
-import type { FilesTool } from "./files-tool/tool.ts";
+import { filesErrorCode, type FilesTool } from "./files-tool/tool.ts";
 import type { ServiceContext } from "./services/types.ts";
 
 const WorkspacePathRow = z.object({ path: z.string() });
 /** Matching paths one trigger remembers; a lost watcher past this cannot be reconciled. */
 const snapshotLimit = 100_000;
+/** Events one trigger holds while its baseline is read; past this it rescans after instead. */
+const bufferLimit = 10_000;
 
 type TriggerChange = { path: string; kind: "created" | "changed" | "deleted" };
+type ChangesPayload = Extract<EventPayload, { type: "changes" }>;
+
+/**
+ * A path's version for reconciliation: what a file looked like the last time it was read, and a
+ * constant for a folder, whose mtime moves whenever anything inside it does.
+ */
+function version(entry: { type: string; size: number; mtime: number }): string {
+  return entry.type === "directory" ? "directory" : `${entry.type}:${entry.size}:${entry.mtime}`;
+}
 
 /**
  * Automation file triggers over ace-files' watch (ADR 0178): one checkout watch shared by every
  * automation on that folder, gitignore rules applied as the TypeScript watcher did, and a rescan
- * reconciled against the matching paths last seen.
+ * reconciled against the (path, kind, version) baseline last seen.
+ *
+ * The baseline is seeded before `onReady`, so the first rescan names real changes instead of
+ * inventing a create for every file already there. Everything after that is serialized: a batch
+ * that arrives while a rescan walks waits for it, and either side reports a transition only when
+ * the version it read differs from the baseline, so a create the watcher saw and a rescan also
+ * finds fires once.
  */
 export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
   let subscriptions = 0;
@@ -43,10 +60,15 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       }
       subscriptions++;
       const matches = (path: string) => patterns.some((pattern) => matchesGlob(path, pattern));
-      const known = new Set<string>();
+      /** The baseline: each matching path and the version it had when it was last read. */
+      const known = new Map<string, string>();
       let closed = false;
       let stop: (() => Promise<void>) | undefined;
       let ignore: Promise<GitIgnore> | undefined;
+      /** Events seen before the baseline exists, replayed once it does. */
+      let buffered: EventPayload[] | undefined = [];
+      let overflowed = false;
+      let tail: Promise<void> = Promise.resolve();
       const ignoring = () => {
         ignore ??= SafeRoot.create(workspace.path).then((safe) => GitIgnore.create(safe));
         return ignore;
@@ -65,9 +87,103 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           },
         }).catch((error) => context.log.log("error", "Automation file trigger", logError(error)));
       };
-      /** A rescan names no paths: compare the matching paths now with the ones last seen. */
+      const failure = (error: unknown) => {
+        context.log.log("error", "Automation file trigger", logError(error));
+      };
+      /** One task at a time, in the order the watcher reported it. */
+      const run = (task: () => Promise<void>) => {
+        const next = tail.then(task);
+        tail = next.then(
+          () => {},
+          () => {},
+        );
+        pending.add(next);
+        // The task reports its own failure here; this only forgets it.
+        void next
+          .catch(failure)
+          .finally(() => pending.delete(next))
+          .catch(() => {});
+      };
+      /** The version the folder holds now, or undefined when the path is gone. */
+      const currentVersion = async (tool: FilesTool, path: string): Promise<string | undefined> => {
+        try {
+          const entry = await tool.run(workspace.path, (client, number) =>
+            client.stat(number, path),
+          );
+          return version({
+            type: entry.kind.type,
+            size: entry.size,
+            mtime: entry.mtimeMs,
+          });
+        } catch (error) {
+          if (filesErrorCode(error) === "NOT_FOUND") return undefined;
+          throw error;
+        }
+      };
+      /** Read the matching tree into a baseline, before anything is reported ready. */
+      const seed = async (tool: FilesTool) => {
+        const seeded = new Map<string, string>();
+        let full = false;
+        for await (const entry of aceFilesIo(tool).walk(workspace.path, "")) {
+          if (entry.ignored || !matches(entry.path)) continue;
+          if (seeded.size >= snapshotLimit) {
+            full = true;
+            break;
+          }
+          seeded.set(entry.path, version(entry));
+        }
+        if (closed) return;
+        known.clear();
+        for (const [path, entry] of seeded) known.set(path, entry);
+        if (full) {
+          known.clear();
+          context.log.log("warn", "Automation baseline exceeded its snapshot; changes may be lost");
+        }
+      };
+      /** One live batch: a version read now decides whether it names a real transition. */
+      const batch = async (
+        tool: FilesTool,
+        changes: ChangesPayload["changes"],
+        announce = false,
+      ) => {
+        const rules = await ignoring();
+        const ignored = await rules.ignored(changes.map((change) => change.path));
+        const matched: TriggerChange[] = [];
+        for (const change of changes) {
+          if (ignored.has(change.path) || !matches(change.path)) continue;
+          const before = known.get(change.path);
+          if (change.kind === "deleted") {
+            if (!before && !announce) continue;
+            known.delete(change.path);
+            matched.push({ path: change.path, kind: "deleted" });
+            continue;
+          }
+          const now = await currentVersion(tool, change.path);
+          if (now === undefined) {
+            // Gone before it could be read; a delete of a path we knew is still a transition.
+            if (before !== undefined) {
+              known.delete(change.path);
+              matched.push({ path: change.path, kind: "deleted" });
+            }
+            continue;
+          }
+          // A batch held while the baseline was read is newer than that baseline: report what it
+          // says once, even when the seed already saw the file it names.
+          if (announce) {
+            matched.push({
+              path: change.path,
+              kind: change.kind === "modified" ? "changed" : change.kind,
+            });
+          } else if (before === undefined) matched.push({ path: change.path, kind: "created" });
+          else if (before !== now) matched.push({ path: change.path, kind: "changed" });
+          if (!known.has(change.path) && known.size >= snapshotLimit) continue;
+          known.set(change.path, now);
+        }
+        fire(matched);
+      };
+      /** A rescan names no paths: compare the versions now with the ones last read. */
       const rescan = async (tool: FilesTool) => {
-        const current = new Set<string>();
+        const current = new Map<string, string>();
         let full = false;
         for await (const entry of aceFilesIo(tool).walk(workspace.path, "")) {
           if (entry.ignored || !matches(entry.path)) continue;
@@ -75,7 +191,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             full = true;
             break;
           }
-          current.add(entry.path);
+          current.set(entry.path, version(entry));
         }
         if (closed) return;
         if (full) {
@@ -84,61 +200,60 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           return;
         }
         const changes: TriggerChange[] = [];
-        for (const path of current) if (!known.has(path)) changes.push({ path, kind: "created" });
-        for (const path of known) if (!current.has(path)) changes.push({ path, kind: "deleted" });
+        for (const [path, now] of current) {
+          const before = known.get(path);
+          if (before === undefined) changes.push({ path, kind: "created" });
+          else if (before !== now) changes.push({ path, kind: "changed" });
+        }
+        for (const path of known.keys())
+          if (!current.has(path)) changes.push({ path, kind: "deleted" });
         known.clear();
-        for (const path of current) known.add(path);
+        for (const [path, now] of current) known.set(path, now);
         fire(changes);
       };
-      const batch = async (changes: Extract<EventPayload, { type: "changes" }>["changes"]) => {
-        const rules = await ignoring();
-        const ignored = await rules.ignored(changes.map((change) => change.path));
-        const matched: TriggerChange[] = [];
-        for (const change of changes) {
-          if (ignored.has(change.path) || !matches(change.path)) continue;
-          if (change.kind === "deleted") known.delete(change.path);
-          else if (known.size < snapshotLimit) known.add(change.path);
-          matched.push({
-            path: change.path,
-            kind: change.kind === "modified" ? "changed" : change.kind,
-          });
-        }
-        fire(matched);
-      };
-      const failure = (error: unknown) => {
-        context.log.log("error", "Automation file trigger", logError(error));
-      };
-      /** A batch or rescan outlives one event; the close waits for whatever is running. */
-      const track = (task: Promise<void>) => {
-        pending.add(task);
-        // The task reports its own failure; this only forgets it.
-        void task.catch(failure).finally(() => pending.delete(task));
+      const receivePayload = (tool: FilesTool, payload: EventPayload, announce = false) => {
+        if (payload.type === "changes") run(() => batch(tool, payload.changes, announce));
+        else if (payload.type === "rescan") run(() => rescan(tool));
+        else if (payload.type === "warning")
+          context.log.log(
+            "warn",
+            "Automation workspace watcher",
+            logFields([["message", payload.message]]),
+          );
       };
       const opening = (async () => {
         const tool = context.services.filesNative?.tool;
         if (!tool) throw new Error("ace-files is unavailable");
         const unsubscribe = await tool.watch(workspace.path, (payload) => {
           if (closed) return;
-          if (payload.type === "changes") {
-            track(batch(payload.changes));
+          if (buffered) {
+            if (buffered.length >= bufferLimit) {
+              buffered = [];
+              overflowed = true;
+            } else buffered.push(payload);
             return;
           }
-          if (payload.type === "rescan") {
-            track(rescan(tool));
-            return;
-          }
-          if (payload.type === "warning")
-            context.log.log(
-              "warn",
-              "Automation workspace watcher",
-              logFields([["message", payload.message]]),
-            );
+          receivePayload(tool, payload);
         });
-        if (closed) await unsubscribe();
-        else {
-          stop = unsubscribe;
-          hooks?.onReady?.();
+        if (closed) {
+          await unsubscribe();
+          return;
         }
+        stop = unsubscribe;
+        try {
+          await seed(tool);
+        } catch (error) {
+          // A baseline that could not be read leaves nothing to reconcile against: stop watching
+          // rather than report every later change as a create.
+          await unsubscribe();
+          throw error;
+        }
+        if (closed) return;
+        const replay = buffered ?? [];
+        buffered = undefined;
+        hooks?.onReady?.();
+        if (overflowed) run(() => rescan(tool));
+        else for (const payload of replay) receivePayload(tool, payload, true);
       })().catch((error) => {
         context.log.log("error", "Automation watcher unavailable", logError(error));
         hooks?.onError?.(error);

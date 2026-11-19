@@ -152,6 +152,13 @@ fn add_subtree(
     if collected.truncated {
         prepared.truncated = true;
     }
+    // The walk starts at the folder and reports what is inside it; the folder itself is a
+    // candidate too, so `@` can offer it.
+    if index.arena.live_len() + prepared.adds.len() < index.max_files {
+        prepared.adds.push(format!("{dir}/"));
+    } else {
+        prepared.truncated = true;
+    }
     prepared.adds.extend(collected.paths);
 }
 
