@@ -88,11 +88,18 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         func typingNumber(_ text: String, on language: String?) -> Draft {
             guard case let .number(typed, had, mixed) = self, !text.isEmpty,
                   Draft.kept(typed, editedTo: text).contains(where: { !$0.isNumber && $0 != "-" && $0 != "\u{2212}" }) else {
-                return .number(text, language: text.isEmpty ? nil : language)
+                return replacingNumber(with: text, on: language)
             }
             // Begun where the keyboard wasn't known, a known one taking over is a switch too.
             let switched = language != nil && had != language
             return .number(text, language: had ?? language, mixed: mixed || switched)
+        }
+
+        /// The number replaced whole by `text` typed or pasted on a keyboard of `language`, as
+        /// after Select All: nothing of the old one is kept, so it starts over on that keyboard,
+        /// even where the new text happens to begin like the old (#2297).
+        func replacingNumber(with text: String, on language: String?) -> Draft {
+            .number(text, language: text.isEmpty ? nil : language)
         }
 
         /// What of `old` an edit to `new` left in place: their common start and end.

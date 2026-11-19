@@ -79,6 +79,21 @@ import Testing
         #expect(mixedThenPasted.payload["text"] as? String == "2.5")
     }
 
+    @Test func aNumberReplacedWholeStartsOverOnTheNewKeyboard() {
+        let empty = SpadeQuestionCard.Draft.number("", language: nil)
+        // #2297: `1,2` on an unknown keyboard, then Select All and paste `1,5` on a German one.
+        // The shared `1,` isn't kept: the whole field was replaced.
+        let unknown = empty.typingNumber("1,2", on: nil)
+        #expect(unknown.replacingNumber(with: "1,5", on: "de-DE").payload["text"] as? String == "1.5")
+        // Only the `2` changed on the German keyboard: the unknown keyboard's comma stays, so unread.
+        #expect(unknown.typingNumber("1,5", on: "de-DE").payload["unread"] as? Bool == true)
+        // Replacing a mixed number reads it again too.
+        let both = empty.typingNumber("1,23", on: "en-US").typingNumber("1,234", on: "de-DE")
+        #expect(both.replacingNumber(with: "1.5", on: "en-US").payload["text"] as? String == "1.5")
+        // Replaced with nothing, it has no keyboard yet.
+        #expect(both.replacingNumber(with: "", on: "de-DE") == empty)
+    }
+
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
         #expect(SpadeQuestionCard.numberText("1,5", language: nil, fallback: Locale(identifier: "de_DE")) == "1.5")
         #expect(SpadeQuestionCard.numberText("1,5", language: "emoji", fallback: Locale(identifier: "de_DE")) == "1.5")
