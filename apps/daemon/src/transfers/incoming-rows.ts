@@ -178,6 +178,16 @@ export class IncomingRows {
       .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
+  /** Every transfer still receiving, cloning or importing: the ones whose files are kept. */
+  live(after = ""): IncomingRecord[] {
+    return this.store
+      .statement(
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.state IN ('receiving','cloning','importing') ORDER BY o.transfer_id LIMIT 64`,
+      )
+      .all(after)
+      .map((raw) => decode(Row.parse(raw)));
+  }
   /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
   leftovers(after = ""): IncomingRecord[] {
     return this.store

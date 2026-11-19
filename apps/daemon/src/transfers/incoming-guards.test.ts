@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -124,32 +124,47 @@ async function target(
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
   const { promise: gate, resolve: release } = Promise.withResolvers<void>();
-  const incoming = new IncomingTransfers({
-    store,
-    directory: join(root, "incoming"),
-    git: held<TransferGit>(gate),
-    gitPolicy: { validateUrl: () => {} },
-    archive: held<TransferArchive>(gate),
-    projects: held<TargetProjects>(gate, { list: () => [], ...options.projects?.(root) }),
-    threads: held(gate),
-    // The sender's project is registered here already, so a commit naming it reads Git first.
-    identities: held<TransferIdentities>(gate, {
-      holders: () => [{ workspaceId: WorkspaceId.parse("workspace-held"), path: root }],
-    }),
-    now: () => clock.at,
-    log: () => {},
-  });
+  const make = () =>
+    new IncomingTransfers({
+      store,
+      directory: join(root, "incoming"),
+      git: held<TransferGit>(gate),
+      gitPolicy: { validateUrl: () => {} },
+      archive: held<TransferArchive>(gate),
+      projects: held<TargetProjects>(gate, { list: () => [], ...options.projects?.(root) }),
+      threads: held(gate),
+      // The sender's project is registered here already, so a commit naming it reads Git first.
+      identities: held<TransferIdentities>(gate, {
+        holders: () => [{ workspaceId: WorkspaceId.parse("workspace-held"), path: root }],
+      }),
+      now: () => clock.at,
+      log: () => {},
+    });
+  let incoming = make();
   cleanup.push(() => incoming.close());
   cleanup.push(async () => release());
   const state = (transferId: string) =>
     store.statement("SELECT state FROM transfer_incoming WHERE transfer_id=?").get(transferId)?.[
       "state"
     ];
+  const directory = join(root, "incoming");
   return {
-    incoming,
+    get incoming() {
+      return incoming;
+    },
     release,
     state,
-    part: (id: string) => join(root, "incoming", `${id}.part`),
+    directory,
+    /** Where a transfer's uploaded code waits: named by the hash of its id. */
+    part: (id: string) => join(directory, `${createHash("sha256").update(id).digest("hex")}.part`),
+    /** Stops this machine's transfers and starts them again on the same store and folder. */
+    async restart() {
+      await incoming.close();
+      incoming = make();
+      cleanup.push(() => incoming.close());
+      await incoming.recover();
+      return incoming;
+    },
   };
 }
 
@@ -273,4 +288,44 @@ it("closing stops the sweep and waits for it, so nothing is swept once close has
   await sweeping;
   await settle();
   expect(left()).toHaveLength(1);
+});
+
+it("two transfers whose ids differ only in case keep their own uploads", async () => {
+  const { incoming } = await target();
+  const other = Device.parse({ ...device, id: "device-other", name: "Studio" });
+  await incoming.call(device, begin("Move-1"));
+  await incoming.chunk(device, "Move-1", 0, bytes);
+  await incoming.call(other, begin("move-1"));
+  const theirs = Buffer.from("other bytes, longer");
+  await expect(incoming.chunk(other, "move-1", 0, theirs)).resolves.toEqual({
+    offset: theirs.length,
+  });
+  await incoming.call(other, { op: "cancel", transferId: "move-1" });
+  await expect(
+    incoming.call(device, { op: "status", transferId: "Move-1" }),
+  ).resolves.toMatchObject({ state: "receiving", offset: bytes.length });
+});
+
+it("an upload an earlier build named after its id is found again after the upgrade", async () => {
+  const fixture = await target();
+  await fixture.incoming.call(device, begin("move.1"));
+  await fixture.incoming.call(device, begin("t-gone"));
+  await fixture.incoming.call(device, { op: "cancel", transferId: "t-gone" });
+  // As an earlier build left them: the payload under the id itself, and a settled one's leftover.
+  await writeFile(join(fixture.directory, "move.1.part"), bytes);
+  await writeFile(join(fixture.directory, "move.1.ignored.part"), bytes);
+  await writeFile(join(fixture.directory, "t-gone.part"), bytes);
+  const incoming = await fixture.restart();
+  await expect(
+    incoming.call(device, { op: "status", transferId: "move.1" }),
+  ).resolves.toMatchObject({
+    state: "receiving",
+    offset: bytes.length,
+    ignoredOffset: bytes.length,
+  });
+  expect(await readFile(fixture.part("move.1"))).toEqual(bytes);
+  // The settled transfer's file still goes; nothing else is left under an old name.
+  expect(
+    (await readdir(fixture.directory)).filter((name) => !/^[0-9a-f]{64}\./.test(name)),
+  ).toEqual([]);
 });

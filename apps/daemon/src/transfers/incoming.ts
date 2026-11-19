@@ -1,5 +1,6 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
-import { rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   WorkspaceId,
@@ -22,7 +23,7 @@ import {
   removeIfOwned,
   removeQuietly,
   removeStray,
-  transferOfFile,
+  pathExists,
 } from "./files.ts";
 import { neverPlaced } from "./ignored-files.ts";
 import {
@@ -66,21 +67,15 @@ export type DeviceCheck = () => Device;
 /** The most registrations, most recently used first, a begin reads origins of. */
 const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
-/** What a receiving transfer holds beside its id: the code, the ignored files, the final payload. */
+/** What a receiving transfer holds beside its name: the code, the ignored files, the final payload. */
 const incomingSuffixes = [".part", ".ignored.part", ".final.part", ".final.d"];
 /**
- * A transfer's name on disk: its id with each `.` as `~`. Ids may hold dots, so the id itself
- * followed by a suffix could name another transfer's file (`x.ignored` + `.part` is `x`'s ignored
- * payload). `~` is never in an id, so each id has one stem, a stem has no dot, and every file
- * name reads back to exactly one transfer. Ids without dots, as senders make them, keep their
- * names.
+ * A transfer's name on disk: the lowercase hex SHA-256 of its id. Ids may hold dots and differ
+ * only in case, so a name made from the id could be another transfer's file (`x.ignored.part` is
+ * `x`'s ignored payload; `Move-1` and `move-1` are one file on a case-insensitive volume). A
+ * hash is the same width for every id, has no dot and no capital, and never collides.
  */
-const stem = (transferId: string) => transferId.replaceAll(".", "~");
-/** The transfer a file here belongs to, from its stem. */
-const transferOfStem = (name: string) => {
-  const found = transferOfFile(name, incomingSuffixes);
-  return found === undefined || found.includes(".") ? undefined : found.replaceAll("~", ".");
-};
+const stem = (transferId: string) => createHash("sha256").update(transferId).digest("hex");
 
 /** Runs `each` over every row `page` returns, page after page by transfer id, to the end. */
 async function batches(
@@ -174,6 +169,12 @@ export class IncomingTransfers {
     await ensureDirectory(this.deps.directory);
     // Rows from before the side tables are indexed first, in pages (ADR 0170).
     await this.rows.ready();
+    // Files named by an earlier build after the id itself move to their hashed names first, so
+    // the imports below find them; in pages of transfers still receiving or importing.
+    await batches(
+      (after) => this.rows.live(after),
+      (record) => this.adoptLegacy(record.transferId),
+    );
     // Every import a restart left, in batches until none are left.
     await batches(
       (after) => this.rows.unsettled(after),
@@ -195,13 +196,18 @@ export class IncomingTransfers {
       (after) => this.rows.leftovers(after),
       (record) => this.rollback(record),
     );
-    // Files a crash left behind: removed only once their own transfer's row says it is settled
-    // or gone, never by guess from a list that could be cut short.
-    await removeStray(this.deps.directory, (name) => {
-      const transferId = transferOfStem(name);
-      const record = transferId ? this.rows.get(transferId) : undefined;
-      return record !== undefined && !settled.has(record.state);
-    });
+    // Files a crash left behind: every name a transfer still receiving or importing could own,
+    // worked out from all of those rows, is kept; anything else is a settled or unknown
+    // transfer's and goes. Names are never parsed back to an id.
+    const kept = new Set<string>();
+    await batches(
+      (after) => this.rows.live(after),
+      async (record) => {
+        for (const path of this.paths(record.transferId)) kept.add(basename(path));
+        for (const suffix of incomingSuffixes) kept.add(`${record.transferId}${suffix}`);
+      },
+    );
+    await removeStray(this.deps.directory, (name) => kept.has(name));
     await this.sweep();
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
@@ -215,6 +221,31 @@ export class IncomingTransfers {
       ...this.cancels.values(),
       ...this.sweeps,
     ]);
+  }
+  /** Every path a transfer's files take here. */
+  private paths(transferId: string): string[] {
+    return [
+      this.file(transferId),
+      this.ignoredFile(transferId),
+      this.finalFile(transferId),
+      this.finalFolder(transferId),
+    ];
+  }
+  /**
+   * Moves a transfer's files from the names an earlier build gave them (the id with the suffix)
+   * to its hashed names. A name already taken keeps its file; nothing is removed here.
+   */
+  private async adoptLegacy(transferId: string): Promise<void> {
+    const current = this.paths(transferId);
+    for (const [index, suffix] of incomingSuffixes.entries()) {
+      const legacy = join(this.deps.directory, `${transferId}${suffix}`);
+      const target = current[index];
+      if (!target || legacy === target) continue;
+      if ((await pathExists(legacy)) && !(await pathExists(target)))
+        await rename(legacy, target).catch((error: unknown) =>
+          this.deps.log("Transfer file not moved", { transferId, error: String(error) }),
+        );
+    }
   }
   private file(transferId: string) {
     return join(this.deps.directory, `${stem(transferId)}.part`);

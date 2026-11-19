@@ -83,6 +83,11 @@ export async function removeStray(directory: string, keep: (name: string) => boo
   for (const name of names) if (!keep(name)) await removeQuietly(join(directory, name));
 }
 
+/** Whether anything is at `path`, without following it. */
+export async function pathExists(path: string): Promise<boolean> {
+  return exists(path);
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await lstat(path);
