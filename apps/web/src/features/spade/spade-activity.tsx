@@ -1,10 +1,17 @@
-import { spadeActivityRow, spadeWhen, type SpadeActivityEntry } from "@ace/ui-core/spade-chat";
+import {
+  spadeActivityRow,
+  spadeConnectorOf,
+  spadeWhen,
+  type SpadeActivityEntry,
+} from "@ace/ui-core/spade-chat";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { part, type SuitPartState } from "@/lib/suit-part.ts";
+import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { readActivity } from "./spade-oversight-api.ts";
 import { personZone } from "./spade-routines-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -99,15 +106,33 @@ const outcomeState: Record<string, SuitPartState> = {
   error: "failed",
 };
 
+/** The connected app a step called, for its mark. */
+function useStepApp(entry: SpadeActivityEntry) {
+  const connectors = useSpadeConnectors().data?.connectors;
+  const id = entry.kind === "connector" ? spadeConnectorOf(entry.name ?? "") : undefined;
+  return id ? connectors?.find((each) => each.id === id) : undefined;
+}
+
 function Row(props: { entry: SpadeActivityEntry; now: number; zone: string }) {
   const row = spadeActivityRow(props.entry);
+  const app = useStepApp(props.entry);
   const when = spadeWhen(props.entry.at, props.now, props.zone);
   return (
     <li
       {...part("list-row", outcomeState[props.entry.outcome ?? ""], props.entry.kind)}
       className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-2.5"
     >
-      <span className="text-ui text-foreground">{row.sentence}</span>
+      <span className="text-ui text-foreground">
+        {app && (
+          <AppMark
+            catalogue={app.catalogue}
+            name={app.name}
+            size="inline"
+            className="mr-1.5 inline-grid align-[-0.3em]"
+          />
+        )}
+        {row.sentence}
+      </span>
       <span
         className={cn(
           "text-right text-xs leading-5 whitespace-nowrap tabular-nums",

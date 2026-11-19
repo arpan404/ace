@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
@@ -60,6 +61,8 @@ export function SpadeRequestBubble(props: {
   const { item } = props;
   const who = item.helper ? `A helper of ${props.botName}` : props.botName;
   const title = useToolTitle();
+  // A call to a connected app's tool leads with that app's mark.
+  const app = useToolApp()(item.name);
   const noteText = useNoteText(item, props.botId);
   const card = spadeRequestCard(item.name, item.arguments, who, {
     title,
@@ -124,7 +127,17 @@ export function SpadeRequestBubble(props: {
       }}
     >
       <NeedsYouLine glyph="request">
-        <p>{sentence}</p>
+        <p>
+          {app && (
+            <AppMark
+              catalogue={app.catalogue}
+              name={app.name}
+              size="inline"
+              className="mr-1.5 inline-grid align-[-0.3em]"
+            />
+          )}
+          {sentence}
+        </p>
       </NeedsYouLine>
       {(reason || card.detail) && (
         <CardBody>
@@ -162,13 +175,22 @@ export function SpadeRequestBubble(props: {
   );
 }
 
-/** A connector's tool by its connector's name: `c1__create_event` → "Calendar create event". */
-function useToolTitle() {
+/** The connected app a tool name (`c1__create_event`) belongs to, if it is one's. */
+function useToolApp() {
   const connectors = useSpadeConnectors().data?.connectors;
   return (name: string) => {
     const at = name.indexOf("__");
+    return at < 0 ? undefined : connectors?.find((each) => each.id === name.slice(0, at));
+  };
+}
+
+/** A connector's tool by its connector's name: `c1__create_event` → "Calendar create event". */
+function useToolTitle() {
+  const appOf = useToolApp();
+  return (name: string) => {
+    const at = name.indexOf("__");
     if (at < 0) return undefined;
-    const connector = connectors?.find((each) => each.id === name.slice(0, at));
+    const connector = appOf(name);
     const tool = name
       .slice(at + 2)
       .replaceAll(/[_-]+/g, " ")

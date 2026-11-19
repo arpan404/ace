@@ -10,6 +10,28 @@ import { spadeJson, spadeRecord } from "./json.ts";
 /** How a catalogue server can be signed in to, best first. */
 export type SpadeSignIn = "oauth" | "oauth_client" | "token";
 
+/** Where a catalogue app sits in the list, in the order the list shows them. */
+export const spadeAppCategories = [
+  { id: "mail_chat", label: "Mail & chat" },
+  { id: "meetings", label: "Meetings" },
+  { id: "work", label: "Work" },
+  { id: "files", label: "Files" },
+  { id: "sales_support", label: "Sales & support" },
+  { id: "code", label: "Code" },
+  { id: "data", label: "Data" },
+  { id: "money", label: "Money" },
+  { id: "design", label: "Design" },
+] as const;
+
+export type SpadeAppCategory = (typeof spadeAppCategories)[number]["id"];
+
+/**
+ * Whether the person can connect a catalogue app on this build today: `sign_in` with one click,
+ * `key` only with a token they make in the app, `later` not yet (it waits for the owner: a
+ * registration, the maker's approval).
+ */
+export type SpadeAppReady = "sign_in" | "key" | "later";
+
 export interface SpadeCatalogueEntry {
   id: string;
   name: string;
@@ -18,6 +40,10 @@ export interface SpadeCatalogueEntry {
   notes: string;
   /** `cloud`: signs in through Spade Cloud with the person's ace account (ADR 0140). */
   via: "cloud" | undefined;
+  category: SpadeAppCategory;
+  ready: SpadeAppReady;
+  /** The maker's page where the person makes a token, for apps that take one. */
+  keyUrl: string | undefined;
 }
 
 /**
@@ -92,6 +118,7 @@ const states = ["connected", "connecting", "unreachable", "needs_reconnect", "si
 const via = z.literal("cloud").nullish().catch(undefined);
 const notices = ["cloud_unreachable", "ace_signed_out", "ace_unreachable"] as const;
 
+const categories = spadeAppCategories.map((each) => each.id);
 const entryShape = z.object({
   id: z.string().min(1),
   name: text,
@@ -99,22 +126,42 @@ const entryShape = z.object({
   sign_in: z.array(z.unknown()).catch([]).default([]),
   notes: text,
   via,
+  // A category this client doesn't know files the app under Work rather than dropping it.
+  category: z.enum(categories).catch("work"),
+  // An answer from a Spade that doesn't say: whatever its ways in allow, a sign-in first. A
+  // readiness this client doesn't know reads as not ready, never as a working Sign in.
+  ready: z.enum(["sign_in", "key", "later"]).optional().catch("later"),
+  key_url: z
+    .string()
+    .regex(/^https:\/\//i)
+    .optional()
+    .catch(undefined),
 });
 
 function entryOf(raw: unknown): SpadeCatalogueEntry | undefined {
   const parsed = entryShape.safeParse(raw);
   if (!parsed.success) return undefined;
   const entry = parsed.data;
+  const signIn = entry.sign_in.filter((kind): kind is SpadeSignIn =>
+    (signIns as readonly unknown[]).includes(kind),
+  );
   return {
     id: entry.id,
     name: entry.name || entry.id,
     url: entry.url,
-    signIn: entry.sign_in.filter((kind): kind is SpadeSignIn =>
-      (signIns as readonly unknown[]).includes(kind),
-    ),
+    signIn,
     notes: entry.notes ?? "",
     via: entry.via ?? undefined,
+    category: entry.category,
+    ready: entry.ready ?? readyOf(signIn),
+    keyUrl: entry.key_url,
   };
+}
+
+/** What an older Spade, which doesn't say, allows: its best way in. */
+function readyOf(signIn: readonly SpadeSignIn[]): SpadeAppReady {
+  if (signIn.includes("oauth")) return "sign_in";
+  return signIn.includes("token") ? "key" : "later";
 }
 
 const connectorShape = z.object({

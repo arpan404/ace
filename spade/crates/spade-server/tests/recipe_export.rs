@@ -113,8 +113,7 @@ async fn furnished_spade() -> Result<(Spade, FakeConnector)> {
                 source: "https://example.com/docs".into(),
                 via: None,
                 local: true,
-                effects: Default::default(),
-                every_tool: None,
+                ..Default::default()
             }],
             ..Options::default()
         },

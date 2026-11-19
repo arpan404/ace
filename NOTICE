@@ -67,6 +67,13 @@ scripts/brand-marks/ and turned into path data by scripts/provider-icons.ts:
   apps/ios/Resources/Assets.xcassets/ForgeMarks/forge-forgejo.imageset/forgejo.svg is generated
   from that file by apps/ios/scripts/generate-provider-marks.ts and is under the same license.
 
+Spade's app marks (packages/ui-core/src/app-art/) come mostly from Simple Icons, simple-icons 16.38.0
+(https://simpleicons.org), whose path data is CC0-1.0; scripts/app-icons.ts converts them into path
+data, and the package is a build-time devDependency. A few marks are the makers' own, kept unmodified
+in scripts/brand-marks/apps/. Each mark's source, licence and brand guidelines are listed in
+packages/ui-core/src/app-art/LICENCES.md. Every mark remains its owner's trademark, is used only to
+name the owner's app where a person connects it, and is not licensed under ace's license.
+
 Icons, device art and browser filmstrips use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and
 contributors, Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
 These dependencies and their bundled notices/licenses are accepted for those bounded images.

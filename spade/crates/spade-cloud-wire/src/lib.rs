@@ -83,6 +83,13 @@ pub struct RefreshAnswer {
     pub sealed: Sealed,
 }
 
+/// `GET /v1/oauth/apps`, open: the apps the cloud can sign in to now, those whose client the
+/// owner has set. Spade shows the others as not ready rather than a Sign in that would fail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppsAnswer {
+    pub apps: Vec<String>,
+}
+
 /// A token response sealed to Spade's one-time key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sealed {

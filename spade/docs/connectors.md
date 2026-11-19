@@ -8,8 +8,10 @@ sign-in, sessions, calls), `spade-mcp` (the MCP client shared with ace's tools) 
 ## Catalogue
 
 `config/connectors.json` ships the makers' official server addresses, each checked against the
-maker's own documentation on the date the file records (`source` names the page). An entry has
-`id`, `name`, `url`, `sign_in` and `notes`. `sign_in` lists what works, best first:
+maker's own documentation and the server's live sign-in metadata on its `checked` day (`source`
+names the page). An entry has `id`, `name`, `category`, `url`, `sign_in`, `notes`, `source`,
+`checked`, and maybe `key_url` (where to make a token), `via`, `waits_for`, `effects` and
+`every_tool`. `sign_in` lists what works, best first:
 
 | Value          | Meaning                                                                        |
 | -------------- | ------------------------------------------------------------------------------ |
@@ -18,16 +20,21 @@ maker's own documentation on the date the file records (`source` names the page)
 | `token`        | A token or API key the person made in the app, sent as `Authorization: Bearer` |
 
 An entry Spade ships its own client ID for (`config/connector-apps.json`, see Spade's own apps
-below) gets `oauth` first. So does an entry marked `"via": "cloud"` (Asana, Box, Canva, HubSpot):
+below) gets `oauth` first. So does an entry marked `"via": "cloud"` (Asana, Box, Canva, Front,
+Google's seven, HubSpot, Slack, Zoom):
 the maker requires a client secret, which Spade never ships, so it signs in through
 [Spade Cloud](cloud.md) with the person's ace account (ADR 0140). Signed out of ace, connecting it
 says so with Sign in to ace; the person's own client ID still works. Its row says "Signs in
 through Spade Cloud", or why it can't renew while the cloud or ace is away; it keeps working until
 its token expires. Renewals go through the cloud, and the tokens stay in the keychain.
 
-Servers that accept only clients the maker approved are left out: Figma, and Vercel, which takes
-client ID metadata documents but doesn't name itself in its answers (see Client below). Any other
-server is added by URL.
+`GET /v1/connectors` adds `ready` to each entry ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)):
+`sign_in` when one click works on this build, `key` when only a token does, `later` when it waits
+for the owner: an entry marked `"waits_for": "maker_approval"` (Figma, Pipedrive, Ramp, Vercel,
+whose makers let in only apps they approved), or one through Spade Cloud that the cloud doesn't
+list at `GET /v1/oauth/apps`. The app offers Sign in only for `sign_in`; a `later` entry says
+"Coming soon." Its marks are bundled in the app (`@ace/ui-core/app-icons`). Any other server is
+added by URL. Which apps are listed and why is in [connector-apps.md](connector-apps.md).
 
 ## Signing in
 

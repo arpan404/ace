@@ -43,6 +43,8 @@ export function SettingRow(props: {
   /** The row's `data-state` and `data-variant` for Suits (a picked Suit, a provider's row). */
   state?: SuitPartState | undefined;
   variant?: string | undefined;
+  /** A mark before the label, such as a connected app's. */
+  leading?: ReactNode;
 }) {
   const compact = props.compact || props.density === "compact";
   const titleId = useId();
@@ -73,6 +75,7 @@ export function SettingRow(props: {
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
+        {props.leading}
         {/* The label, and under it its description in the quieter tier. */}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <Title
