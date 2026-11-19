@@ -7,6 +7,7 @@ import Icon from "./Icon.astro";
 const sections = [
   { path: "/features/", name: "Features" },
   { path: "/agents/", name: "Agents" },
+  { path: "/spade/", name: "Spade" },
   { path: "/mcp/", name: "MCP" },
   { path: "/download/", name: "Download" },
   { path: "/faq/", name: "FAQ" },
@@ -45,38 +46,30 @@ const current = (path: string) => here === path || here.startsWith(path);
 </header>
 
 <style>
+  /* The header floats over the page as one rounded bar. */
   .nav {
-    /* Stays put while pages cross-fade (styles/motion.css). */
-    view-transition-name: site-nav;
     position: sticky;
     top: 0;
     z-index: 10;
-    background: color-mix(in srgb, var(--background) 78%, transparent);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-  }
-
-  /* The bottom edge appears once the page scrolls under the header. */
-  @supports (animation-timeline: scroll()) {
-    .nav {
-      border-bottom: 1px solid transparent;
-      animation: edge linear both;
-      animation-timeline: scroll();
-      animation-range: 0 96px;
-    }
-  }
-
-  @keyframes edge {
-    to {
-      border-bottom-color: var(--border);
-    }
+    padding: 10px var(--gutter) 0;
   }
 
   .nav-inner {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    height: 64px;
+    max-width: var(--page);
+    height: 54px;
+    padding-inline: 18px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    /* Stays put while pages cross-fade (styles/motion.css). The name sits on the bar itself: on
+       its parent it cut the bar off from the page behind, and the blur had nothing to blur. */
+    view-transition-name: site-nav;
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    box-shadow: 0 14px 30px -22px var(--frame-shadow);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
   }
 
   .brand {
@@ -136,6 +129,18 @@ const current = (path: string) => here === path || here.startsWith(path);
 
   .icon-link:hover {
     color: var(--foreground);
+  }
+
+  /* Six links fit beside the actions only on a wide bar; a narrower one drops FAQ (still in the
+     footer) and closes the gaps. */
+  @media (max-width: 1080px) {
+    .nav-links {
+      gap: 20px;
+    }
+
+    .nav-links a[href="/faq/"] {
+      display: none;
+    }
   }
 
   @media (max-width: 860px) {

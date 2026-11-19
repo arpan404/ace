@@ -1,0 +1,296 @@
+---
+/*
+ * The walkthrough's conversations (docs/design/spade.md §3), one open at a time, each acting out
+ * the feature on screen: Flights' own chat (its hello, its work, the note it suggests, the
+ * payment it asks for), the club where Spade hands work out, Builds' plan, routine, digest and
+ * sandbox, Inbox's skill, and Papers' files and research. Each line shows in its own steps.
+ */
+import { scene } from "../../content/spade.ts";
+import CastFace from "./CastFace.astro";
+import { offAtStart } from "./scene-at.ts";
+
+const f = scene.flights;
+const c = scene.club;
+const b = scene.builds;
+const i = scene.inbox;
+const p = scene.papers;
+---
+
+<div class="panes">
+  <div class="pane" data-in="0,3-4,9,11" hidden={offAtStart("0,3-4,9,11")}>
+    <p class="mine" data-in="3-" hidden={offAtStart("3-")}><span class="bubble">{f.ask}</span></p>
+    <p class="theirs" data-in="0" hidden={offAtStart("0")}><span class="bubble">{f.hello}</span></p>
+    <div class="working" data-in="3" hidden={offAtStart("3")}>
+      <CastFace who="flights" size={22} uid="scene-flights-work" state="working" />
+      <span>{f.working}</span>
+    </div>
+    <p class="theirs" data-in="3" hidden={offAtStart("3")}><span class="bubble">{f.computer}</span></p>
+    <p class="theirs" data-in="4" hidden={offAtStart("4")}><span class="bubble">{f.remember}</span></p>
+    <p class="theirs" data-in="9" hidden={offAtStart("9")}><span class="bubble">{f.model}</span></p>
+    <p class="theirs" data-in="11" hidden={offAtStart("11")}><span class="bubble">{f.found}</span></p>
+    <div class="request" data-in="11" hidden={offAtStart("11")}>
+      <p class="ask"><span class="dot"></span>{scene.pay.title}</p>
+      <p class="what">{scene.pay.body}</p>
+      <p class="foot"><span>{scene.pay.deny}</span><span class="primary">{scene.pay.allow}</span></p>
+    </div>
+  </div>
+
+  <div class="pane" data-in="1" hidden={offAtStart("1")}>
+    <p class="mine"><span class="bubble">{c.ask}</span></p>
+    <div class="turn">
+      <CastFace who="spade" size={24} uid="scene-spade-lead" />
+      <div class="said"><span class="who">Spade</span><span class="bubble">{c.lead}</span></div>
+    </div>
+    {c.handoffs.map((line) => <p class="quiet">{line}</p>)}
+    <div class="turn">
+      <CastFace who="flights" size={24} uid="scene-club-flights" rest="0.6,0.2" />
+      <div class="said"><span class="who">Flights</span><span class="bubble">{c.flights}</span></div>
+    </div>
+    <p class="mine"><span class="bubble">{c.mention}</span></p>
+    <div class="turn">
+      <CastFace who="papers" size={24} uid="scene-club-papers" rest="0.6,0.2" />
+      <div class="said"><span class="who">Papers</span><span class="bubble">{c.papers}</span></div>
+    </div>
+  </div>
+
+  <div class="pane" data-in="2,5,8,10" hidden={offAtStart("2,5,8,10")}>
+    <div class="card-like" data-in="2" hidden={offAtStart("2")}>
+      <p class="title">Plan</p>
+      {b.plan.map(([name, state]) => <p class="row"><span>{name}</span><span>{state}</span></p>)}
+    </div>
+    <p class="quiet" data-in="2" hidden={offAtStart("2")}>{b.progress}</p>
+    <p class="theirs" data-in="2" hidden={offAtStart("2")}><span class="bubble">{b.onItsOwn}</span></p>
+    <p class="label" data-in="5" hidden={offAtStart("5")}>{b.routine}</p>
+    <p class="theirs" data-in="5" hidden={offAtStart("5")}><span class="bubble">{b.routines}</span></p>
+    <p class="quiet" data-in="5" hidden={offAtStart("5")}>{b.sleeping}</p>
+    <div class="card-like" data-in="8" hidden={offAtStart("8")}>
+      <p class="title">{b.digest.title}</p>
+      {b.digest.rows.map(([name, value]) => <p class="row"><span>{name}</span><span>{value}</span></p>)}
+    </div>
+    <p class="theirs" data-in="8" hidden={offAtStart("8")}><span class="bubble">{b.digestSays}</span></p>
+    <p class="theirs" data-in="10" hidden={offAtStart("10")}><span class="bubble">{b.sandbox}</span><span class="steps">{b.steps}</span></p>
+    <p class="quiet full" data-in="10" hidden={offAtStart("10")}>{b.blocked}</p>
+    <div class="request" data-in="10" hidden={offAtStart("10")}>
+      <p class="ask"><span class="dot"></span>{b.outside.title}</p>
+      <p class="what mono">{b.outside.command}</p>
+      <p class="foot"><span>{b.outside.deny} · {b.outside.always}</span><span class="primary">{b.outside.once}</span></p>
+    </div>
+  </div>
+
+  <div class="pane" data-in="6" hidden={offAtStart("6")}>
+    <p class="theirs"><span class="bubble">{i.skill}</span></p>
+    <div class="request">
+      <p class="ask mono">{i.skillName}</p>
+      <p class="what">{i.skillBody}</p>
+      <p class="foot"><span>{i.discard}</span><span class="primary">{i.save}</span></p>
+    </div>
+  </div>
+
+  <div class="pane" data-in="7" hidden={offAtStart("7")}>
+    <p class="mine"><span class="bubble">{p.ask}</span></p>
+    <p class="mine"><span class="file"><span class="sheet"></span><span>{p.file}</span><span class="meta">{p.fileMeta}</span></span></p>
+    <p class="quiet">{p.helper}</p>
+    <p class="quiet">{p.researching}</p>
+    <div class="theirs">
+      <span class="file"><span class="sheet"></span><span>{p.report}</span><span class="meta">{p.reportMeta}</span></span>
+      <span class="bubble">{p.says}</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .panes {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* A conversation runs from the bottom up, as chats do: new lines push older ones away. */
+  .pane {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 56px clamp(12px, 3cqw, 22px) 10px;
+  }
+
+  .bubble {
+    display: block;
+    padding: 7px 13px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--foreground) 7%, var(--background));
+  }
+
+  .mine {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .mine .bubble {
+    max-width: 82%;
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+
+  .theirs {
+    display: grid;
+    justify-items: start;
+    gap: 4px;
+    max-width: 86%;
+  }
+
+  .turn {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .said {
+    display: grid;
+    justify-items: start;
+    gap: 2px;
+    max-width: 86%;
+  }
+
+  .who,
+  .steps,
+  .meta {
+    padding-left: 13px;
+    color: var(--subtle);
+    font-size: 11px;
+  }
+
+  .quiet,
+  .label {
+    padding-left: 32px;
+    color: var(--subtle);
+    font-size: 11px;
+  }
+
+  .label {
+    padding-left: 0;
+    text-align: center;
+  }
+
+  .working {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .file {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    padding: 8px 12px 8px 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .sheet {
+    grid-row: span 2;
+    width: 20px;
+    height: 26px;
+    border: 1px solid var(--border-strong);
+    border-radius: 3px 8px 3px 3px;
+  }
+
+  .file .meta {
+    padding-left: 0;
+    font-family: var(--font-sans);
+  }
+
+  /* The card that needs the person: the only raised thing, its one primary at the right. */
+  .request {
+    max-width: 330px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    background: var(--surface);
+  }
+
+  .ask {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--status-needs-you);
+  }
+
+  .what {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .primary {
+    padding: 5px 13px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 500;
+  }
+
+  .card-like {
+    max-width: 360px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+  }
+
+  .title {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 12px;
+  }
+
+  .row + .row,
+  .title + .row {
+    border-top: 1px solid var(--border);
+  }
+
+  .row span:last-child {
+    flex: none;
+    color: var(--subtle);
+  }
+
+  .full {
+    color: var(--foreground);
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+</style>

@@ -1,0 +1,344 @@
+---
+/*
+ * Every platform under tabs (Mac, Windows, Linux, iPhone and iPad): its download, every build
+ * the release has for it (each kind and chip its own link, with its size), and how to install
+ * it in three steps. The visitor's own platform opens first. Without the script every platform
+ * shows, one under the other.
+ */
+import { chipsLine, downloadPage, phoneNotes, platformGuides } from "../../content/download.ts";
+import { chipName, isPlatform } from "../../content/release-pick.ts";
+import {
+  buildText,
+  defaultArch,
+  downloads,
+  formatSize,
+  platformInfo,
+} from "../../content/release.ts";
+import TabList from "../site/TabList.astro";
+
+const prefix = "platform";
+---
+
+<section class="section page platforms" data-platforms aria-labelledby="platforms-title">
+  <header class="head reveal">
+    <h2 id="platforms-title" class="section-title">{downloadPage.tabsHeading}</h2>
+    <p class="lede">{downloadPage.updates}</p>
+  </header>
+
+  <div class="reveal">
+    <TabList
+      prefix={prefix}
+      label={downloadPage.tabsLabel}
+      tabs={platformGuides.map((guide) => ({ name: guide.id, label: guide.tab }))}
+    />
+  </div>
+
+  <div class="panels reveal">
+    {
+      platformGuides.map((guide, index) => {
+        const platform = isPlatform(guide.id) ? guide.id : undefined;
+        const file = platform ? downloads.byPlatform[platform] : undefined;
+        const files = platform ? downloads.files[platform] : [];
+        const chips = platform && chipsLine(platform, files.map((entry) => entry.arch));
+        // A kind the release has no file of is left out; when the release couldn't be read at
+        // all, every kind shows and points at the release page.
+        const kinds = (guide.kinds ?? [])
+          .map((entry) => ({ ...entry, files: files.filter((found) => found.kind === entry.kind) }))
+          .filter((entry) => entry.files.length > 0 || files.length === 0);
+        return (
+          <div
+            class="panel card"
+            role="tabpanel"
+            id={`${prefix}-panel-${index}`}
+            aria-labelledby={`${prefix}-tab-${index}`}
+          >
+            <div class="get">
+              <h3>{guide.tab}</h3>
+              <p class="line">
+                {guide.line}
+                {chips && ` ${chips}`}
+              </p>
+              {platform && (
+                <ul class="files">
+                  {kinds.map((entry) => (
+                    <li>
+                      <b>{entry.format}</b>
+                      <span class="chips">
+                        {entry.files.map((found) => (
+                          <a
+                            class="chip"
+                            href={found.url}
+                            data-file={`${platform}:${found.kind}:${found.arch}`}
+                            aria-label={`Download the ${entry.format} for ${chipName[platform][found.arch]}`}
+                          >
+                            {chipName[platform][found.arch]}
+                            <span data-file-size>{formatSize(found.bytes)}</span>
+                          </a>
+                        ))}
+                        {entry.files.length === 0 && (
+                          <a class="chip" href={downloads.notesUrl} data-release-notes>
+                            On the release page
+                          </a>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {guide.notes && (
+                <ul class="files">
+                  {guide.notes.map((entry) => (
+                    <li>
+                      <b>{entry.name}</b>
+                      <span class="note">{entry.body}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {platform && file && (
+                <div class="action">
+                  <a
+                    class="button button-primary"
+                    href={file.url}
+                    data-download={platform}
+                    data-download-text
+                  >
+                    {file.bytes ? `Download for ${platformInfo[platform].name}` : `Get ${platformInfo[platform].name} builds`}
+                  </a>
+                  <p class="build">
+                    <span data-download-build={platform}>
+                      {buildText(platform, defaultArch[platform], file.bytes)}
+                    </span>
+                    {" · "}
+                    <a href={downloads.notesUrl} data-release-notes>
+                      {downloadPage.allBuilds}
+                    </a>
+                  </p>
+                </div>
+              )}
+              {!platform && (
+                <div class="action">
+                  <a class="button button-secondary" href={phoneNotes.more.href}>
+                    {phoneNotes.more.label}
+                  </a>
+                  <p class="build">{phoneNotes.android}</p>
+                </div>
+              )}
+            </div>
+            <ol class="steps">
+              {guide.steps.map((step, at) => (
+                <li>
+                  <span class="n" aria-hidden="true">
+                    {at + 1}
+                  </span>
+                  <p>{step}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })
+    }
+  </div>
+
+  <p class="before reveal">
+    {downloadPage.before} <a class="text-link" href="/agents/">{downloadPage.agentsLink}</a>
+  </p>
+</section>
+
+<style>
+  .head h2 {
+    max-width: 12em;
+    font-size: clamp(32px, 4.6vw, 60px);
+  }
+
+  .head .lede {
+    margin-top: 14px;
+  }
+
+  .platforms > .reveal:nth-child(2) {
+    margin-top: clamp(28px, 4vw, 40px);
+  }
+
+  .panels {
+    display: grid;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .panel {
+    display: grid;
+    gap: 32px clamp(32px, 6vw, 80px);
+    padding: clamp(24px, 4.4vw, 52px);
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .panel {
+      grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    }
+  }
+
+  :global(html.motion) .platforms[data-enhanced] .panel:not([hidden]) {
+    animation: turn 0.35s var(--ease-out) both;
+  }
+
+  @keyframes turn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  h3 {
+    font-size: clamp(28px, 3.4vw, 40px);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+  }
+
+  .line {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .files {
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .files li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    min-height: 54px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+  }
+
+  .files b {
+    font-weight: 500;
+  }
+
+  .note {
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  /* A build: its chip and size, and a download in its own right. */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    color: var(--foreground);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out);
+  }
+
+  .chip:hover {
+    border-color: var(--subtle);
+    background: var(--wash);
+  }
+
+  .chip span {
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .action {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .build {
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .build a {
+    color: var(--muted);
+  }
+
+  /* Three steps, each with its number in the drawing's blue. */
+  .steps {
+    display: grid;
+    align-content: start;
+    gap: 0;
+    counter-reset: step;
+  }
+
+  .steps li {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 16px;
+    padding: 20px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .steps li:first-child {
+    border-top: 0;
+    padding-top: 4px;
+  }
+
+  .n {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+    border-radius: 50%;
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .steps p {
+    align-self: center;
+    font-size: 17px;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
+  }
+
+  .before {
+    max-width: 44em;
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+</style>
+
+<script>
+  import { startTabs } from "../../scripts/tabs.ts";
+
+  const os = document.documentElement.dataset.os;
+  for (const root of document.querySelectorAll<HTMLElement>("[data-platforms]")) {
+    startTabs(root, os ?? "mac");
+  }
+</script>

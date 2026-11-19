@@ -1,147 +1,225 @@
 ---
-import { agentGuides as providers } from "../content/agent-guides.ts";
-import { acpAgents as acp } from "../content/agents.ts";
-import Icon from "./Icon.astro";
+/*
+ * The agents ace runs, on /agents/: the six built in as a ruled list, each with what it is, the
+ * model its CLI offers first and a link to its page; then every agent the app's registry runs
+ * through the Agent Client Protocol, as a ruled grid of marks; then the three facts that hold
+ * for all of them. Words come from content/roster.ts and each agent's guide.
+ */
+import { agentGuides } from "../content/agent-guides.ts";
+import { acpAgents, currentModels } from "../content/agents.ts";
+import { roster, rosterFacts } from "../content/roster.ts";
 import BrandMark from "./BrandMark.astro";
-
-interface Props {
-  /** The section's own heading and intro; off where the page's intro already says it. */
-  intro?: boolean;
-}
-
-const { intro = true } = Astro.props;
+import Icon from "./Icon.astro";
 ---
 
-<section id="agents" class="section page">
-  {
-    intro && (
-      <div class="reveal">
-        <h2 class="section-title">Keep the agents you already pay for.</h2>
-        <p class="lede">
-          ace starts each CLI the way you would in a terminal. Logins, models and subscriptions stay
-          with the CLI; ace never asks for or stores a key.
-        </p>
-      </div>
-    )
-  }
-
-  <ul class="rule-grid providers reveal" aria-label="Built-in agents" data-stagger>
+<section class="section page pair">
+  <div class="say reveal">
+    <h2 class="section-title">{roster.builtIn.heading}</h2>
+    <p class="lede">{roster.builtIn.lede}</p>
+  </div>
+  <ul class="card rows reveal">
     {
-      providers.map((provider) => (
+      agentGuides.map((guide) => (
         <li>
-          <a href={`/agents/${provider.slug}/`}>
-            <span class="tile">
-              <BrandMark brand={provider.brand} size={20} />
+          <a href={`/agents/${guide.slug}/`}>
+            <BrandMark brand={guide.brand} size={24} />
+            <span class="text">
+              <span class="name">
+                {guide.label}
+                <span class="model">{currentModels[guide.label]?.model}</span>
+              </span>
+              <span class="what">{guide.what}</span>
             </span>
-            <span class="name">{provider.label}</span>
-            <span class="kind">
-              Built in
-              <Icon name="arrow-right" size={14} />
-            </span>
+            <Icon name="arrow-right" size={16} />
           </a>
         </li>
       ))
     }
-    <li class="acp">
-      <div class="acp-head">
-        <span class="name">Any ACP agent</span>
-        <span class="kind">Agent Client Protocol</span>
-      </div>
-      <ul aria-label="ACP agents">
-        {
-          acp.map((agent) => (
-            <li>
-              <BrandMark brand={agent.brand} size={15} />
-              {agent.label}
-            </li>
-          ))
-        }
-      </ul>
-    </li>
   </ul>
 </section>
 
+<section class="section page pair">
+  <div class="say reveal">
+    <h2 class="section-title">{roster.acp.heading}</h2>
+    <p class="lede">{roster.acp.lede}</p>
+  </div>
+  <ul class="card cells reveal">
+    {
+      acpAgents.map((agent) => (
+        <li>
+          <BrandMark brand={agent.brand} size={20} />
+          {agent.label}
+        </li>
+      ))
+    }
+    <li class="more">{roster.acp.more}</li>
+  </ul>
+</section>
+
+<section class="section page facts">
+  <h2 class="section-title reveal">{roster.factsHeading}</h2>
+  <ol class="reveal">
+    {
+      rosterFacts.map((fact) => (
+        <li>
+          <h3>{fact.title}</h3>
+          <p>{fact.body}</p>
+          {fact.href && (
+            <a class="text-link" href={fact.href}>
+              More
+            </a>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
 <style>
-  .providers {
-    margin-top: 56px;
-    grid-template-columns: repeat(3, 1fr);
+  .pair {
+    display: grid;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
   }
 
-  .providers > li > a,
-  .providers > .acp {
-    padding: 24px;
+  @media (min-width: 900px) {
+    .pair {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
   }
 
-  .providers > li > a {
-    display: flex;
+  h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  /* The built-in agents: flat rows ruled with hairlines, as the app rules a list. */
+  .rows {
+    padding: 6px;
+  }
+
+  .rows li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .rows a {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 14px;
-    height: 100%;
+    gap: 16px;
+    padding: 14px;
+    border-radius: 8px;
+    color: inherit;
     text-decoration: none;
     transition: background-color var(--motion-fast) var(--ease-out);
   }
 
-  .providers > li > a:hover {
+  .rows a:hover {
     background: var(--wash);
   }
 
-  .name {
-    font-size: 16px;
-    font-weight: 500;
-  }
-
-  .kind {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    color: var(--subtle);
-    font-size: 13px;
-  }
-
-  .providers > .acp {
-    grid-column: 1 / -1;
+  .text {
     display: grid;
-    gap: 18px;
+    gap: 3px;
+    min-width: 0;
   }
 
-  .acp-head {
-    display: flex;
-    align-items: center;
-  }
-
-  .acp ul {
+  .name {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    align-items: baseline;
+    gap: 2px 12px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
   }
 
-  .acp ul li {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 32px;
-    padding-inline: 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    color: var(--muted);
+  .model {
+    color: var(--subtle);
     font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
   }
 
-  @media (max-width: 900px) {
-    .providers {
-      grid-template-columns: repeat(2, 1fr);
+  .what {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .rows a > :global(svg:last-child) {
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  .rows a:hover > :global(svg:last-child) {
+    color: var(--foreground);
+    transform: translateX(3px);
+  }
+
+  /* The ACP agents: one grid ruled with hairlines; the gaps between the cells are the rules. */
+  .cells {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  @media (min-width: 520px) {
+    .cells {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
 
-  @media (max-width: 560px) {
-    .providers {
-      grid-template-columns: 1fr;
-    }
+  .cells li {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 54px;
+    padding: 0 16px;
+    background: var(--surface);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
 
-    .providers > li > a,
-    .providers > .acp {
-      padding: 18px 20px;
-    }
+  .cells .more {
+    color: var(--muted);
+  }
+
+  /* The three facts: columns under one heading, each opened by a hairline. */
+  .facts ol {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 0 clamp(24px, 4vw, 48px);
+    margin-top: clamp(28px, 4vw, 48px);
+  }
+
+  .facts li {
+    padding: 20px 0 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .facts p {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .facts .text-link {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 14px;
   }
 </style>

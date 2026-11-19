@@ -1,0 +1,246 @@
+---
+/*
+ * The toy: make a bot's face with the app's own character model. A big live face, Shuffle, the
+ * editor's parts (Creature, Colours, Ears, …) and each part's options drawn as the face would
+ * look with it, then a name and a one-line task. Nothing is saved. scripts/spade-maker-ui.ts
+ * runs it; without script the first face and its creatures show, still.
+ */
+import { faceForId } from "@ace/ui-core/bot-face";
+import { maker } from "../../content/spade.ts";
+import { choosePart, makerParts, optionName, partOpen, partOptions, shownName } from "../../scripts/spade-maker.ts";
+import BotFace from "./BotFace.astro";
+import Say from "./Say.astro";
+
+const start = faceForId("spade-page-maker");
+const firstPart = makerParts[0] ?? { field: "body", label: "Creature" };
+---
+
+<section class="section page maker" data-maker data-face={JSON.stringify(start)}>
+  <Say who="spade" heading={maker.heading} lines={maker.lines} id="make" />
+
+  <div class="layout reveal">
+    <div class="card bench">
+      <div class="stage">
+        <BotFace face={start} size={168} uid="maker-big" rest="0,0.2" live class="big" />
+        <p class="shown" data-shown-name>{shownName(start, "")}</p>
+        <p class="shown-task" data-shown-task></p>
+        <button type="button" class="button button-secondary shuffle" data-shuffle>{maker.shuffle}</button>
+      </div>
+
+      <div class="parts" role="group" aria-label="Parts">
+        {
+          makerParts.map((part, index) => (
+            <button
+              type="button"
+              class="part"
+              data-part-field={part.field}
+              aria-pressed={index === 0 ? "true" : "false"}
+              disabled={!partOpen(start, part.field)}
+            >
+              {part.label}
+            </button>
+          ))
+        }
+      </div>
+
+      <div class="options" role="radiogroup" aria-label={firstPart.label} data-options>
+        {
+          partOptions(start, firstPart.field).map((value, index) => (
+            <button
+              type="button"
+              role="radio"
+              class="option"
+              aria-checked={start[firstPart.field] === value ? "true" : "false"}
+              aria-label={`${firstPart.label}: ${optionName(value)}`}
+              tabindex={start[firstPart.field] === value ? 0 : -1}
+              data-value={value}
+            >
+              <BotFace face={choosePart(start, firstPart.field, value)} size={34} uid={`maker-opt-${index}`} />
+            </button>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="about">
+      <label>
+        <span>{maker.name}</span>
+        <input type="text" maxlength="40" autocomplete="off" placeholder={shownName(start, "")} data-name />
+      </label>
+      <label>
+        <span>{maker.task}</span>
+        <input type="text" maxlength="120" autocomplete="off" placeholder={maker.taskPlaceholder} data-task />
+      </label>
+      <p class="note">{maker.note}</p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .layout {
+    display: grid;
+    gap: 24px clamp(32px, 5vw, 64px);
+    align-items: start;
+    margin-top: clamp(32px, 4vw, 56px);
+  }
+
+  @media (min-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+    }
+  }
+
+  .bench {
+    display: grid;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* A fixed stage, so a new face, name or task never moves what is under it. */
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-rows: 200px auto auto;
+    justify-items: center;
+    padding: 28px 20px 18px;
+  }
+
+  .stage :global(.big) {
+    align-self: center;
+    cursor: pointer;
+  }
+
+  .shown {
+    margin-top: 6px;
+    height: 28px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .shown-task {
+    height: 22px;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 14px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .shuffle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    height: 34px;
+    padding-inline: 16px;
+  }
+
+  .parts {
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    border-top: 1px solid var(--border);
+    scrollbar-width: none;
+  }
+
+  .part {
+    flex: none;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .part:hover:not(:disabled) {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  .part[aria-pressed="true"] {
+    background: var(--active);
+    color: var(--foreground);
+  }
+
+  .part:disabled {
+    color: var(--faint);
+    cursor: default;
+  }
+
+  /* One row of options at a fixed height; it scrolls sideways rather than grow. */
+  .options {
+    display: flex;
+    gap: 4px;
+    height: 72px;
+    padding: 9px 10px 17px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
+
+  .option {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+  }
+
+  .option:hover {
+    background: var(--wash);
+  }
+
+  .option[aria-checked="true"] {
+    box-shadow: 0 0 0 1.5px var(--foreground);
+  }
+
+  .about {
+    display: grid;
+    gap: 16px;
+  }
+
+  label {
+    display: grid;
+    gap: 6px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  input {
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 16px;
+  }
+
+  input::placeholder {
+    color: var(--faint);
+  }
+
+  .note {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+</style>
+
+<script>
+  import { startMaker } from "../../scripts/spade-maker-ui.ts";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-maker]")) startMaker(root);
+</script>
