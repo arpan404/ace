@@ -225,3 +225,31 @@ test("reports horizontal overflow so the toolbar can fade its right edge", async
   fireEvent.scroll(scroller);
   await waitFor(() => expect(overflow).toHaveBeenLastCalledWith(false));
 });
+
+test("source is never drawn as plain text before its colours arrive, then shows at once", async () => {
+  const code = 'export const App = () => <button title="Hello">{42}</button>;';
+  const flashes: string[] = [];
+  const watch = () => {
+    const line = document.querySelector('[data-line="0"]');
+    if (!line) return;
+    const held = document.querySelector("[data-highlight-pending]") !== null;
+    if (colored(0) === 0 && !held) flashes.push("plain text on show");
+  };
+  const observer = new MutationObserver(watch);
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  try {
+    await openView({ text: code, path: "app.tsx", readOnly: true, highlightDelay: 0 });
+    await waitFor(() => expect(colored(0)).toBeGreaterThan(5));
+    watch();
+  } finally {
+    observer.disconnect();
+  }
+  expect(flashes).toEqual([]);
+  expect(document.querySelector("[data-highlight-pending]")).toBeNull();
+});
+
+test("text with no grammar is shown at once, never held for colours", async () => {
+  await openView({ text: "just notes", path: "notes.txt", readOnly: true, highlightDelay: 0 });
+  await waitFor(() => expect(document.querySelector('[data-line="0"]')).toBeTruthy());
+  expect(document.querySelector("[data-highlight-pending]")).toBeNull();
+});

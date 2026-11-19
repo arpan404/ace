@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Selection } from "@ace/editor";
-import { pathParts } from "@ace/ui-core";
+import { fileLanguage, pathParts } from "@ace/ui-core";
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -29,6 +29,9 @@ import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const paddingRight = 24;
+
+/** How long the first paint waits for colours before it shows plain text. */
+const firstPaintHold = 250;
 
 /**
  * The Files tab's text editor: virtualized visual rows with a sticky line-number gutter,
@@ -72,6 +75,21 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [paint, setPaint] = useState(0);
+  // A file with a grammar is first drawn with its colours: the plain text it would show while
+  // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
+  // or briefly after, so a slow or large file is never kept blank. Later changes keep the
+  // colours they had.
+  const [shown, setShown] = useState(false);
+  const held = !shown && fileLanguage(props.path) !== undefined;
+  useEffect(() => {
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
+    if (paint > 0) setShown(true);
+  }, [paint]);
+  useEffect(() => {
+    if (!held) return;
+    const timer = setTimeout(() => setShown(true), firstPaintHold);
+    return () => clearTimeout(timer);
+  }, [held]);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
 
@@ -311,7 +329,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
         >
           <div
             ref={host}
-            className="relative min-h-full min-w-full"
+            data-highlight-pending={held || undefined}
+            className={cn("relative min-h-full min-w-full", held && "opacity-0")}
             style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
           >
             <div aria-hidden>
