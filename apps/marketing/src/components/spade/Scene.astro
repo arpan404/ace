@@ -1,0 +1,159 @@
+---
+/*
+ * The walkthrough's one drawing: Spade's window as the app draws it (docs/design/spade.md). The list
+ * (SceneList), the open conversation with its floating pill and composer (SceneChat), Flights'
+ * profile on the tab a feature needs (ScenePanel). Every piece shows in its own steps of the
+ * walkthrough, and the faces take their poses as the features pass.
+ */
+import { cast, scene } from "../../content/spade.ts";
+import CastFace from "./CastFace.astro";
+import Glyph from "./Glyph.astro";
+import { offAtStart } from "./scene-at.ts";
+import SceneChat from "./SceneChat.astro";
+import SceneList from "./SceneList.astro";
+import ScenePanel from "./ScenePanel.astro";
+
+const pills = [
+  { in: "0,3-4,9,11", who: "flights", name: cast.flights.name },
+  { in: "1", who: "spade", name: scene.club.name },
+  { in: "2,5,8,10", who: "builds", name: cast.builds.name },
+  { in: "6", who: "inbox", name: cast.inbox.name },
+  { in: "7", who: "papers", name: cast.papers.name },
+] as const;
+---
+
+<div class="scene" data-step="0">
+  <div class="window">
+    <SceneList />
+    <div class="chat">
+      {
+        pills.map((pill) => (
+          <p class="pill" data-in={pill.in} hidden={offAtStart(pill.in)}>
+            <CastFace who={pill.who} size={20} uid={`scene-pill-${pill.who}`} />
+            <span>{pill.name}</span>
+          </p>
+        ))
+      }
+      <SceneChat />
+      <p class="composer">
+        <span class="round"><Glyph name="plus" size={14} /></span>
+        <span class="field">{scene.composer}</span>
+        <span class="round voice"><Glyph name="waveform" size={15} /></span>
+      </p>
+      <ScenePanel />
+    </div>
+  </div>
+</div>
+
+<style>
+  .scene {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    max-height: 640px;
+    align-self: center;
+    container: scene / inline-size;
+  }
+
+  /* A piece outside its steps is gone, whatever its own display. */
+  .scene :global([hidden]) {
+    display: none !important;
+  }
+
+  .scene :global([data-new]) {
+    animation: arrive 500ms var(--ease-out) both;
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  :global(html:not(.motion)) .scene :global([data-new]) {
+    animation: none;
+  }
+
+  .window {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--background);
+    font-size: 13px;
+    line-height: 1.4;
+    transition: background-color 0.6s var(--ease-out);
+  }
+
+  @container scene (min-width: 560px) {
+    .window {
+      grid-template-columns: 190px minmax(0, 1fr);
+    }
+  }
+
+  .chat {
+    position: relative;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .pill {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 12px 3px 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    translate: -50% 0;
+  }
+
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 12px 12px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+
+  .field {
+    flex: 1;
+    color: var(--subtle);
+  }
+
+  .round {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--wash);
+    color: var(--muted);
+  }
+
+  .voice {
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+</style>

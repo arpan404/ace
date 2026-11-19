@@ -12,7 +12,7 @@ import {
   type Downloads,
 } from "../content/release.ts";
 import { partGroups, type Part } from "../content/parts.ts";
-import { kit, safety, spadePage, spadeQuestions, turnOn, yours } from "../content/spade.ts";
+import { spadePage, spadeQuestions, tour, turnOn } from "../content/spade.ts";
 import { captionWith, zoomCaptions } from "../content/zoom.ts";
 import { links } from "../site.ts";
 
@@ -216,9 +216,6 @@ function security(): string[] {
   ];
 }
 
-const namedRows = (list: readonly { name: string; body: string }[]) =>
-  list.map((row) => `- ${row.name}: ${row.body}`);
-
 function spade(): string[] {
   return [
     `# Spade: ${spadePage.headline}`,
@@ -227,23 +224,9 @@ function spade(): string[] {
     "",
     `${spadePage.status}: off until switched on in ace's Settings › Beta.`,
     "",
-    `## ${kit.heading}`,
+    `## ${tour.label}`,
     "",
-    kit.lede,
-    "",
-    ...kit.items.map((item) => `- ${item.name}: ${item.body}`),
-    "",
-    `## ${yours.heading}`,
-    "",
-    yours.lede,
-    "",
-    ...namedRows(yours.rows),
-    "",
-    `## ${safety.heading}`,
-    "",
-    safety.lede,
-    "",
-    ...namedRows(safety.rows),
+    ...tour.steps.map((step) => `- ${step.title}: ${step.body}`),
     "",
     `## ${turnOn.heading}`,
     "",

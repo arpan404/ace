@@ -1,0 +1,311 @@
+---
+/*
+ * The open bot's profile beside the walkthrough's conversation (docs/design/spade.md §4), on the
+ * tab the feature needs: Flights' Details, its Computer (browser live, a pointer clicking, Take
+ * over), its Library (a suggested note), its model picker; Builds' routines; Inbox's apps. It
+ * slides over the chat on a narrow window, as the profile does.
+ */
+import { cast, scene } from "../../content/spade.ts";
+import Icon from "../Icon.astro";
+import BotFace from "./BotFace.astro";
+import { offAtStart } from "./scene-at.ts";
+
+const heads = [
+  { in: "0,3-4,9", who: "flights", poses: "0:idle 3:working 4:idle", rest: "-0.7,0.6" },
+  { in: "5", who: "builds", poses: "5:idle", rest: "-0.7,0.6" },
+  { in: "6", who: "inbox", poses: "6:done", rest: "-0.7,0.6" },
+] as const;
+const tabs = [
+  { in: "0,5-6,9", chosen: "Details" },
+  { in: "4", chosen: "Library" },
+  { in: "3", chosen: "Computer" },
+] as const;
+---
+
+<aside class="panel" data-in="0,3-6,9" hidden={offAtStart("0,3-6,9")}>
+  {
+    heads.map((head) => (
+      <div class="who" data-in={head.in} hidden={offAtStart(head.in)}>
+        <BotFace face={cast[head.who].face} size={30} uid={`scene-panel-${head.who}`} poses={head.poses} rest={head.rest} live />
+        <span>{cast[head.who].name}</span>
+      </div>
+    ))
+  }
+  {
+    tabs.map((tab) => (
+      <div class="segments" data-in={tab.in} hidden={offAtStart(tab.in)}>
+        {scene.profile.map((name) => (
+          <span class:list={{ on: name === tab.chosen }}>{name}</span>
+        ))}
+      </div>
+    ))
+  }
+
+  <div class="rows" data-in="0" hidden={offAtStart("0")}>
+    {scene.details.map(([name, value]) => <p class="row stacked"><span class="key">{name}</span><span>{value}</span></p>)}
+  </div>
+
+  <div class="rows" data-in="9" hidden={offAtStart("9")}>
+    <p class="key">Model</p>
+    {
+      scene.picker.map((group) => (
+        <div class="group">
+          <p class="row head"><span>{group.name}</span><span class="key">{group.note}</span></p>
+          {group.models.map((model) => (
+            <p class:list={["row", "model", { chosen: model === "claude-sonnet-5-5" }]}>
+              <span>{model}</span>
+              {model === "claude-sonnet-5-5" && <Icon name="check" size={13} />}
+            </p>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="computer" data-in="3" hidden={offAtStart("3")}>
+    <div class="browser">
+      <p class="url">flytap.com/booking</p>
+      <div class="form">
+        <span class="field">Lisbon, the 12th</span>
+        <span class="field">Seat 23A, window</span>
+        <span class="search">Search flights</span>
+        <span class="pointer"><Icon name="cursor" size={16} /></span>
+      </div>
+    </div>
+    <p class="activity">
+      <span>{scene.flights.working}</span>
+      <span class="primary">Take over</span>
+    </p>
+  </div>
+
+  <div class="rows" data-in="4" hidden={offAtStart("4")}>
+    <p class="key">Notes</p>
+    <p class="row suggested">
+      <span>{scene.library.note}</span>
+      <span class="choices"><span>{scene.library.dismiss}</span><span class="keep">{scene.library.keep}</span></span>
+    </p>
+    {scene.library.notes.map(([text, scope]) => <p class="row"><span>{text}</span><span class="key">{scope}</span></p>)}
+  </div>
+
+  <div class="rows" data-in="5" hidden={offAtStart("5")}>
+    <p class="key">Routines</p>
+    {scene.routines.map(([name, when]) => <p class="row"><span>{name}</span><span class="key">{when}</span></p>)}
+  </div>
+
+  <div class="rows" data-in="6" hidden={offAtStart("6")}>
+    <p class="key">Apps</p>
+    {scene.inbox.apps.map(([name, state]) => <p class="row"><span>{name}</span><span class="key">{state}</span></p>)}
+    <p class="row"><span>{scene.inbox.plugins}</span></p>
+  </div>
+</aside>
+
+<style>
+  .panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    padding: 14px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  @container scene (min-width: 560px) {
+    .panel {
+      width: 64%;
+    }
+  }
+
+  @container scene (min-width: 760px) {
+    .panel {
+      width: 52%;
+    }
+  }
+
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+
+  /* The segmented control, the shown tab on the active wash. */
+  .segments {
+    display: flex;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--wash);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .segments span {
+    flex: 1;
+    padding: 4px 0;
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .segments .on {
+    background: var(--active);
+    color: var(--foreground);
+  }
+
+  .browser {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--background);
+  }
+
+  .url {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  .form {
+    position: relative;
+    display: grid;
+    gap: 7px;
+    padding: 12px 10px;
+  }
+
+  .field {
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .search {
+    justify-self: start;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--active);
+    font-size: 11px;
+  }
+
+  /* The bot's pointer travels to the button and clicks it, once, while the step is on. */
+  .pointer {
+    position: absolute;
+    left: 74px;
+    bottom: 10px;
+    color: var(--foreground);
+  }
+
+  html.motion .computer:not([hidden]) .pointer {
+    animation: point 1.6s var(--ease-out) 300ms both;
+  }
+
+  @keyframes point {
+    from {
+      transform: translate(70px, -60px);
+    }
+
+    75% {
+      transform: none;
+    }
+
+    85% {
+      transform: scale(0.85);
+    }
+
+    to {
+      transform: none;
+    }
+  }
+
+  .activity {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .primary {
+    flex: none;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 500;
+  }
+
+  .rows {
+    display: grid;
+  }
+
+  .key {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+
+  .rows > .key {
+    padding-bottom: 4px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 2px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .stacked {
+    display: grid;
+    gap: 1px;
+  }
+
+  .row .key {
+    flex: none;
+  }
+
+  .group .head {
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .model {
+    padding-inline: 8px;
+    border-top: 0;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .model.chosen {
+    background: var(--active);
+  }
+
+  .choices {
+    flex: none;
+    color: var(--subtle);
+    font-size: 11px;
+  }
+
+  .choices {
+    display: flex;
+    gap: 10px;
+  }
+
+  .keep {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+</style>
