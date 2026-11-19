@@ -104,7 +104,7 @@ struct BrowserScreen: View {
             BrowserShotSheet(shot: shot)
         }
         .alert("Browser", isPresented: Binding(get: { browser.problem != nil }, set: { if !$0 { browser.problem = nil } })) {
-            Button("OK") { browser.problem = nil }
+            Button("Dismiss") { browser.problem = nil }
         } message: { Text(browser.problem?.message ?? "") }
         .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active) }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }

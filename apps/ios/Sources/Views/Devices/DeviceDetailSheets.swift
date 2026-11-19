@@ -84,7 +84,7 @@ struct DeviceTreeSheet: View {
                 if !live {
                     Text("Start the live view to read the screen.").foregroundStyle(AceDesign.Ink.muted)
                 } else if let failure {
-                    Text("Couldn't read the screen. \(failure)").foregroundStyle(AceDesign.Ink.muted)
+                    ProblemRow("Couldn't read the screen", detail: failure, id: "devices.screenProblem")
                 } else if let tree {
                     if tree.rows.isEmpty { Text("Nothing on screen to read.").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(shown(tree)) { row in

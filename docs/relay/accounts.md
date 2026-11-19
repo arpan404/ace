@@ -80,15 +80,18 @@ Keep `relay.acehq.dev` on the Worker while any installed app or outside MCP clie
 
 ### Releases deploy it
 
-After the first deploy, each release tag (`v*`) deploys production from that tag: the
-`cloud` job in `.github/workflows/release.yml` applies D1 migrations, runs
-`wrangler deploy --env production` and then the smoke check on both hostnames. A manual run of the
-workflow leaves production alone. Secrets set in Cloudflare are untouched by deploys.
+After the first deploy, each release tag (`vX.Y.Z` or `ace-X.Y.Z-beta-N`) deploys from that tag
+([ADR 0188](../adr/0188-tag-driven-release-pipeline.md)): once every platform has built, the
+release pipeline runs `bun run deploy:workers staging`, then `bun run deploy:workers production`,
+before the desktop release is published ([docs/release/workers.md](../release/workers.md)).
+Staging (`staging.cloud.acehq.dev`) has its own database and Durable Objects. Each deploy applies
+D1 migrations, deploys the new version, smokes every hostname and rolls back to the previous
+version if the smoke fails. Secrets set in Cloudflare are untouched by deploys. Migrations may
+only add; see that document for expand-then-contract.
 
-The job needs the `CLOUDFLARE_API_TOKEN` repository secret, and fails saying so
-without it. Create the token in the Cloudflare dashboard (My Profile › API Tokens)
-from the "Edit Cloudflare Workers" template, add Account › D1 › Edit, and limit it to
-ace's account and the relay's zone. Then `gh secret set CLOUDFLARE_API_TOKEN` and paste it.
+The deploy jobs read `CLOUDFLARE_API_TOKEN` from the `staging` and `production` GitHub
+environments (never a repository secret); docs/release/workers.md lists the token's scope. Set it
+with `gh secret set CLOUDFLARE_API_TOKEN --env production` (and `--env staging`).
 
 Settings are all or nothing. With none of them, the Worker answers account routes
 with 503 `account_not_configured` and refuses `/host` and `/client`, since the

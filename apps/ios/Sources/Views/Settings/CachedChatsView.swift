@@ -19,15 +19,14 @@ struct CachedChatsView: View {
                     .accessibilityIdentifier("cache.total")
                 }
             } footer: {
-                Text("Messages, older pages and opened message content are kept for up to 7 days. Of settled chats, the 20 most recently opened are kept.")
+                Text("This iPhone keeps chat history for up to 7 days, including up to 20 recently opened settled chats.")
             }
             .insetRowBackground()
             ForEach(inbox.sessions) { session in
                 if let usage = session.client.cacheUsage, let problem = usage.problem {
                     Section {
-                        if inbox.sessions.count > 1 { Text(inbox.name(session.hostId)).font(AceDesign.Typeface.meta) }
-                        ServiceProblem(message: problem)
-                        Button("Retry") {
+                        ProblemRow(problem, detail: inbox.sessions.count > 1 ? inbox.name(session.hostId) : nil,
+                                   id: "cache.problem.\(session.hostId)") {
                             switch usage.retry {
                             case "cache.clear": session.client.clearCache()
                             case "cache.reload":
@@ -35,8 +34,8 @@ struct CachedChatsView: View {
                                 else { session.client.readCache() }
                             default: session.client.readCache()
                             }
-                        }.buttonStyle(.textAction())
-                    }.insetRowBackground()
+                        }
+                    }
                 }
             }
             if inbox.sessions.count > 1 {
@@ -44,7 +43,7 @@ struct CachedChatsView: View {
                     ForEach(inbox.sessions) { session in
                         InsetRow(systemImage: nil, title: inbox.name(session.hostId), subtitle: usage(session)) {
                             Button("Clear", role: .destructive) { clearing = session }
-                                .buttonStyle(.borderless)
+                                .buttonStyle(.secondaryAction).controlSize(.small)
                                 .disabled(session.client.cacheUsage?.bytes == 0)
                                 .accessibilityIdentifier("cache.clear.\(session.hostId)")
                         }
@@ -54,9 +53,10 @@ struct CachedChatsView: View {
             }
             Section {
                 Button("Clear cached chats", role: .destructive) { clearingAll = true }
+                    .buttonStyle(.rowAction)
                     .accessibilityIdentifier("cache.clearAll")
             } footer: {
-                Text("Unsent messages and drafts stay. Open threads read again from their machine.")
+                Text("Unsent messages and drafts stay. Open threads load again from their machine.")
             }
             .insetRowBackground()
         }
@@ -68,7 +68,7 @@ struct CachedChatsView: View {
                 for session in inbox.sessions { session.client.clearCache() }
             }
             .accessibilityIdentifier("cache.clearAll.confirm")
-        } message: { Text("This phone forgets the chats it keeps for every machine. Unsent messages and drafts stay.") }
+        } message: { Text("This iPhone forgets the chats it keeps for every machine. Unsent messages and drafts stay.") }
         .confirmationDialog("Clear chats for \(clearing.map { inbox.name($0.hostId) } ?? "")?",
                             isPresented: Binding(get: { clearing != nil }, set: { if !$0 { clearing = nil } }),
                             titleVisibility: .visible) {

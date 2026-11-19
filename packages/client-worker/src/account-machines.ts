@@ -1,3 +1,4 @@
+import type { AceClient } from "@ace/protocol/ace-client";
 import {
   isDirect,
   relayRoute,
@@ -29,6 +30,8 @@ export interface AccountMachine {
 export interface AccountMachineOptions {
   /** ace's hosted relay (`wss://…`), from the app's configuration. */
   relayUrl: string;
+  /** This app's `ace-client` name (ADR 0189), given to ace's hosted relay only. */
+  aceClient?: AceClient | undefined;
   /** This app's device id on the account: the subject of its device grants. */
   deviceId: string;
   /**
@@ -192,6 +195,7 @@ export function accountRoutes(input: {
     ...relayRoute({
       relayUrl: url,
       hostId,
+      ...(kind === "account" ? { aceClient: account.aceClient } : {}),
       credential,
       socket: account.socket,
       schedule: (callback, delayMs) => input.scheduler.set(delayMs, callback),

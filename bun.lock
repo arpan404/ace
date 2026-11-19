@@ -68,6 +68,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/relay": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@ace/service": "workspace:*",
         "@noble/ciphers": "2.0.1",
         "@noble/curves": "2.0.1",
         "@noble/hashes": "2.0.1",
@@ -232,6 +233,7 @@
         "@ace/account-grant": "workspace:*",
         "@ace/marketplace": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
@@ -1237,6 +1239,13 @@
         "vite": "^8.3.2",
       },
     },
+    "tools/workers-release": {
+      "name": "@ace/workers-release",
+      "dependencies": {
+        "wrangler": "^4.156.2",
+        "zod": "^4.6.5",
+      },
+    },
   },
   "trustedDependencies": [
     "electron",
@@ -1407,6 +1416,8 @@
     "@ace/web-e2e": ["@ace/web-e2e@workspace:tools/web-e2e"],
 
     "@ace/web-perf": ["@ace/web-perf@workspace:tools/web-perf"],
+
+    "@ace/workers-release": ["@ace/workers-release@workspace:tools/workers-release"],
 
     "@ace/workspace": ["@ace/workspace@workspace:packages/workspace"],
 

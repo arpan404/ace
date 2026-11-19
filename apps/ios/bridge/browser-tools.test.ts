@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 import { addressProblems } from "@ace/ui-core";
 import { closeBrowserFixtures, liveBrowser, viewport } from "./browser-fixture.ts";
+import { reason } from "./browser-tools.ts";
 import { type RecordingSink, until } from "./sheet-fixture.ts";
 
 /*
@@ -265,5 +266,15 @@ describe("The phone's browser tools", () => {
     await until(() => state(sink)?.disconnected === true, "disconnected");
     view.action({ kind: "reopen" });
     await until(() => state(sink)?.disconnected === false, "reopened");
+  });
+});
+
+describe("A browser failure in words", () => {
+  test("a refusal that names no reason asks to try again instead of showing a code", () => {
+    expect(`Couldn't open a tab. ${reason(new Error("browser_failed"))}`).toBe(
+      "Couldn't open a tab. Try again.",
+    );
+    expect(reason(new Error("offline"))).toBe("ace is offline.");
+    expect(reason(new Error("The page is gone."))).toBe("The page is gone.");
   });
 });

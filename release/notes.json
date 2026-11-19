@@ -1,0 +1,30 @@
+{
+  "provider": "claude",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "template": "release/notes-prompt.md",
+  "limits": {
+    "bulletChars": 200,
+    "bullets": 14,
+    "totalChars": 3500
+  },
+  "bannedTerms": [
+    "AI",
+    "AI-generated",
+    "LLM",
+    "language model",
+    "Anthropic",
+    "Claude",
+    "OpenAI",
+    "ChatGPT",
+    "GPT",
+    "Codex",
+    "Copilot",
+    "Gemini",
+    "Antigravity",
+    "OpenCode",
+    "Cursor CLI",
+    "Cursor AI",
+    "t3code"
+  ]
+}

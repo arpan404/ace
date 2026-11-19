@@ -315,6 +315,11 @@ export class NativeSpade {
     return this.agents?.find((agent) => agent.conversation === conversationId);
   }
 
+  /** The bot a conversation belongs to, by name, once the list has said; undefined before. */
+  botName(conversationId: string): string | undefined {
+    return this.botOf(conversationId)?.name || undefined;
+  }
+
   /**
    * Put what changed: a row Swift already holds as it is now is never sent again, so a reply's
    * live words are one row per frame.

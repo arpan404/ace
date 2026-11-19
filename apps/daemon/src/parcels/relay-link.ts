@@ -15,7 +15,10 @@ export interface RelayLinkDeps {
     pinnedFingerprint: string;
     grant?: string;
     signal?: AbortSignal;
+    aceClient?: string;
   }): Promise<ClientChannel>;
+  /** This daemon's `ace-client` name (ADR 0189), given to ace's own relay only. */
+  aceClient?: string | undefined;
   /**
    * An account device grant for ace's hosted relay at `url`, or undefined when this machine
    * can't get one or `url` isn't ace's relay as this machine knows it.
@@ -88,6 +91,7 @@ export class RelayLink {
         hostId: target.relayHostId,
         pinnedFingerprint: target.relayHostId,
         ...(grant ? { grant } : {}),
+        ...(target.hosted && this.deps.aceClient ? { aceClient: this.deps.aceClient } : {}),
         signal: opening.signal,
       });
     } catch (error) {

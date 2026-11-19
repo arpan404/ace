@@ -426,5 +426,7 @@ export class BrowserTools {
 export function reason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message === "offline") return "ace is offline.";
+  // The daemon's fallback code when it names no reason: a code reads as nothing to a person.
+  if (message === "" || message === "browser_failed") return "Try again.";
   return message;
 }

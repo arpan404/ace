@@ -43,6 +43,8 @@ export const MarketProfile = z.strictObject({
   joined: z.number().int().nonnegative(),
   /** Verified by ace's maintainers, on the signed verified list (ADR 0174 §13). */
   verified: z.boolean(),
+  /** ace's own publisher, by the signed official list (ADR 0174 §14); set by the daemon. */
+  official: z.boolean().optional(),
   /** The proofs behind the mark: "Verified · owns example.com". */
   proofs: z.array(MarketVerificationProof).max(8),
   pins: z.array(MarketEntryRef).max(6),

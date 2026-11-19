@@ -32,7 +32,7 @@ struct FolderDownloadSheet: View {
                 Section {
                     if let failure {
                         Text(failure).foregroundStyle(AceTheme.StatusText.failed)
-                        Button("Retry") { Task { await read() } }.buttonStyle(.textAction())
+                        Button("Try again") { Task { await read() } }.buttonStyle(.rowAction)
                     } else if let preview {
                         LabeledContent(preview.name, value: preview.summary)
                     } else {

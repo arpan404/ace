@@ -23,9 +23,8 @@ struct BrowserConsoleSheet: View {
             .background(AceDesign.Surface.background)
             .overlay {
                 if model.browser.logs?.state == "error" {
-                    VStack {
-                        Text(model.browser.logs?.message ?? "Couldn't read the log.").foregroundStyle(AceTheme.StatusText.failed)
-                        Button("Retry") { send(clear: false) }.buttonStyle(.textAction())
+                    EmptyState(icon: nil, title: "Couldn't read the log", line: model.browser.logs?.message, failed: true) {
+                        Button("Try again") { send(clear: false) }
                     }
                 } else if entries.isEmpty, model.browser.logs == nil || model.browser.logs?.state == "loading" {
                     SkeletonRows(label: "Reading log")

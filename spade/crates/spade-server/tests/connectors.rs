@@ -406,6 +406,7 @@ async fn spade_with_cloud(
             cloud: Some(spade_connect::Cloud {
                 url: cloud.url(),
                 credential: std::sync::Arc::new(Account(signed_in)),
+                ace_client: None,
             }),
             ..Options::default()
         },

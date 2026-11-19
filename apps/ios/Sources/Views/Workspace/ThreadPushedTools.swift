@@ -20,7 +20,7 @@ struct ThreadPushedTools: ViewModifier {
                 TerminalView(model: model, threadId: thread.id)
             }
             .navigationDestination(isPresented: showing(.browser)) {
-                let help = thread.approvals.first { $0.kind == "browser_help" }
+                let help = BrowserHelpPick.help(in: thread.approvals, chosen: thread.chosenHelp)
                 BrowserScreen(model: model, help: help, toMessage: { tab in
                     // Back to the thread, the page in the message when asked about.
                     if let tab { mention?(ComposerMention(path: "", tab: tab)) }
@@ -29,7 +29,7 @@ struct ThreadPushedTools: ViewModifier {
             }
             .navigationDestination(isPresented: showing(.agents)) {
                 AgentTreePage(model: model, thread: thread, openAgent: openAgent, openThread: openThread,
-                              openChat: { pushed = nil })
+                              openChat: { pushed = nil }, openBrowser: { pushed = .browser })
                     .navigationTitle("Agents")
                     .navigationBarTitleDisplayMode(.inline)
             }

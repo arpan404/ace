@@ -88,6 +88,11 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Attachments"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["file.open.timings.txt"].waitForExistence(timeout: 15))
         screenshot("attachments-sheet")
+        // The row's swipe offers Remove, named with the file it removes for VoiceOver.
+        app.buttons["file.open.timings.txt"].swipeLeft()
+        XCTAssertTrue(app.buttons["Remove timings.txt"].waitForExistence(timeout: 10), "Remove names its file")
+        app.buttons["file.open.timings.txt"].swipeRight()
+        XCTAssertTrue(app.buttons["Remove timings.txt"].waitForNonExistence(timeout: 10))
         // A picture opens full screen, with Share.
         app.buttons["file.open.queue-timings.png"].tap()
         XCTAssertTrue(app.buttons["media.share"].waitForExistence(timeout: 15))

@@ -1,315 +1,554 @@
 name: Release
 
-# Builds unsigned Linux release artifacts on each target's native runner and uploads them to
-# this run. The desktop packages come from the same `release.ts build` a person runs (one
-# path: main's naming, update feed and staging); the standalone daemon archive is built here
-# unsigned, because signing stays offline (ADR 0041). Nothing is signed or published: the
-# owner signs and publishes with `release.ts` and tools/release (docs/releasing.md).
+# ace's release pipeline (ADR 0188). The owner pushes a tag and this does the rest, on ace's own
+# runners: omarchy (Linux) runs every step but two; the owner's Mac only builds, signs and
+# notarizes macOS; a Windows VM builds Windows. A run is resumable: every step first checks what
+# the tag's release already holds, so rerunning the failed jobs (or dispatching the same tag)
+# continues where it stopped. Runner setup: docs/release/runners.md.
 #
-# One thing does go live: a v* tag deploys ace cloud (cloud.acehq.dev, also still relay.acehq.dev;
-# ADR 0110, 0141) from that tag, after its D1 migrations, with the CLOUDFLARE_API_TOKEN secret
-# (docs/relay/accounts.md).
+# Only a tag starts it. Self-hosted runners never see pull requests: this repo is public, and a
+# fork's code must never run on them. A manual run only reruns a tag that already exists.
 on:
+  push:
+    tags:
+      - "v*"
+      - "ace-*-beta-*"
   workflow_dispatch:
     inputs:
-      version:
-        description: Release version; empty uses apps/desktop/package.json (it must match)
-        required: false
-        default: ""
-      macos:
-        description: Also build the macOS daemon archives (unsigned)
-        type: boolean
-        default: false
-  push:
-    tags: ["v*"]
+      tag:
+        description: Existing release tag to rerun (vX.Y.Z or ace-X.Y.Z-beta-N)
+        required: true
 
-permissions:
-  contents: read
+permissions: {}
 
+# One release at a time, never cancelled halfway (a deploy or a publish could be in flight).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 env:
-  # A tag v1.2.3 releases 1.2.3; a manual run uses its input, else the app's version.
-  RELEASE_VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+  TAG: ${{ inputs.tag || github.ref_name }}
+  NODE_VERSION: 26.12.1
+  BUN_VERSION: 1.4.4
 
 jobs:
-  linux:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    # Natives are built against Debian 12's glibc 2.36 so the artifacts run on Ubuntu 24.04+,
-    # Debian 12+, Fedora and Arch (ADR 0093).
-    container: debian:12
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64
-            arch: x64
-            runner: ubuntu-24.04
-          - target: linux-arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
+  gate:
+    name: Check who started it and which tag
+    # Runs no repository code: only the shell below, so nothing from the tag runs before the
+    # actor, the tag's name and its commit's place on main are checked. For a manual run this
+    # file is main's copy (the ref check below refuses any other); for a tag push it is the
+    # tag's, which only the owner can create (tag ruleset, ADR 0188).
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Prepare the Debian 12 toolchain (Node 26.12.1, Bun, Rust, C/C++, git)
-        run: sh tools/release/linux/setup-debian12.sh
-
-      # The first checkout ran before the container had git, so it is a plain download.
-      # release.ts builds from a commit (it records it and refuses uncommitted changes).
-      - name: Checkout with git
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Resolve the version
-        shell: bash
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          version="${RELEASE_VERSION#v}"
-          [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          set -eu
+          fail() { echo "::error::$1"; exit 1; }
+          # The owner started it, and the owner reran it (a rerun keeps the first actor).
+          [ "$ACTOR" = "$OWNER" ] || fail "Only $OWNER starts a release, not $ACTOR"
+          [ "$TRIGGERING_ACTOR" = "$OWNER" ] || fail "Only $OWNER reruns a release, not $TRIGGERING_ACTOR"
+          case "$EVENT" in
+            push) [ "$REF" = "refs/tags/$TAG" ] || fail "Pushed ref $REF is not tag $TAG" ;;
+            workflow_dispatch) [ "$REF" = refs/heads/main ] || fail "Run it from main, not $REF" ;;
+            *) fail "A release starts only from a tag push or a manual rerun, not $EVENT" ;;
+          esac
+          n='(0|[1-9][0-9]{0,8})'
+          printf '%s\n' "$TAG" | grep -Eqx "v$n\.$n\.$n|ace-$n\.$n\.$n-beta-[1-9][0-9]{0,5}" ||
+            fail "$TAG is neither vX.Y.Z nor ace-X.Y.Z-beta-N"
+          sha=$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)
+          [ "$EVENT" != push ] || [ "$sha" = "$GITHUB_SHA" ] || fail "$TAG moved since it was pushed"
+          # main is ahead of (or at) the tag's commit: the commit is on main.
+          status=$(gh api "repos/$REPO/compare/$sha...main" --jq .status)
+          case "$status" in
+            ahead | identical) ;;
+            *) fail "$TAG points at ${sha%"${sha#????????????}"}, which isn't on main ($status)" ;;
+          esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+  prepare:
+    name: Check the tag and plan the run
+    needs: gate
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      kind: ${{ steps.plan.outputs.kind }}
+      version: ${{ steps.plan.outputs.version }}
+      title: ${{ steps.plan.outputs.title }}
+      published: ${{ steps.plan.outputs.published }}
+      build-mac: ${{ steps.plan.outputs.build-darwin-arm64 }}
+      build-windows: ${{ steps.plan.outputs.build-win32-x64 }}
+      linux-arches: ${{ steps.plan.outputs.linux-arches }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.sha }}
+        run: node apps/desktop/scripts/pipeline/prepare.ts "$TAG"
 
-      - name: Release public key
-        # The production key is reviewed and added as the ACE_RELEASE_PUBLIC_KEY variable.
-        # Without it, a throwaway key is generated: those artifacts are for testing only.
-        shell: bash
+  build-mac:
+    name: Build, sign and notarize macOS
+    needs: [gate, prepare]
+    if: needs.prepare.outputs.build-mac == 'true'
+    # The owner's Mac: if it is asleep, this job waits for it.
+    runs-on: [self-hosted, macOS, ace-mac]
+    environment: release
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CSC_NAME: ${{ vars.CSC_NAME }}
+      APPLE_KEYCHAIN_PROFILE: ${{ vars.APPLE_KEYCHAIN_PROFILE }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --os=darwin --cpu='*'
+      - name: Release keys and the signing keychain
         env:
           PUBLIC_KEY: ${{ vars.ACE_RELEASE_PUBLIC_KEY }}
+          PRIVATE_KEY: ${{ secrets.ACE_RELEASE_PRIVATE_KEY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
         run: |
-          mkdir -p "$RUNNER_TEMP/release-key"
-          if [ -n "$PUBLIC_KEY" ]; then
-            printf '%s\n' "$PUBLIC_KEY" > "$RUNNER_TEMP/release-key/public.pem"
-          else
-            node -e 'const { generateKeyPairSync } = require("node:crypto"); process.stdout.write(generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }))' > "$RUNNER_TEMP/release-key/public.pem"
-            echo "::warning::No ACE_RELEASE_PUBLIC_KEY variable: built with a throwaway key; these artifacts cannot be published."
-          fi
-          echo "ACE_RELEASE_PUBLIC_KEY_FILE=$RUNNER_TEMP/release-key/public.pem" >> "$GITHUB_ENV"
-
-      - name: Build the daemon archive
-        run: >-
-          node tools/release/src/build.ts "$VERSION" ${{ matrix.target }}
-          "$ACE_RELEASE_PUBLIC_KEY_FILE"
-
-      - name: Check the glibc floor
-        run: node tools/release/src/glibc-check.ts tools/release/dist/${{ matrix.target }}
-
-      - name: Smoke test the daemon archive
-        run: node tools/release/src/smoke.ts tools/release/dist/${{ matrix.target }} --unsigned-archive
-
-      - name: Build and stage the desktop release (AppImage, deb, tar.gz, latest-linux*.yml)
-        run: node apps/desktop/scripts/release.ts build "$VERSION"
-
-      - name: Upload the daemon archive
-        uses: actions/upload-artifact@v7
+          set -eu
+          umask 077
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$PUBLIC_KEY" > "$RUNNER_TEMP/keys/public.pem"
+          printf '%s\n' "$PRIVATE_KEY" > "$RUNNER_TEMP/keys/private.pem"
+          echo "ACE_RELEASE_PUBLIC_KEY_FILE=$RUNNER_TEMP/keys/public.pem" >> "$GITHUB_ENV"
+          echo "ACE_RELEASE_PRIVATE_KEY_FILE=$RUNNER_TEMP/keys/private.pem" >> "$GITHUB_ENV"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" ace-signing.keychain-db
+      - id: build
+        run: node apps/desktop/scripts/pipeline/build.ts "$TAG"
+      - uses: actions/upload-artifact@v7
         with:
-          name: ace-daemon-${{ matrix.target }}
+          name: staged-darwin-arm64
+          path: ${{ steps.build.outputs.staged }}
           if-no-files-found: error
-          path: |
-            tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
-            tools/release/dist/${{ matrix.target }}.json
+          retention-days: 14
+      - name: Lock the keychain and remove the keys
+        if: always()
+        run: |
+          security lock-keychain ace-signing.keychain-db || true
+          rm -rf "$RUNNER_TEMP/keys"
 
-      - name: Upload the desktop packages
-        uses: actions/upload-artifact@v7
-        with:
-          name: ace-desktop-${{ matrix.target }}
-          if-no-files-found: error
-          # Exactly what release.ts staged: packages, feed, release.json and SHA256SUMS.
-          path: dist/releases/v${{ env.VERSION }}/
-
-  linux-verify:
-    # The artifacts built on glibc 2.36 run on the oldest supported Ubuntu (24.04, 2.39).
-    name: Verify ${{ matrix.target }} on Ubuntu 24.04
-    needs: linux
-    runs-on: ${{ matrix.runner }}
+  build-linux:
+    name: Build Linux ${{ matrix.arch }}
+    needs: [gate, prepare]
+    if: needs.prepare.outputs.linux-arches != '[]'
+    runs-on: [self-hosted, linux, omarchy]
+    environment: release
+    # arm64 is built under emulation on omarchy's x86_64 CPU.
+    timeout-minutes: 300
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x64
-            runner: ubuntu-24.04
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
+        arch: ${{ fromJSON(needs.prepare.outputs.linux-arches) }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
           submodules: recursive
-
-      - name: Install Node
-        uses: actions/setup-node@v7
+          persist-credentials: false
+      - name: Release keys
+        env:
+          PUBLIC_KEY: ${{ vars.ACE_RELEASE_PUBLIC_KEY }}
+          PRIVATE_KEY: ${{ secrets.ACE_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -eu
+          umask 077
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$PUBLIC_KEY" > "$RUNNER_TEMP/keys/public.pem"
+          printf '%s\n' "$PRIVATE_KEY" > "$RUNNER_TEMP/keys/private.pem"
+      - name: Build in Debian 12, check on Ubuntu 24.04
+        run: tools/release/linux/pipeline-build.sh "${{ matrix.arch }}" "$TAG" "$RUNNER_TEMP/keys"
+      - uses: actions/upload-artifact@v7
         with:
-          node-version: 26.12.1
+          name: staged-linux-${{ matrix.arch }}
+          path: dist/releases/${{ env.TAG }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove the keys
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
+
+  build-windows:
+    name: Build Windows x64
+    needs: [gate, prepare]
+    if: needs.prepare.outputs.build-windows == 'true'
+    # An ARM64 VM: x64 Node and Bun run under emulation, so the whole build is x64.
+    runs-on: [self-hosted, Windows, ace-win]
+    environment: release
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ACE_WINDOWS_PUBLISHER: ${{ vars.ACE_WINDOWS_PUBLISHER }}
+      ACE_AZURE_SIGNING_ENDPOINT: ${{ vars.ACE_AZURE_SIGNING_ENDPOINT }}
+      ACE_AZURE_SIGNING_ACCOUNT: ${{ vars.ACE_AZURE_SIGNING_ACCOUNT }}
+      ACE_AZURE_CERTIFICATE_PROFILE: ${{ vars.ACE_AZURE_CERTIFICATE_PROFILE }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: x64
           package-manager-cache: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Download the artifacts
-        uses: actions/download-artifact@v8
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-windows-x64.zip
+      - run: bun install --frozen-lockfile
+      - id: build
+        run: node apps/desktop/scripts/pipeline/build.ts "$env:TAG"
+      - uses: actions/upload-artifact@v7
         with:
-          pattern: ace-*-${{ matrix.target }}
-          path: artifacts
+          name: staged-win32-x64
+          path: ${{ steps.build.outputs.staged }}
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Smoke test the daemon archive
+  upload:
+    name: Upload the builds to the draft
+    needs: [gate, prepare, build-mac, build-linux, build-windows]
+    # Runs after a failed build too, so the builds that finished are kept for the rerun.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' }}
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: staged-*
+          path: ${{ runner.temp }}/staged
+      - name: Upload what this run built
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/daemon"
-          tar -xzf artifacts/ace-daemon-${{ matrix.target }}/ace-*.tar.gz -C "$RUNNER_TEMP/daemon"
-          test -x "$RUNNER_TEMP/daemon/helpers/ace-screen-helper-linux"
-          node tools/release/src/smoke.ts "$RUNNER_TEMP/daemon" --unsigned-archive
-
-      - name: Install the deb and check its command and AppArmor profiles
-        run: |
-          deb=$(ls artifacts/ace-desktop-${{ matrix.target }}/*.deb)
-          dpkg-deb -I "$deb"
-          sudo apt-get install -y "./$deb"
-          test -x /usr/bin/ace-desktop
-          test ! -e /usr/bin/ace
-          sudo test -f /etc/apparmor.d/ace-desktop
-          sudo test -f /etc/apparmor.d/ace-chromium
-          loaded=$(sudo aa-status)
-          for profile in ace-desktop ace-chromium; do
-            printf '%s\n' "$loaded" | grep -qE "^\s+$profile\$" || { echo "AppArmor profile $profile is not loaded" >&2; exit 1; }
+          set -eu
+          parts=""
+          for folder in "$RUNNER_TEMP"/staged/staged-*; do
+            [ -d "$folder" ] || continue
+            parts="$parts ${folder##*/staged-}=$folder"
           done
-          sudo apt-get remove -y ace-desktop
-          sudo test ! -e /etc/apparmor.d/ace-chromium
-
-      - name: Check the AppImage contents
+          # One argument per platform; folder names never hold spaces.
+          [ -z "$parts" ] || node apps/desktop/scripts/pipeline/upload.ts "$TAG" $parts
+      - name: Fail when a build didn't finish
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
-          cd "$RUNNER_TEMP"
-          image=$(ls "$GITHUB_WORKSPACE"/artifacts/ace-desktop-${{ matrix.target }}/*.AppImage)
-          chmod +x "$image"
-          "$image" --appimage-extract >/dev/null
-          test -x squashfs-root/ace-desktop
-          test -x squashfs-root/resources/helpers/ace-screen-helper-linux
-          test -f squashfs-root/resources/daemon/ace.mjs
-          test -x squashfs-root/resources/runtime/bin/node
+          echo "::error::A platform build didn't finish; rerun the failed jobs to build only what is missing."
+          exit 1
 
-  macos:
-    # Optional until macOS signing joins this workflow; enable it from a manual run.
-    if: github.event_name == 'workflow_dispatch' && inputs.macos
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: darwin-arm64
-            runner: macos-15
-          - target: darwin-x64
-            runner: macos-15-intel
+  notes:
+    name: Write the release notes
+    needs: [gate, prepare]
+    if: needs.prepare.outputs.published != 'true'
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          submodules: recursive
-
-      - name: Install Node
-        uses: actions/setup-node@v7
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
-          node-version: 26.12.1
+          node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # The agent runs on this machine's own logged-in CLI (the ace-ci user's), read-only.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ needs.prepare.outputs.title }}
+        run: node apps/desktop/scripts/pipeline/notes.ts "$TAG" "$TITLE"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build and smoke test the daemon archive
-        run: |
-          version="${RELEASE_VERSION#v}"
-          [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
-          node -e 'const { generateKeyPairSync } = require("node:crypto"); process.stdout.write(generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }))' > "$RUNNER_TEMP/public.pem"
-          node tools/release/src/build.ts "$version" ${{ matrix.target }} "$RUNNER_TEMP/public.pem"
-          node tools/release/src/smoke.ts tools/release/dist/${{ matrix.target }} --unsigned-archive
-
-      - name: Upload the daemon archive
-        uses: actions/upload-artifact@v7
+  deploy-staging:
+    name: Deploy staging
+    needs: [gate, prepare, upload]
+    if: ${{ !cancelled() && needs.upload.result == 'success' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: staging
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CI: "1"
+    steps:
+      - uses: actions/checkout@v7
         with:
-          name: ace-daemon-${{ matrix.target }}
-          if-no-files-found: error
-          path: |
-            tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
-            tools/release/dist/${{ matrix.target }}.json
+          ref: ${{ needs.gate.outputs.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # The cloud Workers to staging, smoke-tested; Workers already at this release are skipped.
+      - run: bun run deploy:workers staging --version "$TAG"
 
-  cloud:
-    name: Deploy ace cloud
-    # Only a release tag deploys; a manual run builds artifacts and leaves production alone.
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    # One deploy at a time, whatever the tag, and never cancelled halfway through migrations.
+  deploy-production:
+    name: Deploy production
+    needs: [gate, prepare, deploy-staging]
+    # After every platform built and before publish, so the cloud is ready when apps update.
+    if: ${{ !cancelled() && needs.deploy-staging.result == 'success' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 30
+    # Never two production deploys at once, whatever started them.
     concurrency:
       group: cloud-production
       cancel-in-progress: false
+    permissions:
+      contents: read
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: 7d4f0020b4776eb86cf81f5a5e47cae0
-      # Wrangler answers its own prompts (the migration confirmation) in CI.
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CI: "1"
     steps:
-      - name: Require the Cloudflare token
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # Straight to 100% with a smoke check; rolls back to the previous Worker version on failure.
+      - run: bun run deploy:workers production --version "$TAG"
+
+  deploy-web:
+    name: Deploy the web app
+    needs: [gate, prepare, deploy-production]
+    # After the cloud it talks to, before publish: a stable release's web app goes to
+    # app.acehq.dev (Pages project ace-web, branch main) and beta.app.acehq.dev (branch beta),
+    # a beta's to beta.app.acehq.dev only.
+    if: ${{ !cancelled() && needs.deploy-production.result == 'success' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 30
+    concurrency:
+      group: web-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # A branch is skipped when it already serves a later published release: never goes back.
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.sha }}
+        run: node apps/desktop/scripts/pipeline/web-plan.ts "$TAG"
+      # The same build Pages ran from main, stamped so the app names itself web/<version>.
+      - if: steps.plan.outputs.deploy == 'true'
+        env:
+          ACE_VERSION: ${{ steps.plan.outputs.version }}
+        run: apps/web/scripts/cloudflare-pages-build.sh
+      # One build to each planned branch. Only this step holds the token. It runs in
+      # tools/workers-release for that package's wrangler, with no wrangler config or functions
+      # folder there for Pages to pick up. A rerun deploys again: Pages uploads only files it
+      # lacks, and the result is the same build.
+      - if: steps.plan.outputs.deploy == 'true'
+        working-directory: tools/workers-release
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "1"
+          WRANGLER_SEND_METRICS: "false"
+          BRANCHES: ${{ steps.plan.outputs.branches }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          MESSAGE: ${{ steps.plan.outputs.message }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::Set the CLOUDFLARE_API_TOKEN repository secret to deploy ace cloud (docs/relay/accounts.md)."
-            exit 1
+          set -eu
+          for branch in $BRANCHES; do
+            bun x wrangler pages deploy "$GITHUB_WORKSPACE/apps/web/dist" --project-name ace-web \
+              --branch "$branch" --commit-hash "$COMMIT" --commit-message "$MESSAGE" \
+              --commit-dirty=false
+          done
+
+  publish:
+    name: Publish
+    needs: [gate, prepare, upload, notes, deploy-production, deploy-web]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.published == 'true' || (needs.upload.result == 'success' && needs.notes.result == 'success' && needs.deploy-production.result == 'success' && needs.deploy-web.result == 'success')) }}
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # Live for everyone at once: stable marked latest, a beta as a prerelease for the Beta line.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: node apps/desktop/scripts/pipeline/publish.ts "$TAG" "$VERSION"
+
+  refresh-marketing:
+    name: Rebuild acehq.dev
+    needs: [prepare, publish]
+    # acehq.dev builds its download links and version from the latest release; rebuild it once a
+    # stable release is live. Runs no repository code, and never fails the release: an unset hook
+    # or a failed request is only a notice, and notify doesn't wait for it.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.prepare.outputs.kind == 'stable' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          HOOK: ${{ secrets.MARKETING_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::No MARKETING_DEPLOY_HOOK in the production environment; acehq.dev rebuilds on its next push to main."
+          elif curl -fsS -o /dev/null -X POST --max-time 30 --retry 2 "$HOOK"; then
+            echo "Asked Pages to rebuild ace-marketing."
+          else
+            echo "::warning::The ace-marketing deploy hook failed; rebuild acehq.dev from the Pages dashboard."
           fi
 
-      - name: Checkout
-        uses: actions/checkout@v7
+  notify:
+    name: Tell the owner
+    needs:
+      [
+        gate,
+        prepare,
+        build-mac,
+        build-linux,
+        build-windows,
+        upload,
+        notes,
+        deploy-staging,
+        deploy-production,
+        deploy-web,
+        publish,
+      ]
+    # Only after the gate passed: notify runs the validated commit's code, nothing else.
+    if: ${{ always() && needs.gate.result == 'success' }}
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
         with:
-          submodules: recursive
-
-      - name: Read required Node major
-        id: node
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync, readFileSync } from 'node:fs';
-          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
-          const major = engines.node.match(/\d+/)[0];
-          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
-          NODE
-
-      - name: Install Node
-        uses: actions/setup-node@v7
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ steps.node.outputs.version }}
+          node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Apply D1 migrations
-        working-directory: apps/cloud
-        run: bunx wrangler d1 migrations apply ACCOUNTS --remote --env production
-
-      - name: Deploy
-        working-directory: apps/cloud
-        run: bunx wrangler deploy --env production --message "Release ${GITHUB_REF_NAME}"
-
-      - name: Smoke test
-        working-directory: apps/cloud
-        run: |
-          bun run smoke https://cloud.acehq.dev
-          bun run smoke https://relay.acehq.dev
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          node apps/desktop/scripts/pipeline/notify.ts "$TAG" "$RUN_URL"
+          gate prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production deploy-web publish
