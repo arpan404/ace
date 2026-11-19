@@ -9,6 +9,7 @@ use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkMatch};
 use ignore::DirEntry;
 
+use crate::folders::Folders;
 use crate::open;
 use crate::preview;
 use crate::result::{FileMatches, LineMatch};
@@ -16,23 +17,30 @@ use crate::walk::{Shared, emit};
 
 /// Searches one file the walker handed over.
 ///
-/// The file is opened through the folder that holds it, and only if it is still the entry the
-/// walk saw: a name rewritten after the walk cannot redirect the read. A file that cannot be
-/// opened, looks binary, or fails while being read is skipped: one bad file in a checkout must
-/// not fail the whole search, and its reserved match slots go back to the other walker threads.
+/// The file is opened through the folder that holds it, which this walker thread has already had
+/// authorized and keeps open while it works through that folder, and only if it is still the
+/// entry the walk saw: a name rewritten after the walk cannot redirect the read. A file that
+/// cannot be opened, looks binary, or fails while being read is skipped: one bad file in a
+/// checkout must not fail the whole search, and its reserved match slots go back to the other
+/// walker threads.
 pub(crate) fn search_file(
     searcher: &mut Searcher,
     shared: &Shared<'_>,
+    folders: &mut Folders,
     entry: &DirEntry,
     relative: &str,
 ) {
     if shared.halted() {
         return;
     }
-    let Ok((folder, name)) = shared.root.open_parent(relative) else {
+    let folder = match relative.rsplit_once('/') {
+        Some((folder, _)) => folder,
+        None => "",
+    };
+    let Some(folder) = folders.get(shared.root, folder) else {
         return;
     };
-    let Some(file) = open::open(&folder, &name, entry) else {
+    let Some(file) = open::open(folder, entry.file_name(), entry) else {
         return;
     };
     let Ok(metadata) = file.metadata() else {

@@ -15,6 +15,7 @@
 //! entered, and hidden files are searched because the Files panel lists them.
 
 mod error;
+mod folders;
 mod open;
 mod parents;
 mod pattern;
