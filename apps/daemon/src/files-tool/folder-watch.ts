@@ -18,6 +18,8 @@ export type FolderWatchClient = {
 /** What the book needs from ace-files: one shared watch per checkout. */
 export type FolderWatchPorts = {
   watch(path: string, onBatch: (payload: EventPayload) => void): Promise<() => Promise<void>>;
+  /** Tell the checkout's watcher which folders are open, so it checks them itself. */
+  focus?(path: string, folders: readonly string[]): Promise<void>;
 };
 
 export type FolderWatchOptions = {
@@ -51,6 +53,8 @@ export class FolderWatch {
   readonly #roots = new Map<string, RootSubscription>();
   readonly #watched = new Map<string, Map<ThreadId, string>>();
   readonly #tails = new Map<string, Promise<void>>();
+  /** Per checkout, the last open-folder set sent and the send in flight, so sets go in order. */
+  readonly #focus = new Map<string, { sent: string; tail: Promise<void> }>();
   /**
    * Sockets with queued or running work. A closed flag lives here rather than in a set that
    * outlives the socket, and the entry goes when the drop it queued has drained.
@@ -146,6 +150,31 @@ export class FolderWatch {
       if (current !== undefined) await this.#release(current);
     }
     if (evicted) await this.#forget(clientId, evicted.threadId, evicted.root);
+    this.#refocus(root);
+    if (current !== undefined && current !== root) this.#refocus(current);
+    if (evicted) this.#refocus(evicted.root);
+  }
+
+  /**
+   * Send a checkout's open folders, the union of every client's, when they changed. The set is a
+   * safety net on top of the watch, so a failure is logged and the next change sends it again.
+   */
+  #refocus(root: string): void {
+    const ports = this.#ports;
+    if (!ports.focus || this.#closed) return;
+    const folders = this.#fanout.openFolders(root);
+    const key = folders.join("\n");
+    const entry = this.#focus.get(root) ?? { sent: "", tail: Promise.resolve() };
+    if (entry.sent === key && this.#roots.has(root)) return;
+    entry.sent = key;
+    entry.tail = entry.tail
+      .then(() => (this.#roots.has(root) ? ports.focus?.(root, folders) : undefined))
+      .catch((error: unknown) => {
+        entry.sent = "";
+        this.#log("warn", "Could not send the open folders", { error: String(error) });
+      });
+    if (this.#roots.has(root)) this.#focus.set(root, entry);
+    else this.#focus.delete(root);
   }
 
   async #stop(clientId: string, threadId: ThreadId): Promise<void> {
@@ -156,6 +185,7 @@ export class FolderWatch {
     threads.delete(threadId);
     if (!threads.size) this.#watched.delete(clientId);
     await this.#release(root);
+    this.#refocus(root);
   }
 
   async #drop(clientId: string): Promise<void> {
@@ -165,7 +195,10 @@ export class FolderWatch {
     this.#watched.delete(clientId);
     try {
       if (!threads) return;
-      for (const root of threads.values()) await this.#release(root);
+      for (const root of threads.values()) {
+        await this.#release(root);
+        this.#refocus(root);
+      }
     } finally {
       this.#sessions.delete(clientId);
     }
@@ -233,6 +266,7 @@ export class FolderWatch {
     threads.delete(threadId);
     if (!threads.size) this.#watched.delete(clientId);
     await this.#release(root);
+    this.#refocus(root);
   }
 
   /** One shared upstream watch per checkout, kept while any client watches it. */

@@ -134,6 +134,10 @@ class FakeClient implements FilesToolClient {
     });
   }
 
+  focus(): Promise<void> {
+    return Promise.resolve();
+  }
+
   watch(): Promise<FilesWatch> {
     this.watchStarted = true;
     return this.#watch.promise.then(() => watchHandle(() => this.watchesDisposed++));

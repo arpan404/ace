@@ -190,6 +190,7 @@ export const opSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("recoverMove"), root: u64, from: z.string(), to: z.string() }),
   z.object({ op: z.literal("watch"), root: u64 }),
   z.object({ op: z.literal("unwatch"), subscription: u64 }),
+  z.object({ op: z.literal("focus"), root: u64, folders: z.array(z.string()) }),
   z.object({ op: z.literal("indexQuery"), root: u64, query: z.string(), limit: u64 }),
   z.object({ op: z.literal("search"), root: u64 }).extend(searchQuerySchema.shape),
 ]);

@@ -38,6 +38,10 @@ afterEach(async () => {
   for (const h of open.splice(0)) await stopFakeFiles(h);
 });
 
+function focusCount(h: FakeFilesHarness): number {
+  return requestOps(h).filter((op) => op === "focus").length;
+}
+
 function requestOps(h: FakeFilesHarness): string[] {
   return fakeMessages(h).flatMap((message) => (message.type === "request" ? [message.op.op] : []));
 }
@@ -189,6 +193,26 @@ describe("FilesProcess", () => {
     // watch is told to re-list everything.
     await until(() => batches.some((payload) => payload.type === "rescan"));
     await watch.dispose();
+  });
+
+  it("sends a root's open folders again when ace-files restarts", async () => {
+    const h = harness();
+    await h.files.start();
+    const root = await h.files.openRoot("/repo");
+    await h.files.focus(root, ["src", "docs"]);
+    h.host.children.at(-1)?.kill();
+    await until(() => h.files.state() === "down");
+    await h.clock.advance(250);
+    await until(() => fakeSpawnCount(h) === 2 && h.files.state() === "up");
+    await until(() => focusCount(h) === 2);
+    expect(
+      fakeMessages(h).flatMap((message) =>
+        message.type === "request" && message.op.op === "focus" ? [message.op.folders] : [],
+      ),
+    ).toEqual([
+      ["src", "docs"],
+      ["src", "docs"],
+    ]);
   });
 
   it("tells a re-subscribed watch to re-list only once the process answers as up", async () => {

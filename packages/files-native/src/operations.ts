@@ -32,6 +32,8 @@ export type OperationsPorts = {
 type RootEntry = {
   path: string;
   binary: number | undefined;
+  /** The folders people have open, sent again when the root is re-opened after a restart. */
+  focus?: readonly string[] | undefined;
   /** The error the binary gave when this root could not be re-opened after a restart. */
   error: FilesRequestError | undefined;
 };
@@ -87,6 +89,23 @@ export class Operations {
     const root = this.#nextRoot++;
     this.#roots.set(root, { path, binary: reply.root, error: undefined });
     return root;
+  }
+
+  async focus(root: number, folders: readonly string[], timeoutMs: number): Promise<void> {
+    this.#requireUp();
+    const entry = this.#roots.get(root);
+    if (!entry) throw new FilesRequestError("INVALID_ARGUMENT", `root ${root} is not open`);
+    entry.focus = folders;
+    await this.#sendFocus(entry, timeoutMs);
+  }
+
+  async #sendFocus(entry: RootEntry, timeoutMs: number): Promise<void> {
+    if (entry.binary === undefined || entry.focus === undefined) return;
+    const { reply } = await this.#ports.send(
+      { op: "focus", root: entry.binary, folders: [...entry.focus] },
+      timeoutMs,
+    );
+    if (reply.type !== "done") throw protocol("focus", reply);
   }
 
   async closeRoot(root: number, timeoutMs: number): Promise<void> {
@@ -227,7 +246,17 @@ export class Operations {
         if (binary !== undefined) await this.#closeSilently(binary, timeoutMs);
         continue;
       }
-      if (failure) this.#warnRoot(rootNumber, root, failure);
+      if (failure) {
+        this.#warnRoot(rootNumber, root, failure);
+        continue;
+      }
+      try {
+        await this.#sendFocus(root, timeoutMs);
+      } catch (error) {
+        // The open folders are a safety net on top of the watch; a root that could not take them
+        // still works, and the daemon's next set is sent as usual.
+        if (isTransport(error)) throw error;
+      }
     }
 
     for (const [subscription, watch] of Array.from(this.#watches)) {

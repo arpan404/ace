@@ -176,6 +176,15 @@ export class WatchFanout {
     this.#evicted.delete(clientId);
   }
 
+  /** Every folder any client watches on a root, sorted, at most the per-client cap. */
+  openFolders(root: string): string[] {
+    const open = new Set<string>();
+    for (const threads of this.#byRoot.get(root)?.values() ?? []) {
+      for (const watch of threads.values()) for (const folder of watch.folders) open.add(folder);
+    }
+    return [...open].toSorted().slice(0, maxWatchedFolders);
+  }
+
   /** The folders one client watches for one thread, sorted, for a re-list after a stale root. */
   folders(clientId: string, threadId: ThreadId): string[] {
     const watch = this.#byClient.get(clientId)?.get(threadId)?.watch;
