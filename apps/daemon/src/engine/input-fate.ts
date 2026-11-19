@@ -59,8 +59,6 @@ export function inputFate(facts: InputFacts): InputFate {
       return { state: "sending" };
     case "done":
       return { state: "delivered" };
-    case "failed":
-      return failedFate(facts.intent.error);
   }
 }
 
