@@ -47,7 +47,8 @@ const thread = {
   draft: undefined,
   retryDraftScope: undefined,
 } as never;
-const trigger = { kind: "mention", query: "socket", start: 0, end: 7 } as never;
+const mentionTrigger = { kind: "mention" as const, query: "socket", start: 0, end: 7 };
+const trigger = mentionTrigger as never;
 
 function wrapperFor(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -109,7 +110,8 @@ test("a cached cold query starts its own wait instead of inheriting another's", 
   fallback = async () => ({ paths: [], ready: false });
   const client = queryClient();
   const { result, rerender } = renderHook(
-    ({ query }: { query: string }) => useSuggestions(thread, { ...trigger, query }, () => []),
+    ({ query }: { query: string }) =>
+      useSuggestions(thread, { ...mentionTrigger, query }, () => []),
     { wrapper: wrapperFor(client), initialProps: { query: "a" } },
   );
   await waitFor(() => expect(result.current.state).toBe("loading"));
@@ -119,7 +121,7 @@ test("a cached cold query starts its own wait instead of inheriting another's", 
   // Eleven seconds into a's wait, the person opens a different query whose cached answer is also
   // still building. b's wait begins when b first answers, not when a did.
   vi.setSystemTime(start + buildingWaitMs - 1_000);
-  client.setQueryData(["thread", "mention", thread.id, "b"], { paths: [], ready: false });
+  client.setQueryData(["thread", "mention", "thread-1", "b"], { paths: [], ready: false });
   rerender({ query: "b" });
   await waitFor(() => expect(result.current.state).toBe("loading"));
 
