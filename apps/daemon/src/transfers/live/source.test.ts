@@ -154,6 +154,24 @@ it("waits for Stop's own escalation before the safe point, and fails if it ends 
   expect(ownership.get("t-1")).toBeUndefined();
 });
 
+it("waits while the children elsewhere are still being looked through, then holds", async () => {
+  let looks = 0;
+  const { stop, ownership } = await source({
+    remoteChildren: () => ({ running: [], unconfirmed: [], complete: ++looks > 3 }),
+  });
+  await stop();
+  expect(looks).toBeGreaterThan(3);
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+});
+
+it("fails before the hand-over when the children elsewhere never finish being looked through", async () => {
+  const { stop, ownership } = await source({
+    remoteChildren: () => ({ running: [], unconfirmed: [], complete: false }),
+  });
+  await expect(stop()).rejects.toMatchObject({ code: "remote_children_unread" });
+  expect(ownership.get("t-1")).toBeUndefined();
+});
+
 it("waits for a child on another machine to confirm its stop", async () => {
   let checks = 0;
   const { stop, ownership } = await source({

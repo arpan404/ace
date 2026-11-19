@@ -62,7 +62,12 @@ export interface LiveSourcePorts {
    * answer, or lost), whenever that was: an earlier attempt's stays until its machine answers.
    * Ordinary status reads the latter as stopped (ADR 0052); a move doesn't.
    */
-  remoteChildren(threadId: string): { running: string[]; unconfirmed: string[] };
+  remoteChildren(threadId: string): {
+    running: string[];
+    unconfirmed: string[];
+    /** False while the older rows of some parent are still being looked through. */
+    complete?: boolean;
+  };
   queued(threadId: string): number;
   /** The "Moving to <machine>" background row that keeps the thread from reading done. */
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
@@ -185,11 +190,14 @@ export class LiveSource {
       // Stop's own escalation finishes first: a provider that ended its turn but never answered
       // its interrupt reads at rest while Stop still waits to close it, unconfirmed or not.
       const stopping = ports.stopping(threadId);
+      // A read still looking through older rows can't yet say the tree is clear: wait for it.
+      const checking = remote.complete === false;
       if (
         ports.atRest(threadId, holdTask(transferId)) &&
         !shells.length &&
         !remote.running.length &&
-        !stopping.length
+        !stopping.length &&
+        !checking
       )
         break;
       if (ports.terminals(threadId).length) await ports.stopTerminals(threadId);
@@ -199,10 +207,15 @@ export class LiveSource {
               "process_still_running",
               `${shells[0]} didn't stop, so the thread stayed here.`.slice(0, 512),
             )
-          : new TransferError(
-              "tree_still_working",
-              "The work here didn't stop, so it stayed here.",
-            );
+          : checking
+            ? new TransferError(
+                "remote_children_unread",
+                "The subagents on other machines couldn't all be checked in time, so the thread stayed here.",
+              )
+            : new TransferError(
+                "tree_still_working",
+                "The work here didn't stop, so it stayed here.",
+              );
       await ports.sleep(250, signal);
     }
     // At rest, with no process or terminal left running: from here new input waits for the

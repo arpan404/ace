@@ -7,6 +7,7 @@ import type { ThreadOwnership } from "./ownership.ts";
 import type { LiveResumes } from "./resumes.ts";
 import type { LiveSourcePorts } from "./source.ts";
 import type { LiveTargetPorts } from "./target.ts";
+import { UnconfirmedStops } from "../../machines/unconfirmed-stops.ts";
 import { LiveStarts } from "./target-rows.ts";
 
 /*
@@ -68,6 +69,7 @@ export function liveSourcePorts(
   },
 ): LiveSourcePorts {
   const { services, store, now } = context;
+  const unconfirmedStops = new UnconfirmedStops(store);
   return {
     ownership: input.ownership,
     git: input.git,
@@ -130,38 +132,34 @@ export function liveSourcePorts(
           "remote_children_unread",
           "The thread has too many subagents to check them all, so it stayed here.",
         );
-      const running: string[] = [];
-      const unconfirmed: string[] = [];
-      // Through machine_children_parent (parent_thread, settled), 256 parents a read, each read
-      // filtered before its limit. Any read that fails throws: the move never takes an unread
-      // tree for a stopped one.
-      for (let at = 0; at < parents.length; at += 256) {
-        const chunk = parents.slice(at, at + 256);
-        const among = `parent_thread IN (${chunk.map(() => "?").join(",")})`;
-        if (running.length < 64)
+      try {
+        const running: string[] = [];
+        // Running children through machine_children_parent (parent_thread, settled), 256
+        // parents a read, filtered before the limit.
+        for (let at = 0; at < parents.length && running.length < 64; at += 256) {
+          const chunk = parents.slice(at, at + 256);
           running.push(
             ...store
               .statement(
-                `SELECT role FROM machine_children WHERE ${among} AND settled=0 LIMIT ${64 - running.length}`,
+                `SELECT role FROM machine_children
+                  WHERE parent_thread IN (${chunk.map(() => "?").join(",")}) AND settled=0
+                  LIMIT ${64 - running.length}`,
               )
               .all(...chunk)
               .map(role),
           );
-        // Whenever it settled, in this attempt or an earlier one: unconfirmed until its machine
-        // answers. 1: every cancel went unanswered; 3: it can never answer; lost. 2 answered late.
-        if (unconfirmed.length < 64)
-          unconfirmed.push(
-            ...store
-              .statement(
-                `SELECT role FROM machine_children WHERE ${among} AND settled=1
-                   AND (stopped_unconfirmed IN (1,3) OR lost_at IS NOT NULL)
-                   LIMIT ${64 - unconfirmed.length}`,
-              )
-              .all(...chunk)
-              .map(role),
-          );
+        }
+        // Whenever they settled, in this attempt or an earlier one: unconfirmed until their
+        // machine answers, read from a table of only those (`machines/unconfirmed-stops.ts`).
+        const found = unconfirmedStops.read(parents, 64);
+        return { running, unconfirmed: found.roles, complete: found.complete };
+      } catch (error) {
+        // Any read that fails fails the move: an unread tree is never taken for a stopped one.
+        throw new TransferError(
+          "remote_children_unread",
+          `The subagents on other machines couldn't be checked (${String(error).slice(0, 200)}), so the thread stayed here.`,
+        );
       }
-      return { running, unconfirmed };
     },
     queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
     hold(threadId, transferId, change) {

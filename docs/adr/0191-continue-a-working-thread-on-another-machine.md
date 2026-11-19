@@ -84,8 +84,15 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
      the machine answers. A child that can never answer (3) keeps the thread from moving while it
      works; once it is at rest, ADR 0101's idle path moves it. The read filters before its limit
      of 64, through `machine_children_parent`, so many settled children never hide that one. It
-     covers every parent of the tree, 256 a query; a tree of more than 4,096 threads, or a read
+     covers every parent of the tree, 256 a query; a tree of more than 4,096 threads, or any read
      that fails, fails the move (`remote_children_unread`) instead of passing on part of it.
+     Amended 2026-11-19 (third review): the unconfirmed ones are read from a table of only them
+     (`machine_children_unconfirmed`, `machines/unconfirmed-stops.ts`), kept current by triggers
+     on `machine_children`, so a look costs what the unconfirmed children do, not a parent's
+     history of confirmed ones (ADR 0170). The table and triggers are made empty on first use;
+     rows from before are found per parent in batches of 2,000 settled rows, resumed across
+     looks and restarts. Until a parent's are all found the read says it isn't complete, and the
+     move waits, then fails with `remote_children_unread` if the 60 seconds run out.
 
    Bounded at 60 seconds; a tree that never comes to rest fails the move before the hand-over
    (`process_still_running` when a shell is what still runs, else `tree_still_working`), with
