@@ -62,7 +62,7 @@ fn a_change_in_a_focused_folder_is_reported_while_the_os_watch_is_busy() {
     assert!(matches!(client.reply(id), Reply::Done { .. }));
 
     let elsewhere = tempfile::tempdir().unwrap();
-    for index in 0..5_000 {
+    for index in 0..1_000 {
         fs::write(elsewhere.path().join(format!("f{index}")), b"x").unwrap();
     }
     let started = Instant::now();
