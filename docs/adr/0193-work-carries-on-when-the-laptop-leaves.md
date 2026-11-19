@@ -1,26 +1,38 @@
 # 0193: Work carries on when the laptop leaves
 
-Date: 2026-11-18. Status: proposed (design; GPT review before the build). Decided by: the owner
-(the outline, 2026-11-18/19), this ADR (how). Builds on
-[ADR 0191](0191-continue-a-working-thread-on-another-machine.md) (live continue) and
-[ADR 0192](0192-transfers-over-every-machine-route.md) (transfers over every route). Amends ADR
-0191's ownership record.
+Date: 2026-11-19. Status: proposed (design; revised after review, before the build). Decided by:
+the owner (the outline, 2026-11-18; no automatic takeover after silence, 2026-11-19), this ADR
+(how). Builds on [ADR 0191](0191-continue-a-working-thread-on-another-machine.md) (live
+continue) and [ADR 0192](0192-transfers-over-every-machine-route.md) (transfers over every
+route). Amends ADR 0191's ownership record.
 
 ## Context
 
-A person works on a laptop. They close the lid, the battery dies, or the train leaves the Wi-Fi.
-Today the agent stops with the laptop. ADR 0191 can move a working thread, but only when the
-person asks and both machines can talk for the whole move. What the person wants is to say once,
-"if I leave, keep this going on omarchy" (their server), and have it happen.
+A person works on a laptop, then closes the lid, quits ace, or the battery runs down, and the agent
+stops with the laptop. ADR 0191 can move a working thread, but only when the person asks and both
+machines can talk for the whole move. What the person wants is to say once, "if I leave, keep this
+going on omarchy" (their server), and have it happen.
 
-The hard part is not copying. ADR 0191 already copies code and the provider's native session and
-switches over at one cutoff. The hard part is deciding, without talking, which machine runs the
-thread. A laptop that sleeps or loses its link can't say it has stopped. A server that takes over
-because it heard nothing may be wrong: the laptop may be awake, behind a broken route, still
-running. Two agents then edit two checkouts of one task, push to one branch, and answer one
-person twice. A daemon started on a copy of a live home has already done this once (the cloned
-home incident, 2026-11-16). Split brain is the risk this ADR is built around. Priority 1 in
-AGENTS.md decides every trade below: never two owners, never shown done while work runs.
+Copying is the easy part. ADR 0191 already copies code and the provider's native session and
+switches over at one cutoff. The hard part is knowing that the laptop has really stopped. A laptop
+that sleeps, stalls or loses its link can't say so. A first draft of this ADR let the server take
+over once a lease ran out, with the laptop stopping itself on its own clock. Review found that the
+draft's guarantee broke in ordinary cases:
+
+- a daemon stalled past its deadline;
+- a Stop that reported stopped while a process still ran;
+- processes that escape the process group;
+- a VM migration that breaks clock-rate bounds;
+- the shipped Bun's `performance.now()`, which pauses during macOS sleep;
+- children that thaw before any JS timer runs.
+
+Any one of these runs the thread on both machines. A daemon started on a copy of a live home has
+already done that once (the cloned home incident, 2026-11-16).
+
+Priority 1 in AGENTS.md decides this ADR: never two owners. The owner's ruling follows from it.
+ace hands a thread over by itself only when the laptop proves its tree has stopped. When the
+laptop simply goes quiet, only the person can move the thread, and ace tells them plainly what
+that risks.
 
 ## Decision
 
@@ -28,432 +40,517 @@ AGENTS.md decides every trade below: never two owners, never shown done while wo
 
 A thread runs on one machine (the **runner**) and names one other machine of the person's (the
 **standby**). The person turns it on from the thread's menu: "Keep going on omarchy if I leave".
-A project can set it as the default for its new threads (Settings › the project: "Keep new
-threads going on omarchy if I leave"). It is a person's command (`thread.keepGoing`), never
-offered to agents: it decides where work runs and what a machine may start.
+A project can make it the default for its new threads (Settings › the project: "Keep new threads
+going on omarchy if I leave"). It is a person's command (`thread.keepGoing`), with the person's
+standing as ADR 0190 defines it, and never an agent's.
 
-It is offered only when all of these hold, checked at opt-in and again before each arm (section
-3):
+It is offered only when:
 
-- the standby is linked to the runner with `operate` and `projects` allowed there (ADR 0101), and
-  takes live transfers and leases (it answers `keepGoing: true` in `begin`, else
-  `target_too_old`);
+- the standby is linked with `operate` and `projects` allowed (ADR 0101), and answers
+  `keepGoing: true` in `begin` (an older ace: `target_too_old`);
 - the standby has a signed-in account for the thread's provider (else "omarchy has no Claude
   sign-in");
-- the thread is a root thread. A child moves with its parent or not at all (ADR 0191,
-  `thread_is_child`);
-- the tree has no delegated work running on a third machine, or on the standby itself. Those
-  children report to the runner; a takeover can't stop or adopt them. While they run, the thread
-  isn't kept: "Not kept on omarchy while work runs on Studio."
+- the thread is a root thread (ADR 0191, `thread_is_child`);
+- both sides pass the host check of section 7.
 
-### 2. A warm copy on the standby
+### 2. Warm copies: Git checkpoints and a summary
 
-**The first copy** is ADR 0191's bulk: code, branch and ignored files, sent while the agent works.
-It goes only over a direct route or the person's own relay, never ace's hosted relay (ADR 0192's
-8 MiB bound applies as it does to any bulk). Until it lands, the thread isn't kept: "Getting
-omarchy ready · 312 MB of 1.2 GB".
+The standby keeps a copy of the thread that is recent enough to start from. A copy is a
+**generation**, numbered from 1 for each keep-going **stream** (one stream per thread and standby,
+with its own id).
 
-**Each later copy** sends only what changed since the copy the standby acknowledged:
+**Generation 1** is ADR 0191's bulk: code, branch and ignored files, uploaded while the agent
+works. It goes only over a direct route or the person's own relay, never over ace's hosted relay.
+Until it lands, the thread isn't kept: "Getting omarchy ready · 312 MB of 1.2 GB".
 
-- **Code.** A capture commit of the checkout (`captureChanges`, the same temporary index ADR 0191
-  uses, so the person's checkout and index are untouched) and an incremental bundle that excludes
-  the last acknowledged capture and branch head. Usually a few kilobytes.
-- **The native session.** Claude's and Codex's session files only grow, so a copy sends the bytes
-  past the offset the standby holds, with the last 4 KiB before that offset to prove nothing
-  before it changed. A file that shrank or whose proof differs is sent whole. The standby
-  rewrites paths line by line as ADR 0191's carriers do, holding a partial last line back until
-  its newline arrives. The 512-file and 256 MiB bounds of ADR 0191 apply; a session past them
-  is not copied, and a takeover falls back to the handoff summary.
-- **The thread** (title, mode, provider, model, a fresh `@ace/handoff` summary, the queue count):
-  small JSON.
-- **Ignored files** travel with the first copy only. The takeover's continue message says they
-  are as of opting in.
+**Each later generation** holds:
 
-One copy is one transfer part, `part=warm`, checked by SHA-256 like ADR 0191's `final`. ADR
-0192's hosted-relay policy takes `warm` as it takes `final`: allowed on ace's relay up to
-`HOSTED_RELAY_TRANSFER_BYTES` (8 MiB). A copy past that, when ace's relay is the only route, isn't
-sent; the line shows how old the standby's copy is ("omarchy's copy is from 13:58") until a route
-that can take it answers.
+- **Code.** A capture commit of the checkout (`captureChanges`, the temporary index ADR 0191 uses,
+  so the person's checkout and index are untouched) and an incremental bundle that excludes the
+  last pinned generation's capture and branch head.
+- **A summary.** A fresh `@ace/handoff` summary of the thread, bounded as ADR 0101 bounds it, plus
+  the thread's title, mode, provider, model and queue count.
 
-**When copies run.** At every end of the root's turn (with a park, section 3), and during a long
-turn every 5 minutes if the capture differs from the last one, 10 minutes on battery. One copy
-in flight per standby at a time, newest first; a copy waiting behind another is replaced by a
-newer one of the same thread, never queued twice.
+The native session is **not** copied in this stage. Claude's and Codex's session files can be
+rewritten in place, so a tail with a short overlap check can miss a change earlier in the file.
+Sending them whole on every generation costs more than has been measured. A planned handover still
+carries the native session whole, through ADR 0191's final payload (section 4). A person's takeover
+starts from the summary. Native session copies come back only after the measurements in
+"Verification" justify them.
 
-**The prepared landing.** The standby applies each copy as it arrives: the bundle into the
-project's landing repository (shared by every kept thread of that project, ADR 0101's landing
-reuse), the landing worktree checked out at the capture, the session tail into a staging folder
-of ace's own. Nothing goes into the provider's home, and **no thread row exists on the standby**,
-so nothing there can dispatch, recover or resume it: the engine has nothing to run. A copy that
-doesn't apply makes the standby ask for a new bulk; until it lands the thread isn't kept.
+**When.** A generation is made at each end of the root's turn. During a long turn one is made every
+10 minutes if the capture differs from the last one (20 on battery). Captures are bounded:
 
-### 3. The lease
+- If a capture takes longer than 2 seconds, or the checkout has more than 100,000 files, the
+  thread drops to turn ends only.
+- The line then says how old the standby's copy is ("omarchy's copy is from 13:58").
 
-Exactly one machine may run the thread. The runner may run it only while it holds a lease the
-standby granted. Both sides keep their halves durably on the thread's ownership record (ADR
-0191's `thread_ownership`, which said this stage adds its lease to the same row):
+**Fair, not newest first.** Each standby takes one generation at a time. Kept threads take turns,
+oldest copy first, and each thread has at most one generation waiting; a newer capture replaces
+its own waiting one. A quiet thread can't be starved by a busy one, and a slow link makes copies
+older, never more numerous. A generation is `part=warm` under ADR 0192's hosted-relay policy, the
+same as `final`: allowed up to `HOSTED_RELAY_TRANSFER_BYTES` (8 MiB). Past that, with only ace's
+relay to send it on, it waits for a route that can take it.
 
-| state     | on      | meaning                                                                  |
-| --------- | ------- | ------------------------------------------------------------------------ |
-| `kept`    | runner  | owns the thread; a standby holds a landing; lease fields below           |
-| `standby` | standby | doesn't own it; holds a landing; may take it over under section 3's rule |
+**Pinned atomically.** The standby writes a generation's bundle into the project's landing
+repository under `refs/ace/keep/<stream>/g<N>`, then its summary file, and syncs both to disk.
+Then, in one transaction, it records `pinned = N` on the stream's row. A generation that arrived
+only in part is never pinned and is never started from. The standby keeps the last two pinned
+generations and removes older refs afterwards. Nothing is checked out until a takeover or
+handover, and nothing goes into a provider's home. **No thread row exists on the standby**, so
+nothing there can dispatch, recover or resume it.
 
-`stopping`, `handing`, `moved` and `owned` keep ADR 0191's meanings. Both new rows carry the
-transfer id of the copy stream, the peer, the `epoch`, and:
+### 3. Who owns the thread
 
-- `holder`: the runner daemon's run id (the per-run id in `daemon-lock`) the lease was granted
-  to;
-- `lease`: `parked`, `armed` or `fenced` (armed, and stopped for want of a renewal; held across restarts);
-- `copy`: the sequence number of the last copy the standby applied;
-- `home`: the stable device id (ADR 0115) and the home's path, on both sides (section 7).
+ADR 0191's `thread_ownership` gains two states:
 
-The time a lease runs out is never stored as a clock value: the clocks below restart with the
-machine. Wall times are stored only for the words a person reads.
+| state     | on      | meaning                                                                 |
+| --------- | ------- | ----------------------------------------------------------------------- |
+| `kept`    | runner  | owns the thread; a standby holds generations of it                      |
+| `standby` | standby | owns nothing; holds generations; owns the thread only by section 4 or 5 |
 
-#### The constants
+`stopping`, `handing`, `moved` and `owned` keep their ADR 0191 meanings. Both new rows carry:
 
-| name                     | value  | meaning                                                             |
-| ------------------------ | ------ | ------------------------------------------------------------------- |
-| `LEASE_MS` (T)           | 180 s  | how long a granted lease lasts, counted by the runner from its send |
-| `RENEW_EVERY_MS`         | 20 s   | how often an armed runner renews                                    |
-| `FENCE_STOP_AT`          | T−70 s | the runner starts ace's ordinary Stop when no renewal answered      |
-| `FENCE_CLOSE_AT`         | T−10 s | the Stop's close fallback is forced (ADR 0052's 8 s `PROCESS_STOP`) |
-| `TAKEOVER_MARGIN_MS` (M) | 30 s   | the standby waits T + M after its last grant before taking over     |
+- `stream`: the stream id;
+- `epoch`: grows with every change of owner (ADR 0191);
+- `holder`: a nonce the runner's daemon draws at each start and registers with the standby
+  (section 7);
+- `pinned`: the standby's last pinned generation;
+- `host`: the binding of section 7.
 
-So a laptop that vanishes is taken over about 3.5 minutes after its last renewal, and a laptop
-whose link to the standby breaks keeps working for almost two minutes before it stops.
+**There is no lease and no timer that moves ownership.** Ownership changes in only two ways:
 
-#### Clocks
+1. **A handover**, sent by the runner with proof that its tree stopped (section 4).
+2. **A takeover**, pressed by the person on another client (section 5).
 
-No wall clock is ever compared across machines. Each side measures only its own intervals:
+Both are compare-and-set on the standby row's epoch, run one at a time per stream in one
+transaction. The first wins; the second is answered with the first's result. So a handover that
+races a takeover, a repeated takeover, or a takeover pressed on two phones, all end with one owner.
 
-- **The runner** must count time it spent asleep. A clock that stops during sleep would let a
-  laptop that slept past its lease think the lease still holds. It uses `continuousNow()`,
-  injected: on macOS `performance.now()` (libuv reads `mach_continuous_time`, which counts sleep;
-  `loop-monitor.ts` relies on the same), on Windows `performance.now()` (`QueryPerformanceCounter`
-  counts standby and hibernation), on Linux the boot-time clock (`CLOCK_BOOTTIME`, read from
-  `/proc/uptime`, which counts suspend; `performance.now()` there is `CLOCK_MONOTONIC`, which
-  doesn't). A runner without such a clock isn't offered keep-going.
-- **The standby** may use any monotonic clock that never runs fast: `performance.now()`. A
-  standby that sleeps (a second laptop) and whose clock stops while it sleeps only counts less,
-  so it takes over later. That is the safe side.
+**Sequencing.** Every message of a stream carries `stream`, `epoch`, `holder` and, where it applies,
+`generation`. The standby refuses a message under an old epoch or an unregistered holder, and a
+generation that isn't newer than `pinned`. Every obligation is written before its message goes:
 
-**Why it holds.** The runner sends a renewal at its time `s` and counts its lease from `s` once
-the answer comes. The standby grants it at real time `g ≥ s` and counts from `g`. With clock
-rates within ρ of true (crystals are within 10⁻⁴; the proof allows 10⁻³), the runner is fully
-stopped by real time `s + T(1+ρ) ≤ g + 180.2 s`; the standby takes over no sooner than
-`g + (T+M)/(1+ρ) ≥ g + 209.7 s`. The 29 s between them cover the close fallback's last seconds
-and scheduling delay. A renewal whose answer is lost changes nothing: the runner counts from the
-last renewal it saw answered, the standby from the last it granted, which is later.
+- `handing` on the runner before the handover is sent (ADR 0191);
+- the takeover's whole transaction on the standby before it is answered (section 5);
+- a generation's pin before it is acknowledged.
 
-#### The runner
+Only three things need ordering now: generations, the handover and the takeover. The draft's
+`arm`, `renew`, `park` and `pause` are gone, and their races with them.
 
-```
-off ─opt in─▶ readying ─bulk landed─▶ parked
-parked ─turn starts, standby reachable─▶ arming ─granted─▶ armed
-parked ─turn starts, standby unreachable─▶ (runs unkept; arms once a probe answers)
-armed ─renewed─▶ armed            armed ─turn ends─▶ parking ─park answered─▶ parked
-armed ─no answer by T−70 s─▶ fencing ─tree at rest─▶ fenced
-fenced ─renewal granted─▶ armed (and the carry-on message is owed, then sent)
-fenced ─answer: taken over─▶ moved (work kept, section 5)
-armed or parking ─sleep notice─▶ leaving = handing (section 4)
-```
+**Delegation to other machines is not blocked while kept.** A handover needs every remote child's
+machine to confirm it stopped (ADR 0191, section 2), so a child can't escape it. A takeover is the
+person's call, and its words list the work running elsewhere (section 5).
 
-- **Parked** means the thread is at rest, the copy of its end is applied on the standby, and the
-  standby confirmed it won't take the thread over. A parked runner sends nothing, so an idle
-  thread costs nothing.
-- **Arming.** A turn of a kept thread starts at once; it never waits for the standby. The runner
-  first sends `probe`, which changes nothing. If it answers, the runner sends `arm` (epoch,
-  holder) and from that send on behaves as armed: renewing, and fencing if renewals stop. An
-  `arm` whose answer is lost may have armed the standby, so it counts as armed. If the probe
-  doesn't answer, the runner sends no `arm` and the turn runs unkept: the standby is parked and
-  can't arm without hearing an `arm`, so it never takes over. The line says "Not kept on omarchy
-  right now: can't reach it." and the runner arms as soon as a probe answers.
-- **Parking.** At the end of the root's turn the runner sends the copy of that end and `park`.
-  Until `park` is answered the runner stays armed (renewals carry `park` again). A thread at rest
-  whose park can't be confirmed may still be taken over; that is correct, since the standby can't
-  know the turn ended.
-- **Fencing is ace's ordinary Stop**, the same command the person's Stop button sends
-  (`thread.interrupt` with `cascade`, plus `stopThreadTerminals`, ADR 0191 section 2). The fence
-  adds no stop machinery of its own. At `FENCE_CLOSE_AT` the Stop's close fallback is forced so the
-  tree's process groups are signalled in time. The thread reads "Stopped: can't reach omarchy,
-  which may carry this on. Waiting to reach it." It isn't done: its ownership row holds it
-  (`fenced`), new turns are refused, and the queue waits.
-- **Fenced, then reached again.** If the standby grants the renewal (it never took over), the
-  runner is armed again and owes itself "The connection to omarchy dropped and ace stopped this
-  to keep it from running twice. Carry on where you left off." That debt is ADR 0191's durable
-  resume (`transfer_live_resume`), sent under its rules, but only on a full wake (section 4).
-  If the standby answers that it took over, the runner moves (section 5).
-- **A runner restart** never runs a kept thread on its old lease. Its agents died with the
-  previous run, or are ended first: the build confirms the engine's startup sweep ends provider
-  process groups a previous run left (pid and start time recorded at spawn), and adds that
-  sweep if it doesn't. The new run then asks the standby to `reacquire` under its own run id,
-  saying the previous run's tree is gone. The standby grants it if it hasn't taken over. A clean
-  shutdown parks every armed thread it can before it exits.
+**Liveness is for words only.** While a kept thread is working, the runner sends `keep.beat` to the
+standby every 30 seconds and at each turn end: one batched call per standby, about 200 bytes. The
+standby notes when it last heard, on its own monotonic clock. The note only chooses the words other
+clients show ("MacBook went quiet at 14:02"). It never moves ownership, so no clock has to count
+sleep, keep a rate bound, or agree with another machine's.
 
-#### The standby
+### 4. Handing over with proof that the tree stopped
 
-```
-preparing ─bulk applied─▶ parked ◀─park─ armed
-parked ─arm─▶ armed ─renew─▶ armed (expiry = now + T + M)
-armed ─expiry passed─▶ taking ─thread made─▶ owned (ADR 0191)
-armed or parked ─commit (planned handover)─▶ owned
-armed ─leave─▶ taking
-```
+The runner hands a kept thread over by itself only when it is leaving and can prove its tree
+stopped. It leaves on:
 
-- **Grants are serialized.** `arm`, `renew`, `park`, `reacquire`, `leave`, a commit and the
-  takeover decision for one thread run one at a time, each in one transaction on its `standby`
-  row. A renewal checks the epoch and the holder; a different holder is refused unless it is a
-  `reacquire` from the same pairing. Expiry lives in memory on the standby's monotonic clock,
-  reset to `now + T + M` for each grant.
-- **A standby restart** resets the expiry of every armed row to `now + T + M`, as if a renewal
-  had just come. It can't know when the last came; assuming now only delays a takeover.
-- **A planned standby restart** (an update, `ace stop`) first sends `pause` to every armed runner
-  it can reach: "I won't take over until you renew after I'm back." Its rows go `parked` in the
-  same transaction as the send is recorded; a runner that got `pause` may run unkept until a probe
-  answers again. A server update then never stops the laptop's work.
-- **The takeover.** Once an armed row's expiry has passed, the standby, in one transaction, writes
-  epoch + 1, makes the thread from the landing and records `owned` (ADR 0191's cutoff, run from
-  the warm copy instead of a received commit). From then on every renewal under the old epoch is
-  answered "taken over at 14:05, from the copy of 13:58" with the new thread's id. The thread then
-  starts as ADR 0191 section 4 starts a moved one: session placed (or the handoff summary), one
-  continue message, watched to its first turn, durable across restarts. The message says what is
-  missing: "This thread moved here from MacBook when MacBook went offline at 14:02. The project
-  here is as of 13:58; anything MacBook did after that is still on MacBook, and it will be kept
-  there. Files Git ignores are as of when keep-going was turned on."
-- **A commit that comes after a takeover** (a planned handover whose commit was delayed past the
-  takeover) is refused as a handover. Its final delta is kept on the standby as a branch
-  (`ace/kept/<thread>-<time>`) and the thread there is told: "MacBook's last changes came after
-  the takeover; they are on branch ace/kept/… here."
+- **the sleep notice** (lid close, the Sleep menu, idle sleep);
+- **low battery**: on battery with 5 minutes or 5% left, before the system forces sleep;
+- **a normal quit or shutdown**: Quit ace completely, `ace stop`, or the daemon told to stop by
+  the system at logout, restart or shutdown. A plain app quit leaves the daemon running (ADR 0186),
+  so nothing is handed over.
 
-#### Convergence
+Then, for each kept thread that is working, within the time the system allows:
 
-Every case ends with one owner, and at no moment do both machines run the thread:
+1. **Stop**, with ace's ordinary Stop (ADR 0191, section 2), terminals included. The ownership
+   record goes `stopping`, which refuses new turns, delegations and terminals.
+2. **Prove the tree stopped.** A Stop that reports stopped is not proof. These are, all of them:
+   - every process ace started for the tree is gone, matched by pid and start time, never by pid
+     alone. That covers provider CLIs, their sessions, and the terminals' shells;
+   - no process carries the tree's mark. Every process ace starts for a tree gets `ACE_TREE=<token>`
+     in its environment, which the processes it starts inherit, background shells and MCP servers
+     included.
+     - **Linux:** the tree also runs in its own cgroup, a transient user scope (`systemd-run
+--user --scope`) when the user's systemd manager is there. The proof is an empty
+       `cgroup.procs`, which no process can leave on its own.
+     - **macOS, or Linux without a user manager:** the proof is a scan of the person's processes
+       for the token (`KERN_PROCARGS2`; `/proc/<pid>/environ`).
+   - every child on another machine confirmed stopped by its machine (ADR 0191; unconfirmed fails);
+   - the tree reads at rest by ADR 0191's rule.
+3. **Hand over through ADR 0191's live path.** Write `handing`, then send `keep.handover`
+   (`stream`, `epoch`, `holder`, the pinned generation it builds on, the proof's summary, and
+   ADR 0191's final payload: the delta since that generation and the native session whole). The
+   standby takes it under section 3's compare-and-set and starts the thread as section 5 starts a
+   takeover, with the session placed. The runner reads "Running on omarchy since 14:02."
+4. **If the final payload can't be sent in time**, the handover goes without it, from the pinned
+   generation. The continue message says what is missing ("changes after 13:58 are still on
+   MacBook"), and the runner keeps them as section 6 does.
+5. **No proof in time means no handover.** The standby does nothing on its own. The thread stays
+   the runner's, with the line "Didn't hand over to omarchy: the agent hadn't stopped yet."
 
-| case                                          | runner                                               | standby                        | ends with                        |
-| --------------------------------------------- | ---------------------------------------------------- | ------------------------------ | -------------------------------- |
-| one renewal lost                              | renews next time                                     | armed                          | nothing seen                     |
-| link down < 110 s                             | armed                                                | armed                          | nothing seen                     |
-| link down 110 s to 210 s                      | fenced                                               | armed, renewed on return       | runner carries on (owed message) |
-| link down > 210 s, laptop awake               | fenced by 180 s                                      | takes over at 210 s            | standby; runner moved, work kept |
-| laptop sleeps or dies without a handover      | asleep, or fenced on wake by its own clock           | takes over at 210 s            | standby; runner moved, work kept |
-| runner daemon crashes                         | new run sweeps, `reacquire`s                         | grants, or took over           | whichever came first             |
-| standby crashes                               | fenced if down > 110 s, armed on return              | expiry reset at start          | runner carries on                |
-| standby updates (planned)                     | gets `pause`, runs unkept                            | parked across the restart      | runner, kept again after a probe |
-| partition during a planned handover           | `handing` (ADR 0191: asks status, never resumes)     | commit or takeover, first wins | one owner; a late delta kept     |
-| both partitioned, lease expires, laptop wakes | continuous clock says expired: fenced, refuses turns | took over                      | standby; runner moved on contact |
-| laptop wakes, still partitioned for hours     | fenced, waiting, never runs                          | took over (or not)             | settles on contact               |
+**Before the machine sleeps without proof**, the runner freezes what is left of the tree: `SIGSTOP`
+to every process with the tree's mark, or the cgroup's `cgroup.freeze` on Linux. A frozen process
+doesn't thaw by itself on wake, so the resume barrier (section 6) can decide before it runs again.
+Freezing is never proof and never leads to a handover; it only keeps a stopped-or-stopping tree
+from running before the daemon looks.
 
-**The thaw window.** A tree that was still running when the laptop slept thaws when it wakes,
-for the moment before the daemon's first timer runs and fences it. Section 4 exists so that
-doesn't happen: the runner always stops its tree before it lets the machine sleep. The window is
-left only when no sleep notice arrived (no helper, a helper that died, a forced shutdown that
-skipped notices). ace then records it and the moved thread says "MacBook slept without handing
-over; the agent may have run for a moment after it woke." ace's own state still has one owner;
-what can escape in that moment is a side effect outside ace (a push, an API call).
+**Sleep notices are best effort.** No notice, a notice too short, or a helper that isn't there,
+means no handover. Nothing becomes unsafe.
 
-**Process-group escapees** (ADR 0191's known gap) are not ended by the fence, as they are not by
-Stop.
+- **macOS.** The daemon must hear the notice with no app open (ADR 0186), so Electron's
+  `powerMonitor` can't be the source. A small helper, `ace-power-helper`, ships in every daemon
+  release beside the daemon's entry bundle, versioned with it: the daemon refuses a helper whose
+  version differs. It calls `IORegisterForSystemPower`, runs its run loop, and speaks JSON lines
+  over stdin and stdout:
+  - `will-sleep {id}`, answered by the daemon's `allow {id}` (`IOAllowPowerChange`);
+  - `can-sleep {id}` for idle sleep, allowed at once and never cancelled;
+  - `did-wake {full}`, telling a full wake from a dark wake;
+  - the battery's state, for low battery.
 
-### 4. The sleep notice: hand over before the machine sleeps
+  The system waits for the answer up to about 30 seconds (Apple's QA1340); ace uses at most 20. The
+  helper is separate from the screen helper, so a CLI-only install has it, and it needs no TCC
+  grant.
 
-The runner listens for the system's notice that it is about to sleep, and only while at least one
-kept thread of this machine is armed or parking. When it comes, the daemon runs **leave** for each
-of them in parallel, within the time the system allows, then lets the system sleep:
+- **Linux** (Ubuntu, Fedora, Debian, Omarchy: all systemd-logind). The same helper, built for
+  Linux on `zbus`:
+  - takes a delay inhibitor for `sleep:shutdown` only while a kept thread is working, and drops it
+    when the daemon says `allow`;
+  - listens for `PrepareForSleep` and `PrepareForShutdown`;
+  - reads `InhibitDelayMaxUSec` and keeps one second spare;
+  - reads UPower for the battery.
 
-1. **Stop**, with ace's ordinary Stop; its close fallback is forced at half the budget.
-2. **Hand over through ADR 0191's live path**, once the tree is at rest: capture the final delta
-   against the last warm copy (small: the copy is warm), write `handing`, send the commit. The
-   standby lands it on top of the landing and owns the thread. The runner reads "Running on
-   omarchy since 14:02."
-3. **If the commit can't be sent in time**, send `leave` instead: "I'm stopped and at rest; take
-   over from your last copy." `leave` is written to the record as `handing` before it is sent,
-   so, like a commit, the runner never resumes on its own after sending it. The standby takes
-   over at once instead of waiting out the lease, missing only what changed since the last copy.
-4. **When the budget ends** in whichever state the leave reached, the machine is let sleep. A
-   tree that came to rest but sent nothing stays `fenced`, armed: the standby takes over at
-   expiry if the laptop stays away, and the laptop carries on if it comes back first.
+  logind's default delay is 5 seconds, shorter than Stop's 8-second close bound. So on a default
+  Linux laptop, a handover at the sleep notice happens only when the tree stops quickly. Low
+  battery and quit have no such limit. ace never changes logind's settings; Settings says the
+  person can raise `InhibitDelayMaxSec`.
 
-The tree is stopped before every sleep, whatever happened to the handover.
+- **Windows** is deferred. `PBT_APMSUSPEND` gives about two seconds and can't delay sleep, and
+  Modern Standby suspends processes without a usable notice. Quit and low battery may hand over on
+  Windows in a later stage.
 
-**A full wake, not a dark wake.** A Mac with its lid closed wakes briefly about once a minute
-(DarkWake); a daemon timer runs then. A kept thread never restarts and an owed carry-on message is
-never sent on a dark wake, only after a full wake (display on), so it doesn't start a turn just as
-the machine goes back to sleep.
+The helper is checked in each context the daemon runs in:
 
-**macOS.** The daemon must hear the notice with no app open (ADR 0186), so Electron's
-`powerMonitor` can't be the source. The screen helper gains a mode, `ace-screen-helper --power`,
-started by the daemon only while a kept thread is armed. It calls `IORegisterForSystemPower`,
-runs its run loop, and speaks line-delimited JSON on stdin and stdout: `will-sleep {id}`, which
-the daemon answers with `allow {id}` (`IOAllowPowerChange`); `can-sleep {id}` (idle sleep), allowed
-at once and never cancelled; `did-wake {full}`, with full told from dark by the system's power
-capabilities; and the power source, for the copy cadence. The system waits for the answer up to
-about 30 seconds (Apple's QA1340); ace uses at most 20 seconds and answers sooner when the leaves
-are done. A daemon started by the CLI or the login service, with no `ACE_SCREEN_HELPER`, runs the
-copy the app last installed under the home (`installScreenHelper`); with none at all,
-keep-going is offered with the line "Only hands over when this Mac goes offline for a while" and
-works by the lease alone.
+- **macOS:** started by the app, by `ace open` from a terminal, by the login item (a LaunchAgent in
+  the person's login session), and over SSH with no login session. There the helper can't register
+  and says so; keep-going still works by the person's takeover.
+- **Linux:** started by a systemd user service with and without linger, and from a terminal.
+  Inhibitor permission under each distribution's polkit default is checked too.
 
-**Linux** (Ubuntu, Fedora, Debian, Omarchy: all systemd-logind). `ace-screen-helper-linux
---power`, through its existing `zbus`, takes a delay inhibitor (`Inhibit("sleep", "ace", "Handing
-work to omarchy", "delay")`) only while a kept thread is armed, listens for
-`PrepareForSleep(true)`, and closes the inhibitor's file descriptor when the daemon says `allow`.
-It reads the allowed delay from logind's `InhibitDelayMaxUSec` (5 s by default) and leaves one
-second spare. Five seconds is enough to stop and send `leave`; the final delta goes when the link
-is quick. ace never changes logind's setting; the person may raise `InhibitDelayMaxSec` and ace
-uses what's there. A delay inhibitor needs no administrator under logind's default polkit policy,
-to be confirmed on each distribution (a live check owed). The helper takes a new inhibitor after
-`PrepareForSleep(false)`.
+A daemon with no working helper still offers keep-going: "Hands over when you quit ace. If this
+Mac sleeps, take over from your phone or omarchy."
 
-**Windows** is deferred. A process gets `PBT_APMSUSPEND` with about two seconds and can't delay
-sleep; on Modern Standby desktop processes are suspended without a usable notice. Windows gets the
-lease alone, which is correct because its runner clock counts standby. Its planned handover is a
-follow-up.
+**Low battery** gives more time than sleep does. The helper reports the battery, and at the
+threshold the runner starts the steps above with no system deadline. Proof then comes from an
+ordinary Stop of any length.
 
-A lid closed with the machine kept awake (an external display, "Prevent sleep") sends no notice,
-and nothing happens: the laptop is still there.
+**Quit or shutdown** run the steps before the daemon exits. A system shutdown allows what launchd
+(`ExitTimeOut`, 20 seconds for the login item) or the logind shutdown inhibitor allows. Quit ace
+completely shows "Handing 2 threads to omarchy" and waits for them, up to 60 seconds, with "Quit
+now" to stop waiting. Quitting now leaves those threads the laptop's, frozen and stopped.
 
-### 5. When the laptop comes back to a thread that moved
+### 5. A person's takeover after the laptop goes quiet
 
-The runner learns on its first contact with the standby that the thread was taken over (the
-answer to its renewal or `reacquire`). In one transaction its record goes `moved` with
-`continuedOn`, as ADR 0191's source does. Then, before anything else touches the checkout:
+When the laptop goes silent (a dead battery, a lost network, a stalled daemon, a sleep without a
+handover), the standby never takes the thread on its own. It lists the thread to every client of
+the person's that can reach it: the phone, the standby's own window, another machine.
 
-- **Its work since the last copy is kept.** The checkout as it is now is captured
-  (`captureChanges`, the checkout untouched) onto a real branch,
-  `ace/kept/<thread>-<yyyymmdd-hhmm>`, local and never pushed. The checkout itself stays as it is.
-  The native session files on the laptop are left in place, and the thread's own transcript there
-  stays readable.
-- **The person is told** on the thread: "Running on omarchy since 14:05. MacBook went offline;
-  the work it did after 13:58 is on branch ace/kept/… here." with **Open** and **Send to
-  omarchy**. Send to omarchy sends that branch as a parcel to the thread's project there (ADR 0182) and tells the agent there it exists; it never merges.
+- **Quiet.** 90 seconds after the last beat of a working thread, or at any time for a thread at
+  rest when its runner isn't answering, it reads: "MacBook went quiet at 14:02 · omarchy's copy is
+  from 13:58", with **Take over on omarchy**.
+- **The confirmation**, which must be pressed: "Take over on omarchy? If MacBook is still running
+  this, both will run it until MacBook reconnects. Then MacBook stops at once and keeps its
+  changes on a branch. omarchy starts from the copy of 13:58." When work runs on a third machine:
+  "Work it started on Studio keeps running until MacBook reconnects." Buttons: **Take over** and
+  **Cancel**.
 
-### 6. Bringing it back
+`keep.takeOver` is a person's command with the person's standing (ADR 0190), sent to the standby,
+never offered to agents. It carries the epoch the client saw and a command id.
 
-**By the person's "Bring it back"**, never by itself on wake. It is ADR 0191's live move in the
-other direction, from the thread on the standby to the laptop, landing in the laptop's checkout
-(ADR 0101's landing reuse: only the delta travels, since the laptop has the objects). Any
-uncommitted work in that checkout is first captured onto an `ace/kept/` branch, so nothing is
-overwritten without a trace. Keep-going stays on: after the move back the laptop is the runner
-again and the standby already holds a landing, so no bulk is sent.
+**One transaction** on the standby, under section 3's compare-and-set:
 
-Automatic return on wake is rejected. A laptop opened for a minute (a calendar check, a dark
-wake) would stop a turn running well on the server, the move costs a transfer on whatever link the
-laptop woke on (often 3G), and the two would flap with every lid. The person sees the line when
-they come back and chooses. While it runs on the standby, the thread there has no standby of its
-own; a server is expected to stay up.
+- the epoch goes up by one, and the row records `owned`;
+- the generation started from is fixed: the pinned one at that moment;
+- the new thread's id is derived from the stream and the new epoch, so every retry and every
+  restart names the same thread;
+- a takeover transfer row joins ADR 0191's recovery tables (`transfer_incoming_open`), with its
+  pending start (`transfer_live_start`, `transfer_live_pending`);
+- the receipt is keyed by the command id.
 
-### 7. Clones of a home
+**Then setup runs through ADR 0191's recovery**: the landing worktree checked out at the fixed
+generation's capture, the handoff summary in front, the link back, and one continue message.
 
-A copy of a home carries the same pairing credentials, so a peer can't tell it from the original
-by its credential. Both new rows record the home they were made in: the stable device id (ADR 0115) and the home's path. A daemon whose own differ (a home copied to another folder, restored
-to another machine, or started with `ACE_MAINTENANCE=1`) never arms, renews, reacquires or takes
-over on those rows: it shows them as "Kept by another copy of ace" and does nothing. That covers
-both sides: a cloned standby can't take a thread over and start the agent on the real CLIs, and a
-cloned laptop can't take the lease from the real one.
+- **A lost answer:** a resent command with the same id gets the receipt. One with a new id but the
+  old epoch is answered "already taken over" with the same thread.
+- **A restart at any point after the transaction:** the restart finds the transfer in
+  `transfer_incoming_open` and the start in `transfer_live_pending`, and carries them on. Before
+  the transaction, nothing happened.
+- **Repeated restarts** reach the same state, because each step is keyed to the derived thread id
+  and the takeover transfer.
 
-### 8. Words
+The continue message says where the copy came from and how to treat the outside world: "This
+thread moved here from MacBook, which went quiet at 14:02. The project is as of 13:58 and files
+Git ignores are as of when keep-going began; anything MacBook did after that is still there. Check
+what already happened before you repeat it: fetch before pushing, never force-push, and check a
+deploy's state before deploying again."
 
-One sentence, text buttons, no icons on buttons (design-language.md, DESIGN.md). In `@ace/ui-core`,
-so the iPhone shows the same words without Swift work in this stage.
+**Three states, shown separately.** Ownership, startup and running are read from three records and
+never folded into one word:
 
-| when                        | the line                                                                       | buttons                                |
-| --------------------------- | ------------------------------------------------------------------------------ | -------------------------------------- |
-| opted in, ready             | Keeps going on omarchy if you leave.                                           |                                        |
-| first copy going            | Getting omarchy ready · 312 MB of 1.2 GB                                       |                                        |
-| copy behind                 | omarchy's copy is from 13:58.                                                  |                                        |
-| standby unreachable, unkept | Not kept on omarchy right now: can't reach it.                                 |                                        |
-| fenced                      | Stopped: can't reach omarchy, which may carry this on. Waiting to reach it.    |                                        |
-| handed over or taken over   | Running on omarchy since 14:02.                                                | Open · Bring it back                   |
-| taken over, work kept       | Running on omarchy since 14:05. Work after 13:58 is on branch ace/kept/… here. | Open · Send to omarchy · Bring it back |
-| bringing it back            | Bringing it back from omarchy                                                  |                                        |
-| not offered                 | Not kept on omarchy while work runs on Studio.                                 |                                        |
+| fact      | read from                                                | words                                                                |
+| --------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
+| ownership | the `owned` row and epoch                                | "omarchy took this over at 14:10"                                    |
+| startup   | the takeover transfer and its pending start              | "Getting the project ready" / "Couldn't start: <reason> · Try again" |
+| running   | the continue message's fate (ADR 0191's turn-start rule) | "Running on omarchy since 14:11"                                     |
 
-The thread's status reads `{ state: "moved", to }` as in ADR 0191 while it runs on the standby,
-and `fenced` reads as stopped and waiting, never done.
+### 6. The laptop's resume barrier
 
-### 9. Wire
+The laptop may wake or restart into a thread the person took over. So whenever its daemon starts,
+and on every wake from sleep, **nothing automatic runs for a kept thread until the standby
+answers**:
 
-New machine calls on the transfer protocol (ADR 0192: every route, idempotent under their ids,
-never parcels): `keep.probe`, `keep.arm`, `keep.renew` (batched: one call carries every armed
-thread for that standby, answered per thread), `keep.park`, `keep.reacquire`, `keep.leave`,
-`keep.pause`, and `part=warm`. All are small enough for ace's relay. `TransferBegin.keepGoing`
-asks for a standby landing instead of a thread.
+- no queued message, owed carry-on message, recovery, automation or delegation result;
+- no provider session opens;
+- a tree frozen before sleep stays frozen.
 
-### 10. Costs and bounds
+The daemon learns of a wake from the helper's `did-wake`, or from the loop monitor's sleep record
+when there is no helper. A dark wake starts nothing.
 
-- **Idle threads cost nothing**: parked runners send nothing.
-- **Renewals**: one batched call per standby every 20 s while any kept thread works, about 300
-  bytes plus 80 per thread. On 3G (400 kbit/s) that is well under a second of airtime a minute.
-- **Copies**: a turn's end usually carries a few kilobytes of code and 10 to 500 kB of session
-  tail; on 3G a 500 kB copy takes about 10 s, in the background. The capture walks the checkout's
-  file stats as ADR 0191's does; on battery the in-turn copy runs half as often.
-- **The sleep notice** costs nothing unless a kept thread is armed: the helper runs only then, and
-  the Linux inhibitor is held only then.
-- **Many threads**: renewals stay one call per standby; copies go one at a time per standby,
-  newest first, coalesced per thread, so a slow link makes copies older, never more numerous. The
-  line says how old. The standby keeps one worktree per kept thread in one landing repository per
-  project, removed when keep-going is turned off or the thread is settled.
-- **Nothing is history-sized at startup** (ADR 0170): the runner and standby find their rows
-  through the ownership table, which holds only threads that are kept, moving or moved.
+When the standby answers:
+
+- **The thread is still the laptop's:** frozen processes are continued (`SIGCONT`), held work runs,
+  and an interrupted turn gets ADR 0191's carry-on message.
+- **It was taken over:** in one transaction the record goes `moved`, with `continuedOn`, as ADR
+  0191's source does. Then, before anything else:
+  - the tree is ended: every marked process is killed (`SIGKILL` for frozen ones, ordinary Stop
+    and its close fallback for anything running), and its remote children get the cancel cascade;
+  - the checkout as it is now is captured onto a local branch that is never pushed,
+    `ace/kept/<thread>-<yyyymmdd-hhmm>`. The checkout itself stays as it is, and the laptop's
+    native session files and transcript stay where they are;
+  - the thread reads "Moved to omarchy at 14:10. The work MacBook did after 13:58 is on branch
+    ace/kept/… here.", with **Open** and **Send to omarchy**. Send to omarchy sends that branch as a
+    parcel to the thread's project there (ADR 0182) and tells the agent there; it never merges.
+
+**While the standby can't be reached**, the thread waits: "Checking with omarchy before carrying
+on." The person at the laptop may still type a message, which runs: they are the one person who
+could have pressed Take over, and the line says "Couldn't check with omarchy whether it took this
+over."
+
+**Residual risk, plainly.** The barrier can't act earlier than the daemon can run:
+
+- **A tree that wasn't frozen** thaws when the machine wakes, before the daemon's first look. That
+  happens when there was no notice, a crash, or a dead battery that came back on power. Agent
+  processes don't survive a power loss, but a laptop that slept on a notice ace never heard
+  resumes with its agents running.
+- **A takeover pressed while the laptop is still awake but cut off.** The laptop runs until it
+  reconnects. That is the double run the person was warned of.
+
+In both cases ace's own records end with one owner. Outside effects can escape: a push, a deploy,
+a message sent from the laptop. The standby, starting from an older copy, may replay one the laptop
+already made. ace can't fence systems it doesn't own. It says so in the confirmation and the
+continue message, and it recommends that work kept going this way use effects that are idempotent
+or fenced downstream: a push without force is refused when the branch moved, deploys with an
+idempotency key or an expected version, tickets keyed by id.
+
+### 7. Clones and restores
+
+A copied home carries the same rows, pairing credentials and ADR 0115 device id. That includes a
+VM clone at the same path and a backup restored to the same or another machine. Keep-going binds
+participation to the host as well as the home:
+
+- **Host identity from outside the home**, recorded on both rows:
+  - macOS: `IOPlatformUUID`;
+  - Linux: `/etc/machine-id`;
+  - Windows: `MachineGuid`.
+
+  A daemon whose host identity or home path differs from what its rows record never registers,
+  generates, hands over or takes over on them. The thread reads "Kept by another copy of ace.
+  Re-pair to keep going here." Re-pairing makes a new pairing and a new stream (ADR 0192's pins
+  belong to one pairing).
+
+- **One holder at a time.** Each runner start draws a holder nonce and registers it with the
+  standby. A clone with the same host identity (a VM clone that kept its machine id) shows up the
+  first time both copies talk to the standby: two holders on one stream. The standby then refuses
+  both and marks the stream "Two copies of MacBook are running this. Re-pair to keep going." It
+  refuses anything automatic from either until the person re-pairs.
+- **`ACE_MAINTENANCE=1`** daemons take no part.
+
+A cloned standby can no longer take a thread over by itself, which was the incident's risk. A
+takeover needs a person pressing it on a client of that standby.
+
+### 8. Bringing it back
+
+By the person's **Bring it back**, never automatically on wake. It is ADR 0191's live move from the
+thread on the standby to the laptop. It lands in the laptop's checkout through ADR 0101's landing
+reuse, and any uncommitted work there goes onto an `ace/kept/` branch first. Keep-going stays on,
+and the standby already holds generations, so no bulk is sent.
+
+An automatic return is rejected. A laptop opened for a minute, or a dark wake, would stop a turn
+running well on the server. The move would cost a transfer on whatever link the laptop woke on, and
+it would flap with every lid. While the thread runs on the standby, it has no standby of its own.
+
+### 9. Words
+
+One sentence, text buttons, no icons on buttons (design-language.md, DESIGN.md). They live in
+`@ace/ui-core`, so the iPhone shows them without Swift work in this stage.
+
+| when                      | the line                                                                                  | buttons                                |
+| ------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| opted in, ready           | Keeps going on omarchy if you leave.                                                      |                                        |
+| no helper                 | Hands over when you quit ace. If this Mac sleeps, take over from your phone or omarchy.   |                                        |
+| first copy going          | Getting omarchy ready · 312 MB of 1.2 GB                                                  |                                        |
+| copy behind               | omarchy's copy is from 13:58.                                                             |                                        |
+| handover without proof    | Didn't hand over to omarchy: the agent hadn't stopped yet.                                |                                        |
+| quitting                  | Handing 2 threads to omarchy                                                              | Quit now                               |
+| handed over               | Running on omarchy since 14:02.                                                           | Open · Bring it back                   |
+| quiet (seen elsewhere)    | MacBook went quiet at 14:02 · omarchy's copy is from 13:58                                | Take over on omarchy                   |
+| taking over               | omarchy took this over at 14:10 · Getting the project ready                               |                                        |
+| couldn't start            | omarchy took this over but couldn't start it: <reason>                                    | Try again                              |
+| laptop waiting after wake | Checking with omarchy before carrying on.                                                 |                                        |
+| moved on reconnect        | Moved to omarchy at 14:10. The work MacBook did after 13:58 is on branch ace/kept/… here. | Open · Send to omarchy · Bring it back |
+| clone                     | Kept by another copy of ace. Re-pair to keep going here.                                  |                                        |
+
+### 10. Wire
+
+These are calls on the transfer protocol (ADR 0192: every route, idempotent under their ids, never
+parcels): `keep.register` (holder), `keep.beat` (batched per standby), `part=warm` (a generation),
+`keep.handover`, `keep.takeOver` (person), `keep.status`. All but generation 1 fit ace's relay.
+`TransferBegin.keepGoing` asks for a stream instead of a thread.
+
+### 11. Costs and bounds
+
+- **Idle threads cost nothing**: no beats, no generations.
+- **Beats**: one call per standby every 30 seconds while a kept thread works, about 200 bytes.
+- **Generations**: a capture walks the checkout's file stats, bounded by section 2's limits. A
+  bundle is usually kilobytes and a summary a few kilobytes. On 3G (400 kbit/s) a typical
+  generation takes well under a second.
+- **The helper** runs only while a thread is kept, and the inhibitor is held only while one works.
+- **The standby's disk**: one landing repository per project; the last two generations' refs per
+  stream; worktrees only after a takeover or handover.
+- **Startup** (ADR 0170): rows are found through the ownership table, which holds only kept,
+  moving or moved threads; the barrier asks one `keep.status` per standby.
 
 ## Rejected
 
-- **Just start the work on the server.** It already works (remote threads, `delegate` with a
+- **Automatic takeover after silence, under a lease** (the first draft of this ADR). The laptop
+  stopped itself when it couldn't renew, and the server took over after the lease plus a margin.
+  Its safety rested on every one of these holding:
+  - the daemon never stalling past its deadline;
+  - Stop's report meaning every process ended;
+  - no process escaping the group;
+  - clock rates staying within bounds through VM migration;
+  - a sleep-counting clock in the shipped runtime (Bun 1.4.4's pauses on macOS);
+  - the daemon acting before thawed children.
+
+  Review showed each can fail, and any failure runs the thread twice without anyone choosing it.
+  The owner chose instead: an automatic handover only with proof, and a person's takeover, with the
+  risk said plainly, when the laptop goes quiet.
+
+- **Just start the work on the server.** It already works (remote threads, `delegate` to a
   machine). But the choice has to be made before the work starts, and most work starts on the
-  laptop because that is where the person is, with its browser, simulator and local services.
-  The decision to leave comes later and is often not a decision at all (the battery). This keeps
-  the laptop as the place to work and the server as insurance.
-- **Comparing wall clocks across machines.** Skew and NTP jumps would let both run.
-- **Taking over on silence without a lease the runner fences on.** A partition with an awake
-  laptop runs the thread twice.
-- **An arbiter in ace's cloud.** ace is never the place state lives (ADR 0002), and a lock server
-  that is down would stop everyone's work. Three of the person's own machines could form a
-  quorum; that is more than two-machine people need now.
-- **Keeping the Mac awake instead.** A closed lid overrides it, and it does nothing for a dead
-  battery or a lost link.
-- **Freezing the tree (SIGSTOP) at the sleep notice.** Instant and reversible, but it is a stop
-  path of the move's own, which ADR 0191's owner amendment ruled out, and a frozen CLI's provider
-  stream breaks during sleep anyway. Worth looking at again only if Linux's five seconds prove too
-  short to stop.
-- **Bringing it back automatically on wake** (section 6).
+  laptop, with its browser, simulator and local services. The decision to leave comes later and is
+  often not a decision (the battery).
+- **Comparing wall clocks across machines.** Skew and NTP jumps make it meaningless.
+- **An arbiter in ace's cloud.** ace is never the place state lives (ADR 0002). A quorum of three
+  of the person's own machines is more than most people have.
+- **Keeping the Mac awake.** A closed lid overrides it, and it does nothing for a dead battery.
+- **Native session tails in every generation**, for now (section 2).
+- **Bringing it back automatically on wake** (section 8).
 - **Electron's `powerMonitor`.** The daemon runs with no app (ADR 0186).
-- **`systemd-inhibit` and `gdbus monitor` as child processes.** Two processes to parse and keep in
-  step; the Linux helper already speaks D-Bus.
+- **The screen helper as the power helper.** On a Mac it is installed only by the app, needs
+  computer use's grants to be useful, and is versioned with the app, not the daemon.
 
 ## Follow-ups
 
-- Windows planned handover.
-- Handing over on low battery before the system forces sleep.
-- Keeping children on other machines across a takeover.
-- Refreshing ignored files on the standby.
+- Windows: hand over on quit and low battery.
+- Native session copies, once measured.
+- Ignored files refreshed on the standby.
+- Moving children with their parent.
+
+## Review findings and how this revision answers them
+
+1. **A stall past the window, a Stop that reports stopped without the processes ending, escaped
+   processes, VM migration breaking rate bounds.** Mostly moot: silence never moves ownership, so
+   no timer has to hold. For the planned path, proof is the processes ending, checked by pid with
+   start time, the tree's mark and, on Linux, the cgroup (section 4). One residual remains: on a
+   Mac without a cgroup, a process that strips its environment and leaves the tree.
+2. **Clocks: the shipped Bun's `performance.now()` pauses in macOS sleep, and children thaw before
+   timers.** The sleep-counting clock is moot: no timer moves ownership, and beats only choose
+   words. Thawing is handled by freezing before an unproven sleep and by the resume barrier
+   (section 6), with the residual risk and downstream advice stated. A test on the shipped binary
+   through a real sleep checks the freeze and the barrier.
+3. **Delayed park, pause or renewal replies racing; a new remote child escaping the arm check.**
+   Moot: those messages are gone. What still needs ordering is generations, the handover and the
+   takeover. Each carries stream, epoch, holder and generation, runs as a compare-and-set, and is
+   written down before it is sent (section 3). Remote delegation needs no block: the handover needs
+   their confirmation, and the takeover's words name them.
+4. **Takeover convergence.** Resolved by section 5's single transaction (epoch, fixed generation,
+   derived thread id, transfer row, pending start, receipt), then ADR 0191's recovery. Lost answers
+   and repeated restarts are covered, and ownership, startup and running are shown separately.
+5. **Clones: a VM clone at the same path or a restored home carries the same ids.** Resolved by the
+   host identity outside the home, one holder per stream, and refusing an ambiguous restore until
+   re-pairing (section 7).
+6. **Sleep notices: no helper on a CLI install, a LaunchAgent needs a login session, logind's 5 s
+   is shorter than Stop's 8 s.** Resolved by a power helper shipped and versioned with the daemon,
+   checked in each context, with notices treated as best effort: no proof, no handover
+   (section 4).
+7. **Warm-copy cost, starvation, and the session overlap check.** Resolved by bounded Git
+   checkpoints with summaries, fair oldest-first scheduling, generations pinned whole, and native
+   tails deferred until measured (section 2).
 
 ## Verification
 
-**Pure, with injected clocks** (`transfers/keep/lease-rules.ts` and its tests): the runner's
-deadline from the last answered send and the standby's expiry from its last grant, with drift at
-±10⁻³ never letting the standby's takeover come before the runner's stop; a lost answer counted
-on both sides; the standby's restart resetting expiry; epoch and holder refusals, `reacquire`
-from the same pairing; an `arm` with no answer counted as armed; a run with no `arm` sent never
-taken over; `park` unconfirmed staying armed; `leave` and the commit both meaning `handing` on the
-runner; a commit after a takeover kept as a branch; a home or device mismatch refusing every
-lease action; full and dark wakes.
+**Pure** (`transfers/keep/*-rules.ts` and their tests):
 
-**Two real daemons** over their pinned link, with real Git and scripted providers, a fake sleep
-notifier in place of the helper, a fake continuous clock for the runner, and a controllable proxy
-on every route that can drop or hold traffic. A partition is injected at each step (bulk, each
-copy, arm, renew, park, leave, commit, takeover) and a SIGKILL of each daemon at each step. Each
-scripted provider writes a start and stop mark per run on one shared host clock, and every test
-asserts that no two marks of one thread overlap across the two homes. Cases: a planned handover
-in budget; one where only `leave` fits; one where nothing is sent; the link down for 100 s, 150 s
-and 300 s; a laptop asleep past expiry; a server update with `pause`; the runner's restart and
-`reacquire`; a cloned home on either side doing nothing; the hosted relay refusing a copy past 8
-MiB; twenty kept threads renewing as one call. **The split-brain test**: both sides partitioned,
-the runner's clock advanced past the lease as if it slept, the standby taking over, the runner
-woken while still partitioned (it refuses turns and runs nothing), then the partition lifted (it
-reads moved, its changes on an `ace/kept/` branch, nothing lost).
+- the stream row's compare-and-set: a handover against a takeover, two takeovers, a stale epoch, an
+  unregistered holder, a generation not newer than pinned;
+- the derived thread id;
+- the barrier's decisions on still-yours, taken-over and no-answer;
+- the host check, and two holders on one stream;
+- the scheduler's fairness: a quiet thread served while a busy one keeps capturing;
+- proof's rules: a pid reused with another start time is not the same process, an unconfirmed
+  remote child fails, Stop's report alone fails;
+- the quiet words from the last beat.
 
-**Live checks owed** on real hardware: macOS lid close and `pmset sleepnow` with the helper
-answering within 20 s, and how long Wi-Fi stays up during the wait; DarkWake ticks reading as
-dark; `systemctl suspend` and a lid close on Ubuntu, Fedora and Omarchy with the inhibitor and
-its polkit default; Claude and Codex resuming from a warm session copy.
+**Two real daemons** over their pinned link, with real Git and scripted providers that start
+background shells and a process that calls `setsid`. A fake power notifier stands in for the
+helper, and a controllable proxy on every route can drop or hold traffic.
+
+- **Injected faults:** a partition and a SIGKILL of each daemon at each step (generation 1, a
+  generation half-written, the handover before and after `handing`, the takeover before and after
+  its transaction, the setup, the start).
+- **The overlap check:** every scripted process writes start and stop marks on one shared host
+  clock. Every test asserts the two homes' marks for a thread overlap only in the cases this ADR
+  names as a person's accepted risk.
+- **Cases:**
+  - a handover at the sleep notice with proof;
+  - one whose proof didn't come in time (no handover, tree frozen, standby idle);
+  - a final payload too late (a handover from the pinned generation);
+  - low battery;
+  - Quit ace completely, and Quit now;
+  - silence with no takeover (the standby stays idle for hours);
+  - a person's takeover with its answer lost and the command resent;
+  - a takeover racing a late handover;
+  - a takeover on two clients at once;
+  - the standby restarting three times during setup;
+  - the laptop waking into a takeover (frozen tree killed, branch kept, moved);
+  - the laptop waking with the standby unreachable (held; a person's message runs);
+  - a cloned home at the same path with the same machine id (two holders refused);
+  - a restored home on another machine (refused until re-pairing);
+  - a generation past 8 MiB on ace's relay;
+  - twenty kept threads with one busy.
+- **The split-brain test:** the laptop asleep with a frozen tree, the standby partitioned and taken
+  over by the person, then the laptop woken still partitioned (nothing automatic runs, the tree
+  stays frozen), then the partition lifted (the tree killed before it runs, an `ace/kept/` branch,
+  moved).
+
+**On the shipped binaries, through real sleep:**
+
+- macOS lid close and `pmset sleepnow` with the helper started each way section 4 lists;
+- Ubuntu, Fedora and Omarchy `systemctl suspend` and a lid close with the inhibitor;
+- a frozen tree staying frozen across wake until the barrier answers;
+- the env scan and the cgroup proof finding a `setsid` child;
+- how long Wi-Fi stays up while the notice waits.
+
+**Measured before native session copies or a shorter cadence**, using the slow-link harness
+(#2038) and a large repository (ace's own and a 200,000-file one): the CPU and disk time per
+capture, bytes per generation, standby disk per stream, battery on a laptop over a working day, and
+recovery lag (from Take over to the continue message running, on 3G and on a LAN).
