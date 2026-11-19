@@ -129,7 +129,7 @@ fn unwatch_stops_a_long_search() {
         other => panic!("search answered {other:?}"),
     };
     let unwatched = client.request(Op::Unwatch { subscription });
-    assert_eq!(client.reply(unwatched), Reply::Done);
+    assert_eq!(client.reply(unwatched), Reply::done());
     client.expect_no_reply(id, Duration::from_millis(500));
 }
 

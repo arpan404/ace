@@ -407,7 +407,12 @@ export class Operations {
     if (!entry) throw new FilesRequestError("INVALID_ARGUMENT", `root ${root} is not open`);
     if (entry.binary === undefined) {
       if (entry.error)
-        throw new FilesRequestError(entry.error.code, entry.error.message, entry.error.current);
+        throw new FilesRequestError(
+          entry.error.code,
+          entry.error.message,
+          entry.error.current,
+          entry.error.recovery,
+        );
       throw restarting();
     }
     return entry.binary;

@@ -2,10 +2,10 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { SafeRoot } from "@ace/workspace";
 import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
-import { Catalog, TrashRecord } from "./catalog.ts";
+import { Catalog, MoveRecord, TrashRecord } from "./catalog.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { newId } from "./filesystem.ts";
-import type { FilesIo } from "./io.ts";
+import type { FilesIo, MoveOutcome } from "./io.ts";
 import { codeOf, FileError, checkVersion, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
@@ -18,11 +18,18 @@ export type Applied = Omit<WorkspaceFileChange, "version"> & {
   /**
    * The version the port read from the object it committed, when it read one there.
    *
-   * A save's version comes from a handle to the file the save published, and a new folder's from
-   * a walk of the empty folder, so neither is an inference from a later state. Absent when the
-   * version can only be read after the queue has released the path.
+   * A save's version comes from a handle to the file the save published, a new folder's from the
+   * folder that create made, and a move's from the entry that moved, so none is an inference
+   * from a later state. Absent when the version can only be read after the queue has released the
+   * path; `null` when the commit is known and its version is not.
    */
   committed?: string | null;
+  /**
+   * A moved folder's own version after the move. The digest read after the queue is accepted only
+   * while the folder it describes still has this identity, so a name another program took in the
+   * meantime never lends its digest to this change.
+   */
+  identity?: string | null;
 };
 
 /**
@@ -32,8 +39,12 @@ export type Applied = Omit<WorkspaceFileChange, "version"> & {
 interface Prepared {
   /** A folder's own version before the move; a file has none. */
   own: string | null;
+  /** The entry's own version, which a name is trusted against after a move or a delete. */
+  identity: string | null;
   /** The bytes a delete would reserve in the trash. */
   bytes: number;
+  /** True when the entry is a folder, whose digest can only be read after a move. */
+  folder: boolean;
 }
 
 /**
@@ -107,7 +118,14 @@ export class Mutations {
       : description?.kind === "file"
         ? description.size
         : 0;
-    return { own: description?.ownVersion ?? null, bytes };
+    return {
+      own: description?.ownVersion ?? null,
+      // A folder's digest records its path, so its own version is the identity a later read is
+      // checked against; a file's version is its identity.
+      identity: description ? (description.ownVersion ?? description.version) : null,
+      bytes,
+      folder: directory,
+    };
   }
   async apply(operation: Mutation, prepared: Prepared): Promise<Applied> {
     const root = this.root();
@@ -128,22 +146,22 @@ export class Mutations {
         };
       }
       case "mkdir": {
+        let version: string | null;
         try {
-          await this.io.createDir(root, operation.path);
+          version = await this.io.createDir(root, operation.path);
         } catch (error) {
           // A taken name is a plain conflict for `mkdir`: the client already knows it exists.
           if (error instanceof FileError && error.code === "CONFLICT")
             throw new FileError("CONFLICT", error.message);
           throw error;
         }
-        // A new folder holds nothing yet, so its digest is one read: the version comes back
-        // inside the queue with the commit rather than from a later state.
-        const created = await this.io.describe(root, operation.path, { full: true });
+        // The port read the digest from the folder it made, inside the queue, so the reply is not
+        // an inference from a name that may hold something else by now.
         return {
           id,
           op: operation.op,
           path: operation.path,
-          committed: created?.version ?? null,
+          committed: version,
         };
       }
       case "rename":
@@ -159,15 +177,51 @@ export class Mutations {
             target?.version ?? null,
           );
         }
-        await this.io.move(
-          root,
-          operation.path,
-          operation.destination,
-          operation.expected,
-          prepared.own,
-        );
+        const leafStaging = (await this.folds(operation)) ? `.ace-upload-move-${id}` : undefined;
+        // A case-only rename is two renames, so its staging name is journaled before the first
+        // step: a crash between them leaves the entry under a name no listing shows, and the next
+        // start finishes the move from this record.
+        const receipt = leafStaging
+          ? MoveRecord.parse({
+              kind: "move",
+              id,
+              path: operation.path,
+              destination: operation.destination,
+              staging: beside(operation.path, leafStaging),
+              identity: prepared.identity,
+              bytes: 0,
+              expires: Number.MAX_SAFE_INTEGER,
+              pending: true,
+            })
+          : undefined;
+        if (receipt) this.catalog.put(receipt);
+        let moved: MoveOutcome;
+        try {
+          moved = await this.io.move(
+            root,
+            operation.path,
+            operation.destination,
+            operation.expected,
+            prepared.own,
+            leafStaging,
+          );
+        } catch (error) {
+          if (receipt) this.failedMove(receipt, error);
+          throw error;
+        }
+        if (receipt) this.catalog.delete(receipt.id);
         destination = operation.destination;
-        break;
+        // A file's version comes from the entry that moved. A folder's digest records the new
+        // path, so it is read after the queue and accepted only against the folder's own version.
+        const identity =
+          prepared.folder && sameIdentity(moved.identity, prepared.own) ? moved.identity : null;
+        return {
+          id,
+          op: operation.op,
+          path: operation.path,
+          destination,
+          ...(prepared.folder ? { identity } : { committed: moved.version }),
+        };
       }
       case "delete": {
         if (operation.expected === null)
@@ -190,6 +244,7 @@ export class Mutations {
           path: operation.path,
           bytes,
           version: operation.expected,
+          identity: prepared.identity,
           location,
           expires: Number.MAX_SAFE_INTEGER,
           pending: true,
@@ -244,53 +299,165 @@ export class Mutations {
    * corrects it, because the bytes are already where the caller asked for them.
    */
   async change(applied: Applied): Promise<WorkspaceFileChange> {
-    const { committed, ...change } = applied;
+    const { committed, identity, ...change } = applied;
     if (committed !== undefined) return { ...change, version: committed };
     const path = change.destination ?? change.path;
     const after = await this.io.describe(this.root(), path, { full: true }).catch(() => undefined);
+    // A moved folder's digest belongs to this change only while the name still holds the folder
+    // whose own version the move reported; a different entry's digest is never reported as its.
+    if (identity !== undefined && !sameIdentity(after?.ownVersion, identity))
+      return { ...change, version: null };
     return { ...change, version: after?.version ?? null };
   }
   /**
-   * Settles the receipts an interrupted delete left behind, at start.
+   * Settles the receipts an interrupted change left behind, at start.
    *
-   * An entry still at its path was never moved, so its receipt is a lie and goes. An entry gone
-   * from its path may be in the trash: the receipt becomes an ordinary, restorable trash entry.
-   * A path that cannot be read at all keeps its receipt pending, and a pending receipt never
-   * expires, so the bytes it names are never swept before someone can restore them.
+   * A delete's receipt is settled only when the entry it names is proven to be where the receipt
+   * says: the generated trash endpoint is probed through the daemon's own op and compared with
+   * the identity recorded before the delete. A path that cannot be read, an endpoint another
+   * entry occupies, or a receipt whose identity cannot be proven keeps the receipt pending, and a
+   * pending receipt never expires, so the bytes it names are never swept before someone can
+   * restore them.
+   *
+   * A journaled case-only rename is finished: the entry is found at its old spelling, its new one
+   * or the private staging name the journal recorded, and a start puts it where the client asked
+   * for it, or under a visible recovery name when that name is taken.
    */
   async reconcile(): Promise<void> {
     for (const row of this.catalog.list("trash")) {
       const record = TrashRecord.parse(row);
-      if (!record.pending) continue;
-      const present = await this.presence(record.path);
-      if (present === "gone") this.settle(record);
-      else if (present === "there") this.catalog.delete(record.id);
+      if (record.pending) await this.resolve(record);
     }
+    for (const row of this.catalog.list("move")) {
+      await this.finish(MoveRecord.parse(row));
+    }
+  }
+  /**
+   * Settles one pending delete receipt when its entry can be proven to be somewhere.
+   *
+   * The trash endpoint is probed first: an entry there with the identity the receipt recorded is
+   * the one the delete moved, whatever now holds the old path. A receipt whose entry is still at
+   * its path, with that identity, names a move that never happened, so it goes. Everything else
+   * is ambiguous and stays pending.
+   */
+  private async resolve(receipt: TrashRecord): Promise<void> {
+    if (await this.parked(receipt)) {
+      this.settle(receipt);
+      return;
+    }
+    if (await this.atPath(receipt.path, receipt.identity)) this.catalog.delete(receipt.id);
   }
   /**
    * What to do with a delete whose move failed.
    *
    * A refusal the port reports before it moves anything leaves the entry at its path, so the
-   * receipt goes and the caller sees the reason. Anything else may be a move that landed: an
-   * entry gone from its path becomes a restorable trash entry, and a path that cannot be read
-   * keeps the receipt pending until the next start reconciles it.
+   * receipt goes and the caller sees the reason. Anything else may be a move that landed, and is
+   * proved the same way a start proves it; when nothing can be proved the receipt stays pending,
+   * which is what keeps a delete whose rollback failed restorable and exempt from expiry.
    */
   private async abandon(receipt: TrashRecord, error: unknown): Promise<unknown> {
     if (refused(error)) {
       this.catalog.delete(receipt.id);
       return error;
     }
-    const present = await this.presence(receipt.path);
-    if (present === "there") this.catalog.delete(receipt.id);
-    else if (present === "gone") this.settle(receipt);
+    await this.resolve(receipt);
     return error;
   }
-  /** Whether the entry a receipt names is at its path, gone from it, or unreadable right now. */
-  private async presence(path: string): Promise<"there" | "gone" | "unknown"> {
+  /** Whether the name holds the entry with `identity`, read the cheap way. */
+  private async atPath(path: string, identity: string | null | undefined): Promise<boolean> {
+    if (!identity) return false;
     try {
-      return (await this.io.shallow(this.root(), path)) === null ? "gone" : "there";
+      const found = await this.io.shallow(this.root(), path);
+      return found !== null && sameIdentity(found.version, identity);
     } catch {
-      return "unknown";
+      return false;
+    }
+  }
+  /** Whether the receipt's generated endpoint holds the entry the receipt moved. */
+  private async parked(receipt: TrashRecord): Promise<boolean> {
+    if (!receipt.location || !receipt.identity) return false;
+    try {
+      const found = await this.io.internal.describe(this.root(), receipt.location);
+      if (found === null) return false;
+      return sameIdentity(found.ownVersion ?? found.version, receipt.identity);
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Whether both spellings a rename names reach one entry, which only a case-insensitive volume
+   * does. Those are the moves that take two steps, so only they need a journal.
+   */
+  private async folds(operation: Extract<Mutation, { op: "rename" | "move" }>): Promise<boolean> {
+    const from = operation.path;
+    const to = operation.destination;
+    if (from === to) return false;
+    if (folderOf(from) !== folderOf(to) || leafOf(from) === leafOf(to)) return false;
+    if (leafOf(from).toLowerCase() !== leafOf(to).toLowerCase()) return false;
+    const [source, target] = await Promise.all([
+      this.io.shallow(this.root(), from).catch(() => null),
+      this.io.shallow(this.root(), to).catch(() => null),
+    ]);
+    return source !== null && target !== null && sameIdentity(source.version, target.version);
+  }
+  /**
+   * Forgets a journaled move's record when no start needs it.
+   *
+   * A visible recovery path means the entry is where a person can find it; a refusal the port
+   * reports before it moves anything means the entry never left. Anything else may be at the
+   * journaled staging name and keeps the record for the next start.
+   */
+  private failedMove(receipt: MoveRecord, error: unknown): void {
+    const recovery = error instanceof FileError ? error.recovery : undefined;
+    if (typeof recovery === "string" && !recovery.startsWith(".ace-upload-")) {
+      this.catalog.delete(receipt.id);
+      return;
+    }
+    if (refused(error)) this.catalog.delete(receipt.id);
+  }
+  /**
+   * Finishes a journaled case-only move at start, or keeps the record for another try.
+   *
+   * The entry is at its old spelling, its new one, or the private staging name the journal
+   * recorded. A move that had not started, or had already finished, is only a record to drop. A
+   * parked entry is put where the client asked for it; if that name was taken in the meantime it
+   * is put under a visible recovery name of its own instead, so nothing stays where no listing
+   * shows it.
+   */
+  private async finish(record: MoveRecord): Promise<void> {
+    if (
+      (await this.atPath(record.path, record.identity)) ||
+      (await this.atPath(record.destination, record.identity))
+    ) {
+      this.catalog.delete(record.id);
+      return;
+    }
+    if (!(await this.parkedAt(record.staging, record.identity))) return;
+    if (await this.recover(record.staging, record.destination)) {
+      this.catalog.delete(record.id);
+      return;
+    }
+    const visible = recoveryName(record.destination, record.id);
+    if (await this.recover(record.staging, visible)) this.catalog.delete(record.id);
+  }
+  /** Whether one of the daemon's own names holds the entry with `identity`. */
+  private async parkedAt(path: string, identity: string | null): Promise<boolean> {
+    if (!identity) return false;
+    try {
+      const found = await this.io.internal.describe(this.root(), path);
+      if (found === null) return false;
+      return sameIdentity(found.ownVersion ?? found.version, identity);
+    } catch {
+      return false;
+    }
+  }
+  /** Moves one of the daemon's own staging entries to a client path, never replacing one. */
+  private async recover(from: string, to: string): Promise<boolean> {
+    try {
+      await this.io.internal.move(this.root(), from, to);
+      return true;
+    } catch {
+      return false;
     }
   }
   /** Turns a receipt into an ordinary trash entry, which expiry may later clear. */
@@ -335,6 +502,64 @@ export class Mutations {
   private async legacyRemove(id: string): Promise<void> {
     await rm(join(this.options.dataDir, "trash", id), { recursive: true, force: true });
   }
+}
+
+/**
+ * Whether two versions name the same entry: a rename changes the change time and nothing else a
+ * version records, so the last field is left out. A tree digest carries no identity to compare.
+ */
+function sameIdentity(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right || left.startsWith("tree:") || right.startsWith("tree:")) return false;
+  return left.slice(0, left.lastIndexOf(":")) === right.slice(0, right.lastIndexOf(":"));
+}
+
+/** The folder part of a path, with its trailing separator; empty at the root. */
+function folderOf(path: string): string {
+  return path.slice(0, path.lastIndexOf("/") + 1);
+}
+
+/** The last segment of a path. */
+function leafOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * The full path of `name` in the folder that holds `path`.
+ */
+function beside(path: string, name: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut < 0 ? name : `${path.slice(0, cut + 1)}${name}`;
+}
+
+/**
+ * The visible name an entry is recovered under beside `path`: `<stem>.conflict-<id><ext>`.
+ *
+ * The name is bounded to what a volume accepts, so a name already at the limit still gets a
+ * recovery name instead of a failed rename that leaves the entry where no listing shows it.
+ */
+function recoveryName(path: string, id: string): string {
+  const cut = path.lastIndexOf("/");
+  const folder = cut < 0 ? "" : path.slice(0, cut + 1);
+  const name = path.slice(cut + 1);
+  const dot = name.lastIndexOf(".");
+  const keepExtension = dot > 0 && name.length - dot <= 33;
+  const stem = keepExtension ? name.slice(0, dot) : name;
+  const tail = `.conflict-${id}${keepExtension ? name.slice(dot) : ""}`;
+  const room = Math.max(1, 255 - Buffer.byteLength(tail));
+  return `${folder}${cutBytes(stem, room)}${tail}`;
+}
+
+/** The longest prefix of `text` that fits in `limit` UTF-8 bytes, never splitting a character. */
+function cutBytes(text: string, limit: number): string {
+  let bytes = 0;
+  let end = 0;
+  for (const character of text) {
+    const size = Buffer.byteLength(character);
+    if (bytes + size > limit) break;
+    bytes += size;
+    end += character.length;
+  }
+  return text.slice(0, end);
 }
 
 /**

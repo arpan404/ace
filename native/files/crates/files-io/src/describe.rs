@@ -216,6 +216,18 @@ pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, E
 /// This is the cheap guard a queued mutation re-checks before it acts, so a folder's identity and
 /// times decide whether it moved, without walking everything below it again.
 pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
+    describe_entry_at(root, path, false)
+}
+
+/// The entry itself at one of the daemon's own generated names, for its reconciliation.
+///
+/// The reserved-name rule is skipped, because the name being read is the daemon's own; every
+/// other rule holds, so the answer is still read through a no-follow lookup in its own folder.
+pub fn describe_entry_internal(root: &Root, path: &str) -> Result<Description, Error> {
+    describe_entry_at(root, path, true)
+}
+
+fn describe_entry_at(root: &Root, path: &str, internal: bool) -> Result<Description, Error> {
     if path.is_empty() {
         let metadata = root.dir().dir_metadata()?;
         return Ok(Description {
@@ -227,7 +239,11 @@ pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
             mode: permissions(&metadata),
         });
     }
-    let parent = crate::policy::authorized_parent(root, path)?;
+    let parent = if internal {
+        crate::policy::internal_parent(root, path)?
+    } else {
+        crate::policy::authorized_parent(root, path)?
+    };
     describe_here(&parent.dir, &parent.name)
 }
 
@@ -289,28 +305,68 @@ fn permissions(metadata: &Metadata) -> u64 {
 /// root and counts its target's size; a file counts as itself; anything else counts nothing. A
 /// walk that hits its budget reports a lower bound instead of failing, so a huge folder can still
 /// be deleted.
+///
+/// One walk authorizes the target's parent and leaf, and the measurement is made through those
+/// very names with no-follow lookups: the path is never resolved a second time, so a link that is
+/// retargeted after the policy read cannot lend its new target's bytes to this answer.
 pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Error> {
     if path.is_empty() {
         return measure_folder(root, path, root.dir(), walks);
     }
-    let parent = crate::policy::authorized_parent(root, path)?;
-    let (dir, name) = (parent.dir, parent.name);
-    let own = dir.symlink_metadata(&name)?;
-    if own.is_dir() {
-        return measure_folder(root, path, &dir.open_dir(&name)?, walks);
-    }
-    if own.file_type().is_symlink() {
-        // A link is counted through its target, so the target's stored names are held to the
-        // policy too: a link into git's store is never measured as if it were the client's.
-        crate::policy::authorized_target(root, path)?;
+    for _ in 0..2 {
+        // The leaf is read where the policy proved it, never followed by its spelling: a folder
+        // is opened without following and a link is measured through the target one walk resolved.
+        let parent = root.open_parent_stored(path)?;
+        crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+        let own = match parent.dir.symlink_metadata(&parent.name) {
+            Ok(metadata) => metadata,
+            Err(error) if transient_kind(error.kind()) => {
+                return Ok(Measurement {
+                    bytes: 0,
+                    shallow: false,
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if own.file_type().is_symlink() {
+            let target = crate::policy::authorized_target(root, path)?;
+            crate::hooks::reached(crate::hooks::Step::MeasureTarget, path, path);
+            let found = match target.dir.symlink_metadata(&target.name) {
+                Ok(metadata) => metadata,
+                Err(error) if transient_kind(error.kind()) => {
+                    return Ok(Measurement {
+                        bytes: 0,
+                        shallow: false,
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            };
+            // A delete carries the link itself, so only a file target's size stands in for what
+            // the entry is worth; a folder behind a link is not carried by the delete at all.
+            return Ok(Measurement {
+                bytes: if found.is_file() { found.len() } else { 0 },
+                shallow: false,
+            });
+        }
+        if own.is_dir() {
+            // The very folder the walk proved, opened without following a link that may have
+            // replaced it in between.
+            crate::hooks::reached(crate::hooks::Step::MeasureTarget, path, path);
+            match parent.dir.open_dir_nofollow(&parent.name) {
+                Ok(folder) => return measure_folder(root, path, &folder, walks),
+                Err(error) if transient_kind(error.kind()) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
         return Ok(Measurement {
-            bytes: followed_size(root, path)?.unwrap_or(0),
+            bytes: if own.is_file() { own.len() } else { 0 },
             shallow: false,
         });
     }
+    // The entry changed under both looks, so no count can be proven; a lower bound is honest.
     Ok(Measurement {
-        bytes: if own.is_file() { own.len() } else { 0 },
-        shallow: false,
+        bytes: 0,
+        shallow: true,
     })
 }
 
@@ -324,7 +380,9 @@ fn followed_size(root: &Root, path: &str) -> Result<Option<u64>, Error> {
     let Some(inside) = root.relative(&resolved) else {
         return Ok(None);
     };
-    let (dir, name) = crate::handle::target_parent(root, &inside)?;
+    // The resolve followed every link; the size is read from the entry it reached, through the
+    // folder that holds it, without resolving the path a second time.
+    let (dir, name) = root.open_parent(&inside)?;
     match dir.symlink_metadata(&name) {
         Ok(metadata) if metadata.is_file() => Ok(Some(metadata.len())),
         Ok(_) => Ok(None),
@@ -590,6 +648,40 @@ mod tests {
     }
 
     #[test]
+    fn the_internal_describe_reaches_a_generated_name_but_never_follows_a_link() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join(".ace-upload-trash-1"), b"kept").expect("trash entry");
+        fs::write(temp.path().join("real.md"), b"real").expect("real file");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("real.md", temp.path().join(".ace-upload-move-planted"))
+            .expect("link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file("real.md", temp.path().join(".ace-upload-move-planted"))
+            .expect("link");
+        let root = root(temp.path());
+
+        // The client policy refuses the daemon's own name, and the trusted read reaches it.
+        assert_eq!(
+            crate::describe_entry(&root, ".ace-upload-trash-1")
+                .expect_err("a reserved name is not a client's")
+                .code(),
+            "INVALID_PATH"
+        );
+        let found = super::describe_entry_internal(&root, ".ace-upload-trash-1")
+            .expect("the daemon reads its own endpoint");
+        assert_eq!(found.size, 4);
+        assert_eq!(found.kind, Kind::File);
+
+        // A link planted at one of those names is still never followed.
+        assert_eq!(
+            super::describe_entry_internal(&root, ".ace-upload-move-planted")
+                .expect_err("a link is not one of the daemon's entries")
+                .code(),
+            "PATH_ESCAPE"
+        );
+    }
+
+    #[test]
     fn a_dangling_link_measures_nothing() {
         let temp = tempfile::tempdir().expect("temp dir");
         #[cfg(unix)]
@@ -604,6 +696,66 @@ mod tests {
                 .bytes,
             0
         );
+    }
+
+    #[cfg(all(feature = "test-hooks", unix))]
+    #[test]
+    fn a_measure_counts_the_target_it_authorized_not_a_later_one() {
+        use crate::test_hooks::{Step, watch};
+
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join("first.md"), b"four").expect("first");
+        fs::write(temp.path().join("later.md"), b"twenty bytes, later!").expect("later");
+        std::os::unix::fs::symlink("first.md", temp.path().join("retarget.md")).expect("link");
+        let root = root(temp.path());
+        let folder = temp.path().to_path_buf();
+        // A program retargets the link right after the policy resolved it. The bytes counted must
+        // be the authorized target's, never a target this request never approved.
+        let _hook = watch(move |step, path, _to| {
+            if step == Step::MeasureTarget && path == "retarget.md" {
+                std::fs::remove_file(folder.join("retarget.md")).expect("retarget");
+                std::os::unix::fs::symlink("later.md", folder.join("retarget.md"))
+                    .expect("new target");
+            }
+        });
+
+        let measured = measure(&root, "retarget.md", &unbounded()).expect("measure");
+
+        assert_eq!(
+            measured.bytes, 4,
+            "the first target's four bytes, not the later target's twenty"
+        );
+    }
+
+    #[cfg(all(feature = "test-hooks", unix))]
+    #[test]
+    fn a_measure_never_counts_a_folder_replaced_by_a_link_outside_the_root() {
+        use crate::test_hooks::{Step, watch};
+
+        let temp = tempfile::tempdir().expect("temp dir");
+        let outside = tempfile::tempdir().expect("outside");
+        fs::write(
+            outside.path().join("secret"),
+            b"bytes the checkout does not own",
+        )
+        .expect("outside file");
+        fs::create_dir(temp.path().join("swap")).expect("folder");
+        fs::write(temp.path().join("swap/a.md"), b"aa").expect("inside file");
+        let root = root(temp.path());
+        let folder = temp.path().to_path_buf();
+        let escaping = outside.path().to_path_buf();
+        // The folder is swapped for a link out of the root right after the policy proved it.
+        let _hook = watch(move |step, path, _to| {
+            if step == Step::MeasureTarget && path == "swap" {
+                std::fs::remove_dir_all(folder.join("swap")).expect("remove");
+                std::os::unix::fs::symlink(&escaping, folder.join("swap")).expect("link out");
+            }
+        });
+
+        let error = measure(&root, "swap", &unbounded())
+            .expect_err("a link out of the root is never measured");
+
+        assert_eq!(error.code(), "PATH_ESCAPE");
     }
 
     #[test]

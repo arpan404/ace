@@ -61,6 +61,10 @@ pub enum Message {
         /// The version of the file now, so a rejected write can offer to reload it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         current: Option<String>,
+        /// Where an entry that could not be put back is preserved, so a caller can show it or
+        /// resolve it instead of treating the failure as a plain refusal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recovery: Option<String>,
     },
     /// Something happened on a subscription.
     Event {

@@ -107,6 +107,10 @@ class FakeClient implements FilesToolClient {
     throw new Error("the fake lists folders, it does not rename");
   }
 
+  recoverMove(): never {
+    throw new Error("the fake lists folders, it does not finish a move");
+  }
+
   trash(): never {
     throw new Error("the fake lists folders, it does not trash");
   }

@@ -20,6 +20,10 @@ pub enum Error {
         /// The version that was found, or `None` when nothing was there.
         current: Option<String>,
     },
+    /// Another program holds an entry in a way that refuses the access this change needs, so
+    /// nothing was changed and the caller can try again.
+    #[error("busy: {0}")]
+    Busy(String),
     #[error("too much to walk: {0}")]
     LimitExceeded(String),
     #[error("invalid argument: {0}")]
@@ -42,6 +46,15 @@ pub enum Error {
         /// The preserved file's name, relative to the target's folder.
         at: String,
     },
+    /// An entry moved but could not be put back where a refused change belongs, and could not be
+    /// put back under its own name either. It is whole at `at`, which a caller reports as a
+    /// distinct outcome rather than as a plain failure or a plain success.
+    #[error("the change at {path} could not be completed; the entry is preserved at {at}")]
+    Stranded {
+        path: String,
+        /// The name that holds the entry now, relative to the root.
+        at: String,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -53,14 +66,26 @@ impl Error {
             Error::Path(error) => error.code(),
             Error::NotFile(_) => "NOT_FILE",
             Error::Conflict { .. } => "CONFLICT",
+            Error::Busy(_) => "BUSY",
             // A preserved file is reported as a conflict: the save did not land, and the caller's
             // next attempt is guarded by what the path holds now.
             Error::Preserved { .. } => "CONFLICT",
+            // An entry that could not be put back is neither a plain success nor a plain
+            // conflict: the caller can still find and restore it under the reported name.
+            Error::Stranded { .. } => "STRANDED",
             Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
             Error::Unsupported(_) => "UNSUPPORTED",
             Error::Aborted => "ABORTED",
             Error::Io(error) => io_code(error),
+        }
+    }
+
+    /// Where an entry that could not be put back is preserved, when this failure names one.
+    pub fn recovery(&self) -> Option<String> {
+        match self {
+            Error::Preserved { at, .. } | Error::Stranded { at, .. } => Some(at.clone()),
+            _ => None,
         }
     }
 }

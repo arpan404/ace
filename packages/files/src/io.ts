@@ -88,13 +88,21 @@ export interface FilesIo {
   ): Promise<ReadBytes>;
   /** Stage `bytes` beside the path and publish them; `expected` null means create only. */
   write(root: string, path: string, bytes: Buffer, expected: string | null): Promise<string>;
-  createDir(root: string, path: string): Promise<void>;
+  /**
+   * Create a folder and return its digest, read from the folder this call made. `null` means the
+   * folder was created but its identity could not be proven, so no version is reported for it.
+   */
+  createDir(root: string, path: string): Promise<string | null>;
   /**
    * Move a client's entry, never replacing an existing destination.
    *
    * `expected` is the version the caller worked from and `own` a folder's own version before the
    * move: the moved tree is verified against them and put back when it changed, so the guard and
-   * the move are one step.
+   * the move are one step. `staging` names the entry a case-only move parks under, which the
+   * caller journaled first so a later start can finish it. The outcome carries the moved entry's
+   * version when the port read one from that entry, a moved folder's own version as the identity
+   * a later digest must match, and the visible path an entry was preserved under when the move
+   * could not complete.
    */
   move(
     root: string,
@@ -102,7 +110,8 @@ export interface FilesIo {
     to: string,
     expected: string | null,
     own: string | null,
-  ): Promise<void>;
+    staging?: string,
+  ): Promise<MoveOutcome>;
   /**
    * Park a client's entry at the daemon's generated trash endpoint, guarded by the version it
    * had. Only an endpoint of the daemon's own shape is accepted, and the client's path is still
@@ -139,8 +148,22 @@ export interface FilesIo {
    * never reaches these, which is why they skip the reserved-name and link rules that protect it.
    */
   internal: {
+    /** The entry itself at one of the daemon's own names, or null when it is not there. */
+    describe(root: string, path: string): Promise<Description | null>;
+    /** Move one of the daemon's own staging entries to a client path, never replacing one. */
+    move(root: string, from: string, to: string): Promise<void>;
     remove(root: string, path: string): Promise<void>;
   };
+}
+
+/** What a move reported besides the change itself. */
+export interface MoveOutcome {
+  /** The moved entry's version, read from that entry; null when no identity proved it. */
+  version: string | null;
+  /** A moved folder's own version, which a digest read later must still match. */
+  identity: string | null;
+  /** The visible name an entry was preserved under when its move could not complete. */
+  recovery: string | null;
 }
 
 export interface IoOptions {

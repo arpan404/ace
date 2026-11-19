@@ -78,6 +78,9 @@ export function attachFilesChannel(
       ...(error instanceof FileError && error.current !== undefined
         ? { current: error.current }
         : {}),
+      ...(error instanceof FileError && typeof error.recovery === "string"
+        ? { recovery: error.recovery }
+        : {}),
     });
   const stop = async (id: number) => {
     const state = outgoing.get(id);

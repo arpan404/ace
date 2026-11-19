@@ -105,6 +105,14 @@ pub fn describe_entry(shared: &Shared, root: u64, path: &str) -> Result<Reply, E
     Ok(Reply::Description(convert::description(description)))
 }
 
+/// Describe one of the daemon's own generated names, for its reconciliation: the reserved-name
+/// rule is skipped and every other confinement rule still holds.
+pub fn describe_entry_internal(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+    let entry = shared.roots.get(root)?;
+    let description = files_io::describe_entry_internal(entry.root(), path)?;
+    Ok(Reply::Description(convert::description(description)))
+}
+
 /// Digest one file's bytes, so a caller can tell a version that looks unchanged from one whose
 /// content moved. The bytes stay in ace-files; only the digest goes back.
 pub fn fingerprint(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
@@ -138,6 +146,33 @@ pub fn rename(
 ) -> Result<Committed, Error> {
     let entry = shared.roots.get(root)?;
     Ok(files_io::rename(entry.root(), from, to, expected, own)?)
+}
+
+/// Move an entry whose case-only rename was journaled, using the staging name the journal knows.
+pub fn rename_journaled(
+    shared: &Shared,
+    root: u64,
+    from: &str,
+    to: &str,
+    expected: Option<&str>,
+    own: Option<&str>,
+    staging: &str,
+) -> Result<Committed, Error> {
+    let entry = shared.roots.get(root)?;
+    Ok(files_io::rename_journaled(
+        entry.root(),
+        from,
+        to,
+        expected,
+        own,
+        staging,
+    )?)
+}
+
+/// Finish a journaled move that was left at one of the daemon's own staging names.
+pub fn recover_move(shared: &Shared, root: u64, from: &str, to: &str) -> Result<Committed, Error> {
+    let entry = shared.roots.get(root)?;
+    Ok(files_io::recover_move(entry.root(), from, to)?)
 }
 
 /// Delete a file, or a folder and everything inside it. The daemon's own cleanup, not a client's

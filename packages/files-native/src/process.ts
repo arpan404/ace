@@ -289,6 +289,7 @@ export class FilesProcess {
           message.message,
           message.current,
           message.code === "UNSUPPORTED" ? (op) => this.#unknownOp(op) : undefined,
+          message.recovery,
         );
         return;
       case "event":

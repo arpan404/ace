@@ -55,7 +55,17 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             };
             read_write::describe(shared, root, &path, &walks)
         }
-        Op::DescribeEntry { root, path } => read_write::describe_entry(shared, root, &path),
+        Op::DescribeEntry {
+            root,
+            path,
+            internal,
+        } => {
+            if internal {
+                read_write::describe_entry_internal(shared, root, &path)
+            } else {
+                read_write::describe_entry(shared, root, &path)
+            }
+        }
         Op::Fingerprint { root, path } => read_write::fingerprint(shared, root, &path),
         // The trash quota counts every byte it reserves, so its measure has no entry budget.
         Op::Measure { root, path } => {
@@ -69,14 +79,26 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             to,
             expected,
             own,
-        } => committed(read_write::rename(
-            shared,
-            root,
-            &from,
-            &to,
-            expected.as_deref(),
-            own.as_deref(),
-        )?),
+            staging,
+        } => match staging {
+            Some(staging) => committed(read_write::rename_journaled(
+                shared,
+                root,
+                &from,
+                &to,
+                expected.as_deref(),
+                own.as_deref(),
+                &staging,
+            )?),
+            None => committed(read_write::rename(
+                shared,
+                root,
+                &from,
+                &to,
+                expected.as_deref(),
+                own.as_deref(),
+            )?),
+        },
         Op::Remove { root, path } => committed(read_write::remove(shared, root, &path)?),
         Op::Trash {
             root,
@@ -97,6 +119,9 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             endpoint,
             path,
         } => committed(read_write::untrash(shared, root, &endpoint, &path)?),
+        Op::RecoverMove { root, from, to } => {
+            committed(read_write::recover_move(shared, root, &from, &to)?)
+        }
         Op::OpenRoot { .. }
         | Op::CloseRoot { .. }
         | Op::Read { .. }
@@ -115,5 +140,9 @@ fn committed(committed: Committed) -> Result<Reply, Error> {
     if let Some(warning) = committed.warning {
         eprintln!("ace-files: {warning}");
     }
-    Ok(Reply::Done)
+    Ok(Reply::Done {
+        version: committed.version,
+        identity: committed.identity,
+        recovery: committed.recovery,
+    })
 }

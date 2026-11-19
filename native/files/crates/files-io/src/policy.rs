@@ -26,6 +26,9 @@ const TEMPORARY: &str = ".ace-upload-";
 /// What a delete parks an entry under, followed by the daemon's own id.
 const TRASH: &str = ".ace-upload-trash-";
 
+/// What a case-only move parks an entry under while it travels between two spellings.
+const MOVING: &str = ".ace-upload-move-";
+
 /// The folder a read-only request may serve, with the stored path that names it.
 ///
 /// One walk proves the names and hands back the handle, so a link swapped in after the check
@@ -104,14 +107,36 @@ pub(crate) fn reserved(name: &str) -> bool {
 /// The shape is the daemon's alone: one name at the checkout root, the trash prefix, and the
 /// catalog's id alphabet. Nothing a person typed ever has it.
 pub(crate) fn trash_endpoint(name: &str) -> bool {
-    let Some(id) = name.strip_prefix(TRASH) else {
+    generated(name, TRASH, 128)
+}
+
+/// Whether `name` is the generated staging name a case-only move parks its entry under.
+pub(crate) fn moving_endpoint(name: &str) -> bool {
+    generated(name, MOVING, 160)
+}
+
+/// A name the daemon generates: its own prefix plus an id from the catalog's alphabet.
+fn generated(name: &str, prefix: &str, longest: usize) -> bool {
+    let Some(id) = name.strip_prefix(prefix) else {
         return false;
     };
     !id.is_empty()
-        && id.len() <= 128
+        && id.len() <= longest
         && id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+/// The folder and leaf of one of the daemon's own generated entries, reached only by code it owns.
+///
+/// No reserved name is refused here, because the whole point is to reach the daemon's staging
+/// entries; every other rule still holds: no link between the root and the leaf, and no link as
+/// the leaf, so the daemon never moves something a person planted to point elsewhere.
+pub(crate) fn internal_parent(root: &Root, path: &str) -> Result<Parent, Error> {
+    let parent = root.open_parent_unlinked(path)?;
+    refuse(&parent.folders, path)?;
+    refuse_link_leaf(&parent.dir, &parent.name, path)?;
+    Ok(parent)
 }
 
 /// Refuse a mutation whose leaf is a link, which is never a target the client named.

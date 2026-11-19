@@ -106,17 +106,18 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     },
     async createDir(root, path) {
       try {
-        await run(root, (client, number) => client.createDir(number, path));
+        return await run(root, (client, number) => client.createDir(number, path));
       } catch (error) {
         throw refused(error);
       }
     },
-    async move(root, from, to, expected, own) {
+    async move(root, from, to, expected, own, staging) {
       try {
-        await run(root, (client, number) =>
+        return await run(root, (client, number) =>
           client.rename(number, from, to, {
             ...(expected === null ? {} : { expected }),
             ...(own === null ? {} : { own }),
+            ...(staging === undefined ? {} : { staging }),
           }),
         );
       } catch (error) {
@@ -185,6 +186,24 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     internal: {
+      async describe(root, path) {
+        try {
+          const found = await run(root, (client, number) =>
+            client.describeEntry(number, path, { internal: true }),
+          );
+          return description(found);
+        } catch (error) {
+          if (missing(error)) return null;
+          throw refused(error);
+        }
+      },
+      async move(root, from, to) {
+        try {
+          await run(root, (client, number) => client.recoverMove(number, from, to));
+        } catch (error) {
+          throw refused(error);
+        }
+      },
       async remove(root, path) {
         try {
           await run(root, (client, number) => client.remove(number, path));
@@ -201,11 +220,11 @@ function missing(error: unknown): boolean {
   return error instanceof FilesRequestError && error.code === "NOT_FOUND";
 }
 
-/** ace-files' failure in the daemon's own error shape, version included on a conflict. */
+/** ace-files' failure in the daemon's own error shape, version and recovery included. */
 function refused(error: unknown): FileError {
   if (error instanceof FileError) return error;
   if (error instanceof FilesRequestError)
-    return new FileError(error.code, error.message, error.current);
+    return new FileError(error.code, error.message, error.current, error.recovery);
   return new FileError("IO_ERROR", error instanceof Error ? error.message : String(error));
 }
 

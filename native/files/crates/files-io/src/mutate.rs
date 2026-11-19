@@ -32,6 +32,31 @@ use crate::version;
 pub struct Committed {
     /// A sentence for the log when the change landed but a later durability step did not.
     pub warning: Option<String>,
+    /// The version of the entry the mutation committed, when it was read from that very entry.
+    ///
+    /// A create reports the digest of the folder it made; a move of a file reports the version of
+    /// the entry it moved, proven to be the one it found before the move. A folder's move reports
+    /// no digest here: the digest records the new path, so the caller takes it after the queue,
+    /// under the folder's own version this reply carries as its identity.
+    pub version: Option<String>,
+    /// A folder's own version after the move, so a digest taken later is accepted only while the
+    /// name still holds the folder that was moved.
+    pub identity: Option<String>,
+    /// Where a move left the entry under a visible name of its own, when it could not complete
+    /// the move and could not put the entry back either.
+    pub recovery: Option<String>,
+}
+
+impl Committed {
+    /// A change that landed and has nothing more to report.
+    fn plain(warning: Option<String>) -> Committed {
+        Committed {
+            warning,
+            version: None,
+            identity: None,
+            recovery: None,
+        }
+    }
 }
 
 /// Creates a folder. The parent must exist, and nothing may be there already.
@@ -46,15 +71,48 @@ fn create_dir_with(
 ) -> Result<Committed, Error> {
     refuse_root(path)?;
     let parent = policy::client_parent(root, path)?;
-    match parent.dir.create_dir(&parent.name) {
-        Ok(()) => Ok(Committed {
-            warning: settle(sync, &[&parent.dir]),
-        }),
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => Err(Error::Conflict {
+    // The folder is made under a private name and published in one no-replace rename, so the
+    // version below comes from the folder this create made and never from a name that another
+    // program took between the create and the read.
+    let mut staged = handle::StagedDir::new(&parent.dir)?;
+    match handle::rename_noclobber(&parent.dir, staged.name(), &parent.dir, &parent.name)? {
+        Noclobber::Done => {
+            crate::hooks::reached(crate::hooks::Step::AfterCreateDir, path, path);
+            let version = staged.published_tree(root, &parent.name, path, &Walks::complete())?;
+            staged.release();
+            Ok(Committed {
+                warning: settle(sync, &[&parent.dir]),
+                version,
+                identity: None,
+                recovery: None,
+            })
+        }
+        Noclobber::Exists => Err(Error::Conflict {
             path: path.to_owned(),
             current: version_at(root, &parent.dir, &parent.name, path)?,
         }),
-        Err(error) => Err(error.into()),
+        Noclobber::Unsupported => {
+            // A volume without rename-without-replace still creates atomically, so the folder is
+            // made directly; the version is the created folder's own digest, read at once.
+            match parent.dir.create_dir(&parent.name) {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    return Err(Error::Conflict {
+                        path: path.to_owned(),
+                        current: version_at(root, &parent.dir, &parent.name, path)?,
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            }
+            let created = parent.dir.open_dir_nofollow(&parent.name)?;
+            let tree = tree::version(root, path, &created, &Walks::complete())?;
+            Ok(Committed {
+                warning: settle(sync, &[&parent.dir]),
+                version: Some(tree.version),
+                identity: None,
+                recovery: None,
+            })
+        }
     }
 }
 
@@ -78,7 +136,29 @@ pub fn rename(
     expected: Option<&str>,
     own: Option<&str>,
 ) -> Result<Committed, Error> {
-    rename_with(root, from, to, expected, own, &handle::sync)
+    rename_with(root, from, to, expected, own, None, &handle::sync)
+}
+
+/// Moves an entry whose case-only rename was journaled, using the staging name the journal knows.
+///
+/// A case-only move is two renames, so a crash between them leaves the entry under the daemon's
+/// private staging name. The daemon writes the name it will use before the move starts, so a
+/// later start can find and finish it; a name that does not have the generated shape is refused
+/// rather than used.
+pub fn rename_journaled(
+    root: &Root,
+    from: &str,
+    to: &str,
+    expected: Option<&str>,
+    own: Option<&str>,
+    staging: &str,
+) -> Result<Committed, Error> {
+    if !policy::moving_endpoint(staging) {
+        return Err(Error::InvalidArgument(format!(
+            "{staging} is not a staging name"
+        )));
+    }
+    rename_with(root, from, to, expected, own, Some(staging), &handle::sync)
 }
 
 fn rename_with(
@@ -87,6 +167,7 @@ fn rename_with(
     to: &str,
     expected: Option<&str>,
     own: Option<&str>,
+    staging: Option<&str>,
     sync: &dyn Fn(&Dir) -> Result<(), Error>,
 ) -> Result<Committed, Error> {
     refuse_root(from)?;
@@ -104,6 +185,18 @@ fn rename_with(
     // for an existing entry: a case-only rename asks for exactly that new spelling.
     let to_name = leaf_name(to);
     let metadata = source.dir.symlink_metadata(&source.name)?;
+    let folder = metadata.is_dir();
+    // The identity the moved entry must still have: a name another program takes after the move
+    // describes that program's entry, never the one this move carried.
+    let moved_identity = if folder {
+        None
+    } else {
+        Some(version::identity_of_entry(
+            &source.dir,
+            &source.name,
+            &metadata,
+        )?)
+    };
     if metadata.is_dir()
         && let Some(expected) = expected
     {
@@ -135,7 +228,13 @@ fn rename_with(
             // One entry under two spellings on a case-insensitive volume: the volume answers the
             // destination name with the source entry itself, so the spelling on disk can only be
             // changed by moving the entry away from both names first.
-            match case_only_move(&source.dir, &source.name, &destination.dir, to_name)? {
+            match case_only_move(
+                &source.dir,
+                &source.name,
+                &destination.dir,
+                to_name,
+                staging,
+            )? {
                 TwoStep::Done => {}
                 TwoStep::Taken => {
                     return Err(Error::Conflict {
@@ -149,10 +248,9 @@ fn rename_with(
                     )));
                 }
                 TwoStep::Stranded(at) => {
-                    return Ok(Committed {
-                        warning: Some(format!(
-                            "{from} could not be renamed to {to} and is preserved at {at}"
-                        )),
+                    return Err(Error::Stranded {
+                        path: to.to_owned(),
+                        at,
                     });
                 }
             }
@@ -165,15 +263,7 @@ fn rename_with(
     }
     crate::hooks::reached(crate::hooks::Step::AfterMove, from, to);
     if let Some(expected) = expected {
-        let checked = moved_state(
-            root,
-            from,
-            to,
-            &destination.dir,
-            to_name,
-            own,
-            metadata.is_dir(),
-        );
+        let checked = moved_state(root, from, to, &destination.dir, to_name, own, folder);
         let held = checked
             .as_ref()
             .is_ok_and(|moved| same_version(expected, own, moved));
@@ -191,8 +281,25 @@ fn rename_with(
             );
         }
     }
+    // A file's version is read from the entry the move carried and accepted only while its
+    // identity still matches; a folder's digest is taken by the caller after the queue, guarded
+    // by the own version this reply carries.
+    let (version, identity) = if folder {
+        (
+            None,
+            own_version_at(&destination.dir, to_name).ok().flatten(),
+        )
+    } else {
+        (
+            version::moved_version(&destination.dir, to_name, moved_identity)?,
+            None,
+        )
+    };
     Ok(Committed {
         warning: settle(sync, &[&source.dir, &destination.dir]),
+        version,
+        identity,
+        recovery: None,
     })
 }
 
@@ -253,12 +360,13 @@ fn trash_with(
             )));
         }
     }
+    crate::hooks::reached(crate::hooks::Step::AfterMove, path, endpoint);
     let checked = moved_state(root, path, endpoint, &trash, endpoint, own, folder);
     let held = checked
         .as_ref()
         .is_ok_and(|moved| same_version(expected, own, moved));
     if !held {
-        return withdrawn(
+        return match withdrawn(
             root,
             sync,
             (&trash, endpoint),
@@ -268,11 +376,18 @@ fn trash_with(
             expected,
             checked.ok(),
             endpoint,
-        );
+        ) {
+            Err(error) => Err(error),
+            // The entry could not be put back at its path, so it is whole under the trash
+            // endpoint. That is neither a plain delete nor a plain refusal: the caller is told
+            // where it is, and a receipt naming it stays pending until someone resolves it.
+            Ok(_) => Err(Error::Stranded {
+                path: path.to_owned(),
+                at: endpoint.to_owned(),
+            }),
+        };
     }
-    Ok(Committed {
-        warning: settle(sync, &[&source.dir, &trash]),
-    })
+    Ok(Committed::plain(settle(sync, &[&source.dir, &trash])))
 }
 
 /// Moves a trashed entry back to a client path, in one atomic no-replace rename.
@@ -314,9 +429,7 @@ fn untrash_with(
     let destination = policy::client_parent(root, path)?;
     let to_name = leaf_name(path);
     match handle::rename_noclobber(&trash, endpoint, &destination.dir, to_name)? {
-        Noclobber::Done => Ok(Committed {
-            warning: settle(sync, &[&destination.dir, &trash]),
-        }),
+        Noclobber::Done => Ok(Committed::plain(settle(sync, &[&destination.dir, &trash]))),
         Noclobber::Exists => Err(Error::Conflict {
             path: path.to_owned(),
             current: version_at(root, &destination.dir, &destination.name, path)?,
@@ -355,9 +468,7 @@ fn remove_with(
     } else {
         dir.remove_file(&name)?;
     }
-    Ok(Committed {
-        warning: settle(sync, &[&dir]),
-    })
+    Ok(Committed::plain(settle(sync, &[&dir])))
 }
 
 /// A move that cannot be one rename because both names are the same entry under the volume's
@@ -370,7 +481,8 @@ enum TwoStep {
     Taken,
     /// The filesystem cannot move the entry to a staging name.
     Unsupported,
-    /// The second step failed and the entry could not be put back. It is whole under this name.
+    /// The second step failed and the entry could not be put back. It is whole at this path,
+    /// which is the visible recovery name when one could be made and the staging name otherwise.
     Stranded(String),
 }
 
@@ -380,10 +492,17 @@ enum TwoStep {
 /// A case-insensitive volume answers the destination with the source entry, so neither a no-replace
 /// rename nor a replacing one can change the spelling on disk: moving the entry to a name of its
 /// own first makes both names free. A step the volume refuses is undone rather than forced, and an
-/// entry that cannot be put back is reported by the name that still holds it.
-fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<TwoStep, Error> {
-    let staging = handle::moving_name();
-    match handle::rename_noclobber(from_dir, from, from_dir, &staging)? {
+/// entry that cannot be put back is moved to a visible name a person can find and reported by it.
+fn case_only_move(
+    from_dir: &Dir,
+    from: &str,
+    to_dir: &Dir,
+    to: &str,
+    staging: Option<&str>,
+) -> Result<TwoStep, Error> {
+    let staging = staging.map_or_else(handle::moving_name, str::to_owned);
+    let first = handle::rename_noclobber(from_dir, from, from_dir, &staging);
+    match first? {
         Noclobber::Done => {}
         Noclobber::Exists => {
             return Err(Error::Io(std::io::Error::new(
@@ -394,7 +513,8 @@ fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<
         Noclobber::Unsupported => return Ok(TwoStep::Unsupported),
     }
     crate::hooks::reached(crate::hooks::Step::BetweenMoveSteps, from, to);
-    match handle::rename_noclobber(from_dir, &staging, to_dir, to) {
+    let second = handle::rename_noclobber(from_dir, &staging, to_dir, to);
+    match second {
         Ok(Noclobber::Done) => Ok(TwoStep::Done),
         refused => {
             // Neither name is where the entry belongs now: put it back exactly where it was, and
@@ -405,11 +525,12 @@ fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<
             );
             if !restored {
                 // The staging name is one the daemon keeps out of every listing, so the entry is
-                // moved to a name a person can see before it is reported as left behind.
-                let visible = handle::recovery_name(from);
-                let at = match handle::rename_noclobber(from_dir, &staging, from_dir, &visible) {
-                    Ok(Noclobber::Done) => visible,
-                    _ => staging,
+                // moved to a bounded visible name beside its own before it is reported. The
+                // outcome names the actual path, visible or not, so nothing is left unfindable.
+                let kept = handle::recovery_name(leaf_name(from));
+                let at = match handle::rename_noclobber(from_dir, &staging, from_dir, &kept) {
+                    Ok(Noclobber::Done) => beside(from, &kept),
+                    _ => beside(from, &staging),
                 };
                 return Ok(TwoStep::Stranded(at));
             }
@@ -420,6 +541,41 @@ fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<
                 Ok(Noclobber::Done) => Ok(TwoStep::Done),
             }
         }
+    }
+}
+
+/// The full path of `name` beside the path `path`, which names an entry in that same folder.
+fn beside(path: &str, name: &str) -> String {
+    match path.rsplit_once('/') {
+        Some((folder, _)) => format!("{folder}/{name}"),
+        None => name.to_owned(),
+    }
+}
+
+/// Finishes a move a journal recorded: the entry parked at the daemon's own staging name travels
+/// to the client path, without replacing one.
+pub fn recover_move(root: &Root, from: &str, to: &str) -> Result<Committed, Error> {
+    refuse_root(to)?;
+    if !policy::moving_endpoint(leaf_name(from)) {
+        return Err(Error::InvalidArgument(format!(
+            "{from} is not a staging name"
+        )));
+    }
+    let source = policy::internal_parent(root, from)?;
+    let destination = policy::client_parent(root, to)?;
+    let to_name = leaf_name(to);
+    match handle::rename_noclobber(&source.dir, &source.name, &destination.dir, to_name)? {
+        Noclobber::Done => Ok(Committed::plain(settle(
+            &handle::sync,
+            &[&source.dir, &destination.dir],
+        ))),
+        Noclobber::Exists => Err(Error::Conflict {
+            path: to.to_owned(),
+            current: version_at(root, &destination.dir, &destination.name, to)?,
+        }),
+        Noclobber::Unsupported => Err(Error::Unsupported(format!(
+            "this filesystem cannot move {from} out of staging without replacing a name"
+        ))),
     }
 }
 
@@ -501,11 +657,9 @@ fn withdrawn(
                 current: after,
             })
         }
-        _ => Ok(Committed {
-            warning: Some(format!(
-                "{report_path} changed while it was being moved and could not be put back; it is at {place}"
-            )),
-        }),
+        _ => Ok(Committed::plain(Some(format!(
+            "{report_path} changed while it was being moved and could not be put back; it is at {place}"
+        )))),
     }
 }
 
@@ -539,6 +693,20 @@ fn version_at(root: &Root, dir: &Dir, name: &str, path: &str) -> Result<Option<S
         crate::version::entry_version(root, dir, name, path, &Walks::complete())?
             .map(|found| found.version),
     )
+}
+
+/// A folder's own version now, read through a no-follow handle to it; `None` when the name is no
+/// longer a folder.
+fn own_version_at(dir: &Dir, name: &str) -> Result<Option<String>, Error> {
+    match dir.open_dir_nofollow(name) {
+        Ok(folder) => Ok(Some(version::own_version(&folder)?)),
+        Err(error) if transient_kind(error.kind()) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn transient_kind(kind: ErrorKind) -> bool {
+    matches!(kind, ErrorKind::NotFound | ErrorKind::NotADirectory)
 }
 
 /// A generated trash endpoint that someone else already occupies.

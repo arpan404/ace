@@ -13,6 +13,13 @@ pub enum Step {
     BetweenMoveSteps,
     /// The entry moved, before the guard that authorised the move is verified.
     AfterMove,
+    /// A new folder was published, before the version the reply carries is read.
+    AfterCreateDir,
+    /// A measurement's target was authorized, before the bytes it holds are read.
+    MeasureTarget,
+    /// A guarded publish holds the destination's handle, before the copy replaces it.
+    #[cfg(windows)]
+    GuardedPublish,
 }
 
 #[cfg(not(feature = "test-hooks"))]

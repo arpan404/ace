@@ -25,7 +25,7 @@ fn closing_a_root_stops_its_watcher_and_releases_the_root() {
     await_reported(&mut client, checkout.path(), subscription, "before.txt");
 
     let closed = client.request(Op::CloseRoot { root });
-    assert_eq!(client.reply(closed), Reply::Done);
+    assert_eq!(client.reply(closed), Reply::done());
 
     write_file(checkout.path(), "after.txt", "hello\n");
     client.expect_no_event(subscription, Duration::from_millis(600));

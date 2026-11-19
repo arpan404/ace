@@ -62,10 +62,19 @@ impl Staged {
         self.name.as_deref().unwrap_or_default()
     }
 
-    /// Closes the writing handle: a Windows rename cannot replace a file that is still open, and
-    /// nothing below reads through it again.
-    pub(crate) fn close(&mut self) {
-        self.file = None;
+    /// The version of the copy this save wrote, read through the handle it still holds.
+    ///
+    /// The handle follows the copy to the name it was published under, so the version is the one
+    /// of the bytes this save wrote: a name another writer takes after the commit never lends its
+    /// version to this save. Read after publication, because a rename changes the change time.
+    pub(crate) fn published_version(&self) -> Result<String, Error> {
+        let file = self.file.as_ref().ok_or_else(|| {
+            Error::Io(std::io::Error::other(
+                "the staging handle was closed before its version was read",
+            ))
+        })?;
+        let metadata = file.metadata()?;
+        crate::version::version_of(Some(file), &metadata)
     }
 
     /// Gives up the staging name, which now holds something the caller owns.
@@ -105,6 +114,126 @@ impl Drop for Staged {
     fn drop(&mut self) {
         if let Some(name) = self.name.take() {
             let _ = self.dir.remove_file(name);
+        }
+    }
+}
+
+/// A folder made under a private name and published in one no-replace rename.
+///
+/// A create that reported a version read from the destination name could describe a folder
+/// another program put there instead. This keeps the created folder's identity: Unix renames a
+/// folder while a handle to it is open and reads the version through that handle; Windows cannot
+/// rename a folder whose handle is open, so the identity is recorded first and the published name
+/// is trusted only while it still holds that folder.
+pub(crate) struct StagedDir {
+    dir: Dir,
+    name: Option<String>,
+    #[cfg(unix)]
+    handle: Option<Dir>,
+    #[cfg(windows)]
+    identity: Option<(u64, u64)>,
+}
+
+impl StagedDir {
+    pub(crate) fn new(parent: &Dir) -> Result<StagedDir, Error> {
+        for _ in 0..32 {
+            let name = format!("{TEMPORARY}dir-{}", unique_suffix());
+            match parent.create_dir(&name) {
+                Ok(()) => return StagedDir::open(parent, name),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(Error::Io(std::io::Error::new(
+            ErrorKind::AlreadyExists,
+            "no free name for a staging folder",
+        )))
+    }
+
+    #[cfg(unix)]
+    fn open(parent: &Dir, name: String) -> Result<StagedDir, Error> {
+        use cap_fs_ext::DirExt;
+
+        let handle = parent.open_dir_nofollow(&name)?;
+        Ok(StagedDir {
+            dir: parent.try_clone()?,
+            name: Some(name),
+            handle: Some(handle),
+        })
+    }
+
+    #[cfg(windows)]
+    fn open(parent: &Dir, name: String) -> Result<StagedDir, Error> {
+        use cap_fs_ext::DirExt;
+
+        let identity = {
+            let handle = parent.open_dir_nofollow(&name)?;
+            crate::version::identity_of(&handle)?
+        };
+        Ok(StagedDir {
+            dir: parent.try_clone()?,
+            name: Some(name),
+            identity: Some(identity),
+        })
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_deref().unwrap_or_default()
+    }
+
+    /// The tree digest of the folder this create made, once it holds `name` in its parent, or
+    /// `None` when the name no longer holds it.
+    pub(crate) fn published_tree(
+        &self,
+        root: &Root,
+        name: &str,
+        recorded: &str,
+        walks: &crate::describe::Walks,
+    ) -> Result<Option<String>, Error> {
+        let folder = match self.published(name)? {
+            Some(folder) => folder,
+            None => return Ok(None),
+        };
+        let tree = crate::tree::version(root, recorded, &folder, walks)?;
+        Ok(Some(tree.version))
+    }
+
+    #[cfg(unix)]
+    fn published(&self, _name: &str) -> Result<Option<Dir>, Error> {
+        let handle = self.handle.as_ref().ok_or_else(|| {
+            Error::Io(std::io::Error::other(
+                "the staging folder was closed before its version was read",
+            ))
+        })?;
+        Ok(Some(handle.try_clone()?))
+    }
+
+    #[cfg(windows)]
+    fn published(&self, name: &str) -> Result<Option<Dir>, Error> {
+        use cap_fs_ext::DirExt;
+
+        let Some(identity) = self.identity else {
+            return Ok(None);
+        };
+        let Ok(folder) = self.dir.open_dir_nofollow(name) else {
+            return Ok(None);
+        };
+        if crate::version::identity_of(&folder)? != identity {
+            return Ok(None);
+        }
+        Ok(Some(folder))
+    }
+
+    /// Gives up the staging name, which now holds the published folder.
+    pub(crate) fn release(&mut self) {
+        self.name = None;
+    }
+}
+
+impl Drop for StagedDir {
+    fn drop(&mut self) {
+        if let Some(name) = self.name.take() {
+            let _ = self.dir.remove_dir(name);
         }
     }
 }
@@ -184,14 +313,43 @@ pub(crate) fn moving_name() -> String {
 /// The name a version of an entry that could not be put back is preserved under, beside it.
 ///
 /// `notes.md` keeps another version as `notes.conflict-<id>.md`. The name is one a person can see
-/// and open, so a preserved copy is never invisible to the person whose bytes it holds.
+/// and open, so a preserved copy is never invisible to the person whose bytes it holds. A name
+/// near the platform's limit keeps its id suffix and as much of the stem as fits, so the recovery
+/// name is always one the volume accepts.
 pub(crate) fn recovery_name(name: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => {
-            format!("{stem}.conflict-{}.{extension}", unique_suffix())
+    let suffix = format!(".conflict-{}", unique_suffix());
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && extension.len() <= MAX_EXTENSION => {
+            (stem, Some(extension))
         }
-        _ => format!("{name}.conflict-{}", unique_suffix()),
+        _ => (name, None),
+    };
+    let tail = match extension {
+        Some(extension) => format!("{suffix}.{extension}"),
+        None => suffix,
+    };
+    let room = MAX_NAME_LEN.saturating_sub(tail.len()).max(1);
+    let stem = &stem[..floor_boundary(stem, room)];
+    format!("{stem}{tail}")
+}
+
+/// The longest name a component can have, in bytes; a name is never cut in the middle of a
+/// character.
+const MAX_NAME_LEN: usize = 255;
+
+/// The longest extension a recovery name keeps; a longer one is treated as part of the stem.
+const MAX_EXTENSION: usize = 32;
+
+/// The largest byte index at or below `limit` that does not split a character.
+fn floor_boundary(text: &str, limit: usize) -> usize {
+    if text.len() <= limit {
+        return text.len();
     }
+    let mut end = limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
 }
 
 /// Swaps two names in `dir` in one step, so neither ever stops existing. Returns false where the
@@ -332,7 +490,9 @@ mod windows {
     use windows_sys::Wdk::Storage::FileSystem::{FileRenameInformationEx, NtSetInformationFile};
     use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS, RtlNtStatusToDosError};
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx, SetFileInformationByHandle,
+        FILE_BASIC_INFO, FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FileBasicInfo, FileDispositionInfo,
+        GetFileInformationByHandleEx, SetFileInformationByHandle,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -345,11 +505,20 @@ mod windows {
     const NOT_SAME_DEVICE: u32 = 17;
     const NOT_SUPPORTED: u32 = 50;
     const INVALID_PARAMETER: u32 = 87;
+    /// Another program holds the entry in a way that excludes the access this call needs.
+    const SHARING_VIOLATION: u32 = 32;
 
     /// `DELETE`, which a rename needs on the entry being moved.
     const DELETE: u32 = 0x0001_0000;
+    /// Reading an entry's attributes and identity.
+    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    /// Clearing the read-only attribute, which a replace of such a file needs.
+    const FILE_WRITE_ATTRIBUTES: u32 = 0x0000_0100;
     /// Files and folders that share a name with an incoming move of the same name.
     const SHARE_ALL: u32 = 0x0000_0007;
+    /// Readers and deleters share the destination; a writer never does, so no write can land
+    /// between the version check and the commit.
+    const SHARE_READ_DELETE: u32 = 0x0000_0005;
     /// The attributes a read-only file carries, which a rename over it needs cleared.
     const READONLY: u32 = 0x0000_0001;
 
@@ -401,6 +570,7 @@ mod windows {
         match error.raw_os_error().map(|code| code as u32) {
             Some(ALREADY_EXISTS | FILE_EXISTS) => Ok(Noclobber::Exists),
             Some(NOT_SAME_DEVICE | NOT_SUPPORTED | INVALID_PARAMETER) => Ok(Noclobber::Unsupported),
+            Some(SHARING_VIOLATION) => Err(busy(to, error)),
             _ => Err(Error::Io(error)),
         }
     }
@@ -416,11 +586,82 @@ mod windows {
     }
 
     /// Opens an entry with the access a rename needs and nothing else, so a file the caller may
-    /// not read can still be moved.
+    /// not read can still be moved. The entry itself is opened, never a link it names, and the
+    /// handle may share delete and write with the staging handle the caller still holds.
     pub(super) fn open_for_delete(dir: &Dir, name: &str) -> Result<File, Error> {
         let mut options = OpenOptions::new();
-        options.access_mode(DELETE).share_mode(SHARE_ALL);
-        Ok(dir.open_with(name, &options)?)
+        options
+            .access_mode(DELETE | FILE_READ_ATTRIBUTES)
+            .share_mode(SHARE_ALL)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+        dir.open_with(name, &options)
+            .map_err(|error| match error.raw_os_error() {
+                Some(code) if code as u32 == SHARING_VIOLATION => busy(name, error),
+                _ => Error::Io(error),
+            })
+    }
+
+    /// Opens the destination of a guarded publish: a handle to the entry itself, with a share mode
+    /// that excludes writers for as long as it is held, so no write can land between the version
+    /// check and the commit. The attribute access clears a read-only target through the very
+    /// handle that was verified.
+    pub(super) fn open_for_publish(dir: &Dir, name: &str) -> Result<File, Error> {
+        let flags = FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT;
+        let mut options = OpenOptions::new();
+        options
+            .access_mode(DELETE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES)
+            .share_mode(SHARE_READ_DELETE)
+            .custom_flags(flags);
+        match dir.open_with(name, &options) {
+            Ok(file) => Ok(file),
+            // An entry whose ACL allows deleting it but not rewriting its attributes is still
+            // replaceable; the read-only clear then reports its own refusal.
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                let mut minimal = OpenOptions::new();
+                minimal
+                    .access_mode(DELETE | FILE_READ_ATTRIBUTES)
+                    .share_mode(SHARE_READ_DELETE)
+                    .custom_flags(flags);
+                dir.open_with(name, &minimal)
+                    .map_err(|error| open_error(name, error))
+            }
+            Err(error) => Err(open_error(name, error)),
+        }
+    }
+
+    /// Marks the handle's entry for deletion, so the delete follows the entry and never a name.
+    pub(super) fn delete_by_handle(file: &File) -> Result<(), Error> {
+        let information = FILE_DISPOSITION_INFO { DeleteFile: true };
+        // SAFETY: the handle stays open for the call because `file` is borrowed, and the
+        // information buffer is a live, correctly aligned `FILE_DISPOSITION_INFO` of the size
+        // passed, so the call reads only the buffer it was given.
+        let written = unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle() as HANDLE,
+                FileDispositionInfo,
+                std::ptr::from_ref(&information).cast::<c_void>(),
+                size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        };
+        if written == 0 {
+            return Err(Error::Io(std::io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+
+    /// A failed open as the crate's error shape, naming an entry another program is using.
+    fn open_error(name: &str, error: std::io::Error) -> Error {
+        match error.raw_os_error() {
+            Some(code) if code as u32 == SHARING_VIOLATION => busy(name, error),
+            _ => Error::Io(error),
+        }
+    }
+
+    /// Another program holds the entry in a way that refuses this access.
+    fn busy(name: &str, error: std::io::Error) -> Error {
+        Error::Busy(format!(
+            "another program has {name} open in a way that refuses this change: {error}"
+        ))
     }
 
     /// Clears or sets the read-only attribute through an open handle, never through a name: the
@@ -496,11 +737,17 @@ pub(crate) fn rename_handle_noclobber(
     windows::rename(file, to_dir, to, false)
 }
 
-/// Opens an entry for a guarded save: the handle a rename moves aside, carrying only the access
-/// the rename needs.
+/// Opens an entry for a guarded save: the handle a rename moves aside, holding a share mode that
+/// excludes writers for as long as the publish runs.
 #[cfg(windows)]
-pub(crate) fn delete_handle(dir: &Dir, name: &str) -> Result<File, Error> {
-    windows::open_for_delete(dir, name)
+pub(crate) fn publish_handle(dir: &Dir, name: &str) -> Result<File, Error> {
+    windows::open_for_publish(dir, name)
+}
+
+/// Marks the handle's own entry for deletion, never a name that may have been repointed since.
+#[cfg(windows)]
+pub(crate) fn delete_by_handle(file: &File) -> Result<(), Error> {
+    windows::delete_by_handle(file)
 }
 
 /// Reads or clears the read-only attribute through an open handle.
@@ -518,4 +765,42 @@ pub(crate) fn attribute_handle(dir: &Dir, name: &str) -> Result<File, Error> {
     let mut options = OpenOptions::new();
     options.read(false).write(false).access_mode(0);
     Ok(dir.open_with(name, &options)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recovery_name;
+
+    #[test]
+    fn a_recovery_name_for_a_name_at_the_limit_still_fits_it() {
+        let long = format!("{}.md", "n".repeat(250));
+        let kept = recovery_name(&long);
+
+        assert!(kept.len() <= 255, "{} bytes: {kept}", kept.len());
+        assert!(kept.ends_with(".md"), "{kept}");
+        assert!(kept.contains(".conflict-"), "{kept}");
+        let stem = kept.split(".conflict-").next().expect("a stem");
+        assert!(long.starts_with(stem), "the stem is the original's");
+    }
+
+    #[test]
+    fn a_recovery_name_never_splits_a_character() {
+        let long = format!("{}.md", "é".repeat(120));
+        let kept = recovery_name(&long);
+
+        assert!(kept.len() <= 255, "{} bytes", kept.len());
+        let stem = kept.split(".conflict-").next().expect("a stem");
+        assert!(
+            long.starts_with(stem),
+            "the stem is a whole-character prefix"
+        );
+    }
+
+    #[test]
+    fn a_short_name_keeps_its_extension() {
+        let kept = recovery_name("notes.md");
+
+        assert!(kept.starts_with("notes.conflict-"), "{kept}");
+        assert!(kept.ends_with(".md"), "{kept}");
+    }
 }

@@ -11,9 +11,20 @@ use crate::files::{Description, Entry, IndexResult, Page, ReadMeta};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Reply {
-    /// The op did its work and has nothing to return: `closeRoot`, `unwatch`, `createDir`,
-    /// `rename`, `remove`, `setMode` and `publish`.
-    Done,
+    /// The op did its work. The `version` is the entry the mutation committed, when it read one
+    /// from that very entry; `recovery` names where an entry that could not complete its move is
+    /// preserved, so this reply is a distinct outcome rather than a plain success.
+    Done {
+        /// The version of the entry the mutation committed, read from that entry.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
+        /// A folder's own version after a move, which a digest read later is checked against.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        identity: Option<String>,
+        /// The name that holds an entry whose move could not complete.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recovery: Option<String>,
+    },
     /// The number of an opened root.
     Root {
         /// The root's number, to pass to every op on this checkout.
@@ -55,4 +66,15 @@ pub enum Reply {
     },
     /// The answer to an `indexQuery`.
     Index(IndexResult),
+}
+
+impl Reply {
+    /// A plain success: the op did its work and has nothing more to report.
+    pub fn done() -> Reply {
+        Reply::Done {
+            version: None,
+            identity: None,
+            recovery: None,
+        }
+    }
 }

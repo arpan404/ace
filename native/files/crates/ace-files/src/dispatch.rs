@@ -297,14 +297,14 @@ fn close_root(shared: &Shared, id: u64, root: u64) {
                         })
                         .await;
                         match released {
-                            Ok(()) => Ok(Reply::Done),
+                            Ok(()) => Ok(Reply::done()),
                             Err(error) => Err(worker_stopped(error)),
                         }
                     }
                     Err(error) => Err(error),
                 }
             }
-            Ok(None) => Ok(Reply::Done),
+            Ok(None) => Ok(Reply::done()),
             Err(error) => Err(error),
         };
         job.respond(id, result).await;
@@ -315,7 +315,10 @@ fn close_root(shared: &Shared, id: u64, root: u64) {
 fn unwatch(shared: &Shared, id: u64, subscription: u64) {
     let job = shared.clone();
     tokio::spawn(async move {
-        let result = job.subscriptions.remove(subscription).map(|_| Reply::Done);
+        let result = job
+            .subscriptions
+            .remove(subscription)
+            .map(|_| Reply::done());
         job.respond(id, result).await;
     });
 }
