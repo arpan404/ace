@@ -2,4 +2,4 @@
 // The mark is its owner's trademark; see LICENCES.md beside this file. Do not edit.
 import type { BrandArt } from "../brand-art-types.ts";
 
-export const art: BrandArt = {"viewBox":"-0.5 -0.5 25 25","mono":[{"d":"M12 0 3.694 4.8V24L12 19.2Zm0 19.2v4.502h8.305V14.4Z"}],"color":[{"d":"M12 0 3.694 4.8V24L12 19.2Zm0 19.2v4.502h8.305V14.4Z","fill":"#282C33"}]};
+export const art: BrandArt = {"viewBox":"-0.5 -0.5 25 25","mono":[{"d":"M12 0 3.694 4.8V24L12 19.2Zm0 19.2v4.502h8.305V14.4Z"}]};

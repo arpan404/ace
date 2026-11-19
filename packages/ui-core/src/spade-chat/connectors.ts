@@ -20,7 +20,7 @@ export const spadeAppCategories = [
   { id: "code", label: "Code" },
   { id: "data", label: "Data" },
   { id: "money", label: "Money" },
-  { id: "design", label: "Design & sites" },
+  { id: "design", label: "Design" },
 ] as const;
 
 export type SpadeAppCategory = (typeof spadeAppCategories)[number]["id"];

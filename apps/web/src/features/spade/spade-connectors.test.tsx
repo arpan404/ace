@@ -493,8 +493,8 @@ test("the catalogue finds an app by name across categories, and a category shows
   expect(dialog.getByText("No app matches “zzz”. Add its server by address below.")).toBeTruthy();
   await userEvent.clear(dialog.getByRole("searchbox", { name: "Search apps" }));
 
-  await userEvent.click(dialog.getByRole("button", { name: "Design & sites" }));
-  const design = within(dialog.getByRole("region", { name: "Design & sites" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Design" }));
+  const design = within(dialog.getByRole("region", { name: "Design" }));
   expect(design.getAllByRole("listitem")).toHaveLength(1);
   expect(design.getByText("Figma")).toBeTruthy();
   expect(dialog.queryByText("Slack")).toBeNull();
@@ -532,4 +532,42 @@ test("apps already added lead the catalogue with their state, and an app reached
   dialog = await openCatalogue();
   const recent = within(dialog.getByRole("region", { name: "Recent" }));
   expect(recent.getByText("Linear")).toBeTruthy();
+});
+
+test("each app shows its own mark, and a server added by address its first letter", async () => {
+  await spadeApp("/settings/spade/apps", (api) => {
+    seed(api);
+    api.connectors.connectors.push(
+      {
+        id: "linear",
+        name: "Linear",
+        url: "https://mcp.linear.app/mcp",
+        catalogue: "linear",
+        sign_in: "oauth",
+        state: "connected",
+        tools: 3,
+      },
+      {
+        id: "nas",
+        name: "nas.local",
+        url: "http://192.168.1.20:8080/mcp",
+        sign_in: "none",
+        state: "connected",
+        local: true,
+        tools: 1,
+      },
+    );
+  });
+  const section = await connectors();
+  const tile = (name: string) =>
+    section
+      .getByText(name)
+      .closest("[data-part='settings-row']")
+      ?.querySelector("[data-part='avatar']");
+  // Linear's own outline, drawn from the bundled mark; never a fetched image.
+  await waitFor(() =>
+    expect(tile("Linear")?.querySelector("svg path")?.getAttribute("d")).toBeTruthy(),
+  );
+  expect(tile("Linear")?.querySelector("img")).toBeNull();
+  await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });

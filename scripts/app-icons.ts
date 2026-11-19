@@ -187,8 +187,11 @@ function luminance(hex: string): number {
   return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
 }
 
-/** A brand whose colour is black draws in the text colour, so it shows on dark surfaces too. */
-const black = (fill: string) => /^#?0{3,6}$|^black$/i.test(fill) || luminance(fullHex(fill)) < 0.02;
+/**
+ * A brand whose colour is black or nearly (navy, charcoal) draws in the text colour, so it shows
+ * on dark surfaces too.
+ */
+const black = (fill: string) => /^#?0{3,6}$|^black$/i.test(fill) || luminance(fullHex(fill)) < 0.06;
 function fullHex(fill: string): string {
   const hex = fill.replace(/^#/, "");
   if (/^[0-9a-f]{3}$/i.test(hex)) return `#${[...hex].map((c) => c + c).join("")}`;

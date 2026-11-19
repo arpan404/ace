@@ -80,7 +80,9 @@ export function AppMark(props: {
   const gradientId = useId();
   const size = sizes[props.size ?? "row"];
   const id = props.catalogue;
-  useEffect(() => load(id), [id]);
+  const loaded = tables !== undefined;
+  // Again once the tables arrive: only then is the app's own mark known.
+  useEffect(() => load(id), [id, loaded]);
   const art = id ? marks.get(id) : undefined;
   const marked = Boolean(id && tables?.appArt[id]);
   return (
