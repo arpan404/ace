@@ -47,6 +47,42 @@ fn reports_a_created_file_to_the_watch() {
 }
 
 #[test]
+fn a_change_in_a_focused_folder_is_reported_while_the_os_watch_is_busy() {
+    // A burst anywhere on the volume queues behind fseventsd for every client, and on a loaded
+    // Mac a single write after it waited minutes. The folders the daemon names as open must not
+    // wait: the watcher checks them itself.
+    let checkout = checkout(&[("src/existing.txt", "")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+    let subscription = watch(&mut client, root);
+    let id = client.request(Op::Focus {
+        root,
+        folders: vec!["src".to_owned()],
+    });
+    assert!(matches!(client.reply(id), Reply::Done { .. }));
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    for index in 0..5_000 {
+        fs::write(elsewhere.path().join(format!("f{index}")), b"x").unwrap();
+    }
+    let started = Instant::now();
+    write_file(checkout.path(), "src/after.txt", "after\n");
+    let deadline = started + Duration::from_secs(3);
+    loop {
+        if let Some(files_wire::EventPayload::Changes { changes }) =
+            client.try_event(subscription, Duration::from_millis(50))
+            && changes.iter().any(|change| change.path == "src/after.txt")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a focused folder's change was not reported within 3 s of being made"
+        );
+    }
+}
+
+#[test]
 fn every_watch_on_a_root_reports_the_same_batch() {
     let checkout = checkout(&[("existing.txt", "")]);
     let mut client = Client::greeted();
