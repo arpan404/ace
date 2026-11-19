@@ -75,6 +75,9 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
       CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_turn_fences (thread_id TEXT PRIMARY KEY, run TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS delegation_turn_fence_calls (
+        thread_id TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(thread_id, request_id)
+      );
       CREATE TABLE IF NOT EXISTS delegation_member_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
@@ -506,21 +509,33 @@ export class DelegationJournal {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
   }
   /**
-   * A Stop of the thread's turn: that turn (`run`, "" when none ran) delegates nothing more, a
-   * tool call still on its way included. Lifted by the first newer turn, whatever woke it.
+   * A Stop of the thread's turn: that turn (`run`, "" when none ran) delegates nothing more,
+   * the delegation calls it had on their way (`inFlight`, by request id) included. Lifted by
+   * the first call made from a newer turn (`turn-fence.ts`).
    */
-  fenceTurn(thread: ThreadId, run: string) {
-    this.sql(
-      "INSERT INTO delegation_turn_fences VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET run=excluded.run",
-    ).run(thread, run);
+  fenceTurn(thread: ThreadId, run: string, inFlight: readonly string[]) {
+    this.store.atomic(() => {
+      this.sql(
+        "INSERT INTO delegation_turn_fences VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET run=excluded.run",
+      ).run(thread, run);
+      const add = this.sql("INSERT OR IGNORE INTO delegation_turn_fence_calls VALUES (?,?)");
+      for (const requestId of inFlight.slice(0, 64)) add.run(thread, requestId);
+    });
   }
-  /** The run a Stop fenced, or none. */
-  turnFence(thread: ThreadId): string | undefined {
+  /** The run a Stop fenced and the calls it had on their way, or none. */
+  turnFence(thread: ThreadId): { run: string; inFlight: string[] } | undefined {
     const row = this.sql("SELECT run FROM delegation_turn_fences WHERE thread_id=?").get(thread);
-    return row ? String(row.run) : undefined;
+    if (!row) return undefined;
+    const calls = this.sql(
+      "SELECT request_id FROM delegation_turn_fence_calls WHERE thread_id=? LIMIT 128",
+    ).all(thread);
+    return { run: String(row.run), inFlight: calls.map((call) => String(call.request_id)) };
   }
   liftTurnFence(thread: ThreadId) {
-    this.sql("DELETE FROM delegation_turn_fences WHERE thread_id=?").run(thread);
+    this.store.atomic(() => {
+      this.sql("DELETE FROM delegation_turn_fences WHERE thread_id=?").run(thread);
+      this.sql("DELETE FROM delegation_turn_fence_calls WHERE thread_id=?").run(thread);
+    });
   }
   suppressWake(child: ThreadId) {
     this.sql(

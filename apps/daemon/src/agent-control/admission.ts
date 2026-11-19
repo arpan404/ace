@@ -15,6 +15,7 @@ import {
 import type { DelegationDependencies } from "./delegations.ts";
 import type { DelegationJournal, DelegationReservation } from "./journal.ts";
 import { controlCommandId } from "./command-id.ts";
+import { turnFenceLifts } from "./turn-fence.ts";
 
 /** Reserve durable capacity before asynchronous owners perform filesystem effects. */
 export class DelegationAdmission {
@@ -61,7 +62,7 @@ export class DelegationAdmission {
     // A thread being cancelled is refused, and so is the turn a Stop stopped: a delegation from
     // it, a tool call still on its way included, comes from work the person ended. The fence
     // lifts when a newer turn runs (the next message actually dispatched), never on acceptance.
-    if (this.journal.fenced(caller.threadId) || this.stoppedTurn(caller))
+    if (this.journal.fenced(caller.threadId) || this.stoppedTurn(caller, input.requestId))
       throw new AgentControlError("delegation_cancelled", "cancelled");
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
@@ -76,12 +77,21 @@ export class DelegationAdmission {
     )
       throw controlAdmissionError("launch_options_unsupported");
   }
-  /** The caller's turn is one a Stop ended; a newer turn lifts the fence. */
-  private stoppedTurn(caller: McpAttribution): boolean {
-    const fenced = this.journal.turnFence(caller.threadId);
-    if (fenced === undefined) return false;
-    const run = this.deps.engine.activeRun(caller.threadId, caller.agentId);
-    if (!run || run === fenced) return true;
+  /**
+   * The call comes from a turn a Stop ended. Only a call made from a newer turn lifts the fence
+   * (`turnFenceLifts`); a provider subagent still running from the stopped turn, or a call the
+   * stopped turn had on its way, never does.
+   */
+  private stoppedTurn(caller: McpAttribution, requestId: string): boolean {
+    const fence = this.journal.turnFence(caller.threadId);
+    if (fence === undefined) return false;
+    const lifts = turnFenceLifts({
+      fenced: fence.run,
+      inFlight: fence.inFlight,
+      ...this.deps.engine.turnOrigin(caller.threadId, caller.agentId),
+      requestId,
+    });
+    if (!lifts) return true;
     this.journal.liftTurnFence(caller.threadId);
     return false;
   }

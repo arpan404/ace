@@ -5,6 +5,7 @@
  * background work together.
  */
 import { expect, test } from "vitest";
+import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
@@ -48,6 +49,93 @@ test("a stopped root's turn delegates nothing more, though its next message is a
   });
   // Once the new turn runs, it delegates as any turn does.
   await h.engine.flush();
+  await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
+});
+
+/** The root agent's call to ace's `delegate` for `requestId`, reported and still running. */
+const delegateCall = (requestId: string): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item: `call-${requestId}`,
+  draft: {
+    type: "tool_call",
+    complete: false,
+    call: {
+      title: "delegate",
+      kind: "mcp",
+      status: "running",
+      detail: {
+        kind: "mcp",
+        server: "ace",
+        tool: "delegate",
+        arguments: { tasks: [{ requestId, task: "One more", role: "late" }] },
+      },
+    },
+  },
+});
+
+test("a delegation the stopped turn had on its way is refused even once the next turn runs", async () => {
+  const h = setup();
+  const root = await working(h, "root");
+  // The stopped turn's call to delegate is on its way when the person presses Stop.
+  await h.emit(root, delegateCall("late"));
+  h.service.command("stop-root", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  h.service.command("next", {
+    type: "thread.send",
+    threadId: root,
+    input: [{ type: "text", text: "Carry on" }],
+  });
+  await h.engine.flush();
+  // The next turn runs; the old call arrives only now. It is still the stopped turn's.
+  await expect(delegateFrom(h, root, "late")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+  // A call the new turn makes delegates as any turn's does.
+  await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
+});
+
+test("a provider subagent still running from the stopped turn delegates nothing, before or after the next turn", async () => {
+  const h = setup();
+  const root = await working(h, "root");
+  await h.emit(
+    root,
+    {
+      type: "agent.seen",
+      agent: "helper",
+      parent: "root",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: "helper-native" },
+      cwd: "/repo",
+    },
+    { type: "turn.started", agent: "helper", trigger: "spawn" },
+  );
+  const helper = Object.values(h.store.snapshotThread(root).agents).find(
+    (agent) => agent.native.nativeId === "helper-native",
+  );
+  if (!helper) throw new Error("No subagent");
+  const fromHelper = (id: string) =>
+    Promise.resolve().then(() => h.delegate({ ...h.caller(root), agentId: helper.id }, id));
+  h.service.command("stop-root", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  // The Stop is still reaching the subagent: the provider reports it working, in a run of its
+  // own that isn't the root's.
+  await h.emit(root, { type: "turn.started", agent: "helper", trigger: "spawn" });
+  await expect(fromHelper("late-helper")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+  h.clock.advance(h.clock.now() + 1_000);
+  h.service.command("next", {
+    type: "thread.send",
+    threadId: root,
+    input: [{ type: "text", text: "Carry on" }],
+  });
+  await h.engine.flush();
+  // Its run began before the new turn: still the stopped turn's work.
+  await expect(fromHelper("later-helper")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
   await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
 });
 

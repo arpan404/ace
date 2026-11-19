@@ -97,7 +97,17 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   different turn. So the fence lifts exactly when the next message from the person or the parent
   is dispatched as a new turn, not when it is accepted into the queue. It works the same for a
   root and for a delegated child sent a new task. A late tool call from the interrupted turn
-  that arrives while the next message still waits is refused.
+  that arrives while the next message still waits is refused. Amended 2026-11-19 (post-merge
+  review): the fence used to compare the caller's own current run with the stopped one, so a
+  provider subagent's run (a different id) lifted it while the cascade was still stopping it,
+  and a late root call that arrived after the next turn began counted as that turn's. Now only a
+  call made from the new turn lifts it (`agent-control/turn-fence.ts`, pure): the root must be
+  running a turn other than the stopped one, the calling agent's own run must be that turn or
+  have started after it began (a tie counts as the stopped turn's), and the call must not be one
+  the stopped turn had on its way. Those are the `delegate` calls the provider had reported and
+  not finished when the Stop came, recorded by request id with the fence
+  (`delegation_turn_fence_calls`, at most 64). A call the provider never reported before the
+  Stop can't be told from a new one, and is judged by its agent's run.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the
   provider's own task stop, bounded like the interrupt, and closes the session when one won't

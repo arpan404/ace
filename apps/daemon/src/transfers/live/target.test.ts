@@ -66,7 +66,8 @@ async function target(
     threadCwd: () => "/srv/app",
     threadStatus: () => options.status ?? { state: "new" },
     continueFate: (_thread, key) =>
-      options.fateAt?.(clock, key) ?? inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
+      options.fateAt?.(clock, key) ??
+      inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
     adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
@@ -218,7 +219,8 @@ describe("a moved thread starting on this machine", () => {
     "completes as not started when the person %s before it ran",
     async (_what, facts, reason) => {
       const t = await target(0, {
-        fateAt: (_clock, key) => (key.includes(":continue:") ? (facts as ContinueFacts) : undefined),
+        fateAt: (_clock, key) =>
+          key.includes(":continue:") ? (facts as ContinueFacts) : undefined,
       });
       const live = carried([]);
       await prep(t, live);
