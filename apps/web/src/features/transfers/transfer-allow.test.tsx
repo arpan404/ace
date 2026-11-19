@@ -1,4 +1,5 @@
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryHistory } from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { continueOn, linkedMachines } from "./transfer-fixture.tsx";
@@ -98,4 +99,53 @@ test("a machine whose ace can't change a link in place says to update it or link
   ).toBeTruthy();
   expect(within(dialog).queryByRole("button", { name: /^Allow projects/ })).toBeNull();
   expect(within(dialog).getByRole("button", { name: "Open Settings › Fleet" })).toBeTruthy();
+}, 30_000);
+
+test("from another machine's thread, Allow projects widens that machine's link, never this window's", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/t/thread-forecast"] });
+  const fixture = linkedMachines({ history });
+  const { app, build } = fixture;
+  const laptop = fixture.machine("laptop");
+  // The build server links to this Mac and to the laptop, without Projects there either.
+  build.linkTo(app.daemon);
+  build.linkTo(laptop, { projects: false });
+  build.createThread({
+    id: "thread-deploy",
+    workspaceId: "deploy",
+    title: "Tune the deploy script",
+    provider: "claude",
+    hasSentMessage: true,
+    details: { workspace: { id: "deploy", name: "deploy", path: "/srv/deploy" } },
+  });
+  // This Mac's own links are read first, from its own thread.
+  await app.open("/t/thread-forecast");
+  let dialog = await continueOn();
+  expect(await within(dialog).findByRole("option", { name: "Old laptop" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  // Then from the build server's thread: its links are listed, and its own link is allowed.
+  await act(async () => history.push("/t/thread-deploy?machine=build"));
+  await screen.findByRole("heading", { name: "Tune the deploy script" });
+  dialog = await continueOn();
+  const machines = await within(dialog).findByRole("listbox", { name: "Machines" });
+  await waitFor(() =>
+    expect(
+      within(machines)
+        .getAllByRole("option")
+        .map((each) => each.textContent),
+    ).toEqual(["This Mac", "Old laptopProjects not allowed"]),
+  );
+  await userEvent.click(within(machines).getByRole("option", { name: /Old laptop/ }));
+  expect(
+    await within(dialog).findByText("Old laptop doesn't take projects from Build server yet."),
+  ).toBeTruthy();
+  const allow = within(dialog).getByRole<HTMLButtonElement>("button", {
+    name: "Allow projects on Old laptop",
+  });
+  await waitFor(() => expect(allow.disabled).toBe(false));
+  await userEvent.click(allow);
+  await within(dialog).findByRole("button", { name: "Continue on Old laptop" });
+  expect(laptop.access.get("fleet-build-on-laptop")?.scopes).toContain("projects");
+  expect(linkOnLaptop(fixture)?.scopes).not.toContain("projects");
 }, 30_000);

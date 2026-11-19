@@ -74,7 +74,7 @@ export async function answerTransfer(
       const { transferId, offset, data, part } = request;
       return {
         status: 200,
-        body: await owner.incoming.chunk(now(), transferId, offset, data, part),
+        body: await owner.incoming.chunk(now(), transferId, offset, data, part, now),
       };
     }
     const { call } = request;
@@ -86,7 +86,7 @@ export async function answerTransfer(
       };
       return { status: 200, body: probe };
     }
-    return { status: 200, body: await owner.incoming.call(now(), call) };
+    return { status: 200, body: await owner.incoming.call(now(), call, now) };
   } catch (error) {
     return refused(owner, device, error);
   }

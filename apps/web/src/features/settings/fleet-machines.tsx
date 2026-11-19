@@ -60,7 +60,16 @@ export function FleetMachines(props: {
   );
   const linkAll = (gaps: readonly LinkGap[]) =>
     fleet.link.mutate(gaps, {
-      onSuccess: () => toast.add({ title: "Machines linked" }),
+      // Only what this made: links made meanwhile elsewhere stay as they are and aren't claimed.
+      onSuccess: ({ linked }) =>
+        toast.add(
+          linked
+            ? { title: "Machines linked" }
+            : {
+                title: "Already linked",
+                description: "These machines were linked meanwhile. Their links stay as they are.",
+              },
+        ),
       onError: (error) =>
         toast.error({ title: "Some machines didn't link", description: error.message }),
     });

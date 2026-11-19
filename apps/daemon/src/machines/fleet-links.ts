@@ -6,7 +6,7 @@ import { MachineFailure } from "./transport.ts";
 
 /** A link operation refused, in words a person acts on. Never carries a credential. */
 export class FleetError extends Error {
-  readonly code: "invalid" | "not_found" | "unreachable" | "refused" | "limit";
+  readonly code: "invalid" | "not_found" | "unreachable" | "refused" | "limit" | "exists" | "busy";
   constructor(code: FleetError["code"], message: string) {
     super(message);
     this.code = code;
@@ -76,6 +76,8 @@ function redeemFailure(error: unknown): FleetError {
 export class FleetLinks {
   private deps: FleetLinkDeps;
   private listeners = new Set<(profiles: RemoteProfile[]) => void>();
+  /** Machines a link to is being made right now, from redeeming until it is saved. */
+  private linking = new Set<string>();
   constructor(deps: FleetLinkDeps) {
     this.deps = deps;
   }
@@ -99,7 +101,12 @@ export class FleetLinks {
     const profiles = this.withProfiles((store) => store.list()).slice(0, 64);
     return Promise.all(profiles.map((profile) => this.check(profile)));
   }
-  async link(input: { pairingUrl: string; hostId: HostId; name: string }): Promise<FleetLink> {
+  async link(input: {
+    pairingUrl: string;
+    hostId: HostId;
+    name: string;
+    keep?: true | undefined;
+  }): Promise<FleetLink> {
     let link: PairingLink | undefined;
     try {
       link = parsePairingLink(input.pairingUrl);
@@ -112,17 +119,52 @@ export class FleetLinks {
       (!relayed && (!link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint)))
     )
       throw new FleetError("invalid", "That pairing link isn't complete. Copy it again.");
-    const { daemon, fingerprint } = link;
-    const capacity = this.withProfiles((store) => {
+    const name = (await this.deps.hostName()).slice(0, 256) || "ace";
+    // Reserved after the last wait and right before redeeming, for every link: one link per
+    // machine at a time, since redeeming replaces this machine's device there and a later
+    // answer would save a credential already replaced; and a slot of the 64, so two new links
+    // can't both redeem when only one can be saved. Released when the link ends either way.
+    this.reserve(input.hostId, input.keep === true);
+    try {
+      return await this.redeemAndSave(input, link, relayed, name);
+    } finally {
+      this.linking.delete(input.hostId);
+    }
+  }
+  /** Holds `hostId` for one link being made, or refuses in words a person acts on. */
+  private reserve(hostId: HostId, keep: boolean): void {
+    const refusal = this.withProfiles((store): FleetError | undefined => {
       const existing = store.list();
-      return existing.length < 64 || existing.some((entry) => entry.hostId === input.hostId);
+      const held = existing.some((entry) => entry.hostId === hostId);
+      if (this.linking.has(hostId))
+        return keep
+          ? new FleetError("exists", "This machine is already linking to that one. Its link stays.")
+          : new FleetError("busy", "A link to that machine is being made. Try again in a moment.");
+      if (keep && held)
+        return new FleetError(
+          "exists",
+          "This machine is already linked to that one. Its link stays.",
+        );
+      const pending = [...this.linking].filter(
+        (other) => !existing.some((entry) => entry.hostId === other),
+      ).length;
+      if (!held && existing.length + pending >= 64)
+        return new FleetError("limit", "This machine has 64 links already. Remove one first.");
+      return undefined;
     });
-    if (!capacity)
-      throw new FleetError("limit", "This machine has 64 links already. Remove one first.");
+    if (refusal) throw refusal;
+    this.linking.add(hostId);
+  }
+  private async redeemAndSave(
+    input: { pairingUrl: string; hostId: HostId; name: string },
+    link: PairingLink,
+    relayed: boolean,
+    name: string,
+  ): Promise<FleetLink> {
+    const { daemon, fingerprint } = link;
     let credential: DeviceCredential;
     let relay: { url: string; relayHostId: string } | undefined;
     try {
-      const name = (await this.deps.hostName()).slice(0, 256) || "ace";
       const throughRelay = async (url: string) => {
         if (!this.deps.redeemRelay) throw new ClientError("offline", "No relay redemption here");
         const redeemed = await this.deps.redeemRelay(url, name);
