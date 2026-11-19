@@ -45,6 +45,8 @@ export interface FileTreeRowViewProps {
   selected: boolean;
   /** Cut, waiting to be pasted somewhere else. */
   cut: boolean;
+  /** Where the row sits among its siblings, for a screen reader. */
+  place: { position: number; size: number } | undefined;
   /** A click on the row, with its modifiers: pick, toggle or extend the selection. */
   onPick(row: FolderRow, event: MouseEvent<HTMLElement>): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
@@ -72,6 +74,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         role="treeitem"
         aria-disabled="true"
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
         className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
@@ -87,6 +91,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         role="treeitem"
         aria-disabled="true"
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
         className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
@@ -123,6 +129,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-row={row.key}
         data-ignored={row.ignored || undefined}
         aria-level={row.depth + 1}
+        aria-posinset={props.place?.position}
+        aria-setsize={props.place?.size}
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
         aria-selected={props.selected}
@@ -218,6 +226,8 @@ function MoreRow(args: {
       data-variant="more"
       data-row={row.key}
       aria-level={row.depth + 1}
+      aria-posinset={props.place?.position}
+      aria-setsize={props.place?.size}
       tabIndex={props.focusable ? 0 : -1}
       onFocus={() => props.onFocus(row.key)}
       onClick={() => props.onMore(row.folder ?? "")}

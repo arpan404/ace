@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react";
 import { openContextMenuFromKeyboard } from "@/components/ui/context-menu.tsx";
 import type { OpenHow, TreeCommands, TreeEntry } from "./tree-commands.ts";
 import { treeAction, type TreeAction } from "./tree-keys.ts";
+import { typeAheadMatch, typingName, type TypeAhead } from "./tree-navigation.ts";
 import type { TreeSelection } from "./use-tree-selection.ts";
 
 /** What a key press on a tree row can reach. */
@@ -15,6 +16,8 @@ export interface RowKeyContext {
   focusFilter(): void;
   toggle(folder: string, expand?: boolean): void;
   activate(row: FolderRow, how: OpenHow): void;
+  /** The type-ahead letters so far, kept across key presses. */
+  typed: { current: TypeAhead };
 }
 
 const listed = (row: FolderRow | undefined) =>
@@ -104,6 +107,16 @@ export function onRowKey(
     if (!next || next.kind === "more") return;
     ctx.focusRow(next.key);
     ctx.selection.extend(next.key);
+    return;
+  }
+  const letter =
+    event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey
+      ? event.key
+      : undefined;
+  if (letter && (letter !== " " || typingName(ctx.typed.current, event.timeStamp))) {
+    event.preventDefault();
+    const match = typeAheadMatch(ctx.typed.current, rows, index, letter, event.timeStamp);
+    if (match) ctx.focusRow(match.key);
     return;
   }
   switch (event.key) {

@@ -39,6 +39,7 @@ import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
 import { useTreeSelection } from "./use-tree-selection.ts";
+import { siblingPositions, type TypeAhead } from "./tree-navigation.ts";
 import { TreeStatus } from "./tree-status.tsx";
 
 /** Past this many rows, only those near the viewport mount: each row carries two menus. */
@@ -202,6 +203,8 @@ export function FileTree(props: {
     onExpanded,
     onMade: (key) => focusRow(key),
   });
+  const typed = useRef<TypeAhead>({ text: "", at: 0 });
+  const positions = useMemo(() => siblingPositions(rows), [rows]);
   const clip = commands.clip;
   const cutKeys = useMemo(
     () =>
@@ -213,6 +216,7 @@ export function FileTree(props: {
     [clip],
   );
   const keys: RowKeyContext = {
+    typed,
     rows,
     commands,
     selection,
@@ -307,6 +311,7 @@ export function FileTree(props: {
                 dropTarget={dropTarget}
                 selected={selection.has(row.key)}
                 cut={cutKeys.has(row.key)}
+                place={positions.get(row.key)}
                 onPick={pick}
                 onActivate={activate}
                 onKeyDown={onRowKey}
