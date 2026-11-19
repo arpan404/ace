@@ -20,6 +20,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         granted: Granted::No,
         checkpointed: false,
         target: None,
+        drive: Drive::default(),
     }
 }
 
@@ -404,6 +405,7 @@ fn stored_requests_fold_with_or_without_an_ask_this_build_knows() {
     let cases = [
         (json!("outside_sandbox"), Some(Ask::OutsideSandbox)),
         (json!("undeclared"), Some(Ask::Undeclared)),
+        (json!("drive"), Some(Ask::Drive)),
         (json!("something_later"), None),
         (serde_json::Value::Null, None),
     ];
@@ -437,6 +439,8 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             reviewer_reason: None,
             ask: Some(Ask::Undeclared),
             tool_key: Some(key.into()),
+            app: None,
+            acts_in: None,
             helper: None,
         })
     };
@@ -542,12 +546,47 @@ fn an_ace_tool_declared_as_publishing_is_reviewed_and_a_declared_read_stays_a_re
     );
 }
 
+/// A driving step in `target`, sensitive or granted as given.
+fn step<'a>(
+    target: Result<&'a str, &'static str>,
+    sensitive: Option<&'static str>,
+    granted: bool,
+) -> Call<'a> {
+    Call {
+        drive: Drive {
+            target,
+            sensitive,
+            granted,
+            bound: true,
+        },
+        ..call("screen_act", Some(Effect::Drive))
+    }
+}
+
+fn reviewed_with(route: Route, words: &[&str]) {
+    let Route::Review(Some(concern)) = &route else {
+        panic!("not reviewed with a concern: {route:?}");
+    };
+    for word in words {
+        assert!(concern.contains(word), "{word:?} not in {concern:?}");
+    }
+}
+
+fn asked_about_driving(route: &Route) -> &str {
+    match route {
+        Route::Ask {
+            line,
+            ask: Some(Ask::Drive),
+        } => line,
+        other => panic!("not asked as a driving step: {other:?}"),
+    }
+}
+
 #[test]
-fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
+fn ace_tools_that_can_act_in_a_page_or_app_drive_and_reads_stay_reads() {
     for (name, arguments) in [
         ("browser_act", json!({"click": "e42"})),
-        ("browser_act", json!({"click": "Place order"})),
-        ("screen_act", json!({"type": "hello"})),
+        ("screen_act", json!({"app": "TextEdit", "actions": []})),
         ("sim_act", json!({"key": "return"})),
     ] {
         assert_eq!(
@@ -556,22 +595,127 @@ fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
             "{name}"
         );
     }
-    assert_eq!(
-        ace("browser_snapshot", Risk::Read, None, &json!({})),
-        Effect::Read
-    );
-    let drive = call("browser_act", Some(Effect::Drive));
-    for granted in [Granted::No, Granted::Tool, Granted::Typed] {
-        let call = Call { granted, ..drive };
-        assert_eq!(route(call), asks(DRIVES), "{granted:?}");
+    for name in [
+        "browser_snapshot",
+        "screen_apps",
+        "screen_display",
+        "sim_ui",
+    ] {
+        assert_eq!(
+            ace(name, Risk::Read, None, &json!({})),
+            Effect::Read,
+            "{name}"
+        );
     }
+}
+
+#[test]
+fn a_click_in_textedit_goes_to_the_reviewer_not_the_person() {
+    let route = route(step(Ok("TextEdit"), None, false));
+    reviewed_with(route, &["TextEdit", "as the person", "sends, pays"]);
+}
+
+#[test]
+fn typing_in_mail_asks_the_person() {
+    let mail = drive::Place::App {
+        id: "com.apple.mail".into(),
+        name: "Mail".into(),
+    };
+    let why = drive::sensitive(&mail);
+    assert!(why.is_some());
+    let route = route(step(Ok("Mail"), why, false));
+    let line = asked_about_driving(&route);
+    assert!(
+        line.starts_with("It acts in Mail, mail or messages"),
+        "{line}"
+    );
+    // A name that may be Mail asks even when Spade can't tell which app ace would open.
+    let unplaced = route_of(step(Err(drive::NO_APP), why, false));
+    assert!(
+        unplaced.starts_with("It acts in a place, mail"),
+        "{unplaced}"
+    );
+}
+
+fn route_of(call: Call<'_>) -> String {
+    asked_about_driving(&route(call)).to_owned()
+}
+
+#[test]
+fn a_granted_app_runs_reviewed_without_asking() {
+    reviewed_with(
+        route(step(Ok("TextEdit"), None, true)),
+        &["allowed driving TextEdit", "escalate only"],
+    );
+    // Under untrusted content the review is the strict one, grant or not.
+    let tainted = Call {
+        tainted: true,
+        ..step(Ok("TextEdit"), None, true)
+    };
+    reviewed_with(
+        route(tainted),
+        &["untrusted content", "serves the person's request"],
+    );
+    let tainted = Call {
+        tainted: true,
+        ..step(Ok("TextEdit"), None, false)
+    };
+    reviewed_with(
+        route(tainted),
+        &["untrusted content", "serves the person's request"],
+    );
+}
+
+#[test]
+fn a_sensitive_place_asks_even_when_granted_or_allowed_always() {
     let always = Call {
         always: true,
         rule: Decision::Run,
-        ..drive
+        ..step(Ok("paypal.com"), Some("a bank"), true)
+    };
+    asked_about_driving(&route(always));
+}
+
+#[test]
+fn a_step_spade_cant_place_asks_the_person_even_in_a_granted_app() {
+    for why in [
+        drive::UNPLACED,
+        drive::NO_TAB,
+        drive::LOADING,
+        drive::DEVICE_INPUT,
+        drive::table::CLOSES_BROWSER,
+    ] {
+        assert_eq!(route_of(step(Err(why), None, false)), why);
+        assert_eq!(route_of(step(Err(why), None, true)), why);
+        let always = Call {
+            always: true,
+            rule: Decision::Run,
+            ..step(Err(why), None, false)
+        };
+        assert_eq!(route_of(always), why, "Always allow doesn't place it");
+    }
+}
+
+#[test]
+fn a_drive_step_runs_on_always_allow_and_no_tool_grant_covers_it() {
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        ..step(Ok("TextEdit"), None, false)
     };
     assert_eq!(route(always), Route::Run);
+    // A tool grant for browser_act would cover every site: refused, and ignored at the gate.
     assert!(never_granted(Some(Effect::Drive)).is_some());
+    let tool_grant = Call {
+        granted: Granted::Tool,
+        ..step(Ok("TextEdit"), None, false)
+    };
+    assert!(matches!(route(tool_grant), Route::Review(Some(_))));
+    let too_long = Call {
+        fits: false,
+        ..step(Ok("TextEdit"), None, true)
+    };
+    assert_eq!(asked_about_driving(&route(too_long)), TOO_LONG);
 }
 
 #[test]
@@ -632,4 +776,197 @@ fn a_push_or_send_request_names_where_it_goes() {
         route(comment),
         asks("It sends something in your name to github.com/acme/app#7, so you decide.")
     );
+}
+
+#[test]
+fn a_step_ace_cant_hold_to_its_place_asks_the_person_instead_of_the_reviewer() {
+    for granted in [false, true] {
+        let unbound = Call {
+            drive: Drive {
+                bound: false,
+                ..step(Ok("docs.rs"), None, granted).drive
+            },
+            ..step(Ok("docs.rs"), None, granted)
+        };
+        let line = route_of(unbound);
+        assert!(
+            line.starts_with("It acts in docs.rs, and this version of ace"),
+            "{line}"
+        );
+        assert!(line.contains("Updating ace"), "{line}");
+    }
+    // Not even the person's own Always allow for the tool lets it run unheld.
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        drive: Drive {
+            bound: false,
+            ..step(Ok("docs.rs"), None, false).drive
+        },
+        ..step(Ok("docs.rs"), None, false)
+    };
+    assert!(route_of(always).contains("this version of ace"));
+}
+
+/// The route of a `sim_*` call, with the facts the engine would find for it (no lookup: a device
+/// step names its own place), granted and allowed always as given.
+fn device_route(tool: &str, arguments: serde_json::Value, always: bool) -> Route {
+    let step = drive::read(tool, &arguments, None);
+    let call = Call {
+        always,
+        rule: if always { Decision::Run } else { Decision::Ask },
+        drive: Drive {
+            target: step
+                .place
+                .as_ref()
+                .map(drive::Place::shown)
+                .map_err(|why| *why),
+            sensitive: step.sensitive,
+            granted: true,
+            bound: true,
+        },
+        ..call(tool, Some(Effect::Drive))
+    };
+    route(call)
+}
+
+#[test]
+fn every_simulator_and_device_operation_asks_the_person() {
+    for row in drive::table::TABLE
+        .iter()
+        .filter(|row| row.tool.starts_with("sim_"))
+    {
+        let mut arguments = json!({"simId": "s1", "appId": "com.apple.calculator",
+                                   "url": "https://docs.rs/", "text": "hi"});
+        if let Some(op) = row.op {
+            arguments["action"] = json!(op);
+        }
+        for always in [false, true] {
+            let route = device_route(row.tool, arguments.clone(), always);
+            asked_about_driving(&route);
+        }
+    }
+    // And a simulator tool or operation the table doesn't know yet asks too.
+    asked_about_driving(&device_route("sim_new", json!({"simId": "s1"}), true));
+    asked_about_driving(&device_route(
+        "sim_act",
+        json!({"simId": "s1", "action": "shake"}),
+        true,
+    ));
+}
+
+#[test]
+fn an_always_allow_for_sim_act_never_skips_the_person() {
+    let open = json!({"simId": "s1", "action": "open_app", "appId": "com.apple.calculator"});
+    let route = device_route("sim_act", open, true);
+    let line = asked_about_driving(&route).to_owned();
+    assert!(line.contains(drive::ON_DEVICE), "{line}");
+}
+
+#[test]
+fn every_kind_of_device_place_is_the_persons_alone() {
+    let Some(page) = drive::address::parse("https://docs.rs/") else {
+        panic!("a web address");
+    };
+    for place in [
+        drive::Place::Device {
+            device: "s1".into(),
+        },
+        drive::Place::DeviceApp {
+            device: "s1".into(),
+            app: "com.apple.calculator".into(),
+        },
+        drive::Place::DeviceSite {
+            device: "s1".into(),
+            page,
+        },
+    ] {
+        assert_eq!(place.persons_alone(), Some(drive::ON_DEVICE), "{place:?}");
+        assert!(drive::sensitive(&place).is_some(), "{place:?}");
+        assert_eq!(place.grant(), None, "{place:?}");
+    }
+}
+
+/// The route of a screen step on `app` (by name or id), as the engine would find it: ace lists
+/// the app for the name, the person allowed the tool always and allowed the app for the bot.
+fn screen_route(tool: &str, arguments: serde_json::Value, listed: &str) -> Route {
+    let step = drive::read(tool, &arguments, Some(listed));
+    let call = Call {
+        always: true,
+        rule: Decision::Run,
+        drive: Drive {
+            target: step
+                .place
+                .as_ref()
+                .map(drive::Place::shown)
+                .map_err(|why| *why),
+            sensitive: step.sensitive,
+            granted: true,
+            bound: true,
+        },
+        ..call(tool, Some(Effect::Drive))
+    };
+    route(call)
+}
+
+#[test]
+fn an_app_that_shows_another_device_asks_on_every_screen_path_despite_always_allow_and_a_grant() {
+    let viewers = [
+        ("Simulator", "com.apple.iphonesimulator"),
+        ("Xcode", "com.apple.dt.Xcode"),
+        ("Android Studio", "com.google.android.studio"),
+        ("studio64", "studio64.exe"),
+        ("studio.sh", "android-studio"),
+        ("studio", "studio"),
+        ("qemu-system-aarch64", "qemu-system-aarch64"),
+        ("Android Emulator", "com.google.android.emulator"),
+        ("scrcpy", "scrcpy"),
+        ("iPhone Mirroring", "com.apple.ScreenContinuity"),
+        ("QuickTime Player", "com.apple.QuickTimePlayerX"),
+        ("Vysor", "com.koushikdutta.vysor"),
+        ("Genymotion", "com.genymobile.genymotion"),
+        ("Duet", "com.kairos.duet"),
+        ("Screen Sharing", "com.apple.ScreenSharing"),
+        ("VNC Viewer", "com.realvnc.vncviewer"),
+        ("Windows App", "com.microsoft.rdc.macos"),
+        ("UTM", "com.utmapp.UTM"),
+        ("Parallels Desktop", "com.parallels.desktop.console"),
+        ("VMware Fusion", "com.vmware.fusion"),
+        ("VirtualBox", "org.virtualbox.app.VirtualBox"),
+        ("Remmina", "org.remmina.Remmina"),
+        ("AnyDesk", "com.philandro.anydesk"),
+        ("TeamViewer", "com.teamviewer.TeamViewer"),
+    ];
+    for (name, id) in viewers {
+        let listed = format!("Running:\n{name} ({id}), frontmost");
+        let paths = [
+            (
+                "screen_act",
+                json!({"app": id, "actions": [{"type": "click", "id": 3}]}),
+            ),
+            (
+                "screen_act",
+                json!({"app": name, "actions": [{"type": "type", "text": "hi"}]}),
+            ),
+            ("screen_state", json!({"app": name})),
+            // Another machine's screen tools, routed there.
+            (
+                "screen_act",
+                json!({"app": name, "machine": "mini", "actions": []}),
+            ),
+            // The older screen toolkit opens it by its id.
+            ("screen_open_app", json!({"bundleId": id})),
+        ];
+        for (tool, arguments) in paths {
+            let route = screen_route(tool, arguments.clone(), &listed);
+            asked_about_driving(&route);
+        }
+        // It can't be allowed for a bot, and a grant stored for it covers nothing.
+        assert!(drive::grantable_app(id).is_err(), "{name}");
+        let grant = crate::grant::Scope::DriveApp { app: id.to_owned() };
+        assert!(
+            !crate::grant::covers(&grant, &crate::grant::Action::DriveApp { app: id }),
+            "{name}"
+        );
+    }
 }

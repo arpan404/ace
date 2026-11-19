@@ -4,7 +4,8 @@ use crate::prompt::Usage;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ModelError {
-    #[error("{0} is not a model on one of your endpoints")]
+    /// The reference names no model of the person's endpoints; empty when none was chosen.
+    #[error("{}", unknown_model(.0))]
     UnknownModel(String),
 
     /// The endpoint's model list could not be read. One short line, never the key.
@@ -52,6 +53,15 @@ pub enum ModelError {
         /// What the call that produced the output cost.
         usage: Usage,
     },
+}
+
+/// What a missing model says: that none is chosen yet, or that the chosen one is gone.
+fn unknown_model(reference: &str) -> String {
+    if reference.trim().is_empty() {
+        "no model is chosen yet: choose one in Spade's settings, under Models".to_owned()
+    } else {
+        format!("{reference} is not a model on one of your endpoints")
+    }
 }
 
 impl ModelError {

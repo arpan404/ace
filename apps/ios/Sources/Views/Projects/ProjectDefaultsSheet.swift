@@ -27,18 +27,22 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem) {
-                        Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
+                    EmptyState(systemImage: "folder", title: "Couldn't open the project.", line: problem, failed: true) {
+                        Button("Try again") { Task { await load() } }
                     }
                 } else {
                     SkeletonPage(label: "Opening the project")
                 }
             }
             .toolbar {
-                if project == nil { ToolbarItem(placement: .cancellationAction) { Button("Close", action: done) } }
+                if project == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(action: done) { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                    }
+                }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .task { await load() }
     }

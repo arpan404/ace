@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, readdir, cp, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Store, readConfig } from "@ace/daemon";
@@ -29,6 +30,7 @@ import {
   renderLauncher,
   prepareDaemonHome,
   planUpdateLaunch,
+  canonicalPath,
   updateFailure,
   updateOutcomeFile,
 } from "@ace/service";
@@ -289,6 +291,8 @@ export async function supervise() {
           node: process.execPath,
           args: [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command],
           root,
+          userHome: homedir(),
+          canonical: canonicalPath,
         });
         return spawn(launch.command, launch.args, {
           stdio: "ignore",

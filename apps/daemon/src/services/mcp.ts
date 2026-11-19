@@ -71,7 +71,10 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       })
     : undefined;
-  if (help) services.browserHelp = help;
+  if (help) {
+    services.browserHelp = help;
+    resources.own(() => help.close());
+  }
   const contextGit = new GitService({ timeoutMs: 10_000 });
   resources.own(() => contextGit.close());
   const measurements = measurementObserver({
@@ -317,12 +320,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   // Turning computer use or devices on or off changes which ace tools are offered.
   if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
-  // An agent that carries on (a new turn) no longer waits on a help request nobody answered.
+  // An agent that carries on (a new turn) no longer waits on a help request nobody answered,
+  // and a request whose tab closed or whose thread was archived is withdrawn.
   if (help)
     resources.own(
       store.subscribe((events) => {
-        for (const { threadId, payload } of events)
-          if (payload.type === "run.started") help.withdrawIdle(threadId);
+        for (const { threadId, payload } of events) {
+          if (payload.type === "run.started") help.withdrawIdle(threadId, payload.run.agentId);
+          help.sweep(threadId);
+        }
       }),
     );
   // A preview lasts one turn: it ends with the run that started it.

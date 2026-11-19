@@ -88,7 +88,7 @@ function Crumbs(props: { view: MarketView }) {
   return (
     <nav aria-label="Back" className="mk-crumbs mk-inner" data-width={widthOf(pages.at(-1))}>
       <button type="button" onClick={() => nav.popTo(0)}>
-        {pages.length === 1 && <CaretLeftIcon aria-hidden size={14} />}
+        <CaretLeftIcon aria-hidden size={14} />
         {placeNames[props.view.place]}
       </button>
       {pages.map((page, at) => (

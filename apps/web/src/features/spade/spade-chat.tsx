@@ -34,6 +34,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
+import { SpadeStepsLine } from "./spade-steps-line.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -53,8 +54,9 @@ export interface ChatBot {
  * on a new day, a routine's run named in its line; messages other bots sent here under their
  * face and name. Each bubble offers its exact time, Copy and Read aloud on hover or a long
  * press. Each thing the bot says is a bubble of its own, stacked as a messenger shows several
- * messages; nothing of how it works shows once it is done:
- * no steps, tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
+ * messages; under a reply, the steps it took fold into one quiet line that opens to each, with
+ * what was blocked, refused, hard to undo or done outside its box shown unopened
+ * (`SpadeStepsLine`). Jobs, compaction and the notes it saves don't show (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
  * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
@@ -89,8 +91,10 @@ export function SpadeChat(props: {
   onProposal?(id: string, save: boolean): Promise<boolean>;
   /** An endpoint's name by its id, for a failed reply's sentence; undefined when unknown. */
   endpointName?(id: string): string | undefined;
-  /** Try again on a failed reply: sends the person's last message again. */
-  onRetry?(text: string): Promise<boolean>;
+  /** Try again on a failed reply, by its id: Spade answers that turn again in its place. */
+  onRetry?(reply: string): Promise<boolean>;
+  /** Set up a model, offered where a reply failed for want of one. */
+  onSetUpModel?(): void;
   /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
   digests?: readonly SpadeDigest[] | undefined;
   /** The resting line's actions on its wake; resolves false when it didn't go through. */
@@ -154,6 +158,7 @@ export function SpadeChat(props: {
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
+    onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
@@ -228,7 +233,8 @@ interface Handlers {
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onRetry: ((reply: string) => Promise<boolean>) | undefined;
+  onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
@@ -364,6 +370,7 @@ function RunItem(props: {
                     }
                     spaced={Boolean(item.text)}
                     onRetry={handlers.onRetry}
+                    onSetUpModel={handlers.onSetUpModel}
                   />
                 ) : (
                   item.end && (
@@ -400,6 +407,8 @@ function RunItem(props: {
           </div>
         </BubbleFrame>
       );
+    case "steps":
+      return <SpadeStepsLine summary={item.summary} steps={item.steps} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>
@@ -493,24 +502,6 @@ function Single(props: {
         <p role="note" className={cn("text-xs text-muted-foreground", space)}>
           {item.text}
         </p>
-      );
-    case "group":
-      // A group the bot is in sent it (ADR 0132): a small label, then what was asked, quietly.
-      return (
-        <div
-          role="note"
-          aria-label={`In ${item.group}`}
-          className={cn("flex flex-col items-center gap-1", space)}
-        >
-          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
-            {item.agent ? `In ${item.group} · ${item.agent.name}` : `In ${item.group}`}
-          </span>
-          {item.text && (
-            <p className="max-w-[80%] text-center text-xs text-muted-foreground wrap-anywhere line-clamp-3">
-              {item.text}
-            </p>
-          )}
-        </div>
       );
     case "handback":
       // The person handed the computer back: Spade's narration as one quiet line, and the names

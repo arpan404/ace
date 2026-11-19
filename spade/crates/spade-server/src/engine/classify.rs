@@ -12,7 +12,9 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use serde_json::Value;
-use spade_classify::{Effect, Mcp, Model, Prediction, Reviewing, Screen, Subject};
+use std::collections::HashMap;
+
+use spade_classify::{Decision, Effect, Hardening, Mcp, Model, Reviewing, Screen, Subject};
 use spade_core::Event;
 use spade_core::autonomy::{Classed, Runs};
 use spade_core::event::{Call, Verdict};
@@ -44,8 +46,17 @@ pub(super) struct Screening<'a> {
     pub reviewing: Reviewing,
 }
 
-/// What the stored verdict of a settled call says.
-const SETTLED: &str = "Spade's classifier read it as clearly low-risk.";
+/// What the stored verdict of a settled call says, with the name of the overrides it runs with
+/// (ADR 0172, amendment 3), so the launch and a restart can check them.
+fn settled(hardening: &Hardening) -> String {
+    format!(
+        "Spade's classifier read it as clearly low-risk; it runs with Spade's configuration overrides ({}).",
+        hardening.digest()
+    )
+}
+
+/// What the person is told when a call the classifier settled can't run in its hard form now.
+const NO_FORM: &str = "Spade can't run it with its configuration overrides now, so you decide.";
 
 /// The request's line for a person-only effect the classifier reads.
 pub fn line(effect: Effect) -> &'static str {
@@ -67,7 +78,7 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
     {
         return Some(Subject::Shell {
             command,
-            workspace: None,
+            workspace: s.classed.workspace.as_deref(),
         });
     }
     s.hints.map(|hints| Subject::Tool {
@@ -77,20 +88,48 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
     })
 }
 
-/// The model's decision: it may settle only a shell command the gate lets it settle; anything
-/// else it can only raise or leave to the reviewer.
-pub fn decide(model: &Model, subject: &Subject<'_>, reviewing: Reviewing) -> (Prediction, Screen) {
-    let prediction = model.predict(subject);
-    let shell = matches!(subject, Subject::Shell { .. });
-    let screen = if shell && reviewing.may_settle() {
-        model.screen(&prediction)
-    } else {
-        model.raise(&prediction)
-    };
-    (prediction, screen)
+/// The model's decision (`spade_classify::Model::decide`).
+pub fn decide(
+    model: &Model,
+    subject: &Subject<'_>,
+    reviewing: Reviewing,
+    config_clean: spade_classify::ConfigTools,
+    sandboxable: bool,
+) -> Decision {
+    let decision = model.decide(subject, reviewing, config_clean);
+    // A settled command's reads are contained by a read-only OS sandbox (ADR 0172, amendment 7).
+    // Where the machine has none, nothing settles: the reviewer decides.
+    if !sandboxable && decision.screen == Screen::LowRisk {
+        return Decision {
+            screen: Screen::Abstain,
+            hardening: None,
+            ..decision
+        };
+    }
+    decision
+}
+
+/// Whether the call's stored verdict is this classifier's.
+fn settled_by_classifier(events: &[Event], call_id: &str) -> bool {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(spade_core::event::Known::CallReviewed {
+                call_id: c, model, ..
+            }) if c == call_id => Some(model.starts_with("spade-classify/")),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 impl Engine {
+    /// The form the classifier settled the call `key` for, taken (each call launches once). The
+    /// launch must run it in exactly this form, or not at all.
+    pub(crate) fn take_hardening(&self, key: &str) -> Option<Hardening> {
+        self.decisions.take(key)
+    }
+
     /// Whether Spade's classifier is on (the machine's setting, on unless turned off).
     pub(crate) fn classifier_on(&self) -> bool {
         self.oversight().map_or(true, |global| global.classifier)
@@ -105,13 +144,43 @@ impl Engine {
         events: &[Event],
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
-        if !self.classifier_on() || review::stored(events, &s.call.id).is_some() {
+        let key = format!("{id}.{}", s.call.id);
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id) {
+            // A call this classifier settled before a restart runs only in the form it was
+            // settled for, derived again from the command and checked against the record.
+            if verdict == Verdict::Allow && settled_by_classifier(events, &s.call.id) {
+                let form = s
+                    .arguments
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .and_then(spade_classify::hardening);
+                return Ok(match form {
+                    Some(form) if reason == settled(&form) => {
+                        self.decisions.mark(&key, form);
+                        Screened::Run
+                    }
+                    _ => Screened::Ask(NO_FORM.to_owned()),
+                });
+            }
+            return Ok(Screened::Review);
+        }
+        if !self.classifier_on() {
             return Ok(Screened::Review);
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
             return Ok(Screened::Review);
         };
-        let (prediction, screen) = decide(model, &subject, s.reviewing);
+        let Decision {
+            prediction,
+            screen,
+            hardening,
+        } = decide(
+            model,
+            &subject,
+            s.reviewing,
+            s.classed.config_clean,
+            s.classed.sandboxable,
+        );
         let (top, confidence) = prediction.top();
         self.decisions.append(&Logged {
             at: self.clock.now_ms(),
@@ -136,7 +205,16 @@ impl Engine {
         });
         let (verdict, reason, screened) = match screen {
             Screen::Abstain => return Ok(Screened::Review),
-            Screen::LowRisk => (Verdict::Allow, SETTLED.to_owned(), Screened::Run),
+            Screen::LowRisk => {
+                // Settled only with the form it runs in; recorded with the verdict and taken by
+                // the launch, which checks it again.
+                let Some(form) = hardening else {
+                    return Ok(Screened::Review);
+                };
+                let reason = settled(&form);
+                self.decisions.mark(&key, form);
+                (Verdict::Allow, reason, Screened::Run)
+            }
             Screen::Person(effect) => {
                 let line = line(effect).to_owned();
                 (Verdict::Escalate, line.clone(), Screened::Ask(line))
@@ -151,6 +229,7 @@ impl Engine {
             model: model.id().to_owned(),
             cost_micros: 0,
             bound: super::autonomy::binding(&s.classed.shown),
+            acts_in: None,
         });
         Ok(match self.record_unless_stopped(id, reply, &event)? {
             true => screened,
@@ -183,6 +262,8 @@ const MOST_BYTES: u64 = 1024 * 1024;
 pub(crate) struct Decisions {
     dir: PathBuf,
     held: Mutex<()>,
+    /// The form each settled call must launch in, by call key, taken once by its launch.
+    forms: Mutex<HashMap<String, Hardening>>,
 }
 
 impl Decisions {
@@ -190,7 +271,22 @@ impl Decisions {
         Self {
             dir,
             held: Mutex::new(()),
+            forms: Mutex::default(),
         }
+    }
+
+    fn mark(&self, key: &str, form: Hardening) {
+        self.forms
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.to_owned(), form);
+    }
+
+    fn take(&self, key: &str) -> Option<Hardening> {
+        self.forms
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key)
     }
 
     fn append(&self, line: &Logged<'_>) {

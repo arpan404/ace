@@ -479,7 +479,8 @@ const pageTools: Tool[] = [
     input: browserMeasureShape,
     timeoutMs: waitTimeoutMs,
     async run(args, caller, port, signal) {
-      const { tabId, ...options } = args;
+      // The tab and the place it's held to route the command; the rest are the options.
+      const { tabId, expect: _held, ...options } = args;
       validateMeasurementBudget(BrowserMeasurementOptions.parse(defined(options)));
       const result = await port.execute(
         caller,

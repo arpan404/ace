@@ -270,6 +270,48 @@ async fn deleting_an_agent_stops_its_work_and_removes_its_conversation() -> Resu
 }
 
 #[tokio::test]
+async fn a_bot_whose_words_are_streaming_reads_writing_not_thinking() -> Result {
+    let slow = Script::reply("a b c d e f g h")
+        .chunks(8)
+        .delay(Duration::from_millis(200));
+    let spade = Spade::start(vec![slow, title()], Vec::new()).await?;
+    let conversation = spade.ask("Go slowly").await?;
+    let mut live = spade
+        .http
+        .get(format!(
+            "{}/v1/conversations/{conversation}/live?after=0",
+            spade.base
+        ))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?
+        .bytes_stream();
+    spade.wait_for(&conversation, "reply_progress").await?;
+    let id = roster(&spade)
+        .await?
+        .into_iter()
+        .find(|a| a["conversation"] == conversation.as_str())
+        .map(|a| a["id"].as_str().unwrap_or_default().to_owned())
+        .unwrap_or_default();
+    let writing = wait_until(&spade, &id, |a| a["state"] == "working").await?;
+    assert_eq!(writing["status"], "Writing", "{writing}");
+    let mut seen = String::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !seen.contains(r#""status":"Writing""#) && Instant::now() < deadline {
+        if let Ok(Some(Ok(chunk))) = tokio::time::timeout(Duration::from_secs(1), live.next()).await
+        {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+    // The live stream says so before the first words, never after them.
+    let said = seen.find(r#""status":"Writing""#);
+    let first_words = seen.find("event: delta");
+    assert!(said.is_some(), "{seen}");
+    assert!(first_words.is_none_or(|at| said < Some(at)), "{seen}");
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_roster_shows_a_running_turn_and_an_approval_wait() -> Result {
     let email = FakeTool::new("send_email", Risk::Write, "sent");
     let spade = Spade::start(
@@ -331,7 +373,7 @@ async fn the_roster_shows_a_running_turn_and_an_approval_wait() -> Result {
     assert!(
         matches!(
             working["status"].as_str(),
-            Some("Thinking" | "Using send email")
+            Some("Thinking" | "Using send email" | "Writing")
         ),
         "{working}"
     );

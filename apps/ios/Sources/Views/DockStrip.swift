@@ -224,7 +224,9 @@ private struct StripButton: View {
     }
 }
 
-private struct StripButtonLook: ViewModifier {
+/// A strip's answer drawn as a button; request cards (`CardButton`) and Spade's approval share it,
+/// so the same decision looks the same wherever it is asked.
+struct StripButtonLook: ViewModifier {
     let primary: Bool
     func body(content: Content) -> some View {
         if primary {

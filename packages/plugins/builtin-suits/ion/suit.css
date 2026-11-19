@@ -430,3 +430,54 @@
 [data-scheme="light"] [data-part="app"] {
   --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
 }
+
+/* ── Section heads, Spade and the Marketplace ──────────────────────────────────────────── */
+
+/* Every section's head as a readout: mono, spaced, in capitals. */
+[data-part="section-title"] {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Spade: squared bubbles, the bot's with the accent's edge, and a glowing card that waits. */
+[data-part="spade-message"],
+[data-part="header-title"][data-variant="spade-pill"] {
+  border-radius: 2px;
+}
+[data-part="spade-message"]:not([data-variant="user"]) {
+  box-shadow: inset 2px 0 0 var(--suit-ion-line);
+}
+[data-part="card"]:is([data-variant="spade-question"], [data-variant="spade-request"]) {
+  border-radius: 2px;
+  box-shadow: var(--suit-glow);
+}
+
+/*
+ * The Marketplace: an entry is a picture or a small mark with its words, so the cut corners go on
+ * the picture, not round the words. The pick beside the hero is lit like the open row.
+ */
+[data-part="card"]:is(
+  [data-variant="market-entry"],
+  [data-variant="market-lockup"],
+  [data-variant="market-collection"],
+  [data-variant="market-publisher"]
+) {
+  border: 0;
+  border-radius: 0;
+}
+[data-part="market-stage"] {
+  border-radius: 0;
+  clip-path: var(--suit-chamfer);
+}
+[data-part="list-row"][data-variant="market-pick"][data-state="selected"] {
+  background: var(--suit-ion-wash);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="market-try"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    var(--suit-lift),
+    inset 0 1px 0 var(--suit-ion-line);
+}

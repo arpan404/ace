@@ -6,10 +6,10 @@ import { rowPill } from "../spade-profile-parts.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 
 /**
- * Who has the computer, under what it shows, only while someone does: the bot's face, moving,
- * and "Github watcher is using the browser" with Take over, while it drives; "You have the
- * browser" with Hand back once the person took over; "Stopping…" while its work ends. Nothing
- * while neither uses it.
+ * Who has the computer, under what it shows: the bot's face, moving, and "Github watcher is
+ * using the browser" with Take over, only while it drives; "You have the browser" with Hand back
+ * once the person took over; "Stopping…" while its work ends. While neither uses it, one quiet
+ * sentence says so, with no face and no button.
  */
 export function DriveLine(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -19,7 +19,10 @@ export function DriveLine(props: {
 }) {
   const { state, bot } = props;
   const person = state.paused || state.stopping;
-  if (!person && state.status !== "working" && state.status !== "waiting") return null;
+  if (!person && state.status !== "working" && state.status !== "waiting")
+    return (
+      <p className="mx-1 mt-3 text-ui text-muted-foreground">{`${bot.name} isn't using the ${props.what} now.`}</p>
+    );
   return (
     <div
       role="status"

@@ -5,9 +5,10 @@
  * The status lives in `.state` so the story can change it (scripts/stage-story.ts).
  */
 import { providerIcon } from "@ace/ui-core/provider-icons";
-import type { ThreadRow } from "../../content/stage.ts";
+import { projectMarks, type ThreadRow } from "../../content/stage.ts";
+import AceMark from "../AceMark.astro";
 import BrandMark from "../BrandMark.astro";
-import AppIcon from "./AppIcon.astro";
+import AppIcon, { type AppIconName } from "./AppIcon.astro";
 import { formatElapsed } from "@ace/ui-core/time";
 
 interface Props {
@@ -19,6 +20,9 @@ const { row, selected = false } = Astro.props;
 const brand = providerIcon({ provider: row.provider }).brand;
 const { state } = row;
 const seconds = "seconds" in state ? state.seconds : undefined;
+const mark = projectMarks[row.project];
+/** A project with a chosen glyph shows it; one without keeps its initials. */
+const glyph = mark && mark !== "ace" ? (mark as AppIconName) : undefined;
 ---
 
 <div
@@ -28,7 +32,9 @@ const seconds = "seconds" in state ? state.seconds : undefined;
   data-tone={state.kind}
 >
   <div class="line top">
-    <span class="chip" style={`--hue: ${row.hue}`}>{row.chip}</span>
+    <span class:list={["chip", { mark: mark }]} style={`--hue: ${row.hue}`}>
+      {mark === "ace" ? <AceMark size={16} /> : glyph ? <AppIcon name={glyph} size={12} /> : row.chip}
+    </span>
     <span class="project">{row.project}</span>
     <span class="state">
       {

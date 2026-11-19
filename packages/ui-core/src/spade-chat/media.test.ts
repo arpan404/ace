@@ -224,14 +224,14 @@ describe("what a bot's tools show", () => {
     expect(c.bubbles()).toMatchObject([{ kind: "bot", text: "", images: [{ sha256: hash("b") }] }]);
   });
 
-  test("a tool that showed nothing, or an empty shared event, adds nothing to the chat", () => {
+  test("a tool that showed nothing, or an empty shared event, adds only its step to the chat", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", calls: [{ id: "c1", name: "web_fetch" }] });
     c.stored({ type: "tool_finished", reply: "r1", call_id: "c1", name: "web_fetch" });
     c.stored({ type: "shared", reply: "r1", call_id: "c1", images: [], documents: [] });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
-    expect(c.bubbles()).toEqual([]);
+    expect(c.bubbles()).toMatchObject([{ kind: "steps", summary: "Read a web page" }]);
   });
 });
 

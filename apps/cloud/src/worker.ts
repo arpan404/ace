@@ -1,4 +1,5 @@
 import { HTTP_MAX_REQUEST_BYTES, HostId, Ticket, ipKey } from "@ace/relay/wire";
+import { clientOf, serverGate } from "@ace/service/client-features";
 import { accountApi, isAccountPath } from "./account/api.ts";
 import type { AccountApi } from "./account/api.ts";
 import { readAccountSetup } from "./account/config.ts";
@@ -116,9 +117,11 @@ function accounts(env: Env) {
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
-    if (isBrokerPath(url.pathname)) return accounts(env).broker.handle(request);
+    // Who is calling, read once (ADR 0189). An app that doesn't say is served as before.
+    const gate = serverGate(clientOf(request));
+    if (isBrokerPath(url.pathname)) return accounts(env).broker.handle(request, gate);
     if (isAccountPath(url.pathname))
-      return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request));
+      return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request), gate);
     const target = forwardPath(url);
     if (target) return forwardHttp(request, env, ctx, target);
     if (!endpoints.has(url.pathname))

@@ -1,25 +1,26 @@
-# Teams: groups, bots on other machines, templates
+# Teams: clubs, bots on other machines, templates
 
 [ADR 0132](../../docs/adr/0132-spade-teams.md) decided this. Spade's bots work together in
-groups, reach bots on the person's other machines through ace, and can be made from templates,
+clubs, reach bots on the person's other machines through ace, and can be made from templates,
 duplicated, exported and imported. Everything is under `/v1` with the bearer token, as
 [agents.md](agents.md) describes; problems are `{"error": "<one line>"}`.
 
-## Groups
+## Clubs
 
-A group is a name, a lead and 2 to 8 member bots, with its own transcript. It lives on the lead's
+A club is a name, a lead and 2 to 8 member bots, with its own transcript. It lives on the lead's
 machine; the lead is a bot of that machine. Members may be bots of any of the person's machines.
+People call it a club; the API, events and stored fields keep the name `group`.
 
 **Member** = `{"agent", "machine": "<host id>"|null, "name", "avatar"|null, "away": bool}`.
 `machine` is null for a bot of this machine. `name` and `avatar` are what the bot last answered
 with (kept for a bot whose machine is away). `away` is true while a member's machine can't be
 reached.
 
-**Group** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
+**Club** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
 "updated_at", "last_activity", "pinned_at", "state", "status", "last_message", "seen_seq", "unseen"}`.
 
 - `members` includes the lead, in the order the person chose.
-- `conversation` is the group's transcript: read it with `GET /v1/conversations/{id}/events` and
+- `conversation` is the club's transcript: read it with `GET /v1/conversations/{id}/events` and
   `GET /v1/conversations/{id}/live` like any conversation. Posting to it there answers `409`.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
@@ -27,14 +28,14 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 - `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
 "machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
   ([agents.md](agents.md)).
-- `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
-  last saw it while nothing in the group runs or waits; marked with
+- `seen_seq`, `unseen`: the club's seen cursor and whether a member answered since the person
+  last saw it while nothing in the club runs or waits; marked with
   `PUT /v1/conversations/{conversation}/seen` (see Seen in [agents.md](agents.md)).
 
 | Method and path              | Body                                          | Answer                                         |
 | ---------------------------- | --------------------------------------------- | ---------------------------------------------- |
 | `PUT /groups/{id}/pin`       | `{"pinned": bool}`                            | `200 {"group"}`; `404` (see Pins in agents.md) |
-| `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity`       |
+| `GET /groups`                |                                               | `{"groups":[Club]}`, by `last_activity`        |
 | `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                                |
 | `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                                |
 | `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped               |
@@ -42,20 +43,20 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 | `POST /groups/{id}/stop`     |                                               | `204`                                          |
 | `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`                |
 
-- `GET /groups/{id}/files` is the group's Library: every file its members on this machine made
+- `GET /groups/{id}/files` is the club's Library: every file its members on this machine made
   answering it, newest first, once per member and path. A member's reply counts when a message
-  from the group started or steered it; a file counts when its `workspace_write` or
+  from the club started or steered it; a file counts when its `workspace_write` or
   `workspace_edit` ran without error, or a background job of that reply kept it (a report). `at`
   is when it was last written there; one since removed from the workspace is left out. A file
-  opens with `GET /v1/agents/{agent}/workspace/file?path=…`. Group messages carry no attachments,
+  opens with `GET /v1/agents/{agent}/workspace/file?path=…`. Club messages carry no attachments,
   so this is the only list; members on other machines keep their files there. `404` for no such
-  group.
+  club.
 - `name`: 1 to 60 characters, one line. `lead` is a member's `agent` id on this machine. Without
   `lead`, Spade leads (and is added as a member when it isn't one); with Spade switched off on
   this machine, the first member of this machine leads. `members` (lead counted) is 2 to 8
   distinct bots. `400` for a body that doesn't fit, `404` for a bot of this machine that doesn't
   exist, `409` when the lead isn't a bot of this machine.
-- Deleting a bot removes it from every group it's in; a group left with fewer than 2 members
+- Deleting a bot removes it from every club it's in; a club left with fewer than 2 members
   stays, and posting to it answers `409` until the person adds one.
 
 ### A run
@@ -65,20 +66,23 @@ first) sends the message to that member; several mentions send it to each. Witho
 goes to the lead.
 
 Each recipient answers in **its own conversation**: the message is stored there as a
-`user_message` with `from_group {id, name, run, ask, untrusted}` and the group's recent messages
+`user_message` with `from_group {id, name, run, ask, untrusted}` and the club's recent messages
 in its context, so it answers with its own model, memory, tools and connectors. Its reply (the
-first reply to finish after the message) is posted in the group. A member's own chat shows these
-messages with the label `In <group>`.
+first reply to finish after the message) is posted in the club. Each message lives in one
+conversation: the club's. The member's own chat, its list row and its unseen mark leave out a
+club's message and a reply that answers only club messages (`group::answering_replies`); a card
+or an approval such a reply asks still shows there, where the person answers it. A reply that also
+answers the person, a job or a wake is the member's own and shows.
 
-`group_ask {member, text}` (a tool every bot has; it refuses outside a group turn) hands work to
+`group_ask {member, text}` (a tool every bot has; it refuses outside a club turn) hands work to
 another member: it is posted as a handoff line, the member answers in its own conversation, the
 answer is posted as the member's message, and the tool returns it to the asker (untrusted). The
-tool waits for the answer (up to 10 minutes). Only bots of the group's machine can call it.
+tool waits for the answer (up to 10 minutes). Only bots of the club's machine can call it.
 
 **Chains.** A run takes as many asks as its work needs (ADR 0158). An ask to a bot already
 waiting up the asker's chain (the bot whose ask the asker is answering, or that bot's asker, and
 so on) is refused as a cycle: it could never answer. A chain deeper than 16 (person to lead is 1,
-lead to member 2, ...) is refused as a runaway guard. Those, asks after Stop and asks in a group
+lead to member 2, ...) is refused as a runaway guard. Those, asks after Stop and asks in a club
 being deleted are refused with words for the bot.
 
 **Stop** (`POST /groups/{id}/stop`) ends the run: every open ask is stopped (a bot of this
@@ -90,9 +94,9 @@ words; `from_group.untrusted` is true when the context carries other bots' messa
 turn counts as untrusted (every write in it asks). An ask from another bot carries `from_agent`
 as `bot_message` does, so it is untrusted.
 
-### Group events
+### Club events
 
-Stored in the group's conversation:
+Stored in the club's conversation:
 
 | Type             | Fields                                                  | Shown as                              |
 | ---------------- | ------------------------------------------------------- | ------------------------------------- |
@@ -105,8 +109,8 @@ Stored in the group's conversation:
 `Bot` = `{"id", "name", "machine": "<host id>"|null}`. `outcome` is `answered`, `stopped`,
 `failed`, `refused` or `gave_up` (an offline machine never came back within 7 days).
 
-The live stream also sends `status` frames `{state, status}` for the group, as for a bot. While
-the group waits, the frame also carries `waiting_member` (`Bot`): the member of this machine that
+The live stream also sends `status` frames `{state, status}` for the club, as for a bot. While
+the club waits, the frame also carries `waiting_member` (`Bot`): the member of this machine that
 waits for the person. Clients find that member by its id, never from the status words. `GET
 /groups` answers it as `waiting_member` too (null otherwise). A member starting or stopping to
 wait sends the frame at once.
@@ -123,7 +127,7 @@ local daemon.
 An ask to a bot of another machine is stored in the outbox first, with a key the sender makes
 (`<sender host id>.<ask id>`), then sent. The outbox delivers it, then reads its answer by key
 with long polls, and survives restarts. While the machine can't be reached the ask is queued
-(backoff 2 s doubling to 5 minutes, for up to 7 days); a group shows `group_queued`, `bot_message`
+(backoff 2 s doubling to 5 minutes, for up to 7 days); a club shows `group_queued`, `bot_message`
 keeps waiting. At most 500 asks wait at once (more are refused until some end); ended entries
 are kept 30 days. Stop withdraws a queued ask before it is sent, and sends `stop` for one already
 delivered.
@@ -145,8 +149,8 @@ Spade reads the daemon's token from ace's home on each request and refuses (`403
 unsigned, signed with another key, or signed more than 5 minutes from its clock; Spade's own
 bearer token alone never reaches the inbox. Without ace's home it answers `503`. Bounds: one
 sender may deliver 500 asks a day (`429` past that), keys are kept 30 days, names are cut to one
-line (a bot's to 40 characters, a group's to 60), and an ask must name the bot (`from`) or the
-group it came through: words from another machine are never the person's own (`400`). Bodies:
+line (a bot's to 40 characters, a club's to 60), and an ask must name the bot (`from`) or the
+club it came through: words from another machine are never the person's own (`400`). Bodies:
 
 | `op`     | Fields                                                                      | Answer                                       |
 | -------- | --------------------------------------------------------------------------- | -------------------------------------------- |
@@ -158,7 +162,7 @@ group it came through: words from another machine are never the person's own (`4
 `key` is 1 to 160 of `A-Za-z0-9_.:-`, scoped to the calling host: the same key from two machines
 is two asks. The key is stored in the same transaction that stores the message, so a repeated
 `ask` answers `duplicate` and delivers nothing. The message carries `from_agent {id, name, depth,
-machine}` (so it is untrusted, and the bot's chat names the machine) and, for a group,
+machine}` (so it is untrusted, and the bot's chat names the machine) and, for a club,
 `from_group`.
 
 ### What ace adds

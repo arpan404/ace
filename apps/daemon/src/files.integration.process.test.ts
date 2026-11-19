@@ -85,6 +85,8 @@ async function setup(relayUrl?: string, files?: DaemonOptions["files"]) {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const connect = async (paired?: { device: { id: string }; token: string }) => {
     const client = new Client(daemon.url);
     cleanup.push(() => client.close());
@@ -442,11 +444,22 @@ async function fileReply(client: Client): Promise<import("@ace/protocol").FilesS
   }
 }
 
+/**
+ * Pushes every welcomed reader can get at any moment, between a request and its reply: catalog
+ * and quota changes (a provider's first limits reading lands shortly after startup) and file
+ * changes. The socket fixture's `Client` drops the same ones unless a test asks for them.
+ */
+const pushes: ReadonlySet<string> = new Set([
+  "models.changed",
+  "providers.changed",
+  "usage.limits_changed",
+  "files.changed",
+]);
+
 async function relayFileReply(client: Awaited<ReturnType<typeof connectClientViaRelay>>) {
   for (;;) {
     const reply = await client.receive();
-    const parsed = ServerMessage.parse(reply);
-    if (parsed.type !== "models.changed" && parsed.type !== "files.changed") return reply;
+    if (!pushes.has(ServerMessage.parse(reply).type)) return reply;
   }
 }
 
@@ -454,8 +467,7 @@ async function relayFileFrame(client: Awaited<ReturnType<typeof connectClientVia
   for (;;) {
     const frame = await client.receiveFrame();
     if (frame instanceof Uint8Array) return frame;
-    const parsed = ServerMessage.parse(frame);
-    if (parsed.type !== "models.changed" && parsed.type !== "files.changed")
+    if (!pushes.has(ServerMessage.parse(frame).type))
       throw new Error("Expected a binary file frame");
   }
 }

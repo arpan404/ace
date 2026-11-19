@@ -19,6 +19,7 @@ import { useNow } from "@/lib/time.ts";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
 import { sidebarGroups, type SidebarRow } from "@ace/ui-core/automations";
 import { useAutomationLists } from "@/features/automation-data/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** One row of the panel's list: a section's label, or an automation under it. */
 type ListRow = { kind: "label"; label: string; first: boolean } | { kind: "row"; row: SidebarRow };
@@ -136,6 +137,7 @@ function NewAutomationButton() {
       <Link
         to="/automations/new"
         aria-label="New automation"
+        {...part("icon-button")}
         activeOptions={{ exact: true }}
         activeProps={{ "aria-current": "page" }}
         className={cn(

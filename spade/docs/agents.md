@@ -10,7 +10,8 @@ describe. Agents run on models from the person's own endpoints.
 
 - **Main agent.** Created by the server on first start: name `Spade`, avatar `{"kind":"spade"}`,
   empty task, the person's first usable model (first endpoint with a key and a saved model), else
-  the presets' main role. At most one per service. It cannot be deleted, and its name and avatar
+  no model (`""`): never a preset's, which the person hasn't set up. Until they choose one,
+  messages to it answer `409` and say so. At most one per service. It cannot be deleted, and its name and avatar
   cannot change (`409`); its task and model can. `PUT /v1/main {"enabled": false}` switches it off
   on a machine that does not host Spade: it is left out of `GET /v1/agents` and `bots_list`, and
   messages to its conversation answer `409`. Its stored conversation is kept.
@@ -28,8 +29,7 @@ describe. Agents run on models from the person's own endpoints.
 - **Concurrent changes** to one agent are read, merged and written as one, so two PATCHes never
   overwrite each other's fields.
 - **Upgrade.** Schema 2 turns each stored conversation into a bot named after its title (or
-  `Agent`), empty task, generated avatar, and the model its latest reply used (else the presets'
-  main role). The main agent is created fresh. A later schema turns every initials avatar into a
+  `Agent`), empty task, generated avatar, and the model its latest reply used (else the person's first usable model). The main agent is created fresh. A later schema turns every initials avatar into a
   character face (see Faces).
 - **Titles** and other side jobs use the person's fast model (`PUT /v1/settings`), else the
   agent's own model. Compaction always uses the agent's own model.
@@ -98,7 +98,8 @@ one of the person's subscriptions, `cli:<provider>[@<account>]/<model>`
 ([cli-brains.md](cli-brains.md)). Any
 model id on one of the person's endpoints works, saved or not. Its facts come from what the person
 saved, else the endpoint's own listing when saved from it, else the presets' facts for that id,
-else defaults: context 128,000, capabilities `["tools"]`.
+else defaults: context 128,000, capabilities `["tools"]`. The defaults only run calls: the API
+answers `null` for a fact nobody stated, so a client never shows a guess as the model's.
 
 Live listing is `GET <base_url>models`: `Authorization: Bearer <key>` for OpenAI formats,
 `x-api-key` and `anthropic-version: 2023-06-01` for Anthropic, plus the endpoint's headers.
@@ -173,7 +174,7 @@ A bot's character face is eight fields; clients draw it (the model and geometry 
 - **Initials avatars migrate in the store**, once: schema 6 rewrites every `generated` (or
   unreadable) avatar as the face its agent's id seeds, oldest agent first, each preferring pairs
   the earlier ones don't wear. Pictures and Spade's mark are untouched. Reading an avatar that is
-  still not a face (one a group member on another machine sent, say) shows the face its id seeds.
+  still not a face (one a club member on another machine sent, say) shows the face its id seeds.
 - Templates ship their own faces; exported bot files carry the face and import repairs it.
 - The iPhone draws faces later from the same tables and geometry (Spade's tab is hidden there).
 
@@ -203,7 +204,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   draft of this contract.
 - `waiting_for`: while `state` is `waiting`, `"question"` when the agent asked the person with
   `ask_user` (see [memory.md](memory.md)), else `"approval"`; `null` otherwise.
-- `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
+- `status`: a few plain words while not idle (`Thinking`, `Writing` once a step's words stream,
+  told before them, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
 - `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
@@ -213,7 +215,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
   output. `text` is the list's preview: plain text on one line, at most 200 characters, with
   markdown gone (emphasis, headings, quotes, fences, list marks, strike-through) and links and
-  images as their words (`[the plan](…)` → `the plan`). `seq` is its event.
+  images as their words (`[the plan](…)` → `the plan`). `seq` is its event. A club's message and
+  a reply that answers only club messages are the club's ([teams.md](teams.md)), never this.
 - `seen_seq`: the conversation's seen cursor (see Seen), or `null` when never marked.
 - `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
   `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.
@@ -221,15 +224,15 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 ### Pins
 
 `PUT /v1/agents/{id}/pin` and `PUT /v1/groups/{id}/pin` with `{"pinned": bool}` pin a bot or a
-group (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
-`{"agent"}` or `{"group"}`; `404` for none. Agents and groups carry `pinned_at`: the ms it was
+club (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
+`{"agent"}` or `{"group"}`; `404` for none. Agents and clubs carry `pinned_at`: the ms it was
 pinned, or `null`. Pinning a pinned conversation keeps its `pinned_at`, so a list shows the strip
 oldest pin first. Pins live in `agents.pinned_ms` and `groups.pinned_ms`, so every device that
 reads this Spade shows the same strip, and they survive restarts.
 
 ### Seen
 
-`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a group's
+`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a club's
 conversation seen up to that event, the conversation's last when absent, never past it. The
 cursor only moves forward: an older `seq` leaves it where it is. Answer `{"seen_seq"}`; `404` for
 no such conversation. Each mark is sent on the conversation's live stream as
@@ -274,7 +277,7 @@ then.
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
 "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

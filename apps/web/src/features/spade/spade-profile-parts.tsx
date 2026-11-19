@@ -50,6 +50,11 @@ export function ProfileEmpty(props: { children: ReactNode; className?: string })
   );
 }
 
+/** A section's only line when it has nothing, straight under its heading: no surface around it. */
+export function ProfileNone(props: { children: ReactNode }) {
+  return <p className="mx-1 text-ui text-muted-foreground">{props.children}</p>;
+}
+
 /** A failed read, in its section's place: one sentence and Try again. */
 export function ProfileProblem(props: { text: string; onRetry(): void }) {
   return (

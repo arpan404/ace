@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { prepareDaemonHome, renderLauncher } from "./index.ts";
 
-async function installation(home: string, version: string) {
-  const root = join(home, "ace-data");
+async function installation(home: string, version: string, folder = "ace-data") {
+  const root = join(home, folder);
   // A current-format home: the release checks below are what these tests exercise.
   prepareDaemonHome(root);
   const target = `${process.platform}-${process.arch}`;
@@ -42,7 +42,8 @@ test("a compatible installation refuses a registered service that points at a le
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-legacy-plan-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const root = await installation(home, "1.2.3");
+  // The default home: the service under the default name is its own.
+  const root = await installation(home, "1.2.3", ".ace");
   const file =
     process.platform === "darwin"
       ? join(home, "Library/LaunchAgents/dev.ace.next.daemon.plist")

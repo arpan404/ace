@@ -2,6 +2,9 @@ import type { SpadeStateLine } from "@ace/ui-core/spade-chat";
 import { Button } from "@/components/ui/button.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 
+/** The strip alone in a column, as the screen's whole content: centred, sentence over its button. */
+export const centeredStrip = "flex flex-col items-center gap-2 text-center text-ui";
+
 /** Spade's state in one sentence, with Turn on while the setting is off. */
 export function SpadeStateStrip(props: { line: SpadeStateLine; className?: string }) {
   const [, setEnabled, saving] = useSpadeEnabled();

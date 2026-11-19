@@ -19,15 +19,17 @@ import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from 
  * Read aloud), file chips, a reply's steps and a speaker's name; and the working line. */
 
 /**
- * A failed reply: one plain sentence by its kind, naming the endpoint; Try again, which sends the
- * person's last message again; and Details, the endpoint's own words, which also stay in the
- * activity log.
+ * A failed reply: what failed and what to do, by its kind, naming the endpoint; Set up a model
+ * when it failed for want of one; Try again, which answers the same turn again in its place (the
+ * new reply replaces this one, nothing is posted twice); and Details, the endpoint's own words,
+ * which also stay in the activity log.
  */
 export function Failure(props: {
   failure: SpadeBubbleFailure;
   endpoint: string | undefined;
   spaced: boolean;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onRetry: ((reply: string) => Promise<boolean>) | undefined;
+  onSetUpModel: (() => void) | undefined;
 }) {
   const { failure, onRetry } = props;
   const [open, setOpen] = useState(false);
@@ -47,6 +49,11 @@ export function Failure(props: {
         </pre>
       )}
       <div className="-mx-2 mt-1 -mb-1 flex flex-wrap gap-1">
+        {failure.kind === "no_model" && props.onSetUpModel && (
+          <Button size="xs" variant="ghost" onClick={props.onSetUpModel}>
+            Set up a model
+          </Button>
+        )}
         {retry !== undefined && onRetry && (
           <Button
             size="xs"
@@ -57,7 +64,7 @@ export function Failure(props: {
               void onRetry(retry).then(() => setSending(false));
             }}
           >
-            {sending ? "Sending…" : "Try again"}
+            {sending ? "Trying again…" : "Try again"}
           </Button>
         )}
         {failure.error && (

@@ -214,7 +214,7 @@ export function RowGroup(props: {
       className={settingsGroup}
     >
       <div className="mb-1.5 flex min-h-7 items-center gap-2">
-        <h3 id={id} className="text-base font-semibold text-foreground">
+        <h3 {...part("section-title")} id={id} className="text-base font-semibold text-foreground">
           {props.label}
         </h3>
         {props.count !== undefined && (

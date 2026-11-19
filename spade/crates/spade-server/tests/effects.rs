@@ -18,6 +18,11 @@ use support::{FakeTool, Result, Spade};
 const TITLE: &str = r#"{"title":"Work"}"#;
 const APPROVE: &str = r#"{"verdict":"approve","reason":"It serves the task."}"#;
 
+/// The input schema of an ace whose driving tools take `expect`.
+fn holds_place() -> Value {
+    json!({ "type": "object", "properties": { "expect": { "type": "object" } } })
+}
+
 fn ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>) -> usize {
     calls.lock().map(|c| c.len()).unwrap_or(0)
 }
@@ -564,4 +569,408 @@ mod sandboxed {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn driving_textedit_is_reviewed_mail_asks_and_allowing_textedit_stops_the_asking()
+    -> Result {
+        let act = FakeTool::new(
+            "screen_act",
+            Risk::Write,
+            "TextEdit (com.apple.TextEdit), frontmost\nWindow: \"Untitled\"",
+        )
+        .declares(spade_core::effect::Effect::Drive)
+        .schema(holds_place());
+        let acts = act.calls();
+        // ace's list of apps, asked right before each step.
+        let apps = FakeTool::new(
+            "screen_apps",
+            Risk::Read,
+            "Running:\nTextEdit (com.apple.TextEdit), frontmost\nMail (com.apple.mail)",
+        );
+        let click = |id: &str, app: &str| {
+            Script::reply("").call(
+                id,
+                "screen_act",
+                json!({ "app": app, "actions": [{ "type": "click", "id": 3 }] }),
+            )
+        };
+        let unreadable = "I can't tell.";
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(apps)], |_| {
+            vec![
+                click("c1", "TextEdit"),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Clicked."),
+                Script::reply("").plain(TITLE),
+                Script::reply("").call(
+                    "c2",
+                    "screen_act",
+                    json!({ "app": "Mail", "actions": [{ "type": "type", "text": "hi" }] }),
+                ),
+                Script::reply("Left it."),
+                click("c3", "TextEdit"),
+                // The reviewer can't decide, so it is left to the person.
+                Script::reply("").plain(unreadable),
+                Script::reply("").plain(unreadable),
+                Script::reply("Clicked again."),
+                click("c4", "TextEdit"),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Done."),
+            ]
+        })
+        .await?;
+        // A click in TextEdit goes to the reviewer, not the person.
+        w.spade.say(&w.conversation, "Click in TextEdit").await?;
+        w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert_eq!(ran(&acts), 1);
+        // Typing in Mail asks the person, and offers no way to allow Mail for the bot.
+        w.spade.say(&w.conversation, "Type in Mail").await?;
+        let events = w
+            .spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        let asked = requests(&events);
+        assert_eq!(asked[0]["call_id"], "c2");
+        assert_eq!(asked[0]["ask"], "drive");
+        assert!(asked[0].get("app").is_none(), "{:?}", asked[0]);
+        let line = asked[0]["reviewer_reason"].as_str().unwrap_or_default();
+        assert!(line.starts_with("It acts in Mail"), "{line}");
+        answer(&w.spade, &w.conversation, "c2", json!({ "allowed": false })).await?;
+        w.spade
+            .wait_for_count(&w.conversation, "reply_finished", 2)
+            .await?;
+        // Left to the person in TextEdit, the request offers TextEdit, as ace lists it.
+        w.spade.say(&w.conversation, "Click again").await?;
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "approval_requested", 2)
+            .await?;
+        let asked = requests(&events);
+        assert_eq!(asked[1]["ask"], "drive");
+        assert_eq!(asked[1]["app"], "TextEdit");
+        assert_eq!(asked[1]["acts_in"]["id"], "com.apple.TextEdit");
+        answer(
+            &w.spade,
+            &w.conversation,
+            "c3",
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+        w.spade
+            .wait_for_count(&w.conversation, "reply_finished", 3)
+            .await?;
+        assert_eq!(ran(&acts), 2);
+        let (_, grants) = w.spade.get(&format!("/v1/agents/{}/grants", w.bot)).await?;
+        let drive_grant = grants.to_string();
+        assert!(
+            drive_grant.contains(r#""kind":"drive_app""#)
+                && drive_grant.contains(r#""app":"com.apple.TextEdit""#),
+            "{grants}"
+        );
+        // The next step there is reviewed as allowed, without asking.
+        w.spade.say(&w.conversation, "Once more").await?;
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "reply_finished", 4)
+            .await?;
+        assert_eq!(ran(&acts), 3);
+        assert_eq!(requests(&events).len(), 2, "not asked again");
+        let reviewed = w.spade.fake.seen();
+        let told = reviewed
+            .iter()
+            .rev()
+            .find(|seen| seen.body.to_string().contains("allowed driving TextEdit"));
+        assert!(told.is_some(), "the reviewer is told the person allowed it");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_step_whose_page_changed_after_its_review_does_not_run() -> Result {
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place());
+        let acts = act.calls();
+        let page = |url: &str| {
+            json!({ "tabs": [
+                { "tabId": "t1", "url": url, "title": "", "current": true },
+                { "tabId": "t2", "url": "https://docs.rs/serde", "title": "" },
+            ] })
+            .to_string()
+        };
+        // Reviewed on docs.rs; by the time it would run, the tab has gone to Gmail.
+        let (docs, gmail) = (
+            page("https://docs.rs/tokio"),
+            page("https://mail.google.com/mail/u/0"),
+        );
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, "")
+            .then_answers(&[docs.as_str(), gmail.as_str()]);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "click", "ref": "e1" }),
+                ),
+                Script::reply("").plain(APPROVE),
+                Script::reply("It moved; I'll look again."),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Click the docs link").await?;
+        let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert_eq!(ran(&acts), 0, "it never ran on Gmail");
+        let told = events
+            .iter()
+            .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+            .and_then(|e| e["content"].as_str())
+            .unwrap_or_default();
+        assert!(told.contains("changed since Spade checked"), "{told}");
+        assert!(
+            requests(&events).is_empty(),
+            "reviewed, not asked, on docs.rs"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_ace_that_cant_hold_a_step_to_its_page_leaves_the_step_to_the_person() -> Result {
+        // An ace from before `expect`: its schema doesn't take it.
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive);
+        let acts = act.calls();
+        let listed = json!({ "tabs": [
+            { "tabId": "t1", "url": "https://docs.rs/tokio", "title": "", "current": true },
+        ] })
+        .to_string();
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, &listed);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "press", "key": "Enter" }),
+                ),
+                // Only reached if the reviewer were asked: it would approve.
+                Script::reply("").plain(APPROVE),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Press Enter").await?;
+        let events = w
+            .spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        let asked = requests(&events);
+        let line = asked[0]["reviewer_reason"].as_str().unwrap_or_default();
+        assert!(
+            line.starts_with("It acts in docs.rs, and this version of ace"),
+            "{line}"
+        );
+        assert!(line.contains("Updating ace"), "{line}");
+        assert_eq!(asked[0]["ask"], "drive");
+        assert!(
+            asked[0].get("app").is_none(),
+            "allowing docs.rs wouldn't stop the asking"
+        );
+        assert_eq!(ran(&acts), 0);
+        // Allowed by the person, it runs as they allowed it.
+        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
+        until_ran(&acts, 1).await;
+        assert_eq!(ran(&acts), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_step_is_handed_to_ace_bound_to_the_tab_and_address_it_was_checked_at() -> Result {
+        // An ace that takes `expect` says so in its schema.
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(json!({ "type": "object", "properties": { "expect": { "type": "object" } } }));
+        let acts = act.calls();
+        let listed = json!({ "tabs": [
+            { "tabId": "t1", "url": "https://docs.rs/tokio", "title": "", "current": true },
+        ] })
+        .to_string();
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, &listed);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "press", "key": "Enter" }),
+                ),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Pressed."),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Press Enter").await?;
+        w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        let sent = acts.lock().map(|calls| calls.clone()).unwrap_or_default();
+        assert_eq!(
+            sent.first().map(|arguments| arguments["expect"].clone()),
+            Some(json!({ "tabId": "t1", "url": "https://docs.rs/tokio" }))
+        );
+        Ok(())
+    }
+}
+
+/// A browser step reviewed on docs.rs/tokio, then Spade stopped before it started: on the next
+/// start the tab is at `now`. Returns whether it ran and how many reviews it had.
+async fn restarted_between_review_and_start(
+    now: &str,
+    after: Vec<Script>,
+) -> Result<(usize, usize)> {
+    let listed = |url: &str| {
+        json!({ "tabs": [ { "tabId": "t1", "url": url, "title": "", "current": true } ] })
+            .to_string()
+    };
+    let drive = |answer: &str| {
+        FakeTool::new("browser_act", Risk::Write, answer)
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place())
+    };
+    let tools = |act: FakeTool, url: &str| {
+        vec![
+            Arc::new(act) as Arc<dyn Tool>,
+            Arc::new(FakeTool::new("browser_tabs", Risk::Write, &listed(url))) as Arc<dyn Tool>,
+        ]
+    };
+    // The reviewer is the scripted model, before and after the restart.
+    let reviewed = || support::Options {
+        reviewer: None,
+        ..support::Options::default()
+    };
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "browser_act",
+                json!({ "action": "press", "key": "Enter" }),
+            ),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Pressed."),
+            Script::reply("").plain(TITLE),
+        ],
+        tools(drive("{}"), "https://docs.rs/tokio"),
+        reviewed(),
+    )
+    .await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Press Enter").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    // Spade stopped for a restart between the review and the start: the turn paused there.
+    let again = drive("{}");
+    let pressed = again.calls();
+    let spade = spade
+        .restart_paused_with(
+            "DELETE FROM events WHERE seq > (SELECT seq FROM events
+                 WHERE json_extract(body, '$.type') = 'call_reviewed')
+               AND conversation_id = (SELECT conversation_id FROM events
+                 WHERE json_extract(body, '$.type') = 'call_reviewed');
+             INSERT INTO events (conversation_id, seq, at_ms, body)
+               SELECT conversation_id, seq + 1, at_ms,
+                 json_object('type', 'turn_paused', 'reply', json_extract(body, '$.reply'))
+               FROM events WHERE json_extract(body, '$.type') = 'call_reviewed';",
+            tools(again, now),
+            after,
+            reviewed(),
+        )
+        .await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let reviews = events
+        .iter()
+        .filter(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
+        .count();
+    Ok((ran(&pressed), reviews))
+}
+
+#[tokio::test]
+async fn a_verdict_given_on_one_page_is_not_reused_on_another_after_a_restart() -> Result {
+    const REFUSE: &str = r#"{"verdict":"refuse","reason":"Not that page."}"#;
+    let (ran, reviews) = restarted_between_review_and_start(
+        "https://docs.rs/serde",
+        vec![Script::reply("").plain(REFUSE), Script::reply("Left it.")],
+    )
+    .await?;
+    assert_eq!(ran, 0, "reviewed again on the new page, and refused there");
+    assert_eq!(reviews, 2);
+    // On the page it was reviewed at, the stored verdict stands: no second review.
+    let (ran, reviews) = restarted_between_review_and_start(
+        "https://docs.rs/tokio",
+        vec![Script::reply("Pressed.")],
+    )
+    .await?;
+    assert_eq!((ran, reviews), (1, 1));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_always_allow_an_earlier_build_stored_for_sim_act_never_skips_the_person() -> Result {
+    let tool = || {
+        FakeTool::new("sim_act", Risk::Write, "{}")
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place())
+    };
+    let spade = Spade::start(Vec::new(), vec![Arc::new(tool()) as Arc<dyn Tool>]).await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    // An earlier build asked about sim_act with no reason of Spade's, and the person answered
+    // Always allow: the conversation holds an Always allow for the tool.
+    let stored = |seq: u32, body: Value| {
+        format!(
+            "INSERT INTO events (conversation_id, seq, at_ms, body) SELECT '{conversation}', \
+             COALESCE(MAX(seq), 0) + {seq}, 0, '{body}' FROM events \
+             WHERE conversation_id = '{conversation}';"
+        )
+    };
+    let seed = [
+        stored(
+            1,
+            json!({ "type": "approval_requested", "reply": "r0", "call_id": "old",
+                    "name": "sim_act", "arguments": {} }),
+        ),
+        stored(
+            1,
+            json!({ "type": "approval_answered", "reply": "r0", "call_id": "old",
+                    "allowed": true, "always": true }),
+        ),
+    ]
+    .join("\n");
+    let act = tool();
+    let opened = act.calls();
+    let spade = spade
+        .restart_paused_with(
+            &seed,
+            vec![Arc::new(act) as Arc<dyn Tool>],
+            vec![Script::reply("").call(
+                "c1",
+                "sim_act",
+                json!({ "simId": "s1", "action": "open_app", "appId": "com.apple.calculator" }),
+            )],
+            support::Options::default(),
+        )
+        .await?;
+    spade.say(&conversation, "Open the calculator").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
+    let asked = requests(&events);
+    let last = asked.last().map(|each| each.to_owned()).unwrap_or_default();
+    assert_eq!(last["call_id"], "c1");
+    assert_eq!(last["ask"], "drive");
+    let line = last["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(line.contains("a simulator or device"), "{line}");
+    assert!(
+        last.get("app").is_none(),
+        "a device is never allowed for the bot"
+    );
+    assert_eq!(ran(&opened), 0);
+    Ok(())
 }

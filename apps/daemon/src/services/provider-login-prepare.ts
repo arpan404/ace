@@ -52,6 +52,9 @@ export async function prepareProviderLogin(
   owner: string,
 ): Promise<ProviderLoginDriver> {
   const { services, options, now, id, config } = context;
+  // Sign-in runs a provider's CLI: only once PATH is final (`login-path-handoff.ts`).
+  await options.loginPath?.final;
+  context.signal.throwIfAborted();
   const registry = services.accountRegistry;
   if (!registry || !services.accounts) throw new Error("Accounts unavailable");
   const configuration = services.providerConfigurations?.for(target.provider, target.instance);

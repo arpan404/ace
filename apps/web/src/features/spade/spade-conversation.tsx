@@ -1,6 +1,7 @@
 import {
   spadeForLaterWords,
   spadeLiveSurfaces,
+  spadeModelState,
   spadeStateLine,
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
@@ -21,7 +22,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { SpadeKeySetup } from "./spade-key-setup.tsx";
+import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
@@ -45,6 +46,7 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 import { spadeWorks } from "./spade-works.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
+import { panelReveal } from "@/components/ui/rules.ts";
 
 /** Below 680px the profile takes the window (docs/design/spade.md §1). */
 const coverQuery = "(max-width: 42.49rem)";
@@ -83,11 +85,17 @@ export function Conversation(props: {
   const skills = useSkillProposals(bot.id, view);
   const navigate = useNavigate();
   const openProfile = useOpenProfile(bot);
-  const computer = useBotComputer(bot, conversation.side);
   const endpoints = useSpadeModels(true).data?.endpoints;
   const client = useSpadeClient();
   const digests = useSpadeDigests(bot.id);
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
+  // Until the bot has a model it can use, sending waits; setting one up is one step away: Spade's
+  // own card above its conversation, another bot's endpoints in Settings.
+  const needsModel = endpoints !== undefined && spadeModelState(bot.model, endpoints) === "none";
+  const setUpModel = () => {
+    if (bot.kind === "main" && showModelSetup()) return;
+    void navigate({ to: "/settings/spade/models" });
+  };
   const [stopping, setStopping] = useState(false);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
@@ -146,6 +154,8 @@ export function Conversation(props: {
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
+  // It drives its computer only while it is at work.
+  const computer = useBotComputer(bot, conversation.side, open);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
   const stop = () => {
@@ -265,10 +275,9 @@ export function Conversation(props: {
                 });
             }}
             onOpenWork={() => go({ profile: "work" })}
-            onRetry={(text) =>
-              conversation
-                .send({ text, images: [] })
-                .then(() => true, failed(`Couldn't send to ${bot.name}`))
+            onSetUpModel={setUpModel}
+            onRetry={(reply) =>
+              conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
             }
             proposals={skills.proposals}
             onProposal={(id, save) =>
@@ -290,6 +299,7 @@ export function Conversation(props: {
         onStop={computer.paused ? undefined : stop}
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
+        needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
@@ -370,6 +380,7 @@ export function Conversation(props: {
             style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
             className={cn(
               "bg-panel",
+              panelReveal,
               covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
             )}
           >

@@ -33,6 +33,8 @@ fn job<'a>(dir: &'a Path, script: &'a str, may_run_uncontained: bool) -> Job<'a>
         kind: Kind::Command,
         outside: false,
         may_run_uncontained,
+        clean: false,
+        read_only: false,
     }
 }
 

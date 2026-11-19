@@ -99,7 +99,7 @@ import XCTest
         for _ in 0..<6 where !software.isHittable { app.swipeUp() }
         XCTAssertTrue(software.waitForExistence(timeout: 20))
         // The fixture applies its one update for good: a second run on it finds nothing to install.
-        try XCTSkipUnless(software.label.contains("0.0.19 is available"),
+        try XCTSkipUnless(software.label.contains("Update available · 0.0.19"),
                           "The fixture already updated to 0.0.19. Restart `bun run spike:daemon` to run this test again.")
         XCTAssertTrue(app.buttons["machine.software.idle"].exists)
         screenshot("machine-software")

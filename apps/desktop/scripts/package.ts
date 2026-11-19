@@ -71,7 +71,7 @@ if (authenticode?.kind === "incomplete")
   throw new Error(`Windows signing needs ${authenticode.missing.join(", ")} as well`);
 if (authenticode?.kind === "none")
   console.warn("[package] no Windows signing certificate is configured; building unsigned");
-// A beta wears a "BETA" band in the Dock (ADR 0177), rendered from the master for this build.
+// A beta's Dock icon has a peeled corner (ADR 0177), rendered from the master for this build.
 const betaIcon =
   process.platform === "darwin" &&
   releaseLineOf(packagedAppVersion(process.env, appVersion())) === "beta"
@@ -211,7 +211,7 @@ const config: Configuration = {
   },
   mac: {
     category: "public.app-category.developer-tools",
-    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png; a beta's has a band.
+    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png; a beta's has the peeled corner.
     icon: betaIcon ?? join(desktop, "build/icon.icns"),
     target: full
       ? [

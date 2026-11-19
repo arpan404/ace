@@ -126,7 +126,7 @@ and want to copy a bot that works, or move it to another machine.
 - A group spends only what its run allows; a busy member steered by a group ask answers both in
   one reply.
 - A member's own chat shows group asks with a small label (`In Launch team`), so the person can
-  see what a bot was asked and why it acted.
+  see what a bot was asked and why it acted. (Amended below: it no longer does.)
 - Members on other machines answer, but can't ask other members themselves: a group ask is made
   only on the group's machine.
 - A bot on an offline machine still shows in the group as away; its asks wait.
@@ -146,3 +146,11 @@ and want to copy a bot that works, or move it to another machine.
   recreates the bot.
 - Web: the roster lists groups with stacked faces; a group shows each bot's bubbles with its face
   and name and handoffs as short lines.
+
+## Amendment, 2026-11-17: each message lives in one conversation
+
+Asked by the owner. A member still answers in its own one conversation, so what it knows stays in
+one place, but the person sees a group's turn only in the group: the member's own chat, list row
+and unseen mark leave out the group's message and a reply that answers only group messages. A card
+or an approval such a reply asks still shows in the member's own chat, where the person answers
+it, and the group's waiting line still opens it there.

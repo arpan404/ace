@@ -61,6 +61,8 @@ test("a phone paired with the default scopes signs in to Codex through the relay
     providerStatus: { env },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   // What `ace pair` grants a phone by default.
   const phone = daemon.store.devices.create("Phone", ["read", "operate"], 1);
   const hostId = daemon.relayHostId;

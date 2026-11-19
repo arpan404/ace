@@ -2,7 +2,7 @@ import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botAtWork, botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -18,12 +18,14 @@ function seed(spade: FakeSpadeApi) {
 /** Scout at work in its terminal. */
 function usingTerminal(spade: FakeSpadeApi) {
   seed(spade);
+  botAtWork(spade, "scout");
   spade.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
 }
 
 /** Scout at work in its browser. */
 function browsing(spade: FakeSpadeApi) {
   seed(spade);
+  botAtWork(spade, "scout", "browser_act");
   spade.computer.use("scout", { kind: "browser", live: true, title: "Hotels", url: staybook });
 }
 
@@ -62,6 +64,7 @@ test("Computer shows only the surfaces the bot has used, its live one marked, wi
   await profile.findByText("Scout hasn't used its computer yet.");
   expect(profile.queryByRole("tablist", { name: "Computer" })).toBeNull();
 
+  botAtWork(spade, "scout", "browser_act");
   spade.computer.use("scout", { kind: "browser", live: true, title: "Hotels", url: staybook });
   const tabs = await profile.findByRole("tablist", { name: "Computer" });
   await waitFor(() =>
@@ -146,6 +149,27 @@ test("the profile opens beside the chat, and opens again on the tab and view lef
   expect(screen.queryByRole("region", { name: "Scout's profile" })).toBeNull();
 });
 
+test("a terminal used lately while the bot is idle offers no Take over and says it isn't in use", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
+    const scout = seed(api);
+    // Spade keeps a surface live for a while after the bot's last command.
+    api.computer.use("scout", { kind: "terminal", live: true, title: "rm -rf old-drafts" });
+    api.reply(scout, "Done.");
+  });
+  const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
+  await screen.findByText("Scout isn't using the terminal now.");
+  expect(screen.queryByRole("button", { name: "Take over" })).toBeNull();
+  expect(screen.queryByText("Scout is using the terminal")).toBeNull();
+  expect(screen.getByRole("tab", { name: "Terminal" }).textContent).toBe("Terminal");
+  expect(within(panel).queryByRole("status")).toBeNull();
+
+  // Back at work in it: the line says so, with Take over.
+  botAtWork(spade, "scout");
+  await screen.findByText("Scout is using the terminal");
+  await screen.findByRole("button", { name: "Take over" });
+  expect(screen.getByRole("tab", { name: "Terminal, in use" })).toBeTruthy();
+});
+
 test("Take over tells Spade the person has it alone, and Hand back shares the computer again", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", browsing);
   await screen.findByText("Scout is using the browser");
@@ -191,6 +215,7 @@ test("the person types in the bot's terminal without taking over, and sees the s
 test("after Take over the terminal waits for the bot's work to stop before taking keys", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
     seed(api);
+    botAtWork(api, "scout");
     api.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
     api.computer.stopping("scout", true);
   });
@@ -344,6 +369,7 @@ test("handing back leaves one quiet line in the chat, with what changed behind a
 test("Take over gives the controls only once Spade itself says the bot's work has stopped", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
     seed(api);
+    botAtWork(api, "scout");
     api.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
     api.computer.stopping("scout", true);
   });

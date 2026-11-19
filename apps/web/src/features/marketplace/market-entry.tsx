@@ -1,5 +1,5 @@
-import type { MarketEntryDetail, MarketReviewBody } from "@ace/protocol/marketplace";
-import type { CSSProperties } from "react";
+import type { MarketEntryDetail, MarketReview, MarketReviewBody } from "@ace/protocol/marketplace";
+import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 import { botFaceColourVars } from "@ace/ui-core/bot-face";
 import { BotFace } from "@/components/bot-face.tsx";
@@ -18,17 +18,24 @@ import {
   useWearing,
   versionFacts,
 } from "./market-entry-parts.tsx";
-import { faceFromReview, useSuitLook } from "./market-looks.ts";
+import { faceFromReview, useInLibrary, useSuitLook } from "./market-looks.ts";
 import { canDoSentences, entryAction, failureSentence, typeWord } from "./market-model.ts";
-import { TypeMark } from "./market-marks.tsx";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { AppMark, SuitPicture, Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
- * One entry, as a page pushed over its place: a bot with its face large on its colour and what
- * it brings, a Suit as the ace window in its palette with Try it, a skill or plugin with its name
- * set in mono. Its review is prepared here once, so Install opens it at once.
+ * One entry, as a page pushed over its place: a bot with its face large on its colour (once its
+ * review shows it) and what it brings, a Suit as the ace window in its palette with Try it, a
+ * skill or plugin with its listing's picture when it has one. Its review is prepared here once,
+ * so Install opens it at once.
  */
+
+/** The description, when it says more than the one line above it. */
+export function moreWords(detail: MarketEntryDetail): string | undefined {
+  const words = detail.description.trim();
+  return words && words !== detail.summary.line.trim() ? detail.description : undefined;
+}
 
 export function EntryPage(props: { entry: EntryKey }) {
   const read = useMarketEntry(props.entry);
@@ -53,31 +60,35 @@ function BotPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   const face = faceFromReview(review);
   const body: Recipe | undefined = review?.body.type === "spade-bot" ? review.body : undefined;
   const tint = face ? (botFaceColourVars(face) as CSSProperties) : undefined;
+  const more = moreWords(props.detail);
   return (
     <div className="mk-inner">
-      <div className="mk-entry-hero" style={tint}>
-        {face ? (
-          <>
-            <span className="mk-floor" />
-            <BotFace face={face} size={220} />
-          </>
-        ) : (
-          <TypeMark type="spade-bot" />
-        )}
-        <div className="mk-entry-hero-words">
-          <span className="mk-line">Bot</span>
-          <h1 className="mk-display">{summary.title}</h1>
-          <p className="mk-lead">{summary.line}</p>
-          <EntrySub entry={summary} />
-          <EntryBlocked detail={props.detail} />
-          <div className="mk-entry-actions" style={{ marginTop: 12 }}>
-            <InstallAction entry={props.entry} detail={props.detail} />
+      {face ? (
+        <div className="mk-entry-hero" style={tint}>
+          <span className="mk-floor" />
+          <BotFace face={face} size={220} />
+          <div className="mk-entry-hero-words">
+            <span className="mk-line">Bot</span>
+            <h1 {...part("page-title", undefined, "market")} className="mk-display">
+              {summary.title}
+            </h1>
+            <p className="mk-lead">{summary.line}</p>
+            <EntrySub entry={summary} />
+            <EntryBlocked detail={props.detail} />
+            <div className="mk-entry-actions" style={{ marginTop: 12 }}>
+              <InstallAction entry={props.entry} detail={props.detail} />
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <EntryHead detail={props.detail}>
+          <InstallAction entry={props.entry} detail={props.detail} />
+        </EntryHead>
+      )}
       <div className="mk-entry-body">
         <div>
-          {props.detail.description && <p className="mk-prose">{props.detail.description}</p>}
+          {face && more && <p className="mk-prose">{more}</p>}
+          {!face && <Words detail={props.detail} />}
           {body && <RecipeRows body={body} />}
         </div>
         <aside>
@@ -102,7 +113,9 @@ function RecipeRows(props: { body: Recipe }) {
     <>
       {body.routines.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Routines</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Routines
+          </h3>
           {body.routines.map((routine) => (
             <div key={routine.name} className="mk-fact-row">
               <span className="mk-words">
@@ -116,7 +129,9 @@ function RecipeRows(props: { body: Recipe }) {
       )}
       {body.needs.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Apps</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Apps
+          </h3>
           {body.needs.map((need) => (
             <div key={need.key} className="mk-fact-row">
               <AppMark name={need.label} size={32} />
@@ -131,7 +146,9 @@ function RecipeRows(props: { body: Recipe }) {
       )}
       {body.brings.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">What it brings</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            What it brings
+          </h3>
           {body.brings.map((brought) => (
             <div key={`${brought.type}/${brought.name}`} className="mk-fact-row">
               <span className="mk-words">
@@ -157,7 +174,9 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   const [picked, setPicked] = useState<"light" | "dark">();
   const scheme = picked ?? shown;
   const both = suit ? suit.summary.schemes.length > 1 : false;
-  const worn = useWearing(installed?.target);
+  // Already in the library (built into ace, or made here) and not from the market: wear it.
+  const inLibrary = useInLibrary(summary.type, summary.name) && !installed;
+  const worn = useWearing(inLibrary ? summary.name : installed?.target);
   const palette = suit ? suitPalette(suit.manifest, scheme) : undefined;
   const offline = nav.offline;
   const tryIt = (
@@ -173,6 +192,13 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   );
   const actions = worn.wearing ? (
     <span className="mk-state-word">Wearing</span>
+  ) : inLibrary ? (
+    <>
+      <span className="mk-state-word">In your Suits</span>
+      <Button variant="primary" size="lg" onClick={worn.wear}>
+        Wear it
+      </Button>
+    </>
   ) : installed && installed.state === "on" && !installed.update ? (
     <>
       {tryIt}
@@ -189,23 +215,21 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   );
   return (
     <div className="mk-inner">
-      <div className="mk-entry-head">
-        <div className="mk-words">
-          <span className="mk-line">Suit</span>
-          <h1 className="mk-display">{summary.title}</h1>
-          <EntrySub entry={summary} />
-          <EntryBlocked detail={props.detail} />
-        </div>
-        <div className="mk-entry-actions">{actions}</div>
-      </div>
+      <EntryHead detail={props.detail}>{actions}</EntryHead>
       <div className="mk-preview-frame">
         {both && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <div className="mk-word-choice" role="group" aria-label="Preview">
+            <div
+              {...part("tabs", undefined, "words")}
+              className="mk-word-choice"
+              role="group"
+              aria-label="Preview"
+            >
               {(["dark", "light"] as const).map((each) => (
                 <button
                   key={each}
                   type="button"
+                  {...part("tab", scheme === each && "selected")}
                   aria-pressed={scheme === each}
                   onClick={() => setPicked(each)}
                 >
@@ -218,23 +242,7 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
         <SuitPicture suit={suit} scheme={scheme} />
       </div>
       <div className="mk-entry-body">
-        <div>
-          <p className="mk-prose" style={{ fontSize: "var(--mk-lead)" }}>
-            {summary.line}
-          </p>
-          {props.detail.description && (
-            <p className="mk-prose" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
-              {props.detail.description}
-            </p>
-          )}
-          {review && (
-            <div className="mk-sentences" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
-              {canDoSentences(review).map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-            </div>
-          )}
-        </div>
+        <Words detail={props.detail} review={review} />
         <aside>
           <Facts
             rows={[
@@ -261,46 +269,67 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
 function ToolPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   const { summary } = props.detail;
   const review = useEntryReview(props.entry, props.detail).data?.review;
+  const previews = summary.previews;
   return (
     <div className="mk-inner">
-      <div className="mk-entry-head">
-        <div className="mk-words">
-          <span className="mk-line">{typeWord(summary.type)}</span>
-          <h1 className="mk-display">{summary.title}</h1>
-          <EntrySub entry={summary} />
-          <EntryBlocked detail={props.detail} />
+      <EntryHead detail={props.detail}>
+        <InstallAction entry={props.entry} detail={props.detail} />
+      </EntryHead>
+      {previews?.length ? (
+        <div className="mk-preview-frame">
+          <Stage entry={{ ...props.entry, previews }} size="large" />
         </div>
-        <div className="mk-entry-actions">
-          <InstallAction entry={props.entry} detail={props.detail} />
-        </div>
-      </div>
-      <div className="mk-preview-frame">
-        <Stage entry={props.entry} size="large" style={{ aspectRatio: "16 / 6" }} />
-      </div>
+      ) : null}
       <div className="mk-entry-body">
-        <div>
-          <p className="mk-prose" style={{ fontSize: "var(--mk-lead)" }}>
-            {summary.line}
-          </p>
-          {props.detail.description && (
-            <p className="mk-prose" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
-              {props.detail.description}
-            </p>
-          )}
-          {review && (
-            <div className="mk-sentences" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
-              {canDoSentences(review).map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-            </div>
-          )}
-        </div>
+        <Words detail={props.detail} review={review} />
         <aside>
           <Facts rows={versionFacts(props.detail)} />
           <PublisherMini entry={summary} />
         </aside>
       </div>
       <MoreFrom entry={summary} />
+    </div>
+  );
+}
+
+/** An entry's title, kind and publisher, with its actions at the right. */
+function EntryHead(props: { detail: MarketEntryDetail; children: ReactNode }) {
+  const { summary } = props.detail;
+  return (
+    <div className="mk-entry-head">
+      <div className="mk-words">
+        <span className="mk-line">{typeWord(summary.type)}</span>
+        <h1 {...part("page-title", undefined, "market")} className="mk-display">
+          {summary.title}
+        </h1>
+        <EntrySub entry={summary} />
+        <EntryBlocked detail={props.detail} />
+      </div>
+      <div className="mk-entry-actions">{props.children}</div>
+    </div>
+  );
+}
+
+/** The one line, the description when it says more, and what the review says it can do. */
+function Words(props: { detail: MarketEntryDetail; review?: MarketReview | undefined }) {
+  const more = moreWords(props.detail);
+  return (
+    <div>
+      <p className="mk-prose" style={{ fontSize: "var(--mk-lead)" }}>
+        {props.detail.summary.line}
+      </p>
+      {more && (
+        <p className="mk-prose" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
+          {more}
+        </p>
+      )}
+      {props.review && (
+        <div className="mk-sentences" style={{ marginTop: 16, color: "var(--mk-muted)" }}>
+          {canDoSentences(props.review).map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

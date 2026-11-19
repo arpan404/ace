@@ -6,7 +6,7 @@ import { useMachines } from "@/lib/machines.ts";
 import { BotScreen } from "./spade-bot-screen.tsx";
 import { Conversation } from "./spade-conversation.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
-import { SpadeStateStrip } from "./spade-state.tsx";
+import { centeredStrip, SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeRoster } from "./use-spade-roster.ts";
 import { ConversationSkeleton, Problem, useSpadeLine } from "./spade-screen-parts.tsx";
 
@@ -33,17 +33,19 @@ function SpadeHome() {
     );
   return (
     <Screen page="spade" title="Spade" namedByPanel>
-      <div className={`${readingColumn} pt-6`}>
-        {line.ready ? (
-          roster.error ? (
+      {line.ready ? (
+        <div className={`${readingColumn} pt-6`}>
+          {roster.error ? (
             <Problem text="Couldn't read Spade's bots." onRetry={roster.refetch} />
           ) : (
             <ConversationSkeleton />
-          )
-        ) : (
-          <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
-        )}
-      </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid h-full min-h-72 place-items-center px-6">
+          <SpadeStateStrip line={line} className={centeredStrip} />
+        </div>
+      )}
     </Screen>
   );
 }
@@ -75,9 +77,13 @@ export function SpadeAgentScreen(props: {
   if (!bot || !machine)
     return (
       <Screen page="spade" title="Spade" namedByPanel>
-        <div className={`${readingColumn} pt-6`}>
+        <div
+          className={
+            line.ready ? `${readingColumn} pt-6` : "grid h-full min-h-72 place-items-center px-6"
+          }
+        >
           {!line.ready ? (
-            <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
+            <SpadeStateStrip line={line} className={centeredStrip} />
           ) : roster.loading ? (
             <ConversationSkeleton />
           ) : (

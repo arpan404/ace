@@ -6,6 +6,7 @@ import "./market-frame.css";
 import "./market-visuals.css";
 import "./market-pages.css";
 import "./market-people.css";
+import "./market-review.css";
 import "./market-widths.css";
 import { formatMarket, type MarketView } from "./market-address.ts";
 import { useMarketChanges, useMarketSources } from "./market-api.ts";
@@ -14,6 +15,7 @@ import { readAtText } from "./market-model.ts";
 import { MarketNavContext, type MarketNav } from "./market-nav.ts";
 import { MarketLayer } from "./market-page.tsx";
 import { TryBar, useTryOn } from "./market-try.tsx";
+import { keepTabWithin } from "./market-focus.ts";
 
 /*
  * The Marketplace as a modal over the app (ADR 0168): 90% of the window with the app dimmed
@@ -120,6 +122,10 @@ export function MarketModal(props: {
       if (event.key === "Escape") {
         event.preventDefault();
         close();
+        return;
+      }
+      if (event.key === "Tab" && modal.current) {
+        keepTabWithin(modal.current, event);
         return;
       }
       const back =

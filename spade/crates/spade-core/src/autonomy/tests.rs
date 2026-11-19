@@ -205,6 +205,7 @@ fn refused_once(command: &str) -> Vec<Event> {
             model: "fast".into(),
             cost_micros: 0,
             bound: None,
+            acts_in: None,
         }),
     ]
 }

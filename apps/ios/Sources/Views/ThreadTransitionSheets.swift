@@ -230,20 +230,17 @@ private struct TurnsSheet: View {
                     .accessibilityIdentifier("turn.\(turn.ordinal)")
                     .onAppear { if turn.id == turns.last?.id { load() } }
                 }
-                if loading || problem != nil || (loaded && turns.isEmpty) {
-                    Group {
-                        if let problem {
-                            Button("Retry") { load() }.buttonStyle(.textAction())
-                            Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        } else if loading {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("No turns yet.").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        }
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AceTheme.Colours.background)
+                if let problem {
+                    ProblemRow(problem, id: "turns.problem", disabled: loading) { load() }
+                } else if loading {
+                    ProgressView().frame(maxWidth: .infinity)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AceTheme.Colours.background)
+                } else if loaded && turns.isEmpty {
+                    EmptyState(icon: .listBullets, title: "No turns yet")
+                        .padding(.vertical, AceDesign.Space.group)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AceTheme.Colours.background)
                 }
             }
             .listStyle(.plain)
@@ -252,11 +249,7 @@ private struct TurnsSheet: View {
             .navigationTitle("Turns")
             .navigationBarTitleDisplayMode(.inline)
             .escapeCloses { dismiss() }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
-                }
-            }
+            .toolbar { SheetClose() }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -273,7 +266,7 @@ private struct TurnsSheet: View {
             do {
                 let page = try await model.service(payload, as: TurnsPage.self)
                 guard page.ready else {
-                    problem = "Turns are not ready yet."
+                    problem = "Turns aren't ready yet."
                     return
                 }
                 turns += page.turns.filter { turn in !turns.contains { $0.id == turn.id } }

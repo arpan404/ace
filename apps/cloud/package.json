@@ -10,6 +10,7 @@
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:release": "node ../../tools/workers-release/src/deploy.ts cloud",
     "migrate:local": "wrangler d1 migrations apply ACCOUNTS --local",
     "smoke": "node scripts/smoke.ts"
   },
@@ -18,6 +19,7 @@
     "@ace/protocol": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/secure-channel": "workspace:*",
+    "@ace/service": "workspace:*",
     "@noble/ciphers": "2.0.1",
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.0.1",

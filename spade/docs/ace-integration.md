@@ -23,7 +23,8 @@ daemon is away.
 - **Registration** (`@ace/service`, beside the daemon's): launchd `dev.ace.next.spade` (RunAtLoad,
   KeepAlive, ThrottleInterval as the daemon's), systemd `ace-next-spade.service` (`--user`,
   `Restart=on-failure`, `RestartSec=1`), Windows Task Scheduler task `ace-next-spade` (logon
-  trigger, restart on failure). The service's environment is exactly `SPADE_DATA_DIR=<ACE_HOME>/spade`,
+  trigger, restart on failure). Those are the default home's names (`~/.ace`); any other home's
+  service carries a hash of its path after them (ADR 0185). The service's environment is exactly `SPADE_DATA_DIR=<ACE_HOME>/spade`,
   `SPADE_ACE_HOME=<ACE_HOME>`, `SPADE_LISTEN=127.0.0.1:0` and `RUST_LOG=info`; logs go to
   `<ACE_HOME>/logs/spade.log` (rotated like the daemon's). The `@ace/service` API:
   `spadeServicePlan(home, platform)`, `installSpadeService(plan)`, `removeSpadeService(plan)`,

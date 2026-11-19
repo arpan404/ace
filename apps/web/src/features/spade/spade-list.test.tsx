@@ -74,18 +74,29 @@ test("Search, the first top button, opens in place, finds conversations by their
   await waitFor(async () => expect(await names()).toEqual(["Inbox"]));
   await userEvent.type(field, "zz");
   await (await roster()).findByText("Nothing matches “inbzz”.");
-  // Esc clears the words, then closes the search, and every row is back.
-  await userEvent.keyboard("{Escape}");
-  expect(field).toHaveProperty("value", "");
+  // Esc closes the search, and every row is back.
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("searchbox", { name: "Search conversations" })).toBeNull();
   await waitFor(async () => expect(await names()).toHaveLength(4));
 });
 
-test("a failed bot's line is its next step, and the list has no foot row", async () => {
+test("a failed bot's line is its next step", async () => {
   await spadeApp("/spade", crew);
   expect((await botRow("Garden")).textContent).toMatch(/Sign in to Codex to go on$/);
-  expect(screen.queryByRole("link", { name: "Spade settings" })).toBeNull();
+});
+
+test("the head is Spade's face and name, the foot is the person and the gear, and Spade is no row", async () => {
+  await spadeApp("/spade", crew);
+  const list = await roster();
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden"]));
+  // Spade is named once: in the head, not again as a row.
+  expect(list.getAllByRole("link", { name: /^Spade$/ })).toHaveLength(1);
+  expect(list.getByRole("link", { name: "You: About you" }).getAttribute("href")).toContain(
+    "profile=library",
+  );
+  expect(list.getByRole("link", { name: "Settings, Spade" }).getAttribute("href")).toBe(
+    "/settings/spade",
+  );
 });
 
 test("opening a bot that finished unseen marks its conversation seen, and a seen one sends nothing", async () => {
@@ -110,16 +121,16 @@ test("opening a bot that finished unseen marks its conversation seen, and a seen
   expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1);
 });
 
-test("+, the third top button, offers New bot, New group and Import bot, and an imported bot opens", async () => {
+test("+, the third top button, offers New bot, New club and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
   // New bot opens its conversation, not a dialog.
   await openNew("New bot");
   await screen.findByRole("textbox", { name: "Name" });
   expect(screen.queryByRole("dialog")).toBeNull();
 
-  await openNew("New group");
-  // New group opens in place, as a route, not a dialog.
-  await screen.findByRole("form", { name: "New group" });
+  await openNew("New club");
+  // New club opens in place, as a route, not a dialog.
+  await screen.findByRole("form", { name: "New club" });
   expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("Import bot…");
@@ -150,7 +161,7 @@ test("Pin from a row's right-click menu moves it to the strip under the buttons,
   const tile = within(strip).getByRole("link", { name: "Inbox" });
   expect(tile.querySelector("[data-face-dot]")?.getAttribute("data-face-dot")).toBe("needs-you");
   // Pinned conversations leave the rows below.
-  await waitFor(async () => expect(await names()).toEqual(["Inbox", "Spade", "Scout", "Garden"]));
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden"]));
   expect(within(strip).queryByRole("link", { name: "Scout" })).toBeNull();
 
   await rightClick(tile);
@@ -159,7 +170,7 @@ test("Pin from a row's right-click menu moves it to the strip under the buttons,
   await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden"]));
 });
 
-test("the strip shows pins oldest first, and Spade can be pinned like any bot", async () => {
+test("the strip shows pins oldest first, and Spade, the head, is never in it", async () => {
   await spadeApp("/spade", (world) => {
     crew(world);
     const pin = (id: string, at: number) => {
@@ -175,17 +186,17 @@ test("the strip shows pins oldest first, and Spade can be pinned like any bot", 
     within(strip)
       .getAllByRole("link")
       .map((link) => link.getAttribute("aria-label")),
-  ).toEqual(["Scout", "Garden", "Spade"]);
-  await waitFor(async () => expect(await names()).toEqual(["Scout", "Garden", "Spade", "Inbox"]));
+  ).toEqual(["Scout", "Garden"]);
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Scout", "Garden", "Inbox"]));
 });
 
-test("the right-click menu offers only what applies: Spade has no Delete, a read bot no Mark as read", async () => {
+test("the right-click menu offers only what applies: Spade has no Pin or Delete, a read bot no Mark as read", async () => {
   await spadeApp("/spade", (world) => {
     crew(world);
     world.addAgent({ id: "news", name: "News", unseen: true });
   });
   await rightClick(await botRow("Spade"));
-  expect(await items()).toEqual(["Pin", "Open profile", "Duplicate", "Export"]);
+  expect(await items()).toEqual(["Open profile", "Duplicate", "Export"]);
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await rightClick(await botRow("News"));

@@ -9,7 +9,11 @@ import {
   parseSpadeModels,
   spadeRoster,
   spadeHasUsableEndpoint,
+  spadeFirstUsableModel,
   spadeModelFacts,
+  spadeModelState,
+  spadePresetChoices,
+  spadeServerName,
   splitSpadeModel,
 } from "./index.ts";
 
@@ -239,4 +243,65 @@ test("a model's facts read as its context and what it can do", () => {
   );
   expect(spadeModelFacts({ context: 1_048_576, capabilities: [] })).toBe("1M context");
   expect(spadeModelFacts({ context: undefined, capabilities: [] })).toBe("");
+});
+
+const setUp = (body: unknown) => parseSpadeModels(JSON.stringify(body))?.endpoints ?? [];
+
+test("a bot's model can answer only on an endpoint the person can use now", () => {
+  const endpoints = setUp({
+    endpoints: [
+      { id: "keyed", needs_key: true, key_set: true, models: [{ id: "m" }] },
+      { id: "keyless", needs_key: true, key_set: false, models: [{ id: "m" }] },
+      { id: "asking", needs_key: true, key_set: null, models: [] },
+      { id: "local", needs_key: false, models: [] },
+    ],
+  });
+  expect(spadeModelState("", endpoints)).toBe("none");
+  expect(spadeModelState("gone/m", endpoints)).toBe("none");
+  expect(spadeModelState("keyless/m", endpoints)).toBe("none");
+  expect(spadeModelState("asking/m", endpoints)).toBe("checking");
+  expect(spadeModelState("keyed/m", endpoints)).toBe("ready");
+  expect(spadeModelState("local/llama", endpoints)).toBe("ready");
+  expect(spadeModelState("cli:codex/gpt", endpoints)).toBe("ready");
+});
+
+test("the first usable model is named from the person's endpoints, and is none without one", () => {
+  const endpoints = setUp({
+    endpoints: [
+      { id: "keyless", needs_key: true, key_set: false, models: [{ id: "a" }] },
+      { id: "empty", needs_key: false, models: [] },
+      { id: "local", needs_key: false, models: [{ id: "llama" }, { id: "qwen" }] },
+    ],
+  });
+  expect(spadeFirstUsableModel(endpoints)).toBe("local/llama");
+  expect(spadeFirstUsableModel(endpoints.slice(0, 2))).toBeUndefined();
+});
+
+test("first-run offers each service once, by its plain name", () => {
+  const presets = parseSpadeModels(
+    JSON.stringify({
+      presets: [
+        { id: "go", name: "OpenCode Go" },
+        { id: "go-anthropic", name: "OpenCode Go (Anthropic format)" },
+        { id: "google", name: "Google Gemini (OpenAI format)" },
+        { id: "zai", name: "Z.AI" },
+      ],
+    }),
+  )?.presets;
+  expect(
+    spadePresetChoices(presets ?? []).map((choice) => [choice.preset.id, choice.label]),
+  ).toEqual([
+    ["go", "OpenCode Go"],
+    ["google", "Google Gemini"],
+    ["zai", "Z.AI"],
+  ]);
+});
+
+test("a server added by its address is named for where it runs", () => {
+  expect(spadeServerName("http://localhost:11434/v1/")).toBe("Local server");
+  expect(spadeServerName(" http://127.0.0.1:1234/v1 ")).toBe("Local server");
+  expect(spadeServerName("http://[::1]:8080/")).toBe("Local server");
+  expect(spadeServerName("https://models.example.com/v1/")).toBe("models.example.com");
+  expect(spadeServerName("localhost:11434")).toBeUndefined();
+  expect(spadeServerName("ftp://example.com/")).toBeUndefined();
 });

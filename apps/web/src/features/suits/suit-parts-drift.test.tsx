@@ -234,6 +234,7 @@ const settingsScreen = [
   "settings-nav",
   "nav-item",
   "settings-section",
+  "section-title",
   "settings-row",
   "switch",
   "switch-thumb",
@@ -495,6 +496,8 @@ test("Spade's conversation names its messages and faces", async () => {
 const marketScreen = [
   "dialog",
   "page-toolbar",
+  "page-title",
+  "section-title",
   "search-field",
   "tab",
   "market-hero",
@@ -502,7 +505,7 @@ const marketScreen = [
   "market-try",
 ] as const;
 
-test("the Marketplace modal names its bar, hero, stages and Try it's bar", async () => {
+test("the Marketplace modal names its bar, titles, hero, stages, lockups and Try it's bar", async () => {
   const history = createMemoryHistory({ initialEntries: ["/chats?market=discover"] });
   const app = harness({ history });
   app.daemon.seedServices({
@@ -525,6 +528,23 @@ test("the Marketplace modal names its bar, hero, stages and Try it's bar", async
             supported: true,
           },
         },
+        {
+          summary: {
+            source: "market",
+            type: "skill",
+            name: "weekly-review",
+            title: "Weekly review",
+            line: "Sums up the week's threads.",
+            categories: [],
+            keywords: [],
+            version: "1.0.0",
+            reviewed: true,
+            byAce: false,
+            updated: 2,
+            downloads: 1,
+            supported: true,
+          },
+        },
       ],
       featured: [{ type: "suit", name: "harbour-dusk" }],
     },
@@ -532,6 +552,17 @@ test("the Marketplace modal names its bar, hero, stages and Try it's bar", async
   await app.open("/chats?market=discover");
   await screen.findByRole("dialog", { name: "Marketplace" });
   await waitFor(() => expect(missing(marketScreen)).toEqual([]));
+  // The pick beside the hero follows the slide shown, so a Suit can mark it.
+  const picks = [
+    ...document.querySelectorAll('[data-part="list-row"][data-variant="market-pick"]'),
+  ];
+  expect(picks.map((pick) => pick.getAttribute("data-state"))).toEqual(["selected", null]);
+  // A shelf holding an entry with no picture draws small lockups, and says so to a Suit.
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-part="card"][data-variant="market-lockup"]'),
+    ).not.toBeNull(),
+  );
 });
 
 const coverage = [

@@ -51,6 +51,18 @@ export function startProjects({
     }),
   );
 }
+/**
+ * The scope a project command needs. Adding, changing or removing projects is the `projects`
+ * scope's; a chat's hidden project (ADR 0099) is only the folder a new thread starts in, made
+ * empty under ace's data folder, so a device that may start threads (`operate`) may make one.
+ * Clearing a stale git lock is operating on a project already open.
+ */
+function commandScope(type: string): "operate" | "projects" {
+  return type === "workspace.chat.create" || type === "workspace.git.lock.clear"
+    ? "operate"
+    : "projects";
+}
+
 export function createProjectsSession(context: SocketContext): SocketService {
   const { options, authorize, connected, device, send, tasks } = context;
   let reads = 0;
@@ -76,8 +88,7 @@ export function createProjectsSession(context: SocketContext): SocketService {
     },
     command: {
       types: ProjectCommands.map((schema) => schema.shape.type.value),
-      scope: (command) =>
-        command.payload.type === "workspace.git.lock.clear" ? "operate" : "projects",
+      scope: (command) => commandScope(command.payload.type),
       // Not awaited: a clone runs for minutes, and the socket's next messages (its cancel, the
       // client's reads) must not queue behind it. The receipt goes out when it ends.
       accept(command) {
@@ -91,7 +102,8 @@ export function createProjectsSession(context: SocketContext): SocketService {
           });
           return;
         }
-        const lease = context.authorityLease?.("projects") ?? allowed;
+        const scope = commandScope(command.payload.type);
+        const lease = context.authorityLease?.(scope) ?? (() => connected() && authorize(scope));
         // Changing the roots changes what every device may open, as the setting itself does.
         const admin = context.authorityLease?.("admin") ?? (() => authorize("admin"));
         const task = projects

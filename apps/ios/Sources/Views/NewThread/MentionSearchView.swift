@@ -29,8 +29,8 @@ struct MentionSearchView: View {
                         }
                     }
                 case "failed":
-                    QuietProblemRow(title: "Couldn't search files.", detail: "Check the connection and try again.",
-                                    action: "Try again", identifier: "mention.retry") { search(query) }
+                    ProblemRow("Couldn't search files.", detail: "Check the connection and try again.",
+                                    retryId: "mention.retry") { search(query) }
                 default:
                     SkeletonRows(count: 3, label: "Searching files")
                 }

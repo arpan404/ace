@@ -34,15 +34,15 @@ struct SpadeMark: View {
     }
 }
 
-/// The face's geometry in the web's 24-unit box (ui-core `spade-look.ts`): where the eyes sit, how big
-/// the pupils are at this size, and where they rest.
+/// The face's geometry in the web's 24-unit box (ui-core `spade-look.ts`, generated as
+/// `SpadeGeometry`): where the eyes sit, how big the pupils are at this size, and where they rest.
 struct SpadeFace {
     let size: CGFloat
-    nonisolated static let eyes = [CGPoint(x: 8.7, y: 11.9), CGPoint(x: 15.3, y: 11.9)]
-    nonisolated static let eye = CGSize(width: 2.3, height: 3.55)
+    nonisolated static let eyes = SpadeGeometry.eyes
+    nonisolated static let eye = SpadeGeometry.eye
     /// Where the pupils rest: low and a hair to the left.
-    nonisolated static let rest = CGPoint(x: -0.25, y: 2)
-    nonisolated static let tilt = -4.0
+    nonisolated static let rest = SpadeGeometry.rest
+    nonisolated static let tilt = SpadeGeometry.tilt
     /// 24pt and under: a thicker ring, bigger pupils, no catchlight.
     var small: Bool { size <= 24 }
     var unit: CGFloat { size / 24 }
@@ -94,40 +94,5 @@ struct SpadeDot: Shape {
     func path(in rect: CGRect) -> Path {
         let k = rect.width / 24
         return Path(ellipseIn: CGRect(x: rect.minX + (centre.x - rx) * k, y: rect.minY + (centre.y - ry) * k, width: rx * 2 * k, height: ry * 2 * k))
-    }
-}
-
-extension SpadeMark {
-    /// The mark as the tab bar draws it: one colour, the eyes cut out of the head with their
-    /// pupils left in, so the same face reads in the bar's tint (a template image).
-    @MainActor static let tabImage: UIImage = {
-        // The system tab bar's glyph size; the image is a template, so black is only its mask.
-        let size: CGFloat = 26
-        let renderer = ImageRenderer(content: SpadeGlyph().frame(width: size, height: size))
-        renderer.scale = 3
-        return (renderer.uiImage ?? UIImage()).withRenderingMode(.alwaysTemplate)
-    }()
-}
-
-/// The mark in one colour: the head, its eyes cut out, the pupils inside them.
-private struct SpadeGlyph: View {
-    var body: some View {
-        Canvas { context, canvas in
-            let scale = canvas.width / 24
-            context.scaleBy(x: scale, y: scale)
-            context.fill(Path(ellipseIn: CGRect(x: 1.4, y: 1.4, width: 21.2, height: 21.2)), with: .color(.black))
-            context.translateBy(x: 12, y: 12)
-            context.rotate(by: .degrees(-4))
-            context.translateBy(x: -12, y: -12)
-            for centre in SpadeFace.eyes {
-                var cut = context
-                cut.blendMode = .destinationOut
-                let box = CGRect(x: 0, y: 0, width: 24, height: 24)
-                let face = SpadeFace(size: 24)
-                cut.fill(SpadeEgg(centre: centre, rx: SpadeFace.eye.width, ry: SpadeFace.eye.height).path(in: box), with: .color(.black))
-                // Pupils resting low and a hair left, as the mark's rest look.
-                context.fill(SpadeDot(centre: face.pupil(in: centre), rx: face.pupilSize.width, ry: face.pupilSize.height).path(in: box), with: .color(.black))
-            }
-        }
     }
 }

@@ -16,6 +16,8 @@ export function applicationMenu(options: {
   trigger(keymapId: string): void;
   bindings?: Readonly<Record<string, string>> | undefined;
   checkForUpdates(): void;
+  /** Quits and stops the daemon too; a plain Quit leaves it running (ADR 0186). */
+  quitCompletely(): void;
   openUrl(url: string): void;
   showLogs(): void;
   /** View › Zoom: the focused window's own page, whichever page inside it has focus. */
@@ -56,6 +58,10 @@ export function applicationMenu(options: {
     ...item("reloadApp"),
     click: () => options.reload(),
   };
+  const quitCompletely: MenuItemConstructorOptions = {
+    label: `Quit ${options.appName} completely`,
+    click: () => options.quitCompletely(),
+  };
   const checkForUpdates: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => options.checkForUpdates(),
@@ -77,6 +83,7 @@ export function applicationMenu(options: {
             { role: "unhide" },
             { type: "separator" },
             { role: "quit" },
+            quitCompletely,
           ],
         },
       ]
@@ -90,7 +97,9 @@ export function applicationMenu(options: {
         { type: "separator" },
         item("addProject"),
         { type: "separator" },
-        ...(mac ? [{ role: "close" } as const] : [item("settings"), { role: "quit" } as const]),
+        ...(mac
+          ? [{ role: "close" } as const]
+          : [item("settings"), { role: "quit" } as const, quitCompletely]),
       ],
     },
     { role: "editMenu" },

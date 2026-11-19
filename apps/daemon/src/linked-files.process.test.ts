@@ -97,6 +97,8 @@ async function setup(transport: "websocket" | "relay") {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const workspaceId = daemon.store.createWorkspace(project, "Project");
   const thread = createDevThread(daemon.store, workspaceId);
   const message = (id: string, role: "user" | "assistant", text: string) =>

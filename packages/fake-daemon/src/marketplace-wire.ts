@@ -148,6 +148,8 @@ export class FakeMarketplaceWire {
   readonly #listeners = new Set<(message: MarketServerMessage) => void>();
   /** Every install the person accepted, oldest first. */
   readonly accepted: FakeMarketAcceptance[] = [];
+  /** Refuses each install with this error while set, as a market that wants a fresh sign-in. */
+  refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -376,6 +378,7 @@ export class FakeMarketplaceWire {
           };
         if (stored.review.blocked)
           return { op: "error", code: "refused", message: stored.review.blocked };
+        if (this.refuseInstall) return this.refuseInstall;
         const { review } = stored;
         const acceptance = { review, choices: operation.choices };
         this.accepted.push(acceptance);

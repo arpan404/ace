@@ -30,6 +30,8 @@ export interface BackgroundOptions {
   window(): BrowserWindow | undefined;
   open(link?: DeepLink): void;
   quitAll(): void;
+  /** Quit and stop the daemon too (the tray's "Quit ace completely"). */
+  quitCompletely(): void;
   log(message: string): void;
   /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
   trayHost?: (() => Promise<boolean>) | undefined;
@@ -93,6 +95,7 @@ export class Background {
         pause: (paused) =>
           void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
         quitAll: options.quitAll,
+        quitCompletely: options.quitCompletely,
       },
       options.trayIcon,
     );

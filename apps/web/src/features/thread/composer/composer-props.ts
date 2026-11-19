@@ -82,7 +82,10 @@ export interface ComposerProps {
    * its place once there are words.
    */
   idleAction?: ReactNode;
-  /** An empty draft is one capsule row at every width, not only on a phone. */
+  /**
+   * One capsule row at every width, not only on a phone, and it stays one row while the draft is
+   * words alone: the field grows upward in place. A file, quote or annotation opens it.
+   */
   capsule?: boolean | undefined;
   /**
    * The tab attached to the composer (what the agents are doing, their plan, an

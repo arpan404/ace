@@ -26,7 +26,7 @@ function sure<T>(value: T | undefined, what: string): T {
 type Signal = { signal?: AbortSignal | undefined };
 
 export async function readGroups(target: SpadeTarget, options: Signal = {}) {
-  return sure(parseSpadeGroups(await spadeHttp(target, "GET", "/v1/groups", options)), "groups");
+  return sure(parseSpadeGroups(await spadeHttp(target, "GET", "/v1/groups", options)), "clubs");
 }
 
 /** A member as a group takes it: `machine` is the bot's host id, absent for the group's own. */
@@ -47,7 +47,7 @@ export async function createGroup(
   draft: SpadeGroupDraft,
 ): Promise<SpadeGroup> {
   const body = await spadeHttp(target, "POST", "/v1/groups", { body: draft });
-  return sure(parseSpadeGroup(body), "new group");
+  return sure(parseSpadeGroup(body), "new club");
 }
 
 export async function editGroup(
@@ -56,7 +56,7 @@ export async function editGroup(
   change: Partial<SpadeGroupDraft>,
 ): Promise<SpadeGroup> {
   const body = await spadeHttp(target, "PATCH", `/v1/groups/${segment(id)}`, { body: change });
-  return sure(parseSpadeGroup(body), "group");
+  return sure(parseSpadeGroup(body), "club");
 }
 
 /** Deletes the group and its transcript; its open asks are stopped. */
@@ -89,7 +89,7 @@ export async function readGroupFiles(
   options: Signal = {},
 ): Promise<SpadeGroupFile[]> {
   const body = await spadeHttp(target, "GET", `/v1/groups/${segment(id)}/files`, options);
-  return sure(parseSpadeGroupFiles(body), "group files");
+  return sure(parseSpadeGroupFiles(body), "club files");
 }
 
 export async function readTemplates(

@@ -143,7 +143,7 @@ export function machineUpdateLine(machine: UpdateMachine): UpdateLine | null {
 export type SoftwareAction = "idle" | "now" | "cancel" | "retry" | "check";
 
 export interface SoftwareView {
-  /** "ace 0.0.18. 0.0.19 is available." */
+  /** "ace 0.0.18 · Update available · 0.0.19" */
   line: string;
   /** Progress, the failure, or the last update's outcome; null when there's none. */
   progress: string | null;
@@ -185,8 +185,9 @@ export function machineSoftware(machine: UpdateMachine): SoftwareView {
       link: null,
       note: update === null ? blockerNotes.unsupported : null,
     };
-  const offer = update.available ? ` ${update.available} is available.` : "";
-  const line = `ace ${update.version}.${offer || (update.checkedAt === null ? "" : " Up to date.")}`;
+  // The fleet list's words for an offer ("Update available · 0.0.19"), after what it runs now.
+  const offer = update.available ? ` · Update available · ${update.available}` : "";
+  const line = `ace ${update.version}${offer || (update.checkedAt === null ? "" : " · Up to date")}`;
   const updating = isUpdating(update);
   const failed = update.state === "failed";
   const progress =

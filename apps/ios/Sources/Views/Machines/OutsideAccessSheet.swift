@@ -22,7 +22,7 @@ struct OutsideAccessPrompt: ViewModifier {
                 OutsideAccessSheet(client: asking.client, request: asking.request,
                                    machine: inbox.names[asking.hostId] ?? "this machine")
             }
-            .tint(AceDesign.Ink.accent)
+            .tint(AceDesign.Ink.action)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }

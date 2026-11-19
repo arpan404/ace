@@ -42,12 +42,12 @@ struct SkillEditView: View {
                 SkillRunsPicker(choices: page.runsChoices, manual: $manual)
                 if conflict || problem != nil {
                     if conflict {
-                        QuietProblem(message: "This skill changed on the machine since you opened it.",
+                        ProblemRow("This skill changed on the machine since you opened it.",
                                      id: "skill.edit.conflict",
-                                     retry: { Task { await reload() } }, retryLabel: "Reload")
+                                     retryLabel: "Reload", retry: { Task { await reload() } })
                             .transition(.opacity)
                     } else if let problem {
-                        QuietProblem(message: problem, id: "skill.edit.problem").transition(.opacity)
+                        ProblemRow(problem, id: "skill.edit.problem").transition(.opacity)
                     }
                 }
                 QuietHeading("Instructions").padding(.horizontal, AceDesign.Space.margin)

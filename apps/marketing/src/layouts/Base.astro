@@ -67,8 +67,8 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <meta name="application-name" content={product.name} />
     <meta name="apple-mobile-web-app-title" content={product.name} />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#11100f" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f5f1" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-64.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -78,15 +78,14 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
     <!--
-      Before paint: the theme (the visitor's saved choice, else their system setting, followed
-      live until they choose), whether to animate, and their desktop OS so the matching download
+      Before paint: the theme (the visitor's saved choice, else the light one the site is
+      drawn for), whether to animate, and their desktop OS so the matching download
       button shows.
     -->
     <script is:inline>
       (() => {
         const root = document.documentElement;
         const key = "ace-theme";
-        const system = matchMedia("(prefers-color-scheme: light)");
         const saved = () => {
           try {
             return localStorage.getItem(key);
@@ -95,12 +94,9 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
           }
         };
         const apply = () => {
-          root.dataset.theme = saved() ?? (system.matches ? "light" : "dark");
+          root.dataset.theme = saved() ?? "light";
         };
         apply();
-        system.addEventListener("change", () => {
-          if (!saved()) apply();
-        });
       })();
       (() => {
         // Motion: on unless reduced motion is asked for. If the motion script hasn't started

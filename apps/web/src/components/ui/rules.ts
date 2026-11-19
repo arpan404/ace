@@ -38,6 +38,14 @@ export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";
 export const sceneThrough = "[[data-suit-scene]_&]:bg-transparent";
 export const sceneBar =
   "[[data-surface=translucent]_[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--panel)_72%,transparent)] [[data-surface=translucent]_[data-suit-scene]_&]:backdrop-blur-md";
+/**
+ * `panelReveal`: a side panel's colour over the scene (the thread's side and bottom panels, a
+ * Spade bot's or group's profile). `--suit-right-panel-reveal` of the scene shows through (the
+ * Suit's `reveal["right-panel"]`, held to what keeps the panel's text readable;
+ * theme/suits/suit-layers.ts). Solid without a scene, and by default.
+ */
+export const panelReveal =
+  "[[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--panel)_calc(100%_-_var(--suit-right-panel-reveal,0)*100%),transparent)]";
 
 /*
  * Containers:

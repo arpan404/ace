@@ -71,19 +71,39 @@ struct RequestFooter: View {
         }
     }
 }
-/// A request card's answer: plain words, the primary one in semibold ink, the rest muted.
+/// A request card's answer as the strip draws it (#2165): a capsule at least 44 points tall,
+/// the way on prominent in the accent, the rest bordered in ink. In `RequestActions`' stacked
+/// layout it takes the card's width.
 struct CardButton: View {
     let title: String
     var primary = false
     var enabled = true
     let action: () -> Void
+    @Environment(\.cardButtonFills) private var fills
     var body: some View {
-        Button(title, action: action).buttonStyle(RequestButtonStyle(primary: primary)).disabled(!enabled)
+        Button(action: action) {
+            Text(title)
+                .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                .lineLimit(1)
+                .frame(maxWidth: fills ? .infinity : nil)
+        }
+        .modifier(StripButtonLook(primary: primary))
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .frame(minHeight: AceDesign.Size.tap)
+        .fixedSize(horizontal: !fills, vertical: false)
+        .disabled(!enabled)
     }
 }
 
+extension EnvironmentValues {
+    /// Card answers stacked one per line take the card's width.
+    @Entry var cardButtonFills = false
+}
+
 /// A plan waiting for review, as one line above the composer like every request strip: "Plan
-/// ready · Kill-all filters · 3 steps", then Review and Approve as plain words. Review opens the
+/// ready · Kill-all filters · 3 steps", then Review and Approve as buttons. Review opens the
 /// whole plan in a sheet, where it can be approved or sent back with what should change. The
 /// transcript shows nothing big.
 struct PlanReviewCard: View {
@@ -120,14 +140,12 @@ struct PlanReviewCard: View {
             .accessibilityIdentifier("plan.line")
     }
     private var buttons: some View {
-        HStack(spacing: AceTheme.Spacing.xxs) {
-            Button("Review") { reviewing = true }
-                .buttonStyle(StripTextButtonStyle())
+        HStack(spacing: AceDesign.Space.related) {
+            CardButton(title: "Review") { reviewing = true }
                 .accessibilityIdentifier("plan.review")
             // A plan too large to review here is approved on a computer.
             if !interaction.tooLargeToApprove {
-                Button("Approve") { answer(["kind": "plan", "decision": "approve"]) }
-                    .buttonStyle(StripTextButtonStyle(prominent: true))
+                CardButton(title: "Approve", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                     .disabled(submission != nil || !canAct)
                     .accessibilityIdentifier("plan.approve")
             }
@@ -315,14 +333,15 @@ struct FormRequestCard: View {
     }
 }
 
-/// A request's answers on one row at the trailing edge, as an alert lays them out; on a narrow
-/// screen or at large text they stack.
+/// A request's answers on one row at the trailing edge, as the strip lays them out; on a narrow
+/// screen or at large text they stack full width, the way on last, nearest the thumb.
 struct RequestActions<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: AceDesign.Space.tight) { Spacer(minLength: AceTheme.Spacing.none); content() }
-            VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
+            HStack(spacing: AceDesign.Space.related) { Spacer(minLength: AceTheme.Spacing.none); content() }
+            VStack(spacing: AceDesign.Space.related) { content() }
+                .environment(\.cardButtonFills, true)
         }
     }
 }
@@ -342,11 +361,13 @@ struct BrowserHelpCard: View {
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
-            if let openBrowser {
+            // A request mirrored from another machine waits on a tab there: this thread's browser
+            // isn't it, so there's nothing to open here.
+            if let openBrowser, interaction.help?.elsewhere != true {
                 CardButton(title: "Open browser", action: openBrowser)
                     .accessibilityIdentifier("help.open")
             } else {
-                Text("The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+                Text(interaction.help?.elsewhere == true ? "The tab is open on the machine that asked." : "The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             RequestActions {
                 CardButton(title: "Skip") { answer(["kind": "help", "outcome": "skipped"]) }

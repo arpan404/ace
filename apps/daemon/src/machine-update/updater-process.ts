@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { MachineInstall } from "@ace/protocol";
 import { ReleaseVersion } from "@ace/protocol";
-import { planUpdateLaunch } from "@ace/service";
+import { homedir } from "node:os";
+import { canonicalPath, planUpdateLaunch } from "@ace/service";
 import { desktopAppMarker } from "@ace/service/desktop-update";
 import { cliOrigin } from "../doctor/install-versions.ts";
 import type { UpdaterPorts } from "./standalone-installer.ts";
@@ -84,6 +85,8 @@ export function updaterProcess(options: {
         node,
         args: [entry, "update", "apply", mode === "now" ? "--interrupt" : "--drain", "--outcome"],
         root: options.root,
+        userHome: homedir(),
+        canonical: canonicalPath,
       });
       const child = spawn(launch.command, launch.args, {
         stdio: "ignore",

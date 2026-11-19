@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { firstUsableWords } from "./spade-model-options.ts";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { readTemplates } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
@@ -34,6 +35,8 @@ export function RunsWith(props: {
   /** "": the model for new bots. */
   model: string;
   newBotModel: string | undefined;
+  /** The model a new bot gets when nobody chose one: named, never "the first usable model". */
+  firstUsable: string | undefined;
   onModel(model: string): void;
   onMachine(host: SpadeHost): void;
 }) {
@@ -48,7 +51,8 @@ export function RunsWith(props: {
       <SpadeModelPicker
         label="Model"
         value={props.model || props.newBotModel || ""}
-        none={props.newBotModel ? undefined : "Your first usable model"}
+        none={props.newBotModel ? undefined : firstUsableWords(props.firstUsable)}
+        follows={props.newBotModel ? undefined : props.firstUsable}
         onChange={(next) => props.onModel(next === props.newBotModel ? "" : next)}
         // The words alone: no box, source or caret on the quiet line.
         className={cn(

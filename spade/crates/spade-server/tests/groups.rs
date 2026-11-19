@@ -192,6 +192,53 @@ async fn a_mention_goes_straight_to_that_member_and_not_to_the_lead() -> Result 
 }
 
 #[tokio::test]
+async fn a_group_turn_never_marks_the_members_own_chat_unseen_or_shows_in_its_row() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let _titles = quiet_titles(&spade).await?;
+    let (research, _research_fake) = bot(&spade, "Research", vec![Script::reply("unused")]).await?;
+    let (writer, _writer_fake) = bot(
+        &spade,
+        "Writer",
+        vec![Script::reply("Hello."), Script::reply("A draft.")],
+    )
+    .await?;
+    let own = conversation(&writer);
+    let writer_id = writer["id"].as_str().unwrap_or_default().to_owned();
+    spade.say(&own, "Hi").await?;
+    spade.wait_for(&own, "reply_finished").await?;
+    let (status, body) = spade
+        .put(&format!("/v1/conversations/{own}/seen"), json!({}))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let team = group(&spade, "Docs", &[&research, &writer]).await?;
+
+    post(&spade, &team, "@writer draft the intro").await?;
+    spade
+        .wait_for_count(&conversation(&team), "group_message", 2)
+        .await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let row = loop {
+        let (_, agents) = spade.get("/v1/agents").await?;
+        let row = agents["agents"]
+            .as_array()
+            .and_then(|all| all.iter().find(|a| a["id"] == writer_id.as_str()).cloned())
+            .unwrap_or_default();
+        if row["state"] == "idle" || std::time::Instant::now() > deadline {
+            break row;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(row["state"], "idle", "{row}");
+    assert_eq!(row["unseen"], false, "the group turn is the group's: {row}");
+    assert_eq!(
+        (&row["last_message"]["from"], &row["last_message"]["text"]),
+        (&json!("agent"), &json!("Hello.")),
+        "its own chat's last word, not the group's: {row}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn members_ask_each_other_but_an_ask_back_up_the_chain_is_refused_as_a_cycle() -> Result {
     let spade = Spade::start(
         vec![

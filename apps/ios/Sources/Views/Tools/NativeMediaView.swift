@@ -23,8 +23,8 @@ struct NativeMediaView: View {
         Group {
             if let document { SandboxedCanvas(document: document).padding(.horizontal, AceDesign.Space.margin) }
             else if let picture { ZoomableImage(image: picture, label: title) }
-            else if let problem { EmptyState(systemImage: "doc", title: "Couldn't open media", line: problem) {
-                Button("Retry") { self.problem = nil; attempt += 1 }.buttonStyle(.textAction())
+            else if let problem { EmptyState(systemImage: "doc", title: "Couldn't open media", line: problem, failed: true) {
+                Button("Retry") { self.problem = nil; attempt += 1 }
             } }
             else { SkeletonPage(label: "Loading media") }
         }

@@ -36,6 +36,12 @@ const displayInput = z.strictObject({
     .describe("Number from an earlier look; omit for every display."),
 });
 
+/** Set by a caller's gate (Spade) to bind the call to the app it checked, by its id. */
+const expect = z
+  .strictObject({ app: z.string().min(1).max(200) })
+  .optional()
+  .describe("Set by your host; leave it out.");
+
 export function computerSchemasFor(platform: ComputerPlatform) {
   const app = z.string().min(1).max(200).describe(appIds[platform].app);
   return {
@@ -49,6 +55,7 @@ export function computerSchemasFor(platform: ComputerPlatform) {
       outline: z.boolean().optional().describe("false: picture only (fastest)."),
       find: z.string().min(1).max(200).optional().describe("Only elements with this text."),
       full: z.boolean().optional().describe("Whole outline, not changes."),
+      expect,
     }),
     screen_act: z.strictObject({
       app,
@@ -63,6 +70,7 @@ export function computerSchemasFor(platform: ComputerPlatform) {
       window: window.optional(),
       screenshot: z.boolean().optional().describe("Also a picture after acting."),
       observe: z.boolean().optional().describe("false: skip the look afterwards."),
+      expect,
     }),
     screen_display: displayInput,
   };

@@ -10,9 +10,12 @@ export const threadColdTable = `CREATE TABLE IF NOT EXISTS thread_cold (
 /**
  * A thread's details and capabilities, about 85% of its stored size, change rarely, so they
  * live in thread_cold and an event rewrites only the narrow threads row. A write to either
- * still gives the thread a new row revision. Rows written before the split are moved here;
- * the pass is idempotent and finds nothing to move after the first start. Needs the client
- * column and sidebar_thread_revisions.
+ * still gives the thread a new row revision. Rows written before the split are moved here
+ * once: the move reads every threads row, so a marker records that it ran and later opens
+ * only recreate the triggers (ADR 0170). Builds that write details inside client can't open
+ * a file with thread_cold, and readers take details from either place, so a row changed by
+ * direct SQL after the move still reads correctly. Needs the client column and
+ * sidebar_thread_revisions.
  */
 export function migrateThreadCold(db: DatabaseSync): void {
   db.exec(`
@@ -52,6 +55,10 @@ export function migrateThreadCold(db: DatabaseSync): void {
     WHEN OLD.id IS NOT NEW.id BEGIN
       UPDATE thread_cold SET thread_id = NEW.id WHERE thread_id = OLD.id;
     END;
+    CREATE TABLE IF NOT EXISTS thread_cold_moved (id INTEGER PRIMARY KEY CHECK (id = 1));
+  `);
+  if (db.prepare("SELECT 1 FROM thread_cold_moved").get()) return;
+  db.exec(`
     INSERT INTO thread_cold(thread_id, details, capabilities)
       SELECT id, client -> '$.details', provider_metadata -> '$.capabilities' FROM threads
       WHERE json_type(client, '$.details') IS NOT NULL
@@ -64,5 +71,6 @@ export function migrateThreadCold(db: DatabaseSync): void {
       provider_metadata = json_remove(provider_metadata, '$.capabilities')
       WHERE json_type(client, '$.details') IS NOT NULL
         OR json_type(provider_metadata, '$.capabilities') IS NOT NULL;
+    INSERT INTO thread_cold_moved VALUES (1);
   `);
 }

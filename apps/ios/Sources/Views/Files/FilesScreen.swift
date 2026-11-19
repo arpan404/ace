@@ -182,9 +182,7 @@ struct FilesScreen: View {
     @ViewBuilder private var searchRows: some View {
         let shown = results.flatMap { $0.query == query ? $0 : nil }
         if let searchFailure {
-            Text("Couldn't search the files. \(searchFailure)")
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                .listRowSeparator(.hidden)
+            ProblemRow("Couldn't search the files", detail: searchFailure, id: "files.searchProblem")
         } else if let shown {
             if !shown.ready {
                 SkeletonRows(count: 3, label: "Searching files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)

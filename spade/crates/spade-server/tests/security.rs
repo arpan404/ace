@@ -15,7 +15,9 @@ use spade_server::tools::Tool;
 use spade_server::workspace::shell::{Confine, Confinement, Kind};
 use spade_store::Store;
 use spade_testkit::Script;
-use support::sandbox::{World, asked, output, quoted, shell, world, world_in, wrapped_world};
+use support::sandbox::{
+    World, asked, command_ran, output, quoted, shell, world, world_in, wrapped_world,
+};
 use support::{Result, types};
 
 #[tokio::test]
@@ -188,8 +190,8 @@ async fn a_folder_the_person_grants_is_writable_until_the_grant_is_taken_back() 
 }
 
 #[tokio::test]
-async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is_logged() -> Result
-{
+async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is_logged_and_shown()
+-> Result {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     tokio::spawn(async move {
@@ -221,6 +223,12 @@ async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is
         "{}",
         output(&events, "c1")
     );
+    // Its step says where it ran and that the policy refused the host, without the log.
+    let ran = command_ran(&events, "c1");
+    assert_eq!(ran["contained"], json!(true), "{ran}");
+    assert_eq!(ran["refused"][0]["host"], json!("localhost"), "{ran}");
+    assert_eq!(ran["refused"][0]["port"], json!(port), "{ran}");
+    assert!(ran.get("reached").is_none(), "{ran}");
 
     let path = format!("/v1/agents/{}/security/network", w.bot);
     let (status, _) = w
@@ -250,6 +258,10 @@ async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is
         "{}",
         output(&events, "c2")
     );
+    let ran = command_ran(&events, "c2");
+    assert_eq!(ran["reached"], json!(["localhost"]), "{ran}");
+    assert_eq!(ran["exit_code"], json!(0), "{ran}");
+    assert!(ran.get("refused").is_none(), "{ran}");
 
     let (_, log) = w
         .spade

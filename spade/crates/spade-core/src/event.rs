@@ -192,6 +192,15 @@ pub enum Known {
         /// the tool's server and version, its own name and its schema (ADR 0171, amendment 1).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_key: Option<String>,
+        /// For a driving step (`ask: drive`), the app or site its "always" allows for the bot
+        /// (ADR 0171, amendment 3). Absent where it can't be allowed: a sensitive place, one
+        /// Spade can't name, or any other request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        /// For a driving step, where Spade found it acts when it asked: the step runs only if
+        /// it still acts there (ADR 0171, amendment 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -247,6 +256,28 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         documents: Vec<DocumentRef>,
     },
+    /// Where a command ran and how it went, stored right after its `tool_finished` like
+    /// `shared`: whether Spade's sandbox held it, its exit, and the hosts it reached and the
+    /// network policy refused. The model never reads it (its result already says how it ended);
+    /// the app shows it in the reply's steps, so what a command did is seen in the conversation.
+    CommandRan {
+        reply: String,
+        call_id: String,
+        /// The sandbox held it. False when it ran outside it: the person allowed that one
+        /// command, or this machine has no sandbox and it was reviewed.
+        contained: bool,
+        /// None when a signal ended it, or it never started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        timed_out: bool,
+        /// Hosts it reached through Spade's proxy, each once, in the order first asked.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reached: Vec<String>,
+        /// Hosts the network policy refused it, each once.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refused: Vec<RefusedHost>,
+    },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
     JobStarted {
@@ -293,6 +324,10 @@ pub enum Known {
         /// approved with these runs only while they are unchanged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
+        /// For a driving step, where it acted when it was reviewed (ADR 0171, amendment 3): the
+        /// verdict holds only there, so a restart never carries it to another page or app.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -460,6 +495,12 @@ pub enum Known {
         reply: String,
         text: String,
     },
+    /// The person pressed Try again on `reply`, the conversation's last reply, which failed. The
+    /// reply stored with this one takes its place: it answers the same turn from the same history,
+    /// with no message posted again, and clients show it in place of the failure.
+    ReplyRetried {
+        reply: String,
+    },
     Renamed {
         title: String,
     },
@@ -618,6 +659,9 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
+    /// The bot has no model it can use: none was chosen yet, or the chosen one is no longer on
+    /// the person's endpoints. Choosing one fixes it.
+    NoModel,
     /// Retired (ADR 0166): a spending cap ended the reply before its next call, as builds with
     /// caps stored it. Still read: such a reply counts as finished, so its task carries on, and
     /// it reaches no one.
@@ -645,8 +689,8 @@ impl FailureKind {
             ModelError::Unanswered { .. }
             | ModelError::Provider { .. }
             | ModelError::Empty { .. }
-            | ModelError::Shape { .. }
-            | ModelError::UnknownModel(_) => Self::Model,
+            | ModelError::Shape { .. } => Self::Model,
+            ModelError::UnknownModel(_) => Self::NoModel,
             ModelError::Listing { .. } | ModelError::Setup(_) => Self::Other,
         }
     }
@@ -736,6 +780,15 @@ pub struct FromRoutine {
     /// (ADR 0144): its instruction may have been planted, so a turn it starts is untrusted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+}
+
+/// A host the network policy refused a command, with why (`command_ran`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedHost {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
@@ -981,5 +1034,32 @@ mod tests {
             var: None,
         };
         assert_eq!(FailureKind::of(&missing), FailureKind::Key);
+    }
+
+    #[test]
+    fn a_reply_without_a_usable_model_fails_as_no_model_and_says_what_to_do() {
+        use spade_models::ModelError;
+        let unchosen = ModelError::UnknownModel(String::new());
+        assert_eq!(FailureKind::of(&unchosen), FailureKind::NoModel);
+        assert!(
+            unchosen
+                .to_string()
+                .contains("no model is chosen yet: choose one")
+        );
+        let gone = ModelError::UnknownModel("old/m".into());
+        assert_eq!(FailureKind::of(&gone), FailureKind::NoModel);
+        assert_eq!(
+            gone.to_string(),
+            "old/m is not a model on one of your endpoints"
+        );
+        let stored = Event::Known(Known::ReplyFailed {
+            reply: "r1".into(),
+            text: String::new(),
+            error: unchosen.to_string(),
+            kind: FailureKind::NoModel,
+            endpoint: None,
+        })
+        .to_json();
+        assert_eq!(stored["kind"], "no_model");
     }
 }

@@ -1,32 +1,5 @@
 import SwiftUI
 
-/// A read or a change that failed, as one sentence in the failed colour, then its ways out as
-/// words (design language §5 "Inner pages and sheets"): never a box, never an icon.
-struct QuietProblem: View {
-    let message: String
-    /// What a test names this sentence: several can be on one page, so each call site says which
-    /// is which. Retry, when there is one, is `id` + `.retry`.
-    var id = "service.problem"
-    var retry: (() -> Void)? = nil
-    var retryLabel = "Retry"
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(message).aceFont(AceDesign.TextRole.meta)
-                .foregroundStyle(AceTheme.StatusText.failed)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(id)
-            if let retry {
-                Button(retryLabel, action: retry)
-                    .buttonStyle(.textAction(.prominent))
-                    .accessibilityIdentifier("\(id).retry")
-            }
-        }
-        .padding(.horizontal, AceDesign.Space.margin)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-    }
-}
-
 /// A quiet heading alone, over a control that heads its own group (a glass choice, a picker).
 struct QuietHeading: View {
     let title: String
