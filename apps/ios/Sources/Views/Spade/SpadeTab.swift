@@ -69,29 +69,33 @@ private struct SpadeList: View {
     private var spade: SpadeModel { client.spade }
 
     var body: some View {
-        List {
-            if let line = spade.line, !line.ready {
-                Section { placeLine(line) }
-            }
-            if let bots = spade.bots {
-                ForEach(bots) { bot in
-                    NavigationLink(value: bot.conversation) { SpadeBotRow(bot: bot) }
-                        .accessibilityIdentifier("spade.bot.\(bot.id)")
-                }
-            } else if spade.listFailed {
-                EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
-                    Button("Try again") { client.spadeRefresh() }
-                }
-                .listRowSeparator(.hidden)
-            } else if spade.line?.ready == true {
-                SkeletonRows(count: 4, retry: { client.spadeRefresh() })
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-            }
+        List { rows }
+            .listStyle(.plain)
+            .scrollsToTop(on: .spade)
+            .refreshable { client.spadeRefresh() }
+            .accessibilityIdentifier("spade.list")
+    }
+
+    /// Why Spade isn't running, then its bots, the failure or skeleton rows while they load.
+    @ViewBuilder private var rows: some View {
+        if let line = spade.line, !line.ready {
+            Section { placeLine(line) }
         }
-        .listStyle(.plain)
-        .refreshable { client.spadeRefresh() }
-        .accessibilityIdentifier("spade.list")
+        if let bots = spade.bots {
+            ForEach(bots) { bot in
+                NavigationLink(value: bot.conversation) { SpadeBotRow(bot: bot) }
+                    .accessibilityIdentifier("spade.bot.\(bot.id)")
+            }
+        } else if spade.listFailed {
+            EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
+                Button("Try again") { client.spadeRefresh() }
+            }
+            .listRowSeparator(.hidden)
+        } else if spade.line?.ready == true {
+            SkeletonRows(count: 4, retry: { client.spadeRefresh() })
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+        }
     }
 
     /// Spade isn't running here: why, in its words, and Turn on where the setting is off.

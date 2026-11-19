@@ -66,6 +66,7 @@ struct ChatsList: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollsToTop(on: .chats)
                 .scrollContentBackground(.hidden)
             }
         }

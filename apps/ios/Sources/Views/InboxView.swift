@@ -18,6 +18,8 @@ struct InboxView: View {
     /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
     @State private var tab = InboxTab.threads
+    /// A place's tab tapped again while it shows: its list goes back to the top.
+    @State private var retap = HomeRetap()
     @State private var threadsPath: [InboxRoute] = []
     @State private var chatsPath: [InboxRoute] = []
     /// Each list as a drawer over its open page in a narrow regular window (`ThreadDrawer`).
@@ -161,6 +163,7 @@ struct InboxView: View {
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
+        .environment(\.homeRetap, retap)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)

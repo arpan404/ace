@@ -14,6 +14,7 @@ struct HomeBar: View {
     /// Each place's dot: something there needs the person while it isn't showing.
     var needsYou: (InboxTab) -> Bool = { _ in false }
     @Environment(\.showsSpade) private var showsSpade
+    @Environment(\.homeRetap) private var retap
     @State private var keyboard = false
     @Namespace private var fill
 
@@ -47,6 +48,9 @@ struct HomeBar: View {
         let chosen = tab == place
         let dot = !chosen && needsYou(place)
         return Button {
+            // Tapped again, the place showing goes back to its top, as the system's tabs do. Set
+            // anyway: Search's own choice turns a second tap into focusing its field.
+            if chosen { retap?.ask(place) }
             tab = place
         } label: {
             VStack(spacing: AceTheme.Spacing.none) {
@@ -138,7 +142,33 @@ extension View {
     }
 }
 
+/// A place's tab tapped while it shows, counted per place: its list scrolls back to the top
+/// (`scrollsToTop(on:)`). Observed per place, so a tap redraws only the list it asks.
+@MainActor @Observable final class HomeRetap {
+    private var asks: [InboxTab: Int] = [:]
+    func ask(_ place: InboxTab) { asks[place, default: 0] += 1 }
+    func count(_ place: InboxTab) -> Int { asks[place] ?? 0 }
+}
+
+extension View {
+    /// The list scrolls back to its top when its place's tab is tapped again (`HomeRetap`).
+    func scrollsToTop(on place: InboxTab) -> some View { modifier(ScrollsToTop(place: place)) }
+}
+
+private struct ScrollsToTop: ViewModifier {
+    let place: InboxTab
+    @Environment(\.homeRetap) private var retap
+    @State private var position = ScrollPosition()
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition($position)
+            .onChange(of: retap?.count(place)) { withAnimation { position.scrollTo(edge: .top) } }
+    }
+}
+
 extension EnvironmentValues {
+    /// The home tabs' re-taps (`HomeRetap`); nil outside the home screen.
+    @Entry var homeRetap: HomeRetap? = nil
     /// A Spade bot works on a machine that shows Spade: Spade's face in the bars moves its eyes.
     @Entry var spadeWorking = false
 }

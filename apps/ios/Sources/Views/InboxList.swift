@@ -80,6 +80,7 @@ struct InboxList: View {
     /// Where the list is scrolled: a tab switch takes it back to its very top, the large title
     /// open again over the tabs.
     @State private var position = ScrollPosition()
+    @Environment(\.homeRetap) private var retap
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
@@ -145,6 +146,8 @@ struct InboxList: View {
             }
             .listStyle(.plain)
             .scrollPosition($position)
+            // Projects tapped again while it shows: back to the top.
+            .onChange(of: retap?.count(.threads)) { withAnimation { position.scrollTo(edge: .top) } }
             .scrollContentBackground(.hidden)
             .background(surface)
             .environment(\.defaultMinListRowHeight, 0)
