@@ -254,8 +254,11 @@ export function localFilesIo(
       const source = join(safe.root, endpoint);
       await lstat(source);
       await destination.verify();
+      // Node holds no handle on the moved entry, so no version can be bound to it here: the
+      // caller reports the restore's version as unknown and reads it afterwards.
       await exclusive.move(source, destination.path);
       await destination.verify();
+      return { version: null };
     },
     async remove(root, path) {
       const safe = await safeRoot(root);

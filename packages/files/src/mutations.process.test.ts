@@ -1103,3 +1103,62 @@ it("reports a committed move even when its version cannot be read afterwards", a
     expect.objectContaining({ change: expect.objectContaining({ destination: "b.md" }) }),
   );
 });
+it("reports no version for a restore unless the port read one from the restored entry", async () => {
+  const io = await port((base) => ({
+    async untrash(root, endpoint, path) {
+      await base.untrash(root, endpoint, path);
+      // Another program replaces the restored file before the queue releases the path. Reading the
+      // path again would report that program's version as this restore's.
+      await writeFile(join(root, path), "someone else's version\n");
+      return { version: null };
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "restore-me.md"), "the restored bytes\n");
+  const deleted = Result.parse(
+    await client.request({
+      op: "delete",
+      path: "restore-me.md",
+      expected: await version(client, "restore-me.md"),
+    }),
+  );
+
+  expect(
+    await client.request({
+      op: "restore",
+      path: "restore-me.md",
+      trashId: deleted.value.trashId,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: null } });
+  expect(await readFile(join(f.root, "restore-me.md"), "utf8")).toBe("someone else's version\n");
+});
+
+it("reports the version the port read from the entry it restored", async () => {
+  const io = await port((base) => ({
+    async untrash(root, endpoint, path) {
+      await base.untrash(root, endpoint, path);
+      return { version: "11:22:33:44:55" };
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "bound.md"), "bound bytes\n");
+  const deleted = Result.parse(
+    await client.request({
+      op: "delete",
+      path: "bound.md",
+      expected: await version(client, "bound.md"),
+    }),
+  );
+
+  expect(
+    await client.request({
+      op: "restore",
+      path: "bound.md",
+      trashId: deleted.value.trashId,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: "11:22:33:44:55" } });
+});

@@ -275,19 +275,17 @@ export class Mutations {
             target?.version ?? null,
           );
         }
-        if (record.location) await this.io.untrash(root, record.location, operation.path);
+        // A restore reports a version only when the port read one through the entry it moved.
+        // Reading the path again after the queue would report whatever holds it by then as this
+        // restore's version, so an unbound restore reports none.
+        let version: string | null = null;
+        if (record.location)
+          version = (await this.io.untrash(root, record.location, operation.path)).version;
         else await this.legacyMove(record.id, operation.path);
         this.catalog.delete(record.id);
-        break;
+        return { id, op: operation.op, path: operation.path, committed: version };
       }
     }
-    return {
-      id,
-      op: operation.op,
-      path: operation.path,
-      ...(destination ? { destination } : {}),
-      ...(trashId ? { trashId } : {}),
-    };
   }
   /**
    * The change with the version the path has now, read after the mutation queue has released it.
