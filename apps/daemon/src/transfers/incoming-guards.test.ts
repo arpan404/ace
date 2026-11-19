@@ -125,6 +125,7 @@ async function target(
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
   const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+  const logs: { message: string; fields: Record<string, unknown> }[] = [];
   const make = () =>
     new IncomingTransfers({
       store,
@@ -139,7 +140,7 @@ async function target(
         holders: () => [{ workspaceId: WorkspaceId.parse("workspace-held"), path: root }],
       }),
       now: () => clock.at,
-      log: () => {},
+      log: (message: string, fields: Record<string, unknown>) => logs.push({ message, fields }),
     });
   let incoming = make();
   cleanup.push(() => incoming.close());
@@ -156,6 +157,7 @@ async function target(
     release,
     state,
     directory,
+    logs,
     /** Where a transfer's uploaded code waits: named by the hash of its id. */
     part: (id: string) => incomingPath(directory, id, "code"),
     /** Stops this machine's transfers and starts them again on the same store and folder. */
@@ -370,4 +372,26 @@ it("a first chunk whose device loses Projects while its file opens leaves no fil
     code: "machine_forbidden",
   });
   await expect(stat(part("t-opening"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("an old file name two live transfers could own is left alone, kept, and logged", async () => {
+  const fixture = await target();
+  await fixture.incoming.call(device, begin("x"));
+  await fixture.incoming.call(device, begin("x.ignored"));
+  // An earlier build named both `x`'s ignored files and `x.ignored`'s code `x.ignored.part`.
+  const old = join(fixture.directory, "x.ignored.part");
+  await writeFile(old, bytes);
+  const incoming = await fixture.restart();
+  // Neither transfer takes it, since it can't be told whose it is; the file stays as it was.
+  for (const transferId of ["x", "x.ignored"])
+    await expect(incoming.call(device, { op: "status", transferId })).resolves.toMatchObject({
+      state: "receiving",
+      offset: 0,
+      ignoredOffset: 0,
+    });
+  expect(await readFile(old)).toEqual(bytes);
+  expect(fixture.logs).toContainEqual({
+    message: expect.stringMatching(/old name/),
+    fields: { name: "x.ignored.part", transfers: ["x", "x.ignored"] },
+  });
 });

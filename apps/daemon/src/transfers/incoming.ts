@@ -35,7 +35,12 @@ import { TransferError, type TransferArchive, type TransferGit } from "./ports.t
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
 import type { LiveTarget } from "./live/target.ts";
-import { incomingParts, incomingPath, legacyIncomingName } from "./incoming-files.ts";
+import {
+  incomingParts,
+  incomingPath,
+  legacyIncomingName,
+  type IncomingPart,
+} from "./incoming-files.ts";
 import { persist } from "./retry.ts";
 
 export interface IncomingDeps {
@@ -162,10 +167,7 @@ export class IncomingTransfers {
     await this.rows.ready();
     // Files named by an earlier build after the id itself move to their hashed names first, so
     // the imports below find them; in pages of transfers still receiving or importing.
-    await batches(
-      (after) => this.rows.live(after),
-      (record) => this.adoptLegacy(record.transferId),
-    );
+    await this.adoptLegacy();
     // Every import a restart left, in batches until none are left.
     await batches(
       (after) => this.rows.unsettled(after),
@@ -216,18 +218,43 @@ export class IncomingTransfers {
     ]);
   }
   /**
-   * Moves a transfer's files from the names an earlier build gave them (the id with the suffix)
-   * to its hashed names. A name already taken keeps its file; nothing is removed here.
+   * Moves transfers' files from the names an earlier build gave them (the id with the suffix) to
+   * their hashed names. With dots in ids one old name can be two transfers' (`x.ignored.part` is
+   * `x`'s ignored files or `x.ignored`'s code), so every live transfer's old names are gathered
+   * first, in pages (ADR 0170), and a file moves only when its name is exactly one live
+   * transfer's part. Any other is left where it is, kept by recovery, and logged. A hashed name
+   * already taken keeps its file; nothing is removed here.
    */
-  private async adoptLegacy(transferId: string): Promise<void> {
-    for (const part of incomingParts) {
-      const legacy = join(this.deps.directory, legacyIncomingName(transferId, part));
-      const target = incomingPath(this.deps.directory, transferId, part);
-      if (legacy === target) continue;
-      if ((await pathExists(legacy)) && !(await pathExists(target)))
-        await rename(legacy, target).catch((error: unknown) =>
-          this.deps.log("Transfer file not moved", { transferId, error: String(error) }),
-        );
+  private async adoptLegacy(): Promise<void> {
+    const owners = new Map<string, { transferId: string; part: IncomingPart }[]>();
+    await batches(
+      (after) => this.rows.live(after),
+      async (record) => {
+        for (const part of incomingParts) {
+          const name = legacyIncomingName(record.transferId, part);
+          owners.set(name, [...(owners.get(name) ?? []), { transferId: record.transferId, part }]);
+        }
+      },
+    );
+    for (const [name, claims] of owners) {
+      const legacy = join(this.deps.directory, name);
+      const [only] = claims;
+      if (!only || !(await pathExists(legacy))) continue;
+      if (claims.length > 1) {
+        this.deps.log("Transfer file left under its old name: more than one transfer names it", {
+          name,
+          transfers: claims.map((claim) => claim.transferId),
+        });
+        continue;
+      }
+      const target = incomingPath(this.deps.directory, only.transferId, only.part);
+      if (await pathExists(target)) continue;
+      await rename(legacy, target).catch((error: unknown) =>
+        this.deps.log("Transfer file not moved", {
+          transferId: only.transferId,
+          error: String(error),
+        }),
+      );
     }
   }
   private file(transferId: string) {
