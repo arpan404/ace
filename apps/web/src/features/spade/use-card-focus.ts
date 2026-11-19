@@ -21,7 +21,7 @@ function composerOf(column: Element | null): HTMLElement | null {
 }
 
 /**
- * An open card of questions takes focus, so its digits and arrows are its own and not typed into
+ * An open card (questions, or a request) takes focus, so its keys are its own and not typed into
  * the composer: its first control on opening and on every question it turns to, unless the
  * person is partway through a message. When it closes with focus gone (the button they pressed
  * left with it), focus goes back to the composer to write in.

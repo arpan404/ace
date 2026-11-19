@@ -65,5 +65,6 @@ export { ComposerDock } from "./composer/composer-dock.tsx";
 export { StripSurface } from "./composer/strip-surface.tsx";
 export { BubbleText } from "./items/bubble-text.tsx";
 export { userBubble } from "./items/user-bubble.ts";
-/** Scroll to end over a transcript (Spade's conversations reuse it). */
+/** Scroll to end over a transcript, and Esc twice to stop (Spade's conversations reuse them). */
 export { LivePill } from "./long/live-pill.tsx";
+export { useStopKey } from "./composer/stop-key.ts";

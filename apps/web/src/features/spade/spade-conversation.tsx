@@ -2,6 +2,7 @@ import {
   spadeForLaterWords,
   spadeLiveSurfaces,
   spadeModelState,
+  spadeSentText,
   spadeStateLine,
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
@@ -304,6 +305,7 @@ export function Conversation(props: {
         blocked={line.ready ? undefined : line.sentence}
         needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
+        recall={(older) => spadeSentText(view.entries, older)}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }

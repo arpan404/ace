@@ -93,13 +93,17 @@ export function QuestionInputs(props: {
           : [...picks.picked, label];
         props.onDraft({ ...picks, picked });
       };
-      // A digit picks the option it names, while focus is on the list.
-      const digit = (event: React.KeyboardEvent) => {
+      // A digit picks the option it names, while focus is on the list, and focus goes with it,
+      // so Enter next goes on rather than picking whatever focus was left on.
+      const digit = (event: React.KeyboardEvent<HTMLElement>) => {
         const at = Number(event.key) - 1;
         const option = Number.isInteger(at) && at >= 0 ? question.options[at] : undefined;
         if (!option || event.target instanceof HTMLInputElement) return;
         event.preventDefault();
         toggle(option.label);
+        event.currentTarget
+          .querySelectorAll<HTMLElement>('[role="radio"], [role="checkbox"]')
+          [at]?.focus({ preventScroll: true });
       };
       const rows = question.options.map((option, index) => {
         const on = picks.picked.includes(option.label);
@@ -137,6 +141,12 @@ export function QuestionInputs(props: {
             aria-label={option.label}
             disabled={disabled}
             onClick={() => toggle(option.label)}
+            onKeyDown={(event) => {
+              // Enter on the option already picked goes on, as Enter in a field does.
+              if (event.key !== "Enter" || !on) return;
+              event.preventDefault();
+              props.onSubmit();
+            }}
             className={cn(optionRow, on && optionChosen)}
           >
             <Radio on={on} />

@@ -62,6 +62,7 @@ import {
   type Continuation,
 } from "./continue-in-thread.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useStopKey } from "./stop-key.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
 let sender: Promise<typeof import("./send-message.ts")> | undefined;
@@ -70,9 +71,6 @@ const loadSender = () => (sender ??= import("./send-message.ts"));
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
-
-/** How soon after the first Esc a second one stops the agent tree. */
-export const stopKeyWindowMs = 1_500;
 
 /**
  * The thread's composer, on the transcript's column. Enter sends: the message shows as its
@@ -286,19 +284,7 @@ export function ThreadComposer({
   const questioned = question.placeholder !== undefined;
   const canStop = activityState.canStop && !questioned;
   // Esc never stops on its own: the first press asks in the strip, a second one soon stops.
-  const [armedAt, setArmedAt] = useState<number>();
-  const armed = canStop && armedAt !== undefined;
-  useEffect(() => {
-    if (!canStop || armedAt === undefined) return;
-    const expire = setTimeout(() => setArmedAt(undefined), stopKeyWindowMs);
-    return () => clearTimeout(expire);
-  }, [canStop, armedAt]);
-  const stopKey = (at: number) => {
-    const again =
-      armed && armedAt !== undefined && at >= armedAt && at - armedAt <= stopKeyWindowMs;
-    setArmedAt(again ? undefined : at);
-    if (again) stop();
-  };
+  const { armed, stopKey } = useStopKey(canStop, stop);
   const subagents = meta ? (meta.live?.runningSubagentCount ?? runningSubagents(meta.status)) : 0;
   // While the strip shows what the agent only waits on, Stop sits there instead of the send slot.
   const [waitingShown, setWaitingShown] = useState(false);
