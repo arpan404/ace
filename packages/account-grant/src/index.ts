@@ -149,6 +149,20 @@ export function standingProofText(input: {
   return `ace-standing/v2\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.grant}`;
 }
 
+/**
+ * What a device paired from a person's link signs with its standing key to prove the person's
+ * standing on one socket (ADR 0190): the daemon's relay host, the socket's nonce and channel
+ * binding, and its own device id.
+ */
+export function pairedStandingText(input: {
+  host: string;
+  nonce: string;
+  binding: string | undefined;
+  deviceId: string;
+}): string {
+  return `ace-paired-standing/v1\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.deviceId}`;
+}
+
 const AnyGrantClaims = z.union([
   GrantClaims,
   CloudGrantClaims,
@@ -218,11 +232,18 @@ export function encodeBase64url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
+/**
+ * Base64url, canonical only: unpadded, and with the unused low bits of the last character zero.
+ * Any other spelling of the same bytes is refused, so a grant, key or proof has exactly one
+ * text, and nothing keyed by its text (a spent grant, ADR 0190) can be got round by respelling.
+ */
 export function decodeBase64url(text: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1)
     throw new GrantError("Invalid base64url");
   const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  if (encodeBase64url(bytes) !== text) throw new GrantError("Invalid base64url");
+  return bytes;
 }
 
 /** The public half of a signing key, as published in the key set. */

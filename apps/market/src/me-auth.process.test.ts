@@ -352,3 +352,29 @@ it("a person's grant does its one request once: captured and sent again, it is r
   expect(replayed.status).toBe(401);
   expect((await jsonOf(replayed)).error).toBe("person_grant");
 });
+
+it("a person's grant respelled in base64url is refused, so sent twice at once it still does one request", async () => {
+  const body = { handle: "gate-keeper-respelled" };
+  const grant = grantFor("acct_owner", { action: await intentOf("PUT", "/v1/me/handle", body) });
+  const [claims = "", signature = ""] = grant.split(".");
+  // Unused low bits in the signature's last character: the same bytes, another spelling.
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const last = signature.at(-1) ?? "A";
+  const respelled = `${claims}.${signature.slice(0, -1)}${alphabet[alphabet.indexOf(last) ^ 1]}`;
+  const put = (token: string) =>
+    market.fetch("/v1/me/handle", {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        "cf-connecting-ip": callerAddress(),
+      },
+      body: JSON.stringify(body),
+    } as Parameters<Market["fetch"]>[1]);
+  const [canonical, alternate] = await Promise.all([put(grant), put(respelled)]);
+  expect(alternate.status).toBe(401);
+  expect((await jsonOf(alternate)).error).toBe("unauthorized");
+  expect(canonical.status).not.toBe(401);
+  // And the canonical one, sent again, is spent.
+  expect((await jsonOf(await put(grant))).error).toBe("person_grant");
+});

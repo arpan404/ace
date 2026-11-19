@@ -1,6 +1,7 @@
 import {
   GrantError,
   MARKET_GRANT_ISSUER,
+  decodeBase64url,
   verifyMarketGrant,
   type MarketGrantClaims,
 } from "@ace/account-grant";
@@ -59,9 +60,13 @@ async function requestIntent(method: string, path: string, body: Uint8Array): Pr
   return `${method} ${path} ${await sha256(body)}`;
 }
 
-/** Marks a person's grant spent; false when it already was. */
+/**
+ * Marks a person's grant spent; false when it already was. Keyed by the signed claims' bytes, as
+ * verified, so neither another spelling of the token nor another signature over the same claims
+ * spends it again.
+ */
 async function spend(context: Context, token: string, expires: number): Promise<boolean> {
-  const digest = await sha256(new TextEncoder().encode(token));
+  const digest = await sha256(decodeBase64url(token.split(".")[0] ?? ""));
   const result = await context.dbs.publishers
     .prepare("INSERT OR IGNORE INTO spent_person_grants (digest, expires) VALUES (?1, ?2)")
     .bind(digest, expires)

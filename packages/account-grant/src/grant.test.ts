@@ -204,3 +204,14 @@ it("a market grant says how long before it was issued its sign-in happened; othe
   expect(grantSignInAge("not.a-grant")).toBeUndefined();
   expect(grantSignInAge("")).toBeUndefined();
 });
+
+it("a grant, key or proof has one spelling: another base64url spelling of the same bytes is refused", () => {
+  const token = signGrant(claims, key);
+  const [body = "", signature = ""] = token.split(".");
+  // The last character of an unpadded group carries unused low bits; set one.
+  const last = signature.at(-1) ?? "A";
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const respelled = `${signature.slice(0, -1)}${alphabet[alphabet.indexOf(last) ^ 1]}`;
+  expect(verifyGrant(token, keys, 2_000, "device").account).toBe("user_1");
+  expect(() => verifyGrant(`${body}.${respelled}`, keys, 2_000, "device")).toThrow();
+});
