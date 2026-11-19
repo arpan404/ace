@@ -54,13 +54,46 @@ impl Session {
             }),
         )
         .unwrap();
-        Session {
+        let session = Session {
             _watcher: watcher,
             dir,
             batches,
             debounce,
             _serial: serial,
+        };
+        session.await_live();
+        session
+    }
+
+    /// Proves the OS stream is delivering before the test writes anything.
+    ///
+    /// A stream takes a moment to start after a watch begins, and a test whose first writes land
+    /// in that moment sees a watcher that said nothing - which reads as a missing feature rather
+    /// than as a stream that was not up yet. One canary file is written and waited for, then
+    /// removed, and its own news is dropped so the test starts from a quiet watcher.
+    fn await_live(&self) {
+        let canary = ".ace-watch-canary";
+        std::fs::write(self.path(canary), b"x").unwrap();
+        let deadline = Instant::now() + WAIT;
+        loop {
+            if changes(&self.seen())
+                .iter()
+                .any(|change| change.path == canary)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the watcher never reported its own canary within {WAIT:?}, so the stream is not live"
+            );
+            std::thread::sleep(Duration::from_millis(10));
         }
+        std::fs::remove_file(self.path(canary)).unwrap();
+        std::thread::sleep(self.quiet());
+        self.batches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     pub fn path(&self, rel: &str) -> PathBuf {
