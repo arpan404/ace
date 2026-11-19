@@ -9,7 +9,8 @@
     "./labels": "./src/labels.ts",
     "./availability": "./src/availability.ts",
     "./acp-instances": "./src/acp-instances.ts",
-    "./home-wait": "./src/home-wait.ts"
+    "./home-wait": "./src/home-wait.ts",
+    "./session-files": "./src/session-files.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

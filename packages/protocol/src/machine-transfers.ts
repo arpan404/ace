@@ -3,7 +3,7 @@ import { HostId, ThreadId, WorkspaceId } from "./ids.ts";
 import { ProjectIdentityId, maxIdentityAliases } from "./project-identity.ts";
 import { ProviderKind } from "./provider.ts";
 import { PortableHandoff } from "./thread-transitions.ts";
-import { TransferMethod } from "./transfers.ts";
+import { TransferMethod, TransferSessionOutcome } from "./transfers.ts";
 
 /**
  * Daemon-to-daemon calls that carry a project or thread to another of the person's machines
@@ -56,6 +56,12 @@ export const TransferBegin = z.strictObject({
    * repository without a remote) lands in that same copy instead of making a new one.
    */
   sourceWorkspaceId: WorkspaceId.optional(),
+  /**
+   * The thread is still working on the sender (ADR 0191): a small final payload follows the
+   * bulk, and the target starts the thread's turn itself. Sent only for a working thread; a
+   * target that doesn't answer `live` can't take one.
+   */
+  live: z.literal(true).optional(),
   /** Source origin: reused or cloned for remote transfers, restored after bundle imports. */
   remote: z
     .object({ url: z.string().min(1).max(2048), normalized: z.string().max(2048) })
@@ -73,6 +79,48 @@ export const TransferThread = z.object({
   handoff: PortableHandoff,
 });
 export type TransferThread = z.infer<typeof TransferThread>;
+
+/** The provider's own session, carried in the final payload's `session/` folder (ADR 0191). */
+export const CarriedSession = z.object({
+  provider: ProviderKind,
+  nativeSessionId: z.string().min(1).max(256),
+  /** The folder the session ran in on the sender; rewritten to the landed checkout there. */
+  sourceCwd: z.string().min(1).max(4096),
+  /** Files under `session/`, relative to the provider's home. */
+  files: z.array(z.string().min(1).max(1024)).max(512),
+});
+export type CarriedSession = z.infer<typeof CarriedSession>;
+
+/** What a live switch-over adds to the commit (ADR 0191). */
+export const TransferLive = z.object({
+  /** Grows with every handover of the thread; the target's ownership record keeps it. */
+  epoch: z.number().int().positive(),
+  /** The thread on the sending machine, which it owns until the target answers. */
+  sourceThreadId: ThreadId,
+  /** What the source left behind, for the continue message there. */
+  left: z.object({
+    shells: z.array(z.string().max(256)).max(32),
+    children: z.array(z.string().max(256)).max(32),
+    remoteChildren: z.array(z.string().max(256)).max(32),
+    queued: z.number().int().nonnegative(),
+  }),
+  /**
+   * Git methods: what the bulk bundle holds. `branch`, `head` and `changes` on the commit are
+   * the checkout as it was at the stop; `delta.bundle` in the final payload carries the commits
+   * between the two.
+   */
+  bulk: z
+    .object({
+      branch: refName.optional(),
+      head: commit.optional(),
+      changes: z.object({ ref: refName, commit }).optional(),
+    })
+    .optional(),
+  /** The provider's session, when it could be carried; otherwise why not. */
+  session: CarriedSession.optional(),
+  unsupported: z.string().max(256).optional(),
+});
+export type TransferLive = z.infer<typeof TransferLive>;
 
 /** Everything uploaded; the target checks the file and imports it. */
 export const TransferCommit = z.strictObject({
@@ -97,6 +145,13 @@ export const TransferCommit = z.strictObject({
       files: z.number().int().nonnegative(),
     })
     .optional(),
+  /**
+   * A live switch-over's final payload (`part=final`): a folder archive with `delta.bundle`
+   * (what changed since the bulk) and `session/` (the provider's session). Sent only to a target
+   * that answers with `live`.
+   */
+  final: z.object({ bytes: z.number().int().positive().max(maxTransferBytes), sha256 }).optional(),
+  live: TransferLive.optional(),
   /**
    * The source registration's logical project (ADR 0180) and its aliases there. Sent only to a
    * target that answers with `identity: true`: an older target refuses fields it doesn't know.
@@ -159,6 +214,17 @@ export const IncomingTransfer = z.object({
   hasOrigin: z.boolean().optional(),
   /** The target keeps logical project identities: `commit` may carry the source's. */
   identity: z.literal(true).optional(),
+  /**
+   * The target takes live switch-overs (ADR 0191): bytes of the final payload it holds, and once
+   * completed, whether the moved thread's turn started there (it owns the thread from its cutoff).
+   */
+  live: z
+    .object({
+      finalOffset: z.number().int().nonnegative(),
+      running: z.boolean().optional(),
+      session: TransferSessionOutcome.optional(),
+    })
+    .optional(),
   result: z
     .object({
       workspaceId: WorkspaceId,

@@ -62,18 +62,13 @@ pub fn read(
     env: &[(String, String)],
     arguments: &Value,
 ) -> Classed {
-    let path = env
-        .iter()
-        .rev()
-        .find(|(name, _)| name == "PATH")
-        .map(|(_, value)| value.clone());
     let Some(place) = FsPlace::new(start.to_path_buf(), workspace) else {
         return Classed {
             incomplete: true,
             ..classify_shell(arguments, &Lexical)
         };
     };
-    let classed = classify_shell(arguments, &place.with_path(path));
+    let classed = classify_shell(arguments, &place.with_env(env));
     let disk = super::ambient::Disk { env: env.to_vec() };
     let config_clean = spade_classify::inspect(&disk, start, workspace);
     // A tool whose configuration, where it runs, names a program: Spade can't show or bind
@@ -94,7 +89,8 @@ pub fn read(
 }
 
 /// What a reading binds a verdict to: every file it runs, as it is, and every program it runs
-/// from outside the system's folders, by where it is, its size and when it last changed.
+/// from outside the system's protected folders, by its real path and the SHA-256 of its content
+/// (the reading is incomplete when one can't be read whole, so there is no binding to weaken).
 pub fn binding(classed: &Classed) -> Bound {
     if classed.shown.is_empty() && classed.programs.is_empty() {
         return Bound::Nothing;
@@ -106,19 +102,11 @@ pub fn binding(classed: &Classed) -> Bound {
         text.extend_from_slice(file.content.as_bytes());
         text.push(0);
     }
-    for program in &classed.programs {
+    for (program, digest) in &classed.programs {
         text.extend_from_slice(b"program\0");
         text.extend_from_slice(program.to_string_lossy().as_bytes());
         text.push(0);
-        let identity = std::fs::metadata(program).ok().map(|meta| {
-            let changed = meta
-                .modified()
-                .ok()
-                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |since| since.as_nanos());
-            format!("{}:{changed}", meta.len())
-        });
-        text.extend_from_slice(identity.as_deref().unwrap_or("?").as_bytes());
+        text.extend_from_slice(digest.as_bytes());
         text.push(0);
     }
     Bound::Of(super::trust::hash(&text))

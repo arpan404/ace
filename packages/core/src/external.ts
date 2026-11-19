@@ -30,6 +30,9 @@ export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): A
       return { state: "failed", error: { kind: "provider", message: "Delegated thread failed" } };
     case "done":
       return { state: "idle" };
+    // Its work goes on on another machine: still waited on, never read as finished here.
+    case "moved":
+      return { state: "blocked", on: "upstream", refs: [threadId] };
   }
 }
 /**

@@ -41,3 +41,37 @@ export function providerProcessState(input: {
   if (!input.session) return undefined;
   return input.idleSince === undefined ? "busy" : "idle-warm";
 }
+
+/** Every provider process the engine's actors hold, with how far along its release is. */
+export function listProviderProcesses(
+  actors: Iterable<{
+    id: ThreadId;
+    session?: unknown;
+    idleSince?: number | undefined;
+    idleDue: boolean;
+    releaseAt(): number | undefined;
+  }>,
+  closing: (id: ThreadId) => boolean,
+  provider: (id: ThreadId) => ProviderKind | undefined,
+): ProviderProcess[] {
+  const processes: ProviderProcess[] = [];
+  for (const actor of actors) {
+    const state = providerProcessState({
+      session: Boolean(actor.session),
+      closing: closing(actor.id),
+      idleSince: actor.idleSince,
+      idleDue: actor.idleDue,
+    });
+    const kind = provider(actor.id);
+    if (!state || !kind) continue;
+    const releaseAt = actor.releaseAt();
+    processes.push({
+      threadId: actor.id,
+      provider: kind,
+      state,
+      ...(actor.idleSince === undefined ? {} : { idleSince: actor.idleSince }),
+      ...(state === "idle-warm" && releaseAt !== undefined ? { releaseAt } : {}),
+    });
+  }
+  return processes;
+}

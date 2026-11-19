@@ -4,7 +4,9 @@ Date: 2026-11-17. Status: accepted. Decided by: the owner, after a technical rev
 ([docs/plans/project-identity-review.md](../plans/project-identity-review.md)). Builds on
 [ADR 0063](0063-client-project-management.md), [ADR 0101](0101-work-on-another-machine.md) and
 [ADR 0102](0102-work-on-another-machine-in-this-window.md). The opt-in project marker is
-ADR 0181, in a pull request of its own.
+ADR 0181, in a pull request of its own. **Amended by
+[ADR 0189](0189-clones-of-one-repository-are-one-project.md):** checkouts with the same remotes
+at the same folder group with no link, and an unlinked one stays apart.
 
 ## Context
 

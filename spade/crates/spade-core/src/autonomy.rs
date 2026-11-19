@@ -217,9 +217,10 @@ pub struct Classed {
     /// Something it runs couldn't be read whole (`shell::Assessment::incomplete`): nothing that
     /// binds to what was read (an approval to run it outside the sandbox) can be made from it.
     pub incomplete: bool,
-    /// Programs it runs from outside the system's folders and the bot's (the person's toolchain),
-    /// as their `PATH` finds them: the call is bound to them as well as to `shown`.
-    pub programs: Vec<std::path::PathBuf>,
+    /// Programs it runs from outside the system's protected folders and the bot's (the person's
+    /// toolchain, Homebrew's), by real path with the SHA-256 of their content: the call is bound
+    /// to them as well as to `shown`.
+    pub programs: Vec<(std::path::PathBuf, String)>,
     /// The tools it runs whose configuration could run a program it never names, by the real
     /// folder each runs in: outside the sandbox, the configuration there must name none, or the
     /// reading is incomplete.

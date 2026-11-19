@@ -283,6 +283,10 @@ function fold(
     case "process.exited":
       exitProcess(state, fact, ctx, events);
       break;
+    case "thread.moved":
+      if (fact.to) state.movedTo = fact.to;
+      else delete state.movedTo;
+      break;
     case "process.started":
       state.queueSources.provider = 0;
       state.queueCount = state.queueSources.engine;

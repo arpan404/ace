@@ -148,6 +148,11 @@ impl Place for Folder {
         self.programs.get(name).cloned().unwrap_or(Program::Unknown)
     }
 
+    /// Every program outside `/w` reads whole, but `/home/p/.local/bin/huge`.
+    fn digest(&self, real: &Path) -> Option<String> {
+        (!real.ends_with("huge")).then(|| format!("sha of {}", real.display()))
+    }
+
     fn list(&self, real: &Path) -> Result<Vec<String>, Unseen> {
         let mut names: Vec<String> = self
             .files
@@ -803,6 +808,7 @@ fn what_a_bare_program_runs_is_found_on_path_apart_from_what_it_does() {
         Folder::new().finds(&[
             ("ls", Program::System),
             ("frob", Program::At("/home/p/.local/bin/frob".into())),
+            ("huge", Program::At("/home/p/.local/bin/huge".into())),
             ("build-it", Program::At("/w/build.sh".into())),
             ("nowhere", Program::Missing),
         ])
@@ -814,7 +820,13 @@ fn what_a_bare_program_runs_is_found_on_path_apart_from_what_it_does() {
     }
     // The person's toolchain: kept, so the call is bound to it.
     let read = assess("frob --all > /tmp/out", &folder());
-    assert_eq!(read.programs, [PathBuf::from("/home/p/.local/bin/frob")]);
+    assert_eq!(
+        read.programs,
+        [(
+            PathBuf::from("/home/p/.local/bin/frob"),
+            "sha of /home/p/.local/bin/frob".to_owned()
+        )]
+    );
     assert!(!read.incomplete);
     // A program in the bot's folder on `PATH` is a script it runs, shown like one.
     let read = assess("build-it", &folder());
@@ -822,6 +834,8 @@ fn what_a_bare_program_runs_is_found_on_path_apart_from_what_it_does() {
     assert_eq!(shown, ["/w/build.sh"]);
     // One `PATH` can't find, or a command that sets its own `PATH`: what runs isn't known.
     for command in [
+        // One that can't be read whole can't be bound.
+        "huge --all",
         "nowhere --flag",
         "PATH=/tmp/x:$PATH ls",
         "export PATH=./bin; ls",

@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserExpectedPlace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "tabId",
+    "url"
+  ],
+  "type": "object"
+}

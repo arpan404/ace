@@ -72,6 +72,7 @@ export class Devices {
   private updateSeen: StatementSync;
   private listing: StatementSync;
   private revocation: StatementSync;
+  private rescope: StatementSync;
   private byInstall: StatementSync;
   private rekey: StatementSync;
   private stamp: StatementSync;
@@ -120,6 +121,7 @@ export class Devices {
     this.revocation = db.prepare(
       "UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
     );
+    this.rescope = db.prepare("UPDATE devices SET scopes = ? WHERE id = ? AND revoked_at IS NULL");
   }
   /**
    * `expiresAt` null: access lasts until revoked. An install that already holds a device here
@@ -280,6 +282,19 @@ export class Devices {
   }
   list(): Device[] {
     return this.listing.all().map(decode);
+  }
+  /**
+   * Gives active device `id` exactly `scopes`, keeping its credential, id and expiry. Every
+   * check reads the stored record, so the next request or socket message holds the new scopes.
+   * Undefined when `id` isn't active.
+   */
+  setScopes(id: string, scopes: readonly Scope[], at: number): Device | undefined {
+    const row = this.byId.get(id);
+    const held = row ? decode(row) : undefined;
+    if (!activeDevice(held, at)) return undefined;
+    const device = Device.parse({ ...held, scopes: [...new Set(scopes)] });
+    this.rescope.run(JSON.stringify(device.scopes), device.id);
+    return device;
   }
   revoke(id: string, at: number): boolean {
     return this.revokeInstall(id, at).length > 0;

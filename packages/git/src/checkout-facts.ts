@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative, sep } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import { normalizeRemoteUrl } from "./remote-url.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
@@ -31,9 +31,18 @@ export async function checkoutFacts(
   const keys = new Set(
     remotes.flatMap((remote) => remote.fetchUrls.map((url) => normalizeRemoteUrl(url, root))),
   );
-  const inside = relative(root, await realpath(path).catch(() => path));
   return {
     remotes: [...keys].toSorted().slice(0, remoteLimit),
-    subpath: inside.startsWith("..") ? "" : inside.split(sep).join("/"),
+    subpath: subpathOf(root, await realpath(path).catch(() => path)),
   };
+}
+
+/**
+ * `path`'s folder inside the work tree at `root`, `/`-separated; "" at its top or outside it.
+ * Only a `..` segment leads out: a folder named `..tools` is inside.
+ */
+export function subpathOf(root: string, path: string): string {
+  const inside = relative(root, path);
+  if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return "";
+  return inside.split(sep).join("/");
 }

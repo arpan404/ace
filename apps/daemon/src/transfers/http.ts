@@ -38,7 +38,7 @@ function assertMayTransfer(device: Device): void {
   if (!allows(device, "operate") || !allows(device, "projects"))
     throw new TargetRefusal(
       "machine_forbidden",
-      "This machine's link doesn't allow moving projects here. Link the machines again with Projects allowed.",
+      "This machine's link doesn't allow moving projects here. Allow projects for it in Settings › Fleet.",
     );
 }
 
@@ -84,6 +84,21 @@ export function transfersHttp(
       });
       return;
     }
+    /**
+     * The device as its credential stands now. A body can take long to arrive, and its scopes can
+     * be narrowed or its credential revoked meanwhile, so each write and import checks again
+     * right before it is accepted, never with what the request started with.
+     */
+    const now = (): Device => {
+      const current = authenticate(token);
+      if (!current)
+        throw new TargetRefusal(
+          "machine_forbidden",
+          "This machine's link isn't paired here anymore.",
+        );
+      assertMayTransfer(current);
+      return current;
+    };
     void (async () => {
       try {
         if (route === "chunk") {
@@ -93,10 +108,10 @@ export function transfersHttp(
           if (!Number.isSafeInteger(offset) || offset < 0)
             throw new TargetRefusal("invalid", "Bad offset.");
           const part = url.searchParams.get("part") ?? "code";
-          if (part !== "code" && part !== "ignored")
+          if (part !== "code" && part !== "ignored" && part !== "final")
             throw new TargetRefusal("invalid", "Bad part.");
           const data = await readBody(request, transferChunkBytes);
-          reply(200, await owner.incoming.chunk(device, transferId, offset, data, part));
+          reply(200, await owner.incoming.chunk(now(), transferId, offset, data, part));
           return;
         }
         const parsed = MachineTransferCall.safeParse(
@@ -113,8 +128,7 @@ export function transfersHttp(
           reply(200, probe);
           return;
         }
-        assertMayTransfer(device);
-        reply(200, await owner.incoming.call(device, call));
+        reply(200, await owner.incoming.call(now(), call));
       } catch (error) {
         const refusal =
           error instanceof TargetRefusal

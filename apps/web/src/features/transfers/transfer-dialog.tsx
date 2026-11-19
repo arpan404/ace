@@ -25,6 +25,7 @@ import { cn } from "@/lib/cn.ts";
 import { useMachines, usePrimaryMachine, type Machine } from "@/lib/machines.ts";
 import type { TransferRequest } from "@/lib/transfer-opener.ts";
 import { fleetKeys, machineLinks, settingKeys, useSetting } from "@/features/settings/index.ts";
+import { AllowProjectsStep } from "./allow-projects-step.tsx";
 import { FolderChoice } from "./folder-choice.tsx";
 import { TransferLine } from "./transfer-line.tsx";
 import { useTransferLine } from "./transfer-status.ts";
@@ -40,7 +41,9 @@ type Step =
   /** Until this machine's transfer list has answered: one may already be running. */
   | { kind: "checking" }
   | { kind: "machines" }
-  | { kind: "options"; machine: TransferMachine }
+  | { kind: "options"; machine: Destination }
+  /** A machine that doesn't allow projects from this one: why, and how to allow them. */
+  | { kind: "allow"; machine: TransferMachine }
   | {
       kind: "status";
       machine: { hostId: string; name: string };
@@ -48,6 +51,8 @@ type Step =
       /** The command's id once the daemon took it, or why it refused. */
       started: { commandId: string } | { refused: Refusal } | undefined;
     };
+
+type Destination = Pick<TransferMachine, "hostId" | "name">;
 
 const verb = (request: TransferRequest) => (request.kind === "thread" ? "Continue" : "Open");
 
@@ -114,7 +119,21 @@ export function TransferDialog(props: {
       ) : step.kind === "machines" ? (
         <MachineStep
           request={request}
-          onChoose={(machine) => setStep({ kind: "options", machine })}
+          onChoose={(machine) =>
+            setStep(
+              machine.reason === "Projects not allowed"
+                ? { kind: "allow", machine }
+                : { kind: "options", machine },
+            )
+          }
+          onClose={props.onClose}
+        />
+      ) : step.kind === "allow" ? (
+        <AllowProjectsStep
+          title={`${verb(request)} on ${step.machine.name}`}
+          machine={step.machine}
+          onBack={() => setStep({ kind: "machines" })}
+          onAllowed={() => setStep({ kind: "options", machine: step.machine })}
           onClose={props.onClose}
         />
       ) : step.kind === "options" ? (
@@ -172,9 +191,10 @@ function MachineStep(props: {
         id: machine.hostId,
         label: machine.name,
         icon: DesktopIcon,
+        // Offline can't be helped from here; Projects not allowed opens how to allow them.
         ...(machine.reason
           ? {
-              disabled: true,
+              disabled: machine.reason === "Offline",
               aside: <span className="text-xs text-muted-foreground">{machine.reason}</span>,
             }
           : {}),
@@ -214,7 +234,7 @@ function MachineStep(props: {
 
 function OptionsStep(props: {
   request: TransferRequest;
-  machine: TransferMachine;
+  machine: Destination;
   ignoredByDefault: boolean;
   onBack(): void;
   onSend(placement: Placement): void;
