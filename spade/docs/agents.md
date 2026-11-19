@@ -90,7 +90,7 @@ host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commi
    `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
    else `403` ("this move is another machine's"), the same manifest included; another manifest
    answers `409`. Unreachable, or `429`/`503` at `begin`, means wait and try again (`waiting:
-   true`); Cancel works until the commit. Every step of a move to here holds that move's lock
+true`); Cancel works until the commit. Every step of a move to here holds that move's lock
    (`steps_of`), as do its recovery and the sweep (which skips a move whose lock is taken), and
    every state change is made only from the state it expects (`advance_move`).
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
@@ -120,7 +120,7 @@ host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commi
      webhooks get new secrets, every bot's security settings lose every grant, its toolchains
      and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
      moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
-     arrival, host}`.
+arrival, host}`.
    - `move_arrive_undo` on any refusal, error or cut-off copy: `undoing`, the recorded rows out a
      batch at a time, then the claims go and the move reads `receiving` (to copy again) or
      `aborted`, never touching a row it didn't insert. A placing that fails answers `503` and
