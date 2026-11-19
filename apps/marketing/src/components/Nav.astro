@@ -360,14 +360,14 @@ const current = (path: string) => here === path || here.startsWith(path);
     border-top: 1px solid var(--border);
   }
 
-  /* A section: its number, its name set large, and one line saying what is there. */
+  /* A section: its number, its name, and one line saying what is there. */
   .sheet-links a {
     display: grid;
     grid-template-columns: 30px 1fr;
     align-items: baseline;
     gap: 0 6px;
     position: relative;
-    padding: 13px 10px 14px;
+    padding: 11px 10px 12px;
     border-radius: 12px;
     text-decoration: none;
   }
@@ -395,17 +395,17 @@ const current = (path: string) => here === path || here.startsWith(path);
   }
 
   .name {
-    font-size: clamp(26px, 8vw, 34px);
+    font-size: 19px;
     font-weight: 600;
-    letter-spacing: -0.045em;
-    line-height: 1.05;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
   }
 
   .line {
     grid-column: 2;
-    margin-top: 3px;
+    margin-top: 1px;
     color: var(--muted);
-    font-size: 14px;
+    font-size: 13.5px;
     line-height: 1.35;
   }
 
