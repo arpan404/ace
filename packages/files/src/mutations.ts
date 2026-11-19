@@ -5,7 +5,7 @@ import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, MoveRecord, TrashRecord } from "./catalog.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { newId } from "./filesystem.ts";
-import type { FilesIo, MoveOutcome } from "./io.ts";
+import type { Description, FilesIo, MoveOutcome } from "./io.ts";
 import { codeOf, FileError, checkVersion, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
@@ -347,10 +347,17 @@ export class Mutations {
       case "stranded":
         this.strand(receipt);
         return;
-      case "unknown":
+      case "absent":
+        // The endpoint holds nothing, so the move never happened while the source still holds the
+        // entry the receipt names. Clearing the receipt returns the quota it reserved; a receipt
+        // written before identities were recorded is judged by the version the client held.
+        if (await this.atPath(receipt.path, receipt.identity ?? receipt.version))
+          this.catalog.delete(receipt.id);
+        return;
+      case "foreign":
+      case "unreadable":
         return;
     }
-    if (await this.atPath(receipt.path, receipt.identity)) this.catalog.delete(receipt.id);
   }
   /**
    * What to do with a delete whose move failed.
@@ -380,25 +387,31 @@ export class Mutations {
     }
   }
   /**
-   * Whether the receipt's generated endpoint holds the entry the receipt moved, and whether what
-   * it holds is proven to be the version the delete was guarded by.
+   * What the receipt's generated endpoint holds.
    *
-   * `unknown` means the endpoint could not be read at all: nothing is proven either way, so the
-   * receipt is left as it is. A folder's digest records the path it is read at, so a folder at an
-   * endpoint is located but never verified there; it stays stranded until it is restored.
+   * `absent` is a probed endpoint with nothing at it, which a start can tell apart from an
+   * endpoint it could not read at all; `foreign` is an endpoint holding another entry. Only
+   * `verified` proves the version the delete was guarded by, and only then does retention start.
+   * A folder's digest records the path it is read at, so a folder at an endpoint is located but
+   * never verified there; it stays stranded until it is restored.
    */
-  private async parked(receipt: TrashRecord): Promise<"verified" | "stranded" | "unknown"> {
-    if (!receipt.location || !receipt.identity) return "unknown";
+  private async parked(
+    receipt: TrashRecord,
+  ): Promise<"verified" | "stranded" | "absent" | "foreign" | "unreadable"> {
+    if (!receipt.location) return "unreadable";
+    let found;
     try {
-      const found = await this.io.internal.describe(this.root(), receipt.location);
-      if (found === null) return "unknown";
-      if (!sameEntry(found.ownVersion ?? found.version, receipt.identity)) return "unknown";
-      return !receipt.version.startsWith("tree:") && sameIdentity(found.version, receipt.version)
-        ? "verified"
-        : "stranded";
+      found = await this.io.internal.describe(this.root(), receipt.location);
     } catch {
-      return "unknown";
+      return "unreadable";
     }
+    if (found === null) return "absent";
+    // A receipt written before identities were recorded cannot prove which entry it moved.
+    if (!receipt.identity) return "unreadable";
+    if (!sameEntry(found.ownVersion ?? found.version, receipt.identity)) return "foreign";
+    return !receipt.version.startsWith("tree:") && sameIdentity(found.version, receipt.version)
+      ? "verified"
+      : "stranded";
   }
   /**
    * Whether both spellings a rename names reach one entry, which only a case-insensitive volume
@@ -451,23 +464,28 @@ export class Mutations {
       this.catalog.delete(record.id);
       return;
     }
-    if (!(await this.parkedAt(record.staging, record.identity))) return;
-    if (await this.recover(record.staging, record.destination)) {
+    const parked = await this.parkedAt(record.staging, record.identity);
+    if (parked === null) return;
+    // The entry is the one the move parked, by its device and inode. A version that changed while
+    // it waited is not what the client asked to move, so it is put where a person can see it
+    // rather than presented as the move's result.
+    const held = sameIdentity(parked.ownVersion ?? parked.version, record.identity);
+    if (held && (await this.recover(record.staging, record.destination))) {
       this.catalog.delete(record.id);
       return;
     }
     const visible = recoveryName(record.destination, record.id);
     if (await this.recover(record.staging, visible)) this.catalog.delete(record.id);
   }
-  /** Whether one of the daemon's own names holds the entry with `identity`. */
-  private async parkedAt(path: string, identity: string | null): Promise<boolean> {
-    if (!identity) return false;
+  /** The entry one of the daemon's own names holds, when it is the one with `identity`. */
+  private async parkedAt(path: string, identity: string | null): Promise<Description | null> {
+    if (!identity) return null;
     try {
       const found = await this.io.internal.describe(this.root(), path);
-      if (found === null) return false;
-      return sameIdentity(found.ownVersion ?? found.version, identity);
+      if (found === null) return null;
+      return sameEntry(found.ownVersion ?? found.version, identity) ? found : null;
     } catch {
-      return false;
+      return null;
     }
   }
   /** Moves one of the daemon's own staging entries to a client path, never replacing one. */

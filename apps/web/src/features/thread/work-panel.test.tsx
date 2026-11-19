@@ -280,13 +280,13 @@ test("a new script file is created, edited and saved through the details card", 
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("tab", { name: "justfile", selected: true });
   await user.click(await within(panel).findByRole("button", { name: "Edit file" }));
-  const editor = await within(panel).findByRole("textbox", { name: "Edit justfile" });
+  const editor = await within(panel).findByRole("textbox", { name: "justfile" });
   await user.click(editor);
   const script = "check:\n    bun run lint\n";
   await user.paste(script);
   await user.click(within(panel).getByRole("button", { name: "Save" }));
   await waitFor(() =>
-    expect(within(panel).queryByRole("textbox", { name: "Edit justfile" })).toBeNull(),
+    expect(within(panel).queryByRole("region", { name: "Editing justfile" })).toBeNull(),
   );
   const chunks: Uint8Array<ArrayBuffer>[] = [];
   for await (const chunk of app.client.downloadFile({

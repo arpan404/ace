@@ -112,22 +112,16 @@ export function useEditorDocument(options: {
     options.onApplied,
   ]);
 
+  // The document lives as long as its text does: a renamed file (a pasted file renamed for its
+  // edit) keeps what was typed and its undo history; only its colours follow the new name.
   useEffect(() => {
     let live = true;
     let created: EditorDocument | undefined;
-    let colours: MarkitLineHighlighter | undefined;
     ensureEditorReady().then(
       () => {
         if (!live) return;
         created = new EditorDocument(initial);
-        const language = fileLanguage(path);
-        const delay = options.highlightDelay;
-        colours =
-          delay === undefined
-            ? new MarkitLineHighlighter(language)
-            : new MarkitLineHighlighter(language, { delay });
         setDoc(created);
-        setHighlighter(colours);
         setSelections(created.selections());
         setPrimary(created.primarySelection());
       },
@@ -142,10 +136,33 @@ export function useEditorDocument(options: {
         onTextDispose.current?.(created.text());
         created.dispose();
       }
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a retry (`attempt`) loads the document again.
+  }, [initial, attempt]);
+
+  const language = fileLanguage(path);
+  const highlightDelay = options.highlightDelay;
+  useEffect(() => {
+    let live = true;
+    let colours: MarkitLineHighlighter | undefined;
+    // A failed load is the document's to report; it has no colours either way.
+    ensureEditorReady().then(
+      () => {
+        if (!live) return;
+        colours =
+          highlightDelay === undefined
+            ? new MarkitLineHighlighter(language)
+            : new MarkitLineHighlighter(language, { delay: highlightDelay });
+        setHighlighter(colours);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
       colours?.dispose();
     };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a highlight delay is fixed for the document's life.
-  }, [initial, path, options.highlightDelay, attempt]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a retry (`attempt`) loads the colours again.
+  }, [language, highlightDelay, attempt]);
 
   const commit = useCallback(() => {
     if (commitTimer.current !== undefined) clearTimeout(commitTimer.current);

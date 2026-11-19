@@ -188,18 +188,38 @@ pub(crate) fn moved_version(
     name: &str,
     identity: Option<(u64, u64)>,
 ) -> Result<Option<String>, Error> {
-    let Some(identity) = identity else {
+    let Some(wanted) = identity else {
         return Ok(None);
     };
-    let metadata = match dir.symlink_metadata(name) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    if !metadata.is_file() || identity_of_entry(dir, name, &metadata)? != identity {
-        return Ok(None);
+    #[cfg(unix)]
+    {
+        let metadata = match dir.symlink_metadata(name) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_file() || crate::version::identity(&metadata) != wanted {
+            return Ok(None);
+        }
+        Ok(Some(version_of(None, &metadata)?))
     }
-    Ok(Some(version_of_entry(dir, name, &metadata)?))
+    #[cfg(windows)]
+    {
+        // One handle carries both the identity and the version, so a name another program
+        // replaces between two reads can never pair one entry's identity with another's version.
+        let file = match crate::handle::attribute_handle(dir, name) {
+            Ok(file) => file,
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || identity_of_handle(&file, &metadata)? != wanted {
+            return Ok(None);
+        }
+        Ok(Some(version_of(Some(&file), &metadata)?))
+    }
 }
 
 /// A version with its last field removed: a rename changes the change time and nothing else a

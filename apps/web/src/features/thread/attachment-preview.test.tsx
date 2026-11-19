@@ -109,9 +109,9 @@ test("a sent text file shows the contents the daemon holds beside the thread", a
   await user.type(message, "Run it{Enter}");
   await user.click(await within(feed).findByRole("button", { name: /^query\.sql, / }));
   const panel = await screen.findByRole("region", { name: "query.sql" });
-  expect((await within(panel).findByLabelText("Contents of query.sql")).textContent).toContain(
-    "SELECT 1;",
-  );
+  const contents = await within(panel).findByLabelText("Contents of query.sql");
+  // The editor draws the text once its document has loaded.
+  await waitFor(() => expect(contents.textContent).toContain("SELECT 1;"));
 });
 
 test("audio and video play in the browser's own players", async () => {

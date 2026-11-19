@@ -190,7 +190,7 @@ fn a_guarded_save_without_an_atomic_exchange_never_touches_the_target() {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|name| name.starts_with(".ace-upload-"))
+        .filter(|name| name.starts_with(".ace-upload-") && name != ".ace-upload-journal-lock")
         .collect();
     assert!(
         leftovers.is_empty(),
@@ -211,7 +211,7 @@ fn private_names(dir: &std::path::Path) -> Vec<String> {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|name| name.starts_with(".ace-upload-"))
+        .filter(|name| name.starts_with(".ace-upload-") && name != ".ace-upload-journal-lock")
         .collect();
     names.sort();
     names
@@ -353,42 +353,139 @@ fn a_crash_that_left_the_name_free_puts_the_displaced_version_back() {
     );
 }
 
+#[test]
+fn a_start_waits_for_a_save_that_holds_the_checkout_lock() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let fixture = Fixture::new();
+    // A record on disk is what a start would replay; the lock is what makes it wait for the save.
+    fixture.write(
+        ".ace-upload-journal-999-1",
+        b"1\x00doc.md\x00.ace-upload-999-2\x00\x001:2\x003:4",
+    );
+    let held = files_io::lock_saves(fixture.root()).expect("hold the checkout's save lock");
+    let (finished, waited) = mpsc::channel();
+    let path = fixture.dir().to_path_buf();
+    let starter = std::thread::spawn(move || {
+        let root = files_safe::Root::open(&path).expect("open the checkout");
+        let resolved = files_io::reconcile_saves(&root).is_ok();
+        let _ = finished.send(resolved);
+    });
+
+    // A second helper must not reconcile a save whose swap is still in flight.
+    assert!(
+        waited.recv_timeout(Duration::from_millis(250)).is_err(),
+        "a start must wait for the save that holds the checkout's lock"
+    );
+    drop(held);
+    assert!(
+        waited
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the waiting start finishes"),
+        "the start resolves the checkout once the lock is free"
+    );
+    starter.join().expect("the start thread");
+}
+
 #[cfg(all(feature = "test-hooks", unix))]
 #[test]
-fn a_start_never_removes_an_entry_its_record_does_not_name() {
+fn a_start_keeps_an_entry_the_record_cannot_prove_under_a_visible_name() {
     use files_io::SaveRecovery;
     use files_io::test_hooks::{Step, halt_at};
 
     let fixture = Fixture::new();
-    fixture.write("foreign.md", b"the version the caller read\n");
-    let version = fixture.version("foreign.md");
-    let _hook = halt_at(Step::AfterSaveSwap, "foreign.md");
+    fixture.write("unknown.md", b"the version the caller read\n");
+    let version = fixture.version("unknown.md");
+    let _hook = halt_at(Step::AfterSaveSwap, "unknown.md");
     write(
         fixture.root(),
-        "foreign.md",
+        "unknown.md",
         b"the bytes that landed\n",
         Some(&version),
     )
     .expect_err("the save stops where the crash would");
-    // The private name now holds something this save never wrote: another program's entry.
+    // The private name no longer holds the entry the record proves: another program's entry sits
+    // where the displaced one was. It is still an entry this save moved out of the name.
     let staging = private_names(fixture.dir())
         .into_iter()
-        .find(|name| name.starts_with(".ace-upload-") && !name.starts_with(".ace-upload-journal-"))
+        .find(|name| !name.starts_with(".ace-upload-journal-"))
         .expect("the displaced entry waits under a private name");
     std::fs::remove_file(fixture.path(&staging)).expect("clear the name");
-    std::fs::write(fixture.path(&staging), b"another program's bytes\n").expect("plant it");
+    std::fs::write(
+        fixture.path(&staging),
+        b"an entry the record cannot prove\n",
+    )
+    .expect("plant");
 
     let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    let Some(SaveRecovery::Preserved { at, .. }) = outcomes.first() else {
+        panic!("the entry is kept where a person can see it: {outcomes:?}");
+    };
     assert_eq!(
-        outcomes,
-        vec![SaveRecovery::Discarded {
-            path: "foreign.md".to_owned()
-        }]
+        fixture.read(at),
+        b"an entry the record cannot prove\n",
+        "the entry is preserved whole"
     );
-    assert_eq!(
-        fixture.read(&staging),
-        b"another program's bytes\n",
-        "an entry the record does not name is never removed"
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "nothing stays under a private name: {:?}",
+        private_names(fixture.dir())
     );
-    assert_eq!(fixture.read("foreign.md"), b"the bytes that landed\n");
+    assert_eq!(fixture.read("unknown.md"), b"the bytes that landed\n");
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_save_that_cannot_clean_up_keeps_its_record() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("busy/keep.md", b"the caller's version\n");
+    let version = fixture.version("busy/keep.md");
+    let folder = fixture.dir().join("busy");
+    let locked = folder.clone();
+    // The exchange commits, then the folder refuses the cleanup of the entry it displaced.
+    let _hook = watch(move |step, from, _| {
+        if step == Step::AfterSaveSwap && from == "busy/keep.md" {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500))
+                .expect("lock the folder");
+        }
+    });
+
+    let saved = write(
+        fixture.root(),
+        "busy/keep.md",
+        b"the new bytes\n",
+        Some(&version),
+    )
+    .expect("the save is committed");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).expect("unlock");
+
+    let private = private_names(fixture.dir());
+    assert!(
+        private
+            .iter()
+            .any(|name| name.starts_with(".ace-upload-journal-")),
+        "the record stays while the displaced entry is hidden: {private:?}"
+    );
+    assert!(
+        matches!(saved.warning, Some(files_io::SaveWarning::NotCleanedUp(_))),
+        "the save reports the cleanup it could not finish: {saved:?}"
+    );
+
+    // The next start is what makes the displaced entry visible.
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    let Some(files_io::SaveRecovery::Preserved { at, .. }) = outcomes.first() else {
+        panic!("the displaced entry is kept visible: {outcomes:?}");
+    };
+    assert_eq!(fixture.read(at), b"the caller's version\n");
+    assert_eq!(fixture.read("busy/keep.md"), b"the new bytes\n");
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "{:?}",
+        private_names(fixture.dir())
+    );
 }

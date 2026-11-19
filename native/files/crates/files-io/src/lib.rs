@@ -30,7 +30,7 @@ pub use describe::{
 };
 pub use error::Error;
 pub use fingerprint::{Fingerprint, fingerprint};
-pub use journal::{SaveRecovery, reconcile_saves};
+pub use journal::{SaveLock, SaveRecovery, lock_saves, reconcile_saves};
 pub use mutate::{
     Committed, create_dir, recover_move, remove, rename, rename_journaled, trash, untrash,
 };

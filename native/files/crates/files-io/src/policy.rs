@@ -32,6 +32,9 @@ const MOVING: &str = ".ace-upload-move-";
 /// What a save writes down before its copy takes the target's name.
 pub(crate) const JOURNAL: &str = ".ace-upload-journal-";
 
+/// The one file a checkout's saves and its save reconciliation lock against each other.
+pub(crate) const LOCK: &str = ".ace-upload-journal-lock";
+
 /// The folder a read-only request may serve, with the stored path that names it.
 ///
 /// One walk proves the names and hands back the handle, so a link swapped in after the check
@@ -119,8 +122,10 @@ pub(crate) fn moving_endpoint(name: &str) -> bool {
 }
 
 /// Whether `name` is a save journal: one record at the checkout root.
+///
+/// The lock file shares the prefix and is not a record.
 pub(crate) fn save_journal(name: &str) -> bool {
-    generated(name, JOURNAL, 64)
+    name != LOCK && generated(name, JOURNAL, 64)
 }
 
 /// Whether `name` is one of the private names a save stages its work under.

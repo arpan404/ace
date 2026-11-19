@@ -4,6 +4,7 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { replaceEditorText } from "@/test/editor-text.ts";
 import { harness } from "@/test/harness.tsx";
 import { editorText, insertEditorText } from "./composer/editor-dom.ts";
 
@@ -136,9 +137,8 @@ test("editing a pasted file renames its marker with it", async () => {
   await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
   // It opens beside the thread, and what is typed there is kept once typing pauses.
   const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
-  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
-  await user.clear(contents);
-  await user.type(contents, "one{Enter}two");
+  const contents = await within(panel).findByRole("textbox", { name: "Pasted 60 lines.txt" });
+  await replaceEditorText(user, contents, "one{Enter}two");
   await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
   expect(within(message).queryByLabelText("Pasted 60 lines.txt")).toBeNull();
 });
@@ -200,9 +200,8 @@ test("undo after editing a pasted file keeps the marker, named for the edited co
   await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
   // It opens beside the thread, and what is typed there is kept once typing pauses.
   const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
-  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
-  await user.clear(contents);
-  await user.type(contents, "one{Enter}two");
+  const contents = await within(panel).findByRole("textbox", { name: "Pasted 60 lines.txt" });
+  await replaceEditorText(user, contents, "one{Enter}two");
   await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
   fireEvent.keyDown(message, { key: "z", metaKey: true });
   await waitFor(() => expect(message.textContent).not.toContain("and more"));
