@@ -642,8 +642,9 @@ sentence` and exit 1 before anything is uploaded.
 
 - **Signed out** (`signed_out`): "Sign in to publish." Exit 2, hint `ace login`. On a terminal the
   CLI offers to sign in now (the `ace login` flow) and then carries on.
-- **Sensitive actions** (install, withdraw, transfer and accepting one, changing the handle,
-  deleting an entry, editing a verified profile, applying for or checking verification) need a
+- **Sensitive actions** (installing or updating a bot or plugin, withdraw, transfer and accepting
+  one, changing the handle, deleting an entry, editing a verified profile, applying for or
+  checking verification) need a
   sign-in within ten minutes (`reauth`, ADR 0174 §2). The market checks its share on the grant;
   the daemon checks install and the rest when they arrive over the host token alone (§12.7, §12.8). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
   once the new session is recorded. Without a terminal: exit 2, code `reauth`. The CLI never holds
@@ -771,18 +772,41 @@ credential as the person's or not (`personProven`), and the §12.7 checks read t
 market actions, answering a person-only market request, and changing "Ask me before agents
 publish". A credential that isn't the person's still does everything else it did.
 
+**What needs a fresh sign-in, and what doesn't** (owner decision, 2026-11-18):
+
+- **No sign-in: installing or updating a Suit or a Spade skill that runs nothing**, from the app,
+  the CLI or any host-token socket. A Suit's scenes run sandboxed in the page; a skill runs nothing
+  on the machine outside Spade's own gate. The daemon decides this from the review it built from
+  the bytes it fetched and checked (`marketplace/content-only.ts`), never from a field the client
+  sends. The review's type and its body's type must both be `suit` or `spade-skill`, and it must
+  carry nothing runnable: no executable file, no plugin executions, no entries it brings along. A
+  review that says `suit` but carries an executable file isn't content only. An update is a review
+  and an install like any other, so it follows the same rule.
+- **Still the person's: installing or updating a bot or a plugin** (they run commands or MCP
+  servers), withdraw, transfer and accepting one, handle changes, deleting an entry, verification,
+  answering a person-only market request, and changing "Ask me before agents publish". These
+  need the person's credential or a fresh sign-in, exactly as below.
+- **Agents are unchanged.** `install` was never on the agent allowlist (`agent-gate.ts`), so an
+  agent asking to install anything, a Suit or a skill included, still gets the person-only
+  request in its thread. Answering that request keeps the answer gate as it was.
+
 **The person's credentials:**
 
 - **The app's page on a daemon the signed app started, once its launch can be trusted (not yet;
-  below).** Each time the app spawns `ace start` it makes 32 random bytes, sets
-  `ACE_APP_KEY=stdin` and writes the key as one hex line on the daemon's stdin, then closes it
-  (`@ace/service/app-key`). The daemon reads at most 128 bytes within 5 seconds, before it listens,
-  and removes the flag from its environment (`app-key-input.ts`). Any launcher can set that flag,
-  so the key counts only when the launch passes this OS's check (`app-launcher.ts`). The daemon's
-  parent is read before the key and confirmed unchanged after the check. Otherwise the key is
-  ignored, as if none came. The supervisor makes the page's proof for its own child only: base64url
-  HMAC-SHA256 of `ace-app/v1\n<port>`, checked against the port the socket reached. The page sends
-  it in its hello. The key lives in memory only and dies with the daemon process.
+  below).** The daemon side is in place:
+  - `ace start` reads a key from stdin when `ACE_APP_KEY=stdin` is set: at most 128 bytes within
+    5 seconds, before it listens. It removes the flag from its environment (`app-key-input.ts`).
+  - Any launcher can set that flag, so the key counts only when the launch passes this OS's check
+    (`app-launcher.ts`). The daemon's parent is read before the key and confirmed unchanged after
+    the check; otherwise the key is ignored, as if none came.
+  - A key that counts makes a hello's `appProof` the person's: base64url HMAC-SHA256 of
+    `ace-app/v1\n<port>`, checked against the port the socket reached.
+
+  Since main's change that spawns the desktop's daemon detached, lets it outlive the app and
+  hands it the login PATH on stdin, the app sends no key at all. No release counts one anyway,
+  and a key would have to outlive the app with the daemon. Whatever gives the app's page standing
+  next (ADR 0190) replaces this.
+
 - **A device paired from a link the person made.** A link carries whether its maker was the
   person: the app's page, or a device that is itself the person's. A link made with the host token
   alone (`ace device pair`, `POST /v1/pairings` with the token) makes a device that, like the token,
@@ -830,10 +854,10 @@ something the check needs before a key may count:
   `ACE_DEVELOPMENT_TRUST` as true. That is a build-time constant: no environment variable sets it,
   and source runs and release bundles leave it undefined.
 
-So in every release the person in the app still meets `reauth` for a person-only action and
-signs in again, which the `reauth` sentence and the web's sign-in button lead them through. An app
-started with `--remote-debugging-port` or `--remote-debugging-pipe` gives its daemon no key at all
-(`app-standing.ts`).
+So in every release the person in the app still meets `reauth` for a person-only action
+(installing a Suit or a skill that runs nothing isn't one) and signs in again, which the `reauth` sentence and the web's sign-in button lead them through. An app
+started with `--remote-debugging-port` or `--remote-debugging-pipe` could be driven by another
+process, so whatever gives the app standing next has to refuse such a launch too.
 
 **A fresh sign-in is read only from claims a pinned key signed, for this machine, now.** Every
 freshness decision goes through `MachineAccount.freshSignIn` (`account-access/machine-account.ts`):
@@ -928,9 +952,16 @@ Unit tests:
   never counts; on Windows nothing counts while no publisher is pinned; the test runner as
   launcher.
 - `app-key-input.test.ts`: a key from another launcher, and a launcher that leaves while checked.
-- `app-standing.test.ts`: the remote-debugging switches.
-- `pairing-codes.process.test.ts`, `app-key.test.ts`, `supervisor-app-key.test.ts`,
-  `spawn.process.test.ts`, `app-proof-hello.test.ts`, `remote-credential.test.ts`.
+- `content-only.test.ts`: a Suit and a skill are content only; a review that says suit but
+  carries an executable file or a plugin's executions, a body of another type, or a skill with an
+  executable script, isn't.
+- `pairing-codes.process.test.ts`, `app-key.test.ts`.
+
+`marketplace-content-install.process.test.ts`, on a real socket holding only the host token and
+no ace account:
+
+- a Suit and a Spade skill install with no fresh sign-in;
+- a bot, a plugin, and a skill carrying an executable file, still get `reauth`.
 
 ### 13. ADR 0092 still holds
 

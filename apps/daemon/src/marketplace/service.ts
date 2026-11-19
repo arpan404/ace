@@ -189,6 +189,15 @@ export class MarketplaceService {
     for (const listener of this.#listeners) listener(counts);
   }
 
+  /**
+   * Whether installing the open review `id` for the bytes `hash` lands content only: a Suit or
+   * a Spade skill carrying nothing runnable (ADR 0178 §12.8). Read from the review this daemon
+   * built, never from the request.
+   */
+  installIsContentOnly(id: string, hash: string): boolean {
+    return this.#reviews.contentOnly(id, hash);
+  }
+
   async request(operation: MarketOperation, ports: MarketRequestPorts = {}): Promise<MarketResult> {
     try {
       await this.#gate();

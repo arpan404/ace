@@ -55,6 +55,7 @@ describe("a person-only market action from the host token, with no thread", () =
       operation: install,
       unproven: true,
       fresh: fresh(false),
+      contentOnly: () => false,
     });
     expect(refusal).toMatchObject({ op: "error", code: "reauth" });
     expect(refusal?.op === "error" && refusal.message).toMatch(/app|paired device/);
@@ -62,7 +63,12 @@ describe("a person-only market action from the host token, with no thread", () =
 
   it("runs after a sign-in in the last ten minutes", async () => {
     expect(
-      await hostMarketRefusal({ operation: install, unproven: true, fresh: fresh(true) }),
+      await hostMarketRefusal({
+        operation: install,
+        unproven: true,
+        fresh: fresh(true),
+        contentOnly: () => false,
+      }),
     ).toBeUndefined();
   });
 
@@ -75,6 +81,7 @@ describe("a person-only market action from the host token, with no thread", () =
         asked = true;
         return false;
       },
+      contentOnly: () => false,
     });
     expect(result).toBeUndefined();
     expect(asked).toBe(false);
@@ -86,8 +93,31 @@ describe("a person-only market action from the host token, with no thread", () =
         operation: { op: "search", query: "", offset: 0, limit: 50 },
         unproven: true,
         fresh: fresh(false),
+        contentOnly: () => false,
       }),
     ).toBeUndefined();
+  });
+
+  it("installing content only (a Suit, a Spade skill) needs no sign-in from anyone", async () => {
+    expect(
+      await hostMarketRefusal({
+        operation: install,
+        unproven: true,
+        fresh: fresh(false),
+        contentOnly: () => true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("content only is an install's exemption: withdrawing still needs the sign-in", async () => {
+    expect(
+      await hostMarketRefusal({
+        operation: publish({ action: "withdraw", ...entry, reason: "Broken" }),
+        unproven: true,
+        fresh: fresh(false),
+        contentOnly: () => true,
+      }),
+    ).toMatchObject({ op: "error", code: "reauth" });
   });
 });
 

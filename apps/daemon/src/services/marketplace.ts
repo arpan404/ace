@@ -118,11 +118,17 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       // prove: person-only actions from it need a fresh ace sign-in (`fresh-sign-in.ts`).
       const { operation, thread } = message;
       const agent = options.marketAgent;
+      // A Suit or a Spade skill that runs nothing installs without a sign-in, judged from the
+      // daemon's own review of the bytes, never from the request (ADR 0178 §12.8).
+      const contentOnly = () =>
+        operation.op === "install" &&
+        options.marketplace?.installIsContentOnly(operation.id, operation.hash) === true;
       const asPerson = async (market: MarketAgent) =>
         (await hostMarketRefusal({
           operation,
           unproven: context.personProven?.() !== true,
           fresh: () => market.freshSignIn(),
+          contentOnly,
         })) ?? market.asPerson(operation);
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
@@ -133,6 +139,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
                 operation,
                 unproven: context.personProven?.() !== true,
                 fresh: () => machineFresh(options),
+                contentOnly,
               })) ?? serviceAlone(options, operation)
           : undefined;
       if (!run) {

@@ -9,6 +9,7 @@ import { learnWithdrawn, readWithdrawn, withdrawalOf, type WithdrawnState } from
 import { marketError as error } from "./market-error.ts";
 import { prepareWithBrings, Refused } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
+import { contentOnlyReview } from "./content-only.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { verifiedKey, type MarketStore } from "./store.ts";
 import { badgesOf, type Trust } from "./trust.ts";
@@ -137,6 +138,16 @@ export class OpenReviews {
         : {}),
       ...(trust.blocklist ? { blocklist: trust.blocklist } : {}),
     });
+  }
+
+  /**
+   * Whether the open review `id`, for the bytes `hash`, installs content only
+   * (`content-only.ts`): false for a review that is gone or names other bytes.
+   */
+  contentOnly(id: string, hash: string): boolean {
+    const pending = this.#pending.get(id);
+    if (!pending || pending.review.hash !== hash) return false;
+    return contentOnlyReview(pending.review, buildReview(pending.review).review.body);
   }
 
   async install(
