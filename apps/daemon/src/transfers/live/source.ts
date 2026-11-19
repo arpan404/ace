@@ -61,6 +61,8 @@ export const bulkHeadRef = (transferId: string) => `refs/ace/transfer-bulk/${tra
 
 /** How long an interrupt may take to end the turn before the move carries on regardless. */
 const interruptMs = 30_000;
+/** How long one provider process may take to exit once asked to close. */
+const closeMs = 10_000;
 
 export class LiveSource {
   private ports: LiveSourcePorts;
@@ -104,7 +106,7 @@ export class LiveSource {
     await ports.stopTerminals(threadId);
     await this.stopChildren(threadId, transferId, signal);
     // The provider's process goes, so its background shells stop and its session file is whole.
-    await this.closeWithin(threadId, ports.now() + interruptMs, signal, "The agent");
+    await this.closeWithin(threadId, ports.now() + closeMs, signal, "The agent");
     const folder = join(input.directory, `${transferId}.final.d`);
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -140,9 +142,10 @@ export class LiveSource {
   }
   /**
    * Stops every subagent thread running here and waits until each has really stopped: its turn
-   * ended, then its provider process closed and exited. The whole wait, polling and closes
-   * together, is bounded by 30 s from the interrupt; a child still running then fails the move
-   * before the hand-over, so no snapshot is taken while it writes.
+   * ended (up to 30 s from the interrupt, shared by all of them), then its provider process
+   * closed and exited (up to 10 s each). A child whose process is still running then fails the
+   * move before the hand-over, so no snapshot is taken while it writes, and no close that never
+   * returns can hang it.
    */
   private async stopChildren(threadId: string, transferId: string, signal: AbortSignal) {
     const { ports } = this;
@@ -155,7 +158,12 @@ export class LiveSource {
         signal.throwIfAborted();
         await ports.sleep(250, signal);
       }
-      await this.closeWithin(child.threadId, until, signal, `The subagent "${child.title}"`);
+      await this.closeWithin(
+        child.threadId,
+        ports.now() + closeMs,
+        signal,
+        `The subagent "${child.title}"`,
+      );
     }
   }
   /** Ends a thread's provider process and waits for it to exit, by `until` at the latest. */
