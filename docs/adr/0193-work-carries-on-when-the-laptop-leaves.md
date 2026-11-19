@@ -1,6 +1,6 @@
 # 0193: Work carries on when the laptop leaves
 
-Date: 2026-11-19. Status: proposed (design, version one, revised after three reviews; before the
+Date: 2026-11-19. Status: proposed (design, version one, revised after four reviews; before the
 build). Decided by: the owner (the outline, 2026-11-18; no automatic takeover after silence and no
 automatic hand-over in version one, 2026-11-19), this ADR (how). Builds on
 [ADR 0191](0191-continue-a-working-thread-on-another-machine.md) (live continue) and
@@ -106,21 +106,49 @@ changeable in Settings on the standby. The cap covers:
 Usage is the bytes actually on disk. It is measured per landing repository when intake starts and
 after each reclamation, and kept current between measurements by adding every byte written.
 
-**Space is reserved before intake.** A generation's `begin` states its size (generation 1's from
-ADR 0191's prepare; a later one's from its bundle and summary). The standby reserves that many
-bytes in one transaction, against the cap and against the stream's own limit (4 GiB, including
-its baseline). If the reservation doesn't fit, the generation is refused before a byte is sent. A
-reservation is released when its generation is pinned (and turned into usage) or abandoned. A
-reservation whose upload goes silent for an hour is abandoned and its staging is removed.
+**Space is reserved at its peak, before intake.** Wire bytes understate what intake writes. A
+generation's `begin` carries the sender's figures: its pack bytes, and the tree and ignored-file
+bytes of the checkout it captures (from `git ls-tree -l` and the ignored files' sizes). The standby
+reserves the **peak** that intake can reach:
 
-**Reclamation under pressure.** When usage passes 80% of the cap, or a reservation is refused, the
-standby reclaims space:
+- **generation 1:** staging (pack bytes), plus `index-pack`'s working copy (pack bytes), plus the
+  ignored files;
+- **a later generation:** twice its pack bytes.
+
+Each figure is multiplied by this standby's **measured factor**: the ratio of bytes actually
+written to bytes estimated, over its last 20 intakes. The factor starts at 1.25 and is never below
+1.1.
+
+One **landing headroom** is reserved for the whole standby: the largest stream's tree plus ignored
+bytes, times the factor. It means a takeover never fails for room while the other streams' copies
+fit. Takeovers land one at a time, so one headroom is enough.
+
+Reservations are taken in one transaction, against the cap and against the stream's own limit (4
+GiB, including its baseline). They are also checked against the filesystem's real free space
+(`statvfs`), keeping 5% of the disk spare. A reservation that doesn't fit is refused before a byte
+is sent.
+
+On completion, the reservation is replaced by the measured usage, and the factor is updated. An
+intake that writes more than it reserved is stopped at the reservation and refused, and its staging
+is removed. A reservation whose upload goes silent for an hour is abandoned the same way.
+
+Where the person has set up a filesystem quota for the landing folder (an XFS or ext4 project quota,
+or a btrfs qgroup; setting one up needs root), ace treats the quota as the hard limit, reads usage
+from it, and keeps its own cap as well.
+
+**Reclamation under pressure.** When usage plus reservations passes 80% of the cap, or a
+reservation is refused, the standby reclaims space:
 
 1. It drops refs older than each stream's last two pinned generations. A ref held by a takeover's
    setup is never dropped (section 5).
-2. It runs `git gc --prune=now` on the landing repository with the most unreclaimed bytes, one
-   repository at a time, at idle CPU and I/O priority, with a 5-minute budget.
-3. It measures again, then retries the refused reservation once.
+2. It picks the landing repository with the most unreclaimed bytes. A repack writes the new pack
+   before it deletes the old ones, so the standby first reserves that repository's pack bytes times
+   1.1. If that reservation doesn't fit, it uses the smaller step instead: it runs
+   `git prune --expire=now`, which deletes loose objects and needs no extra room, and puts off the
+   repack.
+3. The repack, `git gc --prune=now`, runs one repository at a time, at idle CPU and I/O priority,
+   with a 5-minute budget, and its reservation is released when it ends.
+4. It measures again, then retries the refused reservation once.
 
 The same reclamation also runs once a day when the standby is idle (ADR 0170: bounded, never at
 open). If reclamation can't free enough, the refusal stands: the runner says "omarchy is out of
@@ -143,7 +171,25 @@ The standby's row is the stream's **authority**. It carries:
 - `counter`: one more with every change to the stream, including each pinned generation;
 - `chain`: a hash chain over every change (the previous head and the change itself).
 
-Every answer the standby gives carries `epoch`, `counter`, `chain` and `pinned` (section 6).
+Every answer the standby gives carries `epoch`, `counter`, `chain`, `pinned` and an **outcome**
+(below).
+
+#### Signed outcomes
+
+The laptop never infers what happened from an epoch alone. Every answer names one outcome, signed,
+and each outcome has exactly one durable transition on the laptop. That transition is written in
+the same transaction that advances the laptop's authority record (section 6).
+
+| outcome       | means                                                                                                    | the laptop's durable transition                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `standby`     | the laptop owns the thread at epoch E, and this run is the admitted holder                               | none for ownership; the barrier may open                                                                                                                                                          |
+| `released`    | ownership came back to the laptop at epoch E′: a claim was released, or a takeover was given up          | the claim row goes `released`, or `moved` goes back to `kept` (only from the takeover or claim the answer names); the barrier stays closed until the person presses **Carry on here** (section 5) |
+| `moved`       | another machine owns it (a takeover, or a committed claim), named in the answer                          | `moved` and the cleanup journal (section 6)                                                                                                                                                       |
+| `quarantined` | the stream is frozen: two copies, a rollback, or a clone signal (section 7)                              | dispatch closes at once: the tree is stopped and a `quarantined` row is written; nothing reopens it except the person's confirmation on the standby, or re-pairing                                |
+| `revoked`     | this run's holder or key was retired (Carry on here or Rebind on another copy, a burned run, re-pairing) | the tree is stopped; the cleanup journal writes the rescue branch; the thread reads "This copy of ace was replaced"                                                                               |
+
+Whatever the epoch says, an outcome the laptop's state doesn't allow (a `released` naming a claim
+it never made, say) is no answer: it is logged, and the barrier stays closed.
 
 **Ownership of a kept thread changes in only these ways**, each started by the person:
 
@@ -181,9 +227,10 @@ again under the same id.
    - before `handing`, any failure or cancel;
    - after `handing`, the destination's own answer of `failed`, `cancelled` or "no such transfer".
 
-   The standby compares-and-sets E+1 to E+2 back to `standby`, and Take over is offered again. The
-   laptop returns to `kept` at E+2, with ADR 0191's owed resume. A lost link after `handing` is
-   never a failure: the laptop keeps asking the destination, as ADR 0191 does.
+   The standby compares-and-sets E+1 to E+2 back to `standby`, answers the signed outcome
+   `released` naming T, and offers Take over again. The laptop reads `released`, never the higher
+   epoch, as its cue. It returns to `kept` at E+2, with ADR 0191's owed resume. A lost link after
+   `handing` is never a failure: the laptop keeps asking the destination, as ADR 0191 does.
 
 7. **A restart** on either side reconciles from its own rows. The laptop re-sends the claim, the
    commit or the release that its `keep_claims` row says is owed, under the same transfer id. The
@@ -193,6 +240,20 @@ If the laptop goes quiet with a claim still pending, the standby lists the threa
 moving this to Studio when it went quiet". The destination is the one that may own it, so Take
 over isn't offered. The only choice is **Take over anyway**, with its own warning: "If Studio
 already has this thread, both will run it."
+
+**How Take over anyway settles the claim.** It is a person's command. In one transaction, it moves
+the pending claim T to `overridden` and compares-and-sets E+1 to E+2, owned by the standby, with
+the same setup record as any takeover. The claim never goes back to pending. When the laptop later
+reports T's outcome:
+
+- **A late release** (the move failed): the standby answers `moved`, naming itself. The laptop goes
+  `moved` and runs its cleanup. One owner, the standby.
+- **A late commit** (Studio did take the thread): two machines own it, which the person was warned
+  of. The standby answers `moved`, naming Studio, because the laptop's own ADR 0191 record already
+  says moved, so there is nothing to clean up. The standby then marks its own taken-over thread
+  with "Studio also has this thread: MacBook's move there finished before it went quiet." and
+  **Stop it here**, and holds its dispatch until the person chooses. Its stopped turn and its
+  checkout are kept.
 
 A live move whose claim can't be sent because the standby can't be reached is refused: "Can't reach
 omarchy, which keeps a copy of this thread." Turning keep-going off waits for omarchy the same way.
@@ -219,19 +280,51 @@ tree wasn't stopped and the last generation is older; the barrier deals with the
 
 **The host helper.** `ace-host-helper` is a small native program, separate from the screen helper.
 It has two jobs: to learn of sleep and wake, and to hold the machine's hardware-bound key (section
-7). It ships beside the daemon's entry bundle in every daemon release, in the CLI's archive and in
-the app's bundled daemon, signed with the daemon's Developer ID on macOS. It is versioned with the
+7). It ships beside the daemon's entry bundle in every daemon release and is versioned with the
 daemon: the daemon refuses a helper whose version differs from its own, and an update replaces it
 after ending the old helper.
+
+**macOS packaging.** A Secure Enclave key, and any key that uses the data-protection keychain, needs
+a process whose code signature carries a keychain access group from a provisioning profile. So
+the helper ships as an app bundle, `ace Host Helper.app`: Developer ID–signed, notarized, with its
+embedded provisioning profile and the `keychain-access-groups` entitlement.
+
+- The desktop app carries it inside its own bundle.
+- The CLI's macOS archive carries the same bundle, installed under the daemon's folder. That is the
+  supported packaging path for a CLI-only install.
+- The daemon starts it in the person's login session: as its own child when the daemon runs as the
+  app's child or as a user LaunchAgent, and through a user LaunchAgent (`gui/<uid>`) when the
+  daemon was started from SSH.
+- A system LaunchDaemon can't use the data-protection keychain, and ace never installs one.
+
+When the bundle is missing, its signature or profile doesn't check, or there is no login session,
+the helper runs without a keychain group. The identity then falls to the software tier, and the
+reason is reported.
 
 - **macOS:** `IORegisterForSystemPower` on a run loop, and the Secure Enclave.
 - **Linux** (Ubuntu, Fedora, Debian, Omarchy):
   - `zbus` to logind: a delay inhibitor for `sleep`, held only while a kept thread works, plus the
     `PrepareForSleep` signal;
-  - the TPM, through `/dev/tpmrm0`.
+  - the TPM, through `/dev/tpmrm0`;
+  - the kernel's uevent socket, for `vmgenid` changes (section 7).
+
+**Linux probes**, run by the helper from inside the daemon's real context (the systemd user service,
+with and without linger, or the terminal it was started from), at opt-in and at every start. Being
+in the `tss` group and having a TPM present doesn't count; each step has to work:
+
+1. open `/dev/tpmrm0`;
+2. create or load the identity key under the storage hierarchy;
+3. sign a challenge and verify the signature;
+4. on a standby, define (once), read and increment the NV counter (section 7). This needs the
+   owner hierarchy's authorization, which is often empty and sometimes not.
+
+The tier, and whether the counter is there, come from the probe's results alone. A probe that fails
+is reported with its step ("TPM present, but this service can't open /dev/tpmrm0").
+
 - **Protocol:** JSON lines on stdin and stdout.
   - `will-sleep {id, deadlineMs}`, which the daemon answers with `allow {id}`;
   - `did-wake {wakeId}`;
+  - `vm-generation {changed}`, from the clone signals of section 7;
   - `can-sleep {id}` for idle sleep, allowed at once and never cancelled;
   - `sign {challenge}`, which returns a signature from the hardware key.
 - **Its own deadline.** The helper allows sleep at its deadline whether or not the daemon has
@@ -304,12 +397,27 @@ as its own durable effect.
 
 **`landing`**
 
-- **Does:** `git worktree add` at the derived path, at the generation's capture, into a folder named
-  `<path>.partial`. It copies in the ignored files, syncs everything to disk, writes the marker
-  file `.ace-landing-complete` (the stream, epoch, commit, and a digest of the ignored files'
-  list), then renames the folder to `<path>`.
-- **Done when:** the folder `<path>` exists, its marker matches, and `HEAD` is at the commit.
-  Anything else, including a leftover `.partial` folder, is removed and made again.
+- **Does**, with Git's own worktree commands throughout, so that Git's registration always matches
+  the folder:
+  1. reserves the landing headroom (section 2);
+  2. `git worktree add --lock <path>.partial <capture>`;
+  3. copies in the ignored files and syncs everything to disk;
+  4. writes the marker `.ace-landing-complete` (the stream, epoch, commit, and a digest of the
+     ignored files' list) and syncs it;
+  5. `git worktree move <path>.partial <path>`, which updates the registration with the folder;
+  6. `git worktree unlock <path>`.
+- **Done when**, read from `git worktree list --porcelain` and the folder together:
+  - the worktree registered at `<path>` exists;
+  - its marker matches;
+  - `HEAD` is at the commit.
+- **Replay** goes by what it finds:
+  - a registration at `.partial`, or a `.partial` folder without a marker:
+    `git worktree remove --force`, then `git worktree prune`, then land again;
+  - a folder at `<path>` with a matching marker whose registration is missing or points elsewhere
+    (a crash inside `move`): `git worktree repair <path>`, then check again;
+  - anything that still doesn't match: removed with `git worktree remove --force` and landed again.
+
+  A plain `rm` or `mv` is never used on a landing.
 
 **`thread`**
 
@@ -350,10 +458,27 @@ Both kinds are shown in three places, whether or not a thread exists yet:
 - on the source thread, once the laptop hears `keep.takenOver`: "omarchy took this over but
   couldn't start it."
 
-**Try again** restarts the failed stage. **Give up** is a person's command: a compare-and-set from
-E+1 to E+2 back to `standby`, which releases the pins and removes the partial landing and the
-thread, if one was made. The laptop, once it hears, returns to `kept` at E+2 behind its barrier
-(section 6). Take over is offered again.
+**Try again** restarts the failed stage.
+
+**Give up** is a person's command, and it runs one at a time with the stream's other changes and
+with the engine's admission for the derived thread. The target is fenced before ownership goes back:
+
+1. **Fence.** In one transaction the setup goes `giving_up`. Its worker is cancelled, and any
+   thread already made is held by an ownership hold (ADR 0191's `stopping`), so admission refuses
+   it from that moment. A continue message the engine already accepted is taken back if it is still
+   queued. If its turn has begun, that turn is stopped with ordinary Stop, and the standby waits for
+   the tree to read at rest by ADR 0191's rule.
+2. **Return.** Only then does a compare-and-set from E+1 to E+2 return the stream to `standby`. In
+   the same transaction, the thread (if one was made) is marked given up and kept read-only, never
+   deleted, and the pins and the partial landing are released. The laptop is answered with the
+   outcome `released`.
+3. **The laptop**, which may already have written `moved` and run its cleanup, goes back from
+   `moved` to `kept`, but only for this takeover's epoch. Its rescue branch stays. Its checkout is
+   untouched, because cleanup never changes it. Nothing restarts by itself: the thread reads
+   "omarchy gave this back; it couldn't start it." with **Carry on here**.
+
+Take over is offered again. Give up isn't offered once the setup reached `started`; from then on,
+the way back is **Bring it back**.
 
 **Restarts.** A restart drains `keep_takeover_open` in batches of 64, with a turn of the event loop
 between them, and carries each row on from its stage. A resent `keep.takeOver` with the same
@@ -389,8 +514,15 @@ The barrier closes at every daemon start and at every wake. Each closing draws a
   - Linux: the boot-time clock (`/proc/uptime`, which counts suspend) minus the monotonic clock
     (which doesn't), read every 5 seconds; growth of more than 1 second is a wake.
 
-  Both record a sleep of any length. Neither depends on the wall clock. A wake detected this way is
-  seen within 5 seconds; a tree that thawed runs that long at most before the barrier stops it.
+  Neither depends on the wall clock. A wake detected this way is seen within 5 seconds; a tree that
+  thawed runs that long at most before the barrier stops it. The two fallbacks differ in what they
+  can see:
+  - **macOS** records every sleep, whatever its length.
+  - **Linux** sees only a sleep longer than 1 second. A shorter one is below what the two clocks
+    can tell apart through scheduling noise, so it passes unseen without the helper.
+
+- **a VM generation change or a guest agent's revert report**, as a clone signal (section 7). It
+  closes the barrier the same way, burns the run, and asks for recovery.
 
 **On a platform with neither**, keep-going isn't offered.
 
@@ -436,12 +568,20 @@ rest.
 
 #### What the laptop does with an answer
 
-- **Still `standby`, this holder admitted:** the laptop opens the barrier. Held work runs, and an
-  interrupted turn gets the carry-on message.
-- **Taken over, retired, or a higher epoch:** the laptop goes `moved` and runs the cleanup journal
-  below.
-- **Claimed by its own transfer:** it reconciles the claim (section 3).
+The laptop acts on the answer's signed outcome (section 3), never on its epoch alone:
+
+- **`standby`:** opens the barrier. Held work runs, and an interrupted turn gets the carry-on
+  message.
+- **`released`:** back to `kept`; the barrier stays closed until **Carry on here**.
+- **`moved`:** runs the cleanup journal below.
+- **`quarantined`:** stops and stays closed.
+- **`revoked`:** stops and writes the rescue branch.
+- **A pending claim of its own:** reconciled (section 3).
 - **No answer:** the barrier stays closed and the laptop keeps asking.
+
+Every request also carries the run's **sequence number**, which starts at 1 for each run and goes up
+by one with every request. Two live copies of one run, such as a VM resumed twice from one
+snapshot, therefore send the same numbers. Section 7 explains how the standby sees that.
 
 #### After it opens: checking again
 
@@ -452,10 +592,18 @@ with a fresh challenge:
 - at once, on every reconnect and every route change;
 - on every `keep.takenOver` it receives.
 
-Any accepted answer with a higher epoch, or showing a takeover, stops the tree at once and starts
-the cleanup journal. An unanswered check does not close the barrier: a laptop cut off from its
-standby keeps working, which is the risk the takeover's confirmation names. A late answer to an
-older challenge can never undo a higher epoch, because the authority record only moves forward.
+An accepted `moved`, `quarantined` or `revoked` stops the tree at once and takes the transition for
+that outcome. On physical hardware, an unanswered check doesn't close the barrier: a laptop cut off
+from its standby keeps working, which is the risk the takeover's confirmation names.
+
+**In a virtual machine** the rule is stricter. A running VM can be cloned live, so a copy can't be
+told apart while it is cut off. A runner that detects it is in a VM (`systemd-detect-virt`;
+`kern.hv_vmm_present` on macOS) therefore keeps a kept thread dispatching only while a check has
+been answered in the last 5 minutes. Past that, the tree is stopped with ordinary Stop and the
+barrier closes. That bounds how long an undetected live clone that can't reach the standby runs.
+
+A late answer to an older challenge can never undo a newer one, because the authority record only
+moves forward.
 
 #### Run here anyway
 
@@ -518,31 +666,89 @@ the same host, given the host's TPM device and a copy of the home at the same pa
 filesystem, would hold the key and its own daemon-lock. Granting a container that is an
 administrator's act, and ace doesn't defend against it.
 
-On the Linux hardware tier, the standby also keeps its stream `counter` mirrored in a **TPM NV
-monotonic counter** (`TPM_NT_COUNTER`), where the owner hierarchy allows defining one. The counter
-is incremented before each change is written. At start, a stored counter below the TPM's
-(allowing one change in flight) means the home was rolled back. Its streams are quarantined
-(below).
+On macOS the hardware tier also needs the provisioned helper bundle (section 4). Without it, the
+Mac is on the software tier.
+
+#### The TPM counter, through a durable intent
+
+On the Linux hardware tier, where the probe could define one, the standby keeps a **TPM NV monotonic
+counter** (`TPM_NT_COUNTER`, not orderly, so it never jumps after an unclean shutdown). The counter
+mirrors the standby's **ownership counter**, which goes up by one with every change of who owns or
+may own a stream:
+
+- an epoch change;
+- a claim and its outcome;
+- a Give up;
+- a quarantine;
+- a retirement.
+
+Generations don't touch it: rolling one back loses a copy, never an owner. That also keeps TPM
+writes to a few a day.
+
+Each ownership change goes in four steps:
+
+1. **Write the intent.** One DB transaction writes an intent row: the target value C+1 and the
+   change. It is synced to disk.
+2. **Increment the TPM counter** to C+1, and only after the intent is on disk.
+3. **Apply.** One DB transaction applies the change, sets the stored counter to C+1 and deletes the
+   intent.
+4. **Answer.** Only now does the standby answer anyone about the change.
+
+At every start, the standby compares the TPM's value `t` with the stored counter `c` and the intent:
+
+| found                       | explained by                                   | the standby                         |
+| --------------------------- | ---------------------------------------------- | ----------------------------------- |
+| `t = c`, no intent          | nothing in flight                              | carries on                          |
+| `t = c`, intent for `c+1`   | a crash between steps 1 and 2                  | does steps 2 and 3, then carries on |
+| `t = c+1`, intent for `c+1` | a crash between steps 2 and 3                  | does step 3, then carries on        |
+| anything else               | nothing a recorded intent explains: a rollback | quarantines every stream            |
+
+"Anything else" includes `t = c+1` with no intent, which is a restore exactly one change behind,
+possibly a takeover the laptop never saw. It also includes `t > c+1` and `t < c`. Nothing about a
+change is answered before step 3, so an answer can never describe a state the counter doesn't hold.
 
 #### The software tier: everything else
 
 The key is a P-256 key outside the ace home:
 
-- on macOS, in the login keychain, `AfterFirstUnlockThisDeviceOnly` and not synchronizable;
-- on Linux, in the Secret Service when there is one, else `$XDG_STATE_HOME/ace/identity` (mode
-  0600).
+- **macOS, with the provisioned helper:** the data-protection keychain,
+  `AfterFirstUnlockThisDeviceOnly` and not synchronizable, so it restores to no other Mac.
+- **macOS without it:** the file-based login keychain. Its accessibility attributes mean nothing,
+  and it moves with the user's home in a backup or a migration. That is still the software tier,
+  and it is reported as "keychain key can move with a backup".
+- **Linux:** the Secret Service when there is one, else `$XDG_STATE_HOME/ace/identity` (mode 0600).
 
-It is bound to the hardware id (`IOPlatformUUID`; `/etc/machine-id`) and to a fingerprint: the
-machine's permanent network addresses. A copy of the whole machine, such as a VM clone that kept
-its disk, machine id and keychain, carries this key. **So on this tier ace never trusts a
-restart by itself.** Exactly:
+It is bound to the hardware id (`IOPlatformUUID`; `/etc/machine-id`). A copy of the whole machine,
+such as a VM clone that kept its disk, machine id and keychain, carries this key. **So on this tier
+ace never trusts a restart by itself.** Exactly:
 
-- **Holder replacement needs a clean end.** A daemon that stops cleanly (Quit ace completely,
-  `ace stop`, a system shutdown) first stops its kept trees with ordinary Stop. It then writes a
-  signed **clean-end record** for its run into the home, and sends it to the standby if it can.
-  The next run presents that record when it registers. The standby admits the new run silently
-  only if the record names the currently admitted holder. A run that finds no clean-end record for
-  the run before it (a crash, a power loss, a snapshot taken mid-run) is never admitted silently.
+- **Holder replacement needs a verified clean end.** A daemon that stops cleanly (Quit ace
+  completely, `ace stop`, a system shutdown) publishes a **clean-end record** only after all of
+  these, in this order:
+  1. **Stop.** Its kept trees are stopped with ordinary Stop.
+  2. **Verified quiescence.** No process ace started is still alive. That covers providers, their
+     sessions, terminals and their shells, every process ace recorded at spawn (pid and start time,
+     never pid alone), and every descendant of those still in their process groups and sessions.
+     It is checked against the process table for up to 30 seconds. If anything is still alive at
+     the end, no record is written.
+  3. **Burn the run.** One transaction, synced to disk, writes `run_burned` for this run's nonce.
+     From then on the dispatch gate refuses every kept thread for this run, in memory and on disk.
+     A daemon that hangs or crashes after this point can't start anything for a kept thread, and
+     neither can anything that copies its home.
+  4. **Write the record**, single use: the run nonce, the holder's last sequence number, the
+     standby's last answered counter, and a random record id, signed. It is sent to the standby if
+     the standby can be reached.
+
+  The next run presents the record when it registers. The standby admits the new run silently only
+  if the record names the currently admitted holder and its record id has never been presented
+  before. Used ids are kept in the stream's authority; a second presentation means a copy, and
+  quarantines the stream. A run that finds no clean-end record for the run before it (a crash, a
+  power loss, a failed quiescence check, a snapshot taken mid-run) is never admitted silently.
+
+  What quiescence can't see: a job the agent itself detached with no trace ace can follow (`env -i
+nohup`, work handed to a tmux server). That is ADR 0191's known gap for ordinary Stop. Such a job
+  doesn't own the thread, but it can still act, and it is listed under what ace can't detect.
+
 - **Explicit recovery.** The new run's barrier stays closed, and the thread reads: "ace on this Mac
   stopped without closing cleanly. If no other copy of this Mac is running ace, carry on here."
   There are two buttons:
@@ -557,14 +763,21 @@ restart by itself.** Exactly:
   - The copy that was running learns at its next check (at most 60 seconds) and stops.
   - The other was never admitted, so it never ran.
   - Both read "Two copies of MacBook are running this. Re-pair to keep a copy."
-- **A changed fingerprint** (new network hardware, which is what most hypervisors give a clone) is
-  treated as an unclean restart, on either side. On a standby, its streams are quarantined until
-  the person confirms there: "omarchy looks like a copy of itself (its network hardware changed).
-  Confirm it's the original to keep copies here."
+- **Network hardware is advisory only.** Wi-Fi roaming, VPN changes, new IP addresses and virtual
+  interfaces don't count at all. Docks, USB and Thunderbolt adapters are left out of the
+  fingerprint. A change to a built-in network address is shown in Settings ("omarchy's network
+  hardware changed on 18 Nov"), and never quarantines a stream or blocks a restart on its own. A
+  healthy standby on a new dock carries on.
+- **What does quarantine** a standby's streams, until the person confirms there ("omarchy looks like
+  a copy of itself. Confirm it's the original to keep copies here."):
+  - its hardware id or machine id changed;
+  - a VM generation change, or a revert report (below);
+  - a TPM counter mismatch;
+  - a second holder seen.
 
 **A software-tier standby** can't prove it isn't a clone either. Opting in says so: "omarchy can't
-prove it isn't a copy of itself. Don't clone it while it keeps copies." If a clone the fingerprint
-didn't catch is pressed to take over while the laptop talks to the original:
+prove it isn't a copy of itself. Don't clone it while it keeps copies." If a clone no signal caught
+is pressed to take over while the laptop talks to the original:
 
 - the clone sends `keep.takenOver` to the laptop on every route until acknowledged (section 5), and
   the laptop stops the moment one arrives;
@@ -574,13 +787,69 @@ Until then both may run. That is the same risk as Take over on a laptop that is 
 here nobody pressed anything on the original. That is why opting in shows it and why it is listed
 as residual.
 
+#### Live clones of a running VM
+
+A running VM cloned with its memory and device state (a live snapshot, a fork, a resume of one
+snapshot twice) comes up as two identical copies of the same run: the same nonce, the same keys, the
+same sequence position, a virtual TPM if it had one. Neither registers anew. ace detects what can be
+detected, and stops both on detection.
+
+**VM generation id.** Hypervisors that support it change the guest's VM generation id on every
+clone, snapshot revert and resume from a saved state:
+
+- Hyper-V;
+- QEMU/KVM with `-device vmgenid` (libvirt's `<genid/>`; Proxmox sets it by default);
+- VMware (`vm.genid`);
+- Firecracker-style microVMs via the same ACPI device.
+
+On Linux the kernel's `vmgenid` driver turns a change into a uevent (`NEW_VMGENID=1`, Linux 6.0 and
+later), which the helper reports as `vm-generation {changed}`. The daemon also reads the id at start
+and compares it with the one it recorded. On a change, the daemon:
+
+1. stops every kept tree with ordinary Stop;
+2. burns its run;
+3. closes the barrier;
+4. tells the standby, which quarantines the stream.
+
+The copy whose id didn't change is stopped by the quarantine at its next check. Each copy then needs
+the person's **Carry on here**, and the first of them to be admitted retires the other.
+
+**Guest-agent revert reports.** Where a guest agent reports a resume or revert to the guest (VMware
+Tools' resume script, a QEMU guest agent hook that the person configured), the helper treats it the
+same as a generation change.
+
+**Sequence collisions.** Every request a runner sends carries its run nonce and its sequence number
+(section 6). The standby keeps, per holder, the highest sequence number it has seen and the request
+id that carried it. It quarantines the stream when either of these happens:
+
+- a request arrives whose sequence number is at or below that highest number but whose request id
+  is different (a genuine resend reuses its id);
+- the number goes backwards.
+
+Two live copies of one run collide within their first exchanges after the clone, and a VM reverted
+in place goes backwards. Each answer also carries the highest number the standby has seen. A runner
+that is shown a number above any it has sent knows another copy is speaking as it, and stops at
+once.
+
+**In a VM, silence stops the tree after 5 minutes** (section 6). A live clone that never reaches the
+standby therefore runs for 5 minutes at most.
+
+**Unsupported, and said so.** On a hypervisor that exposes no generation id and has no revert
+report, a live clone can't be detected by any daemon until both copies reach the standby. That
+covers every macOS guest under Virtualization.framework, and any hypervisor with the device turned
+off. Until then, each copy can run for up to the 5-minute VM bound, and longer if both are cut off
+and the person presses Run here anyway. ace lists this as unsupported. When it runs in a VM without
+a generation id, it shows: "This is a virtual machine that can't tell ace when it's cloned. Don't
+clone it or restore a snapshot of it while it keeps copies." This appears at opt-in, in Settings
+and in `ace doctor`.
+
 #### Rollback of a standby
 
 | case                                                                                                     | caught by                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | restored to a point before the laptop's last contact                                                     | the laptop's authority record (a lower counter, or an equal counter with a different chain)                                                                                                                                                                                                                 |
-| restored to another machine                                                                              | the identity: hardware, it can't sign; software, the fingerprint changed and its streams are quarantined                                                                                                                                                                                                    |
-| restored on the same machine, hardware tier on Linux                                                     | the TPM NV counter; streams quarantined                                                                                                                                                                                                                                                                     |
+| restored to another machine                                                                              | the identity: hardware, it can't sign; software, the hardware id or machine id changed and its streams are quarantined                                                                                                                                                                                      |
+| restored on the same machine, hardware tier on Linux with the counter                                    | the TPM counter through its intent protocol, including a restore exactly one ownership change behind; streams quarantined                                                                                                                                                                                   |
 | restored on the same machine otherwise, to exactly the laptop's last contact, with a takeover afterwards | not caught. The takeover's thread, and the agent that ran it, are gone with the restore, so nothing runs the thread twice. The work done there after the takeover is lost, and outside effects it made may be repeated by the laptop. This is the one residual a challenge can't close, and the ADR says so |
 
 #### When the key is unavailable or gone
@@ -616,28 +885,36 @@ as residual.
 One sentence, text buttons, no icons on buttons (design-language.md, DESIGN.md). The words live in
 `@ace/ui-core`.
 
-| when                       | the line                                                                                                     | buttons                |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------- |
-| opted in                   | Keeps a copy on omarchy · from 13:58                                                                         |                        |
-| standby can't prove itself | omarchy can't prove it isn't a copy of itself. Don't clone it while it keeps copies.                         |                        |
-| first copy going           | Getting omarchy ready · 312 MB of 1.2 GB                                                                     |                        |
-| copy failing               | omarchy's copy is from 13:58: <reason>                                                                       |                        |
-| out of room                | omarchy is out of room for copies.                                                                           |                        |
-| asleep (seen elsewhere)    | MacBook is asleep · omarchy's copy is from 13:58                                                             | Take over on omarchy   |
-| quiet (seen elsewhere)     | MacBook went quiet at 14:02 · omarchy's copy is from 13:58                                                   | Take over on omarchy   |
-| moving when quiet          | MacBook was moving this to Studio when it went quiet.                                                        | Take over anyway       |
-| taking over                | omarchy took this over at 14:10 · Getting the project ready                                                  |                        |
-| couldn't start             | omarchy took this over but couldn't start it: <reason>                                                       | Try again · Give up    |
-| running there              | Running on omarchy since 14:11.                                                                              | Open · Bring it back   |
-| laptop barrier             | Checking with omarchy before carrying on.                                                                    | Run here anyway        |
-| stale standby              | omarchy answered from an older copy of itself. Still checking.                                               | Run here anyway        |
-| key not available yet      | Waiting for this Mac to be unlocked before checking with omarchy.                                            | Run here anyway        |
-| unclean restart (software) | ace on this Mac stopped without closing cleanly. If no other copy of this Mac is running ace, carry on here. | Carry on here          |
-| key gone                   | This Mac's keep-going key is gone (it was reinstalled, migrated or moved).                                   | Rebind                 |
-| two copies                 | Two copies of MacBook are running this. Re-pair to keep a copy.                                              |                        |
-| standby looks copied       | omarchy looks like a copy of itself. Confirm it's the original to keep copies here.                          | It's the original      |
-| moved on reconnect         | Moved to omarchy at 14:10. MacBook's work after 13:58 is on branch ace/kept/… here.                          | Open · Send to omarchy |
-| live move refused          | Can't reach omarchy, which keeps a copy of this thread.                                                      |                        |
+| when                          | the line                                                                                                                          | buttons                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| opted in                      | Keeps a copy on omarchy · from 13:58                                                                                              |                        |
+| standby can't prove itself    | omarchy can't prove it isn't a copy of itself. Don't clone it while it keeps copies.                                              |                        |
+| first copy going              | Getting omarchy ready · 312 MB of 1.2 GB                                                                                          |                        |
+| copy failing                  | omarchy's copy is from 13:58: <reason>                                                                                            |                        |
+| out of room                   | omarchy is out of room for copies.                                                                                                |                        |
+| asleep (seen elsewhere)       | MacBook is asleep · omarchy's copy is from 13:58                                                                                  | Take over on omarchy   |
+| quiet (seen elsewhere)        | MacBook went quiet at 14:02 · omarchy's copy is from 13:58                                                                        | Take over on omarchy   |
+| moving when quiet             | MacBook was moving this to Studio when it went quiet.                                                                             | Take over anyway       |
+| taking over                   | omarchy took this over at 14:10 · Getting the project ready                                                                       |                        |
+| couldn't start                | omarchy took this over but couldn't start it: <reason>                                                                            | Try again · Give up    |
+| running there                 | Running on omarchy since 14:11.                                                                                                   | Open · Bring it back   |
+| laptop barrier                | Checking with omarchy before carrying on.                                                                                         | Run here anyway        |
+| stale standby                 | omarchy answered from an older copy of itself. Still checking.                                                                    | Run here anyway        |
+| key not available yet         | Waiting for this Mac to be unlocked before checking with omarchy.                                                                 | Run here anyway        |
+| unclean restart (software)    | ace on this Mac stopped without closing cleanly. If no other copy of this Mac is running ace, carry on here.                      | Carry on here          |
+| key gone                      | This Mac's keep-going key is gone (it was reinstalled, migrated or moved).                                                        | Rebind                 |
+| two copies                    | Two copies of MacBook are running this. Re-pair to keep a copy.                                                                   |                        |
+| standby looks copied          | omarchy looks like a copy of itself. Confirm it's the original to keep copies here.                                               | It's the original      |
+| moved on reconnect            | Moved to omarchy at 14:10. MacBook's work after 13:58 is on branch ace/kept/… here.                                               | Open · Send to omarchy |
+| given back                    | omarchy gave this back; it couldn't start it.                                                                                     | Carry on here          |
+| claim released                | The move to Studio didn't happen. This thread is here again.                                                                      | Carry on here          |
+| revoked                       | This copy of ace was replaced; its work is on branch ace/kept/… here.                                                             | Open                   |
+| quarantined                   | Stopped: omarchy saw a sign that this Mac was copied.                                                                             |                        |
+| Take over anyway, late commit | Studio also has this thread: MacBook's move there finished before it went quiet.                                                  | Stop it here           |
+| VM without generation id      | This is a virtual machine that can't tell ace when it's cloned. Don't clone it or restore a snapshot of it while it keeps copies. |                        |
+| VM, silent 5 minutes          | Stopped: this virtual machine hasn't heard from omarchy for 5 minutes.                                                            | Run here anyway        |
+| no hardware key               | This Mac's key can move with a backup, so ace asks you before trusting a restart.                                                 |                        |
+| live move refused             | Can't reach omarchy, which keeps a copy of this thread.                                                                           |                        |
 
 **Bring it back** is ADR 0191's live move from the standby to the laptop, claimed through the fence
 (section 3), landing through ADR 0101's landing reuse. Uncommitted work in the laptop's checkout
@@ -647,7 +924,8 @@ goes onto an `ace/kept/` branch first. It is never automatic.
 
 These are calls on the transfer protocol (ADR 0192: every route, idempotent by id, never parcels).
 Every request is signed by its sender's identity, and every answer by the answerer's, over the
-request's challenge.
+request's challenge. A runner's requests carry its run nonce and sequence number. Every answer
+carries one signed outcome (section 3) and the highest sequence number the standby has seen.
 
 - `keep.register` (holder, clean-end record), `keep.recover`, `keep.rebind`;
 - `keep.status`;
@@ -662,34 +940,66 @@ instead of a thread.
 
 ### 10. Convergence
 
-| case                                                        | runner                                                                                                                      | standby                                         | ends with                                                       |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
-| lid closes, notice heard                                    | stops, sends a last generation if there's time, sleeps                                                                      | shows asleep                                    | the laptop's, until the person acts                             |
-| notice missed, short sleep                                  | kernel wake record seen within 5 s; the barrier stops the thawed tree                                                       | shows quiet                                     | the laptop's, once answered                                     |
-| silent for hours, nobody presses                            | —                                                                                                                           | idle                                            | the laptop's                                                    |
-| Take over, laptop asleep                                    | on wake: barrier, answer "taken over", cleanup                                                                              | setup to started; `keep.takenOver` retried      | standby; laptop moved, work on a branch                         |
-| Take over, laptop awake and cut off                         | runs (the warned risk) until an answer or `keep.takenOver` reaches it                                                       | setup to started                                | standby; laptop moved                                           |
-| an old "standby" answer arrives after a takeover            | refused if its challenge is no longer outstanding; if accepted first, the next check (≤ 60 s) or `keep.takenOver` stops it  | —                                               | standby; laptop moved                                           |
-| Take over's answer lost                                     | —                                                                                                                           | receipt on resend                               | one takeover                                                    |
-| two clients press Take over                                 | —                                                                                                                           | the first wins                                  | one takeover                                                    |
-| Take over racing a live move                                | a pending claim fences takeover / a takeover fails the claim                                                                | epoch fence                                     | one owner                                                       |
-| laptop crashes after claim, before `handing`                | restart: release under the same transfer id                                                                                 | claim released, E+2                             | the laptop's, takeover offered again                            |
-| laptop crashes after `handing`                              | restart: asks the destination (ADR 0191), then commit or release                                                            | claim stays pending meanwhile                   | one owner                                                       |
-| crash mid-landing                                           | —                                                                                                                           | no marker: partial removed and landed again     | started once                                                    |
-| setup fails before the thread exists                        | told on contact                                                                                                             | listed with Try again or Give up; inputs pinned | the person decides                                              |
-| laptop crashes right after `moved`                          | the cleanup journal replays stop, cancel, rescue                                                                            | —                                               | moved, branch written                                           |
-| laptop wakes, standby unreachable                           | barrier closed, retrying forever                                                                                            | —                                               | waits, or Run here anyway                                       |
-| answer from an earlier wake                                 | dropped (old barrier id and challenge)                                                                                      | —                                               | barrier holds                                                   |
-| standby restored before the last contact                    | refused by the authority record                                                                                             | —                                               | barrier holds; Run here anyway or re-pair                       |
-| standby restored to the last contact, with a takeover after | opens (the takeover's state is gone with the restore)                                                                       | runs nothing of it                              | one runner; the takeover's work is lost (residual)              |
-| VM clone of a hardware-tier laptop mid-turn                 | the clone can't sign: refused                                                                                               | —                                               | the original                                                    |
-| VM clone of a software-tier laptop mid-turn                 | the clone has no clean end: explicit recovery; if the person carries on there, the original's next message quarantines both | quarantine                                      | nothing runs; re-pair                                           |
-| cloned powered-off software-tier laptop, both started       | first admitted; the second's registration quarantines both                                                                  | quarantine                                      | nothing runs; re-pair                                           |
-| cloned software-tier standby, takeover on the clone         | stops on the clone's `keep.takenOver`                                                                                       | the original quarantines on the laptop's report | the clone's thread, after a window (residual, warned at opt-in) |
-| migrated Mac, key gone                                      | Rebind (warned), or Take over on the standby                                                                                | old key retired                                 | one owner                                                       |
-| key not available in an SSH session                         | retried; barrier closed                                                                                                     | —                                               | opens after unlock                                              |
+| case                                                             | runner                                                                                                                      | standby                                         | ends with                                                       |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
+| lid closes, notice heard                                         | stops, sends a last generation if there's time, sleeps                                                                      | shows asleep                                    | the laptop's, until the person acts                             |
+| notice missed, short sleep                                       | kernel wake record seen within 5 s; the barrier stops the thawed tree                                                       | shows quiet                                     | the laptop's, once answered                                     |
+| silent for hours, nobody presses                                 | —                                                                                                                           | idle                                            | the laptop's                                                    |
+| Take over, laptop asleep                                         | on wake: barrier, answer "taken over", cleanup                                                                              | setup to started; `keep.takenOver` retried      | standby; laptop moved, work on a branch                         |
+| Take over, laptop awake and cut off                              | runs (the warned risk) until an answer or `keep.takenOver` reaches it                                                       | setup to started                                | standby; laptop moved                                           |
+| an old "standby" answer arrives after a takeover                 | refused if its challenge is no longer outstanding; if accepted first, the next check (≤ 60 s) or `keep.takenOver` stops it  | —                                               | standby; laptop moved                                           |
+| Take over's answer lost                                          | —                                                                                                                           | receipt on resend                               | one takeover                                                    |
+| two clients press Take over                                      | —                                                                                                                           | the first wins                                  | one takeover                                                    |
+| Take over racing a live move                                     | a pending claim fences takeover / a takeover fails the claim                                                                | epoch fence                                     | one owner                                                       |
+| laptop crashes after claim, before `handing`                     | restart: release under the same transfer id                                                                                 | claim released, E+2                             | the laptop's, takeover offered again                            |
+| laptop crashes after `handing`                                   | restart: asks the destination (ADR 0191), then commit or release                                                            | claim stays pending meanwhile                   | one owner                                                       |
+| crash mid-landing                                                | —                                                                                                                           | no marker: partial removed and landed again     | started once                                                    |
+| setup fails before the thread exists                             | told on contact                                                                                                             | listed with Try again or Give up; inputs pinned | the person decides                                              |
+| laptop crashes right after `moved`                               | the cleanup journal replays stop, cancel, rescue                                                                            | —                                               | moved, branch written                                           |
+| laptop wakes, standby unreachable                                | barrier closed, retrying forever                                                                                            | —                                               | waits, or Run here anyway                                       |
+| answer from an earlier wake                                      | dropped (old barrier id and challenge)                                                                                      | —                                               | barrier holds                                                   |
+| standby restored before the last contact                         | refused by the authority record                                                                                             | —                                               | barrier holds; Run here anyway or re-pair                       |
+| standby restored to the last contact, with a takeover after      | opens (the takeover's state is gone with the restore)                                                                       | runs nothing of it                              | one runner; the takeover's work is lost (residual)              |
+| VM clone of a hardware-tier laptop mid-turn                      | the clone can't sign: refused                                                                                               | —                                               | the original                                                    |
+| VM clone of a software-tier laptop mid-turn                      | the clone has no clean end: explicit recovery; if the person carries on there, the original's next message quarantines both | quarantine                                      | nothing runs; re-pair                                           |
+| cloned powered-off software-tier laptop, both started            | first admitted; the second's registration quarantines both                                                                  | quarantine                                      | nothing runs; re-pair                                           |
+| cloned software-tier standby, takeover on the clone              | stops on the clone's `keep.takenOver`                                                                                       | the original quarantines on the laptop's report | the clone's thread, after a window (residual, warned at opt-in) |
+| migrated Mac, key gone                                           | Rebind (warned), or Take over on the standby                                                                                | old key retired                                 | one owner                                                       |
+| key not available in an SSH session                              | retried; barrier closed                                                                                                     | —                                               | opens after unlock                                              |
+| live VM snapshot clone, with a generation id                     | both copies see the change: stop, burn the run, close; each needs Carry on here                                             | quarantine                                      | nothing runs; the person admits one                             |
+| live VM snapshot clone, no generation id, both reach the standby | the sequence collision quarantines; each copy stops at its next exchange                                                    | quarantine                                      | nothing runs; re-pair or admit one                              |
+| live VM snapshot clone, no generation id, one copy cut off       | the cut-off copy stops after 5 minutes (VM rule); the other runs                                                            | —                                               | unsupported; bounded at 5 minutes, warned                       |
+| crash after a clean-end record, a job surviving                  | the record exists only if quiescence held; the burned run dispatches nothing; a detached agent job is the known gap         | admits the successor once                       | one runner (the detached job is a residual)                     |
+| clean-end record presented twice                                 | —                                                                                                                           | the used record id quarantines                  | nothing runs; re-pair                                           |
+| TPM counter one change ahead, no intent                          | —                                                                                                                           | quarantine at start                             | nothing answered from the rollback                              |
+| crash between the intent and the TPM increment, or after it      | —                                                                                                                           | finishes the intent                             | carries on                                                      |
+| dock swap or Wi-Fi change                                        | nothing                                                                                                                     | advisory line only                              | carries on                                                      |
+| claim released                                                   | `released`: back to `kept`, held for Carry on here                                                                          | E+2, takeover offered                           | the laptop's                                                    |
+| Give up after the laptop wrote `moved`                           | `released` for that epoch: back to `kept`, branch kept, Carry on here                                                       | thread fenced at rest, then E+2                 | the laptop's                                                    |
+| quarantine while the barrier is open                             | `quarantined` at the next check: tree stopped, closed                                                                       | quarantine                                      | nothing runs                                                    |
+| Take over anyway, then a late release                            | `moved` (the standby)                                                                                                       | owns it                                         | the standby                                                     |
+| Take over anyway, then a late commit                             | `moved` (Studio); nothing to clean                                                                                          | holds its thread for the person: Stop it here   | the person picks (warned double owner)                          |
 
-### 11. Costs and bounds
+### 11. What ace can't detect
+
+Plainly, these are unsupported or residual:
+
+- **A live clone of a running VM on a hypervisor without a generation id or a revert report**
+  (every macOS guest under Virtualization.framework; any hypervisor with the device off), while
+  either copy can't reach the standby. Each copy runs for up to the 5-minute VM bound, and longer
+  only if the person presses Run here anyway. Warned in the VM.
+- **A software-tier standby cloned without any signal**, and pressed to take over on the clone.
+  Both may run until the clone's `keep.takenOver` reaches the laptop. Warned at opt-in.
+- **A same-host standby restore without a TPM counter**, to exactly the laptop's last contact, after
+  a takeover. Nothing runs twice, but the takeover's work is lost.
+- **A container given the host's TPM** and a copy of the home at the same path.
+- **A job the agent detached** past what ace can trace (`env -i nohup`, a tmux server). It survives
+  Stop, quiescence and every barrier.
+- **A sleep of 1 second or less on Linux without the helper.**
+- **Effects outside ace** (a push, a deploy, a message) made before the laptop stops, and possibly
+  repeated by the standby from an older copy.
+
+### 12. Costs and bounds
 
 - **Idle threads cost nothing.** Generations happen only at turn ends. Status checks happen only
   at barriers, every 60 seconds while kept work runs, and from the standby while the runner is
@@ -704,6 +1014,10 @@ instead of a thread.
   runs under pressure and once a day.
 - **Signatures:** one per request and one per answer. A Secure Enclave or TPM signature takes
   milliseconds to tens of milliseconds, a few times a minute at most.
+- **TPM counter writes:** one per ownership change, never per generation. That is a few a day,
+  well within NV endurance.
+- **Reservations at peak** hold back up to twice a generation's pack bytes while it lands, plus one
+  landing headroom for the whole standby.
 - **The helper** runs only while a thread is kept, and holds the inhibitor only while a kept thread
   works.
 - **Startup** (ADR 0170): rows are found through the ownership table and the `_open` side tables
@@ -727,6 +1041,15 @@ instead of a thread.
 - **The wall clock as the wake signal.** A short sleep doesn't move it far enough, and NTP moves it
   when nothing slept. Kernel wake records replace it.
 - **Exempting first copies from the quota.** Many first copies can fill a standby.
+- **Reserving wire bytes only.** A small bundle can land as a large checkout, and a repack needs
+  room of its own.
+- **Network hardware as a clone signal.** Docks and adapters change it on healthy machines. It is
+  advisory only.
+- **An orderly TPM counter.** It can jump forward after an unclean shutdown, which would quarantine
+  a healthy standby.
+- **The cuts the fourth review proposed:** dropping the hardware tier, the TPM counter and the
+  live-move claims, among others, for a smaller design. The owner chose to keep the fuller design
+  and fix the findings instead (2026-11-19).
 - **Periodic captures during a turn, and native session copies**, for now (not measured).
 - **Clearing the barrier after a while.** Elapsed time says nothing about whether the person took
   over.
@@ -804,6 +1127,45 @@ The third review refined findings 2, 3, 5 and 7 below.
    objects and pins. Space is reserved before intake, and reclamation runs under pressure. Captures
    run one at a time across threads (section 2).
 
+**Fourth review (at 6ebc149ee2):**
+
+1. **A live VM snapshot clone runs as two identical copies.** Resolved as far as any daemon can
+   (section 7, "Live clones"):
+   - a VM generation id change (Hyper-V, QEMU `vmgenid`, VMware), seen through the kernel's uevent
+     and compared at start;
+   - guest-agent revert reports;
+   - sequence collisions, which the standby sees and the runner sees;
+   - the 5-minute silence rule for runners in a VM.
+
+   On detection, both copies stop. A hypervisor without a generation id is listed as unsupported,
+   and ace warns when it runs in one.
+
+2. **A clean end didn't prove the processes ended.** Resolved. A record needs verified quiescence of
+   every process ace started (pid and start time) and the run burned on disk before it is written.
+   It is single use, and a second presentation quarantines. Without it there is no silent restart.
+3. **Release, Give up and quarantine were inferred from epochs.** Resolved by five signed outcomes
+   (`standby`, `released`, `moved`, `quarantined`, `revoked`), each with one durable transition.
+   - Give up fences the thread at rest, one change at a time with admission, before ownership
+     returns, and the laptop's `moved` goes back to `kept` only for that takeover.
+   - Quarantine closes dispatch at the next check.
+   - Take over anyway moves the claim to `overridden`, and a late commit or release is answered
+     explicitly.
+4. **The TPM allowance accepted a restore one change behind.** Resolved by the durable intent
+   protocol: intent, then TPM, then apply, then answer. Any mismatch an intent doesn't explain
+   quarantines.
+5. **Helper, keychain, probes, wake and network.** Resolved:
+   - a provisioned helper bundle for the data-protection keychain, run in a user session; never a
+     LaunchDaemon; the CLI archive carries the bundle; without it, the software tier;
+   - Linux probes run from the real service context;
+   - the Linux fallback's 1-second blind spot is stated;
+   - network changes are advisory only.
+6. **Disk peaks and worktree moves.** Resolved:
+   - peak reservations from the sender's tree figures times a measured factor, with one landing
+     headroom;
+   - a repack reservation, or a prune-only fallback;
+   - filesystem quotas used where set;
+   - Git's own `worktree add`, `move`, `repair` and `remove` throughout.
+
 ## Verification
 
 **Pure** (`transfers/keep/*-rules.ts` and their tests):
@@ -820,8 +1182,17 @@ The third review refined findings 2, 3, 5 and 7 below.
 - re-checking after open;
 - holder admission by tier: a hardware signature, a clean end, an unclean end, two registrations
   from one predecessor;
-- fingerprint changes;
-- the TPM counter's rollback rule;
+- network changes staying advisory (a dock swap, Wi-Fi, VPN), and the signals that do quarantine;
+- the TPM intent protocol: each crash point between its four steps finished, and every unexplained
+  mismatch (one ahead with no intent, two ahead, behind) quarantined;
+- the five signed outcomes and the one transition each allows, including a `released` for a claim
+  never made refused;
+- clean-end admission: quiescence failing, the burned run refusing dispatch, a record id used twice;
+- sequence collisions and a sequence going backwards;
+- the VM silence rule;
+- peak reservations, the measured factor, landing headroom, and the repack reservation or prune
+  fallback;
+- the landing replay from each `git worktree list` state;
 - reservations, the hard cap, reclamation order, and pins kept;
 - the capture scheduler: coalescing, the interval, one at a time, oldest first, backoff;
 - both wake detectors, with injected readings.
@@ -856,8 +1227,37 @@ Named tests:
   - If the old one arrives first, the laptop opens, then stops at the next check or at
     `keep.takenOver`. Its run marks end within that bound.
 - **Crash mid-landing:** SIGKILL after `git worktree add` and before the ignored files finish
-  copying. On restart the partial landing is removed and landed again, and the thread starts with
-  every ignored file, once.
+  copying. On restart the partial landing is removed with `git worktree remove` and landed again,
+  and the thread starts with every ignored file, once. A second run kills the daemon inside
+  `git worktree move`, and `repair` brings the registration and the folder back into step.
+- **Live VM snapshot clone, with vmgenid:** a QEMU guest running a kept turn is snapshotted live,
+  and the snapshot is resumed as a second VM. Both copies see `NEW_VMGENID` and stop, the standby
+  quarantines, and neither runs until the person admits one.
+- **Live VM snapshot clone, without vmgenid:** the same with the device off.
+  - With both copies on the network, the sequence collision quarantines within one exchange.
+  - With the clone cut off, it stops at the 5-minute bound.
+  - The VM warning is shown.
+- **Daemon crash after a clean-end record, with a surviving job:**
+  - A scripted provider leaves a child that ignores SIGTERM, so quiescence fails and no record is
+    written. The successor gets explicit recovery.
+  - In a second run quiescence passes and the daemon is SIGKILLed right after writing the record.
+    The burned run dispatches nothing, and the successor is admitted once. A copy of the home
+    presenting the same record is quarantined.
+- **TPM rollback by one change:** on a swtpm-backed test counter, the standby's home is restored
+  to the state just before a takeover. The TPM is one ahead with no intent, so the standby
+  quarantines and answers nothing from the restored state. Crashes between each of the four intent
+  steps are finished, not quarantined.
+- **Dock swap:** a USB Ethernet adapter is removed and another added on a healthy standby, and its
+  Wi-Fi network and VPN change. The standby only shows the advisory line. No stream is
+  quarantined, and a Take over works.
+- **Outcomes:**
+  - a claim released after `handing` is read as `released`, not as moved;
+  - Give up racing an accepted continue message waits for the tree to rest, then returns the
+    thread;
+  - a quarantine during an open barrier stops the tree at the next check;
+  - Take over anyway followed by a late commit, and by a late release.
+- **Disk:** a 2 MB bundle whose checkout and ignored files are 3 GB is reserved at its peak and
+  refused when it can't fit. A repack that can't reserve its room falls back to prune.
 
 Cases:
 
@@ -886,8 +1286,14 @@ clock bounds the overlap.
 
 - the host helper installed and upgraded from the CLI archive and from the app, on macOS and Linux;
 - the helper exiting when the daemon is killed;
-- a Secure Enclave key created and used by the signed helper, and refused in a macOS VM;
-- a TPM key on a physical Linux machine;
+- a Secure Enclave key created and used by the provisioned helper bundle:
+  - from the app;
+  - from the CLI archive;
+  - from a user LaunchAgent after an SSH start;
+- the software tier reported when the bundle is missing, and in a macOS VM;
+- a TPM key and NV counter probed from the systemd user service (with and without linger) on a
+  physical Linux machine, and the probe's failure step reported without the `tss` group;
+- a VM generation change seen through the uevent on QEMU and Hyper-V Linux guests;
 - a vTPM detected as virtual on QEMU/swtpm and on a cloud VM;
 - macOS lid close and `pmset sleepnow`, and `systemctl suspend` on Ubuntu, Fedora and Omarchy;
 - `kern.waketime` and the boot-time clock catching a 3-second sleep without the helper;
