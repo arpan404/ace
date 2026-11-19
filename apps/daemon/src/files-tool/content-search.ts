@@ -39,6 +39,8 @@ export function searchRequest(message: ClientFilesRequest): SearchRequest | unde
 export const searchesPerConnection = 4;
 /** Batches wait while the connection has this much queued; a relay channel closes at 256 KiB. */
 export const searchBacklogBytes = 128 * 1024;
+/** How often a running search checks its read grant when nothing else has. */
+export const searchGrantCheckMs = 1000;
 
 export type ContentSearchOptions = {
   resolve: ListingScope;
@@ -99,16 +101,28 @@ export function contentSearches(options: ContentSearchOptions): ContentSearches 
           });
           batches = queue;
           controller.signal.addEventListener("abort", () => queue.cancel(), { once: true });
-          const found = await tool.search(root, searchQuery(operation), {
-            signal: controller.signal,
-            onMatches: (file) => {
-              // A grant lost mid-search stops it: nothing more is read or sent for it.
-              if (!allowed()) controller.abort();
-              else queue.add(file.path, searchLines(file));
-            },
-          });
-          await queue.drain();
-          return found;
+          // A search with no hits, or one waiting on a backed-up link, sends nothing that would
+          // notice a lost grant, so a timer checks it too.
+          let stopCheck: (() => void) | undefined;
+          const check = () => {
+            if (!allowed()) controller.abort();
+            else stopCheck = options.clock.setTimeout(check, searchGrantCheckMs);
+          };
+          stopCheck = options.clock.setTimeout(check, searchGrantCheckMs);
+          try {
+            const found = await tool.search(root, searchQuery(operation), {
+              signal: controller.signal,
+              onMatches: (file) => {
+                // A grant lost mid-search stops it: nothing more is read or sent for it.
+                if (!allowed()) controller.abort();
+                else queue.add(file.path, searchLines(file));
+              },
+            });
+            await queue.drain();
+            return found;
+          } finally {
+            stopCheck?.();
+          }
         },
       );
       if (!options.replyAllowed(message.threadId)) {

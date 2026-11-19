@@ -205,6 +205,33 @@ it("a read grant lost mid-search sends nothing more and ends forbidden", async (
   expect(h.end("revoked")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
 });
 
+it("a search with no hits stops within a second of its grant being lost", async () => {
+  let allowed = true;
+  const h = harness({ allowed: () => allowed });
+  h.searches.start(request("quiet"));
+  await h.settle();
+  allowed = false;
+  h.clock.advance(1000);
+  await Promise.all(h.tasks);
+  expect(h.fake.running[0]?.options.signal?.aborted).toBe(true);
+  expect(h.end("quiet")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+});
+
+it("a finished search waiting on a backed-up link stops once its grant is lost", async () => {
+  let allowed = true;
+  const h = harness({ allowed: () => allowed, buffered: () => 1024 * 1024 });
+  h.searches.start(request("stuck"));
+  await h.settle();
+  h.fake.running[0]?.options.onMatches(file("a.ts", 3));
+  h.fake.running[0]?.finish(3);
+  await h.settle();
+  allowed = false;
+  h.clock.advance(1000);
+  await Promise.all(h.tasks);
+  expect(h.lines("stuck")).toBe(0);
+  expect(h.end("stuck")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+});
+
 it("a machine without ace-files answers with the retryable code", async () => {
   const sent: FilesServerMessage[] = [];
   const tasks: Promise<void>[] = [];
