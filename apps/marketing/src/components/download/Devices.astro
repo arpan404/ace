@@ -6,7 +6,6 @@
  * button with its version note. The row comes in once as the page opens.
  */
 import { platformGuides, type DeviceId } from "../../content/download.ts";
-import { delegates, rows } from "../../content/stage.ts";
 import DownloadButton from "../DownloadButton.astro";
 import Laptop from "../devices/Laptop.astro";
 import LinuxScreen from "../devices/LinuxScreen.astro";
@@ -17,8 +16,6 @@ import MacDesktop from "../mac/MacDesktop.astro";
 import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
 import Fit from "../site/Fit.astro";
 
-const soak = delegates.find((agent) => agent.machine === "build-server");
-const sweep = rows.find((row) => row.machine === "workstation");
 const guide = (id: DeviceId) => platformGuides.find((entry) => entry.id === id);
 const label = (id: DeviceId) => {
   const entry = guide(id);
@@ -45,14 +42,14 @@ const order: DeviceId[] = ["mac", "windows", "linux", "phone"];
         {id === "windows" && (
           <Fit width={700} height={500} fallback={0.3}>
             <Monitor>
-              <WindowsScreen task={sweep?.title ?? ""} />
+              <WindowsScreen />
             </Monitor>
           </Fit>
         )}
         {id === "linux" && (
           <Fit width={760} height={462} fallback={0.28}>
             <Laptop>
-              <LinuxScreen task={soak?.name ?? ""} progress={soak?.detail ?? ""} />
+              <LinuxScreen />
             </Laptop>
           </Fit>
         )}
