@@ -2,6 +2,7 @@ import { CommandId, DeviceId, HostId, ThreadContinuedOn, ThreadId } from "@ace/p
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { facts } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 import { continueOn, linkedMachines, optionsFor, strip, workspace } from "./transfer-fixture.tsx";
 
@@ -195,6 +196,29 @@ test("a thread continued from another machine says where it came from", async ()
   });
   await app.open("/t/thread-arrived");
   expect(await strip("Continued from MacBook")).toBeTruthy();
+}, 30_000);
+
+test("a thread whose work moved while it worked says where it went, not that it's done", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "thread-moved",
+    workspaceId: workspace.id,
+    title: "Fix the forecast cache",
+    provider: "claude",
+    hasSentMessage: true,
+    details: { workspace },
+  });
+  app.daemon.apply("thread-moved", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.endTurn("root"),
+    {
+      type: "thread.moved",
+      to: { hostId: HostId.parse("studio"), name: "Studio", threadId: ThreadId.parse("there") },
+    },
+  ]);
+  await app.open("/t/thread-moved");
+  expect(await strip("Moved to Studio")).toBeTruthy();
 }, 30_000);
 
 test("Open on… sends a project to a linked machine from the project's menu", async () => {

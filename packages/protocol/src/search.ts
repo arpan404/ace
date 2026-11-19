@@ -24,6 +24,7 @@ export const SearchState = z.enum([
   "done",
   "failed",
   "unresponsive",
+  "moved",
 ]);
 export const SearchFilters = z
   .object({

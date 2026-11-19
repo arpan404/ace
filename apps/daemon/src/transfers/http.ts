@@ -108,7 +108,7 @@ export function transfersHttp(
           if (!Number.isSafeInteger(offset) || offset < 0)
             throw new TargetRefusal("invalid", "Bad offset.");
           const part = url.searchParams.get("part") ?? "code";
-          if (part !== "code" && part !== "ignored")
+          if (part !== "code" && part !== "ignored" && part !== "final")
             throw new TargetRefusal("invalid", "Bad part.");
           const data = await readBody(request, transferChunkBytes);
           reply(200, await owner.incoming.chunk(now(), transferId, offset, data, part));

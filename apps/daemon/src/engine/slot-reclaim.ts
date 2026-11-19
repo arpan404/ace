@@ -6,6 +6,11 @@ export interface SlotReclaimPorts {
   repo: EngineRepository;
   actors(): Iterable<[ThreadId, ThreadActor]>;
   closing(id: ThreadId): boolean;
+  /**
+   * Held for a move to another machine (ADR 0191): stopped and at rest, its pending work waits
+   * for the hand-over and never runs here, so its warm session gives up its slot like an idle one.
+   */
+  held?(id: ThreadId): boolean;
   /** Runs the thread's control worker, which closes a session whose idle release is due. */
   retire(id: ThreadId): void;
 }
@@ -22,15 +27,17 @@ export function reclaimIdleSlot(
 ): ThreadId | undefined {
   const { repo } = ports;
   for (const [id, actor] of ports.actors()) {
-    if (!actor.session || actor.idleSince === undefined || actor.idleDue) continue;
+    const held = ports.held?.(id) ?? false;
+    if (!actor.session || actor.idleDue || (actor.idleSince === undefined && !held)) continue;
     if (retiring.has(id) || ports.closing(id) || !repo.reservedSlot(id)) continue;
     if (
-      repo.sessionOpening(id) ||
-      repo.pending.running(id) ||
-      repo.pending.message(id) ||
-      repo.pending.recovery(id) ||
-      repo.pending.transition(id) ||
-      repo.pending.controls(id).length
+      !held &&
+      (repo.sessionOpening(id) ||
+        repo.pending.running(id) ||
+        repo.pending.message(id) ||
+        repo.pending.recovery(id) ||
+        repo.pending.transition(id) ||
+        repo.pending.controls(id).length)
     )
       continue;
     actor.idleDue = true;

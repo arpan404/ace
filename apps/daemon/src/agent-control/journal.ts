@@ -74,6 +74,7 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegation_reserved_parent ON delegation_reservations(parent_id);
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
       CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
+      CREATE TABLE IF NOT EXISTS delegation_turn_fences (thread_id TEXT PRIMARY KEY, run TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delegation_member_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
@@ -503,6 +504,23 @@ export class DelegationJournal {
   }
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
+  }
+  /**
+   * A Stop of the thread's turn: that turn (`run`, "" when none ran) delegates nothing more, a
+   * tool call still on its way included. Lifted by the first newer turn, whatever woke it.
+   */
+  fenceTurn(thread: ThreadId, run: string) {
+    this.sql(
+      "INSERT INTO delegation_turn_fences VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET run=excluded.run",
+    ).run(thread, run);
+  }
+  /** The run a Stop fenced, or none. */
+  turnFence(thread: ThreadId): string | undefined {
+    const row = this.sql("SELECT run FROM delegation_turn_fences WHERE thread_id=?").get(thread);
+    return row ? String(row.run) : undefined;
+  }
+  liftTurnFence(thread: ThreadId) {
+    this.sql("DELETE FROM delegation_turn_fences WHERE thread_id=?").run(thread);
   }
   suppressWake(child: ThreadId) {
     this.sql(

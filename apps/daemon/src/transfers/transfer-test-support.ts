@@ -22,6 +22,8 @@ import {
   type WorkspaceId,
 } from "@ace/protocol";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
+import { setup } from "../agent-control/test-support.ts";
+import type { EngineLimits } from "../engine/limits.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { loadHostId } from "../local-files.ts";
@@ -217,6 +219,11 @@ export async function transferMachines(
     transport?: (inner: TransferTransport) => TransferTransport;
     /** Both daemons write their info logs, for tests that read them. */
     logs?: boolean;
+    /** Engine limits on either side, e.g. one active thread. */
+    sourceEngineLimits?: Partial<EngineLimits>;
+    targetEngineLimits?: Partial<EngineLimits>;
+    /** Holds the source's Claude sessions while they open, until `ready` settles. */
+    sourceOpening?: { entered(): void; ready: Promise<void> };
   } = {},
 ) {
   const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "ace-transfer-source-")));
@@ -229,6 +236,7 @@ export async function transferMachines(
   const targetOptions = {
     projects: projects(targetRoot),
     transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
+    ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
   };
   const targetEnvironment = { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel };
   let target: Side = await daemonFixture(undefined, targetOptions, targetEnvironment);
@@ -237,8 +245,12 @@ export async function transferMachines(
   const sourceOptions = {
     projects: projects(sourceRoot),
     transfers: { transport, sleep: quickSleep, offlineMs: 5_000 },
+    ...(options.sourceEngineLimits ? { engineLimits: options.sourceEngineLimits } : {}),
   };
-  let source: Side = await daemonFixture(undefined, sourceOptions, logLevel);
+  const sourceHarness = options.sourceOpening
+    ? setup({}, undefined, false, options.sourceOpening)
+    : undefined;
+  let source: Side = await daemonFixture(undefined, sourceOptions, logLevel, sourceHarness);
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");

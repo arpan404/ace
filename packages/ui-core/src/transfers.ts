@@ -4,6 +4,7 @@ import type {
   FleetLink,
   ThreadContinuedOn,
   ThreadDetails,
+  ThreadStatus,
   Transfer,
 } from "@ace/protocol";
 
@@ -118,8 +119,25 @@ export function placementOf(transfer: Transfer): Placement | undefined {
 /** What a thread's line says about where its work went or came from. */
 export type ThreadTransferState =
   | { kind: "transfer"; transfer: Transfer }
+  /** Its work moved there while it worked and goes on there (ADR 0191). */
+  | { kind: "moved"; to: Extract<ThreadStatus, { state: "moved" }>["to"] }
   | { kind: "on"; on: ThreadContinuedOn }
   | { kind: "from"; from: ThreadContinuedOn };
+
+/** The thread's line when no transfer is running: where its work went or came from. */
+export function continuedWords(state: Exclude<ThreadTransferState, { kind: "transfer" }>): {
+  words: string;
+  where: Pick<ThreadContinuedOn, "hostId" | "threadId">;
+} {
+  switch (state.kind) {
+    case "moved":
+      return { words: `Moved to ${state.to.name}`, where: state.to };
+    case "on":
+      return { words: `Continued on ${state.on.name}`, where: state.on };
+    case "from":
+      return { words: `Continued from ${state.from.name}`, where: state.from };
+  }
+}
 
 /**
  * A running transfer first, then one that failed after the last continuation (until it's
@@ -130,9 +148,11 @@ export function threadTransferState(
   transfer: Transfer | undefined,
   details: Pick<ThreadDetails, "continuedOn" | "continuedFrom"> | undefined,
   dismissed: boolean,
+  status?: ThreadStatus,
 ): ThreadTransferState | undefined {
   const on = details?.continuedOn;
   if (transfer && transferRunning(transfer)) return { kind: "transfer", transfer };
+  if (status?.state === "moved") return { kind: "moved", to: status.to };
   if (transfer?.phase === "failed" && !dismissed && (!on || transfer.updatedAt > on.at))
     return { kind: "transfer", transfer };
   if (on) return { kind: "on", on };

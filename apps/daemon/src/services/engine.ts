@@ -1,4 +1,5 @@
 import { agentAnswerRefusal } from "../answer-gate.ts";
+import { ThreadOwnership } from "../transfers/live/ownership.ts";
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
@@ -482,6 +483,16 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       services.marketAgent?.requests.resolve(command),
   );
   services.engine = engine;
+  // A thread moving or moved to another machine refuses new turns from the first command
+  // (ADR 0191), before transfers start.
+  // One record holds the whole tree: a subagent is held by its root's.
+  const owners = new ThreadOwnership(store);
+  engine.bindOwnershipFence((threadId) => {
+    const own = owners.refusal(threadId);
+    if (own) return own;
+    const root = services.agentControl?.delegations.journal.rootOf(threadId) ?? threadId;
+    return root === threadId ? undefined : owners.refusal(root);
+  });
   if (accountRegistry)
     resources.own(
       recoverOnFreshReadings({

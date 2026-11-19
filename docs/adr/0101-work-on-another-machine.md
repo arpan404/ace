@@ -220,6 +220,9 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
 
 ### Continuing a thread
 
+Amended by [ADR 0191](0191-continue-a-working-thread-on-another-machine.md): a working thread
+is no longer refused. It takes ADR 0191's live path; what follows is the path of an idle thread.
+
 Refused while the source thread's tree is still working, waiting on the person, or has live
 terminals, with the same checks as `thread.move`. The source captures the portable history
 handoff it already builds for account and provider moves (`@ace/handoff`), bounded and with

@@ -202,10 +202,7 @@ export class FakeTransfers {
     if (payload.type === "thread.continueOn") {
       if (!thread) return refuse("thread_not_found", "That thread doesn't exist on this machine.");
       if (continueBlocked(thread.status.state))
-        return refuse(
-          "thread_busy",
-          "This thread is still working, waiting on you or has open terminals. Let it finish or stop it first.",
-        );
+        return refuse("thread_moved", "This thread moved to another machine. Continue it there.");
       const change = thread.details?.workspaceChange;
       if (change?.state === "preparing" || change?.uncertain)
         return refuse(
