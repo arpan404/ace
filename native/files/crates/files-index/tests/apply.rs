@@ -221,3 +221,51 @@ fn apply_never_adds_paths_inside_dot_git() {
     assert!(fixture.index.search("config", 5).is_empty());
     assert!(fixture.index.search("precommit", 5).is_empty());
 }
+
+#[test]
+fn a_batch_of_twenty_thousand_creates_is_indexed_fully() {
+    // A watcher batch carries the files it saw, so the paths need not exist for the index to hold
+    // them; the folders do, because a created folder is walked. This is the Linux burst: twenty
+    // thousand creates under one folder tree, delivered as ordinary change batches.
+    let (dir, root) = checkout(&["src/main.rs", ".gitignore"]);
+    write(dir.path(), ".gitignore", "target/\n*.log\n");
+    for set in 0..20 {
+        fs::create_dir_all(dir.path().join(format!("burst/set_{set:02}"))).expect("a burst folder");
+    }
+    let mut index = build_index(&root, &IndexOptions::default());
+    let indexed_before = index.len();
+
+    let mut changes: Vec<IndexChange> = Vec::with_capacity(20_001);
+    for set in 0..20 {
+        for file in 0..1_000 {
+            changes.push(created(
+                &format!("burst/set_{set:02}/burst_{file:05}.txt"),
+                false,
+            ));
+        }
+    }
+    // One path the batch must still refuse: its folder is gitignored.
+    changes.push(created("target/debug/ignored.txt", false));
+
+    for batch in changes.chunks(5_000) {
+        index.apply(&root, batch);
+    }
+
+    assert_eq!(
+        index.len(),
+        indexed_before + 20_000,
+        "every created file is indexed once, and the ignored one is not"
+    );
+    for file in [0, 500, 9_999, 19_999] {
+        let set = file / 1_000;
+        let path = format!("burst/set_{set:02}/burst_{:05}.txt", file % 1_000);
+        assert!(
+            paths(&index.search(&path, 5)).contains(&path.as_str()),
+            "{path} must be findable"
+        );
+    }
+    assert!(
+        index.search("ignored", 5).is_empty(),
+        "a gitignored path never enters through a batch"
+    );
+}

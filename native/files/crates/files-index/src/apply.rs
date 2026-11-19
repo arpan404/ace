@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use files_safe::Root;
 
 use crate::membership::Membership;
-use crate::walk::{self, Filters, Walk};
+use crate::walk::{self, Filters, Folders, Walk};
 use crate::{IndexChange, PathIndex, Prepared};
 
 /// Compaction only pays off once the holes are this many, or half the index, whichever is larger.
@@ -16,8 +16,12 @@ const COMPACT_FLOOR: usize = 65_536;
 
 /// Expand a batch without touching the index. Created folders are walked here, which is the only
 /// slow part; the caller can do it while other threads keep searching.
+///
+/// The batch judges each folder once and remembers the verdict, so applying twenty thousand files
+/// costs one rules lookup per file rather than one per ancestor of every file.
 pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -> Prepared {
     let filters = index.filters.refreshed(root);
+    let mut folders = Folders::default();
     let mut prepared = Prepared::default();
     for change in changes {
         if change.deleted {
@@ -25,9 +29,23 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
                 prepared.deletes.push(change.path.clone());
             }
         } else if change.directory {
-            add_subtree(index, &filters, root, &change.path, &mut prepared);
+            add_subtree(
+                index,
+                &filters,
+                &mut folders,
+                root,
+                &change.path,
+                &mut prepared,
+            );
         } else {
-            add_file(index, &filters, root, &change.path, &mut prepared);
+            add_file(
+                index,
+                &filters,
+                &mut folders,
+                root,
+                &change.path,
+                &mut prepared,
+            );
         }
     }
     prepared
@@ -92,17 +110,18 @@ fn reindex(index: &mut PathIndex) {
 
 /// A watcher reports a save as a created change, so an already indexed path is refreshed in place
 /// rather than added twice.
-fn add_file(
+fn add_file<'a>(
     index: &PathIndex,
     filters: &Filters,
+    folders: &mut Folders<'a>,
     root: &Root,
-    path: &str,
+    path: &'a str,
     prepared: &mut Prepared,
 ) {
     if path.is_empty() || Root::check(path).is_err() || in_git_store(path) {
         return;
     }
-    if filters.excludes(root, path, false) {
+    if filters.excludes_in(root, folders, path, false) {
         return;
     }
     if index.arena.live_len() + prepared.adds.len() >= index.max_files {
@@ -112,11 +131,12 @@ fn add_file(
     prepared.adds.push(path.to_owned());
 }
 
-fn add_subtree(
+fn add_subtree<'a>(
     index: &PathIndex,
     filters: &Filters,
+    folders: &mut Folders<'a>,
     root: &Root,
-    dir: &str,
+    dir: &'a str,
     prepared: &mut Prepared,
 ) {
     if dir.is_empty() || in_git_store(dir) {
@@ -124,7 +144,7 @@ fn add_subtree(
     }
     // The walk never filters the folder it starts from, so the created folder itself is checked
     // here, against its own name and every ancestor.
-    if filters.excludes(root, dir, true) {
+    if filters.excludes_in(root, folders, dir, true) {
         return;
     }
     let Ok(absolute) = root.resolve(dir) else {
