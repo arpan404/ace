@@ -13,7 +13,7 @@ export type DeviceId = Platform | "phone";
 export const downloadPage = {
   title: "Download ace for Mac, Windows, Linux, iPhone and iPad",
   description:
-    "Download ace, the free open-source app for Claude Code, Codex and Cursor, on Mac, Windows and Linux, with apps for iPhone and iPad, and Android coming soon.",
+    "Download ace, the free open-source app for Claude Code, Codex and Cursor, for Mac, Windows and Linux, plus apps for iPhone and iPad.",
   headline: "Download ace.",
   intro:
     "Free and open source. Install it on every computer you run agents on, then follow them from your iPhone or iPad.",

@@ -1,6 +1,7 @@
 ---
 /*
- * The open thread's transcript, one section per thread the scenes open. Only the cold-start
+ * The open thread's transcript, one section per thread the scenes open (the soak test is what
+ * the Linux machine shows while it runs the job handed to it). Only the cold-start
  * thread shows at first; the story script shows the thread a scene opens (`data-for`). The
  * cold-start thread's agents group opens (`data-agents="open"` on the window) to list the agents
  * it handed work to.
@@ -12,6 +13,8 @@ import BrandMark from "../BrandMark.astro";
 import AppIcon from "./AppIcon.astro";
 
 const claude = providerIcon({ provider: "claude" }).brand;
+/** The soak test the cold-start thread hands to the Linux machine, as its own thread there. */
+const soak = delegates.find((agent) => agent.machine === "build-server");
 /** The agents group leads with the marks of the providers it handed work to, once each. */
 const groupMarks = [...new Set(delegates.map((agent) => agent.provider))].flatMap((provider) => {
   const brand = providerIcon({ provider }).brand;
@@ -97,6 +100,30 @@ const groupMarks = [...new Set(delegates.map((agent) => agent.provider))].flatMa
   <p class="reply after-approval">
     The poller now awaits the payment promise instead of a fixed timer. 25 consecutive passes.
   </p>
+</section>
+
+<section class="thread" data-for="soak" hidden>
+  <p class="you">
+    Soak-test the capped replay on this branch: 2,000 phones resume at once, and each one gets
+    only the events it missed.
+  </p>
+  <p class="reply">Building the server here, then resuming 2,000 clients against it.</p>
+  <div class="step">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>bun run build:server</code>
+    <span class="end">38s</span>
+  </div>
+  <div class="step live-step before-done">
+    <AppIcon name="terminal" size={16} />
+    <b>Running</b><code>bun run soak --clients 2000</code>
+    <span class="end working">{soak?.detail}</span>
+  </div>
+  <div class="step after-done">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>bun run soak --clients 2000</code>
+    <span class="end">2,000 of 2,000 clients resumed</span>
+  </div>
+  <p class="reply after-done">All 2,000 resumed with only the events they missed. Done.</p>
 </section>
 
 <section class="thread" data-for="sign-in" hidden>

@@ -1,17 +1,20 @@
 ---
-import BrandMark from "../../components/BrandMark.astro";
+/*
+ * An agent's page: how to run it in ace and what it gets there. The mark and headline, three
+ * setup steps, what ace adds (each a feature page), the agent drawn in ace, its questions, the
+ * other agents, and the closing download.
+ */
 import Closing from "../../components/Closing.astro";
 import Faq from "../../components/Faq.astro";
-import LinkCards from "../../components/site/LinkCards.astro";
-import PageIntro from "../../components/site/PageIntro.astro";
-import {
-  agentGuides,
-  agentQuestions,
-  agentSetup,
-  type AgentGuide,
-} from "../../content/agent-guides.ts";
+import AgentHero from "../../components/agents/AgentHero.astro";
+import AgentInApp from "../../components/agents/AgentInApp.astro";
+import AgentSetup from "../../components/agents/AgentSetup.astro";
+import OtherAgents from "../../components/agents/OtherAgents.astro";
+import LinkRows from "../../components/features/LinkRows.astro";
+import { agentGuides, agentQuestions, type AgentGuide } from "../../content/agent-guides.ts";
 import { features } from "../../content/features.ts";
 import Page from "../../layouts/Page.astro";
+import { agentMeta } from "../../seo/meta.ts";
 import { faqPage, schemaFor } from "../../seo/schema.ts";
 
 export function getStaticPaths() {
@@ -25,157 +28,25 @@ interface Props {
 const { guide } = Astro.props;
 const name = guide.label;
 const path = `/agents/${guide.slug}/`;
-
-const steps = agentSetup(guide);
 const questions = agentQuestions(guide);
-
-const others = agentGuides
-  .filter((other) => other.slug !== guide.slug)
-  .map((other) => ({ href: `/agents/${other.slug}/`, title: other.label, body: other.what }));
+const adds = features.map((feature) => ({
+  href: `/features/${feature.slug}/`,
+  name: feature.name,
+  body: feature.points[0] ?? feature.intro,
+}));
 ---
 
 <Page
   path={path}
-  title={`${name} in ace: a desktop and mobile app for ${name}`}
-  description={`Run ${name} with ace on Mac, Windows or Linux: its own worktree per task, status you can trust, computer use, a browser, and approvals from your phone.`}
+  title={agentMeta(guide).title}
+  description={agentMeta(guide).description}
   schema={[faqPage(schemaFor(Astro.site), path, questions)]}
 >
-  <div class="page mark"><span class="tile"><BrandMark brand={guide.brand} size={24} /></span></div>
-  <PageIntro
-    headline={`Run ${name} in ace`}
-    intro={`${guide.what} ace runs it through your own signed-in CLI and adds what a terminal can't: every task in its own thread, a status that covers its subagents, and tools to see and test what it builds.`}
-    secondary={{ href: "/agents/", label: "All agents" }}
-  />
-
-  <div class="section page columns">
-    <section class="reveal">
-      <h2>What {name} gets in ace</h2>
-      <ul class="adds" data-stagger>
-        {
-          features.map((feature) => (
-            <li>
-              <a href={`/features/${feature.slug}/`}>{feature.name}</a>
-              <span>{feature.points[0]}</span>
-            </li>
-          ))
-        }
-      </ul>
-      <ul class="notes">{guide.notes.map((note) => <li>{note}</li>)}</ul>
-    </section>
-    <section class="reveal">
-      <h2>Set up {name}</h2>
-      <ol class="steps" data-stagger>
-        {steps.map((step) => <li>{step}</li>)}
-      </ol>
-    </section>
-  </div>
-
+  <AgentHero guide={guide} />
+  <AgentSetup guide={guide} />
+  <LinkRows heading={`What ${name} gets in ace.`} lede={guide.notes.join(" ")} items={adds} />
+  <AgentInApp guide={guide} />
   <Faq items={questions} heading={`Questions about ${name} in ace`} />
-  <LinkCards heading="Other agents" cards={others} />
+  <OtherAgents guide={guide} />
   <Closing />
 </Page>
-
-<style>
-  .mark {
-    padding-top: 40px;
-  }
-
-  .mark .tile {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-  }
-
-  .mark + :global(.intro) {
-    padding-top: 24px;
-  }
-
-  .columns {
-    display: grid;
-    grid-template-columns: 1.2fr 1fr;
-    gap: 80px;
-    align-items: start;
-  }
-
-  h2 {
-    font-size: clamp(24px, 2.6vw, 30px);
-  }
-
-  .adds {
-    margin-top: 24px;
-    border-top: 1px solid var(--border);
-  }
-
-  .adds li {
-    display: grid;
-    grid-template-columns: 180px 1fr;
-    gap: 16px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 14.5px;
-  }
-
-  .adds a {
-    color: var(--foreground);
-    text-decoration: none;
-  }
-
-  .adds a:hover {
-    text-decoration: underline;
-    text-underline-offset: 4px;
-  }
-
-  .adds span {
-    color: var(--muted);
-  }
-
-  .notes {
-    display: grid;
-    gap: 10px;
-    margin-top: 24px;
-    color: var(--muted);
-    font-size: 15px;
-    line-height: 1.65;
-  }
-
-  .steps {
-    display: grid;
-    gap: 20px;
-    margin-top: 24px;
-    counter-reset: step;
-  }
-
-  .steps li {
-    display: grid;
-    grid-template-columns: 32px 1fr;
-    gap: 14px;
-    color: var(--muted);
-    font-size: 15.5px;
-    line-height: 1.65;
-    counter-increment: step;
-  }
-
-  .steps li::before {
-    content: counter(step);
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 1px solid var(--border-strong);
-    color: var(--foreground);
-    font-size: 13px;
-  }
-
-  @media (max-width: 900px) {
-    .columns {
-      grid-template-columns: 1fr;
-      gap: 56px;
-    }
-
-    .adds li {
-      grid-template-columns: 1fr;
-      gap: 2px;
-    }
-  }
-</style>

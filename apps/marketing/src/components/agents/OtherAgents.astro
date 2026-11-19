@@ -1,0 +1,129 @@
+---
+/*
+ * "Other agents": the built-in agents but this one, each its mark and name linking to its page,
+ * in one ruled grid over a row for every agent that speaks ACP.
+ */
+import type { AgentGuide } from "../../content/agent-guides.ts";
+import { agentGuides } from "../../content/agent-guides.ts";
+import { acpAgents } from "../../content/agents.ts";
+import BrandMark from "../BrandMark.astro";
+
+interface Props {
+  guide: AgentGuide;
+}
+
+const { guide } = Astro.props;
+const others = agentGuides.filter((other) => other.slug !== guide.slug);
+/** A few ACP agents' marks stand for the rest, with a count of how many more. */
+const shown = acpAgents.slice(0, 7);
+const more = acpAgents.length - shown.length;
+---
+
+<section class="section page others" aria-labelledby="others-title">
+  <h2 id="others-title" class="section-title reveal">Other agents</h2>
+  <ul class="reveal">
+    {
+      others.map((other) => (
+        <li>
+          <a href={`/agents/${other.slug}/`}>
+            <BrandMark brand={other.brand} size={22} />
+            {other.label}
+          </a>
+        </li>
+      ))
+    }
+    <li class="any">
+      <a href="/agents/">
+        <span>and any other agent that speaks ACP</span>
+        <span class="marks" aria-hidden="true">
+          {shown.map((agent) => <BrandMark brand={agent.brand} size={18} />)}
+          {more > 0 && <b>+{more}</b>}
+        </span>
+      </a>
+    </li>
+  </ul>
+</section>
+
+<style>
+  h2 {
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  /* One grid ruled with hairlines: the gaps between the cells are the rules. */
+  ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin-top: clamp(28px, 4vw, 40px);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--border);
+  }
+
+  /* An odd agent out in two columns takes the whole row, so no cell is left empty. */
+  li:nth-child(odd):nth-last-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  @media (min-width: 1024px) {
+    ul {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    li:nth-child(odd):nth-last-child(2) {
+      grid-column: auto;
+    }
+  }
+
+  li {
+    display: grid;
+    background: var(--surface);
+  }
+
+  li > a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 72px;
+    padding: 0 20px;
+    color: var(--foreground);
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  li > a:hover {
+    background: var(--wash);
+  }
+
+  .any {
+    grid-column: 1 / -1;
+  }
+
+  .any > a {
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    padding-block: 18px;
+    color: var(--muted);
+    font-size: 15px;
+    white-space: normal;
+  }
+
+  .marks {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    color: var(--foreground);
+  }
+
+  .marks b {
+    color: var(--subtle);
+    font-size: 13px;
+    font-weight: 500;
+  }
+</style>

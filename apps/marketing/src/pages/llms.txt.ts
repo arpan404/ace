@@ -1,31 +1,39 @@
 import type { APIRoute } from "astro";
-import { acpAgents, builtInAgents } from "../content/agents.ts";
-import { product, statuses } from "../content/product.ts";
+import { product, spade, statuses } from "../content/product.ts";
 import { downloads } from "../content/release.ts";
 import { routes } from "../content/routes.ts";
-import { downloadLines, markdownPath } from "../seo/markdown.ts";
+import { markdownPath } from "../seo/markdown.ts";
+import {
+  aceDefinition,
+  agentsSentence,
+  downloadLines,
+  isAndIsNot,
+  versionFacts,
+} from "../seo/markdown-blocks.ts";
 import { links } from "../site.ts";
 
 /*
  * llms.txt (https://llmstxt.org): the site's index as plain Markdown, for AI assistants and
- * answer engines: what ace is, quotable key facts, downloads, every page with its Markdown
- * version, agents and statuses. Every page's full text is in its .md file and in llms-full.txt.
+ * answer engines: what ace is, quotable key facts, what it is and is not, downloads, every page
+ * with its Markdown version, agents and statuses. Every page's full text is in its .md file and
+ * in llms-full.txt.
  */
-const names = (list: { label: string }[]) => list.map((agent) => agent.label).join(", ");
-
 export const GET: APIRoute = ({ site }) => {
   const href = (path: string) => (site ? new URL(path, site).href : path);
   const text = [
     `# ${product.name}`,
     "",
-    `> ${product.description}`,
+    `> ${aceDefinition}`,
     "",
     product.about,
     "",
     "## Key facts",
     "",
-    ...product.facts.map((fact) => `- ${fact}`),
+    ...[...product.facts, ...versionFacts(downloads)].map((fact) => `- ${fact}`),
+    `- ${agentsSentence}`,
+    `- ${spade.name} is ace's own assistant, in beta and off until switched on in Settings › Beta: bots with memory, routines and a computer of their own, on your own models.`,
     "",
+    ...isAndIsNot(),
     "## Links",
     "",
     ...downloadLines(downloads),
@@ -42,15 +50,9 @@ export const GET: APIRoute = ({ site }) => {
         `- [${entry.name}](${href(markdownPath(entry.path))}): ${entry.summary} Web page: ${href(entry.path)}`,
     ),
     "",
-    "## Supported agents",
-    "",
-    `- Built in: ${names(builtInAgents)}.`,
-    `- Through the Agent Client Protocol (ACP): ${names(acpAgents)}, and any other ACP agent.`,
-    "- ace uses each agent's own logged-in CLI. It never asks for, stores or proxies provider credentials.",
-    "",
     "## Thread status",
     "",
-    "A thread's status covers every subagent and background command it started.",
+    "A thread's status in ace covers every subagent and background command it started.",
     "",
     ...statuses.map((status) => `- ${status.word}: ${status.meaning}`),
     "",
