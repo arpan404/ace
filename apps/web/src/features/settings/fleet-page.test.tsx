@@ -149,67 +149,33 @@ test("Link all keeps a link another window made meanwhile, granting more, and do
   expect(remote.access.pendingPairings()).toEqual([]);
 }, 30_000);
 
-test("Link all from an ace that predates keep never sends it a fill that would replace its link", async () => {
+test("Link all never asks an ace that predates keep to link, and says it needs updating", async () => {
   const app = harness({
     machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
   });
   const remote = app.machines.get("build");
   if (!remote) throw new Error("Missing machine");
-  // This computer's ace drops `keep` unread, so a link it is sent always replaces the one held.
+  // This computer's ace drops `keep` unread, so any link it is sent could replace one it holds.
   app.daemon.services.fleet.honoursKeep = false;
   await app.open("/settings/remote");
   const machines = await region("Machines");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
-  // Another window links this computer to the build server with Projects; this one hasn't seen it.
-  app.daemon.linkTo(remote);
-  const before = app.daemon.services.fleet.links();
-  await userEvent.click(linkAll);
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
+  // The other direction links as ever.
   await waitFor(() =>
     expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
   );
-  // The link with Projects stands: this computer was never asked to link to the build server.
-  expect(app.daemon.services.fleet.links()).toEqual(before);
-  expect(before).toMatchObject([{ hostId: "build", projects: true }]);
+  expect(
+    (await screen.findAllByText(/This Mac needs ace updated before Link all can link it/)).length,
+  ).toBeGreaterThan(0);
+  // This computer was never asked to link, and the build server issued nothing for it to redeem.
   expect(
     app.daemon.services.fleet.asked.filter(({ operation }) => operation.op === "link"),
   ).toEqual([]);
-  expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
-}, 30_000);
-
-test("Link all from an ace that predates keep skips a link another window made during the fill", async () => {
-  const app = harness({
-    machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
-  });
-  const remote = app.machines.get("build");
-  if (!remote) throw new Error("Missing machine");
-  app.daemon.services.fleet.honoursKeep = false;
-  await app.open("/settings/remote");
-  const machines = await region("Machines");
-  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
-  // The other window links this computer with Projects once the fill is under way: after its
-  // first read of the links, when the build server issues the pairing.
-  const issue = remote.access.pair.bind(remote.access);
-  let raced = false;
-  remote.access.pair = (input) => {
-    const issued = issue(input);
-    if (!raced) app.daemon.linkTo(remote);
-    raced = true;
-    return issued;
-  };
-  await userEvent.click(linkAll);
-  await waitFor(() =>
-    expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
+  expect(remote.services.fleet.asked.filter(({ operation }) => operation.op === "pairing")).toEqual(
+    [],
   );
-  // Never asked to link to the build server, so the link with Projects stands, and the pairing
-  // the fill no longer needed is cancelled.
-  expect(
-    app.daemon.services.fleet.asked.filter(({ operation }) => operation.op === "link"),
-  ).toEqual([]);
-  expect(app.daemon.services.fleet.links()).toMatchObject([{ hostId: "build", projects: true }]);
-  await waitFor(() => expect(remote.access.pendingPairings()).toEqual([]));
-  expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
+  expect(app.daemon.services.fleet.links()).toEqual([]);
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {

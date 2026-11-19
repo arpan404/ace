@@ -81,6 +81,7 @@ export function useFleet() {
     mutationFn: async (wanted: readonly LinkGap[]): Promise<{ linked: number }> => {
       const failures: string[] = [];
       const withoutProjects: Machine[] = [];
+      const outdated: Machine[] = [];
       let linked = 0;
       for (const gap of wanted) {
         const from = byId(gap.from);
@@ -89,6 +90,10 @@ export function useFleet() {
         try {
           const made = await linkMachine(from, to, "operate");
           if (made.kind === "kept") continue;
+          if (made.kind === "outdated") {
+            if (!outdated.includes(from)) outdated.push(from);
+            continue;
+          }
           linked++;
           if (!made.projects && !withoutProjects.includes(to)) withoutProjects.push(to);
         } catch (error) {
@@ -103,6 +108,12 @@ export function useFleet() {
         toast.add({
           title: `Linked without Projects on ${to.name}`,
           description: `This device can't grant Projects on ${to.name}, so work can't move there yet. Allow projects on ${to.name}'s page in Settings › Fleet.`,
+        });
+      // An ace from before Link all could keep a link it holds: never asked, so never replaced.
+      for (const from of outdated)
+        toast.add({
+          title: `Update ace on ${from.name}`,
+          description: `${from.name} needs ace updated before Link all can link it to other machines.`,
         });
       if (failures.length) throw new Error(failures.join("\n"));
       return { linked };

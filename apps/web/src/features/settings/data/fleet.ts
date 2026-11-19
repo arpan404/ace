@@ -129,18 +129,18 @@ const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
  * this window's device on `to` doesn't hold Projects, the link is made without them
  * (`projects: false`) and they can be allowed later on `to`'s page in Settings › Fleet. A link
  * `from` already holds stays as it is (`kept`): `from`'s links are read again first, and nothing
- * is issued for a gap that is linked now. A machine that honours `keep` also checks right before
- * redeeming, for a link made meanwhile, and this one's pairing link is then cancelled unused.
- * One from before `keep` is never sent it, since it would drop it and replace the link: its links
- * are read once more right before the request instead, and any link there skips the gap. What is
- * left there is the one request's round trip: a link another window makes in it can still be
- * replaced, which only a machine that honours `keep` rules out.
+ * is issued for a gap that is linked now. `from` also checks right before redeeming, for a link
+ * made meanwhile (`keep`), and this one's pairing link is then cancelled unused. A `from` whose
+ * ace predates `keep` would drop it and could replace a link, so it is never asked to link here
+ * (`outdated`): it needs ace updated first.
  */
 export async function linkMachine(
   from: Machine,
   to: Machine,
   access: LinkAccess,
-): Promise<{ kind: "linked"; link: FleetLink; projects: boolean } | { kind: "kept" }> {
+): Promise<
+  { kind: "linked"; link: FleetLink; projects: boolean } | { kind: "kept" } | { kind: "outdated" }
+> {
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;
@@ -149,7 +149,7 @@ export async function linkMachine(
   });
   if (now.kind !== "links") throw new Error(`${from.name} didn't say what it's linked to.`);
   if (now.links.some((link) => link.hostId === to.id)) return { kind: "kept" };
-  const keep = now.keep === true;
+  if (now.keep !== true) return { kind: "outdated" };
   const wanted = linkScopes(access);
   const issue = (scopes: PairingScope[]) =>
     createPairing(toClient, { scopes }).catch((error: unknown) => {
@@ -162,22 +162,13 @@ export async function linkMachine(
     projects = false;
     return issue(wanted.filter((scope) => scope !== "projects"));
   });
-  if (!keep) {
-    const again = await fleet(fromClient, { op: "links" }).catch((error: unknown) => {
-      throw new Error(redeemProblem(error, from, to));
-    });
-    if (again.kind !== "links" || again.links.some((link) => link.hostId === to.id)) {
-      await cancelPairing(toClient, pairing.id).catch(() => undefined);
-      return { kind: "kept" };
-    }
-  }
   let kept = false;
   const result = await fleet(fromClient, {
     op: "link",
     pairingUrl: pairing.url,
     hostId: to.id,
     name: to.name,
-    ...(keep ? { keep: true as const } : {}),
+    keep: true,
   }).catch((error: unknown) => {
     if (refusalCode(error) !== "exists") throw new Error(redeemProblem(error, from, to));
     kept = true;
