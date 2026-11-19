@@ -27,7 +27,10 @@ import { checkoutLinkPath, localLinkLine, localLinkPath } from "@ace/ui-core/fil
 export type FilesScope = { threadId: string } | { workspaceId: string };
 
 /** What file viewing needs of a client: `ClientApi`, or `ClientCore` in tests. */
-export type FilesClient = Pick<ClientApi, "state" | "connectionState" | "request" | "send"> & {
+export type FilesClient = Pick<
+  ClientApi,
+  "state" | "connectionState" | "connectionGeneration" | "request" | "send"
+> & {
   onMessage: ClientApi["onMessage"];
   cachedThread?: ClientApi["cachedThread"];
 };

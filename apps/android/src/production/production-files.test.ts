@@ -346,7 +346,15 @@ it("exposes no raw client: allowlisted request/send plus filtered taps only", as
     await ready(produced);
     const files = adapterOf(produced);
     expect(Object.keys(files).toSorted()).toEqual(
-      ["cachedThread", "connectionState", "onMessage", "request", "send", "state"].toSorted(),
+      [
+        "cachedThread",
+        "connectionGeneration",
+        "connectionState",
+        "onMessage",
+        "request",
+        "send",
+        "state",
+      ].toSorted(),
     );
     const raw = files as unknown as Record<string, unknown>;
     for (const key of [

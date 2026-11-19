@@ -41,6 +41,7 @@ export function productionFilesClient(handle: ReadingHandle, threadId: string): 
       }
     },
     connectionState: () => handle.connectionState(),
+    connectionGeneration: () => handle.connectionGeneration(),
     request: async <Q extends ServiceRequest>(
       input: Q,
       options?: RequestOptions,

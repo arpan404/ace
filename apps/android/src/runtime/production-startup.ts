@@ -339,6 +339,8 @@ export interface ReadingHandle {
   /** Re-resolve liveness and the exact-owner pin now; throws `not connected`. */
   check(): void;
   connectionState(): Selection<ConnectionState>;
+  /** Counts daemon sockets; a file transfer fails once it moves past its socket. */
+  connectionGeneration(): Selection<number | undefined>;
   readonly error: ClientError | undefined;
   /** Lease the live sidebar; release when the view unmounts. */
   threads(): Lease<SidebarSource>;
@@ -621,6 +623,7 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
         resolveReads();
       },
       connectionState: () => resolveReads().connectionState(),
+      connectionGeneration: () => resolveReads().connectionGeneration(),
       get error() {
         return resolveReads().error;
       },

@@ -239,6 +239,7 @@ it("the read handle exposes selections only, with no mutation or raw-client bypa
         "cachedThread",
         "cachedThreads",
         "check",
+        "connectionGeneration",
         "connectionState",
         "error",
         "filesRequest",
@@ -839,7 +840,6 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
     unconfirmed: false,
     thread: { id: THREAD, title: "T", nested: { count: 1 } },
     queue: undefined,
-    offshift: undefined,
     context: undefined,
     order: ["i1"],
     cursor: 1,
@@ -866,7 +866,7 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
     contextMeter: () => undefined,
     usageSnapshot: () => undefined,
     truncated: () => false,
-    appended: () => false,
+    edited: () => undefined,
     select: () => {
       throw new Error("unused");
     },
@@ -900,10 +900,10 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
   expect(Object.isFrozen((snap.thread as unknown as { nested: unknown }).nested)).toBe(true);
   expect((snap.thread as unknown as { title: string }).title).toBe(before);
   expect(snap.truncated("i1")).toBe(false);
-  // Snapshots omit `appended` instead of retaining the live closure or
-  // inventing a dead false: the WeakMap fast-path never fires on copies.
-  expect("appended" in snap).toBe(false);
-  expect(snap.appended).toBeUndefined();
+  // Snapshots omit `edited` instead of retaining the live closure or
+  // inventing a dead answer: the WeakMap fast-path never fires on copies.
+  expect("edited" in snap).toBe(false);
+  expect(snap.edited).toBeUndefined();
 });
 
 it("projected snapshots isolate actual nested rows; writes cannot reach the live store", async () => {

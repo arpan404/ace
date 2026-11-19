@@ -96,7 +96,6 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       unconfirmed: false,
       thread: undefined,
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: [] as string[],
       cursor: 1,
@@ -165,14 +164,13 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     expect((snap.thread("__proto__") as { title: string }).title).toBe("Proto");
   });
 
-  it("keeps appended optional, matching the live reader", () => {
+  it("keeps edited optional, matching the live reader", () => {
     const base = {
       error: undefined,
       syncing: false,
       unconfirmed: false,
       thread: undefined,
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: [] as string[],
       cursor: 1,
@@ -195,21 +193,21 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       observe: () => () => {},
     };
     const without = projectThread(noopCheck, base as never);
-    expect("appended" in without).toBe(false);
-    expect(without.appended).toBeUndefined();
-    expect(snapshotThread(base as never).appended).toBeUndefined();
+    expect("edited" in without).toBe(false);
+    expect(without.edited).toBeUndefined();
+    expect(snapshotThread(base as never).edited).toBeUndefined();
 
     const itemA = { id: "a" };
     const itemB = { id: "b" };
-    const withLive = { ...base, appended: () => true };
+    const withLive = { ...base, edited: () => ({ dropped: 0 }) };
     const withView = projectThread(noopCheck, withLive as never);
-    expect(typeof withView.appended).toBe("function");
-    expect(withView.appended?.(itemA as never, itemB as never)).toBe(true);
+    expect(typeof withView.edited).toBe("function");
+    expect(withView.edited?.(itemA as never, itemB as never)).toEqual({ dropped: 0 });
     // Snapshots never retain the live closure: no leak past release, and no
     // dead WeakMap-identity fast-path on frozen copies. Callers fall back.
     const withSnap = snapshotThread(withLive as never);
-    expect("appended" in withSnap).toBe(false);
-    expect(withSnap.appended).toBeUndefined();
+    expect("edited" in withSnap).toBe(false);
+    expect(withSnap.edited).toBeUndefined();
   });
 
   it("keeps per-id snapshots stable past the recency cap and drops them on lease release", async () => {
@@ -284,7 +282,6 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       unconfirmed: false,
       thread: undefined,
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: Object.keys(items),
       cursor: 1,
@@ -323,7 +320,6 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       unconfirmed: false,
       thread: undefined,
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: [] as string[],
       cursor: 1,
@@ -364,7 +360,7 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     expect(() => store.children("a1")).toThrow("not connected");
   });
 
-  it("projected appended is false on frozen copies, live on store identities", async () => {
+  it("projected edited is undefined on frozen copies, live on store identities", async () => {
     const { ThreadStore, defaultLimits } = await import("@ace/client");
     const { Thread, Item, Event } = await import("@ace/protocol");
     const { createThreadView } = await import("@ace/projection");
@@ -413,15 +409,15 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     deliver(12, { type: "item.delta", itemId: "m1", agentId: "root", field: "text", append: "!" });
     const v2 = store.item("m1");
     // Real SDK ground truth: successive appends share one prefix run.
-    expect(store.appended(v1 as never, v2 as never)).toBe(true);
+    expect(store.edited(v1 as never, v2 as never)).toEqual({ dropped: 0 });
 
     const projected = projectThread(noopCheck, store as never);
-    // Frozen view copies are never WeakMap identities → legally false.
-    expect(projected.appended?.(projected.item("m1") as never, projected.item("m1") as never)).toBe(
-      false,
-    );
+    // Frozen view copies are never WeakMap identities → legally undefined.
+    expect(
+      projected.edited?.(projected.item("m1") as never, projected.item("m1") as never),
+    ).toBeUndefined();
     // Snapshot omits the fast-path instead of leaking the live closure.
-    expect(snapshotThread(store as never).appended).toBeUndefined();
+    expect(snapshotThread(store as never).edited).toBeUndefined();
   });
 
   it("filters exotic array entries instead of leaking undefined", () => {
@@ -432,7 +428,6 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       unconfirmed: false,
       thread: undefined,
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: ["i1", liveMap as unknown as string, "i2"],
       cursor: 1,
@@ -550,7 +545,6 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       unconfirmed: false,
       thread: { id: "th", title: "T" },
       queue: undefined,
-      offshift: undefined,
       context: undefined,
       order: ["i1"],
       cursor: 1,

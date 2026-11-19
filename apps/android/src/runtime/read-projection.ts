@@ -610,10 +610,6 @@ export function projectThread(
     () => live.queue,
     (value) => freezeCopy(value),
   );
-  const getOffshift = memoCopy(
-    () => live.offshift,
-    (value) => freezeCopy(value),
-  );
   const getContext = memoCopy(
     () => live.context,
     (value) => freezeCopy(value),
@@ -680,7 +676,6 @@ export function projectThread(
     unconfirmed: { enumerable: true, get: () => (check(), live.unconfirmed) },
     thread: { enumerable: true, get: () => (check(), getThread()) },
     queue: { enumerable: true, get: () => (check(), getQueue()) },
-    offshift: { enumerable: true, get: () => (check(), getOffshift()) },
     context: { enumerable: true, get: () => (check(), getContext()) },
     order: { enumerable: true, get: () => (check(), getOrder()) },
     cursor: { enumerable: true, get: () => (check(), live.cursor) },
@@ -705,21 +700,20 @@ export function projectThread(
     view["itemSeq"] = (id: string) => (check(), live.itemSeq?.(id));
   if (typeof live.deleted === "function")
     view["deleted"] = (id: string) => (check(), live.deleted?.(id));
-  if (typeof live.appended === "function") {
+  if (typeof live.edited === "function") {
     // B3 decision: keep the projected fast-path, documented as live-identity
-    // only. `MessageDeltas.appended` is `WeakMap`-identity keyed, so frozen
-    // view copies (`view.item(a)`) always miss and legally return `false`
-    // (`readers.ts`: "false when it can't tell"). Callers must not rely on it
-    // for view items; the check below still guards post-release use.
-    const appended = live.appended.bind(live);
-    view["appended"] = (previous: Item, next: Item) => (check(), appended(previous, next));
+    // only. The live store keys `edited` by item identity, so frozen view
+    // copies (`view.item(a)`) always miss and legally return `undefined`
+    // (`readers.ts`: "Undefined when it can't tell"). Callers must not rely on
+    // it for view items; the check below still guards post-release use.
+    const edited = live.edited.bind(live);
+    view["edited"] = (previous: Item, next: Item) => (check(), edited(previous, next));
   }
   Object.defineProperty(view, RELEASE_PROJECTION_CACHES, {
     value: () => {
       getError.clear();
       getThread.clear();
       getQueue.clear();
-      getOffshift.clear();
       getContext.clear();
       getOrder.clear();
       getAgentIds.clear();
@@ -808,7 +802,6 @@ export function snapshotSidebar(live: SidebarSource): SidebarSource {
 type ThreadExportView = {
   thread?: unknown;
   queue?: unknown;
-  offshift?: unknown;
   contextMeters?: Record<string, unknown>;
   agents?: Record<string, unknown>;
   agentChildren?: Record<string, readonly string[]>;
@@ -854,7 +847,6 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
       unconfirmed: exported.unconfirmed ?? live.unconfirmed,
       thread: freezeCopy(view.thread),
       queue: freezeCopy(view.queue),
-      offshift: freezeCopy(view.offshift),
       context: freezeCopy(context),
       order: freezeCopy(view.itemOrder ?? []),
       cursor: view.seq,
@@ -891,11 +883,11 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     for (const [id, seq] of Object.entries(view.itemSeqs ?? {})) seqs.set(id, seq);
     const truncated = new Set<string>(exported.truncated ?? []);
     const deleted = new Set<string>(exported.deleted ?? []);
-    // B2: snapshots never retain the live `appended` closure. Binding it
+    // B2: snapshots never retain the live `edited` closure. Binding it
     // would pin the live `ThreadSource` past lease release (leak) and is
-    // semantically dead anyway: `MessageDeltas.appended` is WeakMap-identity
-    // keyed, snapshot items are frozen copies, so it always misses → false.
-    // Omit it; `ThreadReader.appended` is optional.
+    // semantically dead anyway: the live `edited` is WeakMap-identity
+    // keyed, snapshot items are frozen copies, so it always misses → undefined.
+    // Omit it; `ThreadReader.edited` is optional.
     return buildThreadSnapshot({
       data,
       items,
@@ -919,7 +911,6 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
   const taskIds = [...live.taskIds()];
   const thread = freezeCopy(live.thread);
   const queue = freezeCopy(live.queue);
-  const offshift = freezeCopy(live.offshift);
   const context = freezeCopy(live.context);
   const data: Record<string, unknown> = {
     error: freezeError(live.error),
@@ -927,7 +918,6 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     unconfirmed: live.unconfirmed,
     thread,
     queue,
-    offshift,
     context,
     order: freezeCopy(order),
     cursor: live.cursor,
@@ -1039,7 +1029,6 @@ function buildThreadSnapshot(parts: {
     unconfirmed: { enumerable: true, get: () => data["unconfirmed"] },
     thread: { enumerable: true, get: () => data["thread"] },
     queue: { enumerable: true, get: () => data["queue"] },
-    offshift: { enumerable: true, get: () => data["offshift"] },
     context: { enumerable: true, get: () => data["context"] },
     order: { enumerable: true, get: () => data["order"] },
     cursor: { enumerable: true, get: () => data["cursor"] },
@@ -1061,7 +1050,7 @@ function buildThreadSnapshot(parts: {
   snap["truncated"] = (id: string) => truncated.has(id);
   snap["itemSeq"] = (id: string) => seqs.get(id) as unknown;
   snap["deleted"] = (id: string) => deleted.has(id);
-  // B2: `appended` is intentionally absent on snapshots. The live `appended`
+  // B2: `edited` is intentionally absent on snapshots. The live `edited`
   // closes over the store (leak past release) and can never fire on frozen
   // snapshot copies (WeakMap identity). Callers fall back to full compare.
   snap["select"] = <T>(

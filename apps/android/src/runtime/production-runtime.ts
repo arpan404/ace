@@ -298,6 +298,8 @@ export function assertProductionFilesSend(
  */
 export interface ProductionReads {
   connectionState(): Selection<ConnectionState>;
+  /** Counts daemon sockets; a file transfer fails once it moves past its socket. */
+  connectionGeneration(): Selection<number | undefined>;
   readonly error: ClientError | undefined;
   threads(): Lease<SidebarSource>;
   thread(id: string): Lease<ThreadSource>;
@@ -560,6 +562,8 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
     };
     return {
       connectionState: () => wrapSelection(checkPin, checkBound().client.connectionState()),
+      connectionGeneration: () =>
+        wrapSelection(checkPin, checkBound().client.connectionGeneration()),
       get error() {
         const failure = checkBound().client.error;
         if (failure === undefined) return undefined;
