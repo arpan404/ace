@@ -380,9 +380,9 @@ impl RootEntry {
     }
 
     fn build_one_folder(self: &Arc<Self>, folder: &str) -> Result<(), Error> {
-        let served = match guard::read(&self.index) {
-            Ok(slot) => slot.as_ref().map(Arc::clone),
-            Err(error) => return Err(error),
+        let served = {
+            let slot = guard::read(&self.index)?;
+            slot.as_ref().map(Arc::clone)
         };
         let rebuilt = match served {
             Some(index) => index.rebuilt_folder(

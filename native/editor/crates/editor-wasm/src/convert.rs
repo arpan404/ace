@@ -14,13 +14,14 @@ pub(crate) fn selections(flat: &[u32]) -> Result<Vec<Selection>, Failure> {
         ));
     }
     Ok(flat
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| match quad {
             [anchor_line, anchor_column, head_line, head_column] => Selection::new(
                 Position::new(*anchor_line, *anchor_column),
                 Position::new(*head_line, *head_column),
             ),
-            _ => Selection::default(),
         })
         .collect())
 }
@@ -64,13 +65,12 @@ pub(crate) fn transaction(flat: &[u32], texts: Vec<String>) -> Result<Transactio
         )));
     }
     let mut transaction = Transaction::new();
-    for (quad, text) in flat.chunks_exact(4).zip(texts) {
+    for (quad, text) in flat.as_chunks::<4>().0.iter().zip(texts) {
         let range = match quad {
             [start_line, start_column, end_line, end_column] => Range::new(
                 Position::new(*start_line, *start_column),
                 Position::new(*end_line, *end_column),
             ),
-            _ => Range::empty(Position::default()),
         };
         transaction.push(range, text).map_err(Failure::from_core)?;
     }

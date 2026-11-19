@@ -226,7 +226,7 @@ fn an_atomic_save_never_reports_the_saved_file_deleted() {
     std::fs::write(session.path("x.tmp"), b"new").unwrap();
     std::thread::sleep(Duration::from_millis(300));
     std::fs::rename(session.path("x.tmp"), session.path("x.txt")).unwrap();
-    let reported = changes(&session.settle());
+    let reported = changes(&session.settle_on("x.txt"));
     let last = reported
         .iter()
         .rev()

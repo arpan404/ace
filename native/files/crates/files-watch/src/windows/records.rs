@@ -91,8 +91,10 @@ fn step(bytes: &[u8], offset: usize) -> Option<(u32, u32, OsString)> {
     let end = start.checked_add(length)?;
     let name = bytes.get(start..end)?;
     let units: Vec<u16> = name
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     // The raw UTF-16 name keeps even an unpaired surrogate: it is a name Windows can store, and
     // a record that sits between two rename halves must still be seen as one.

@@ -101,6 +101,21 @@ impl Session {
         }
     }
 
+    /// Waits until some change names `path`, whatever its kind, then for the sink to go quiet.
+    pub fn settle_on(&self, path: &str) -> Vec<Batch> {
+        let deadline = Instant::now() + WAIT;
+        while !changes(&self.seen())
+            .iter()
+            .any(|change| change.path == path)
+        {
+            if Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        self.settle()
+    }
+
     /// Waits for one change, whichever batch carries it.
     pub fn wait_for(&self, path: &str, kind: ChangeKind) -> Change {
         let deadline = Instant::now() + WAIT;
