@@ -1,3 +1,4 @@
+import { isPersonOnlyAction } from "@ace/marketplace/person-only";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
@@ -12,22 +13,13 @@ import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 export const reauthSentence =
   "This is yours to do: do it in the ace app signed in as you, or on a device you paired from it.";
 
-/** Install, withdraw, transfers, handle changes, deleting an entry and verification. */
+/**
+ * Install, and the publish actions the market takes only from the person (`personOnlyActions`:
+ * withdraw, transfers and answering one, handle changes, deleting an entry and verification).
+ */
 export function needsPerson(operation: MarketOperation): boolean {
   if (operation.op === "install") return true;
-  if (operation.op !== "publish") return false;
-  switch (operation.request.action) {
-    case "withdraw":
-    case "transfer":
-    case "transferAnswer":
-    case "changeHandle":
-    case "deleteEntry":
-    case "applyVerification":
-    case "checkVerification":
-      return true;
-    default:
-      return false;
-  }
+  return operation.op === "publish" && isPersonOnlyAction(operation.request.action);
 }
 
 /**

@@ -101,7 +101,10 @@ const writes: [string, Write][] = [
       sensitive: true,
     },
   ],
-  ["check verification", { method: "POST", path: () => "/v1/me/verification/check" }],
+  [
+    "check verification",
+    { method: "POST", path: () => "/v1/me/verification/check", sensitive: true },
+  ],
   [
     "create a draft",
     {
@@ -117,7 +120,7 @@ const writes: [string, Write][] = [
   ],
   ["delete a draft", { method: "DELETE", path: () => `/v1/me/drafts/${draft}` }],
   ["publish a draft", { method: "POST", path: () => `/v1/me/drafts/${draft}/publish` }],
-  ["delete an entry", { method: "DELETE", path: () => entry, owned: true }],
+  ["delete an entry", { method: "DELETE", path: () => entry, sensitive: true, owned: true }],
   [
     "edit a listing",
     { method: "PUT", path: () => `${entry}/listing`, body: () => listing, owned: true },
@@ -207,7 +210,11 @@ const writes: [string, Write][] = [
   ],
   [
     "decline a transfer",
-    { method: "POST", path: () => "/v1/me/transfers/trf_0123456789abcdef/decline" },
+    {
+      method: "POST",
+      path: () => "/v1/me/transfers/trf_0123456789abcdef/decline",
+      sensitive: true,
+    },
   ],
   [
     "publish from the CLI",

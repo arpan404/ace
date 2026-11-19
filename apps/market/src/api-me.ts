@@ -1,3 +1,4 @@
+import { personOnlyRoutes } from "@ace/marketplace/person-only";
 import { sha256Hex } from "@ace/marketplace";
 import { stripImage } from "@ace/marketplace/image";
 import { displayNameProblem, handleProblem, linkProblem, skeleton } from "@ace/marketplace/profile";
@@ -57,18 +58,10 @@ import { checkDomain, checkGithub } from "./verify-proofs.ts";
  * entry's publisher is the account's on every request.
  */
 
-const sensitiveKinds = new Set<Route["kind"]>([
-  "me-handle",
-  "me-entry-withdraw",
-  "me-version-withdraw",
-  "me-transfer",
-  "me-transfer-accept",
-  "me-verification-apply",
-]);
-
 function authOptions(route: Route): AuthOptions {
   return {
-    sensitive: sensitiveKinds.has(route.kind),
+    // The routes of the actions the daemon takes only from the person: one shared list.
+    sensitive: personOnlyRoutes.has(route.kind),
     allowInactive: route.kind === "me" || route.kind === "me-verification",
   };
 }

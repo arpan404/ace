@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./checks": "./src/checks/index.ts",
     "./scan": "./src/scan/index.ts",
+    "./person-only": "./src/person-only.ts",
     "./profile": "./src/profile.ts",
     "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
