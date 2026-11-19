@@ -1,4 +1,4 @@
-import { useConnectionState } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import {
   buildFileTree,
   checkoutTreeRows,
@@ -29,6 +29,7 @@ import { cn } from "@/lib/cn.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { FileRowItems } from "./file-row-items.tsx";
+import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
@@ -148,7 +149,8 @@ export function FileTree(props: {
   };
   const hoverEnd = () => clearTimeout(hover.current);
   useEffect(() => () => clearTimeout(hover.current), []);
-  const activate = (row: FolderRow, how: OpenHow) => {
+  const client = useClient();
+  const activate = (row: FolderRow, how: OpenHow, at?: number) => {
     if (row.kind === "more") {
       tree.showMore(row.folder ?? "");
       return;
@@ -159,7 +161,10 @@ export function FileTree(props: {
       else toggle(row.key);
       return;
     }
-    if (row.kind === "file") props.onOpen(row.key, how);
+    if (row.kind !== "file") return;
+    const second =
+      how === "preview" && at !== undefined && isSecondClick(client, props.threadId, row.key, at);
+    props.onOpen(row.key, second ? "keep" : how);
   };
   const commands = useTreeCommands({
     threadId: props.threadId,

@@ -32,7 +32,8 @@ export interface FileTreeRowViewProps {
   query: string;
   online: boolean;
   dropTarget: string | undefined;
-  onActivate(row: FolderRow, how: OpenHow): void;
+  /** `at`: a click's time, so a second click on a file soon after keeps it. */
+  onActivate(row: FolderRow, how: OpenHow, at?: number): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
   commands: TreeCommands;
@@ -117,7 +118,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         onFocus={() => props.onFocus(row.key)}
         onPointerEnter={() => props.onHoverStart(row)}
         onPointerLeave={props.onHoverEnd}
-        onClick={() => props.onActivate(row, "preview")}
+        onClick={(event) => props.onActivate(row, "preview", event.timeStamp)}
         onDoubleClick={() => !folder && props.onActivate(row, "keep")}
         // A middle click opens a file in a tab of its own, as a browser opens a link.
         onMouseDown={(event) => event.button === 1 && event.preventDefault()}
