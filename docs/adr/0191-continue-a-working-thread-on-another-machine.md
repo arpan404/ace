@@ -338,7 +338,6 @@ message is the result.
 - The lid-close stage: a lease on the ownership record, renewed by the owner, so a server can
   take over a thread whose laptop went to sleep, and the source can give up on a target that
   never answers.
-- Native session carriers for OpenCode and Pi once their formats are verified.
 
 ## Verification
 
