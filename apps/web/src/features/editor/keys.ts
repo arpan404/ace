@@ -43,6 +43,8 @@ export interface EditorKeyOptions {
   /** Cmd+G and Shift+Cmd+G: the next or previous match. */
   onFindAgain?: ((delta: 1 | -1) => void) | undefined;
   onSave?: (() => void) | undefined;
+  /** Ctrl+G: ask for a line to go to. */
+  onGoToLine?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
   onEscape?: (() => boolean) | undefined;
   /** Alt+Z: the person asked for wrap to toggle, as VS Code's own shortcut does. */
@@ -232,7 +234,20 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.onFind?.("replace");
       return;
     }
-    if (mod && !event.altKey && key.toLowerCase() === "g") {
+    // Ctrl+G is go to line on every platform; Cmd+G (F3 anywhere) is the next match on macOS.
+    if (
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      key.toLowerCase() === "g"
+    ) {
+      if (!options.onGoToLine) return;
+      event.preventDefault();
+      options.onGoToLine();
+      return;
+    }
+    if ((mac && event.metaKey && !event.altKey && key.toLowerCase() === "g") || key === "F3") {
       if (!options.onFindAgain) return;
       event.preventDefault();
       options.onFindAgain(event.shiftKey ? -1 : 1);

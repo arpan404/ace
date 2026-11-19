@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { EditorFindBar } from "./find-bar.tsx";
+import { GoToLineBar } from "./go-to-line.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
 import { isMacPlatform, useEditorKeys } from "./keys.ts";
@@ -79,6 +80,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  const [goingTo, setGoingTo] = useState(false);
   const [paint, setPaint] = useState(0);
   // A file with a grammar is first drawn with its colours: the plain text it would show while
   // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
@@ -228,6 +230,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onBefore: setAffinity,
     onFind: finder.openFind,
     onFindAgain: finder.findAgain,
+    onGoToLine: () => setGoingTo(true),
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
@@ -310,6 +313,24 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       className={cn("flex h-full min-h-0 flex-col", props.className)}
     >
       {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
+      {goingTo && doc ? (
+        <GoToLineBar
+          lineCount={lineCount}
+          lineLength={(line) => doc.line(line).length}
+          onGo={(position) => {
+            setGoingTo(false);
+            setAffinity(noAffinity);
+            state.select([{ anchor: position, head: position }]);
+            reveal(position, false);
+            announce(position);
+            field.current?.focus({ preventScroll: true });
+          }}
+          onClose={() => {
+            setGoingTo(false);
+            field.current?.focus({ preventScroll: true });
+          }}
+        />
+      ) : null}
       <div
         data-editor-frame
         className="relative min-h-0 flex-1 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
