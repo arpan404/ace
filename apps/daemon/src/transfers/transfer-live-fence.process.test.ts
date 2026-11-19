@@ -37,6 +37,7 @@ it("never runs a message queued before the stop, even when the turn ends by itse
     input: [{ type: "text", text: "Also update the docs" }],
     delivery: "queue",
   });
+  expect(queued).toMatchObject({ ok: true });
   await m.source.daemon.engine?.flush();
   expect(await continueOn(m, threadId)).toMatchObject({ ok: true });
   await vi.waitFor(

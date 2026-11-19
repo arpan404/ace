@@ -39,11 +39,28 @@ Once the target holds the bulk, the source marks the thread `stopping` in its ow
   move forever.
 
 The interrupt is the engine's own `thread.interrupt` of the root agent, which each provider
-adapter carries out with its own interrupt. Then it captures what changed since the bulk:
+adapter carries out with its own interrupt.
+
+**The fence.** From `stopping` on, nothing new runs here, at any of the three places work can
+start: admission refuses new turns, the engine's dispatch holds sends, recoveries and steers
+already queued, and no provider session opens for the thread. Only teardown controls
+(`thread.interrupt`, `thread.archive`) still run; any other control (a goal, a model, a
+permission change, an answer) waits. When a move fails before the hand-over the fence lifts and
+the thread is woken, so what was held dispatches then.
+
+After the interrupt the provider's process is closed (`closeProvider`), which ends its
+background shells and leaves its session file whole. It is not the deletion stop: nothing
+pending is retired, so queued messages stay held. Subagent threads on this machine are each
+interrupted, and each is waited on until its turn has ended, for up to 30 seconds after the
+interrupt; then its provider process is closed too, whether it ended or not. Only then is the
+final snapshot taken. Then it captures what changed since the bulk:
 
 - **Git methods.** A second capture commit of the checkout as it is now, and an incremental
   bundle of the branch and that commit, excluding the bulk's branch head and capture commit. It is
-  usually a few kilobytes.
+  usually a few kilobytes. The commit says what the bulk itself carried (`live.bulk`: its branch,
+  head and capture), and the target reads the bulk by exactly that, never by the checkout at the
+  stop: a checkout that was detached when the bulk left and on a new branch at the stop is read by
+  the bulk's pinned head, and the branch comes from the delta.
 - **A plain folder (archive).** A folder has no cheap diff, so its archive is packed after the
   stop instead of before. Plain folders are usually small; the strip says "Stopping at a safe
   point" for that time.
@@ -101,9 +118,26 @@ carried session) and a short continue message. The target:
    working. Carry on where you left off. The project is now at <path>." with what stayed behind
    (section 5);
 5. watches the turn start (`live/turn-start.ts`, pure): working, waiting or needing the person is
-   running. A resumed native session that fails to open is retried once with the handoff instead.
-   A turn that still fails is shown failed there, where the person can act on it;
+   running; a message still waiting in the queue is not. A resumed native session that fails to
+   open is retried once with the handoff instead. A turn that still fails is shown failed there,
+   where the person can act on it;
 6. records `running` on the transfer row. Status then answers `completed` with `live.running`.
+
+The start is durable (`transfer_live_start`, `live/target-rows.ts`). When the engine refuses the
+continue message for now (it is full, starting, or out of slots), the start is tried again,
+waiting 1 second, then 2, doubling up to a minute, about half an hour in all, the backoff kept
+across restarts. After that the start is final: `running: false`, a line on the thread there
+says it couldn't start and that a message carries it on, and the sender is answered, so the
+source moves (the target owns the thread from its cutoff). A thread deleted there meanwhile is
+final at once. Starts still pending are listed in a table of their own
+(`transfer_live_pending`), so finding them never reads finished ones (ADR 0170), and a restart
+drains it in batches of 64, a turn of the event loop between them, until none are left.
+
+**The receipt.** The same row is the receipt of the transfer: it keeps the sending device, the
+method and the result, and retention never drops it. The transfer's own row is swept a day after
+it settles; any call about a transfer whose row is gone (begin, status, commit, cancel) is
+answered from its receipt for the device that sent it. So a sender whose answer was lost, and
+that asks again a day later, is told the same thread, and nothing lands twice.
 
 The source keeps the thread working (its ownership record `handing` holds it open as a
 background row "Moving to Studio") until the target answers. Then, in one transaction, the
@@ -139,14 +173,19 @@ thread at every moment:
   where you left off." A source restart in `stopping` carries the cutover on from there.
 - **`handing` is written before the commit is sent.** From then on the source never resumes on
   its own: the commit may have landed. It asks status until the target answers. `completed` (the
-  target owns it) moves the source; `failed`, `cancelled` or "no such transfer" (the target never
-  passed its cutoff) resume the source. A lost link or a target that is off is waited for without
+  target owns it) moves the source; `failed`, `cancelled` or "no such transfer" resume the
+  source. "No such transfer" means the target never passed its cutoff: past it, the receipt
+  answers. A lost link or a target that is off is waited for without
   the one-hour limit ADR 0101 sets for other transfers; the strip says "Waiting for Studio to
   answer". The thread stays working meanwhile, never done.
 - **A target restart** before the cutoff undoes the import and runs it again (ADR 0101); after
   it, the thread exists and the target finishes setting it up and starting its turn, keyed so it
   runs once.
 - **A source restart** in `handing` reads the record, keeps refusing turns, and asks status again.
+- **The ownership record is the authority.** `handing` on the ownership record and on the
+  transfer's row are written in one transaction. A row found saying `stopping` while the record
+  says `handing` (or `moved`) is read as handed over and brought up to it before the transfer is
+  driven again, so a long outage after it never gives the thread back on the source's own say.
 
 Cancel works until `handing`; after it, Cancel answers `too_late`, as ADR 0101's does past the
 cutoff. Giving up on a target that never comes back needs the lease of the lid-close stage; until
@@ -164,7 +203,8 @@ then the source waits.
   are listed in the continue message, and repointing them to the new parent is a follow-up.
 - **A delegated child** (a thread with a parent) can't be continued live: it moves with its
   parent or not at all. It is refused with `thread_is_child`.
-- **Queued messages** stay held on the source; the continue message says how many.
+- **Queued messages** stay held on the source, never sent there and never failed; the continue
+  message says how many. A moved thread reads moved with them still in its queue.
 
 ### 6. Agents
 
@@ -207,7 +247,15 @@ Unit tests: the safe-point rule, the cutover's stage machine (each failure befor
 `handing`, each restart point), the turn-start rule, the ownership record's transitions (one owner
 at every step, a stale epoch refused), the Claude and Codex carriers against fixture homes (paths
 rewritten, unknown lines kept, auth files never read, oversized and compressed sessions refused),
-and the ui-core words. Live checks owed, because no real CLI ran: Claude resuming a session
+the target's start (native session, summary fallback, a refused send retried, a start that gives
+up, the receipt, pending starts past one batch), the source's stop (a subagent waited on, or
+closed after 30 seconds, before the snapshot), and the ui-core words. End to end, two daemons
+over their pinned link with real Git and scripted providers: a working thread moved with late
+changes; a finished turn with a build running; a restart while handing; a lost link; a failure
+before the hand-over; a message queued before the stop held through the move; a detached bulk
+with a branch made before the stop; a lost answer after retention dropped the target's row; a
+crash between the hand-over's two writes followed by an outage longer than the retry limit.
+Live checks owed, because no real CLI ran: Claude resuming a session
 placed under a new folder name; Codex forking from a copied rollout whose `cwd` changed; the
 interrupt landing between tool calls for each provider; a resume failure reading as `failed` on
 the new thread.
