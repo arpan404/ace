@@ -97,6 +97,10 @@ export function liveSourcePorts(
       tree(context, threadId)
         .flatMap((owner) => engineOf(context).liveMove.shells(owner))
         .slice(0, 32),
+    stopping: (threadId) =>
+      tree(context, threadId)
+        .filter((owner) => engineOf(context).liveMove.stopInFlight(owner))
+        .map((owner) => (store.getThread(owner)?.title ?? owner).slice(0, 256)),
     unconfirmedExits: (threadId) =>
       tree(context, threadId)
         .filter((owner) => engineOf(context).liveMove.unconfirmedExit(owner))

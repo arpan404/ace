@@ -131,6 +131,22 @@ export function unconfirmedExit(repo: EngineRepository, id: ThreadId): boolean {
   return repo.state(id)?.processExit?.unconfirmed === true;
 }
 
+/**
+ * A Stop of the thread is still in flight: its `thread.interrupt` is accepted and hasn't
+ * finished. Only once it has (the provider confirmed, or the escalation ended and marked its
+ * close unconfirmed) does a status at rest say the Stop is over. Read on the thread's
+ * unfinished intents only.
+ */
+export function stopInFlight(repo: EngineRepository, id: ThreadId): boolean {
+  for (const intent of repo.pending.headers(id))
+    if (
+      intent.kind === "thread.interrupt" &&
+      ["pending", "queued", "running"].includes(intent.status)
+    )
+      return true;
+  return false;
+}
+
 /** The engine's live-move surface (ADR 0191), bound to its repository and clock. */
 export function api(
   repo: () => EngineRepository,
@@ -146,6 +162,7 @@ export function api(
     dropSession: (id: ThreadId) => dropCarriedSession(repo(), id),
     shells: (id: ThreadId) => runningShells(repo(), id),
     unconfirmedExit: (id: ThreadId) => unconfirmedExit(repo(), id),
+    stopInFlight: (id: ThreadId) => stopInFlight(repo(), id),
     released: host.released,
   };
 }

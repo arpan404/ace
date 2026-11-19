@@ -36,6 +36,11 @@ export interface LiveSourcePorts {
    */
   shells(threadId: string): string[];
   /**
+   * Threads of the tree whose Stop is still in flight, by title: its interrupt, shell stops or
+   * close haven't finished, so a status at rest doesn't yet say the work ended.
+   */
+  stopping(threadId: string): string[];
+  /**
    * Threads of the tree whose provider never confirmed its close, by title: a Stop that gave up
    * waiting reads them stopped, but the process and its shells may still run.
    */
@@ -177,7 +182,15 @@ export class LiveSource {
       // Read in the same step as the hold below: a terminal still open here (one an earlier
       // run of this stop, before a restart, didn't hold) is stopped and looked at again.
       const shells = [...ports.shells(threadId), ...ports.terminals(threadId)];
-      if (ports.atRest(threadId, holdTask(transferId)) && !shells.length && !remote.running.length)
+      // Stop's own escalation finishes first: a provider that ended its turn but never answered
+      // its interrupt reads at rest while Stop still waits to close it, unconfirmed or not.
+      const stopping = ports.stopping(threadId);
+      if (
+        ports.atRest(threadId, holdTask(transferId)) &&
+        !shells.length &&
+        !remote.running.length &&
+        !stopping.length
+      )
         break;
       if (ports.terminals(threadId).length) await ports.stopTerminals(threadId);
       if (ports.now() >= until)
