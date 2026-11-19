@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  keepBrowserEngine,
-  moveBrowserEngine,
-  type ClientApi,
-  type StreamMessage,
-} from "@ace/client";
+import { moveBrowserEngine, type ClientApi, type StreamMessage } from "@ace/client";
 import {
   BrowserScreenshotSet,
   BrowserState,
@@ -1053,20 +1048,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       await call("browser.close", threadId);
     },
     /**
-     * Move the thread's browser to another engine: the choice is kept for the thread (a
-     * thread-layer `browser.backend`), then the browser closes and opens again, and every
-     * tab loads its address again on the new engine with the shown one still shown. A tab
-     * agents were kept out of stays that way. Anything already on the engine is left alone.
+     * Move the thread's browser to another engine. The daemon keeps the choice for the thread
+     * and moves a browser already open there, one move per thread at a time (ADR 0193).
      */
     async switchEngine(threadId, engine, workspaceId) {
       if (disposed) throw new Error("preview_disposed");
-      const before = views.get(threadId);
       const move = { threadId, workspaceId, engine, openTimeoutMs };
-      // Without a browser the choice waits for the next open; there is nothing to reload.
-      if (before === undefined || before.closed) {
-        await keepBrowserEngine({ request }, move);
-        return { activeTabId: undefined };
-      }
       return moveBrowserEngine({ request }, move, (state) => {
         const watch = watches.get(threadId);
         if (!watch) return;

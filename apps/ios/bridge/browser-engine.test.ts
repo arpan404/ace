@@ -39,18 +39,14 @@ describe("Engine for this thread", () => {
     await until(() => daemon.browser.view("web")?.backend === "headless", "moved");
     await until(() => engine(sink)?.current === "headless" && !engine(sink)?.moving, "shown");
     await until(() => url(sink) === "https://shop.test/cart", "page reloaded");
+    // The phone asks the daemon for the move; the daemon makes it (ADR 0193).
     expect(requested).toContainEqual(
-      expect.objectContaining({
-        type: "settings.set",
-        key: "browser.backend",
-        value: "headless",
-        layer: { kind: "thread", threadId: "web" },
-      }),
+      expect.objectContaining({ type: "browser.engine.move", threadId: "web", engine: "headless" }),
     );
   });
 
   test("Desktop app only on a machine without the desktop app is refused and the page stays", async () => {
-    const { daemon, sink, view, requested } = await live();
+    const { daemon, sink, view } = await live();
     daemon.browser.desktop = false;
     daemon.browser.drive("web", { url: "https://shop.test/cart", backend: "headless" });
     view.action({ kind: "open", threadId: "web", viewport });
@@ -62,7 +58,6 @@ describe("Engine for this thread", () => {
         /^Couldn't switch the browser engine\. The desktop app isn't running/,
       ),
     });
-    expect(requested).not.toContainEqual(expect.objectContaining({ type: "browser.close" }));
     expect(daemon.browser.view("web")).toMatchObject({ backend: "headless", closed: false });
     await until(() => !engine(sink)?.moving, "settled");
     expect(engine(sink)?.current).toBe("headless");

@@ -1,4 +1,4 @@
-import { keepBrowserEngine, moveBrowserEngine, type ClientCore } from "@ace/client";
+import { moveBrowserEngine, type ClientCore } from "@ace/client";
 import type { BrowserState } from "@ace/protocol";
 import { browserEngineChoices, browserEngineLabel } from "@ace/ui-core";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { reason } from "./browser-tools.ts";
 /*
  * "Engine for this thread" from the phone, as web's ⋯ menu offers it: the thread's browser runs
  * in the desktop app or in ace's Chrome, and the menu names the default other threads use. The
- * move itself is `@ace/client`'s, shared with web.
+ * move itself is the daemon's (ADR 0193), asked through `@ace/client` as web asks it.
  */
 
 export const EngineAction = z.object({
@@ -105,8 +105,7 @@ export class BrowserEngineTool {
     this.#moving = { threadId: current.threadId, engine };
     this.#host.changed();
     try {
-      if (!current.state || current.state.closed) await keepBrowserEngine(this.#host.owner, move);
-      else await moveBrowserEngine(this.#host.owner, move, () => this.#host.opened());
+      await moveBrowserEngine(this.#host.owner, move, () => this.#host.opened());
     } catch (error) {
       this.#problem(`Couldn't switch the browser engine. ${reason(error)}`);
     } finally {

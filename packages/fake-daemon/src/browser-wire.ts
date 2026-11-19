@@ -1,6 +1,13 @@
 import { BrowserOriginError } from "@ace/browser/policy";
 import { encodeDownloadChunk } from "@ace/browser/stream";
-import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
+import { moveEngine, type EnginePreferencePort } from "@ace/browser/engine-move";
+import {
+  BrowserCommand,
+  BrowserOpen,
+  BrowserState,
+  type BrowserClientMessage,
+  type ServerMessage,
+} from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import { fakeScreenshotSet } from "./browser-captures.ts";
 import { fakeVideoChunk, fakeVideoCodec } from "./browser-video.ts";
@@ -22,6 +29,8 @@ export function fakeBrowserSession(
      * `browser.backend` over the default). Omitted: the fixture's historical default.
      */
     backendPreference?: (threadId: string) => "auto" | "embedded" | "headless";
+    /** Where the thread's engine is kept for an engine move. Omitted: moves are refused. */
+    engine?: EnginePreferencePort;
   } = {},
 ) {
   const recording = new Set<string>();
@@ -69,8 +78,6 @@ export function fakeBrowserSession(
     },
     async serve(message: BrowserClientMessage) {
       const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
-      const thread = host.thread(id);
-      if (!thread) throw new Error("thread_not_found");
       if (message.type === "browser.ack") {
         const subscription = subscriptions.get(id);
         if (subscription?.sent === message.sequence) {
@@ -79,8 +86,59 @@ export function fakeBrowserSession(
         }
         return;
       }
+      const result = await this.run(message);
+      send({
+        type: "browser.result",
+        requestId: message.requestId,
+        ok: true,
+        ...(result === undefined ? {} : { result }),
+      });
+    },
+    /** One request's result, as the daemon's bridge answers it. */
+    async run(message: Exclude<BrowserClientMessage, { type: "browser.ack" }>): Promise<unknown> {
+      const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
+      const thread = host.thread(id);
+      if (!thread) throw new Error("thread_not_found");
       let result: unknown;
       switch (message.type) {
+        case "browser.engine.move": {
+          // The daemon's own move (ADR 0193), on this fixture's browser.
+          if (!options.engine) throw new Error("Engine moves aren't available on this machine");
+          const request = { requestId: message.requestId, threadId: message.threadId };
+          result = await moveEngine(
+            {
+              hasActiveSession: (threadId) => {
+                const view = browser.view(threadId);
+                return view !== undefined && !view.closed;
+              },
+              open: async (open) =>
+                BrowserState.parse(
+                  await this.run({
+                    type: "browser.open",
+                    requestId: message.requestId,
+                    options: BrowserOpen.parse(open),
+                  }),
+                ),
+              closeThread: async () => {
+                await this.run({ ...request, type: "browser.close" });
+              },
+              execute: (_threadId, command) =>
+                this.run({
+                  ...request,
+                  type: "browser.execute",
+                  command: BrowserCommand.parse(command),
+                }),
+              setPrivate: (threadId, tabId, value) => {
+                browser.setPrivate(threadId, tabId, value);
+                return BrowserState.parse(browser.view(threadId));
+              },
+            },
+            options.engine,
+            message,
+            { kind: "human", connectionId },
+          );
+          break;
+        }
         case "browser.tabs.list":
           result = browser.tabsList(id);
           break;
@@ -404,12 +462,7 @@ export function fakeBrowserSession(
           break;
         }
       }
-      send({
-        type: "browser.result",
-        requestId: message.requestId,
-        ok: true,
-        ...(result === undefined ? {} : { result }),
-      });
+      return result;
     },
   };
 }
