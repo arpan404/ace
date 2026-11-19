@@ -109,4 +109,21 @@ describe("telling an agent its failed move left it here (ADR 0191)", () => {
     resumes.drain();
     expect(m.sent).toEqual([]);
   });
+
+  it("keeps it owed while the thread waits or is paused, and sends it once it is at rest", async () => {
+    const m = await machine();
+    m.world.full = false;
+    m.world.status = { state: "waiting", on: "queue" };
+    const resumes = m.resumes();
+    resumes.owe("t", "x", "Carry on.");
+    resumes.drain();
+    m.world.status = { state: "limited" };
+    m.world.clock += 10_000;
+    resumes.drain();
+    expect(m.sent).toEqual([]);
+    m.world.status = { state: "done" };
+    m.world.clock += 10_000;
+    resumes.drain();
+    expect(m.sent.map((entry) => entry.text)).toEqual(["Carry on."]);
+  });
 });

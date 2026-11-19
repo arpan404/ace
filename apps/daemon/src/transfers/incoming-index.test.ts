@@ -139,8 +139,9 @@ describe("the target's transfer rows over time", () => {
     store.statement = ((sql: string) => {
       const params = Array.from({ length: sql.split("?").length - 1 }, () => 0);
       const plan = store.atomic((db) => db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params));
-      for (const step of plan)
-        if (/^SCAN (transfer_incoming|t)( |$)/.test(String(step["detail"]))) scans.push(sql);
+      // Each read starts from a side table (`o`, `e`), never from the transfers table itself.
+      const first = String(plan[0]?.["detail"] ?? "");
+      if (!/^(SCAN|SEARCH) (o|e)( |$)/.test(first)) scans.push(`${first}: ${sql}`);
       return statement(sql);
     }) as typeof store.statement;
     rows.unsettled();

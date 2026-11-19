@@ -76,3 +76,30 @@ it("carries every unsettled transfer on after a restart, and keeps all their pay
   const left = await readdir(directory);
   expect(left.toSorted()).toEqual(ids.map((id) => `${id}.bundle`));
 });
+
+it("reads recovery's work and retention's oldest rows from side tables, never all of history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-outgoing-plan-"));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanups.push(async () => {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const rows = new OutgoingRows(store);
+  await rows.ready();
+  const scans: string[] = [];
+  const statement = store.statement.bind(store);
+  store.statement = ((sql: string) => {
+    const params = Array.from({ length: sql.split("?").length - 1 }, () => 0);
+    const plan = store.atomic((db) => db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params));
+    // Each read starts from a side table (`o`, `e`), never from the transfers table itself: a
+    // walk of its primary key reads every transfer ever sent, even when SQLite calls it a search.
+    const first = String(plan[0]?.["detail"] ?? "");
+    if (!/^(SCAN|SEARCH) (o|e)( |$)/.test(first)) scans.push(`${first}: ${sql}`);
+    return statement(sql);
+  }) as typeof store.statement;
+  rows.unsettled();
+  rows.undelivered();
+  rows.expired(1);
+  rows.movingThread("t");
+  expect(scans).toEqual([]);
+});
