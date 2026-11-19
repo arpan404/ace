@@ -209,7 +209,9 @@ the person's standing (§3), or a paired device's socket that proved it with its
 
 - installs and the market's sensitive actions;
 - answering a person-only market request;
-- changing "Ask me before agents publish";
+- changing "Ask me before agents publish", alone, in a batch (`settings.setMany`) or by a reset:
+  every key a write names is checked before any is written, all or none, and a reset leaves out
+  what the socket may not write;
 - making a person's pairing link.
 
 The host token alone is refused (`reauth`, "do it in the ace app signed in as you"). The CLI holds
@@ -222,8 +224,11 @@ would take a per-operation browser approval, which is not built.
 Market grants from anything but a `person` session are `kind: machine`. A sensitive action (ADR
 0174 §2) needs a `device` grant from a person's session whose `action` claim is the request's
 **intent**, `METHOD /path <SHA-256 of the exact body>`, and a sign-in from the last ten minutes.
-The sensitive actions are withdraw, transfer and answering one, handle changes, verification, and
-a verified profile's edits. The market checks the body it received against that digest. It spends
+The sensitive actions are withdraw, transfer and accepting or declining one, handle changes,
+deleting an entry, applying for and checking verification, and a verified profile's edits. Apart
+from the profile edits, they come from one table (`@ace/marketplace/person-only`), which maps each
+action the daemon takes only from the person to the market routes it calls. The daemon's
+person-only check and the market's sensitive routes both read it, so they can't drift. The market checks the body it received against that digest. It spends
 each person's grant once (`spent_person_grants`), so a captured one does nothing on a second send.
 
 The daemon still makes the request; one builder (`@ace/client/market-intent`) shapes it for both

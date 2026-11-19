@@ -42,7 +42,7 @@ export function MachineOwnerRow(props: {
             onClick={() =>
               setConfirming({
                 title: "Let this machine go?",
-                body: "It stops acting as you until the next account to use it from the ace app owns it. Devices you paired keep their access but need pairing again to act as you.",
+                body: "It stops acting as you, and the next account to use it from the ace app owns it. Devices you paired stay paired, but need pairing again to act as you.",
                 confirm: "Let it go",
                 run: () => release.mutate(),
               })
