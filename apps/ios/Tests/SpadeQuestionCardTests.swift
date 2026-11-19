@@ -94,6 +94,22 @@ import Testing
         #expect(both.replacingNumber(with: "", on: "de-DE") == empty)
     }
 
+    @Test func onlyNewTextOverAWholeSelectionStartsANumberOver() {
+        let empty = SpadeQuestionCard.Draft.number("", language: nil)
+        let unknown = empty.typingNumber("1,2", on: nil)
+        // Select All, then paste `1,5` on a German keyboard: read on that keyboard.
+        let pasted = unknown.editingNumber("1,5", on: "de-DE", selectedWhole: "1,2", undoing: false)
+        #expect(pasted.payload["text"] as? String == "1.5")
+        // No whole selection: the kept comma is the unknown keyboard's, so unread.
+        let typed = unknown.editingNumber("1,5", on: "de-DE", selectedWhole: nil, undoing: false)
+        #expect(typed.payload["unread"] as? Bool == true)
+        // `1,234` in English, `5` pasted in German, then Select All and Undo: Undo brings back the
+        // English comma, so it stays unread rather than being read as German 1.234.
+        let mixed = empty.typingNumber("1,234", on: "en-US").typingNumber("1,2345", on: "de-DE")
+        let undone = mixed.editingNumber("1,234", on: "de-DE", selectedWhole: "1,2345", undoing: true)
+        #expect(undone.payload["unread"] as? Bool == true)
+    }
+
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
         #expect(SpadeQuestionCard.numberText("1,5", language: nil, fallback: Locale(identifier: "de_DE")) == "1.5")
         #expect(SpadeQuestionCard.numberText("1,5", language: "emoji", fallback: Locale(identifier: "de_DE")) == "1.5")

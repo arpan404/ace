@@ -102,6 +102,17 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             .number(text, language: text.isEmpty ? nil : language)
         }
 
+        /// The number edited to `text` in its field: `selectedWhole` is the text Select All had
+        /// taken when the edit landed (nil when it hadn't), and `undoing` says the edit is Undo or
+        /// Redo. Only new text typed or pasted over all of the number replaces it; Undo and Redo
+        /// bring back text from earlier keyboards, so they are edits like any other.
+        func editingNumber(_ text: String, on language: String?, selectedWhole: String?, undoing: Bool) -> Draft {
+            if !undoing, case let .number(old, _, _) = self, !old.isEmpty, old == selectedWhole {
+                return replacingNumber(with: text, on: language)
+            }
+            return typingNumber(text, on: language)
+        }
+
         /// What of `old` an edit to `new` left in place: their common start and end.
         private static func kept(_ old: String, editedTo new: String) -> [Character] {
             let before = Array(old), after = Array(new)

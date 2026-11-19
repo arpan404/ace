@@ -37,12 +37,9 @@ struct SpadeQuestionInputs: View {
     private var numberBinding: Binding<String> {
         Binding(get: { if case let .number(text, _, _) = draft { text } else { "" } },
                 set: { text in
-                    let language = KeyboardLanguage.typing()
-                    if case let .number(old, _, _) = draft, !old.isEmpty, old == selectedWhole {
-                        draft = draft.replacingNumber(with: text, on: language)
-                    } else {
-                        draft = draft.typingNumber(text, on: language)
-                    }
+                    let field = TypingField.current()
+                    draft = draft.editingNumber(text, on: field?.textInputMode?.primaryLanguage,
+                                                selectedWhole: selectedWhole, undoing: TypingField.undoing(field))
                     selectedWhole = nil
                 })
     }
@@ -190,12 +187,18 @@ private struct SpadeDateInput: View {
     }
 }
 
-/// The language of the keyboard being typed on: the first responder's text input mode.
-@MainActor private enum KeyboardLanguage {
-    static func typing() -> String? {
+/// The field being typed into: the first responder, whose text input mode is the keyboard's
+/// language and whose undo manager says whether an edit is Undo or Redo.
+@MainActor private enum TypingField {
+    static func current() -> UIResponder? {
         let finder = FirstResponderFinder()
         UIApplication.shared.sendAction(#selector(UIResponder.aceReportFirstResponder(_:)), to: nil, from: finder, for: nil)
-        return finder.found?.textInputMode?.primaryLanguage
+        return finder.found
+    }
+
+    static func undoing(_ field: UIResponder?) -> Bool {
+        guard let undo = field?.undoManager else { return false }
+        return undo.isUndoing || undo.isRedoing
     }
 }
 
