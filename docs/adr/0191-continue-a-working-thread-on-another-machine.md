@@ -116,7 +116,12 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   the thread's next Stop (`delegation_turn_bounds`): a run that began before the lifting turn (a
   provider subagent still running from the stopped work) stays refused, and so do the `delegate`
   calls the provider had reported and not finished when the Stop came, by request id
-  (`delegation_stopped_calls`, at most 64), however late they arrive. A call the provider never
+  (`delegation_refused_calls`). Each Stop adds its calls to those earlier Stops caught, so one
+  caught by an earlier Stop stays refused under any later turn, until it is resolved: it arrived
+  and was refused. That write waits until every transaction the refused call ran in has ended,
+  so their rollback can't undo it. A thread keeps its newest 256. A tool item closing is no
+  sign the request won't still come: the Stop itself closes the item, while the provider's
+  request may still be on its way. A call the provider never
   reported before the Stop can't be told from a new one, and is judged by its agent's run.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the

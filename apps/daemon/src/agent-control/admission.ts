@@ -35,7 +35,32 @@ export class DelegationAdmission {
     this.policy = policy;
     this.admits = admits;
   }
+  /** `check`, resolving a stopped delegation it refuses (see `reserve`). */
   validate(caller: McpAttribution, input: DelegationRequest) {
+    try {
+      this.check(caller, input);
+    } catch (error) {
+      this.resolveRefused(caller, input.requestId, error);
+      throw error;
+    }
+  }
+  /**
+   * A stopped delegation that arrived and was refused is resolved: no longer kept refused. The
+   * refusal throws through every transaction the call is in, so the write waits until they have
+   * all ended (they are synchronous, so a microtask runs after the outermost one); written
+   * inside, a rollback would undo it.
+   */
+  private resolveRefused(caller: McpAttribution, requestId: string, error: unknown) {
+    if (!(error instanceof AgentControlError) || error.code !== "delegation_cancelled") return;
+    queueMicrotask(() => {
+      try {
+        this.journal.resolveStoppedCall(caller.threadId, requestId);
+      } catch {
+        // Kept refused: the safe side, and bounded per thread.
+      }
+    });
+  }
+  private check(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
     const problem = roleProblem(input.role);
@@ -86,7 +111,8 @@ export class DelegationAdmission {
     const fence = this.journal.turnFence(caller.threadId);
     if (fence === undefined) return false;
     const origin = this.deps.engine.turnOrigin(caller.threadId, caller.agentId);
-    const answer = turnFence(fence, { root: origin.rootTurn, origin: origin.origin, requestId });
+    const stopped = this.journal.stoppedCall(caller.threadId, requestId);
+    const answer = turnFence(fence, { root: origin.rootTurn, origin: origin.origin, stopped });
     if (answer.kind === "lift") this.journal.liftTurnFence(caller.threadId, answer.seq);
     return answer.kind === "refuse";
   }
@@ -116,8 +142,21 @@ export class DelegationAdmission {
     configuredModel?: string,
   ): DelegationReservation {
     const input = delegationRequest(value);
+    try {
+      return this.reserveChecked(caller, input, resultDelivery, configuredModel);
+    } catch (error) {
+      this.resolveRefused(caller, input.requestId, error);
+      throw error;
+    }
+  }
+  private reserveChecked(
+    caller: McpAttribution,
+    input: DelegationRequest,
+    resultDelivery: "owner" | undefined,
+    configuredModel: string | undefined,
+  ): DelegationReservation {
     return this.deps.store.atomic(() => {
-      this.validate(caller, input);
+      this.check(caller, input);
       const existing = this.journal.reservation(caller.threadId, input.requestId);
       if (existing) {
         this.match(caller, input, existing.record);
@@ -189,7 +228,7 @@ export class DelegationAdmission {
       this.match(caller, requested.request, current.record);
       const r = current.record;
       if (ownership) r.resultDelivery = ownership.resultDelivery;
-      this.validate(caller, r.request);
+      this.check(caller, r.request);
       // Quota may have changed during filesystem work; selected identity is immutable.
       validateDelegationSelection(
         this.deps,

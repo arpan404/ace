@@ -13,8 +13,6 @@ export interface TurnFence {
   stopSeq: number;
   /** The `seq` of the turn that lifted the fence; runs before it stay the stopped work's. */
   liftedSeq?: number | undefined;
-  /** Delegation request ids the stopped turn had on their way: refused for good. */
-  inFlight: readonly string[];
 }
 
 export interface TurnFenceCall {
@@ -22,7 +20,8 @@ export interface TurnFenceCall {
   root?: RunAt | undefined;
   /** The run the calling agent is in itself. */
   origin?: RunAt | undefined;
-  requestId: string;
+  /** The call is one a Stop caught on its way (any Stop of the thread), not yet resolved. */
+  stopped: boolean;
 }
 
 export type TurnFenceAnswer =
@@ -39,7 +38,7 @@ export type TurnFenceAnswer =
  */
 export function turnFence(fence: TurnFence, call: TurnFenceCall): TurnFenceAnswer {
   const { root, origin } = call;
-  if (fence.inFlight.includes(call.requestId) || !origin) return { kind: "refuse" };
+  if (call.stopped || !origin) return { kind: "refuse" };
   if (fence.liftedSeq !== undefined)
     return origin.seq >= fence.liftedSeq ? { kind: "admit" } : { kind: "refuse" };
   if (!root || root.id === fence.run || root.seq <= fence.stopSeq) return { kind: "refuse" };

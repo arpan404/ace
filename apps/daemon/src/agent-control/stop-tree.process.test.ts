@@ -87,16 +87,52 @@ test("a delegation the stopped turn had on its way is refused even once the next
     input: [{ type: "text", text: "Carry on" }],
   });
   await h.engine.flush();
-  // The next turn runs; the old call arrives only now. It is still the stopped turn's.
-  await expect(delegateFrom(h, root, "late")).rejects.toMatchObject({
-    code: "delegation_cancelled",
-  });
-  // A call the new turn makes delegates as any turn's does.
+  // A call the new turn makes delegates as any turn's does, and lifts the fence.
   await expect(delegateFrom(h, root, "after")).resolves.toBeDefined();
-  // The new turn's call lifted the fence; the old call, arriving later still, stays refused.
+  // The old call arrives only now, after the lift. It is still the stopped turn's.
   await expect(delegateFrom(h, root, "late")).rejects.toMatchObject({
     code: "delegation_cancelled",
   });
+});
+
+test("a delegation the stopped turn had on its way is refused while the next turn hasn't started", async () => {
+  const h = setup();
+  const root = await working(h, "root");
+  await h.emit(root, delegateCall("late"));
+  h.service.command("stop-root", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  await expect(delegateFrom(h, root, "late")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+});
+
+test("a delegation one Stop caught stays refused after a later Stop, under the turn after that", async () => {
+  const h = setup();
+  const root = await working(h, "root");
+  const carryOn = (key: string) =>
+    h.service.command(key, {
+      type: "thread.send",
+      threadId: root,
+      input: [{ type: "text", text: "Carry on" }],
+    });
+  // Stop A catches the delegation on its way.
+  await h.emit(root, delegateCall("from-a"));
+  h.service.command("stop-a", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  carryOn("turn-b");
+  await h.engine.flush();
+  // Stop B, of turn B, catches nothing.
+  h.service.command("stop-b", { type: "thread.interrupt", threadId: root, cascade: true });
+  await h.engine.flush();
+  carryOn("turn-c");
+  await h.engine.flush();
+  // Turn C runs and lifts the fence with a call of its own; Stop A's call arrives only now.
+  await expect(delegateFrom(h, root, "from-c")).resolves.toBeDefined();
+  await expect(delegateFrom(h, root, "from-a")).rejects.toMatchObject({
+    code: "delegation_cancelled",
+  });
+  // Seen and refused, it is resolved: the journal keeps no refusal for it any more.
+  expect(h.service.journal.stoppedCall(root, "from-a")).toBe(false);
 });
 
 test("a provider subagent still running from the stopped turn delegates nothing, before or after the next turn", async () => {
