@@ -14,6 +14,7 @@ import LinkRows from "../../components/features/LinkRows.astro";
 import { agentGuides, agentQuestions, type AgentGuide } from "../../content/agent-guides.ts";
 import { features } from "../../content/features.ts";
 import Page from "../../layouts/Page.astro";
+import { agentMeta } from "../../seo/meta.ts";
 import { faqPage, schemaFor } from "../../seo/schema.ts";
 
 export function getStaticPaths() {
@@ -37,8 +38,8 @@ const adds = features.map((feature) => ({
 
 <Page
   path={path}
-  title={`${name} in ace: a desktop and mobile app for ${name}`}
-  description={`Run ${name} with ace on Mac, Windows or Linux: its own worktree per task, status you can trust, computer use, a browser, and approvals from your phone.`}
+  title={agentMeta(guide).title}
+  description={agentMeta(guide).description}
   schema={[faqPage(schemaFor(Astro.site), path, questions)]}
 >
   <AgentHero guide={guide} />

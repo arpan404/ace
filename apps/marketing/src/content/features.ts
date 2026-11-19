@@ -101,9 +101,9 @@ export const features: Feature[] = [
   {
     slug: "orchestration",
     name: "Agent orchestration",
-    title: "Orchestrate Claude Code, Codex and Cursor together: ace",
+    title: "Agent orchestration for Claude Code, Codex and Cursor: ace",
     description:
-      "Let one coding agent hand work to others: Claude Code delegates to Codex, Cursor or any agent, on any of your machines, and waits until the whole team is done.",
+      "Let one coding agent hand work to others: Claude Code delegates to Codex, Cursor or any agent, on any of your machines, and waits for the whole team.",
     headline: "Agents that hand work to each other",
     intro:
       "Any agent in ace can start other agents, on any provider and any of your machines, then wait for their results. The thread shows the whole team and isn't done until all of it is.",
@@ -279,9 +279,9 @@ export const features: Feature[] = [
   {
     slug: "fleet",
     name: "Fleet",
-    title: "Run coding agents across all your machines: ace Fleet",
+    title: "Fleet: run coding agents across all your machines: ace",
     description:
-      "Link your machines so agents share each other's threads, browsers, simulators and emulators, move work between them, and follow every thread from iPhone or iPad.",
+      "Link your machines so agents share threads, browsers, simulators and emulators, move work between them, and follow every thread from iPhone or iPad.",
     headline: "Orchestrate agents across every machine you own",
     intro:
       "Link your laptop, a Linux machine and a Windows workstation. Agents on one start threads, open browsers and use simulators on another, and you approve it all from your phone.",
@@ -385,9 +385,9 @@ export const features: Feature[] = [
   {
     slug: "mobile",
     name: "iPhone and iPad",
-    title: "ace for iPhone and iPad: your coding agents in your pocket",
+    title: "iPhone and iPad app for Claude Code and Codex agents: ace",
     description:
-      "Follow and steer every agent from iPhone or iPad: approvals, diffs, terminals, the live browser, your desktop's simulators and Live Activities on the Lock Screen.",
+      "Follow and steer every agent from iPhone or iPad: approvals, diffs, terminals, the live browser, simulators and Live Activities on the Lock Screen.",
     headline: "Every agent, every machine, in your pocket",
     intro:
       "ace for iPhone and iPad connects to all your machines at once, from anywhere. It isn't a viewer: you approve, review, browse, drive simulators and watch the apps agents are using, from wherever you are.",
@@ -459,7 +459,7 @@ export const features: Feature[] = [
   {
     slug: "remote-access",
     name: "Remote access",
-    title: "Reach your coding agents from anywhere with an ace account",
+    title: "Remote access to your coding agents from anywhere: ace",
     description:
       "Sign in once and every machine on your ace account opens from your phone, browser or laptop, anywhere, through an end-to-end encrypted relay.",
     headline: "Sign in once, reach every machine",
@@ -718,7 +718,7 @@ export const features: Feature[] = [
     name: "Devices",
     title: "iOS Simulators and Android emulators for agents: ace",
     description:
-      "Run iOS Simulators, Android emulators and Android phones in ace. Use them yourself or hand one to an agent to test your app, with live screen, UI tree and logs.",
+      "Run iOS Simulators, Android emulators and Android phones in ace. Use them yourself or hand one to an agent to test your app, with screen, UI tree and logs.",
     headline: "Simulators and emulators in one hub",
     intro:
       "Run iOS Simulators and Android emulators inside ace, and plug in a real Android phone. Tap, type and rotate them yourself, or hand a device to an agent to test your app.",
@@ -786,7 +786,7 @@ export const features: Feature[] = [
     name: "Worktrees and review",
     title: "Git worktrees and diff review for coding agents: ace",
     description:
-      "Give every agent thread its own git worktree, review its diff beside the conversation, send line comments back, then commit, push and open the pull request.",
+      "Give each agent thread its own git worktree, review its diff beside the conversation, send line comments, then commit, push and open the pull request.",
     headline: "Review the diff next to the conversation",
     intro:
       "Give a thread its own git worktree and its changes stay apart from every other agent's. Comment on a line, send it to the agent, then commit and push from the same panel.",
@@ -854,7 +854,7 @@ export const features: Feature[] = [
   {
     slug: "status",
     name: "Thread status",
-    title: "Know which coding agent needs you: ace thread status",
+    title: "Thread status: know which coding agent needs you: ace",
     description:
       "ace shows whether each agent thread is working, waiting, failed, done or needs you, counting every subagent and background command it started.",
     headline: "Done means the whole tree is done",
