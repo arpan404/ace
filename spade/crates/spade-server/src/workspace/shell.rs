@@ -16,6 +16,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use spade_core::event::Authorized;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::task::JoinHandle;
 
@@ -37,6 +38,10 @@ pub struct Job<'a> {
     pub dir: &'a Path,
     /// What `sh -c` runs.
     pub script: &'a str,
+    /// The bot's own command, where `script` wraps it in Spade's (a terminal's, which saves the
+    /// folder and variables after it): what its start outside the sandbox reads again. `None`
+    /// reads `script`.
+    pub asked: Option<&'a str>,
     pub timeout: Duration,
     /// Set after the built environment, overriding it.
     pub env: &'a [(String, String)],
@@ -59,11 +64,11 @@ pub struct Job<'a> {
     /// held by the sandbox, and is refused when nothing holds it here (no sandbox, or one that
     /// doesn't apply), never run plainly.
     pub contained_only: bool,
-    /// Checked at the last moment, after everything else this run awaits and right before it
-    /// starts (for a terminal command, under the terminal's lock, against the folder and
-    /// variables it starts with): an allowed command whose files changed, or can't be read
-    /// whole, doesn't start.
-    pub verify: Option<Verify>,
+    /// Whose words it runs. A bot's command that nothing holds starts only through
+    /// [`super::outside::admit`], checked right before the spawn, after everything else this run
+    /// awaits (for a terminal command, under the terminal's lock), against the folder and
+    /// environment it starts with.
+    pub by: By,
     /// A command Spade's classifier settled: it runs with a clean, fixed environment built by
     /// Spade, never one inherited from the daemon or carried from an earlier terminal command
     /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
@@ -229,11 +234,22 @@ pub trait Confine: Send + Sync {
     }
 }
 
-/// A check a run must pass right before it starts: `Err` with why it didn't.
-pub type Verify = Box<dyn FnOnce() -> Result<(), String> + Send>;
+/// Whose words a run is, for the one way out of the sandbox (ADR 0171, amendment 5).
+#[derive(Debug, Clone)]
+pub enum By {
+    /// A bot's command (one-shot, in its terminal, a service; a helper's or a routine's too): it
+    /// starts where nothing holds it only on the warrant of the verdict that let it run, which
+    /// [`super::outside::admit`] takes at the spawn. `None` never starts plainly.
+    Bot(Option<super::outside::Warrant>),
+    /// Spade's own fixed script (bundling a push): no bot chose its words, and no verdict applies.
+    Spade,
+    /// A plugin's hook, which the person installed (ADR 0151): its plugin's policy decides where
+    /// it runs, as for the plugin's server.
+    Plugin,
+}
 
-/// How long a run's last check may take.
-const VERIFY_TIME: Duration = Duration::from_secs(10);
+/// How long the check at the spawn may take.
+const ADMIT_TIME: Duration = Duration::from_secs(10);
 
 /// Wraps `program args` in a run's sandbox: the program and arguments to start instead, and
 /// whether its environment must be carried past Spade's own program (`Launch::seals_env`).
@@ -470,6 +486,7 @@ impl Shell {
         self.run_job(Job {
             dir,
             script: command,
+            asked: None,
             timeout,
             env: &[],
             tee: None,
@@ -480,7 +497,7 @@ impl Shell {
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
             contained_only: false,
-            verify: None,
+            by: By::Spade,
             clean: false,
             read_only: false,
         })
@@ -575,6 +592,37 @@ impl Shell {
             run_env.retain(|(had, _)| *had != name);
             run_env.push((name, value));
         }
+        // A bot's command nothing holds: the one way it starts (ADR 0171, amendment 5), the last
+        // await before the spawn.
+        if confined.is_none()
+            && let By::Bot(warrant) = &job.by
+        {
+            let launch = if job.outside {
+                Authorized::Outside
+            } else {
+                Authorized::AsFound
+            };
+            let (warrant, home, dir, env, script) = (
+                warrant.clone(),
+                home.to_path_buf(),
+                dir.to_path_buf(),
+                run_env.clone(),
+                job.asked.unwrap_or(command).to_owned(),
+            );
+            let admitted = tokio::task::spawn_blocking(move || {
+                super::outside::admit(warrant.as_ref(), launch, &home, &dir, &env, &script)
+            });
+            match tokio::time::timeout(ADMIT_TIME, admitted).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(why))) => return Err(why),
+                _ => {
+                    return Err(
+                        "Not run: what it runs couldn't be checked again before it started."
+                            .to_owned(),
+                    );
+                }
+            }
+        }
         shell.current_dir(dir).env_clear();
         if seals_env {
             // Spade's own program starts the command: it gets the environment carried, never as
@@ -585,19 +633,6 @@ impl Shell {
             shell.envs(carried).env(platform::MARK, &mark);
         } else {
             shell.envs(run_env);
-        }
-        // The last check, after the last await: what it runs is still what was allowed.
-        if let Some(verify) = job.verify {
-            match tokio::time::timeout(VERIFY_TIME, tokio::task::spawn_blocking(verify)).await {
-                Ok(Ok(Ok(()))) => {}
-                Ok(Ok(Err(why))) => return Err(why),
-                _ => {
-                    return Err(
-                        "Not run: what it runs couldn't be checked again before it started."
-                            .to_owned(),
-                    );
-                }
-            }
         }
         let mut child = shell
             .stdin(if job.stdin.is_some() {

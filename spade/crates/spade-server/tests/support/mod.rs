@@ -276,6 +276,9 @@ pub struct Spade {
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
+/// What [`Options::before_work`] calls.
+pub type BeforeWork = Arc<dyn Fn(&Arc<Engine>) + Send + Sync>;
+
 pub struct Options {
     pub limits: Limits,
     /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
@@ -333,6 +336,9 @@ pub struct Options {
     pub ids: Option<Arc<dyn Ids>>,
     /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
     pub brains: Option<spade_server::engine::BrainSource>,
+    /// Called with the engine before it opens for work: what a restarted Spade sets up before a
+    /// paused turn resumes (its security service, say).
+    pub before_work: Option<BeforeWork>,
     /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
@@ -449,6 +455,7 @@ impl Default for Options {
             clock: None,
             ids: None,
             brains: None,
+            before_work: None,
             model_retry: None,
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
@@ -739,6 +746,9 @@ impl Spade {
         }
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
+        }
+        if let Some(before) = &options.before_work {
+            before(&engine);
         }
         bots.set(&engine);
         // As Spade wires it: workers and arrivals set apps through the hub.

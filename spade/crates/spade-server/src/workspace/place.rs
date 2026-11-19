@@ -4,20 +4,64 @@
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-use spade_core::autonomy::shell::{Place, Unseen};
+use spade_core::autonomy::shell::{Place, Program, Unseen, system_program};
 
 pub struct FsPlace {
     /// Where the command starts.
     cwd: PathBuf,
     /// The bot's workspace, with its own symlinks followed.
     root: PathBuf,
+    /// The `PATH` the command starts with; `None` finds no program.
+    path: Option<String>,
 }
 
 impl FsPlace {
     /// `None` when the workspace itself can't be resolved: then nothing can be said to be in it.
     pub fn new(cwd: PathBuf, workspace: &Path) -> Option<Self> {
         let root = std::fs::canonicalize(workspace).ok()?;
-        Some(Self { cwd, root })
+        Some(Self {
+            cwd,
+            root,
+            path: None,
+        })
+    }
+
+    /// Finding bare program names on `path`, as the command's shell will.
+    pub fn with_path(mut self, path: Option<String>) -> Self {
+        self.path = path;
+        self
+    }
+}
+
+/// Whether `file` is a program the shell would start.
+fn runnable(file: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(file) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.is_file() && meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        meta.is_file()
+    }
+}
+
+/// The file names `name` may be found as: on Windows with each of `PATHEXT`'s endings too.
+fn candidates(name: &str) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let mut names = vec![name.to_owned()];
+        for ext in [".exe", ".com", ".cmd", ".bat"] {
+            names.push(format!("{name}{ext}"));
+        }
+        names
+    }
+    #[cfg(not(windows))]
+    {
+        vec![name.to_owned()]
     }
 }
 
@@ -55,6 +99,35 @@ impl Place for FsPlace {
 
     fn contains(&self, real: &Path) -> bool {
         real.starts_with(&self.root)
+    }
+
+    fn program(&self, name: &str) -> Program {
+        let Some(path) = &self.path else {
+            return Program::Missing;
+        };
+        for dir in std::env::split_paths(path) {
+            // An empty or relative entry is looked up from wherever the shell is then: Spade
+            // can't follow that.
+            if dir.as_os_str().is_empty() || dir.is_relative() {
+                return Program::Missing;
+            }
+            for file in candidates(name).iter().map(|n| dir.join(n)) {
+                if !runnable(&file) {
+                    continue;
+                }
+                let Ok(real) = std::fs::canonicalize(&file) else {
+                    return Program::Missing;
+                };
+                if self.contains(&real) {
+                    return Program::At(real);
+                }
+                if system_program(&format!("{}/", dir.display())) {
+                    return Program::System;
+                }
+                return Program::At(real);
+            }
+        }
+        Program::Missing
     }
 
     fn read(&self, real: &Path, longest: usize) -> Result<String, Unseen> {

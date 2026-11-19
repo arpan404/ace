@@ -12,6 +12,8 @@ struct Folder {
     cwd: PathBuf,
     files: HashMap<PathBuf, String>,
     links: HashMap<PathBuf, PathBuf>,
+    /// Where bare program names run from; any other is [`Program::Unknown`].
+    programs: HashMap<String, Program>,
 }
 
 impl Folder {
@@ -99,7 +101,16 @@ impl Folder {
             cwd: "/w".into(),
             files,
             links,
+            programs: HashMap::new(),
         }
+    }
+
+    /// With `PATH` finding these programs.
+    fn finds(mut self, programs: &[(&str, Program)]) -> Self {
+        for (name, program) in programs {
+            self.programs.insert((*name).to_owned(), program.clone());
+        }
+        self
     }
 
     fn at(mut self, cwd: &str) -> Self {
@@ -131,6 +142,10 @@ impl Place for Folder {
             Some(text) => Ok(text.clone()),
             None => Err(Unseen::Missing),
         }
+    }
+
+    fn program(&self, name: &str) -> Program {
+        self.programs.get(name).cloned().unwrap_or(Program::Unknown)
     }
 
     fn list(&self, real: &Path) -> Result<Vec<String>, Unseen> {
@@ -771,4 +786,71 @@ fn a_variable_a_command_sets_is_kept_on_what_it_reads() {
     );
     assert_eq!(sets("sh -c 'X=1 ls'"), [("ls".to_owned(), true)]);
     assert_eq!(sets("ls -la"), [("ls".to_owned(), false)]);
+}
+
+#[test]
+fn a_script_is_found_and_shown_even_when_its_output_goes_outside_the_folder() {
+    let read = assess("./build.sh > /tmp/build.log", &Folder::new());
+    assert_eq!(read.finding, Some(Finding::Sensitive(WriteOutside)));
+    let shown: Vec<&str> = read.shown.iter().map(|s| s.path.as_str()).collect();
+    assert_eq!(shown, ["./build.sh"]);
+    assert!(!read.incomplete);
+}
+
+#[test]
+fn what_a_bare_program_runs_is_found_on_path_apart_from_what_it_does() {
+    let folder = || {
+        Folder::new().finds(&[
+            ("ls", Program::System),
+            ("frob", Program::At("/home/p/.local/bin/frob".into())),
+            ("build-it", Program::At("/w/build.sh".into())),
+            ("nowhere", Program::Missing),
+        ])
+    };
+    // The system's own, and builtins: nothing more to read.
+    for command in ["ls -la", "echo hi; true", "cd . && pwd"] {
+        let read = assess(command, &folder());
+        assert!(!read.incomplete && read.programs.is_empty(), "{command}");
+    }
+    // The person's toolchain: kept, so the call is bound to it.
+    let read = assess("frob --all > /tmp/out", &folder());
+    assert_eq!(read.programs, [PathBuf::from("/home/p/.local/bin/frob")]);
+    assert!(!read.incomplete);
+    // A program in the bot's folder on `PATH` is a script it runs, shown like one.
+    let read = assess("build-it", &folder());
+    let shown: Vec<&str> = read.shown.iter().map(|s| s.path.as_str()).collect();
+    assert_eq!(shown, ["/w/build.sh"]);
+    // One `PATH` can't find, or a command that sets its own `PATH`: what runs isn't known.
+    for command in [
+        "nowhere --flag",
+        "PATH=/tmp/x:$PATH ls",
+        "export PATH=./bin; ls",
+    ] {
+        assert!(assess(command, &folder()).incomplete, "{command}");
+    }
+}
+
+#[test]
+fn the_tools_that_read_configuration_are_kept_with_the_folder_they_run_in() {
+    let read = assess("git status && cd sub && rg TODO", &Folder::new());
+    assert_eq!(
+        read.config,
+        [
+            (
+                PathBuf::from("/w"),
+                ConfigTools {
+                    git: true,
+                    ..ConfigTools::default()
+                }
+            ),
+            (
+                PathBuf::from("/w/sub"),
+                ConfigTools {
+                    ripgrep: true,
+                    ..ConfigTools::default()
+                }
+            ),
+        ]
+    );
+    assert!(assess("ls && echo done", &Folder::new()).config.is_empty());
 }

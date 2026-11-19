@@ -316,7 +316,12 @@ once more after everything it waits on (in a terminal, under the terminal's lock
 folder and variables it starts with): `Not run: A file it runs changed while it waited to start,
 after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
 verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
-narrower one; one that records none, and a grant, holds for a contained launch only.
+narrower one; one that records none, and a grant, holds for a contained launch only. Every bot command that starts where nothing holds it passes one check at the spawn
+(`workspace::outside::admit`, ADR 0171, amendment 5): what it runs, read again from the folder
+and environment it starts with, is complete and is what its verdict was given on, and the launch
+is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
+command that sets its own `PATH`, is incomplete; so is git, a Node package manager, cargo or
+ripgrep where its configuration names a program to run.
 
 **Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a

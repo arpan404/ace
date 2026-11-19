@@ -628,3 +628,116 @@ async fn a_service_the_gate_let_start_only_held_is_refused_where_no_sandbox_hold
     );
     Ok(())
 }
+
+/// A kept service of the bot's running `command` (`serve.sh` writes `first` to `ran.txt`), started
+/// on the reviewer's approval with no sandbox here, then Spade stopped, `between` done to its
+/// folder, `sql` run on its database, and Spade started again: the service's state, and what was
+/// written to `ran.txt` in all.
+async fn kept_service_after_a_restart(
+    command: &str,
+    between: impl FnOnce(&std::path::Path) -> Result,
+    sql: &str,
+) -> Result<(String, String)> {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": command, "keep": true }),
+            ),
+            approve(),
+            Script::reply("Started it."),
+            title(),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    let agent = spade.new_agent("Runner", "").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    let folder = workspaces.of(&id)?.path()?;
+    std::fs::create_dir_all(&folder)?;
+    std::fs::write(
+        folder.join("serve.sh"),
+        "echo first >> ran.txt\nexec sleep 60\n",
+    )?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Start the server").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let ran = folder.join("ran.txt");
+    eventually("the service starts", || ran.exists()).await?;
+    services.stop_everything();
+    between(&folder)?;
+    let bots = EngineHandle::default();
+    let again = Services::new(workspaces.clone(), Shell::system(), bots.clone());
+    let spade = spade
+        .restart_paused_with(
+            sql,
+            service_tools(&again),
+            Vec::new(),
+            options(&workspaces, Reviewer::Fake),
+        )
+        .await?;
+    bots.set(&spade.engine);
+    spade.engine.set_services(again.clone());
+    let bot = Bot {
+        id,
+        conversation,
+        folder: folder.clone(),
+    };
+    // Long enough for a start to have written its line.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let state = services_of(&spade, &bot)
+        .await?
+        .iter()
+        .find(|s| s["name"] == "web")
+        .map(|s| s["state"].as_str().unwrap_or_default().to_owned())
+        .unwrap_or_default();
+    again.stop_everything();
+    Ok((state, std::fs::read_to_string(&ran)?))
+}
+
+#[tokio::test]
+async fn a_kept_service_starts_again_where_nothing_holds_it_only_as_it_was_allowed() -> Result {
+    // Unchanged: it starts again on the verdict that started it.
+    let (state, ran) = kept_service_after_a_restart("sh serve.sh", |_| Ok(()), "").await?;
+    assert_eq!(state, "running");
+    assert_eq!(ran, "first\nfirst\n");
+    // Its script rewritten while Spade was down: not what was allowed, so it doesn't start.
+    let (state, ran) = kept_service_after_a_restart(
+        "sh serve.sh",
+        |folder| {
+            std::fs::write(
+                folder.join("serve.sh"),
+                "echo rewritten >> ran.txt\nexec sleep 60\n",
+            )?;
+            Ok(())
+        },
+        "",
+    )
+    .await?;
+    assert_ne!(state, "running");
+    assert_eq!(ran, "first\n", "the rewritten script ran");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_kept_service_an_older_build_recorded_starts_again_only_held_by_the_sandbox() -> Result {
+    // Its record has no launch, as an older build wrote it: it starts again only contained, and
+    // nothing holds it here. (It runs no file of its own, so no binding would stop it.)
+    let (state, ran) = kept_service_after_a_restart(
+        "echo first >> ran.txt; exec sleep 60",
+        |_| Ok(()),
+        "UPDATE events SET body = json_remove(body, '$.launch', '$.bound', '$.contained_only')
+           WHERE json_extract(body, '$.type') = 'service_started';",
+    )
+    .await?;
+    assert_ne!(state, "running");
+    assert_eq!(ran, "first\n", "it started with nothing holding it");
+    Ok(())
+}

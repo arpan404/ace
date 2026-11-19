@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde_json::Value;
+
 pub use log::{LOG_BYTES, Line, Log};
 
 use crate::tools::EngineHandle;
@@ -33,6 +35,9 @@ pub struct Launch {
     /// What the gate authorized (ADR 0171): a service it let start because the sandbox holds it
     /// starts only held, and is refused where nothing does.
     pub decided: crate::workspace::shell::Launch,
+    /// The warrant of the verdict that let it start: where nothing holds it, its start must pass
+    /// it (`workspace::outside::admit`), read against its own folder. `None` never starts plainly.
+    pub warrant: Option<crate::workspace::outside::Warrant>,
 }
 
 struct Running {
@@ -92,6 +97,31 @@ impl Services {
         Ok((root, dir))
     }
 
+    /// What `command` (in `arguments`) runs as a service of `bot` started in `cwd`, read from that
+    /// folder with the environment a service starts with: what its start is checked against.
+    pub fn reading(
+        &self,
+        bot: &str,
+        cwd: &str,
+        arguments: &Value,
+    ) -> spade_core::autonomy::Classed {
+        match self.folder(bot, cwd) {
+            Ok((home, dir)) => crate::workspace::outside::read(
+                &home,
+                &dir,
+                &self.shell.environment(&home),
+                arguments,
+            ),
+            Err(_) => spade_core::autonomy::Classed {
+                incomplete: true,
+                ..spade_core::autonomy::classify_shell(
+                    arguments,
+                    &spade_core::autonomy::shell::Lexical,
+                )
+            },
+        }
+    }
+
     /// Starts `launch`. Its end (by itself) is reported to the engine; a stop is not.
     pub fn start(self: &Arc<Self>, launch: Launch) -> Result<(), String> {
         let (home, dir) = self.folder(&launch.bot, &launch.cwd)?;
@@ -130,6 +160,7 @@ impl Services {
             let (services, shell) = (self.clone(), self.shell.clone());
             let (service, command) = (launch.service.clone(), launch.command.clone());
             let (conversation, log) = (launch.conversation.clone(), log.clone());
+            let warrant = launch.warrant.clone();
             tokio::spawn(async move {
                 let ran = shell
                     .run_from(
@@ -137,6 +168,7 @@ impl Services {
                         Job {
                             dir: &dir,
                             script: &command,
+                            asked: None,
                             timeout: FOREVER,
                             env: &[],
                             tee: Some(tee),
@@ -148,7 +180,8 @@ impl Services {
                             // let start only held is refused where nothing holds it.
                             may_run_uncontained: false,
                             contained_only: plan.contained_only(),
-                            verify: None,
+                            // A service nothing holds starts only on its warrant.
+                            by: crate::workspace::shell::By::Bot(warrant),
                             clean: false,
                             read_only: false,
                         },

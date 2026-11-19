@@ -639,6 +639,19 @@ pub enum Known {
         /// restart, it is held too, or refused.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         contained_only: bool,
+        /// The launch the verdict that started it was given for (ADR 0171, amendment 5). Started
+        /// again after a restart it is held to that, and one with none recorded (an older
+        /// build's) starts only contained.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
+        /// What its command ran when that verdict was given: started again where nothing holds
+        /// it, it starts only while that is still so.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
     },
     /// An owned service ended.
     ServiceEnded {

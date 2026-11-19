@@ -10,6 +10,7 @@ use spade_core::grant::Action;
 
 use super::Engine;
 use crate::security::Security;
+use crate::workspace::outside::Warrant;
 use crate::workspace::shell::Launch;
 
 impl Engine {
@@ -87,39 +88,27 @@ impl Engine {
         }
     }
 
-    /// Records what the gate authorized for the call `key`, for its launch.
-    /// Keeps the binding the call `key` was allowed with, for its run to check last.
-    pub(super) fn expect_binding(&self, key: &str, bound: Option<String>) {
-        self.bindings
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(key.to_owned(), bound);
-    }
-
-    /// The binding the call `key` must still match when it starts, taken; `None` when it was
-    /// allowed with none to check.
-    pub(crate) fn take_binding(&self, key: &str) -> Option<Option<String>> {
-        self.bindings
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(key)
-    }
-
-    pub(super) fn mark_launch(&self, key: &str, launch: Launch) {
+    /// Records what the gate authorized for the call `key`, for its launch: where it may start,
+    /// and the warrant of the verdict that let it run (its launch limit and what it ran then),
+    /// which its start outside the sandbox must pass (`workspace::outside::admit`).
+    pub(super) fn authorize(&self, key: &str, launch: Launch, warrant: Warrant) {
         self.launches
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(key.to_owned(), launch);
+            .insert(key.to_owned(), (launch, warrant));
     }
 
     /// What the gate authorized for the call `key`, taken (each call runs once). A call the gate
-    /// didn't mark may only launch contained, whatever changed since: never plainly.
-    pub(crate) fn take_launch(&self, key: &str) -> Launch {
+    /// didn't authorize may only launch contained, whatever changed since, with no warrant to
+    /// start anywhere else: never plainly.
+    pub(crate) fn take_launch(&self, key: &str) -> (Launch, Option<Warrant>) {
         self.launches
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(key)
-            .unwrap_or(Launch::Contained)
+            .map_or((Launch::Contained, None), |(launch, warrant)| {
+                (launch, Some(warrant))
+            })
     }
 
     /// What one of `conversation`'s tools declares it does, for a grant being made.

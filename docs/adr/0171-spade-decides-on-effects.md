@@ -465,6 +465,73 @@ can't parse is refused and never asked about, and a script an earlier terminal c
 after the first check doesn't start outside (`security.rs`). `classify-train`'s replay counts an
 incomplete reading as refused, as the server does.
 
+## Amendment 5: one way out of the sandbox (2026-11-18)
+
+Decided after a further security review of Full access, which found four more ways a verdict and
+the launch it let through could come apart: a redirect or an unknown program hid what a command
+ran; a call run on an Always allow carried no binding; a service started where nothing held it
+with nothing checked, and one an older build recorded started again as reviewed; a reviewer's
+refusal stored before a restart ran once the bot was in Full access. Each was a separate path, so
+the fix is one place every path goes through.
+
+- **One check at the spawn.** Every shell run says whose it is (`workspace::shell::By`): a bot's
+  command (one-shot, in its terminal, a service, a helper's or a routine's, which go through the
+  same tools), Spade's own fixed script, or a plugin's hook. A bot's command that nothing holds
+  (asked to run outside, a bot whose commands run outside, a machine with no sandbox, a sandbox
+  that can't hold this run) starts only through `workspace::outside::admit`, called in
+  `Shell::run_from` after everything the run awaits and right before the spawn: for a terminal
+  command under the terminal's lock. It reads what the command runs again from the exact folder
+  and environment it starts with (the bot's own command, not the wrapper the terminal adds),
+  refuses a reading that is incomplete, refuses unless that reading is the one the verdict that
+  let it run was given on, and refuses a launch wider than that verdict's limit (outside, or as
+  found where nothing holds it). A run with no verdict's warrant never starts plainly.
+- **Every verdict carries a warrant**: the launch it was given for and what the command ran then
+  (`Warrant`). A run on the rules, an Always allow, a grant or Spade's classifier carries the
+  reading it was decided on; a reviewer's verdict, fresh or stored, the binding it recorded; the
+  person's answer the binding of the verdict that asked them (each ask stores one first); a
+  service the launch and binding it started on, recorded with it (`service_started.launch`,
+  `bound`). An empty binding is explicit, and holds only while the reading finds nothing of the
+  command's own to run.
+- **What runs is found apart from what it does.** The shell classifier finds every executable
+  whatever the command's effect: a redirect outside the folder is a write outside, and the script
+  the command runs is still read and shown. A bare program name is looked up on the `PATH` the
+  command starts with: one of the system's folders is nothing more to read; a file in the bot's
+  folder is a script it runs, read and shown; anywhere else (the person's toolchain) it is bound
+  by where it is, its size and when it changed. A name `PATH` can't find, a `PATH` with an empty
+  or relative entry, and a command that sets its own `PATH` make the reading incomplete. The tools
+  that read configuration that can name a program for them to run (git, the Node package
+  managers, cargo, ripgrep) have that configuration inspected in each folder they run in, and one
+  that names a program makes the reading incomplete: outside the sandbox it is refused.
+- **Services are read where they start.** A service's command is read from its own folder with
+  the environment a service starts with, at the gate and at the spawn. One started again after a
+  restart is held to the verdict that started it; one an older build recorded no launch for starts
+  only contained, so where nothing holds it, it doesn't start.
+- **A stored refusal stays one.** A verdict stored before a restart or a mode switch decides as it
+  did: in Full access a stored refusal is still a refusal, and a stored question still asks;
+  Spade's classifier's own verdicts stay apart from the reviewer's and the rules'.
+- **Nothing else starts a process unlisted.** A test enumerates every process start in Spade's
+  server and every shell run that isn't a bot's, each with why no verdict applies (Spade's own
+  `cp` and `kill`, the typed outward tools' fixed `git` and `gh`, a plugin's server and hooks, and
+  the shell itself, whose one spawn comes after `admit`); a new one fails it until it goes through
+  the shell or is listed with its reason.
+- **What changes for the person.** Outside the sandbox, a command that runs git in a repository
+  whose configuration runs a program (hooks, an fsmonitor), a program not on its `PATH`, or one
+  that sets its own `PATH` is refused rather than asked about. A kept service from an older build
+  starts again only in the sandbox.
+
+Tested in `spade_core::autonomy::shell` (a script is found and shown though its output goes
+outside; a bare program is found on `PATH` apart from what it does; the tools that read
+configuration are kept with the folder they run in), in `workspace::outside` (a start needs a
+warrant as wide as its launch; a changed script, an empty binding with a script now, an
+incomplete reading, git configuration that runs a program and a replaced toolchain program each
+refuse; a program in the bot's folder is read as a script; and the enumeration of every process
+start), in `confinement.rs` (every way a bot's command starts with nothing holding it refuses
+without a warrant), `outside_launch.rs` (an outside request for git whose configuration runs a
+program is refused, not asked; a script whose output goes outside is still bound; an Always
+allowed command doesn't start once an earlier terminal command rewrote its script; a refusal
+stored before a restart still refuses in Full access) and `services.rs` (a kept service starts
+again only as it was allowed, and one an older build recorded only held).
+
 ## Note: Full access (2026-11-18)
 
 This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2
