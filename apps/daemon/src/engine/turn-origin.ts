@@ -17,24 +17,41 @@ function runAt(state: ThreadState, run: string | undefined): RunAt | undefined {
   return found ? { id: found.id, seq: found.seq ?? 0 } : undefined;
 }
 
-/**
- * The root's turn (its running run, else its last) and the run the calling agent is in itself:
- * the root's for the root, a provider subagent's own for that subagent. No fallback from one to
- * the other, so a subagent still running from a stopped turn is never taken for the new one.
- * `latest`: the thread's last run's `seq`, the boundary a Stop records.
- */
-export function turnOrigin(
-  state: ThreadState | undefined,
-  agentId: string,
-): { root?: RunAt | undefined; origin?: RunAt | undefined; latest: number } {
+export interface TurnOrigin {
+  /** The root agent's running run; none once its turn ended. */
+  root?: RunAt | undefined;
+  /** The root's latest turn, running or ended: what the delegation fence compares against. */
+  rootTurn?: RunAt | undefined;
+  /**
+   * The run the calling agent is in itself: the root's for the root, a provider subagent's own
+   * for that subagent. Never the root's for a subagent, so one still running from a stopped
+   * turn is never taken for the new one.
+   */
+  origin?: RunAt | undefined;
+  /** The thread's last run's `seq`: the boundary a Stop records. */
+  latest: number;
+}
+
+export function turnOrigin(state: ThreadState | undefined, agentId: string): TurnOrigin {
   if (!state) return { latest: 0 };
   const rootRecord = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
   const key = state.indexes.agentKeysById[agentId];
   return {
-    root: runAt(state, rootRecord?.activeRun ?? rootRecord?.lastRun),
+    root: runAt(state, rootRecord?.activeRun),
+    rootTurn: runAt(state, rootRecord?.activeRun ?? rootRecord?.lastRun),
     origin: key === undefined ? undefined : runAt(state, state.agents[key]?.activeRun),
     latest: state.runSeq ?? 0,
   };
+}
+
+/**
+ * The run (turn) an agent's tool call belongs to now: its own running run, else the root's
+ * running run. None once the turn ended, so nothing turn-scoped (locked use's protected
+ * interval, a turn fence) is ever granted to a finished turn.
+ */
+export function activeRun(state: ThreadState | undefined, agentId: string): string | undefined {
+  const { root, origin } = turnOrigin(state, agentId);
+  return (origin ?? root)?.id;
 }
 
 /** The provider's report of a `delegate` call's arguments, read leniently. */

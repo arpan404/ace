@@ -6,7 +6,7 @@ import {
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
 import { aceCaller, liveAceCall, withinAgent } from "./ace-approvals.ts";
-import { delegationsInFlight, turnOrigin } from "./turn-origin.ts";
+import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
@@ -844,10 +844,9 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  /** The run (turn) an agent's tool call belongs to now: its own active run, else the root's. */
+  /** The run an agent's tool call belongs to now, never an ended one (`turn-origin.ts`). */
   activeRun(threadId: ThreadId, agentId: string): string | undefined {
-    const { root, origin } = this.turnOrigin(threadId, agentId);
-    return (origin ?? root)?.id;
+    return activeRun(this.repo.state(threadId), agentId);
   }
   /** The delegation fence's reads (`turn-origin.ts`). */
   turnOrigin = (id: ThreadId, agentId: string) => turnOrigin(this.repo.state(id), agentId);

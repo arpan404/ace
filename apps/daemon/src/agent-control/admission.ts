@@ -85,10 +85,8 @@ export class DelegationAdmission {
   private stoppedTurn(caller: McpAttribution, requestId: string): boolean {
     const fence = this.journal.turnFence(caller.threadId);
     if (fence === undefined) return false;
-    const answer = turnFence(fence, {
-      ...this.deps.engine.turnOrigin(caller.threadId, caller.agentId),
-      requestId,
-    });
+    const origin = this.deps.engine.turnOrigin(caller.threadId, caller.agentId);
+    const answer = turnFence(fence, { root: origin.rootTurn, origin: origin.origin, requestId });
     if (answer.kind === "lift") this.journal.liftTurnFence(caller.threadId, answer.seq);
     return answer.kind === "refuse";
   }
