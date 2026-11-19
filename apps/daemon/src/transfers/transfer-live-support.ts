@@ -10,9 +10,10 @@ export const sentTo = (side: Machines["source"], threadId: ThreadId) =>
   side.h.attempts.filter((attempt) => attempt.threadId === threadId).map((a) => a.text);
 
 /** A thread whose agent is in the middle of its turn (the scripted Claude keeps it running). */
-export async function workingThread(m: Machines) {
+export async function workingThread(m: Machines, prepare?: (path: string) => Promise<void>) {
   const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
   await writeFile(join(path, "wip.txt"), "half done\n");
+  await prepare?.(path);
   const workspaceId = await m.addProject(m.source, path);
   const created = m.source.controls.delegations.command("long-job", {
     type: "thread.create",
