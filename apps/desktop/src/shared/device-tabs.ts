@@ -1,0 +1,104 @@
+import { z } from "zod";
+
+/*
+ * The bridge contract of device tabs (ADR 0194): pages the person opens, in the desktop app,
+ * on a remote machine's thread. Each runs in a native view on this computer, in its machine's
+ * partition, with the machine's localhost reached through its tunnel.
+ */
+
+const TabId = z.string().min(1).max(128);
+const MachineId = z.string().min(1).max(256);
+const Url = z.string().min(1).max(8192);
+
+export const DeviceTabOpen = z.object({
+  tabId: TabId,
+  machineId: MachineId,
+  /** Loaded only when the tab has no view yet; a view kept from before shows as it is. */
+  url: Url,
+});
+
+export const DeviceTabPlacement = z.object({
+  tabId: TabId,
+  /** In the page's CSS pixels, relative to the window's content. */
+  bounds: z.object({
+    x: z.number().min(0),
+    y: z.number().min(0),
+    width: z.number().min(0).max(16384),
+    height: z.number().min(0).max(16384),
+  }),
+  visible: z.boolean(),
+});
+
+export const DeviceTabGo = z.discriminatedUnion("action", [
+  z.object({ tabId: TabId, action: z.literal("navigate"), url: Url }),
+  z.object({ tabId: TabId, action: z.enum(["back", "forward", "reload", "stop"]) }),
+]);
+
+export const DeviceTabId = z.object({ tabId: TabId });
+
+/** Why the machine's localhost didn't answer (see `TunnelFailure`). */
+export const DeviceTabTunnelFailure = z.enum([
+  "off",
+  "forbidden",
+  "refused",
+  "limit",
+  "offline",
+  "closed",
+  "failed",
+]);
+
+export const DeviceTabState = z.object({
+  tabId: TabId,
+  url: z.string().max(8192),
+  title: z.string().max(1024),
+  loading: z.boolean(),
+  canGoBack: z.boolean(),
+  canGoForward: z.boolean(),
+  /** The last load failed; cleared by the next one that commits. */
+  failure: z
+    .object({
+      url: z.string().max(8192),
+      /** Chromium's net error code and name (`ERR_CONNECTION_REFUSED`). */
+      code: z.number().int(),
+      description: z.string().max(256),
+      /** The machine's side of a loopback load, when the tunnel said why. */
+      tunnel: DeviceTabTunnelFailure.optional(),
+      port: z.number().int().min(1).max(65_535).optional(),
+    })
+    .optional(),
+});
+export type DeviceTabState = z.infer<typeof DeviceTabState>;
+
+/** A link in a device tab asked for a new tab (`target=_blank`). */
+export const DeviceTabOpenRequest = z.object({ from: TabId, url: Url });
+
+/**
+ * The path a remote machine's connection is on now, for its tunnel in the main process: one the
+ * window's connection verified, with what the tunnel must prove on it (a direct listener's
+ * public-key pin, a relay's daemon key, the daemon's id in every welcome), this device's id there
+ * and its credential. Null while the machine is offline, gone, or on no path a tunnel can use
+ * (an account machine, until ace's relay carries tunnels): the window's lease then ends.
+ */
+export const MachineTunnelPath = z.object({
+  machineId: MachineId,
+  path: z
+    .object({
+      key: z.string().min(1).max(512),
+      target: z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("direct"),
+          url: Url,
+          fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+        }),
+        z.object({ kind: z.literal("relay"), url: Url, hostKey: z.string().min(1).max(256) }),
+      ]),
+      /** The daemon every welcome must name: the paired machine's host id. */
+      expectedHostId: z.string().min(1).max(256),
+      deviceId: z.string().min(1).max(256),
+      token: z.string().min(1).max(4096),
+    })
+    .nullable(),
+});
+
+/** Typing moves to a device tab's address field (`CmdOrCtrl+L` pressed in its page). */
+export const DeviceTabFocus = z.object({ tabId: TabId });

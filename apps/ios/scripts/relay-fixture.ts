@@ -17,6 +17,8 @@ import { olderRelay, startProxy, stepOneOnly, RELAY_SHORTCUTS } from "./relay-pr
  * flow control, as from the daemon; device `ios-stream` gets 8 MB of text instead of the deflated
  * message, which arrives whole only if the phone returns credit. A hello presenting the grant
  * `fixture-refused` is refused as the daemon refuses a grant it won't take: `unauthorized`.
+ * Device `ios-tunnel` is a tunnel connection (ADR 0194): every binary message it sends comes back
+ * as the same bytes, so a round trip many flow windows long arrives only if credit flows both ways.
  *
  * `relays` are proxies in front of the same relay standing in for other relays (ADR 0155): `full`
  * passes everything, `stepOne` knows early frames but not the message in the upgrade, `older`
@@ -78,6 +80,11 @@ const host = await connectHostToRelay({
         code: "fixture_bulk",
         message: "the same words again ".repeat(20_000),
       });
+    }
+    if (first.deviceId === "ios-tunnel") {
+      for await (const frame of channel.frames())
+        if (frame instanceof Uint8Array) await channel.sendBinary(frame.slice());
+      return;
     }
     for await (const message of channel as AsyncIterable<ClientMessage>) {
       if (message.type === "ping") await channel.send({ type: "pong" });

@@ -88,10 +88,11 @@ connected, before any byte moves. Without a successful scan in the last five sec
 source names is unknown, and unknown is refused: the guard fails closed. A port that becomes ace's
 (Spade starting on a port a stream already uses) resets every stream open to it.
 
-The desktop app's SOCKS proxy (see "The device side") is an ace listener on the loopback of the
-computer it runs on, and it reaches another machine with this device's credentials. A device
-tunnelled to that computer must not reach it, so the proxy demands a per-launch secret (SOCKS5
-user and password that only its own sessions know) and refuses any connection without it.
+The desktop app's localhost proxy (see "The device side") is an ace listener on the loopback of
+the computer it runs on, and it reaches another machine with this device's credentials. No other
+process on that computer, and no device tunnelled to it, may borrow that reach, so the proxy
+demands a secret of each run (`Proxy-Authorization`, a password only its own partition is given)
+and refuses any request without it.
 
 The daemon connects only to `127.0.0.1` or `::1` on the requested port. The device names a port,
 never a host.
@@ -140,13 +141,40 @@ never a host.
 ### The device side
 
 - **Desktop app.** Each remote machine gets a session partition with
-  `setProxy({ proxyRules: "socks5://127.0.0.1:<port>", proxyBypassRules: "*,<-loopback>" })`,
-  pointing at a SOCKS5 proxy in the main process. `*` sends every host direct and `<-loopback>`
+  `setProxy({ proxyRules: "http://127.0.0.1:<port>", proxyBypassRules: "*,<-loopback>" })`,
+  pointing at an HTTP proxy in the main process. `*` sends every host direct and `<-loopback>`
   then takes loopback back from Chromium's built-in bypass. The order matters: the last matching
-  rule wins, so `<-loopback>,*` sends everything direct. Chromium hands SOCKS5 the hostname
-  unresolved, so the proxy sees `localhost`, `foo.localhost`, `127.0.0.1` or `::1` and a port,
-  then moves bytes. HTTP, websockets and HTTPS all arrive the same way. A PAC script can't do
-  this: Chromium bypasses loopback for PAC results regardless.
+  rule wins, so `<-loopback>,*` sends everything direct. Chromium names the host unresolved, so
+  the proxy sees `localhost`, `foo.localhost`, `127.0.0.1` or `::1` and a port. HTTPS and every
+  websocket (`ws:` too) arrive as a `CONNECT`, whose bytes the proxy then moves through a tunnel
+  stream untouched. Plain HTTP arrives in absolute form (`GET http://localhost:3000/app.js`); the
+  proxy sends each request on in origin form, without its own headers, over streams it keeps per
+  port, as a browser keeps its connections, and passes the response back as it comes. Only this
+  local proxy reads those requests; the tunnel and any relay still carry bytes. A PAC script
+  can't do this: Chromium bypasses loopback for PAC results regardless.
+  - The proxy answers a request without its secret with `407` and `Proxy-Authenticate: Basic`.
+    Chromium then asks Electron's `login`, which the app answers with the secret only when the
+    challenge is that proxy's own (`isProxy`, its host and port) and the asking page, if there is
+    one, is in that proxy's partition. Chromium keeps the answer in the partition's auth cache and
+    sends it up front from then on, on page loads, `CONNECT`s and a service worker's requests
+    alike, with no prompt (Electron 44.5.1, verified by a real-Electron test). SOCKS5 can't do
+    this: Chromium's SOCKS5 client offers no authentication. Telling the partition's traffic by
+    the connecting process (the network service's socket, from `/proc`, libproc or the TCP table)
+    was rejected: that process serves every session of the app, Linux hides its sockets from
+    the app under a hardened ptrace scope, and it needs code per platform.
+  - A refused `CONNECT` is answered (`403`, `502`, `503`) and closed within two seconds, read or
+    not. A stream that doesn't open within ten seconds, or whose browser leaves, is given up
+    (`MachineTunnel.open`'s `signal`), resetting it on the machine. A plain-HTTP request that
+    couldn't reach the machine drops its connection, so Chromium shows its own error page,
+    which the tab explains with the port's recorded failure.
+  - The tunnel opens with the dialer that pins what the window's own connection verified: only a
+    path its worker dials, a direct one with the listener's public-key pin and a one-use ticket,
+    a relay with the daemon's Noise key, each welcome naming the paired daemon. Each window holds
+    a lease on the machine's tunnel while it has a device tab of the machine and says which path
+    its connection is on. The lease, and the credential with it, ends when the window says the
+    machine is offline or gone, its last device tab of the machine closes, or it reloads or
+    closes. The machine's tunnel closes with its last lease, and its proxy once it has no device
+    tab either. A new credential on the same path is a new path: new streams use it.
 - **Phone.** iOS sends `localhost` and the loopback addresses straight to the phone, whatever
   proxy is set (spike 1), so the phone takes the ports themselves. While a device tab of a machine
   is in front, the app listens on the phone's `127.0.0.1` and `::1` on each port the machine is
@@ -163,8 +191,19 @@ never a host.
     keyed by the machine), so cookies stay apart.
   - A port already taken on the phone isn't listened on. A page that needs it says which port is
     busy.
-  - The listeners close when the last device tab closes. While they're open, other apps on the
-    phone could connect to them too, the way any app can reach another app's loopback port.
+  - The listeners, and the connections they accepted, close when no device tab is on screen: the
+    last device tab closes, the browser shows ace's Chrome or is left, or the app goes to the
+    background. They open again when a device tab is back in front. While they're open, other
+    apps on the phone could connect to them too, the way any app can reach another app's loopback
+    port.
+  - A port listens once both `127.0.0.1` and `::1` are bound (or the phone has no IPv6
+    loopback), so a page never reaches a half-bound port. An address in use is tried again
+    briefly before the port reads as busy.
+  - A route change to the same machine (relay to direct, Wi-Fi to cellular) replaces the phone's
+    runtime for that machine. Its device tabs and their pages stay where they are, and the new
+    runtime opens the tunnel on the new path. Two runtimes can't share a machine's local store,
+    so the old one stops before the new one starts, and streams open on the old path are reset
+    rather than drained. The page retries, as after any dropped connection.
   - Swift only owns the listeners and moves bytes. Which ports to take and which machine owns them
     are decided in the shared JavaScript, behind the native host contract.
 - **Android**, later: `ProxyController` with `removeImplicitRules()`.
@@ -174,14 +213,35 @@ never a host.
 On the device, a public page could otherwise `fetch("http://localhost:…")` and reach the
 machine through the tunnel. Electron launches with Chromium's Local Network Access checks turned
 off, so the spike saw such a request go through with no preflight. A device tab therefore blocks
-loopback requests whose top-level page is not itself on a loopback host:
+loopback requests from pages that aren't themselves on a loopback host:
 
-- desktop app: the partition's `webRequest.onBeforeRequest` cancels a loopback request when its
-  frame's top-level URL isn't loopback;
+- desktop app: the partition's `webRequest.onBeforeRequest` cancels a loopback request unless
+  its initiator, the origin of the document or worker that sent it (which Chromium checks against
+  the frame itself), is loopback. A public frame inside a localhost page is refused, while a
+  localhost page's own service worker, which has no frame, still works. A request with no
+  initiator, or an opaque one, is refused;
 - phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback.
 
-Top-level navigations to loopback are allowed, so an OAuth flow that leaves for a provider and
-redirects back to `localhost` still works.
+Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
+could still submit a form to a service on the machine. Each app's navigation policy therefore
+asks one pure function, `loopbackNavigationAllowed` in `@ace/ui-core`, about every top-level
+navigation to loopback (the desktop app from the same `onBeforeRequest`, which Electron calls for
+every redirect with the method that hop sends, and an initiator absent only when the person
+started the load; the phone from
+`WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its method):
+
+- it goes ahead when the document that started it is itself on a loopback host;
+- it goes ahead when the person started it in ace: a typed address, a tab the app opened, "Open
+  on this phone";
+- it goes ahead when it is a GET: a link, a script setting `location`, or a redirect chain whose
+  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works;
+- otherwise it is refused: a non-GET started by any other document, such as a public page's form
+  post or a 307 or 308 redirect that keeps its POST.
+
+A GET from a public page can still reach a loopback page, as it can on the machine itself; a
+service that changes state on a GET is open to that anywhere. The phone's WebKit policy can't
+call into the script while it decides, so Swift keeps a copy of the rule, tested against the same
+table as the function (`loopback-navigation-cases.json`).
 
 ### Spikes
 

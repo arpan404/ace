@@ -26,6 +26,14 @@ struct BrowserMenu: View {
 
     var body: some View {
         Menu {
+            // First, so it is the item nearest the bar: the same page in the phone's own browser,
+            // as the person's (ADR 0194).
+            if model.canOperate, page, let address = state?.addressUrl, !address.isEmpty, address != "about:blank" {
+                Section {
+                    Button("Open on this phone", ace: .deviceMobile) { model.openDeviceTab(address) }
+                        .accessibilityIdentifier("browser.menu.openOnPhone")
+                }
+            }
             Section {
                 Button("Find in page", ace: .fileMagnifyingGlass) { finding = true }
                     .disabled(!page)

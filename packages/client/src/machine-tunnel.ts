@@ -23,9 +23,10 @@ export interface MachineTunnel {
    * TCP stream to the machine's loopback port. Rejects with ClientError code: tunnel_off |
    * tunnel_forbidden | tunnel_port_refused | tunnel_limit | offline. A port with nothing
    * listening resets the stream (the browser sees a refused connection): the promise rejects
-   * with `tunnel_reset`.
+   * with `tunnel_reset`. Aborting `signal` gives up the open: before the stream is ready it is
+   * reset on the machine too, and the promise rejects with `tunnel_cancelled`.
    */
-  open(port: number): Promise<TunnelStream>;
+  open(port: number, options?: { signal?: AbortSignal }): Promise<TunnelStream>;
   /** Loopback TCP ports the machine listens on, minus ace's own; updated change-only. */
   ports: { get(): readonly number[]; subscribe(changed: () => void): () => void };
   close(): void;
@@ -92,6 +93,8 @@ interface Connection {
 export function tunnelChannel(options: AuthenticatedChannelOptions): TunnelLink {
   return authenticatedChannel(options, "tunnel");
 }
+
+const cancelled = () => new ClientError("tunnel_cancelled", "Tunnel open cancelled");
 
 /**
  * Opens the tunnel to one connected machine. It connects at once, so `ports` fills and the
@@ -262,16 +265,37 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
     connect();
     stopRetry();
   };
-  const welcomed = (connection: Connection) =>
-    connection.mux
-      ? Promise.resolve()
-      : new Promise<void>((resolve, reject) => connection.waiting.push({ resolve, reject }));
+  const welcomed = (connection: Connection, signal: AbortSignal | undefined) => {
+    if (connection.mux) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const waiter = {
+        resolve: () => {
+          signal?.removeEventListener("abort", give);
+          resolve();
+        },
+        reject: (error: ClientError) => {
+          signal?.removeEventListener("abort", give);
+          reject(error);
+        },
+      };
+      // A cancelled open stops waiting for the welcome; the connection itself carries on.
+      function give() {
+        const index = connection.waiting.indexOf(waiter);
+        if (index >= 0) connection.waiting.splice(index, 1);
+        reject(cancelled());
+      }
+      signal?.addEventListener("abort", give, { once: true });
+      connection.waiting.push(waiter);
+    });
+  };
   const stopPath = options.path.subscribe(follow);
   connect();
 
   return {
-    async open(port) {
+    async open(port, openOptions) {
       const target = PreviewPort.parse(port);
+      const signal = openOptions?.signal;
+      if (signal?.aborted) throw cancelled();
       if (closed) throw new ClientError("offline", "Tunnel closed");
       if (!current && refused) throw new ClientError(refused, "Tunnel refused");
       if (!current && cancelRetry) {
@@ -282,19 +306,33 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
       } else if (!current) connect();
       const connection = current;
       if (!connection) throw new ClientError(refused ?? "offline", "Machine offline");
-      await welcomed(connection);
+      await welcomed(connection, signal);
       const mux = connection.mux;
       // A refusal that came with the close is the reason, for an open already under way too.
       if (!mux || connection.ended)
         throw new ClientError(connection.refusal ?? "offline", "Tunnel closed");
+      if (signal?.aborted) throw cancelled();
       return new Promise<TunnelStream>((resolve, reject) => {
         let id: number | undefined;
+        let ready = false;
+        const give = () => {
+          // Before READY: the mux sends RESET and the stream fails as cancelled.
+          if (!ready) stream.reset();
+        };
         const { socket, stream } = tunnelStream(Readable, {
           opened: () => {
+            ready = true;
+            signal?.removeEventListener("abort", give);
             accepted(connection);
             resolve(stream);
           },
           failed: () => {
+            signal?.removeEventListener("abort", give);
+            if (signal?.aborted) {
+              if (id !== undefined) connection.refusals.delete(id);
+              reject(cancelled());
+              return;
+            }
             const code =
               (id === undefined ? undefined : connection.refusals.get(id)) ?? connection.refusal;
             if (id !== undefined) connection.refusals.delete(id);
@@ -319,6 +357,7 @@ export function openMachineTunnel(options: MachineTunnelOptions): MachineTunnel 
           })
           .catch(() => {});
         id = mux.open(socket, target);
+        signal?.addEventListener("abort", give, { once: true });
       });
     },
     ports: {

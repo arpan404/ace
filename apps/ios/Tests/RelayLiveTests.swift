@@ -15,6 +15,7 @@ import Testing
         func add(_ type: String, _ value: SocketPayload) { lock.withLock { events.append((type, value)) } }
         var texts: [String] { lock.withLock { events.compactMap { if $0.0 == "message", case .text(let t) = $0.1 { t } else { nil } } } }
         var types: [String] { lock.withLock { events.map(\.0) } }
+        var binaries: [Data] { lock.withLock { events.compactMap { if $0.0 == "binary", case .bytes(let b) = $0.1 { b } else { nil } } } }
         var closeCode: String? { lock.withLock { events.last { $0.0 == "close" }.flatMap { if case .text(let t) = $0.1 { t } else { nil } } } }
         func wait(_ done: @escaping (Recorder) -> Bool) async throws {
             for _ in 0..<500 where !done(self) { try await Task.sleep(for: .milliseconds(20)) }
@@ -136,6 +137,49 @@ import Testing
         socket.send(#"{"type":"ping"}"#)
         try await events.wait { $0.texts.count >= 42 }
         #expect(events.texts.last == #"{"type":"pong"}"#)
+        #expect(!events.types.contains("close"))
+    }
+
+    /// Counts each frame's `sent` and, as each echo arrives, how far the sends had run ahead.
+    private final class Pace: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sent = 0, echoed = 0, lead = 0
+        func wrote() { lock.withLock { sent += 1 } }
+        func echo() { lock.withLock { echoed += 1; lead = max(lead, sent - echoed) } }
+        var written: Int { lock.withLock { sent } }
+        var mostAhead: Int { lock.withLock { lead } }
+    }
+
+    @Test(.enabled(if: fixture != nil))
+    func tunnelFramesManyFlowWindowsLongComeBackWholeAndInOrderWhileTheirSendsFollowTheWindow() async throws {
+        let fixture = try #require(Self.fixture)
+        let route = RelayRoute(relayURL: fixture.url, hostId: fixture.hostId,
+                               grants: AccountGrants { () async throws(AccountGrantError) -> AceGrant in AceGrant(token: "fixture-grant", expiresAt: .greatestFiniteMagnitude) })
+        let events = Recorder(), pace = Pace()
+        let socket = RelaySocket(route: route) { type, value in
+            if type == "binary" { pace.echo() }
+            events.add(type, value)
+        }
+        defer { socket.close() }
+        socket.open()
+        try await events.wait { $0.types.contains("open") }
+        socket.send(hello(code: "2468", device: "ios-tunnel"))
+        try await events.wait { !$0.texts.isEmpty }
+        // 400 tunnel frames of 16 KiB and their header: 6.5 MB, about six flow windows each way.
+        let frames = (0..<400).map { index -> Data in
+            var frame = Data(count: 12 + 16_384)
+            frame.withUnsafeMutableBytes { raw in
+                for offset in 0..<raw.count { raw[offset] = UInt8((index &* 31 &+ offset) & 0xff) }
+            }
+            return frame
+        }
+        for frame in frames { socket.send(bytes: frame) { pace.wrote() } }
+        try await events.wait { $0.binaries.count >= frames.count }
+        #expect(events.binaries == frames)
+        #expect(pace.written == frames.count)
+        // Were `sent` called on queueing, every frame would be ahead at the first echo. The window
+        // (1 MiB, 64 such frames) each way bounds it instead.
+        #expect(pace.mostAhead <= 140, "sends ran \(pace.mostAhead) frames ahead of their echoes")
         #expect(!events.types.contains("close"))
     }
 

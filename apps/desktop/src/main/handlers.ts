@@ -41,6 +41,9 @@ import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import type { SpadeDirect } from "./spade/direct.ts";
 import { spadeHandlers } from "./spade/handlers.ts";
+import type { DeviceTabs } from "./machine-localhost/device-tabs.ts";
+import type { MachineTunnels } from "./machine-localhost/tunnels.ts";
+import { deviceTabHandlers } from "./machine-localhost/handlers.ts";
 import { reducedTransparency, windowState } from "./window/main-window.ts";
 
 export function appearance(): NativeAppearance {
@@ -107,6 +110,9 @@ export function createHandlers(options: {
   };
   /** The direct path to Spade on this computer (ADR 0123). */
   spade: SpadeDirect;
+  /** Pages the person opens on a remote machine's thread (ADR 0194). */
+  deviceTabs: DeviceTabs;
+  machineTunnels: MachineTunnels;
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
@@ -306,5 +312,6 @@ export function createHandlers(options: {
       return undefined;
     },
     ...spadeHandlers(options.spade),
+    ...deviceTabHandlers(options.deviceTabs, options.machineTunnels),
   };
 }

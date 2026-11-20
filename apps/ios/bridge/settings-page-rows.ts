@@ -301,6 +301,8 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
       toggle("remote.tailscale", "Tailscale"),
       toggle("remote.relay", "Relay"),
       toggle("remote.hostedPairingLink", "Pairing links open app.acehq.dev"),
+      // Device tabs on the phone reach this machine's localhost through its tunnel (ADR 0194).
+      toggle("remote.machineLocalhost", "Open this machine's localhost on your devices"),
       menu("remote.agentAccess", "Other machines' agents", named(["off", "read", "operate"])),
       {
         kind: "static",

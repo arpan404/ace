@@ -69,6 +69,9 @@ import { useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
 import { AddressOpenOutside, outsideAddress } from "./open-outside.tsx";
+import { useDeviceTabMachine } from "../device-browser/device-machine.ts";
+import { deviceTabRequest } from "../device-browser/device-data.ts";
+import { DeviceStart } from "../device-browser/device-start.tsx";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
@@ -126,6 +129,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
   const external = outsideAddress(shownUrl);
+  // On another machine's thread in the desktop app, the person's own pages run here.
+  const deviceMachine = useDeviceTabMachine();
   // In the desktop app the page itself is a native view drawn over this tab's page area (or
   // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
@@ -428,6 +433,12 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
               onSettings={chrome.openSettings}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
+              onOpenOnDevice={
+                deviceMachine && external
+                  ? () =>
+                      actions.open(deviceTabRequest(deviceMachine, external, crypto.randomUUID()))
+                  : undefined
+              }
               engine={live?.backend}
               onEngine={(engine) => tabs.switchEngine(engine)}
               drawer={drawer !== undefined}
@@ -516,6 +527,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
 function BrowserOrSplit(props: TabViewProps) {
   const own = daemonTabId(props.tab);
   const split = useLocal(splits, (all) => all.get(props.scope));
+  const deviceMachine = useDeviceTabMachine();
+  // A new tab on another machine's thread, in the desktop app: what it opens is a device tab.
+  if (!own && deviceMachine) return <DeviceStart {...props} machine={deviceMachine} />;
   if (split && own && (split.left === own || split.right === own))
     return (
       <SplitBrowser
