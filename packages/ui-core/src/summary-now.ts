@@ -8,6 +8,7 @@ import {
   type ThreadWork,
 } from "./agent-forest.ts";
 import { pluralCount } from "./counts.ts";
+import { forestRequest, forestRequests } from "./forest-requests.ts";
 import { firstLine } from "./line-text.ts";
 import { formatSpan } from "./time.ts";
 
@@ -259,7 +260,7 @@ export interface AskerTarget {
 export function summaryAsker(
   threadId: string,
   forest: Pick<AgentForest, "roots">,
-  works: ReadonlyMap<string, Pick<ThreadWork, "interactions">>,
+  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions" | "facts">>,
 ):
   | {
       node: AgentForestNode;
@@ -270,18 +271,13 @@ export function summaryAsker(
   | undefined {
   const node = forestAsker(forest.roots);
   if (!node) return undefined;
-  const pending = (thread: string, agent: string) =>
-    works.get(thread)?.interactions.find((interaction) => interaction.agentId === agent);
-  const own = pending(node.threadId, node.agent.id);
-  const delegated =
-    own || !node.childThread || !node.childRoot
-      ? undefined
-      : pending(node.childThread, node.childRoot.id);
+  // Any pending request may name it, the one the person can answer first.
+  const request = forestRequest(node, forestRequests(works, false));
   const root = node.agent.origin === "root" && node.threadId === threadId;
   return {
     node,
     root,
-    request: (own ?? delegated)?.request,
+    request: request?.request,
     open: root
       ? undefined
       : {

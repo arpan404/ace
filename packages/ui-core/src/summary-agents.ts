@@ -1,11 +1,11 @@
-import { isActionableInteraction } from "@ace/core/human";
-import type { AgentStatus, Interaction, Item } from "@ace/protocol";
+import type { Interaction, Item } from "@ace/protocol";
 import type { AgentForest, AgentForestNode, ForestNode, ThreadWork } from "./agent-forest.ts";
 import { agentOutcome } from "./agent-prs.ts";
 import { agentStep } from "./agent-step.ts";
 import { isRunning } from "./agents.ts";
 import { pluralCount } from "./counts.ts";
 import { remoteContactStep } from "./remote-contact.ts";
+import { forestRequest, forestRequests } from "./forest-requests.ts";
 import { askWords } from "./summary-now.ts";
 
 /*
@@ -103,45 +103,6 @@ export function forestAgentWords(
   };
 }
 
-/** Each agent's oldest request the person can answer now, by `thread/agent`. */
-export type ForestRequests = ReadonlyMap<string, Interaction>;
-
-/**
- * The requests the person can answer, indexed once for the whole tree: pending, and either
- * blocking or from an agent that isn't working on without the answer (the tree's own rule,
- * `isActionableInteraction`). Linear in the agents and requests of the joined threads.
- */
-export function forestRequests(
-  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions">>,
-): ForestRequests {
-  const index = new Map<string, Interaction>();
-  for (const [threadId, work] of works) {
-    if (!work.interactions.length) continue;
-    const status = new Map<string, AgentStatus>();
-    for (const agent of work.agents) status.set(agent.id, agent.status);
-    for (const interaction of work.interactions) {
-      const key = `${threadId}/${interaction.agentId}`;
-      if (index.has(key) || !isActionableInteraction(interaction, status.get(interaction.agentId)))
-        continue;
-      index.set(key, interaction);
-    }
-  }
-  return index;
-}
-
-/** The request an agent row answers for: its own, else its delegated thread's root's. */
-export function forestRequest(
-  node: AgentForestNode,
-  requests: ForestRequests,
-): Interaction | undefined {
-  return (
-    requests.get(`${node.threadId}/${node.agent.id}`) ??
-    (node.childThread && node.childRoot
-      ? requests.get(`${node.childThread}/${node.childRoot.id}`)
-      : undefined)
-  );
-}
-
 export type SummaryAgentGroup = "asks" | "working" | "failed" | "done";
 
 export interface SummaryAgentEntry {
@@ -199,7 +160,7 @@ function groupOf(node: AgentForestNode, request: Interaction | undefined): Summa
 export function summaryAgents(
   threadId: string,
   forest: Pick<AgentForest, "roots">,
-  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions">>,
+  works: ReadonlyMap<string, Pick<ThreadWork, "agents" | "interactions" | "facts">>,
 ): SummaryAgents | undefined {
   const requests = forestRequests(works);
   const lists: Record<SummaryAgentGroup, SummaryAgentEntry[]> = {

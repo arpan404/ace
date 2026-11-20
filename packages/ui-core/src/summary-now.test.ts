@@ -164,3 +164,49 @@ test("the viewed thread's own main agent asking is the main agent, with nothing 
     ),
   ).toBeUndefined();
 });
+
+test("Now names the request the person can answer first: blocking before not, newest first", () => {
+  const ask = (id: string, blocking: boolean, createdAt: number, text: string) =>
+    Interaction.parse({
+      id,
+      agentId: "asker",
+      threadId: "t1",
+      blocking,
+      state: "pending",
+      request: { kind: "question", questions: [{ id: "q", text, options: [] }] },
+      createdAt,
+    });
+  const asking: AgentStatus = { state: "blocked", on: "human", refs: [] };
+  const works = new Map([
+    [
+      "t1",
+      work([agent("t1", "root", idle), agent("t1", "asker", asking, "root")], {
+        interactions: [
+          ask("aside", false, 1, "Older aside?"),
+          ask("old", true, 2, "Older blocking?"),
+          ask("new", true, 3, "Newest blocking?"),
+        ],
+      }),
+    ],
+  ]);
+  const asker = summaryAsker("t1", agentForest("t1", works), works);
+  expect(asker?.request?.kind === "question" && asker.request.questions[0]?.text).toBe(
+    "Newest blocking?",
+  );
+});
+
+test("Now never names a request from a copy that is still catching up after a reconnect", () => {
+  const works = new Map([
+    ["t1", work([agent("t1", "root", idle), agent("t1", "a", working, "root", "t2")])],
+    [
+      "t2",
+      {
+        ...work([agent("t2", "root", waiting)], {
+          interactions: [question("t2", "root", "Answered while away?")],
+        }),
+        facts: "syncing" as const,
+      },
+    ],
+  ]);
+  expect(summaryAsker("t1", agentForest("t1", works), works)?.request).toBeUndefined();
+});

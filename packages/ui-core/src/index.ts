@@ -33,6 +33,7 @@ export * from "./agent-tally.ts";
 export * from "./agent-forest.ts";
 export * from "./summary-now.ts";
 export * from "./summary-agents.ts";
+export * from "./forest-requests.ts";
 export * from "./lost-child.ts";
 export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";
