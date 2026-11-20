@@ -193,4 +193,65 @@ describe("agent packages", () => {
     await harness.ask({ op: "turnOn", type: "spade-bot", name: "flight-watcher" }, "done");
     expect(spade.packageCalls.at(-1)).toMatchObject({ bot, method: "DELETE", path: "/withdrawn" });
   });
+
+  it("refuse a package that needs a newer Spade than the one running, before install", async () => {
+    publish("1.0.0", { requires: { runtime: "1", spade: "99.0.0" } });
+    await harness.ask({ op: "refresh" }, "sources");
+    const refused = await harness.ask(
+      { op: "prepare", source: "market", type: "spade-bot", name: "flight-watcher" },
+      "error",
+    );
+    expect(refused.problems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: "Needs a newer Spade: 99.0.0 or later" }),
+      ]),
+    );
+    expect(spade.made).toEqual([]);
+    // The same bytes review once this machine's Spade is new enough.
+    spade.setVersion("99.0.0");
+    const { review } = await harness.ask(
+      { op: "prepare", source: "market", type: "spade-bot", name: "flight-watcher" },
+      "review",
+    );
+    expect(review.body).toMatchObject({ type: "spade-bot", linked: true });
+  });
+
+  it("know a linked bot a move brought here, by bytes fetched by its hash, so it updates here", async () => {
+    const first = publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    const link = { source: "market", name: "flight-watcher", version: "1.0.0" };
+    // Bytes that don't hash to what the bot has are never taken for it.
+    spade.arrive("bot_moved", { ...link, hash: "f".repeat(64) });
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installedBot()).toBeUndefined();
+
+    spade.arrive("bot_moved", { ...link, hash: first.hash });
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installedBot()).toMatchObject({
+      linked: true,
+      target: "bot_moved",
+      version: "1.0.0",
+      hash: first.hash,
+    });
+    expect(spade.made).toEqual([]);
+
+    // A newer version reaches the moved bot as it reaches one installed here.
+    const second = publish("2.0.0", version2);
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installedBot()).toMatchObject({ update: "2.0.0" });
+    const { review } = await harness.ask(
+      { op: "prepareUpdate", type: "spade-bot", name: "flight-watcher" },
+      "review",
+    );
+    await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
+    expect(spade.packageCalls).toEqual([
+      expect.objectContaining({
+        bot: "bot_moved",
+        method: "POST",
+        body: expect.objectContaining({
+          package: expect.objectContaining({ version: "2.0.0", hash: second.hash }),
+        }),
+      }),
+    ]);
+  });
 });

@@ -36,7 +36,10 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     git: gitRuntime(),
     suits: () => services.suits,
     plugins: () => (services.plugins ? plugins : undefined),
-    spade: spadePort(() => services.spade?.ready()?.connection),
+    spade: spadePort(
+      () => services.spade?.ready()?.connection,
+      () => services.spade?.status().version,
+    ),
     pick: pickPorts({
       spade: () => services.spade?.ready()?.connection,
       skills: () => services.skillLibrary,
