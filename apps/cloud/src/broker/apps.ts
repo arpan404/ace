@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { CALLBACK_PATH, brokerCallback } from "./broker.ts";
 
 /**
  * The apps ace cloud signs in to for Spade (ADR 0140, 0141; `spade/docs/cloud.md`): each one's

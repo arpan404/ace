@@ -4,6 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
+    "./apps": "./src/broker/apps.ts",
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {

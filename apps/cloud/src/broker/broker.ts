@@ -71,8 +71,11 @@ function answer(status: number, body: unknown): Response {
 
 type Caller = { account: string; app: App; client: Client };
 
-const redirect = (publicUrl: string, app: App) =>
-  `${publicUrl.replace(/\/$/, "")}${CALLBACK_PATH}/${app.id}`;
+export function brokerCallback(publicUrl: string, appId: string): string {
+  return `${publicUrl.replace(/\/$/, "")}${CALLBACK_PATH}/${appId}`;
+}
+
+const redirect = (publicUrl: string, app: App) => brokerCallback(publicUrl, app.id);
 
 function authorizationUrl(who: Caller, publicUrl: string, state: string, challenge: string) {
   const url = new URL(who.app.authorization_endpoint);
