@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ContentQuery } from "./content-search-source.ts";
-import { FileRow, LineRow, plural } from "./content-search-rows.tsx";
+import { searchTally, truncatedNote } from "@ace/ui-core";
+import { FileRow, LineRow } from "./content-search-rows.tsx";
 import {
   hitKey,
   lineHit,
@@ -30,16 +31,13 @@ type Row =
   | { kind: "file"; key: string; file: FileSearchFile; open: boolean }
   | { kind: "line"; key: string; path: string; line: FileSearchLine };
 
-const count = (value: number) => value.toLocaleString();
-
 /** "12 results in 3 files", or what the search is doing instead. */
 function statusLine(state: ContentSearchState): string | undefined {
   if (!state.query.pattern) return undefined;
   if (state.status === "searching" && !state.matches) return "Searching…";
   if (state.status === "done" && !state.matches) return "No results.";
   if (state.status === "failed") return state.error?.message ?? "The search failed.";
-  const matches = plural(state.matches, "result", "results");
-  return `${matches} in ${plural(state.files.length, "file", "files")}`;
+  return searchTally(state.matches, state.files.length);
 }
 
 /** ↑ and ↓ walk the result rows that are mounted. */
@@ -229,9 +227,7 @@ export function ContentSearch({
           </Button>
         </div>
         {state.summary?.truncated && (
-          <p className="text-xs leading-4 text-muted-foreground">
-            Showing the first {count(state.matches)} results. Narrow the search to see the rest.
-          </p>
+          <p className="text-xs leading-4 text-muted-foreground">{truncatedNote(state.matches)}</p>
         )}
       </div>
       <div

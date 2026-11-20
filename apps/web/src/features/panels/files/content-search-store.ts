@@ -1,8 +1,19 @@
 import type { ClientApi } from "@ace/client";
-import type { FileSearchFile, FileSearchLine, FileSearchSummary } from "@ace/protocol";
+import type { FileSearchFile, FileSearchSummary } from "@ace/protocol";
 import { useSyncExternalStore } from "react";
 import { checkoutError, type CheckoutError } from "./checkout-source.ts";
-import { globs, searchContents, type ContentQuery } from "./content-search-source.ts";
+import { searchContents, type ContentQuery } from "./content-search-source.ts";
+import {
+  emptyContentQuery,
+  hitKey,
+  lineHit,
+  mergeSearchBatch,
+  nothingFound,
+  searchGlobs,
+  type SearchHit,
+} from "@ace/ui-core";
+
+export { hitKey, lineHit, matchCount, type SearchHit } from "@ace/ui-core";
 import { watchFolders, type FolderWatchHandle } from "./folder-watch.ts";
 
 /** How long typing pauses before the search runs. */
@@ -25,42 +36,6 @@ export interface ContentSearchState {
   cursor: string | undefined;
 }
 
-/** One hit to open: its file, 1-based line, 0-based column and the match's length. */
-export interface SearchHit {
-  path: string;
-  line: number;
-  column: number;
-  length: number;
-}
-
-/** A hit's identity in the list: one row per matching line of a file. */
-export const hitKey = (path: string, line: number) => `${path}:${line}`;
-
-/** The hit a result line opens: its first match. */
-export function lineHit(path: string, line: FileSearchLine): SearchHit {
-  const [start, end] = line.ranges[0] ?? [0, 0];
-  return { path, line: line.line, column: line.column + start, length: end - start };
-}
-
-/** `files` with a batch merged in: a file split across batches stays one group. */
-function appended(
-  into: Pick<ContentSearchState, "files" | "lines" | "matches">,
-  batch: readonly FileSearchFile[],
-): Pick<ContentSearchState, "files" | "lines" | "matches"> {
-  const files = [...into.files];
-  let lines = into.lines;
-  let matches = into.matches;
-  for (const file of batch) {
-    lines += file.lines.length;
-    matches += matchCount(file);
-    const last = files.at(-1);
-    if (last?.path === file.path)
-      files[files.length - 1] = { path: file.path, lines: [...last.lines, ...file.lines] };
-    else files.push(file);
-  }
-  return { files, lines, matches };
-}
-
 /** The hit `delta` steps away from `cursor` among every result line, wrapping round. */
 export function steppedHit(
   files: readonly FileSearchFile[],
@@ -74,13 +49,6 @@ export function steppedHit(
   return hits[(next + hits.length) % hits.length];
 }
 
-/** A file's matches as the view counts them: each highlighted range, at least one a line. */
-export function matchCount(file: FileSearchFile): number {
-  let total = 0;
-  for (const line of file.lines) total += Math.max(1, line.ranges.length);
-  return total;
-}
-
 /** The folder holding `path`, as `files.watch` names it ("" is the root). */
 function folderOf(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -92,7 +60,7 @@ function folderOf(path: string): string {
  * ("src/**" searches src), or the whole checkout ("") when a glob names none ("*.ts").
  */
 function searchedRoots(query: Pick<ContentQuery, "include">): string[] {
-  const roots = globs(query.include).map((glob) => {
+  const roots = searchGlobs(query.include).map((glob) => {
     const fixed: string[] = [];
     for (const part of glob
       .replace(/^\.?\//, "")
@@ -105,15 +73,6 @@ function searchedRoots(query: Pick<ContentQuery, "include">): string[] {
   });
   return roots.length && !roots.includes("") ? [...new Set(roots)] : [""];
 }
-
-const emptyQuery: ContentQuery = {
-  pattern: "",
-  matchCase: false,
-  wholeWord: false,
-  regex: false,
-  include: "",
-  exclude: "",
-};
 
 /**
  * One thread's content search, shared by every Files tab of the thread so opening a result
@@ -129,7 +88,7 @@ export class ContentSearchStore {
   readonly #threadId: string;
   readonly #listeners = new Set<() => void>();
   #state: ContentSearchState = {
-    query: emptyQuery,
+    query: emptyContentQuery,
     status: "idle",
     files: [],
     lines: 0,
@@ -249,16 +208,16 @@ export class ContentSearchStore {
     const controller = new AbortController();
     this.#running = controller;
     const requestId = `search-${crypto.randomUUID()}`;
-    const empty = { files: [], lines: 0, matches: 0 };
-    let found: Pick<ContentSearchState, "files" | "lines" | "matches"> = empty;
-    if (!quiet) this.#set({ status: "searching", ...empty, summary: undefined, error: undefined });
+    let found = nothingFound;
+    if (!quiet)
+      this.#set({ status: "searching", ...nothingFound, summary: undefined, error: undefined });
     searchContents(this.#client, this.#threadId, query, {
       requestId,
       signal: controller.signal,
       onFiles: (files) => {
         if (this.#running !== controller) return;
-        if (quiet) found = appended(found, files);
-        else this.#set(appended(this.#state, files));
+        if (quiet) found = mergeSearchBatch(found, files);
+        else this.#set(mergeSearchBatch(this.#state, files));
       },
     }).then(
       (summary) => {
