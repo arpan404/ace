@@ -277,3 +277,51 @@ test("model catalog uses the same declared category and config ID as ACP selecti
   );
   expect(rows.map((row) => [row.id, row.modelConfigId])).toEqual([["chosen", "actual"]]);
 });
+
+const switchingSession = (current: string, levels: string[]) => ({
+  configOptions: [
+    {
+      id: "model",
+      category: "model",
+      type: "select",
+      currentValue: current,
+      options: [
+        { value: "flash", name: "Flash" },
+        { value: "pro", name: "Pro" },
+      ],
+    },
+    {
+      id: "thinking_level",
+      category: "thought_level",
+      type: "select",
+      currentValue: levels[0],
+      options: levels.map((value) => ({ value, name: value })),
+    },
+  ],
+});
+test("switching models in an Antigravity session keeps the thinking levels learned for the others", async () => {
+  const config = ModelInstance.parse({
+    id: "antigravity-cli-default",
+    provider: "antigravity",
+    loginRevision: "login-one",
+    executable: "/never-executed",
+    cwd: "/repo",
+  });
+  const catalog = new ModelCatalog({
+    instances: [config],
+    storage: { load: () => [], replace() {}, remove() {}, close() {} },
+    discover: async () => [],
+    now: () => 10,
+    deadline: () => () => {},
+  });
+  try {
+    await catalog.updateFromSession(config, switchingSession("pro", ["medium", "high"]));
+    await catalog.updateFromSession(config, switchingSession("flash", ["low", "high"]));
+    const levels = Object.fromEntries(
+      catalog.list().models.map((model) => [model.id, model.efforts.map((effort) => effort.id)]),
+    );
+    expect(levels).toEqual({ flash: ["low", "high"], pro: ["medium", "high"] });
+  } finally {
+    await catalog.close();
+  }
+});

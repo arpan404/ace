@@ -102,7 +102,12 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
       console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:request.request_id,response:payload}}));
       return;
     }
-    if (!['initialize','initialized','model/list','session/new','authenticate','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (!['initialize','initialized','model/list','session/new','session/set_config_option','authenticate','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (request.method === 'session/set_config_option') {
+      const own = payload.perModel?.[request.params.value];
+      console.log(JSON.stringify(own ? {jsonrpc:'2.0',id:request.id,result:{configOptions:own}} : {jsonrpc:'2.0',id:request.id,error:{code:-32602,message:'unknown model'}}));
+      return;
+    }
     if (request.method === 'authenticate') {
       signedIn = request.params.methodId === 'oauth-personal';
       console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result:{}}));

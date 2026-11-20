@@ -8,6 +8,7 @@ import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { providerCli, requireMinimum } from "@ace/provider-kit/cli-requirements";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
+import { keepLearnedOptions } from "./learned-options.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
 import { ModelMetadataPool } from "./model-pool.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
@@ -585,7 +586,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const state = this.#states.get(instance.id);
     if (!state || cacheRevision(state.config) !== cacheRevision(instance))
       return Promise.reject(new Error("Session model generation changed"));
-    const models = normalizeAcp(metadata, instance);
+    const models = keepLearnedOptions(normalizeAcp(metadata, instance), state.entry?.models);
     const permissionModes = acpPermissionModes(metadata, {
       provider: instance.provider,
       profile: instance.acpAgentId?.startsWith("official:")

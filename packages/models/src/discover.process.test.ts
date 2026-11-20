@@ -222,6 +222,41 @@ test("Antigravity offers full access from its probe, before any thread opens and
   }
 });
 
+const probeModel = (current: string) => ({
+  id: "model",
+  category: "model",
+  type: "select",
+  currentValue: current,
+  options: [
+    { value: "flash", name: "Flash" },
+    { value: "pro", name: "Pro" },
+    { value: "lite", name: "Lite" },
+  ],
+});
+const probeThinking = (values: string[], current: string) => ({
+  id: "thinking_level",
+  category: "thought_level",
+  type: "select",
+  currentValue: current,
+  options: values.map((value) => ({ value, name: value })),
+});
+test("Antigravity lists each model's own thinking levels, asking the probe session without a prompt", async () => {
+  const { config } = await launch("antigravity", {
+    sessionId: "probe",
+    configOptions: [probeModel("flash"), probeThinking(["low", "high"], "high")],
+    // "lite" is refused by the agent: it keeps no levels and the listing still succeeds.
+    perModel: { pro: [probeModel("pro"), probeThinking(["low", "medium", "high"], "medium")] },
+  });
+  const rows = await createModelDiscovery()(config, new AbortController().signal);
+  expect(
+    rows.map((row) => [row.id, row.efforts.map((effort) => effort.id), row.defaultEffort]),
+  ).toEqual([
+    ["flash", ["low", "high"], "high"],
+    ["pro", ["low", "medium", "high"], "medium"],
+    ["lite", [], undefined],
+  ]);
+});
+
 test("an agent needing its sign-in method selected lists models with the method the person used", async () => {
   const { config } = await launch("antigravity", {
     models: { currentModelId: "gemini", availableModels: [{ modelId: "gemini", name: "Gemini" }] },
