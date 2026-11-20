@@ -22,7 +22,7 @@ const intents: readonly { value: Intent; label: string }[] = [
  * Writing an annotation's comment, beside the code it is on: the same pill the Browser's page
  * opens on an element, as a popover. A new one saves on Enter (Shift+Enter starts a line); an
  * existing one shows its number and can be deleted. What the person wants (a note, a question, a
- * fix, an explanation) is one word above the comment; a note needs words, the others don't.
+ * fix, an explanation) is one word above the comment.
  */
 export function CommentPopover(props: {
   anchor: Anchor;
@@ -41,7 +41,8 @@ export function CommentPopover(props: {
   const [comment, setComment] = useState(props.comment);
   const [intent, setIntent] = useState<Intent>(props.intent ?? "note");
   const chosen = intent === "note" ? undefined : intent;
-  const ready = !!comment.trim() || !!chosen;
+  // A note and a question need words; a fix or an explanation can go without.
+  const ready = !!comment.trim() || (!!chosen && chosen !== "ask");
   const save = () => {
     if (ready) props.onSave(comment.trim(), chosen);
   };

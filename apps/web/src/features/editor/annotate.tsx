@@ -93,11 +93,12 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
 
   const actions: LayerActions = {
     annotate: (span, intent) => {
-      if (!intent) {
-        setOpen({ kind: "new", span, comment: "" });
+      // A question needs its words: Ask opens the comment with the question chosen.
+      if (!intent || intent === "ask") {
+        setOpen({ kind: "new", span, comment: "", ...(intent ? { intent } : {}) });
         return;
       }
-      // A quick action is an annotation at once, with its words filled in and open to change.
+      // Fix and Explain are annotations at once, with their words filled in and open to change.
       const id = newId();
       checked.current.add(id);
       const source = view.current;
