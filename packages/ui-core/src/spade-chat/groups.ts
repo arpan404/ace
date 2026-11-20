@@ -206,7 +206,7 @@ export function parseSpadeGroupFiles(body: string): SpadeGroupFile[] | undefined
 }
 
 /** Most members a group holds, the lead counted, and fewest. */
-export const spadeGroupMembersMax = 8;
+export const spadeGroupMembersMax = 32;
 export const spadeGroupMembersMin = 2;
 export const spadeGroupNameMax = 60;
 

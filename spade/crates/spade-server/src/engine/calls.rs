@@ -79,6 +79,8 @@ pub(super) async fn handle_calls(
     let facts = TurnFacts {
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
         memory_suggests: summary_only,
+        in_view: in_view.clone(),
+        call: None,
     };
     // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
     let mode = engine.autonomy(id);
@@ -301,7 +303,7 @@ pub(super) async fn handle_calls(
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
                     let held = engine
-                        .contained_call(id, &name, classed.runs == Runs::Sandbox)
+                        .contained_call(id, &name, classed.runs == Runs::Sandbox, reply)
                         .await;
                     let place = match classed.runs {
                         Runs::Host => Place::Host,
@@ -367,36 +369,57 @@ pub(super) async fn handle_calls(
                         .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
                     // One reading of the classifier for this call, for routing and screening.
                     let classifier = engine.classifier_ready();
-                    let route = effect::route(effect::Call {
-                        tool: &name,
-                        rule,
-                        risk: def.risk,
-                        always,
-                        effect: declared,
-                        remembered,
-                        place,
-                        // Anything untrusted the prompt shows, from any turn since compaction.
-                        tainted: !in_view.is_empty(),
-                        // The sandbox's deny-list holds a sandboxed call; anything else that
-                        // names a credential place, or a script it runs that reads one, is
-                        // refused on every level.
-                        credentials: (place != Place::Sandbox || remote)
-                            && (classed.credentials || autonomy::reaches_credentials(&arguments)),
-                        standing: autonomy::STANDING.contains(&name.as_str()),
-                        fits: autonomy::fits_review(&arguments, &classed.shown),
-                        // A grant records no launch: it holds for a contained launch only.
-                        granted: if limit == Authorized::Contained {
-                            engine.granted(id, &name, &arguments, declared)
-                        } else {
-                            effect::Granted::No
-                        },
-                        checkpointed: held && classed.runs == Runs::Host,
-                        target: target.as_deref(),
-                        drive,
-                        mode,
-                        remote,
-                        classifier,
+                    // A bot's own task, name and face are decided first, in every access level:
+                    // with anything untrusted in view, a change goes to the person.
+                    let own = spade_core::self_edit::route(
+                        &name,
+                        untrusted || !in_view.is_empty(),
+                        spade_core::self_edit::naming_open(events),
+                    );
+                    // A bot made for the person, or added to a club: its setting, and the person
+                    // whenever untrusted content is in view (ADR 0161, amendment 1).
+                    let own = own.or_else(|| {
+                        spade_core::made::route(
+                            &name,
+                            &arguments,
+                            untrusted || !in_view.is_empty(),
+                            engine.may_create(id),
+                        )
                     });
+                    let route = match own {
+                        Some(route) => route,
+                        None => effect::route(effect::Call {
+                            tool: &name,
+                            rule,
+                            risk: def.risk,
+                            always,
+                            effect: declared,
+                            remembered,
+                            place,
+                            // Anything untrusted the prompt shows, from any turn since compaction.
+                            tainted: !in_view.is_empty(),
+                            // The sandbox's deny-list holds a sandboxed call; anything else that
+                            // names a credential place, or a script it runs that reads one, is
+                            // refused on every level.
+                            credentials: (place != Place::Sandbox || remote)
+                                && (classed.credentials
+                                    || autonomy::reaches_credentials(&arguments)),
+                            standing: autonomy::STANDING.contains(&name.as_str()),
+                            fits: autonomy::fits_review(&arguments, &classed.shown),
+                            // A grant records no launch: it holds for a contained launch only.
+                            granted: if limit == Authorized::Contained {
+                                engine.granted(id, &name, &arguments, declared)
+                            } else {
+                                effect::Granted::No
+                            },
+                            checkpointed: held && classed.runs == Runs::Host,
+                            target: target.as_deref(),
+                            drive,
+                            mode,
+                            remote,
+                            classifier,
+                        }),
+                    };
                     // An app's write in Full access runs counting on the screening.
                     let required = remote && declared != Some(effect::Effect::Read);
                     let screening = |concern: bool| super::classify::Screening {
@@ -1022,12 +1045,19 @@ async fn run_tools(
                 None if name == TOOL_SEARCH => Some(Risk::Read),
                 None => None,
             };
+            // What it does, as declared to the gate, so the app can say a send or a payment
+            // stays when its files are undone.
+            let effect = engine
+                .tools
+                .get_for(id, &name)
+                .and_then(|tool| tool.effect(&arguments));
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
                 name: name.clone(),
                 risk,
                 background,
+                effect,
             });
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());

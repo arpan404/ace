@@ -156,7 +156,7 @@ test("model selection uses the advertised config ID and rejects removed dependen
     selectorRequest(sessionSelectors(selectorSetup(["native-a"])), "model", "native-b", "session"),
   ).toThrow("unavailable");
 });
-test("old Qwen blocks setters while Gemini uses its legacy dialect and generic modes use standard ACP", () => {
+test("old Qwen blocks setters while profiled and unprofiled agents use the legacy model list and standard modes", () => {
   const setup = {
     models: { availableModels: [{ modelId: "native", name: "Native" }] },
     modes: { availableModes: [{ id: "plan", name: "Plan" }] },
@@ -169,7 +169,18 @@ test("old Qwen blocks setters while Gemini uses its legacy dialect and generic m
       "s",
     ),
   ).toThrow();
-  expect(() => selectorRequest(sessionSelectors(setup), "model", "native", "s")).toThrow();
+  expect(selectorRequest(sessionSelectors(setup), "model", "native", "s")).toEqual({
+    method: "session/set_model",
+    params: { sessionId: "s", modelId: "native" },
+  });
+  expect(
+    selectorRequest(
+      sessionSelectors(setup, matchProfile("qwen-code", "0.24.7")),
+      "model",
+      "native",
+      "s",
+    ).method,
+  ).toBe("session/set_model");
   expect(
     selectorRequest(
       sessionSelectors(setup, matchProfile("gemini", "0.43.0")),
@@ -188,7 +199,7 @@ test("old Qwen blocks setters while Gemini uses its legacy dialect and generic m
   expect(accountMigration().supported).toBe(false);
 });
 
-test("grouped selectors reject overflow before offering an incomplete model list", () => {
+test("grouped selectors past the budget offer no model list rather than an incomplete one", () => {
   const options = Array.from({ length: 512 }, (_, index) => ({
     value: String(index),
     name: String(index),
@@ -209,9 +220,7 @@ test("grouped selectors reject overflow before offering an incomplete model list
   expect(
     selectorRequest(sessionSelectors(setup([])), "model", "511", "session").params,
   ).toMatchObject({ configId: "actual", value: "511" });
-  expect(() => sessionSelectors(setup([{ value: "overflow", name: "Overflow" }]))).toThrow(
-    "budget",
-  );
+  expect(sessionSelectors(setup([{ value: "overflow", name: "Overflow" }])).model).toBeUndefined();
 });
 test("a platform binary ace can't unpack is unavailable unless a package runtime is offered", () => {
   const xz = {
@@ -268,4 +277,48 @@ test("only ZIP, gzip and bzip2 tars and raw executables are installable binaries
     "https://example.org/agent.msix",
   ])
     expect(offered(archive)).toBe("unsupported_distribution");
+});
+
+test("one malformed or oversized list in a session setup drops only its own selector", () => {
+  const selectors = sessionSelectors({
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        options: [
+          { value: "", name: "Blank" },
+          { value: "good", name: "" },
+          { value: "long-name", name: "N".repeat(400) },
+        ],
+      },
+      {
+        id: "thinking",
+        category: "thought_level",
+        type: "select",
+        options: Array.from({ length: 600 }, (_, index) => ({ value: `l${index}`, name: "L" })),
+      },
+    ],
+    modes: {
+      availableModes: [
+        { id: "plan", name: "" },
+        { id: "x".repeat(300), name: "Too long" },
+      ],
+    },
+  });
+  expect(selectors.model?.values).toEqual(["good", "long-name"]);
+  expect(selectors.effort).toBeUndefined();
+  expect(selectors.mode?.values).toEqual(["plan"]);
+  expect(() =>
+    sessionSelectors({
+      configOptions: Array.from({ length: 70 }, () => ({})),
+      modes: { availableModes: [{ id: "plan", name: "Plan" }] },
+    }),
+  ).not.toThrow();
+  expect(
+    sessionSelectors({
+      configOptions: Array.from({ length: 70 }, () => ({})),
+      modes: { availableModes: [{ id: "plan", name: "Plan" }] },
+    }).mode?.values,
+  ).toEqual(["plan"]);
 });

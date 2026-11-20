@@ -173,6 +173,11 @@ export const ModelInstanceStatus = z.object({
   stale: z.boolean(),
   refreshing: z.boolean(),
   error: z.enum(["discovery_failed", "timeout", "persistence_failed"]).optional(),
+  /**
+   * ACP agents: how the row's models load before a thread opens. `automatic` loads on the first
+   * read; `on-request` waits for the person to ask (an agent without a reviewed profile).
+   */
+  modelProbe: z.enum(["automatic", "on-request"]).optional(),
 });
 export type ModelInstanceStatus = z.infer<typeof ModelInstanceStatus>;
 export const ModelListResult = z.object({
@@ -213,6 +218,16 @@ export const ModelsRefreshRequest = z.object({
   type: z.literal("models.refresh"),
   requestId: label,
   filter: ModelFilter.default({}),
+});
+/**
+ * The person asks for one row's models (Load models): the only request that starts an ACP agent
+ * whose row is not loading already. The daemon admits it only from a socket that proved it is
+ * the person's, never from an agent's device; `models.refresh` only resets such a row.
+ */
+export const ModelsLoadRequest = z.object({
+  type: z.literal("models.load"),
+  requestId: label,
+  instance: label,
 });
 export const ModelsResolveRequest = z.object({
   type: z.literal("models.resolve"),

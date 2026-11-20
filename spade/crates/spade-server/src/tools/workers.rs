@@ -31,8 +31,12 @@ const WORKER: &str = "The worker's id or name, from worker_status.";
 fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
     match name {
         tree::BOT_CREATE => (
-            "Makes a worker bot for part of your work: long-lived, with its own conversation, \
-             goal and plan, listed under you. Use it for parallel parts with separate scopes that \
+            "Makes a bot. kind worker (the default) is a worker for part of your work: \
+             long-lived, with its own conversation, goal and plan, listed under you, reporting \
+             back when it settles. kind standing is a bot of the person's own, at the top of \
+             their list, for a job that is theirs (a Research bot, a specialist for a team): give \
+             it a name, a task, a face and the apps it will need, which the person connects; it \
+             starts when someone writes to it. For a worker: Use it for parallel parts with separate scopes that \
              outlive one answer; use a helper for reading you need once, ace's delegate for \
              code, and do sequential work yourself. The brief says the objective, what to hand \
              back, the boundaries and what is ruled out. It gets your tools, connectors \
@@ -44,7 +48,10 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
                 "model": { "type": "string", "description": "A role (main, helper, verify, review, compact, title) or an endpoint/model the person set up for you; yours when unset." },
                 "tools": { "type": "array", "items": { "type": "string" }, "description": "Only these of your tools; all of yours when unset." },
                 "connectors": { "type": "array", "items": { "type": "string" } },
-                "plugins": { "type": "array", "items": { "type": "string" } }
+                "plugins": { "type": "array", "items": { "type": "string" } },
+                "kind": { "type": "string", "enum": ["worker", "standing"] },
+                "face": { "type": "object", "description": "standing: its face (body, pair, ears, eyes, mouth, accessory), as profile_update takes it." },
+                "apps": { "type": "array", "items": { "type": "string" }, "description": "standing: catalogue apps it will need, suggested to the person." }
             }, "required": ["name", "task"] }),
             Risk::Write,
             false,
@@ -111,6 +118,9 @@ impl Tool for WorkerTool {
                 return ToolOutput::error("Spade is stopping.");
             };
             match name {
+                tree::BOT_CREATE if spade_core::made::standing(&arguments) => {
+                    engine.make_standing(&key, arguments).await
+                }
                 tree::BOT_CREATE => engine.bot_create(&key, arguments),
                 tree::WORKER_MESSAGE => engine.worker_message(&key, arguments).await,
                 tree::WORKER_STATUS => engine.worker_status(&key, arguments),

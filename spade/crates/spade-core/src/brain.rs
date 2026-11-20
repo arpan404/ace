@@ -335,6 +335,8 @@ mod tests {
         Event::Known(Known::AgentConfigured {
             task: task.into(),
             model: "cli:codex/m".into(),
+            personality: None,
+            change: None,
         })
     }
 

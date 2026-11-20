@@ -95,6 +95,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agents/{id}/pin", put(agents::pin))
         .route("/agents/{id}/task", get(goals::read))
+        .route("/agents/{id}/task/history", get(agents::task_history))
+        .route(
+            "/agents/{id}/undo-made",
+            axum::routing::post(agents::undo_made),
+        )
         .route("/agents/{id}/tree", get(workers::tree))
         .route(
             "/agents/{id}/task/goal",
@@ -102,6 +107,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/main", get(moves::main_state).put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
+        .route("/endpoints/local", get(endpoints::local))
+        .route("/endpoints/local/{server}", post(endpoints::use_local))
         .route(
             "/endpoints/{id}",
             axum::routing::patch(endpoints::update).delete(endpoints::delete),

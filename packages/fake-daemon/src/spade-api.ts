@@ -1,3 +1,4 @@
+import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -48,6 +49,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
   newBotModel: string | null = null;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
+  /** `endpoint/model` that reads replies aloud. */
+  speechModel: string | null = null;
+  /** The words each `POST /v1/speech` asked to hear, in order. */
+  spoken: string[] = [];
   /** Stored images by hash with their media type; any other hash answers 404. */
   images = new Map<string, string>();
   /** What `POST /v1/transcriptions` answers. */
@@ -126,6 +131,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
   skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
+  /** First run, as Spade keeps it (`GET /v1/onboarding`), finished unless a test asks again. */
+  readonly onboarding: Record<string, string | null> = { about_you: "done", starters: "done" };
+  /** Where each note or page came from, by its id, as `GET …/provenance` answers. */
+  readonly provenance = new Map<string, Json>();
+  /** The sources each bot learned from, as `GET /v1/agents/{id}/learned` answers. */
+  readonly learned = new Map<string, Json[]>();
+  /** Each `POST …/learned/forget`, by bot, its source key. */
+  readonly forgotSources: { agent: string; source: string }[] = [];
+  /** Model servers on this computer, as `GET /v1/endpoints/local` answers (`{id, name, …}`). */
+  localServers: Json[] = [];
   /** Each bot's knowledge pages and past work (ADR 0164). */
   readonly knowledge: FakeSpadeKnowledge;
   /** Each bot's services (ADR 0160). */
@@ -156,11 +171,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly teams: FakeSpadeTeams;
   /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
   readonly work = new FakeSpadeWork(() => this.agents);
+  /** Made bots that have acted outside themselves: Undo archives them (ADR 0161, amendment 1). */
+  readonly madeActed = new Set<string>();
+  /** Each bot's task versions and its own renames. */
+  readonly tasks: FakeSpadeTasks;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
+    this.tasks = new FakeSpadeTasks((conversation, event) => this.store(conversation, event), now);
     this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
     this.security = new FakeSpadeSecurity(now);
@@ -244,6 +264,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
   store(conversation: string, event: Json): void {
     const stored = this.keep(conversation, event);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Words of an open reply as they stream: sent live, never stored. */
+  delta(conversation: string, replyId: string, text: string): void {
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "delta", { reply: replyId, text });
   }
 
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
@@ -543,6 +568,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
     }
+    if ((root === "notes" || root === "knowledge") && id && sub === "provenance") {
+      const shown = this.provenance.get(id);
+      return shown === undefined ? problem(404, "there is no such note") : reply(shown);
+    }
+    if (root === "agents" && id && sub === "learned") {
+      if (subId === "forget" && request.method === "POST") {
+        const source = String((body as { source?: unknown }).source ?? "");
+        this.forgotSources.push({ agent: id, source });
+        this.learned.set(
+          id,
+          (this.learned.get(id) ?? []).filter((s) => (s as { key?: unknown }).key !== source),
+        );
+        return reply({ notes: 1, entries: 0 });
+      }
+      return reply({ sources: this.learned.get(id) ?? [] });
+    }
+    if (root === "onboarding" && request.method === "GET") return reply(this.onboarding);
+    if (root === "onboarding" && request.method === "PUT") {
+      Object.assign(this.onboarding, body);
+      return reply(this.onboarding);
+    }
     const searched = new URLSearchParams(query).get("q") ?? "";
     if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
@@ -558,6 +604,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && sub === "undo-made" && request.method === "POST") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      if (!agent.made_by) return problem(409, "only a bot another bot made can be undone");
+      // As Spade: a bot that acted is archived; one that didn't is removed.
+      if (!this.madeActed.has(id)) {
+        this.agents = this.agents.filter((candidate) => candidate !== agent);
+        return reply({ undone: "removed" });
+      }
+      agent.archived = true;
+      return reply({ undone: "archived" });
+    }
+    if (root === "agents" && id && sub === "task" && subId === "history") {
+      if (!this.agents.some((candidate) => candidate.id === id))
+        return problem(404, "No such agent.");
+      return reply(this.tasks.history(id));
+    }
     if (root === "agents" && id && (sub === "task" || sub === "tree")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -627,10 +690,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
         fast_model: this.fastModel,
         new_bot_model: this.newBotModel,
         transcription_model: this.transcriptionModel,
+        speech_model: this.speechModel,
         keychain: this.keychain,
       });
     if (root === "subscriptions" && request.method === "GET")
       return reply({ providers: this.subscriptions, error: null });
+    if (root === "endpoints" && id === "local" && request.method === "GET")
+      return reply({ servers: this.localServers });
+    if (root === "endpoints" && id === "local" && sub && request.method === "POST")
+      return this.useLocalModel(sub, String(body.model ?? ""));
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "search") return this.search.route(request.method, id, body, this.keychain);
@@ -647,6 +715,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
         if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
           return problem(400, "The transcription model must be on one of your endpoints.");
         this.transcriptionModel = model;
+      }
+      if ("speech_model" in body) {
+        const model = typeof body.speech_model === "string" ? body.speech_model : null;
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The speech model must be on one of your endpoints.");
+        this.speechModel = model;
       }
       return { status: 204 };
     }
@@ -686,6 +761,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.transcriptionModel
         ? reply({ text: this.transcript })
         : problem(409, "No transcription model is set.");
+    // As Spade: the audio the speech model reads, here a few bytes named by the words.
+    if (root === "speech" && request.method === "POST") {
+      if (!this.speechModel) return problem(409, "No speech model is set.");
+      const text = typeof body.text === "string" ? body.text : "";
+      this.spoken.push(text);
+      return { status: 200, body: `audio of ${text}`, contentType: "audio/mpeg" };
+    }
     // A stored document or recording: its bytes, as text here.
     if ((root === "documents" || root === "audio") && id && request.method === "GET")
       return {
@@ -746,8 +828,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "access must be auto_review.");
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
+      // As Spade: a bot made from one message is "New bot" until it names itself.
+      const named = typeof body.name === "string" && body.name.trim() !== "";
       const agent = this.addAgent({
-        name: String(body.name ?? ""),
+        name: named || body.naming !== true ? String(body.name ?? "") : "New bot",
         task: String(body.task ?? ""),
         // As Spade: a new bot with no model named starts on the model for new bots.
         model: String(body.model ?? this.newBotModel ?? ""),
@@ -758,6 +842,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
             ? { avatar: storedBotFace(repairFace(avatar)) as Json }
             : {}),
       });
+      this.tasks.made(agent);
       // As Spade: a first message goes with the bot it makes (the new-bot conversation).
       const first = body.first_message as Json | undefined;
       if (first && typeof first === "object") this.takeMessage(agent.conversation, agent, first);
@@ -768,13 +853,30 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (method === "PATCH") {
       if (agent.kind === "main" && ("name" in body || "avatar" in body))
         return problem(400, "Spade's name and face can't change.");
-      for (const key of ["name", "task", "model"] as const)
+      for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: whether it may make bots (ADR 0161, amendment 1).
+      if (
+        body.may_create_bots === "yes" ||
+        body.may_create_bots === "ask" ||
+        body.may_create_bots === "no"
+      )
+        agent.may_create_bots = body.may_create_bots;
+      // As Spade: a task change is kept with who made it and why.
+      if (typeof body.task === "string")
+        this.tasks.change(
+          agent,
+          body.task,
+          "person",
+          typeof body.task_why === "string" ? body.task_why : "",
+        );
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
           avatar.kind === "character" ? (storedBotFace(repairFace(avatar)) as Json) : avatar;
       }
+      if (typeof body.name === "string" || body.avatar)
+        this.tasks.renamed(agent, "person", Boolean(body.avatar));
       return reply({ agent });
     }
     if (method === "DELETE") {
@@ -869,6 +971,32 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (proposal.state !== "open") return problem(409, "this proposal was already answered");
     proposal.state = body.save === true ? "saved" : "discarded";
     return reply({ proposal });
+  }
+
+  /** As Spade: the local server added as a keyless endpoint the first time, the model saved on it. */
+  private useLocalModel(server: string, model: string): FakeSpadeAnswer {
+    const local = this.localServers.find((candidate) => candidate.id === server);
+    if (!local || !model.trim()) return problem(404, "No such model server.");
+    let endpoint = this.endpoints.find((candidate) => candidate.base_url === local.base_url);
+    if (!endpoint) {
+      endpoint = {
+        id: server,
+        name: local.name,
+        format: "openai-chat",
+        base_url: local.base_url,
+        header_names: [],
+        session_header: null,
+        needs_key: false,
+        key_set: false,
+        key_source: null,
+        models: [],
+      };
+      this.endpoints.push(endpoint);
+      local.endpoint = server;
+    }
+    const models = endpoint.models as Json[];
+    if (!models.some((saved) => saved.id === model)) models.push({ id: model, source: "typed" });
+    return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
   }
 
   private endpointRoute(

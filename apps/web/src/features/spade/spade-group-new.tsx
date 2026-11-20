@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
+import { Input } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useMachines } from "@/lib/machines.ts";
 import {
@@ -60,6 +61,25 @@ export function SpadeNewGroupScreen() {
   );
 }
 
+/** Past this many bots to choose from, the picker offers a search. */
+const searchFrom = 8;
+
+/** The choices whose name or machine holds `text` (any case), and every picked one. */
+function matching(
+  choices: readonly MemberChoice[],
+  text: string,
+  picked: readonly string[],
+): MemberChoice[] {
+  const needle = text.trim().toLowerCase();
+  if (!needle) return [...choices];
+  return choices.filter(
+    (choice) =>
+      picked.includes(choice.key) ||
+      choice.name.toLowerCase().includes(needle) ||
+      choice.machineName.toLowerCase().includes(needle),
+  );
+}
+
 function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string }) {
   const cache = useQueryClient();
   const navigate = useNavigate();
@@ -69,6 +89,7 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
   const [asked, setAsked] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [search, setSearch] = useState("");
   // This machine's bots first, as the roster has them.
   const ordered = props.choices.toSorted(
     (a, b) => Number(b.host === props.primaryHost) - Number(a.host === props.primaryHost),
@@ -76,6 +97,9 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
   // In the order the person picked them: the group keeps that order.
   const picked = keys.flatMap((key) => ordered.filter((choice) => choice.key === key));
   const lead = draftLead(picked, asked);
+  // With many bots to choose from, a search narrows the list; a picked bot always stays in it.
+  const searching = props.choices.length > searchFrom;
+  const listed = searching ? matching(ordered, search, keys) : ordered;
   const blocked = draftProblem(name, picked);
   const whyBlocked = useId();
   const where = (choice: MemberChoice) =>
@@ -128,14 +152,30 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
           value={name}
           maxLength={spadeGroupNameMax}
           onChange={(event) => setName(event.target.value.replaceAll(/[\r\n]/g, " "))}
-          className="w-full max-w-80 rounded-md bg-(--chat-well) px-2.5 py-0.5 text-center text-[22px] leading-7 font-semibold text-foreground outline-none placeholder:text-subtle-foreground focus-ring"
+          // New bot's title style: borderless, its type scale, and only a hairline while focused.
+          className="field-sizing-content h-9 max-w-full min-w-56 rounded-md bg-transparent px-2 text-center text-2xl font-semibold tracking-title text-foreground transition-colors duration-(--motion-fast) outline-none placeholder:text-subtle-foreground hover:bg-hover focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--focus,var(--ring))_50%,transparent)]"
         />
       </div>
       <h2 className="mt-6 mb-1.5 ml-3 text-ui font-medium text-muted-foreground">
         {`Members · ${spadeGroupMembersMin} to ${spadeGroupMembersMax}`}
       </h2>
+      {searching && (
+        <Input
+          type="search"
+          aria-label="Search bots"
+          placeholder={`Search ${props.choices.length} bots`}
+          value={search}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => setSearch(event.target.value)}
+          className="mb-2"
+        />
+      )}
       <ul aria-label="Members" className="flex flex-col gap-0.5">
-        {ordered.map((choice) => {
+        {listed.length === 0 && (
+          <li className="px-3 py-2 text-ui text-muted-foreground">{`No bot is called “${search.trim()}”.`}</li>
+        )}
+        {listed.map((choice) => {
           const on = keys.includes(choice.key);
           return (
             <li key={choice.key}>

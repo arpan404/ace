@@ -70,6 +70,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "history",
     "usage",
     "agentRegistry",
+    "acpCatalog",
     "pi",
     "engine",
     "transitions",

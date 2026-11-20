@@ -140,7 +140,8 @@ test.each([
   { adapter: createCursorAdapter(), version: "1.0.35", mode: "ask" as const },
   { adapter: createPiAdapter(), version: "0.85.1", mode: "ask" as const },
 ])(
-  "$adapter.provider refuses an explicit $mode it doesn't support",
+  // ADR 0078, 2026-11-19: the person's own pick runs as the nearest mode, and the thread says so.
+  "$adapter.provider takes an explicit $mode it doesn't support, to run as its nearest one",
   async ({ adapter, version, mode }) => {
     const h = await providerHarness(adapter, version, 0);
     try {
@@ -152,8 +153,8 @@ test.each([
           access: mode,
           input: [{ type: "text", text: "fake" }],
         }),
-      ).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
-      expect(h.store.listThreads()).toHaveLength(0);
+      ).toMatchObject({ ok: true });
+      expect(h.store.listThreads()).toHaveLength(1);
     } finally {
       await h.close();
     }

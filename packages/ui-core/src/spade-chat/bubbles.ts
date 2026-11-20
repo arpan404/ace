@@ -14,6 +14,7 @@ import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
+import type { SpadeTurnUndo } from "./undo.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
@@ -60,10 +61,22 @@ type SpadeBubbleOf =
       documents: readonly SpadeDocumentRef[];
     }
   /**
+   * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
+   * quiet line under the reply that opens to them and where each came from.
+   */
+  | { kind: "recalled"; key: string; notes: readonly string[] }
+  /**
    * The steps a reply took, as one quiet line under it that opens to each (`spadeReplySteps`);
    * the ones the person must see stand under it unopened.
    */
-  | { kind: "steps"; key: string; summary: string; steps: readonly SpadeStep[] }
+  | {
+      kind: "steps";
+      key: string;
+      summary: string;
+      steps: readonly SpadeStep[];
+      /** Undoing the whole turn's file changes, when any step can be undone (ADR 0167). */
+      undo: SpadeTurnUndo | undefined;
+    }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
@@ -72,6 +85,21 @@ type SpadeBubbleOf =
   | { kind: "search-setup"; key: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
   | { kind: "quiet"; key: string; quiet: SpadeQuiet }
+  /** "Updated its task: …", with the change behind See change and Undo. */
+  | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
+  /** "Made a new bot: Research · …", with Open and Undo. */
+  | { kind: "made"; key: string; bot: string; name: string; task: string }
+  /** "Added Writer to Ops". */
+  | {
+      kind: "club-added";
+      key: string;
+      club: string;
+      clubName: string;
+      bot: string;
+      botName: string;
+    }
+  /** "Named itself Ivy", the name and face changed in place from the line. */
+  | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /**
@@ -147,6 +175,8 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
   // Files kept since the bot's last bubble, for its next one.
   const held: Held = { paths: [], key: undefined };
+  /** The notes recalled for the latest message, until the reply to it finishes. */
+  let recalled: readonly string[] = [];
   // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
   // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
   // `silent_replies` in spade-core); one that also answers anything else always shows.
@@ -190,6 +220,16 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       });
       continue;
     }
+    if (
+      entry.kind === "task-changed" ||
+      entry.kind === "named" ||
+      entry.kind === "made" ||
+      entry.kind === "club-added"
+    ) {
+      onlyGroups = false;
+      bubbles.push(entry);
+      continue;
+    }
     if (entry.kind === "quiet") {
       onlyGroups = false;
       bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
@@ -218,6 +258,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       continue;
     }
     if (entry.kind === "user") {
+      recalled = entry.recalled ?? [];
       inputs = true;
       onlyBeats &&= entry.fromRoutine?.heartbeat === true;
       onlyGroups &&= entry.fromGroup !== undefined;
@@ -279,7 +320,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     }
     if (grouped) cardBubbles(entry, bubbles, ask);
     else if (!quiet) replyBubbles(entry, bubbles, held, ask);
-    else
+    // What it had in mind, under the reply that answered the message, once it finished.
+    if (!quiet && !grouped && entry.end && recalled.length) {
+      bubbles.push({ kind: "recalled", key: `${entry.key}:recalled`, notes: recalled });
+      recalled = [];
+    } else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
   }
   if (held.key !== undefined && held.paths.length)

@@ -161,85 +161,57 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
   }
 }
 
-const Choice = z
-  .object({
-    value: z.string().min(1).max(256),
-    name: z.string().min(1).max(256),
-    description: z.string().max(2048).optional(),
-  })
-  .passthrough();
-const Select = z
-  .object({
-    id: z.string(),
-    category: z.string().optional(),
-    currentValue: z.string().optional(),
-    options: z
-      .array(z.union([Choice, z.object({ options: z.array(Choice).max(128) }).passthrough()]))
-      .max(128),
-  })
-  .passthrough();
-const Setup = z
-  .object({
-    configOptions: z.array(z.unknown()).max(64).optional(),
-    modes: z
-      .object({
-        availableModes: z
-          .array(
-            z
-              .object({
-                id: z.string().min(1).max(256),
-                name: z.string().min(1).max(256),
-                description: z.string().max(2048).optional(),
-              })
-              .passthrough(),
-          )
-          .max(128),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
-const ChoiceGroup = z.object({ options: z.array(Choice) });
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+const MODE_ID = z.string().min(1).max(256);
+/**
+ * A mode entry read leniently: one without a usable id is skipped, a missing or empty name reads
+ * as the id, and long text is cut, so one odd entry never hides the agent's other modes.
+ */
+function modeEntry(entry: unknown, idKey: string): NativePermissionMode | undefined {
+  const value = record(entry);
+  const id = MODE_ID.safeParse(value[idKey]);
+  if (!id.success) return undefined;
+  const name = typeof value["name"] === "string" && value["name"] ? value["name"] : id.data;
+  const description = typeof value["description"] === "string" ? value["description"] : "";
+  return {
+    id: id.data,
+    label: name.slice(0, 256),
+    description: description.slice(0, 2048),
+    risk: "medium",
+  };
+}
+const MAX_MODES = 128;
 export function acpPermissionModes(
   raw: unknown,
   identity: { provider?: ProviderKind | undefined; profile?: string | undefined } = {},
 ): NativePermissionMode[] {
-  const parsed = Setup.safeParse(raw);
-  if (!parsed.success) return [];
-  for (const entry of parsed.data.configOptions ?? []) {
-    const config = Select.safeParse(entry);
-    if (
-      !config.success ||
-      !["mode", "permission", "permissions"].includes(config.data.category ?? config.data.id)
-    )
-      continue;
-    return config.data.options
-      .flatMap((option) =>
-        "value" in option ? [Choice.parse(option)] : ChoiceGroup.parse(option).options,
-      )
-      .map((option) =>
-        acpPresentation(
-          {
-            id: option.value,
-            label: option.name,
-            description: option.description ?? "",
-            risk: "medium",
-          },
-          identity,
-        ),
-      );
+  const setup = record(raw);
+  const presented = (entries: unknown[], idKey: string) =>
+    entries.length > MAX_MODES
+      ? []
+      : entries.flatMap((entry) => {
+          const parsed = modeEntry(entry, idKey);
+          return parsed ? [acpPresentation(parsed, identity)] : [];
+        });
+  const configOptions = Array.isArray(setup["configOptions"]) ? setup["configOptions"] : [];
+  for (const entry of configOptions.length > 64 ? [] : configOptions) {
+    const config = record(entry);
+    const key = typeof config["category"] === "string" ? config["category"] : config["id"];
+    if (typeof key !== "string" || !["mode", "permission", "permissions"].includes(key)) continue;
+    const options = Array.isArray(config["options"]) ? config["options"] : [];
+    return presented(
+      options.flatMap((option) => {
+        const group = record(option)["options"];
+        return Array.isArray(group) ? group : [option];
+      }),
+      "value",
+    );
   }
-  return (parsed.data.modes?.availableModes ?? []).map((entry) =>
-    acpPresentation(
-      {
-        id: entry.id,
-        label: entry.name,
-        description: entry.description ?? "",
-        risk: "medium",
-      },
-      identity,
-    ),
-  );
+  const modes = record(setup["modes"])["availableModes"];
+  return presented(Array.isArray(modes) ? modes : [], "id");
 }
 
 /** Source-verified native selectors (ADR 0069); an unprofiled "yolo" is not enough evidence. */

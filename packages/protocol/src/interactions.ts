@@ -7,7 +7,19 @@ import { TodoEntry } from "./tools.ts";
 export const ApprovalOption = z.object({
   id: z.string(),
   label: z.string(),
-  kind: z.enum(["allow_once", "allow_session", "allow_always", "deny", "deny_always", "cancel"]),
+  /**
+   * `other` is a native choice that is neither a grant nor a refusal ace recognises ("Ask
+   * later"): it is shown with the agent's own label and never styled or used as allow or deny.
+   */
+  kind: z.enum([
+    "allow_once",
+    "allow_session",
+    "allow_always",
+    "deny",
+    "deny_always",
+    "cancel",
+    "other",
+  ]),
 });
 export type ApprovalOption = z.infer<typeof ApprovalOption>;
 

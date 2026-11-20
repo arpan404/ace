@@ -64,6 +64,20 @@ const tools: Record<string, ToolWords> = {
   },
   workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
   workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
+  // Bots it makes, and bots it adds to its clubs (ADR 0161).
+  bot_create: { base: "make a bot", doing: "Making a bot", done: "Made a bot" },
+  club_add: {
+    base: "add a bot to a club",
+    doing: "Adding a bot to a club",
+    done: "Added a bot to a club",
+  },
+  // Its own task, name and face.
+  task_update: { base: "change its task", doing: "Updating its task", done: "Updated its task" },
+  profile_update: {
+    base: "change its name or face",
+    doing: "Choosing its name",
+    done: "Changed its name",
+  },
   // Its notes (ADR 0128).
   memory_save: { base: "save a note", doing: "Saving a note", done: "Saved a note" },
   memory_update: { base: "update a note", doing: "Updating a note", done: "Updated a note" },

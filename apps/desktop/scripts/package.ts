@@ -253,6 +253,9 @@ const config: Configuration = {
         },
       ],
       NSScreenCaptureUsageDescription: "ace shows only apps you explicitly approve.",
+      // Spade's voice: heard only while you talk to it, sent only to the endpoint you chose.
+      NSMicrophoneUsageDescription:
+        "ace listens only while you talk to Spade, and sends what you say only to the endpoint you chose.",
     },
   },
   // A Developer ID signature on the disk image too, so Gatekeeper trusts the download.

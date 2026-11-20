@@ -563,8 +563,9 @@ whole. A folder without a record is an unfinished copy and is removed when the l
 `.spade/tmp` isn't kept. Taken:
 
 - `auto`: before a sandboxed bot command, terminal command or service, or a contained file write,
-  at most once a minute per bot (only one that was taken counts; in memory, so a restart may take
-  one sooner). When it can't be taken, the command or write goes to the review instead, and a
+  at most once a minute per bot, and before the first such work of each turn whatever the minute,
+  so a turn's changes can be undone without undoing an earlier turn's (only one that was taken
+  counts; in memory, so a restart may take one sooner). When it can't be taken, the command or write goes to the review instead, and a
   service doesn't start;
 - `person`: on `POST /agents/{id}/checkpoints`;
 - `before_restore`: just before a restore.
@@ -579,6 +580,19 @@ helpers starts (they wait), no contained command or file write runs, and another
 `before_restore` checkpoint, moves the workspace aside, copies the checkpoint in its place, and
 puts the old one back if the copy fails. Consented folders aren't copied. Files a restore brings back are trusted only
 where their content still matches the trust record.
+
+**Undo in the conversation.** The steps of a reply that changed the bot's files offer "Undo these
+changes", and the reply's step line undoes the whole turn (from its first file-changing step).
+Undo goes back to the newest checkpoint taken at or before the step started (`security/undo.rs`):
+for a turn's first file-changing step that is the turn's own checkpoint. Before anything changes,
+`GET …/checkpoints/undo?seq=` compares that copy with the workspace (size and time first, bytes
+where they differ) and lists what would go back, be removed and come back; the person confirms and
+the restore runs as above. Undo reaches only the workspace: what a step did outside it (a push, a
+send, a payment, an app it changed, a command run outside the sandbox) can't be undone, and the
+step says so. Which steps those are comes from what each tool declared to the gate (ADR 0171):
+`tool_started` records that `effect`, and a `send_as_person`, `pay`, `publish`, `change_access`,
+`network`, `drive` or `unknown` step reads as one undo can't reach, never by its tool's name. After a restore that changed anything the bot reads a `person_activity` note saying
+its workspace went back and how many files changed, so it reads them again before relying on them.
 
 ## API
 
@@ -602,6 +616,7 @@ Under `/v1`, with the bearer token. Only the person's API writes any of this; no
 | `DELETE /agents/{id}/grants/{grant}`                                                            |                                        | `204`; `404` no such grant                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `GET /agents/{id}/checkpoints`                                                                  |                                        | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                                                                                                                                                                                                                                         |
 | `POST /agents/{id}/checkpoints`                                                                 |                                        | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                                                                                                                                                                                                                                          |
+| `GET /agents/{id}/checkpoints/undo`                                                             | `?seq=` (a `tool_started` position)    | `{checkpoint, changes: {changed, added, deleted, more}}` (paths in the workspace, at most 200 each); `404` no such step, or no checkpoint from before it                                                                                                                                                                                                                                                                                |
 | `POST /agents/{id}/checkpoints/{c}/restore`                                                     |                                        | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                                                                                                                                                                                                                                                 |
 | Settings are one stored setting per bot, `security:<bot id>`, and the machine's defaults,       |
 | `security.machine`; a value that doesn't parse reads as the defaults. A bot's own value wins; a |
