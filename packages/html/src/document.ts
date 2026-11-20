@@ -106,6 +106,8 @@ function themedDocument(
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);
 }
+/** A panel's page takes its whole place and scrolls itself. */
+const filling = "html,body{margin:0;height:100%}iframe{height:100%}";
 /** The outer document scrolls its page: full screen, a window, the phone's viewer. */
 const scrolling = "html,body{margin:0}";
 /**
@@ -173,7 +175,7 @@ export function inlineVisualizationUrl(
  * place and scrolls itself, and always runs its scripts, on the current style kit.
  */
 export function panelUrl(html: string, theme: HtmlTheme): string {
-  return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, scrolling, "panel"));
+  return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, filling, "panel"));
 }
 
 /**

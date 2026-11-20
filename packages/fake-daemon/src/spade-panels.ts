@@ -40,6 +40,7 @@ function pageHash(text: string): string {
 
 export class FakeSpadePanels {
   readonly #byAgent = new Map<string, FakePanel[]>();
+  readonly #reactions = new Map<string, (action: { name: string; value: unknown }) => void>();
   readonly #pages = new Map<string, string>();
   readonly #events: (conversation: string) => Json[];
   readonly #store: (conversation: string, event: Json) => void;
@@ -52,9 +53,14 @@ export class FakeSpadePanels {
     this.#store = deps.store;
   }
 
-  /** Gives `agent` its package's panels. */
-  set(agent: FakeSpadeAgent, panels: readonly FakePanel[]): void {
+  /** Gives `agent` its package's panels; `react` plays the bot's answer to each action. */
+  set(
+    agent: FakeSpadeAgent,
+    panels: readonly FakePanel[],
+    react?: (action: { name: string; value: unknown }) => void,
+  ): void {
     this.#byAgent.set(agent.id, [...panels]);
+    if (react) this.#reactions.set(agent.id, react);
     for (const panel of panels) this.#pages.set(pageHash(panel.html), panel.html);
   }
 
@@ -104,7 +110,7 @@ export class FakeSpadePanels {
     const action = declared.actions.find((each) => each.name === fields["action"]);
     if (!action) return problem(400, "The panel declares no such action.");
     const key = String(fields["key"] ?? "");
-    if (!events.some((event) => event.type === "panel_action" && event.key === key))
+    if (!events.some((event) => event.type === "panel_action" && event.key === key)) {
       this.#store(agent.conversation, {
         type: "panel_action",
         surface: declared.id,
@@ -113,6 +119,8 @@ export class FakeSpadePanels {
         label: action.label ?? action.name,
         ...(fields["value"] === undefined ? {} : { value: fields["value"] }),
       });
+      this.#reactions.get(agent.id)?.({ name: action.name, value: fields["value"] });
+    }
     return reply({}, 202);
   }
 }

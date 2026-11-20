@@ -37,6 +37,7 @@ const card = (fare: string, change: string, checked: number) => ({
       actions: [
         { kind: "choose", id: "keep", label: "Keep watching" },
         { kind: "choose", id: "stop", label: "Stop" },
+        { kind: "open_panel", label: "All trips", panel: "watched" },
         {
           kind: "open",
           label: "Book",
