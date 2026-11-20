@@ -269,8 +269,9 @@ export async function startFilesRelay(
           return;
         }
         // A media hello comes only on a `purpose=media` stream, which ace-media holds; on any
-        // other it is refused before anything is served.
-        if (hello.channel === "media") {
+        // other it is refused before anything is served. A tunnel is served only where the
+        // daemon has one (ADR 0194).
+        if (hello.channel === "media" || hello.channel === "tunnel") {
           await channel
             .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
             .catch(() => {});

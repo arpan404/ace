@@ -32,6 +32,9 @@ function fakeRelay() {
     channelBinding: "media-stream",
     send: async (message) => void sent.push(message),
     sendText: async (text) => void texts.push(text),
+    sendBinary: async () => {
+      throw new Error("A media stream sends no binary");
+    },
     receive: async () => {
       const value = await take();
       if (typeof value === "string") throw new Error("text where a message was expected");
