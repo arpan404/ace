@@ -23,14 +23,16 @@ const cap = (value: number | undefined) =>
     .parse(value ?? 256);
 export function attachPreviewRelay(options: {
   channel: PreviewChannel;
-  allowPort: (port: number) => Promise<boolean>;
+  allowPort: (port: number, id: number) => Promise<boolean>;
   maxStreams?: number;
+  onClosed?: () => void;
 }) {
   return createMux({
     channel: options.channel,
     allowPort: options.allowPort,
     maxStreams: cap(options.maxStreams),
     timer: systemTimer,
+    ...(options.onClosed ? { onClosed: options.onClosed } : {}),
     socketFactory: (port) => {
       const socket = new Socket({ allowHalfOpen: true });
       return {

@@ -233,6 +233,13 @@ export const SettingsValues = z.object({
    */
   "remote.hostedPairingLink": z.boolean(),
   /**
+   * Whether a paired device with `operate` authority may open this machine's localhost in its
+   * own browser, through a tunnel on the path it is connected on (ADR 0194). On by default.
+   * Turning it off ends every open tunnel stream at once. Ports ace itself listens on are always
+   * refused.
+   */
+  "remote.machineLocalhost": z.boolean(),
+  /**
    * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
    * relay at `https://cloud.acehq.dev/m/<hostId>/` (ADR 0122). Off by default. On this path the
    * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.

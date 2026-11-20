@@ -25,7 +25,17 @@ export class ClientError extends Error {
      * `machine_code_required`, `machine_code_wrong` or `machine_code_locked`.
      */
     | "machine_code"
-    | "daemon";
+    | "daemon"
+    /** The machine's tunnel to its localhost (ADR 0194) is off (`remote.machineLocalhost`). */
+    | "tunnel_off"
+    /** This device may not use the machine's tunnel: it lacks `operate` authority. */
+    | "tunnel_forbidden"
+    /** The tunnel never connects to a port an ace process listens on. */
+    | "tunnel_port_refused"
+    /** Too many tunnel streams open, or opened too fast, for this device. */
+    | "tunnel_limit"
+    /** The machine reset a tunnel stream before it opened: nothing listens on that port. */
+    | "tunnel_reset";
   /** With a `machine_code` refusal of `machine_code_locked`: when code entry opens again. */
   declare readonly lockedUntil?: number;
   /**

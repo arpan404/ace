@@ -82,6 +82,12 @@ export const fleetRules: readonly FleetRule[] = [
     control: "toggle",
   },
   {
+    key: "remote.machineLocalhost",
+    title: "Open this machine's localhost on your devices",
+    note: "Pages you open on a phone or another computer reach this machine's localhost. Ports ace uses stay closed.",
+    control: "toggle",
+  },
+  {
     key: "remote.agentAccess",
     title: "Agents from other machines",
     control: "choice",

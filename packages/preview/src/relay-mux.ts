@@ -62,7 +62,8 @@ export const gracefulDrainMs = 15_000;
 type MuxOptions = {
   channel: PreviewChannel;
   maxStreams: number;
-  allowPort?: (port: number) => Promise<boolean>;
+  /** Whether to connect stream `id`'s OPEN for `port`; refused, the stream is reset unopened. */
+  allowPort?: (port: number, id: number) => Promise<boolean>;
   socketFactory?: (port: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
   timer: MuxTimer;
@@ -258,7 +259,7 @@ export function createMux(options: MuxOptions) {
     }
     const stream = bind(id, socket);
     try {
-      if (!(await options.allowPort?.(port)) || !alive(stream)) {
+      if (!(await options.allowPort?.(port, id)) || !alive(stream)) {
         await send(kinds.reset, id);
         remove(stream);
         return;
@@ -330,7 +331,8 @@ export function createMux(options: MuxOptions) {
   unsubscribe = options.channel.subscribe(receive, close);
   if (closed) unsubscribe();
   return {
-    open(socket: PreviewSocket, port: number) {
+    /** Opens a stream for `socket`: its id, or undefined when it was destroyed unopened. */
+    open(socket: PreviewSocket, port: number): number | undefined {
       if (
         options.allowPort ||
         closed ||
@@ -338,11 +340,12 @@ export function createMux(options: MuxOptions) {
         nextId > 0xffffffff
       ) {
         socket.destroy();
-        return;
+        return undefined;
       }
       const id = nextId++;
       bind(id, socket);
       void send(kinds.open, id, PreviewPort.parse(port)).catch(close);
+      return id;
     },
     close,
     // Observability reports counts and windows, never retained payloads.

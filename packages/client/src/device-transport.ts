@@ -38,13 +38,23 @@ export interface ChannelEvents {
 export interface AuthenticatedChannel {
   open(events: ChannelEvents): void;
   send(message: ClientMessage): Promise<void>;
+  /**
+   * Send one binary message once welcomed (a tunnel's frames, ADR 0194), in order with the JSON
+   * ones. Resolves once the socket or relay stream has admitted it: on a direct socket, once
+   * what it holds unsent is back under `binaryHighWater`.
+   */
+  sendBinary(bytes: Uint8Array): Promise<void>;
   close(): void;
 }
+/** What a direct socket may hold unsent before a binary send waits for it to drain. */
+export const binaryHighWater = 1024 * 1024;
+/** How often a waiting binary send looks at a direct socket's buffered amount again. */
+const drainPollMs = 4;
 
 /** One authenticated channel per feature. No input queue, replay or token in a URL. */
 export function authenticatedChannel(
   options: AuthenticatedChannelOptions,
-  kind: "devices" | "files" | "screen" | "provider_auth",
+  kind: "devices" | "files" | "screen" | "provider_auth" | "tunnel",
 ): AuthenticatedChannel {
   let socket: PortableSocket | undefined;
   let relay: PortableRelay | undefined;
@@ -140,8 +150,9 @@ export function authenticatedChannel(
           deviceId: options.deviceId,
           ...(typeof credential === "string" ? { token: credential } : credential),
           channel: kind,
-          // Relayed bulk JSON may come deflated; sign-in traffic never is.
-          ...(options.target.kind === "relay" && kind !== "provider_auth"
+          // Relayed bulk JSON may come deflated; sign-in traffic never is, and a tunnel's bulk
+          // is binary.
+          ...(options.target.kind === "relay" && kind !== "provider_auth" && kind !== "tunnel"
             ? { compression: relayCompression() }
             : {}),
           // A relay route returns credit as it reads, so the relay never holds a backlog.
@@ -251,6 +262,18 @@ export function authenticatedChannel(
           });
         }
       })().catch(fail);
+    },
+    async sendBinary(bytes) {
+      if (!ready) throw new Error("Device channel is not authenticated");
+      if (relay) return relay.sendBinary(bytes);
+      const opened = socket;
+      if (!opened) throw new Error("Device channel disconnected");
+      opened.send(bytes);
+      const stamp = epoch;
+      while (opened.bufferedAmount > binaryHighWater) {
+        await new Promise<void>((resolve) => options.schedule(resolve, drainPollMs));
+        if (epoch !== stamp) throw new Error("Device channel disconnected");
+      }
     },
     async send(message) {
       try {

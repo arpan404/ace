@@ -566,6 +566,7 @@
         "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
