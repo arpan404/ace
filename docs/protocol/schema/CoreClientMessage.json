@@ -12,7 +12,8 @@
             "screen",
             "provider_auth",
             "media",
-            "machine"
+            "machine",
+            "tunnel"
           ],
           "type": "string"
         },
