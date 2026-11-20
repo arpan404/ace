@@ -32,6 +32,14 @@ describe("a reply is spoken as it streams", () => {
     expect(heard[0]?.after).toBeLessThanOrEqual("Your flight leaves at nine. ".length + 4);
   });
 
+  test("a sentence ending the words so far is spoken once its space arrives", () => {
+    const reply = spokenReply();
+    expect(reply.push("Booked.")).toEqual([]);
+    expect(reply.push("Booked. ")).toEqual(["Booked."]);
+    expect(reply.push("Booked. Seat 12A.  ")).toEqual(["Seat 12A."]);
+    expect(reply.finish("Booked. Seat 12A.\nSee you.")).toEqual(["See you."]);
+  });
+
   test("each sentence is spoken once however the reply is cut into deltas", () => {
     const text = "One. Two!\n\nThree? Four…\nFive.";
     for (const size of [1, 2, 3, 7, 50])

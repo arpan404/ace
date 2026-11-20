@@ -10,8 +10,8 @@ import { useSpadeModels } from "./use-spade-models.ts";
 /*
  * Spoken replies (ADR 0134, amended): while "Speak replies" is on for a bot, or right after the
  * person spoke their message from this window, the bot's next reply is read aloud as it is
- * written, sentence by sentence. History is never read: only a reply that opens while the chat
- * is on screen.
+ * written, sentence by sentence. History is never read: only a reply still being written while
+ * the chat is on screen.
  */
 
 /** The voice a bot speaks in here, for Read aloud in its bubbles. */
@@ -86,7 +86,10 @@ export function useSpokenReplies(props: {
   const latest = props.entries.findLast((entry) => entry.kind === "reply");
   useEffect(() => {
     if (!props.caughtUp) return;
-    const replies = props.entries.flatMap((entry) => (entry.kind === "reply" ? [entry.reply] : []));
+    // Finished replies are history; one still being written when the chat opens is live.
+    const replies = props.entries.flatMap((entry) =>
+      entry.kind === "reply" && entry.end ? [entry.reply] : [],
+    );
     if (!heard.current) {
       heard.current = new Set(replies);
       return;

@@ -138,7 +138,9 @@ export function spokenReply(): SpokenReply {
       return;
     }
     paragraph = paragraph ? `${paragraph} ${text.trim()}` : text.trim();
-    // The paragraph's earlier sentences were spoken from the open line; keep their place.
+    // The paragraph's earlier sentences were spoken from the open line; keep their place (the
+    // open line's trailing space, gone now, may have been counted).
+    spokenUpTo = Math.min(spokenUpTo, paragraph.length);
     sentences(out, paragraph, false);
   };
 
@@ -148,7 +150,8 @@ export function spokenReply(): SpokenReply {
     const trimmed = text.trimStart();
     if (!trimmed || block === "list") return;
     if (/^(`|~|\||#|[-*+]|\d)/.test(trimmed)) return;
-    sentences(out, paragraph ? `${paragraph} ${text.trim()}` : text.trim(), false);
+    // Its trailing space stays: it is what says the last sentence is finished.
+    sentences(out, paragraph ? `${paragraph} ${trimmed}` : trimmed, false);
   };
 
   const read = (text: string, whole: boolean): string[] => {

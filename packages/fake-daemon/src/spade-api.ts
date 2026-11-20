@@ -247,6 +247,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
   }
 
+  /** Words of an open reply as they stream: sent live, never stored. */
+  delta(conversation: string, reply: string, text: string): void {
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "delta", { reply, text });
+  }
+
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
   private keep(conversation: string, event: Json): Json {
     const list = this.events.get(conversation) ?? [];
