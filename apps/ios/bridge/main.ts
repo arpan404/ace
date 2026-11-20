@@ -73,7 +73,7 @@ import { ReadAhead } from "./read-ahead.ts";
 import { ThreadLinger } from "./thread-linger.ts";
 import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
 import { nativeLoopbackHost } from "./device-host.ts";
-import { openMachineTunnel } from "./machine-tunnel-open.ts";
+import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -358,14 +358,7 @@ async function start(json: string): Promise<void> {
     later: (delay, callback) => scheduler.set(delay, callback),
   });
   spade.start();
-  deviceTabs?.close();
-  const tunnelClient = client;
-  deviceTabs = new DeviceTabs({
-    sink: pump,
-    host: nativeLoopbackHost(host, call),
-    tunnel: () => openMachineTunnel(tunnelClient),
-    id: () => host.uuid(),
-  });
+
   ahead?.stop();
   const reading = client;
   ahead = new ReadAhead({
@@ -414,6 +407,13 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     trust,
   };
+  deviceTabs?.close();
+  deviceTabs = new DeviceTabs({
+    sink: pump,
+    host: nativeLoopbackHost(host, call),
+    tunnel: () => openPhoneTunnel(featureConfig, connection),
+    id: () => host.uuid(),
+  });
   devices = new NativeDevices(featureConfig, {
     sink: pump,
     now: () => host.now(),

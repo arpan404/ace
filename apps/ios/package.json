@@ -26,6 +26,7 @@
     "@ace/html": "workspace:*",
     "@ace/native-host": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/preview": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/settings": "workspace:*",

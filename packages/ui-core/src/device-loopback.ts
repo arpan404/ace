@@ -5,16 +5,7 @@
  * This module decides which ports, whether this machine holds them, and the words for what went
  * wrong. Pure.
  */
-
-/** Whether a URL's hostname names the device's loopback: `localhost`, `*.localhost`, 127/8, ::1. */
-export function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "[::1]" || host === "::1") return true;
-  const parts = host.split(".");
-  if (parts.length !== 4 || parts[0] !== "127") return false;
-  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
-}
+import { isMachineLoopbackHost } from "./machine-loopback.ts";
 
 /** The port a loopback page connects to, or undefined for any other page. */
 export function loopbackPort(url: string): number | undefined {
@@ -25,7 +16,7 @@ export function loopbackPort(url: string): number | undefined {
     return undefined;
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
-  if (!isLoopbackHost(parsed.hostname)) return undefined;
+  if (!isMachineLoopbackHost(parsed.hostname)) return undefined;
   if (parsed.port) return Number(parsed.port);
   return parsed.protocol === "https:" ? 443 : 80;
 }
@@ -115,6 +106,8 @@ const problems: readonly LoopbackProblem[] = [
 
 /** A tunnel refusal's code as a problem; an unknown code reads as the machine being offline. */
 export function loopbackProblemOf(code: string): LoopbackProblem {
+  // The machine reset the stream before it opened: nothing listens there.
+  if (code === "tunnel_reset") return "nothing";
   return (problems as readonly string[]).includes(code) ? (code as LoopbackProblem) : "offline";
 }
 

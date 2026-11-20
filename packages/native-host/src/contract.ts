@@ -22,7 +22,10 @@ export type OptionalCapability =
    * `loopback.listen`, their connections moved with `loopback(...)` and `aceLoopback`.
    */
   | "loopback"
-  /** `socketBytes`: one binary message on an open socket, read by pointer (the tunnel's frames). */
+  /**
+   * `socketBytes`: one binary message on an open socket, read by pointer (a tunnel's frames,
+   * ADR 0194); native code answers `aceSocket(id, "sent", "<bytes>")` once it has sent it.
+   */
   | "socketBytes";
 
 /** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
@@ -224,16 +227,6 @@ export type SocketAction = "open" | "send" | "bytes" | "close";
  */
 export interface MediaSocketOpen {
   media: { url?: string };
-}
-
-/**
- * What `socket(id, "open", value)` opens for the machine's tunnel (ADR 0194): its own
- * connection, so bundle bytes never wait behind agent state. Directly it is the daemon's pinned
- * WSS at `path`; through the relay a stream with the `tunnel` purpose. Binary both ways
- * (`socketBytes` out, `aceSocket(id, "binary", bytes)` in); native code only carries it.
- */
-export interface TunnelSocketOpen {
-  tunnel: { path: string };
 }
 
 /**

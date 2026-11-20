@@ -5,9 +5,18 @@ import os
 protocol DaemonSocket: AnyObject, Sendable {
     func open()
     func send(_ text: String)
-    /// A binary message: only a direct media connection's hello is one.
+    /// A binary message: a direct media connection's hello, or a tunnel's frame.
     func send(bytes: Data)
+    /// A binary message, with `sent` once the socket has handed it on (the tunnel's backpressure).
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void)
     func close()
+}
+extension DaemonSocket {
+    /// Sockets that can't tell when a message left count it as sent at once.
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
+        send(bytes: bytes)
+        sent()
+    }
 }
 extension PinnedSocket: DaemonSocket {}
 

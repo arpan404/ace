@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  isLoopbackHost,
   listenPorts,
   loopbackPort,
   loopbackProblemOf,
@@ -13,24 +12,6 @@ import {
 } from "./device-loopback.ts";
 
 describe("which pages reach the machine's localhost", () => {
-  test.each([
-    ["localhost", true],
-    ["LOCALHOST", true],
-    ["app.localhost", true],
-    ["127.0.0.1", true],
-    ["127.12.0.9", true],
-    ["[::1]", true],
-    ["localhost.", true],
-    ["128.0.0.1", false],
-    ["127.0.0.256", false],
-    ["localhost.example.com", false],
-    ["example.com", false],
-    ["192.168.1.2", false],
-    ["[::2]", false],
-  ])("%s is loopback: %s", (host, loopback) => {
-    expect(isLoopbackHost(host)).toBe(loopback);
-  });
-
   test.each([
     ["http://localhost:3000/settings", 3000],
     ["http://[::1]:5173/", 5173],
@@ -143,6 +124,7 @@ describe("what a failed page says", () => {
 
   test("an unknown refusal code reads as the machine being offline", () => {
     expect(loopbackProblemOf("tunnel_port_refused")).toBe("tunnel_port_refused");
+    expect(loopbackProblemOf("tunnel_reset")).toBe("nothing");
     expect(loopbackProblemOf("something_new")).toBe("offline");
   });
 });

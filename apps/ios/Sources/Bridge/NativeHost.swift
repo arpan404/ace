@@ -70,8 +70,14 @@ final class NativeHost: @unchecked Sendable {
         // One binary message, read by pointer: the tunnel's frames (`socketBytes`).
         let socketBytes: @convention(block) (String, JSValue) -> Void = { [weak self] id, value in
             self?.runtime?.vm.check("aceHost.socketBytes")
-            guard let bytes = NativeBytes.withBytes(of: value, { Data($0) }), !bytes.isEmpty, bytes.count <= Self.socketBytesLimit else { return }
-            self?.sockets[id]?.send(bytes: bytes)
+            guard let self, let bytes = NativeBytes.withBytes(of: value, { Data($0) }), !bytes.isEmpty, bytes.count <= Self.socketBytesLimit else { return }
+            // `sent` lets the script's count of unsent bytes fall (its `bufferedAmount`).
+            let runtime = self.runtime, count = String(bytes.count)
+            let sent: @Sendable () -> Void = {
+                runtime?.execute { context in _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, "sent", count]) }
+            }
+            guard let socket = self.sockets[id] else { sent(); return }
+            socket.send(bytes: bytes, sent: sent)
         }
         // A loopback connection's next step (`loopback`, ADR 0194); `write` copies the bytes once.
         let loopback: @convention(block) (String, String, JSValue) -> Void = { [weak self] id, action, value in
