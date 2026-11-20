@@ -9,7 +9,7 @@ configure({ asyncUtilTimeout: 10000 });
 const socket = "apps/web/src/relay/socket.ts";
 const relay = ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"];
 
-test("a middle click opens a file in a new tab and keeps the preview it came from", async () => {
+test("a middle click opens a file to the side and keeps the preview it came from", async () => {
   const opened = await openExplorer();
   await userEvent.click(await row(opened.tree, "README.md"));
   await within(opened.panel).findByRole("tab", { name: "README.md", selected: true });
@@ -20,7 +20,7 @@ test("a middle click opens a file in a new tab and keeps the preview it came fro
   expect(tabNames(opened.panel)).toContain("README.md");
 });
 
-test("Ctrl+Enter on a focused row opens it in a new tab; Enter keeps it, Space previews", async () => {
+test("Ctrl+Enter on a focused row opens it to the side; Enter keeps it, Space previews", async () => {
   const { tree, outputs } = await renderTree();
   await expand(tree, relay);
   (await row(tree, socket)).focus();
@@ -30,9 +30,23 @@ test("Ctrl+Enter on a focused row opens it in a new tab; Enter keeps it, Space p
   (await row(tree, socket)).focus();
   await userEvent.keyboard(" ");
   expect(outputs.opened).toEqual([
-    { path: socket, how: "tab" },
+    { path: socket, how: "side" },
     { path: "README.md", how: "keep" },
     { path: socket, how: "preview" },
+  ]);
+});
+
+test("an Alt-click on a file opens it to the side", async () => {
+  const { tree, outputs } = await renderTree();
+  await expand(tree, relay);
+  await userEvent.click(await row(tree, "README.md"));
+  const user = userEvent.setup();
+  await user.keyboard("{Alt>}");
+  await user.click(await row(tree, socket));
+  await user.keyboard("{/Alt}");
+  expect(outputs.opened).toEqual([
+    { path: "README.md", how: "preview" },
+    { path: socket, how: "side" },
   ]);
 });
 

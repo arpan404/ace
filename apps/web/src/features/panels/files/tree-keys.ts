@@ -6,7 +6,7 @@ import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
  */
 export const treeKeys = {
   open: "enter",
-  openTab: "mod+enter",
+  openSide: "mod+enter",
   reveal: "alt+mod+r",
   rename: "f2",
   move: "mod+shift+m",

@@ -224,7 +224,7 @@ export function EditorPanel(props: TabViewProps) {
   const fromExplorer = (path: string, how: ExplorerOpen) => {
     open(path, {
       keep: how.how !== "preview",
-      side: how.how === "tab",
+      side: how.how === "side",
       line: how.line,
       column: how.column,
       length: how.length,

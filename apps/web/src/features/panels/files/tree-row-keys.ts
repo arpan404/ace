@@ -39,9 +39,9 @@ function runAction(ctx: RowKeyContext, action: TreeAction, row: FolderRow): bool
   const covered = commands.covered(entry);
   const edits = commands.online;
   switch (action) {
-    case "openTab":
+    case "openSide":
       if (row.kind !== "file") return false;
-      commands.open(entry.path, "tab");
+      commands.open(entry.path, "side");
       return true;
     case "rename":
     case "move":
