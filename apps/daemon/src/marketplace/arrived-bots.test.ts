@@ -26,7 +26,10 @@ it("never fetches for a template's bot or a local package's, only for a market p
       id: "a2",
       package: { source: "local", name: "local/fare-watcher", version: "local", hash: "h2" },
     },
-    { id: "a3", package: { source: "market", name: "flight-watcher", version: "1.0.0", hash: "h3" } },
+    {
+      id: "a3",
+      package: { source: "market", name: "flight-watcher", version: "1.0.0", hash: "h3" },
+    },
   ];
   const port: Pick<SpadePort, "ready" | "linkedBots"> = {
     ready: () => true,
