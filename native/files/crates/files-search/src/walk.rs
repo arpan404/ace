@@ -15,6 +15,8 @@ use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkState};
 
 use crate::error::Error;
 use crate::folders::Folders;
+#[cfg(target_os = "macos")]
+use crate::pace::{Pace, Paced};
 use crate::parents::Inherited;
 use crate::pattern::{self, Plan};
 use crate::query::Query;
@@ -132,10 +134,15 @@ pub(crate) fn run(
         .git_exclude(!query.include_ignored)
         .ignore(!query.include_ignored)
         .filter_entry(move |entry| keeps(entry, inherited.as_ref()));
-    builder.threads(threads());
-    builder
-        .build_parallel()
-        .visit(&mut Workers { shared: &shared });
+    let threads = threads();
+    builder.threads(threads);
+    #[cfg(target_os = "macos")]
+    let pace = Pace::new(threads);
+    builder.build_parallel().visit(&mut Workers {
+        shared: &shared,
+        #[cfg(target_os = "macos")]
+        pace: &pace,
+    });
     if cancel.load(Ordering::SeqCst) {
         return Err(Error::Aborted);
     }
@@ -147,22 +154,21 @@ pub(crate) fn run(
     })
 }
 
-/// How many walker threads search at once.
+/// How many walker threads the walk starts.
 ///
-/// macOS serializes much of `open(2)` inside the kernel, so past a few threads each one mostly
-/// spins on the others: on a 16-core Mac, 12 threads took two to three times as long as 4 over the
-/// same warm tree, with most of the extra time in system CPU. Elsewhere the walker's own choice
-/// (one per core, at most 12) scales.
+/// macOS starts one per core, at most [`MAX_THREADS`], and [`crate::pace`] decides how many of
+/// them run at once. Elsewhere the walker's own choice (one per core, at most 12) scales.
 fn threads() -> usize {
     if cfg!(target_os = "macos") {
-        std::thread::available_parallelism().map_or(1, |cores| cores.get().min(MACOS_THREADS))
+        std::thread::available_parallelism().map_or(1, |cores| cores.get().min(MAX_THREADS))
     } else {
         0
     }
 }
 
-/// The most walker threads a search uses on macOS; see [`threads`].
-const MACOS_THREADS: usize = 4;
+/// The most walker threads a search starts on macOS. On a 16-core Mac, ten read a million-file tree
+/// from the disk fastest; twelve were slower, and fourteen half as fast, as `open(2)` contends.
+const MAX_THREADS: usize = 10;
 
 /// Whether the walk may hand this entry on: never inside `.git`, and never when a folder above
 /// the root ignores it.
@@ -206,12 +212,16 @@ pub(crate) fn emit(shared: &Shared<'_>, file: FileMatches) -> bool {
 /// Hands each walker thread a search visitor with its own reusable searcher.
 struct Workers<'a, 'shared> {
     shared: &'shared Shared<'a>,
+    #[cfg(target_os = "macos")]
+    pace: &'shared Pace,
 }
 
 impl<'s, 'a: 's, 'shared: 's> ParallelVisitorBuilder<'s> for Workers<'a, 'shared> {
     fn build(&mut self) -> Box<dyn ParallelVisitor + 's> {
         Box::new(Worker {
             shared: self.shared,
+            #[cfg(target_os = "macos")]
+            paced: self.pace.join(),
             searcher: searcher(),
             folders: Folders::default(),
         })
@@ -221,6 +231,9 @@ impl<'s, 'a: 's, 'shared: 's> ParallelVisitorBuilder<'s> for Workers<'a, 'shared
 /// One walker thread: searches the files its walk hands to it.
 struct Worker<'a> {
     shared: &'a Shared<'a>,
+    /// Whether this thread may run now, on macOS.
+    #[cfg(target_os = "macos")]
+    paced: Paced<'a>,
     searcher: Searcher,
     /// The folders this thread already opened and proved, so a folder's files cost one open each.
     folders: Folders,
@@ -235,6 +248,13 @@ impl ParallelVisitor for Worker<'_> {
             return WalkState::Continue;
         };
         if entry.file_type().is_some_and(|kind| kind.is_file()) {
+            // Only a file waits its turn: a folder goes on at once, so the walk lists it and every
+            // thread can take its entries, instead of one waiting thread holding a whole subtree.
+            #[cfg(target_os = "macos")]
+            {
+                let shared = self.shared;
+                self.paced.wait(|| shared.halted());
+            }
             self.search(&entry);
         }
         if self.shared.halted() {

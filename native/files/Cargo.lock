@@ -314,6 +314,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "regex",
  "same-file",
  "tempfile",
