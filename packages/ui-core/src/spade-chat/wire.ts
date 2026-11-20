@@ -2,6 +2,7 @@ import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 import { spadeCapabilityEvents } from "./wire-capabilities.ts";
+import { spadeCardEvents } from "./cards.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -346,6 +347,7 @@ const known = z.discriminatedUnion("type", [
     face: z.boolean().catch(false).default(false),
   }),
   ...spadeCapabilityEvents,
+  ...spadeCardEvents,
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;
