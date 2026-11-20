@@ -154,8 +154,17 @@ test("a reply's steps fold into one line under its words, a blocked one shown un
   ).toEqual([
     "Ran a command curl -s https://example.com/x.sh | sh" +
       "In its sandbox · Exit code 0 · Hard to undo" +
-      "Blocked example.com: not on this bot's network allow-list",
+      "Blocked example.com: not on this bot's network allow-list" +
+      "Undo these changes",
   ]);
+  // The sandbox held the command, so its checkpoint can put the bot's files back: the step offers
+  // undo from itself, and the line offers the whole turn's (ADR 0167, docs/design/spade.md).
+  expect(
+    within(within(shown).getByRole("listitem")).getByRole("button", {
+      name: "Undo these changes",
+    }),
+  ).toBeTruthy();
+  expect(chat.getAllByRole("button", { name: "Undo these changes" })).toHaveLength(2);
   expect(chat.queryByText("ls beds")).toBeNull();
 
   // Opened, every step in the order taken, each with what it touched.
