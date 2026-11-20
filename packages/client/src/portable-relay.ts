@@ -46,6 +46,11 @@ export interface PortableRelay {
    * own), up to `limit` bytes; 256 KiB unless given.
    */
   sendText(text: string, limit?: number): Promise<void>;
+  /**
+   * Send one binary message (at most 64 KiB), in order with the JSON ones. It borrows `bytes`
+   * until the promise settles and never clears them.
+   */
+  sendBinary(bytes: Uint8Array): Promise<void>;
   /** The next message as JSON text (inflated, UTF-8 checked, not schema-parsed) or bytes. */
   receiveRaw(): Promise<string | Uint8Array>;
   close(): void;
@@ -110,6 +115,9 @@ const nkPrologue = new TextEncoder().encode("ace daemon relay stream v2 nk");
 const queueLimit = 1024 * 1024;
 const logicalLimit = 16 * 1024 * 1024;
 const rekeyInterval = 1 << 20;
+/** A fragment's kind for binary messages, and their size limit (the relay channel's own). */
+const binaryKind = 2;
+const binaryLimit = 64 * 1024;
 
 /**
  * Uses the relay's Noise XX and fragmentation contract with injected platform I/O. After the
@@ -343,6 +351,10 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     sendText(text, limit) {
       return sendBody(new TextEncoder().encode(text), limit);
     },
+    sendBinary(message) {
+      // A copy: sending clears what it sent, and the caller keeps its bytes.
+      return sendBody(message.slice(), binaryLimit, binaryKind);
+    },
     async receive() {
       const payload = await receivePayload();
       if (payload instanceof Uint8Array) return payload;
@@ -355,7 +367,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     },
     receiveRaw: () => receivePayload(),
   };
-  function sendBody(body: Uint8Array, limit = 256 * 1024): Promise<void> {
+  function sendBody(body: Uint8Array, limit = 256 * 1024, kind = 0): Promise<void> {
     if (body.length > limit || queuedBytes + body.length > queueLimit) {
       body.fill(0);
       return Promise.reject(new Error("Relay request queue limit"));
@@ -372,7 +384,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
           if (error) throw error;
           flow.spend(cost);
           const plain = new Uint8Array(chunk.length + 1);
-          plain[0] = offset + chunk.length === body.length ? 1 : 0;
+          plain[0] = kind + (offset + chunk.length === body.length ? 1 : 0);
           plain.set(chunk, 1);
           try {
             write(seal(secured, plain));

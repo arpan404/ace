@@ -46,11 +46,32 @@ const origin = (url: string) => new URL(socketUrl(url)).origin;
 type Usable = { kind: MachinePathKind; url: string; relayHostId?: string };
 
 /**
+ * Every path a machine's worker dials (`pairedRoutes`), its paired address first, with the
+ * address it dials: the paths its connection can be on, and so the only ones it verifies.
+ */
+export function dialedPaths(
+  target: Pick<DaemonTarget, "url" | "relayHostId">,
+  saved: readonly unknown[] | undefined,
+): Usable[] {
+  return [
+    {
+      kind: targetKind(target),
+      url: socketUrl(target.url),
+      ...(target.relayHostId ? { relayHostId: target.relayHostId } : {}),
+    },
+    ...usablePaths(target, saved),
+  ];
+}
+
+/**
  * Every path a browser can use to a paired machine besides its paired address: what the
  * machine named over a verified connection, that a browser can check. ace's relay admits only
  * account devices, so a paired device never uses it.
  */
-function usablePaths(target: DaemonTarget, saved: readonly unknown[] | undefined): Usable[] {
+function usablePaths(
+  target: Pick<DaemonTarget, "url">,
+  saved: readonly unknown[] | undefined,
+): Usable[] {
   const seen = new Set([origin(target.url)]);
   const usable: Usable[] = [];
   for (const path of knownPaths(saved)) {

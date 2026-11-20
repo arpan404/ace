@@ -206,6 +206,7 @@
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/settings": "workspace:*",
@@ -568,9 +569,11 @@
         "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "ws": "^8.18.3",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -583,7 +586,6 @@
         "@ace/relay": "workspace:*",
         "@ace/screen": "workspace:*",
         "@types/ws": "^8.18.1",
-        "ws": "^8.18.3",
       },
     },
     "packages/client-react": {

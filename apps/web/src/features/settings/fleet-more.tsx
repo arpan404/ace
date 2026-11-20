@@ -11,7 +11,12 @@ import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 
 /** The rows behind More options, for a settings search to open it. */
-const inside = new Set(["remote.relay", "remote.enabled", "remote.hostedPairingLink"]);
+const inside = new Set([
+  "remote.relay",
+  "remote.enabled",
+  "remote.machineLocalhost",
+  "remote.hostedPairingLink",
+]);
 
 /**
  * The rarer choices for this computer, folded away: a relay of the person's own, turning remote
@@ -24,6 +29,7 @@ export function MoreOptions(props: { dependents: Dependents }) {
       <HairlineList className="mt-1.5">
         <OwnRelay />
         <RemoteAccessSwitch dependents={props.dependents} />
+        <LocalhostOnDevices />
         <HostedLinks />
       </HairlineList>
     </SettingDisclosure>
@@ -152,6 +158,38 @@ function RemoteAccessSwitch(props: { dependents: Dependents }) {
       />
       <ConfirmDialog confirming={risky} onDone={() => setRisky(undefined)} />
     </>
+  );
+}
+
+/**
+ * Whether pages the person opens on their phone or another computer reach this machine's
+ * localhost (ADR 0194). ace's own ports are never reachable either way.
+ */
+function LocalhostOnDevices() {
+  const localhost = useSettingControl(settingKeys.machineLocalhost, "Localhost on your devices");
+  return (
+    <HairlineRow
+      id="remote.machineLocalhost"
+      title="Localhost on your devices"
+      sub={
+        localhost.value
+          ? "On. Pages you open on your phone or another computer reach this machine's localhost, except ace's own ports."
+          : "Off. Pages on your devices can't reach this machine's localhost."
+      }
+      actions={
+        <DaemonSlot control={localhost}>
+          <RowAction
+            reveal={localhost.value}
+            className={localhost.value ? undefined : "text-foreground"}
+            aria-label={`${localhost.value ? "Turn off" : "Turn on"} localhost on your devices`}
+            disabled={localhost.offline || localhost.pending}
+            onClick={() => void localhost.set(!localhost.value)}
+          >
+            {localhost.value ? "Turn off" : "Turn on"}
+          </RowAction>
+        </DaemonSlot>
+      }
+    />
   );
 }
 

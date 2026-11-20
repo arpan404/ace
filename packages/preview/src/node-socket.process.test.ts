@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { previewSocket } from "./node-socket.ts";
-import { systemTimer, type PreviewSocket } from "./relay-mux.ts";
+import type { PreviewSocket } from "./relay-mux.ts";
 import { windowSize } from "./relay-wire.ts";
 
 // A real socket: how a read larger than a window is held back depends on the runtime's streams.
@@ -36,7 +36,7 @@ type PieceHook = (count: number, socket: PreviewSocket) => Promise<void> | void;
  * returns no credit.
  */
 function readLikeTheMux(raw: Socket, onPiece: PieceHook = () => {}) {
-  const socket = previewSocket(raw, systemTimer);
+  const socket = previewSocket(raw);
   const pieces: Uint8Array[] = [];
   let endedAfter = -1;
   let closedAfterEnd = false;

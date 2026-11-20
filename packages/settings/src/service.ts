@@ -32,6 +32,8 @@ const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
   "providers.codex.toolSource",
   "providers.claude.chrome",
+  // Who may reach this machine's loopback (ADR 0194): a repository can't open it.
+  "remote.machineLocalhost",
 ]);
 
 export interface Scope {

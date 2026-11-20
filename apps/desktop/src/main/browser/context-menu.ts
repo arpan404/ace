@@ -9,7 +9,13 @@ import {
 } from "electron";
 import { historySteps } from "@ace/browser/history";
 import type { BrowserContextAction } from "../../shared/contract.ts";
-import { contextEntries, web, type ContextCommand, type ContextFacts } from "./context-entries.ts";
+import {
+  contextEntries,
+  web,
+  withoutCommands,
+  type ContextCommand,
+  type ContextFacts,
+} from "./context-entries.ts";
 
 /** The facts Electron's `context-menu` event gives, as `contextEntries` reads them. */
 export function contextFacts(params: ContextMenuParams, contents: WebContents): ContextFacts {
@@ -56,6 +62,8 @@ export function popupContextMenu(options: {
   params: ContextMenuParams;
   inspect(at: { x: number; y: number }): void;
   app(action: BrowserContextAction["action"], url?: string): void;
+  /** Entries the page has no use for, left out. */
+  omit?: readonly ContextCommand[];
 }): void {
   const { contents, params } = options;
   const run = (command: ContextCommand) => {
@@ -74,11 +82,14 @@ export function popupContextMenu(options: {
     else if (command === "paste") contents.paste();
     else if (command === "inspect") options.inspect({ x: params.x, y: params.y });
   };
-  const template: MenuItemConstructorOptions[] = contextEntries(contextFacts(params, contents)).map(
-    (entry) =>
-      entry === "separator"
-        ? { type: "separator" }
-        : { label: entry.label, enabled: entry.enabled, click: () => run(entry.command) },
+  const entries = withoutCommands(
+    contextEntries(contextFacts(params, contents)),
+    options.omit ?? [],
+  );
+  const template: MenuItemConstructorOptions[] = entries.map((entry) =>
+    entry === "separator"
+      ? { type: "separator" }
+      : { label: entry.label, enabled: entry.enabled, click: () => run(entry.command) },
   );
   Menu.buildFromTemplate(template).popup({ window: options.window });
 }

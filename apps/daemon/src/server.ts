@@ -45,6 +45,7 @@ import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
+import { startMachineTunnel } from "./machine-tunnel/wiring.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
@@ -246,8 +247,19 @@ export async function startServer(options: ServerOptions): Promise<{
     ).find((error) => error !== undefined);
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
-  const attach = (listener: Server, isLocal: boolean) =>
-    admitUpgrades(listener, isLocal, {
+  // The machine's localhost for devices (ADR 0194): idle until a tunnel connection comes. It
+  // starts before any listener binds, so each one is held as ace's from its bind.
+  const tunnel = startMachineTunnel({
+    settings: options.settings,
+    otherPorts: () => [preview?.port, options.spade?.listener()?.port],
+    otherPids: () => [options.spade?.listener()?.pid, options.mediaPid?.()],
+    onRescope: (changed) => options.store.devices.onRescope(changed),
+    ...(options.log ? { log: options.log } : {}),
+  });
+  options.machineTunnel = tunnel;
+  const attach = (listener: Server, isLocal: boolean) => {
+    tunnel.track(listener);
+    return admitUpgrades(listener, isLocal, {
       wss: isLocal ? wss : remoteWss,
       allowedOrigins: access.allowedOrigins,
       servesRenderer: options.webRoot !== undefined,
@@ -255,6 +267,7 @@ export async function startServer(options: ServerOptions): Promise<{
       full: () => cleanups.size >= 256,
       remoteSockets,
     });
+  };
   attach(local, true);
   if (remote) attach(remote, false);
   const authenticated = new Map<MainSocket, SessionActor>();
@@ -272,6 +285,7 @@ export async function startServer(options: ServerOptions): Promise<{
       .catch(() => options.log?.(new Error("Notification revocation failed")));
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
+        for (const service of serviceSessions.get(socket) ?? []) service.revoked?.();
         cleanups.get(socket)?.();
         closer.gracefulClose(
           socket,
@@ -349,6 +363,11 @@ export async function startServer(options: ServerOptions): Promise<{
     let stopEnrollment: (() => void) | undefined;
     let cleaned = false;
     let welcomed = false;
+    /**
+     * A tunnel connection (ADR 0194) carries only its stream frames once its hello is read: from
+     * then on its JSON reaches no service, command or read, whatever the socket's scopes.
+     */
+    let tunnelOnly = false;
     const flights = { count: 0 };
     let lastActivity = auth.now();
     socket.on("message", () => {
@@ -604,6 +623,10 @@ export async function startServer(options: ServerOptions): Promise<{
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
+      if (tunnelOnly && !binary) {
+        if (isPing(data)) send({ type: "pong" });
+        return;
+      }
       let message: SocketMessage;
       try {
         if (binary) {
@@ -681,6 +704,7 @@ export async function startServer(options: ServerOptions): Promise<{
         // starts the client's keeper, and the hold is a timer released with the socket.
         if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
+        tunnelOnly = message.channel === "tunnel";
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
@@ -990,6 +1014,7 @@ export async function startServer(options: ServerOptions): Promise<{
     await dynamicRemote?.close();
     await transports?.close();
     await preview?.close();
+    tunnel.close();
     appUpdate.close();
     machineUpdates?.close();
     updateHold.close();
@@ -1047,6 +1072,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopRevocation();
         stopReplaced();
         stopAccountChange?.();
+        tunnel.close();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");

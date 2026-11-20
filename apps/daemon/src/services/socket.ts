@@ -45,6 +45,11 @@ export interface SocketService {
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
+  /**
+   * The device's access was revoked: called just before the socket's cleanup and close, while
+   * it is still open, so a session can say why first.
+   */
+  revoked?(): void;
   healthPending?(): number;
 }
 export interface SocketContext {

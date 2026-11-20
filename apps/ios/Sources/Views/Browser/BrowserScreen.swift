@@ -36,7 +36,10 @@ struct BrowserScreen: View {
     private var shownTab: BrowserViewInfo.Tab? { state?.tabs.first { $0.id == state?.activeTabId } }
     private var annotate: BrowserViewInfo.Annotate? { state?.annotate }
     private var annotating: Bool { annotate.map { $0.mode != "off" } ?? false }
+    /// A page the person opened on this phone, shown instead of ace's Chrome (ADR 0194).
+    private var deviceTab: DeviceTabsPatch.Tab? { model.deviceTabs.shownTab }
     private var title: String {
+        if let deviceTab { return deviceTab.title.isEmpty ? (URL(string: deviceTab.url)?.host(percentEncoded: false) ?? "New tab") : deviceTab.title }
         guard let state, state.blank != true, !state.closed else { return "Browser" }
         return shownTab?.title ?? "Browser"
     }
@@ -45,12 +48,22 @@ struct BrowserScreen: View {
         ZStack(alignment: .bottom) {
             // The page keeps its size while a keyboard shows; the find and address fields ride it.
             VStack(spacing: AceTheme.Spacing.none) {
-                page
-                if !finding {
-                    strips
-                    BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
-                               split: sizeClass == .regular ? $splitTab : nil,
-                               screenshot: { model.browserScreenshot(fullPage: $0) })
+                if let deviceTab {
+                    DevicePageView(model: model, tab: deviceTab)
+                        .id(deviceTab.id)
+                    if let problem = deviceTab.problem ?? deviceProblem(model.deviceTabs.status(deviceTab.id)) {
+                        BrowserStrip(sentence: problem) { EmptyView() }
+                            .accessibilityIdentifier("device.problem")
+                    }
+                    DeviceTabBar(model: model, tab: deviceTab, editing: $editingAddress, sheet: $sheet)
+                } else {
+                    page
+                    if !finding {
+                        strips
+                        BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
+                                   split: sizeClass == .regular ? $splitTab : nil,
+                                   screenshot: { model.browserScreenshot(fullPage: $0) })
+                    }
                 }
             }
             .ignoresSafeArea(.keyboard)
@@ -70,14 +83,17 @@ struct BrowserScreen: View {
         .animation(.default, value: state?.recording)
         .animation(.default, value: browser.view?.watch)
         .background(AceDesign.Surface.background)
-        .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
+        .modifier(PageTitle(title: title, subtitle: deviceTab.map { _ in "On this phone" } ?? shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
         .screenBar {
-            if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
-                Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
-                    .accessibilityIdentifier("browser.keyboard")
+            // A device tab is the phone's own page: its own keyboard, and agents don't see it.
+            if deviceTab == nil {
+                if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
+                    Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
+                        .accessibilityIdentifier("browser.keyboard")
+                }
+                pageActions
             }
-            pageActions
         }
         .confirmationDialog("Clear browsing data?", isPresented: $clearing, titleVisibility: .visible) {
             Button("Clear browsing data", role: .destructive) { model.browserClearData() }
@@ -106,9 +122,17 @@ struct BrowserScreen: View {
         .alert("Browser", isPresented: Binding(get: { browser.problem != nil }, set: { if !$0 { browser.problem = nil } })) {
             Button("Dismiss") { browser.problem = nil }
         } message: { Text(browser.problem?.message ?? "") }
-        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active) }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            browser.setVisible(phase == .active)
+            // Back in front, a device tab takes this machine's ports again; in the background
+            // they go, with their connections. Inactive (Control Centre over the app) keeps them.
+            if phase == .active { model.frontDeviceTab() } else if phase == .background { model.hideDeviceTabs() }
+        }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
-        .onDisappear { model.closeBrowser() }
+        .onDisappear {
+            model.closeBrowser()
+            model.hideDeviceTabs()
+        }
     }
 
     /// The page's two actions that matter most, always in reach: ask the agent about the page,
@@ -265,6 +289,11 @@ struct BrowserScreen: View {
 }
 
 extension BrowserScreen {
+    /// What the shown device page's own load says when the bridge has nothing to say.
+    fileprivate func deviceProblem(_ status: DevicePageStatus) -> String? {
+        if status.refused { return "This page can't send a form to the machine's localhost." }
+        return status.failed ? "This page couldn't load." : nil
+    }
     /// The annotate strip's one sentence: how many comments are pinned, or that it starts.
     fileprivate var annotationSentence: String {
         if annotate?.mode == "starting" { return "Getting the page ready to draw on…" }

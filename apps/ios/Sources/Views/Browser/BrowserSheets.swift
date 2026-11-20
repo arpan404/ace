@@ -52,8 +52,25 @@ struct BrowserTabsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                let device = model.deviceTabs.tabs
+                if !device.isEmpty {
+                    Section("On this phone") {
+                        ForEach(device) { tab in
+                            Button {
+                                model.showDeviceTab(tab.id)
+                                dismiss()
+                            } label: { deviceRow(tab) }
+                            .browserRow()
+                            .swipeActions { Button("Close", role: .destructive) { model.closeDeviceTab(tab.id) } }
+                            .listRowInsets(EdgeInsets())
+                            .accessibilityIdentifier("device.tab.\(tab.id)")
+                        }
+                    }
+                }
+                Section(device.isEmpty ? "" : "In ace's Chrome") {
                 ForEach(state?.tabs ?? []) { tab in
                     Button {
+                        model.showChrome()
                         model.browserSelectTab(tab.id)
                         dismiss()
                     } label: { row(tab) }
@@ -70,12 +87,13 @@ struct BrowserTabsSheet: View {
                     Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.rowAction)
                         .browserRow()
                 }
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceDesign.Surface.background)
             .overlay {
-                if state?.tabs.isEmpty ?? true { EmptyState(icon: .browsers, title: "No tabs open") }
+                if state?.tabs.isEmpty ?? true, model.deviceTabs.tabs.isEmpty { EmptyState(icon: .browsers, title: "No tabs open") }
             }
             .navigationTitle(tabCount)
             .navigationBarTitleDisplayMode(.inline)
@@ -83,11 +101,21 @@ struct BrowserTabsSheet: View {
                 SheetClose()
                 if model.canOperate {
                     ToolbarItem(placement: .primaryAction) {
-                        Button("New tab", ace: .plus) {
-                            model.browserNewTab()
-                            dismiss()
-                        }
-                        .accessibilityIdentifier("browser.newTab")
+                        // A page the person opens runs on this phone; ace's Chrome is where agents work.
+                        Menu {
+                            Button("New tab on this phone", ace: .deviceMobile) {
+                                model.openDeviceTab("about:blank")
+                                dismiss()
+                            }
+                            .accessibilityIdentifier("device.newTab")
+                            Button("New tab in ace's Chrome", ace: .browsers) {
+                                model.showChrome()
+                                model.browserNewTab()
+                                dismiss()
+                            }
+                            .accessibilityIdentifier("browser.newTab")
+                        } label: { Label("New tab", ace: .plus) }
+                        .accessibilityIdentifier("browser.newTabMenu")
                     }
                 }
             }
@@ -96,8 +124,21 @@ struct BrowserTabsSheet: View {
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 
+    private func deviceRow(_ tab: DeviceTabsPatch.Tab) -> some View {
+        QuietSectionRow {
+            QuietRowText(title: tab.title.isEmpty ? deviceHost(tab) : tab.title, detail: tab.problem ?? deviceHost(tab))
+            if tab.id == model.deviceTabs.shown {
+                AceIcon(.check).foregroundStyle(AceDesign.Ink.primary)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Shown")
+            }
+        }
+    }
+    private func deviceHost(_ tab: DeviceTabsPatch.Tab) -> String {
+        guard tab.url != "about:blank", let url = URL(string: tab.url), let host = url.host(percentEncoded: false) else { return "New tab" }
+        return url.port.map { "\(host):\($0)" } ?? host
+    }
     private var tabCount: String {
-        let count = (state?.tabs.count ?? 0) + (state?.moreTabs ?? 0)
+        let count = (state?.tabs.count ?? 0) + (state?.moreTabs ?? 0) + model.deviceTabs.tabs.count
         return count == 1 ? "1 tab" : "\(count) tabs"
     }
     private func row(_ tab: BrowserViewInfo.Tab) -> some View {

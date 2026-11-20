@@ -1691,7 +1691,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.sortBy"
+    "threads.keepSettledFor"
   ],
   "requestId": "example",
   "scope": {},
@@ -3863,7 +3863,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"hello"` |  |
-| channel | no | ["files","devices","browser","screen","provider_auth","media","machine"] |  |
+| channel | no | ["files","devices","browser","screen","provider_auth","media","machine","tunnel"] |  |
 | mediaTicket | no | [MediaTicket.json](schema/MediaTicket.json) |  |
 | protocolVersion | yes | `1` |  |
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |

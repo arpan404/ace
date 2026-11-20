@@ -111,6 +111,7 @@ export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./machine-relay.ts";
+export * from "./machine-tunnel.ts";
 export * from "./parcels.ts";
 export * from "./machine-grants.ts";
 export * from "./fleet.ts";

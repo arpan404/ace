@@ -27,7 +27,9 @@ import QuartzCore
     var body: some Scene {
         WindowGroup {
             Group {
-                if SpikeConfiguration.renderFixtureEnabled { renderFixture }
+                if LoopbackBench.enabled { LoopbackBenchView() }
+                else if PageRulesCheck.enabled { PageRulesCheckView() }
+                else if SpikeConfiguration.renderFixtureEnabled { renderFixture }
                 else if SpikeConfiguration.enabled { spike }
                 else if let production {
                     production.root(notifications: notificationDelegate.coordinator)

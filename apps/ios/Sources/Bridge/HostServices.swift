@@ -18,6 +18,8 @@ struct HostServices: Sendable {
     var downloads = DownloadFiles()
     /// Browser downloads copied onto the phone.
     var saved = SavedFiles()
+    /// The phone's loopback listeners for device tabs (ADR 0194), shared by every runtime.
+    var loopback: LoopbackHub = .shared
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {

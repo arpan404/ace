@@ -9,3 +9,4 @@ export {
   type HostRequest,
 } from "./connect.ts";
 export { installWebPlatform } from "./web-platform.ts";
+export { PortableReadableStream, portableReadableStream } from "./readable-stream.ts";
