@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeAll, expect, test, vi } from "vitest";
-import type { EditorStatus } from "./deck-host.ts";
+import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import { group, StatefulDeck, tab } from "./deck-test-support.tsx";
 import { groupsOf, type EditorLayout } from "@ace/ui-core/editor-workbench";
 import { memoryBuffers } from "./memory-buffers.ts";
@@ -186,7 +186,7 @@ test("a change nobody can be named for says the file changed on disk", () => {
   expect(screen.getByText("This file changed on disk.")).toBeTruthy();
 });
 
-test("the status line shows only the focused group's editor status", () => {
+test("one status line shows the focused group's editor status, and its menus act on that editor", () => {
   const initial: Start = {
     root: {
       kind: "split",
@@ -196,33 +196,70 @@ test("the status line shows only the focused group's editor status", () => {
     },
     focused: "g0",
   };
+  const indents: string[] = [];
+  const onIndent = (path: string) => void indents.push(path);
   render(
     <StatefulDeck
       initial={initial}
       buffers={memoryBuffers()}
       overrides={{
         renderEditor: (editor) => (
-          <StatusReporter label={`at ${editor.path}`} report={editor.onStatus} />
+          <StatusReporter
+            path={editor.path}
+            line={editor.path === "a.ts" ? 3 : 7}
+            report={editor.onStatus}
+            onIndent={onIndent}
+          />
         ),
       }}
     />,
   );
-  const footer = screen.getByRole("contentinfo", { name: "Editor status" });
-  expect(footer.textContent).toContain("at a.ts");
-  expect(footer.textContent).not.toContain("at c.ts");
+  expect(screen.getAllByLabelText("Editor status")).toHaveLength(1);
+  expect(statusText()).toContain("Ln 3, Col 1");
 
   fireEvent.click(within(strip(2)).getByRole("tab", { name: /c\.ts/ }));
-  expect(footer.textContent).toContain("at c.ts");
-  expect(footer.textContent).not.toContain("at a.ts");
+  expect(statusText()).toContain("Ln 7, Col 1");
+  expect(statusText()).not.toContain("Ln 3,");
+
+  fireEvent.click(screen.getByRole("button", { name: "Indentation: Spaces: 2" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Tabs" }));
+  expect(indents).toEqual(["c.ts"]);
 });
 
-/** Reports its status on mount and clears it on unmount, as the editor handle will. */
-function StatusReporter(props: { label: string; report(status: EditorStatus | undefined): void }) {
-  const { label, report } = props;
+const statusText = () => screen.getByLabelText("Editor status").textContent ?? "";
+
+const status = (at: number): EditorStatus => ({
+  line: at,
+  column: 1,
+  selections: 1,
+  selectedCharacters: 0,
+  selectedLines: 0,
+  indent: { tabs: false, size: 2 },
+  lineEnding: "\n",
+  encoding: "UTF-8",
+  language: "ts",
+  languageChosen: false,
+  whitespace: false,
+  readOnly: false,
+});
+
+/** Reports its status on mount and clears it on unmount, as a `CodeEditor` host will. */
+function StatusReporter(props: {
+  path: string;
+  line: number;
+  report(status: EditorStatus | undefined, actions?: EditorStatusActions): void;
+  onIndent(path: string): void;
+}) {
+  const { path, line, report, onIndent } = props;
   useEffect(() => {
-    report({ items: [{ id: "pos", label }] });
+    report(status(line), {
+      setIndent: () => onIndent(path),
+      setLineEnding: () => {},
+      setLanguage: () => {},
+      setWhitespace: () => {},
+    });
     return () => report(undefined);
-  }, [label, report]);
+  }, [path, line, report, onIndent]);
   return <div />;
 }
 

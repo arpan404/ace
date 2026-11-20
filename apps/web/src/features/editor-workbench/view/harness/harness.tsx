@@ -1,6 +1,7 @@
 import { defaultExplorer, type EditorLayout } from "@ace/ui-core/editor-workbench";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { EditorStatusActions } from "@/features/editor";
 import { themeStylesheet } from "@/theme/css.ts";
 import "@/styles/index.css";
 import { Deck } from "../deck.tsx";
@@ -93,21 +94,36 @@ function initialLayout(): EditorLayout {
   };
 }
 
+const inert: EditorStatusActions = {
+  setIndent: () => {},
+  setLineEnding: () => {},
+  setLanguage: () => {},
+  setWhitespace: () => {},
+};
+
 function FakeEditor(props: DeckEditorProps) {
   const { onStatus, path } = props;
   const lines = (sampleCode[path] ?? `// ${path}`)
     .split("\n")
     .map((text, index) => ({ text, number: index + 1 }));
   useEffect(() => {
-    onStatus({
-      items: [
-        { id: "pos", label: "Ln 25, Col 35", run: () => {} },
-        { id: "indent", label: "Spaces: 2", run: () => {} },
-        { id: "encoding", label: "UTF-8", run: () => {} },
-        { id: "eol", label: "LF", run: () => {} },
-        { id: "language", label: "TypeScript", run: () => {} },
-      ],
-    });
+    onStatus(
+      {
+        line: 25,
+        column: 35,
+        selections: 1,
+        selectedCharacters: 0,
+        selectedLines: 0,
+        indent: { tabs: false, size: 2 },
+        lineEnding: "\n",
+        encoding: "UTF-8",
+        language: "ts",
+        languageChosen: false,
+        whitespace: false,
+        readOnly: false,
+      },
+      inert,
+    );
     return () => onStatus(undefined);
   }, [onStatus]);
   return (

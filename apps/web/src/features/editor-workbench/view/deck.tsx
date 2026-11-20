@@ -9,7 +9,7 @@ import {
 } from "react";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import type { DeckBuffers } from "./buffers.ts";
-import type { DeckHost, EditorStatus } from "./deck-host.ts";
+import type { DeckHost, StatusReport } from "./deck-host.ts";
 import {
   evenSplit,
   focusedGroup,
@@ -45,12 +45,13 @@ export function Deck(props: DeckProps) {
   const groups = groupsOf(layout);
   const context = groupContext(props);
   const focused = focusedGroup(layout);
-  const [statuses, setStatuses] = useState<ReadonlyMap<string, EditorStatus>>(new Map());
-  const reportStatus = useCallback((group: string, status: EditorStatus | undefined) => {
-    setStatuses((current) => {
-      if (current.get(group) === status) return current;
+  const [reports, setReports] = useState<ReadonlyMap<string, StatusReport>>(new Map());
+  const reportStatus = useCallback((group: string, report: StatusReport | undefined) => {
+    setReports((current) => {
+      const was = current.get(group);
+      if (was?.status === report?.status && was?.actions === report?.actions) return current;
       const next = new Map(current);
-      if (status) next.set(group, status);
+      if (report) next.set(group, report);
       else next.delete(group);
       return next;
     });
@@ -141,7 +142,7 @@ export function Deck(props: DeckProps) {
           />
         )}
       </div>
-      <StatusLine status={statuses.get(focused.id)} agentNotice={agentNotice} />
+      <StatusLine report={reports.get(focused.id)} agentNotice={agentNotice} />
     </div>
   );
 }

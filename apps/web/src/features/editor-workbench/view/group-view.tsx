@@ -3,7 +3,8 @@ import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
 import { useBufferFacts } from "./buffers.ts";
-import type { DeckHost, EditorStatus } from "./deck-host.ts";
+import type { EditorStatus, EditorStatusActions } from "@/features/editor";
+import type { DeckHost } from "./deck-host.ts";
 import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
@@ -34,7 +35,8 @@ export function GroupView(props: {
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
-    (status: EditorStatus | undefined) => reportStatus(group.id, status),
+    (status: EditorStatus | undefined, setters?: EditorStatusActions) =>
+      reportStatus(group.id, status && { status, actions: setters ?? inertActions }),
     [reportStatus, group.id],
   );
   return (
@@ -116,6 +118,14 @@ export function GroupView(props: {
 }
 
 type Zone = Side | "center";
+
+/** For an editor that reported no setters: its status line's menus change nothing. */
+const inertActions: EditorStatusActions = {
+  setIndent: () => {},
+  setLineEnding: () => {},
+  setLanguage: () => {},
+  setWhitespace: () => {},
+};
 
 /** The `--active` wash over the part of the group a drop would take (spec 16). */
 function DropWash(props: { zone: Zone }) {

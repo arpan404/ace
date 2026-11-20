@@ -8,7 +8,7 @@ export { Deck, type DeckProps } from "./deck.tsx";
 export { OpenEditors } from "./open-editors.tsx";
 export type { DeckLayoutProps } from "./group-actions.ts";
 export type { BufferChanger, BufferFacts, BufferLoad, DeckBuffers } from "./buffers.ts";
-export type { DeckEditorProps, EditorStatus, StatusItem, StatusNotice } from "./deck-host.ts";
+export type { DeckEditorProps, StatusNotice, StatusReport } from "./deck-host.ts";
 export {
   factsOf,
   registryBuffers,

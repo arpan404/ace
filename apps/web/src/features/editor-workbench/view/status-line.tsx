@@ -1,6 +1,6 @@
-import { cn } from "@/lib/cn.ts";
+import { EditorStatusLine } from "@/features/editor";
 import type { BufferFacts } from "./buffers.ts";
-import type { EditorStatus, StatusNotice } from "./deck-host.ts";
+import type { StatusNotice, StatusReport } from "./deck-host.ts";
 
 /** Spec 45: who changed which open files that the person hasn't looked at yet. */
 export function agentChangeNotice(
@@ -21,60 +21,39 @@ export function agentChangeNotice(
 
 /**
  * The Deck's one 24px status line, about the focused group's editor only (spec 41): on the
- * left what needs a look (the editor's own notice first), on the right its facts as words.
+ * left what needs a look, on the right the editor's own status line (editor-commands'), drawn
+ * once here instead of under every editor.
  */
 export function StatusLine(props: {
-  status: EditorStatus | undefined;
+  report: StatusReport | undefined;
   agentNotice: StatusNotice | undefined;
 }) {
-  const notice = props.status?.notice ?? props.agentNotice;
+  const { report } = props;
+  // Spec 65: a read-only file says so here and nowhere else.
+  const notice = props.agentNotice ?? (report?.status.readOnly ? { text: "Read only" } : undefined);
   return (
-    <footer
+    <div
       data-part="deck-status"
-      aria-label="Editor status"
-      className="@container flex h-6 shrink-0 items-center gap-3.5 border-t border-border px-3 text-xs whitespace-nowrap text-subtle-foreground"
+      className="flex h-6 shrink-0 items-center gap-3 border-t border-border pl-3 text-xs whitespace-nowrap text-subtle-foreground"
     >
       {notice && (
         <span role="status" className="flex min-w-0 items-center gap-1.5">
           <span className="truncate">{notice.text}</span>
-          {notice.action && <TextButton label={notice.action.label} run={notice.action.run} />}
+          {notice.action && (
+            <button
+              type="button"
+              onClick={notice.action.run}
+              className="h-5 shrink-0 rounded-xs px-1.5 font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground"
+            >
+              {notice.action.label}
+            </button>
+          )}
         </span>
       )}
-      <span className="ml-auto flex min-w-0 items-center gap-1">
-        {props.status?.items.map((item, index) => {
-          // A narrow Deck keeps the caret's place; the rest return from 560px.
-          const narrow = index > 0 && "hidden @[560px]:inline-flex";
-          return item.run ? (
-            <TextButton key={item.id} label={item.label} run={item.run} quiet className={narrow} />
-          ) : (
-            <span key={item.id} className={cn("px-1.5", narrow)}>
-              {item.label}
-            </span>
-          );
-        })}
-      </span>
-    </footer>
-  );
-}
-
-/** A word that acts: the notice's action in muted ink, the editor's facts quieter (`quiet`). */
-function TextButton(props: {
-  label: string;
-  run(): void;
-  quiet?: boolean;
-  className?: string | false;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={props.run}
-      className={cn(
-        "h-5 shrink-0 items-center rounded-xs px-1.5 transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground",
-        props.quiet ? "text-subtle-foreground" : "font-medium text-muted-foreground",
-        props.className,
-      )}
-    >
-      {props.label}
-    </button>
+      {/* The editor's line brings its own top edge and fill; inside this one they would double. */}
+      <div className="ml-auto flex min-w-0 [&>footer]:h-auto [&>footer]:border-t-0 [&>footer]:bg-transparent">
+        {report && <EditorStatusLine status={report.status} actions={report.actions} />}
+      </div>
+    </div>
   );
 }
