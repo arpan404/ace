@@ -1,4 +1,4 @@
-# Deck: the editor workbench
+# Editor: the editor workbench
 
 Status: accepted 2026-11-19; the owner settled the open questions (see Decided questions). Decision record:
 [ADR 0193](../adr/0193-one-editor-per-thread.md). Mockup:
@@ -21,12 +21,12 @@ than today's, not just VS Code parity.
 
 ## Solution
 
-Each thread gets **one Deck**: a panel tab that holds an explorer (Files and Search),
+Each thread gets **one editor**: a panel tab that holds an explorer (Files and Search),
 an editor area of one or more **groups** (each with its own tab strip, breadcrumbs and editors)
 and a slim status line. Every way of opening a checkout file opens it there: the explorer, quick
 open, a search hit, a mention in the chat, a link in an answer, the Work card. A glance opens a
 **preview tab** (italic) that the next glance replaces; a deliberate open keeps it. Beside the chat
-the Deck is compact (one group, explorer stepped aside), and that compact form is the quick
+the editor is compact (one group, explorer stepped aside), and that compact form is the quick
 one-file view: there is no second kind of file view to learn.
 
 Files are always editable. Typing makes a tab unsaved (a dot in its close slot). Agents' edits land
@@ -39,19 +39,19 @@ editing raises one line with Merge and Compare instead of a silent fork.
 
 ## The recommended model, and why
 
-**One Deck per thread, in the side panel; every file open goes there; a glance is a preview
+**One editor per thread, in the side panel; every file open goes there; a glance is a preview
 tab.**
 
 - **One buffer per file per thread.** A file has exactly one home, so an unsaved edit lives in one
   place. A separate single-file view beside a workbench would give one file two homes and two
   dirty states that disagree (`DESIGN.md` §1: one place per fact).
-- **The explorer the owner wants to keep is the Deck's own sidebar.** At panel widths today's
-  Files tab (tree, then the file beside or over it) is exactly the compact Deck, so the quick
+- **The explorer the owner wants to keep is the editor's own sidebar.** At panel widths today's
+  Files tab (tree, then the file beside or over it) is exactly the compact editor, so the quick
   lookup survives unchanged in feel, minus the tab pile-up.
 - **Today's preview rule carries over.** `open-file.ts` already reuses a preview tab for a single
-  click and keeps a tab on a deliberate open; the rule moves from panel tabs to the Deck's tabs.
+  click and keeps a tab on a deliberate open; the rule moves from panel tabs to the editor's tabs.
 - **The panel system stays as it is.** Summary, Changes, Browser and terminals stay panel tabs;
-  the Deck is one more. Full view, docking, the bottom panel and the phone's layout need no new
+  the editor is one more. Full view, docking, the bottom panel and the phone's layout need no new
   cases.
 
 Rejected: a single-file view for chat mentions beside a separate workbench (two homes per file,
@@ -63,26 +63,26 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### Place in the layout
 
-1. The Deck is a singleton panel tab of a thread that has a checkout. Chats (no project) have no
-   Deck. It replaces today's pinned Files tab and every per-file `files:file:<path>` tab.
-2. The panel strip lists tools only: Summary, Changes, Deck, Browser, terminals, Preview and the
-   rest. Files never appear in the panel strip again; they appear in the Deck's own strips.
-3. The Deck's launcher card and its shortcut open it showing the explorer; ⌘P opens quick open
+1. The editor is a singleton panel tab of a thread that has a checkout. Chats (no project) have no
+   Editor. It replaces today's pinned Files tab and every per-file `files:file:<path>` tab.
+2. The panel strip lists tools only: Summary, Changes, Editor, Browser, terminals, Preview and the
+   rest. Files never appear in the panel strip again; they appear in the editor's own strips.
+3. The editor's launcher card and its shortcut open it showing the explorer; ⌘P opens quick open
    from anywhere in the thread, as today.
-4. **The Deck asks for room.** When a file opens and the docked panel is narrower than 640px, the
+4. **The editor asks for room.** When a file opens and the docked panel is narrower than 640px, the
    panel widens to 640px (the sidebar steps aside first, then the column narrows towards its 360px
    minimum, per `allocateRoom`). It asks once per opening, never on tab switches, and a width the
    person dragged afterwards is kept. Below 640px of window the panel takes the canvas as today.
-5. **Layouts by room.** The Deck measures its own width:
+5. **Layouts by room.** The editor measures its own width:
    - under 760px (compact): one group visible, explorer stepped aside behind a "Show files" button
      at the strip's left, and laid over the editor while open, closing once a file is picked;
    - 760px and up: the explorer docks beside the editor area (left edge, 200–360px, resizable,
      double-click resets to 236);
    - extra groups exist in every layout, but under 760px only the focused group shows and its strip
      names the others in its ⋯ menu ("Group 2: editor-groups.ts").
-6. Full view (⇧⌘F outside the Deck) gives the Deck the whole work area as today; the chat stays
+6. Full view (⇧⌘F outside the editor) gives the editor the whole work area as today; the chat stays
    one panel-strip tab away ("‹ Chat" where full view's way back sits).
-7. The phone-sized web layout keeps today's single-file behaviour: the Deck takes the canvas with
+7. The phone-sized web layout keeps today's single-file behaviour: the editor takes the canvas with
    one group and no splits.
 
 ### Opening files: one consistent way
@@ -103,7 +103,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     1.5 s (the current-line wash, then normal).
 13. **Focus follows the open.** A deliberate open and any open from the keyboard put focus in the
     editor at the caret. A glance by pointer leaves focus where it was (so clicking a mention keeps
-    the person in the chat), and Esc from the Deck returns focus to the composer.
+    the person in the chat), and Esc from the editor returns focus to the composer.
 14. Opening a file that no longer exists shows the tab with "This file was deleted." and Restore
     (when the version is cached) or Close; it never opens a blank buffer.
 
@@ -138,13 +138,13 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 24. The tab context menu: Close, Close others, Close to the right, Close saved, Close all; Pin or
     Unpin; Keep open (on a preview tab); Split right, Split down, Move to group ›; Copy path, Copy
     relative path; Reveal in Files; Open in › (the open-in catalogue from the open-in branch).
-25. **Reopen closed** (⇧⌘T desktop, ⇧⌥⌘T web, while focus is in the Deck) brings back the last
+25. **Reopen closed** (⇧⌘T desktop, ⇧⌥⌘T web, while focus is in the editor) brings back the last
     closed editor in its group at its index with its view state; the list holds the last 20 per
     thread and survives reloads.
 26. **MRU switcher.** ⌃Tab (desktop) shows a solid popover of the focused group's editors in most
     recently used order; holding ⌃ and tapping Tab moves down, ⌃⇧Tab up, releasing ⌃ opens. On the
     web, where browsers keep ⌃Tab, ⌘P with an empty query is the same list.
-27. **Group focus.** ⌘1–⌘9 focus group 1–9 while focus is inside the Deck (threads elsewhere);
+27. **Group focus.** ⌘1–⌘9 focus group 1–9 while focus is inside the editor (threads elsewhere);
     ⌃⌘← / ⌃⌘→ move the active editor to the previous or next group.
 28. **Overflow.** The strip scrolls sideways (wheel, trackpad); the active tab always scrolls into
     view; a ⌄ button at the strip's end, shown only while tabs overflow, lists the group's tabs with
@@ -164,7 +164,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 ### Explorer and search
 
 32. The explorer is one per thread, not one per tab: its folders, scroll, filter and Files/Search
-    choice persist with the Deck. The tree is today's (lazy folders, live updates, ignored entries
+    choice persist with the editor. The tree is today's (lazy folders, live updates, ignored entries
     dimmed) with the tree-power branch's context menu, multi-select, keyboard and drag and drop.
 33. **The explorer follows the focused editor**: the active file's row is revealed (its folders
     opened) and selected without stealing focus. Creating, renaming or moving an entry reveals and
@@ -177,7 +177,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     the finished and failed colours, as settled thread rows do); folders carry nothing.
 36. Single-chain folders compact into one row ("apps/web/src").
 37. **Search stays beside the editor.** Picking a hit opens it as a glance and keeps the results
-    and their scroll; F4 / ⇧F4 step to the next or previous hit from anywhere in the Deck, opening
+    and their scroll; F4 / ⇧F4 step to the next or previous hit from anywhere in the editor, opening
     each as the preview. Result lines show the match centred in its line with the text around it,
     never cut to "clo…". Results refresh for a file when it changes on disk or is saved.
 38. Search gains Replace: a second field; Replace one hit, or Replace all, which first lists the
@@ -193,7 +193,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     and the status line; Copy path, Download, Open in and Show uncommitted changes to the tab menu
     and the group's ⋯; Markdown's rendered/source choice to a `WordChoice` at the breadcrumb line's
     right end for Markdown files only; the tree toggle to "Show files" in compact layout.
-41. One slim status line (24px) at the Deck's foot, about the focused editor, words only:
+41. One slim status line (24px) at the editor's foot, about the focused editor, words only:
     left, what needs a look ("Claude Code changed 2 open files" with Next change; "Read only:
     the daemon is offline"; "Couldn't save store.ts. The disk is full." with Try again); right,
     "Ln 25, Col 35", selections when more than one, indentation, encoding, line ending, language.
@@ -211,7 +211,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     and the label goes; hovering any changed-line mark names who changed it and when.
 44. The person's own unsaved lines carry a muted ink bar. Lines changed since HEAD but not in this
     session keep today's change marks. Three marks, three meanings, one place.
-45. When an agent changes files open in the Deck, the status line says so ("Claude Code changed
+45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
     2 open files") with Next change (⌥F5), which steps through unseen blocks across open editors.
     Attribution: a change is credited to the thread whose live turn reported an edit tool call on
     that path within 10 s before the disk change; with none, it reads "Changed on disk" and no
@@ -245,7 +245,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### Persistence
 
-52. The Deck's layout persists per thread with the workspace store (`ace.workspace`, local to
+52. The editor's layout persists per thread with the workspace store (`ace.workspace`, local to
     the device, as panel tabs do today): the split tree, each group's tabs (path, preview, pinned),
     active tab and MRU order, the focused group, each editor's view state (scroll anchor, selections,
     folds), the explorer's state and the closed list. At most 100 tabs per thread are stored; past
@@ -257,9 +257,9 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 54. Across reloads and daemon restarts the layout comes back at once; only the visible editors'
     files are read; hidden tabs read when shown. On reconnect every open buffer re-checks its
     version: clean ones reload if changed (42), unsaved ones go to case 46.
-55. **Migration.** On first load, a thread's stored per-file panel tabs move into its Deck's one
+55. **Migration.** On first load, a thread's stored per-file panel tabs move into its editor's one
     group in their order with their preview flags, drafts move to the draft store, and the pinned
-    Files tab becomes the Deck tab. This is a client-side, one-time, pure transform of stored UI
+    Files tab becomes the editor tab. This is a client-side, one-time, pure transform of stored UI
     state; there is no daemon migration.
 
 ### Performance budget
@@ -290,26 +290,26 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### Keyboard map
 
-| Action                                | Desktop (macOS)   | Web       | Scope          |
-| ------------------------------------- | ----------------- | --------- | -------------- |
-| Quick open; empty query lists recents | ⌘P                | ⌘P        | thread         |
-| Open picked file in the next group    | ⌘↵ in quick open  | same      | quick open     |
-| Save / Save all                       | ⌘S / ⇧⌘S          | same      | Deck           |
-| Close editor                          | ⌘W                | ⌥⌘W       | Deck           |
-| Reopen closed editor                  | ⇧⌘T               | ⇧⌥⌘T      | Deck           |
-| Recent editors (MRU)                  | ⌃Tab / ⌃⇧Tab      | ⌘P, empty | Deck           |
-| Focus group 1–9                       | ⌘1–⌘9             | ⌥⌘1–⌥⌘9   | Deck           |
-| Move editor to previous / next group  | ⌃⌘← / ⌃⌘→         | same      | Deck           |
-| Split right / down                    | ⌥⌘\ / ⇧⌥⌘\        | same      | Deck           |
-| Show or hide the explorer             | ⌘B                | same      | Deck           |
-| Search file contents                  | ⇧⌘F               | same      | Deck (exists)  |
-| Next / previous search hit            | F4 / ⇧F4          | same      | Deck           |
-| Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same      | Deck           |
-| Go to line                            | ⌃G, or `:n` in ⌘P | same      | Deck           |
-| Rename in explorer                    | F2                | same      | files (exists) |
-| Back to the composer                  | Esc               | same      | Deck           |
+| Action                                | Desktop (macOS)   | Web       | Scope           |
+| ------------------------------------- | ----------------- | --------- | --------------- |
+| Quick open; empty query lists recents | ⌘P                | ⌘P        | thread          |
+| Open picked file in the next group    | ⌘↵ in quick open  | same      | quick open      |
+| Save / Save all                       | ⌘S / ⇧⌘S          | same      | Editor          |
+| Close editor                          | ⌘W                | ⌥⌘W       | Editor          |
+| Reopen closed editor                  | ⇧⌘T               | ⇧⌥⌘T      | Editor          |
+| Recent editors (MRU)                  | ⌃Tab / ⌃⇧Tab      | ⌘P, empty | Editor          |
+| Focus group 1–9                       | ⌘1–⌘9             | ⌥⌘1–⌥⌘9   | Editor          |
+| Move editor to previous / next group  | ⌃⌘← / ⌃⌘→         | same      | Editor          |
+| Split right / down                    | ⌥⌘\ / ⇧⌥⌘\        | same      | Editor          |
+| Show or hide the explorer             | ⌘B                | same      | Editor          |
+| Search file contents                  | ⇧⌘F               | same      | Editor (exists) |
+| Next / previous search hit            | F4 / ⇧F4          | same      | Editor          |
+| Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same      | Editor          |
+| Go to line                            | ⌃G, or `:n` in ⌘P | same      | Editor          |
+| Rename in explorer                    | F2                | same      | files (exists)  |
+| Back to the composer                  | Esc               | same      | Editor          |
 
-Deck-scoped keys follow the existing `scope` mechanism in `lib/keymap.ts` (as `files.search`
+Editor-scoped keys follow the existing `scope` mechanism in `lib/keymap.ts` (as `files.search`
 already shadows Full view inside Files). ⌘\ stays the sidebar toggle; ⇧⌘E stays Focus thread
 list; go to symbol (⇧⌘O) waits for its wave because ⇧⌘O is Add project.
 
@@ -341,7 +341,7 @@ picks which to do.
 | 1   | An agent changed a file I was editing and nothing said so. On Save the only choices were Replace (throw away the agent's line) or Keep editing; no compare, no merge.                                                                                           | [14](audit/14-dirty-buffer-silent-diverge.jpg), [15](audit/15-conflict-replace-only.jpg)                    | 46: a line the moment it happens, Merge (three-way) and Compare; Replace only as an explicit answer.            |
 | 2   | After the agent inserted three lines, Changes › Last turn said "No text changes to show" for both files and the transcript's file chips read +0 −0. A correctness bug in what ace reports about agent work; it should be filed and fixed apart from this build. | [13](audit/13-agent-edits-invisible.jpg), [16](audit/16-changes-turn-empty.jpg)                             | Out of this build (separate bug). The attribution in 45 reads the same edit records, so it must be fixed first. |
 | 3   | Opening a file docks it in a ~360px panel beside a 760px chat column: code clipped at ~40 columns, the breadcrumb reduced to "… › w…", tab names cut.                                                                                                           | [02](audit/02-file-opens-cramped.jpg)                                                                       | 4–5: the editor asks for 640px once, compact and wide layouts by measured room.                                 |
-| 4   | Files and tools share one strip, which scrolls earlier files out of sight after three opens; "All tabs" lists names with no folder or state. In full view the chat, Summary, Changes and four files all sit in one row.                                         | [03](audit/03-three-files-strip-hides.jpg), [17](audit/17-full-view-mixed-strip.jpg)                        | 1–2, 20–29: one Deck tab with its own strips; Open editors with folders and states.                             |
+| 4   | Files and tools share one strip, which scrolls earlier files out of sight after three opens; "All tabs" lists names with no folder or state. In full view the chat, Summary, Changes and four files all sit in one row.                                         | [03](audit/03-three-files-strip-hides.jpg), [17](audit/17-full-view-mixed-strip.jpg)                        | 1–2, 20–29: one editor tab with its own strips; Open editors with folders and states.                           |
 | 5   | Files are read-only until the pencil; the "Editing" band pushes the file down 34px; the caret starts at line 1, not the hit; ⌘S drops back to read-only, so the next edit needs the pencil again.                                                               | [07](audit/07-edit-mode-shift.jpg), [09](audit/09-save-exits-edit.jpg)                                      | 30, 47: always editable, no mode, no bands; caret at the hit (12).                                              |
 | 6   | Unsaved state shows only inside the file; its tab looks like every other tab.                                                                                                                                                                                   | [08](audit/08-unsaved-no-tab-mark.jpg)                                                                      | 21, 29–30: unsaved dot in the tab and in Open editors; Save all.                                                |
 | 7   | An agent's edits below the fold leave no trace in the open editor, and its lines get the same green mark as my own edits.                                                                                                                                       | [13](audit/13-agent-edits-invisible.jpg)                                                                    | 43–45: working-colour bars, "Claude Code · just now", "changed 2 open files" with Next change.                  |
@@ -360,7 +360,7 @@ that refused a silent overwrite, full view's width.
 
 ## Decisions
 
-- **New kind** `deck` (singleton per thread) in `features/panels/thread-kinds.tsx`, replacing
+- **New kind** `editor` (singleton per thread) in `features/panels/thread-kinds.tsx`, replacing
   `filesKind`'s per-file instances. Its tab data is the workbench layout below, parsed leniently
   like every stored tab (`sanitize`): a bad layout falls back to one empty group.
 - **Pure model in `@ace/ui-core`** (`editor-workbench`, imported as
@@ -401,11 +401,11 @@ that refused a silent overwrite, full view's width.
 - **No protocol change for the core build.** Attribution (45) reads the turn's edit tool calls the
   client already receives; if those records prove unreliable (finding 2), the fix is a daemon
   bug fix, not a new message.
-- **Keymap** entries get a `deck` scope in `lib/keymap.ts`.
+- **Keymap** entries get a `editor` scope in `lib/keymap.ts`.
 - **Settings › Editor** gains Auto save.
 - Related ADRs: [0178](../adr/0178-rust-files-and-editor-core.md) (Rust files and editor core),
   [0193](../adr/0193-one-editor-per-thread.md) (this decision), [0056](../adr/0056-web-performance-architecture.md) (first-chunk budgets:
-  the Deck's code loads with its kind, never in the thread's first chunk).
+  the editor's code loads with its kind, never in the thread's first chunk).
 
 ## Build plan
 
@@ -464,9 +464,9 @@ web perf test.
 
 Settled by the owner on 2026-11-19.
 
-1. **Name.** The panel tab is the **Deck**. ace's names come from cards (ace, Spade, Suits): the
-   files open in a thread are the cards in its deck. "Editor" stays the word for the text-editing
-   component inside it, and Settings › Editor keeps its name.
-2. **⌘1–⌘9.** Inside the Deck they focus groups 1–9; everywhere else they keep opening threads 1–9.
+1. **Name.** The panel tab is the **Editor**. It was named Deck during the build; the owner
+   renamed it Editor on 2026-11-20. The text-editing component inside it is the code editor, and
+   Settings › Editor keeps its name.
+2. **⌘1–⌘9.** Inside the editor they focus groups 1–9; everywhere else they keep opening threads 1–9.
 3. **Auto save.** Off by default: agents write the same checkout, and an explicit save is the moment
    the person accepts the merge rules.
