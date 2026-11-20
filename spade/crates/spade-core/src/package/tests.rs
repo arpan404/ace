@@ -256,7 +256,7 @@ fn unknown_fields_are_kept_by_name_and_grant_nothing() {
     let value = with(
         value,
         "surfaces",
-        json!([{ "id": "fare-drop", "kind": "card" }]),
+        json!([{ "id": "fare-drop", "kind": "card", "file": "cards/fare-drop.json" }]),
     );
     let value = with(
         value,
@@ -264,7 +264,7 @@ fn unknown_fields_are_kept_by_name_and_grant_nothing() {
         json!([{ "kind": "message" }, { "kind": "call", "contract": "cheapest_fare" }]),
     );
     let read = reads(&value);
-    assert_eq!(read.unused, vec!["superpowers", "surfaces"]);
+    assert_eq!(read.unused, vec!["superpowers"]);
     assert!(read.effects.is_empty());
     assert_eq!(read.triggers, vec![PackageTrigger::Message]);
     let link = link_of(read, &[]);

@@ -762,6 +762,26 @@ pub enum Known {
         /// The choice's label, fixed when the card was shown.
         label: String,
     },
+    /// The bot set the state of its package's panel `surface` (ADR 0200 §5.2), checked against
+    /// the panel's state schema. Every update is one; the panel shows the latest. The model reads
+    /// only its call's result.
+    PanelUpdated {
+        surface: String,
+        call_id: String,
+        data: Value,
+    },
+    /// The person sent a declared action from panel `surface`, its value checked against the
+    /// action's schema. Stored once per `key`, and read by the bot as the person's input, a
+    /// `<panel_action>`.
+    PanelAction {
+        surface: String,
+        key: String,
+        action: String,
+        /// The words the bot reads for it, from the declaration.
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Value>,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never

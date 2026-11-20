@@ -319,6 +319,8 @@ impl Transcript {
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }
+            | Known::PanelUpdated { .. }
+            | Known::PanelAction { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {

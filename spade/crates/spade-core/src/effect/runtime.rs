@@ -79,7 +79,10 @@ impl Module {
                  not part of this API."
             }
             Self::Agents => "Other bots, clubs, workers, helpers and ace's coding agents.",
-            Self::Ui => "What the person sees besides the reply: questions, images and cards.",
+            Self::Ui => {
+                "What the person sees besides the reply: questions, images, cards and the \
+                 state of its package's panels."
+            }
             Self::Schedule => "Routines, wakes and waits.",
             Self::Devices => {
                 "ace's browser, screen and simulators, and devices named with @, through ace."
@@ -193,6 +196,12 @@ pub const TOOLS: &[Tool] = &[
     spade(crate::context::ASK_USER, Ui),
     spade("image_generate", Ui),
     spade(crate::card::CARD_SHOW, Ui),
+    Tool {
+        name: crate::panel::PANEL_UPDATE,
+        module: Ui,
+        source: Source::Table,
+        since: "0.0.25",
+    },
     spade("routines_list", Schedule),
     spade("routine_save", Schedule),
     spade("routine_delete", Schedule),
