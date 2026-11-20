@@ -598,7 +598,7 @@ test("a saved model the agent no longer lists leaves the thread on the agent's d
   try {
     const id = await h.create("ask", "retired-model");
     expect(h.contexts.get(id)?.model).toBe("retired-model");
-    expect(h.store.getThread(id)?.model).toBeUndefined();
+    expect(h.store.getThread(id)?.execution?.model).toBeUndefined();
     expect(
       h.notices(id, "execution_option_refused").map((item) => item.type === "notice" && item.text),
     ).toEqual(["This agent didn't take model retired-model, so it runs at its default."]);
