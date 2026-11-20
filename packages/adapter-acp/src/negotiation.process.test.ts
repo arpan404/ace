@@ -10,7 +10,7 @@ const Envelope = z
   .object({ method: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() })
   .passthrough();
 async function open(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   context: Partial<SessionContext> = {},
   agent?: string,
   version?: string,
@@ -56,6 +56,33 @@ test("an agent that updated itself since approval still opens, as generic ACP, a
     ).toBe(true);
     // Gemini's legacy model setter is the profile's; generic ACP doesn't use it.
     expect(h.session.refusedOptions).toEqual(["model"]);
+  } finally {
+    await h.session.close("user");
+  }
+});
+test("an agent that updated within its profile's range keeps the profile and notes the unverified version", async () => {
+  const h = await open(
+    { legacy: true, updated: true, reports: "0.44.1" },
+    { model: "model-a" },
+    "gemini",
+    "0.43.0",
+  );
+  try {
+    expect(h.session.acpSupport?.coverage).toBe("source_profile");
+    const notes = h.frames.filter((frame) => frame.dir === "note").map((frame) => frame.data);
+    expect(notes).toContainEqual(
+      expect.objectContaining({
+        event: "acp-version-unverified",
+        profile: "gemini-043",
+        verified: "0.43.0",
+        version: "0.44.1",
+      }),
+    );
+    expect(notes).toContainEqual(
+      expect.objectContaining({ event: "acp-version-changed", runsAs: "profile" }),
+    );
+    // The profile's legacy model setter still applies.
+    expect(h.session.refusedOptions).toEqual([]);
   } finally {
     await h.session.close("user");
   }

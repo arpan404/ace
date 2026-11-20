@@ -2,7 +2,12 @@ import { bridgeSubagents } from "./bridge-negotiation.ts";
 import { object } from "./data.ts";
 import { z } from "zod";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
-import type { CompatibilityProfile, SelectorState } from "@ace/agent-registry";
+import {
+  profileFit,
+  type CompatibilityProfile,
+  type ProfileFit,
+  type SelectorState,
+} from "@ace/agent-registry";
 import type { AcpQuirks } from "./quirks/types.ts";
 const Initialize = z
   .object({
@@ -37,10 +42,18 @@ export type Negotiated = {
   subagentSessions: boolean;
   /** How a saved session reopens: session/resume (no replay) when advertised, else session/load. */
   resumeMethod: "session/resume" | "session/load" | undefined;
-  /** The profile the session runs under: none when the agent isn't the version it covers. */
+  /** The profile the session runs under: none when the agent's version is outside its range. */
   profile: CompatibilityProfile | undefined;
-  /** The agent reported another version than the approved one; it runs as generic ACP. */
-  versionChanged?: { approved: string; reported: string };
+  /**
+   * How the profile covers the version the agent runs: `compatible` is in its range but not a
+   * version ace verified it on.
+   */
+  profileFit: ProfileFit | undefined;
+  /**
+   * The agent reported another version than the approved one. In its profile's range it keeps
+   * the profile; outside it, it runs as generic ACP.
+   */
+  versionChanged?: { approved: string; reported: string; runsAs: "profile" | "generic" };
   raw: unknown;
 };
 export function negotiate(
@@ -52,17 +65,25 @@ export function negotiate(
   const response = Initialize.parse(raw);
   if (quirks.provider === "antigravity" && response.agentInfo?.name !== "antigravity-acp")
     throw new Error("Unexpected Antigravity ACP identity");
-  // An agent that updated itself is no longer what its profile was checked against: it runs
-  // as generic ACP (standard negotiation only) rather than failing every thread on it. The
-  // approved executable itself is still checked before launch (ADR 0044).
+  // An agent that updated itself is checked against its profile's version range (ADR 0044,
+  // amendment on agents that update themselves): in range it keeps the profile, unverified;
+  // outside it runs as generic ACP (standard negotiation only) rather than failing every thread
+  // on it. The approved executable itself is still checked before launch.
   const reported = response.agentInfo?.version;
-  const versionChanged =
-    quirks.provider === "acp" && version && reported && reported !== version
-      ? { approved: version, reported }
-      : undefined;
-  if (versionChanged) profile = undefined;
+  const changed = quirks.provider === "acp" && version && reported && reported !== version;
+  const running = changed ? reported : (version ?? reported);
+  // A launch with no version at all (none approved, none reported) has nothing to check against.
+  const fit: ProfileFit | undefined = profile
+    ? running
+      ? profileFit(profile, running)
+      : "verified"
+    : undefined;
+  if (!fit) profile = undefined;
+  const versionChanged = changed
+    ? { approved: version, reported, runsAs: profile ? ("profile" as const) : ("generic" as const) }
+    : undefined;
   const advertised = response.agentCapabilities;
-  const existing = quirks.capabilities(versionChanged ? reported : (version ?? reported));
+  const existing = quirks.capabilities(running);
   const generic = quirks.provider === "acp";
   const subagentSessions = bridgeSubagents(raw, profile);
   const resumeMethod =
@@ -75,6 +96,7 @@ export function negotiate(
     resumeMethod,
     raw,
     profile,
+    profileFit: profile ? fit : undefined,
     ...(versionChanged ? { versionChanged } : {}),
     subagentSessions,
     systemPromptAppend: advertisesSystemPromptAppend(raw),

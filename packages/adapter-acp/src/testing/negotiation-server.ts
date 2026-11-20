@@ -18,6 +18,8 @@ const config = z
     systemPrompt: z.boolean().default(false),
     // An agent that updated itself since it was approved: it reports another version.
     updated: z.boolean().default(false),
+    // The version it then reports, 9.9.9 when not given.
+    reports: z.string().optional(),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -80,7 +82,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     result({
       protocolVersion: 1,
       // An agent that updated itself since it was approved.
-      ...(config.updated ? { agentInfo: { name: "synthetic", version: "9.9.9" } } : {}),
+      ...(config.updated
+        ? { agentInfo: { name: "synthetic", version: config.reports ?? "9.9.9" } }
+        : {}),
       ...(config.airSubagents
         ? {
             _meta: { jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } } },
