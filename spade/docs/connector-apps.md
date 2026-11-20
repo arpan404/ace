@@ -1,9 +1,8 @@
 # Spade's own connector apps
 
-Updated 2026-11-19: the catalogue now lists 85 apps; which connect today, what the owner must do
-for the rest, and the apps with no official server are under
-[The catalogue on 2026-11-19](#the-catalogue-on-2026-11-19) and
-[Owner checklist](#owner-checklist) ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)).
+On 2026-11-19, the catalogue reached 98 apps. [The catalogue](#the-catalogue-on-2026-11-19) lists
+which apps can connect and how. The [owner checklist](#owner-checklist) covers registrations
+and approvals ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)).
 
 Date: 2026-11-12. Which of Asana, Box, Canva, GitHub and HubSpot can let Spade sign in with a
 client ID it ships and no secret ([ADR 0137](../../docs/adr/0137-spade-public-connector-apps.md)),
@@ -174,22 +173,26 @@ app; the first real sign-in remains the last check.
 
 What Spade shows ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)):
 
-- **Sign in (62):** Airtable, Amplitude, Apollo.io, Atlassian, Attio, Axiom, Basecamp, Buildkite,
-  Cal.com, Calendly, Clerk, ClickUp, Close, Cloudflare, Cloudinary, Contentful, Datadog, Dropbox,
-  Fireflies, Framer, Gamma, GitLab, Grafana Cloud, Granola, Guru, Help Scout, Hex, Intercom, Jam,
-  Jotform, Klaviyo, LaunchDarkly, Linear, Lucid, Make, Mercury, Miro, Mixpanel, monday.com,
-  MongoDB Atlas, Neon, Netlify, Notion, PagerDuty, PayPal, PlanetScale, PostHog, Postman, Prisma,
-  Railway, Readwise, Resend, Rootly, Sanity, Sentry, Square, Stripe, Supabase, Tally, Todoist,
-  Webflow, Wix. Each offers dynamic registration, or Spade's client ID metadata document with
-  `iss` in its answers (MongoDB Atlas, PagerDuty).
-- **Needs a key (5):** GitHub (until Spade's GitHub app is registered, below), Hugging Face,
-  Render, Smartsheet (its OAuth is for named clients), Zapier (its OAuth is for listed clients;
-  others use a connection token).
-- **Coming soon (18):** through Spade Cloud once the owner registers Spade with the maker and sets
+- **Sign in (72)** includes Airtable, Amplitude, Apollo.io, Atlassian, Attio, Axiom, Basecamp,
+  Buildkite, Cal.com, Calendly, Clerk, ClickUp, Close, Cloudflare, Cloudinary, Coda, Contentful,
+  Datadog, DigitalOcean, Dropbox, Egnyte, Fireflies, Framer, Gamma, GitLab, Grafana Cloud, Granola,
+  Guru, Help Scout, Heroku, Hex, Honeycomb, incident.io, Intercom, Jam, Jotform, Klaviyo,
+  LaunchDarkly, Linear, Lucid, Make, Meltwater, Mercury, Miro, Mixpanel, monday.com, MongoDB Atlas,
+  Neon, Netlify, Notion, Otter.ai, PagerDuty, PayPal, PlanetScale, PostHog, Postman, Prisma, Railway,
+  Readwise, Resend, Rootly, Sanity, Sentry, Shortcut, S&P Global, Square, Stripe, Supabase, Tally,
+  Todoist, Webflow and Wix. Each offers dynamic registration or supports Spade's client ID
+  metadata document with `iss` in its answers (Honeycomb, MongoDB Atlas, PagerDuty).
+- **Needs a key (6)** includes GitHub (until Spade's GitHub app is registered), Hugging Face,
+  Render, Semgrep, Smartsheet and Zapier. Semgrep accepts a bearer token. Its OAuth discovery
+  redirects, and Spade requires the metadata directly at the challenged URL.
+- **Coming soon (20)** includes apps that connect through Spade Cloud once the owner registers Spade and sets
   the Worker's secrets: Asana, Box, Canva, Front, Gmail, Google Calendar, Google Chat, Google Docs,
-  Google Drive, Google Sheets, Google Slides, HubSpot, Slack, Zoom. Waiting on the maker's approval
-  of Spade: Figma, Pipedrive, Ramp, Vercel. The person's own client ID still works for the cloud
-  apps.
+  Google Drive, Google Sheets, Google Slides, HubSpot, Slack and Zoom. Figma, Pipedrive, Ramp
+  and Vercel wait for maker approval. Typeform advertises dynamic registration and a client ID
+  metadata document, but omits `iss` support and refused the authorization request after
+  registration. Its [connector guide](https://developer.typeform.com/developers/mcp/build-a-connector/)
+  says dynamic registration is allowlisted. Docusign requires a caller-supplied integration key,
+  secret and registered redirect URI. People can also bring their own client ID for the cloud apps.
 
 A cloud app turns to Sign in by itself once ace cloud lists it at `GET /v1/oauth/apps` (both of
 its Worker secrets set); no Spade release is needed. An approval app needs its `waits_for` line
@@ -197,27 +200,29 @@ removed from `connectors.json`, then a release.
 
 ### Apps with no official remote MCP server to list (2026-11-19)
 
-| App                                                                                                                      | What exists                                                                                                            | What it would take                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Microsoft 365 (Outlook, Teams, OneDrive)                                                                                 | Agent 365 / Work IQ MCP servers: preview (Frontier), per tenant, Copilot licence, admin enables                        | A multi-tenant Entra app with admin consent per organisation; Microsoft opening them beyond the preview. People in a tenant can add by URL |
-| Discord                                                                                                                  | `mcp.discord.com` answers with read-only scopes, but Discord publishes no page for it                                  | A Discord page to cite; then a Discord app (public client, PKCE) as one of Spade's own apps                                                |
-| Shopify                                                                                                                  | A local developer server and per-store storefront servers; no hosted admin server                                      | Shopify shipping a hosted admin server                                                                                                     |
-| Zendesk                                                                                                                  | A server per account, its address in Admin Center                                                                      | Nothing in the catalogue: add it by address                                                                                                |
-| Salesforce                                                                                                               | Hosted servers per org, each needing an External Client App in that org                                                | Add by address with the org's own client ID                                                                                                |
-| Twilio, Mailchimp                                                                                                        | Documentation search only (`mcp.twilio.com/docs`, `mailchimp.com/developer/_mcp/server`)                               | Account servers (Twilio says planned)                                                                                                      |
-| Squarespace                                                                                                              | Commerce tools only for two named clients; others get domain search                                                    | Squarespace opening commerce tools to other clients                                                                                        |
-| Plaid                                                                                                                    | A dashboard server for Plaid's developers, client-credentials only                                                     | Not a person's account                                                                                                                     |
-| Spotify, Brex, Obsidian, WhatsApp, Telegram                                                                              | No official remote MCP server found                                                                                    | The maker shipping one                                                                                                                     |
-| Typeform, Coda, DocuSign, Heroku, DigitalOcean, Otter, incident.io, Shortcut, Honeycomb, Semgrep, Egnyte, Stack Overflow | An address on the maker's domain answers with sign-in metadata, but its documentation page couldn't be confirmed today | Re-check the maker's docs; add with `source` once confirmed                                                                                |
+| App                                         | What exists                                                                                                                                                                                                                          | What it would take                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Microsoft 365 (Outlook, Teams, OneDrive)    | Agent 365 / Work IQ MCP servers: preview (Frontier), per tenant, Copilot licence, admin enables                                                                                                                                      | A multi-tenant Entra app with admin consent per organisation; Microsoft opening them beyond the preview. People in a tenant can add by URL |
+| Discord                                     | `mcp.discord.com` answers with read-only scopes, but Discord publishes no page for it                                                                                                                                                | A Discord page to cite; then a Discord app (public client, PKCE) as one of Spade's own apps                                                |
+| Shopify                                     | A local developer server and per-store storefront servers; no hosted admin server                                                                                                                                                    | Shopify shipping a hosted admin server                                                                                                     |
+| Zendesk                                     | A server per account, its address in Admin Center                                                                                                                                                                                    | Nothing in the catalogue: add it by address                                                                                                |
+| Salesforce                                  | Hosted servers per org, each needing an External Client App in that org                                                                                                                                                              | Add by address with the org's own client ID                                                                                                |
+| Twilio, Mailchimp                           | Documentation search only (`mcp.twilio.com/docs`, `mailchimp.com/developer/_mcp/server`)                                                                                                                                             | Account servers (Twilio says planned)                                                                                                      |
+| Squarespace                                 | Commerce tools only for two named clients; others get domain search                                                                                                                                                                  | Squarespace opening commerce tools to other clients                                                                                        |
+| Plaid                                       | A dashboard server for Plaid's developers, client-credentials only                                                                                                                                                                   | Not a person's account                                                                                                                     |
+| Spotify, Brex, Obsidian, WhatsApp, Telegram | No official remote MCP server found                                                                                                                                                                                                  | The maker shipping one                                                                                                                     |
+| Stack Overflow                              | [Stack Exchange's setup guide](https://api.stackexchange.com/docs/mcp-server) names `mcp.stackoverflow.com`. An unauthenticated `initialize` returned a bare `401 Bearer`, and both protected-resource metadata URLs returned `404`. | A protected-resource metadata document Spade can discover                                                                                  |
 
 ### Marks
 
 `packages/ui-core/src/app-art/` (generated by `node scripts/app-icons.ts` from the table in that
-script): Simple Icons (CC0) for 60 apps, the maker's own mark from its site for 7 (Hex, Jam,
-Mercury, Rootly, Slack, Smartsheet, Tally), each with its source and licence in `LICENCES.md`.
-These 18 show a monogram until their marks are added from each maker's brand kit: Amplitude,
-Apollo.io, Attio, Axiom, Canva, Close, Fireflies, Front, Gamma, Granola, Guru, Jotform, Klaviyo,
-LaunchDarkly, monday.com, Pipedrive, Ramp, Readwise. To add one: save the maker's SVG in
+script): Simple Icons (CC0) for 65 apps and first-party marks for 9 (Hex, incident.io, Jam,
+Mercury, Rootly, Semgrep, Slack, Smartsheet and Tally), each with its source and licence in
+`LICENCES.md`.
+These 24 show a monogram until their marks are added from each maker's brand kit: Amplitude,
+Apollo.io, Attio, Axiom, Canva, Close, Docusign, Fireflies, Front, Gamma, Granola, Guru, Heroku,
+Honeycomb, Jotform, Klaviyo, LaunchDarkly, Meltwater, monday.com, Otter.ai,
+Pipedrive, Ramp, Readwise and S&P Global. To add one, save the maker's SVG in
 `scripts/brand-marks/apps/`, point its entry at it, and run the script.
 
 ## Owner checklist

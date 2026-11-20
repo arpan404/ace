@@ -231,6 +231,18 @@
       "checked": "2026-11-19"
     },
     {
+      "id": "coda",
+      "name": "Coda",
+      "category": "work",
+      "words": ["docs", "doc", "tables", "pages", "wiki", "notes", "database"],
+      "url": "https://coda.io/apis/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "Read the Coda docs, tables and pages you can access, and edit them if you have Doc Maker permissions. You can also connect with a Coda API token scoped to MCP.",
+      "key_url": "https://coda.io/account?openDialog=CREATE_API_TOKEN&scopeType=mcp#apiSettings",
+      "source": "https://help.coda.io/hc/en-us/articles/44722661982989-Connect-to-the-Coda-MCP",
+      "checked": "2026-11-19"
+    },
+    {
       "id": "contentful",
       "name": "Contentful",
       "category": "design",
@@ -253,6 +265,44 @@
       "checked": "2026-11-19"
     },
     {
+      "id": "digitalocean",
+      "name": "DigitalOcean",
+      "category": "code",
+      "words": [
+        "droplets",
+        "droplet",
+        "servers",
+        "hosting",
+        "kubernetes",
+        "databases",
+        "deploy",
+        "cloud",
+        "infrastructure"
+      ],
+      "url": "https://mcp.digitalocean.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Manage Droplets, App Platform deployments, databases and Kubernetes in your DigitalOcean account.",
+      "source": "https://docs.digitalocean.com/reference/mcp/configure-mcp/",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "docusign",
+      "name": "Docusign",
+      "category": "work",
+      "words": ["signature", "signatures", "sign", "envelopes", "contracts", "agreements", "esign"],
+      "url": "https://mcp.docusign.com/mcp",
+      "sign_in": ["oauth_client"],
+      "notes": "Access agreements and envelopes in your Docusign account. Register an integration key, client secret and redirect URI in Apps and Keys to connect.",
+      "source": "https://developers.docusign.com/platform/mcp-server/custom-connectors/",
+      "checked": "2026-11-19",
+      "effects": {
+        "createEnvelope": "send_as_person",
+        "createEnvelopeWithDocuments": "send_as_person",
+        "sendReminder": "send_as_person",
+        "updateEnvelope": "send_as_person"
+      }
+    },
+    {
       "id": "dropbox",
       "name": "Dropbox",
       "category": "files",
@@ -262,6 +312,21 @@
       "notes": "Beta.",
       "source": "https://help.dropbox.com/integrations/connect-dropbox-mcp-server",
       "checked": "2026-11-19"
+    },
+    {
+      "id": "egnyte",
+      "name": "Egnyte",
+      "category": "files",
+      "words": ["files", "folders", "documents", "drive", "storage", "share"],
+      "url": "https://mcp-server.egnyte.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Search and read the files you can access in Egnyte. Enter your Egnyte domain at sign-in to connect to your organization's files.",
+      "source": "https://developers.egnyte.com/integration/cfs/api-docs/remote-mcp-server",
+      "checked": "2026-11-19",
+      "effects": {
+        "create_comment": "send_as_person",
+        "create_link": "change_access"
+      }
     },
     {
       "id": "figma",
@@ -509,6 +574,17 @@
       "checked": "2026-11-19"
     },
     {
+      "id": "heroku",
+      "name": "Heroku",
+      "category": "code",
+      "words": ["apps", "deploy", "dynos", "hosting", "addons", "pipelines", "servers"],
+      "url": "https://mcp.heroku.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Manage apps, add-ons, teams and Private Spaces in your Heroku account.",
+      "source": "https://devcenter.heroku.com/articles/heroku-remote-mcp-server",
+      "checked": "2026-11-19"
+    },
+    {
       "id": "hex",
       "name": "Hex",
       "category": "data",
@@ -517,6 +593,26 @@
       "sign_in": ["oauth"],
       "notes": "US region. EU workspaces add https://eu.hex.tech/mcp by URL.",
       "source": "https://learn.hex.tech/docs/administration/mcp-server",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "honeycomb",
+      "name": "Honeycomb",
+      "category": "data",
+      "words": [
+        "traces",
+        "tracing",
+        "observability",
+        "telemetry",
+        "queries",
+        "slos",
+        "triggers",
+        "boards"
+      ],
+      "url": "https://mcp.honeycomb.io/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Query telemetry from your US-region team with Honeycomb Intelligence enabled. EU teams can add https://mcp.eu1.honeycomb.io/mcp by address.",
+      "source": "https://docs.honeycomb.io/integrations/mcp/configuration-guide",
       "checked": "2026-11-19"
     },
     {
@@ -541,6 +637,26 @@
       "notes": "Uses a Hugging Face access token.",
       "key_url": "https://huggingface.co/settings/tokens",
       "source": "https://github.com/huggingface/hf-mcp-server",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "incident-io",
+      "name": "incident.io",
+      "category": "code",
+      "words": [
+        "incidents",
+        "incident",
+        "alerts",
+        "on-call",
+        "oncall",
+        "escalations",
+        "postmortem",
+        "outage"
+      ],
+      "url": "https://mcp.incident.io/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Access incidents, alerts and on-call schedules on Team, Pro or Enterprise plans after an admin enables MCP. Choose read-only or read-and-write access when you sign in.",
+      "source": "https://docs.incident.io/ai/remote-mcp",
       "checked": "2026-11-19"
     },
     {
@@ -649,6 +765,26 @@
       "every_tool": "network"
     },
     {
+      "id": "meltwater",
+      "name": "Meltwater",
+      "category": "data",
+      "words": [
+        "media",
+        "monitoring",
+        "mentions",
+        "press",
+        "coverage",
+        "social",
+        "listening",
+        "news"
+      ],
+      "url": "https://api.meltwater.com/v2/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Search media coverage and analyze mentions with a Meltwater subscription that includes MCP. The tools available depend on your subscription.",
+      "source": "https://developer.meltwater.com/guides/meltwater-mcp/connecting/",
+      "checked": "2026-11-19"
+    },
+    {
       "id": "mercury",
       "name": "Mercury",
       "category": "money",
@@ -738,6 +874,17 @@
       "notes": "Workspace tokens are for Business and Enterprise plans; a workspace owner creates them.",
       "key_url": "https://www.notion.so/profile/integrations",
       "source": "https://developers.notion.com/docs/get-started-with-mcp",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "otter",
+      "name": "Otter.ai",
+      "category": "meetings",
+      "words": ["meetings", "transcripts", "transcript", "notes", "calls", "recordings"],
+      "url": "https://mcp.otter.ai/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Search and read transcripts from meetings you captured in Otter or that someone shared with you.",
+      "source": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
       "checked": "2026-11-19"
     },
     {
@@ -903,6 +1050,18 @@
       "checked": "2026-11-19"
     },
     {
+      "id": "semgrep",
+      "name": "Semgrep",
+      "category": "code",
+      "words": ["security", "findings", "vulnerabilities", "scans", "sast", "rules", "code"],
+      "url": "https://semgrep.dev/api/mcp",
+      "sign_in": ["token"],
+      "notes": "Access findings, scans, rules and policies in your Semgrep organization. Connect with a Web API token or a read-only API token.",
+      "key_url": "https://semgrep.dev/orgs/-/settings/tokens/api",
+      "source": "https://docs.semgrep.dev/mcp/authentication",
+      "checked": "2026-11-19"
+    },
+    {
       "id": "sentry",
       "name": "Sentry",
       "category": "code",
@@ -911,6 +1070,17 @@
       "sign_in": ["oauth"],
       "notes": "",
       "source": "https://mcp.sentry.dev",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "shortcut",
+      "name": "Shortcut",
+      "category": "work",
+      "words": ["stories", "epics", "issues", "tickets", "iterations", "sprint", "backlog", "docs"],
+      "url": "https://mcp.shortcut.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Find, create and update stories, epics and docs.",
+      "source": "https://www.shortcut.com/help/integrations/mcp-server/",
       "checked": "2026-11-19"
     },
     {
@@ -940,6 +1110,25 @@
       "notes": "Business, Enterprise and Advanced Work Management plans. In Smartsheet, open your account menu, then Apps & Integrations, then API Access, and generate a token.",
       "key_url": "https://app.smartsheet.com/",
       "source": "https://developers.smartsheet.com/ai-mcp/smartsheet/install-the-smartsheet-mcp-server",
+      "checked": "2026-11-19"
+    },
+    {
+      "id": "sp-global",
+      "name": "S&P Global",
+      "category": "data",
+      "words": [
+        "financials",
+        "markets",
+        "companies",
+        "earnings",
+        "finance",
+        "research",
+        "capital iq"
+      ],
+      "url": "https://kfinance.kensho.com/integrations/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Look up S&P Global financial and company data through Kensho. Sign in with the Kensho account tied to your subscription or trial.",
+      "source": "https://docs.kensho.com/llmreadyapi/mcp/custom/oauth-authorization-code",
       "checked": "2026-11-19"
     },
     {
@@ -1008,6 +1197,23 @@
       "notes": "",
       "source": "https://www.todoist.com/help/articles/connect-todoist-to-an-ai-assistant",
       "checked": "2026-11-19"
+    },
+    {
+      "id": "typeform",
+      "name": "Typeform",
+      "category": "work",
+      "words": ["forms", "form", "surveys", "survey", "responses", "quiz"],
+      "url": "https://api.typeform.com/mcp",
+      "sign_in": ["oauth"],
+      "waits_for": "maker_approval",
+      "notes": "Build and publish forms or pages, and review responses from your Typeform account.",
+      "source": "https://www.typeform.com/developers/mcp/",
+      "checked": "2026-11-19",
+      "effects": {
+        "automations-public_publish_automation": "publish",
+        "forms-public_publish_form": "publish",
+        "pages-public_publish_variant": "publish"
+      }
     },
     {
       "id": "vercel",
