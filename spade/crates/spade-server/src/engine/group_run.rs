@@ -47,17 +47,23 @@ impl Engine {
         )?;
         let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
         let mentioned = group::mentions(text, &names);
-        let targets: Vec<&StoredMember> = if mentioned.is_empty() {
-            group
-                .members
-                .iter()
-                .filter(|m| m.machine.is_empty() && m.agent_id == group.lead_id)
-                .collect()
+        // A big club never runs every member on one message: a few named are asked, more go to
+        // the lead to hand on (ADR 0132, amended by ADR 0194).
+        let lead = group
+            .members
+            .iter()
+            .position(|m| m.machine.is_empty() && m.agent_id == group.lead_id);
+        let routed = group::route(&mentioned, lead);
+        let handed: Vec<&str> = routed.via_lead.iter().map(|&i| names[i]).collect();
+        let to_lead = if handed.is_empty() {
+            text.to_owned()
         } else {
-            mentioned.iter().map(|&i| &group.members[i]).collect()
+            format!("{text}\n\n{}", group::hand_on_note(&handed))
         };
-        for target in targets {
-            if let Err(why) = self.start_ask(&group, &run, None, 1, target, text) {
+        for &index in &routed.ask {
+            let target = &group.members[index];
+            let said = if Some(index) == lead { &to_lead } else { text };
+            if let Err(why) = self.start_ask(&group, &run, None, 1, target, said) {
                 tracing::warn!(%why, "a group message was not handed on");
             }
         }
