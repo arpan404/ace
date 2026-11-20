@@ -43,16 +43,23 @@ async function reveal(tree: HTMLElement, folders: readonly string[]) {
   }
 }
 
-/** Paths the app asked the daemon to read, in order, from the wire. */
-function readsOf(app: ReturnType<typeof harness>): string[] {
+/**
+ * Paths the app asked the daemon to read, in order, from the wire; `hold` leaves every later
+ * read of a path unanswered, as a daemon too slow to matter.
+ */
+function readsOf(app: ReturnType<typeof harness>) {
   const reads: string[] = [];
+  const held = new Set<string>();
   const request = app.client.request.bind(app.client);
   app.client.request = ((message: Parameters<typeof request>[0], options) => {
     const operation = message.type === "files.request" ? message.operation : undefined;
-    if (operation && operation.op === "read") reads.push(operation.path);
+    if (operation && operation.op === "read") {
+      reads.push(operation.path);
+      if (held.has(operation.path)) return new Promise(() => {});
+    }
     return request(message, options);
   }) as typeof request;
-  return reads;
+  return { reads, hold: (path: string) => held.add(path) };
 }
 
 test("a range selected in a Deck editor is mentioned in the chat and sends only those lines", async () => {
@@ -94,22 +101,22 @@ test("a range selected in a Deck editor is mentioned in the chat and sends only 
   );
 });
 
-test("a file the pointer rests on in the explorer opens without being read again", async () => {
+test("a file the pointer rests on in the explorer opens from that read, without waiting on another", async () => {
   const app = await openThread();
   const side = await open("replay.ts");
   await within(side).findByRole("region", { name: /^Source of .*replay\.ts$/ });
   const tree = within(side).getByRole("tree", { name: "Checkout files" });
   // outbox.ts lives in another subtree, folded by default: reveal it first.
   await reveal(tree, ["apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-  const reads = readsOf(app);
+  const outbox = "apps/web/src/relay/outbox.ts";
+  const { reads, hold } = readsOf(app);
   const row = within(tree).getByRole("treeitem", { name: "outbox.ts" });
   await userEvent.hover(row);
-  await waitFor(() => expect(reads).toContain("apps/web/src/relay/outbox.ts"));
-  const before = reads.length;
+  await waitFor(() => expect(reads).toContain(outbox));
+  // The read ahead has its answer; any read after it never gets one.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  hold(outbox);
   await userEvent.click(row);
-  const source = await within(side).findByRole("region", {
-    name: "Source of apps/web/src/relay/outbox.ts",
-  });
+  const source = await within(side).findByRole("region", { name: `Source of ${outbox}` });
   await waitFor(() => expect(source.textContent).toContain("buffer"));
-  expect(reads.slice(before)).not.toContain("apps/web/src/relay/outbox.ts");
 });

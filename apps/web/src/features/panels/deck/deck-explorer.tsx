@@ -13,6 +13,7 @@ import {
 import type { FileOperationDialog } from "../files/file-operation.ts";
 import { useDeck } from "../files/file-tree-deck.ts";
 import { FileTree } from "../files/file-tree.tsx";
+import type { RowMark } from "../files/file-tree-row.tsx";
 import type { OpenHow } from "../files/tree-commands.ts";
 import { useFileActions, type UploadState } from "../files/use-file-actions.ts";
 
@@ -48,6 +49,8 @@ export function DeckExplorer(props: {
   openEditors: ReactNode;
   /** Bumped to put the keyboard in Search's field (⇧⌘F). */
   focusSearch: number;
+  /** Rows an agent changed recently carry its mark, as their tabs do. */
+  marks?: ReadonlyMap<string, RowMark> | undefined;
 }) {
   const { threadId, explorer, onExplorer } = props;
   const client = useClient();
@@ -120,6 +123,7 @@ export function DeckExplorer(props: {
           }}
           onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
           openEditors={props.openEditors}
+          marks={props.marks}
           footer={
             fileActions.upload && (
               <UploadStatus

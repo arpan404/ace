@@ -9,6 +9,7 @@ import {
   noChanges,
   recordChange,
   seeChanges,
+  treeMarks,
 } from "./agent-changes.ts";
 
 const claude = { kind: "agent", agent: "Claude Code", threadId: "t1" } as const;
@@ -96,5 +97,55 @@ describe("the edit calls attribution reads", () => {
   it("counts a move for both its old and new path", () => {
     const calls = editCallsOf([editTurn("i1", 1, ["old.ts"], "new.ts")], thread, () => 1);
     expect(calls.map((call) => call.path)).toEqual(["old.ts", "new.ts"]);
+  });
+});
+
+describe("explorer rows' marks", () => {
+  const call = (path: string, at: number) => ({
+    threadId: "t1",
+    threadTitle: "",
+    agent: "Claude Code",
+    path,
+    at,
+  });
+  const minute = 60_000;
+  const base = {
+    checkout: "/repo",
+    threadId: "t1",
+    open: noChanges,
+    openPaths: [] as string[],
+    looked: new Map<string, number>(),
+    now: 100 * minute,
+  };
+
+  it("marks a file this thread's agent edited recently, with its newest edit", () => {
+    const marks = treeMarks({
+      ...base,
+      calls: [call("src/a.ts", 90 * minute), call("/repo/src/a.ts", 96 * minute)],
+    });
+    expect(marks.get("src/a.ts")).toEqual({ author: claude, at: 96 * minute });
+  });
+
+  it("leaves no mark for an edit past the window or before the person last looked", () => {
+    const marks = treeMarks({
+      ...base,
+      calls: [call("old.ts", 60 * minute), call("seen.ts", 95 * minute)],
+      looked: new Map([["seen.ts", 97 * minute]]),
+    });
+    expect(marks.size).toBe(0);
+  });
+
+  it("follows the tab for an open file: marked only while its tab is", () => {
+    const calls = [call("open.ts", 99 * minute), call("marked.ts", 99 * minute)];
+    const open = recordChange(noChanges, "marked.ts", other);
+    const marks = treeMarks({ ...base, calls, open, openPaths: ["open.ts", "marked.ts"] });
+    expect(marks.has("open.ts")).toBe(false);
+    // The tab names who it names (here another thread), and so does the row.
+    expect(marks.get("marked.ts")?.author).toEqual(other);
+  });
+
+  it("ignores edits outside this checkout", () => {
+    const marks = treeMarks({ ...base, calls: [call("/elsewhere/src/a.ts", 99 * minute)] });
+    expect(marks.size).toBe(0);
   });
 });

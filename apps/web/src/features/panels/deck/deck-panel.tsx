@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ProviderKind } from "@ace/protocol";
-import { providerDisplayName } from "@ace/ui-core";
+import { formatAge, providerDisplayName } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
@@ -54,7 +54,8 @@ import { useRecentFilesStore } from "../files/files-state.ts";
 import { MentionSelection } from "../files/mention-selection.tsx";
 import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
-import { changeNotice, nextChange } from "./agent-changes.ts";
+import { changeNotice, nextChange, type TreeMark } from "./agent-changes.ts";
+import type { RowMark } from "../files/file-tree-row.tsx";
 import {
   allTabs,
   closeEditors,
@@ -180,6 +181,11 @@ export function DeckPanel(props: TabViewProps) {
   useEffect(() => {
     if (lookedAt !== undefined) see([lookedAt]);
   }, [lookedAt, see]);
+  // Every file shown is looked at, so the explorer drops its mark too.
+  useEffect(() => {
+    if (focused.active !== undefined) see([focused.active]);
+  }, [focused.active, see]);
+  const rowMarks = useMemo(() => rowMarksOf(session.treeMarks), [session.treeMarks]);
 
   // Saves asked for offline run once the daemon is back (spec 66).
   useEffect(() => {
@@ -352,6 +358,7 @@ export function DeckPanel(props: TabViewProps) {
       onOpen={fromExplorer}
       openEditors={openEditors}
       focusSearch={focusSearch}
+      marks={rowMarks}
     />
   );
 
@@ -419,6 +426,21 @@ export function DeckPanel(props: TabViewProps) {
       </div>
     </div>
   );
+}
+
+/** The explorer's marks in words: who, and how long ago ("Claude Code · 4m"). */
+function rowMarksOf(marks: ReadonlyMap<string, TreeMark>): ReadonlyMap<string, RowMark> {
+  const now = Date.now();
+  const rows = new Map<string, RowMark>();
+  for (const [path, { author, at }] of marks) {
+    const age = formatAge(at, now);
+    rows.set(path, {
+      name: author.kind === "agent" ? author.agent : author.title,
+      provider: providerOf(author.agent),
+      age: age === "now" ? "just now" : age,
+    });
+  }
+  return rows;
 }
 
 /** A layout with no files: the Deck holds none until carried-over drafts are stored. */

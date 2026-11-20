@@ -93,3 +93,63 @@ export function editCallsOf(
     }
   return calls;
 }
+
+/** Explorer rows show an agent's edit this long after it. */
+export const treeMarkMs = 15 * 60_000;
+
+export interface TreeMark {
+  author: NamedAuthor;
+  at: number;
+}
+
+const slashes = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+
+/** A tool's path as the checkout's own (relative) path; undefined outside it. */
+function inCheckout(path: string, checkout: string): string | undefined {
+  const own = slashes(path);
+  if (!own.startsWith("/") && !/^[a-z]:\//i.test(own)) return own.replace(/^\.\//, "");
+  const root = slashes(checkout);
+  return own.startsWith(`${root}/`) ? own.slice(root.length + 1) : undefined;
+}
+
+/**
+ * The explorer rows' agent marks (spec 21, as the tabs carry them): files this thread's agent
+ * edited within `treeMarkMs` and since the person last looked at each, with the newest edit. An
+ * open file's row follows its tab instead: marked only while the tab is, naming who it names.
+ */
+export function treeMarks(input: {
+  calls: readonly EditCall[];
+  checkout: string;
+  threadId: string;
+  /** The open files' unseen changes: the tabs' marks. */
+  open: AgentChanges;
+  openPaths: readonly string[];
+  /** When the person last looked at each path. */
+  looked: ReadonlyMap<string, number>;
+  now: number;
+}): ReadonlyMap<string, TreeMark> {
+  const opened = new Set(input.openPaths);
+  const marks = new Map<string, TreeMark>();
+  for (const call of input.calls) {
+    if (call.threadId !== input.threadId) continue;
+    const path = inCheckout(call.path, input.checkout);
+    if (path === undefined || opened.has(path)) continue;
+    if (input.now - call.at > treeMarkMs || call.at <= (input.looked.get(path) ?? -Infinity))
+      continue;
+    const was = marks.get(path);
+    if (was && was.at >= call.at) continue;
+    marks.set(path, {
+      author: { kind: "agent", agent: call.agent, threadId: call.threadId },
+      at: call.at,
+    });
+  }
+  for (const [path, author] of input.open) {
+    if (!opened.has(path)) continue;
+    const newest = input.calls.reduce(
+      (at, call) => (inCheckout(call.path, input.checkout) === path ? Math.max(at, call.at) : at),
+      -Infinity,
+    );
+    marks.set(path, { author, at: Number.isFinite(newest) ? newest : input.now });
+  }
+  return marks;
+}
