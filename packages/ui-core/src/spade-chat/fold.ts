@@ -361,6 +361,8 @@ export interface SpadeConversationState {
   waitingSince: number | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
   capabilities: SpadeCapabilityState;
+  /** The latest state the bot set on each of its panels (ADR 0200 §5.2), by panel id. */
+  panels: Map<string, unknown>;
 }
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
@@ -417,6 +419,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     waited: 0,
     waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
+    panels: new Map(),
   };
 }
 
@@ -961,6 +964,18 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.entries[at] = { ...placed, ...next };
       return true;
     }
+    case "panel_updated":
+      state.panels.set(event.surface, event.data);
+      return true;
+    case "panel_action":
+      // The person's own press, where they pressed it.
+      steer(state, {
+        kind: "quiet",
+        key,
+        quiet: { kind: "panel-action", label: event.label || event.action },
+        ...stamp(stored),
+      });
+      return true;
     case "club_added":
       steer(state, {
         kind: "club-added",

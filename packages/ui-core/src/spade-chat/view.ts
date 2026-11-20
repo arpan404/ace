@@ -61,6 +61,8 @@ export interface SpadeView {
   services: ReadonlyMap<string, string>;
   /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
   decisions: readonly SpadeDecision[];
+  /** The latest state the bot set on each of its panels, by panel id (ADR 0200 §5.2). */
+  panels: ReadonlyMap<string, unknown>;
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -114,6 +116,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     workers: state.capabilities.workers,
     services: state.capabilities.services,
     decisions: state.decisions,
+    panels: new Map(state.panels),
   };
 }
 
