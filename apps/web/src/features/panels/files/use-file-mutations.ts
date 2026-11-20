@@ -38,29 +38,43 @@ export function useFileMutations(threadId: string, onChanged?: (path: string) =>
     refresh([result.path, result.destination]);
     return result;
   };
+  /**
+   * Put back what Undo names: every entry whose path is still free comes back, and the ones
+   * something else took since (or that failed) are named, not left to stop the rest.
+   */
+  const restoreAll = async (deleted: readonly { path: string; trashId: string }[]) => {
+    const taken: string[] = [];
+    let failure: unknown;
+    for (const { path, trashId } of deleted) {
+      try {
+        if ((await source.stat(threadId, path)).version !== null) {
+          taken.push(path);
+          continue;
+        }
+        await manager.mutate({ op: "restore", trashId, path, expected: null });
+        refresh([path]);
+        onChanged?.(path);
+      } catch (error) {
+        failure ??= error;
+        taken.push(path);
+      }
+    }
+    if (!taken.length) return;
+    const only = taken.length === 1 ? taken[0] : undefined;
+    toast.error({
+      title: only ? `Couldn't restore ${only}` : `Couldn't restore ${plural(taken.length)}`,
+      description: failure
+        ? checkoutError(failure).message
+        : `${taken.join(", ")} ${taken.length === 1 ? "is" : "are"} taken now. They stay in Recently deleted.`,
+    });
+  };
   /** Offer Undo for what just went to Recently deleted. */
   const offerUndo = (deleted: readonly { path: string; trashId: string }[]) => {
     if (!deleted.length) return;
     const only = deleted.length === 1 ? deleted[0] : undefined;
     toast.add({
       title: only ? `Deleted ${only.path}` : `Deleted ${plural(deleted.length)}`,
-      actionProps: {
-        children: "Undo",
-        onClick: () => {
-          void (async () => {
-            for (const { path, trashId } of deleted) {
-              await manager.mutate({ op: "restore", trashId, path, expected: null });
-              refresh([path]);
-              onChanged?.(path);
-            }
-          })().catch((failure: unknown) =>
-            toast.error({
-              title: "Couldn't restore the file",
-              description: checkoutError(failure).message,
-            }),
-          );
-        },
-      },
+      actionProps: { children: "Undo", onClick: () => void restoreAll(deleted) },
     });
   };
   /** Move each path to Recently deleted, then offer one Undo for all of them. */
