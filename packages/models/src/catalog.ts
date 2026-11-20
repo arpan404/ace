@@ -592,7 +592,8 @@ export class ModelCatalog implements ModelCatalogApi {
     state: State,
     modes: readonly import("@ace/protocol").NativePermissionMode[],
   ): void {
-    if (!state.entry || sameModes(state.entry.permissionModes, modes)) return;
+    // Compared with the latest entry inside the queue: a write still queued may change it.
+    if (!state.entry && !this.#sessionTails.has(state.config.id)) return;
     if (this.#sessionWrites.size >= 64) return;
     const id = state.config.id;
     const previous = this.#sessionTails.get(id) ?? Promise.resolve();
@@ -615,6 +616,21 @@ export class ModelCatalog implements ModelCatalogApi {
     // A failed write leaves the in-memory modes; the next session or discovery writes them.
     void write.then(cleanup, cleanup);
   }
+  /**
+   * Takes this instance's place in the write queue (session writes and discovery alike) and
+   * resolves once every write before it settled; the returned release lets the next one run.
+   */
+  async #holdWrites(id: string): Promise<() => void> {
+    const previous = this.#sessionTails.get(id) ?? Promise.resolve();
+    const held = Promise.withResolvers<void>();
+    const tail = previous.catch(() => {}).then(() => held.promise);
+    this.#sessionTails.set(id, tail);
+    await previous.catch(() => {});
+    return () => {
+      held.resolve();
+      if (this.#sessionTails.get(id) === tail) this.#sessionTails.delete(id);
+    };
+  }
   /** Metadata from an already authorized session. No process, session or inference is started. */
   async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
     if (this.#closed) return Promise.reject(new Error("Catalog closed"));
@@ -624,22 +640,12 @@ export class ModelCatalog implements ModelCatalogApi {
     const state = this.#states.get(instance.id);
     if (!state || cacheRevision(state.config) !== cacheRevision(instance))
       return Promise.reject(new Error("Session model generation changed"));
-    const models = keepLearnedOptions(normalizeAcp(metadata, instance), state.entry?.models);
+    const reported = normalizeAcp(metadata, instance);
     const permissionModes = acpPermissionModes(metadata, {
       provider: instance.provider,
       profile: instance.acpAgentId?.startsWith("official:")
         ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")?.id
         : undefined,
-    });
-    const entry = CachedEntry.parse({
-      provider: instance.provider,
-      instance: instance.id,
-      revision: this.#revision(instance),
-      loginRevision: instance.loginRevision,
-      identityRevision: identityRevision(instance),
-      refreshedAt: this.#options.now(),
-      permissionModes,
-      ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
     });
     const previous = this.#sessionTails.get(instance.id) ?? Promise.resolve();
     const write = previous
@@ -650,6 +656,19 @@ export class ModelCatalog implements ModelCatalogApi {
         if (this.#deletions.has(instance.id)) await this.#deletions.remove(instance.id);
         if (this.#states.get(instance.id) !== state)
           throw new Error("Session model generation changed");
+        // Merged with the entry as the writes before this one left it, so a level another
+        // session learned meanwhile is kept.
+        const models = keepLearnedOptions(reported, state.entry?.models);
+        const entry = CachedEntry.parse({
+          provider: instance.provider,
+          instance: instance.id,
+          revision: this.#revision(instance),
+          loginRevision: instance.loginRevision,
+          identityRevision: identityRevision(instance),
+          refreshedAt: this.#options.now(),
+          permissionModes,
+          ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
+        });
         await this.#options.storage.replace(entry);
         if (this.#states.get(instance.id) === state) {
           state.entry = entry;
@@ -1006,6 +1025,7 @@ export class ModelCatalog implements ModelCatalogApi {
       .then(async () => {
         await this.#acquire();
         let cancel: (() => void) | undefined;
+        let releaseWrites: (() => void) | undefined;
         let timedOut = false;
         try {
           await state.invalidating;
@@ -1088,6 +1108,15 @@ export class ModelCatalog implements ModelCatalogApi {
             return;
           if (!models.length && models.sources === undefined)
             throw new Error("The CLI returned no model choices");
+          // In line with session writes: built on, and stored after, the latest entry.
+          releaseWrites = await this.#holdWrites(state.config.id);
+          if (
+            this.#states.get(state.config.id) !== state ||
+            this.#closed ||
+            abort.signal.aborted ||
+            this.#revision(state.config) !== revision
+          )
+            return;
           const combined = refreshedSources(
             cleanCatalog(models),
             models.sources,
@@ -1226,6 +1255,7 @@ export class ModelCatalog implements ModelCatalogApi {
           }
         } finally {
           cancel?.();
+          releaseWrites?.();
           this.#release();
         }
       })
