@@ -108,7 +108,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
   Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+- **Details:** task (with its Earlier versions folded under it), model (one picker, grouped by endpoint), machine, routines, apps, security
   (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
   what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
   spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
@@ -130,10 +130,23 @@ Spade is one of ace's places. It adds no navigation of its own.
 
 ## 5. New bot and groups
 
-- **New bot** is a conversation, not a form: under the name, one quiet line that opens the
-  profile (model and machine live there; every bot starts on the auto-review, and Full access is
-  chosen in the profile, never here). Import lives once, in +; a failed import is said
-  where the bot would have appeared.
+- **New bot** is a conversation, not a form (ADR 0194): "What should this bot do?" in 22/28 at
+  600 over the composer, nothing to fill in. Under the composer, the templates as chips (a 20px
+  face and the name, pressed while chosen, the question becoming "What should Morning digest do
+  first?"), From the marketplace when that is on, and More settings, which shows the model and
+  machine line on the page. Every bot starts on the auto-review, and Full access is chosen in the
+  profile, never here. Import lives once, in +; a failed import is said where the bot would have
+  appeared.
+- **The first reply.** The bot opens as "New bot" and names itself: one quiet line, "Named itself
+  Ivy", its 20px face opening the face popover and its name turning into its field, each on one
+  click. Under it, the apps its task names that aren't connected ("It may need Gmail and
+  Slack." and Connect apps). Then its words, at most one card of questions and a schedule
+  question when the job recurs.
+- **Its task changes.** "Updated its task: Also covers Slack" as one quiet line where it happened,
+  with See change (the task before, struck through, and now, on `--chat-well`) and Undo, which
+  reads Undone once used. A change asked of the person is a request card with the same before
+  and now, Allow and Deny, never Always. The profile's task folds its Earlier versions, each with
+  who changed it, why and when, and Restore.
 - **Clubs:** member runs with face and name, a profile with Members and Library, New club in
   place, and @ to address a member.
 

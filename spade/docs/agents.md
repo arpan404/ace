@@ -34,6 +34,30 @@ describe. Agents run on models from the person's own endpoints.
 - **Titles** and other side jobs use the person's fast model (`PUT /v1/settings`), else the
   agent's own model. Compaction always uses the agent's own model.
 
+### New bots
+
+[ADR 0194](../../docs/adr/0194-spade-bots-start-from-one-message.md). `POST /agents` with
+`naming: true` (and no name) makes a bot called `New bot` whose first message is its task. The
+conversation stores `naming_opened` after its first `agent_configured`; while the turn that
+follows started with naming open, the instructions say the bot has no name yet and ask it to
+choose one and a face with `profile_update` first. Naming stays open until a `profile_changed`
+(the bot's or the person's) or the first `reply_finished`; while it is open and nothing untrusted
+is in view, `profile_update` runs without asking. Otherwise it asks the person.
+
+### A bot's task over time
+
+- `task_update {new_task, why}` rewrites the bot's own task, used from its next turn. It runs at
+  once in a turn with nothing untrusted in view, and otherwise goes to the person as a request
+  (`self_edit::TASK_TAINTED`), in every access level, never covered by "always" or a grant.
+- Every task change is `agent_configured` with `change: {by: "person"|"bot", previous, why?}`
+  (none on a change of model alone, or on events from before). A bot's own change shows in its
+  chat; the person's Undo and Restore are `PATCH /agents/{id} {task, task_why}`.
+- The prompt names whose words the task is: "in the person's own words", or "as you last rewrote
+  it at the person's request" after a `task_update`.
+- `GET /agents/{id}/task/history` answers `{versions: [{seq, at, task, by, why}]}`, newest first;
+  a change of model alone is no version, and `by` is empty for the task a bot was made with.
+- Name and face changes store `profile_changed {name, by, face?}`.
+
 ### Where Spade lives
 
 [ADR 0187](../../docs/adr/0187-spade-bots-move-between-machines.md). The setting `main_host` holds
@@ -374,8 +398,9 @@ then.
 | Method and path                               | Body                                                                       | Answer                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?, naming?}`         | `201 {"agent"}`; `model` defaults as below                 |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`, `task_why`             | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `GET /agents/{id}/task/history`               |                                                                            | `{"versions":[{seq, at, task, by, why}]}`, newest first    |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
@@ -429,5 +454,7 @@ answered, a turn or job ends). Not stored. Older clients ignore the event name.
 
 | Type               | Fields                              | Meaning                               |
 | ------------------ | ----------------------------------- | ------------------------------------- |
-| `agent_configured` | `task`, `model`                     | The agent's task or model changed     |
+| `agent_configured` | `task`, `model`, `change?`          | The agent's task or model changed     |
+| `naming_opened`    |                                     | The bot names itself as it starts     |
+| `profile_changed`  | `name`, `by`, `face?`               | Its name or face changed              |
 | `user_message`     | `…, from_agent?: {id, name, depth}` | `from_agent` when another bot sent it |
