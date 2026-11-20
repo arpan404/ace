@@ -7,9 +7,9 @@ enum FilesSearchScope: Hashable {
 }
 
 /// The Contents scope of the Files search, as the web's Search view: the case, whole word and
-/// regex switches, what the search found ("12 results in 3 files"), each file's matching lines
-/// under its name with every match marked, and a note when the list was cut. A line opens its
-/// file at that line.
+/// regex switches, what the search found ("12 results in 3 files"), a note under it when the
+/// list was cut, and each file's matching lines under its name with every match marked. A line
+/// opens its file at that line.
 struct ContentSearchRows: View {
     @Binding var query: ContentQuery
     /// The bridge's answer for this exact query; nil until the first one arrives.
@@ -63,6 +63,12 @@ struct ContentSearchRows: View {
 
     @ViewBuilder private var results: some View {
         if let search {
+            if let note = search.note {
+                Text(note).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AceDesign.Surface.background)
+                    .accessibilityIdentifier("files.contents.note")
+            }
             ForEach(search.files) { file in
                 Section {
                     ForEach(file.lines) { line in
@@ -78,12 +84,6 @@ struct ContentSearchRows: View {
                 } header: {
                     ContentFileHeader(file: file)
                 }
-            }
-            if let note = search.note {
-                Text(note).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AceDesign.Surface.background)
-                    .accessibilityIdentifier("files.contents.note")
             }
         }
         if search == nil || search?.status == "searching", search?.files.isEmpty ?? true {
