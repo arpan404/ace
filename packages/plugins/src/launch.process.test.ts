@@ -1,4 +1,4 @@
-import { readFile, lstat, readdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
@@ -141,6 +141,74 @@ test("a relaunch while the last launch's cleanup stalls keeps its own files when
     expect(await readdir(root)).toEqual([]);
   } finally {
     stalled.resolve();
+    await f.close();
+  }
+});
+
+/** Waits for the sweep a launch reported, or a moment when none was. */
+const settledSweep = (sweep: Promise<Promise<void>>) =>
+  Promise.race([sweep.then((done) => done), new Promise((done) => setTimeout(done, 2_000))]);
+
+test("a launch's sweep leaves alone a launch-named directory ace didn't make", async () => {
+  const f = await fixture();
+  try {
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "session");
+    await mkdir(join(root, "launch-notes"), { recursive: true });
+    await writeFile(join(root, "launch-notes", "todo.txt"), "keep me");
+    const sweep = Promise.withResolvers<Promise<void>>();
+    const launched = await launchPluginProcess(
+      f.manager,
+      "claude",
+      root,
+      { command: process.execPath, args: ["-e", ""], env: {}, name: "standin" },
+      undefined,
+      { swept: sweep.resolve },
+    );
+    await launched.exited;
+    await settledSweep(sweep.promise);
+    expect(await readFile(join(root, "launch-notes", "todo.txt"), "utf8")).toBe("keep me");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a live launch's directory survives another launch's sweep that stalls and resumes", async () => {
+  const f = await fixture();
+  try {
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "session");
+    const launch = (
+      id: string,
+      args: string[],
+      seams: Parameters<typeof launchPluginProcess>[5] = {},
+    ) =>
+      launchPluginProcess(
+        f.manager,
+        "claude",
+        root,
+        { command: process.execPath, args, env: {}, name: "standin" },
+        undefined,
+        { ...seams, id: () => id },
+      );
+    const live = await launch("live", ["-e", "setInterval(() => {}, 1000)"]);
+    try {
+      // Another launch's sweep reads the root, then stalls before acting on it.
+      const stalled = Promise.withResolvers<void>();
+      const sweep = Promise.withResolvers<Promise<void>>();
+      const other = await launch("other", ["-e", ""], {
+        sweepListed: () => stalled.promise,
+        swept: sweep.resolve,
+      });
+      await other.exited;
+      stalled.resolve();
+      await settledSweep(sweep.promise);
+      await expect(lstat(join(root, "launch-live", "generated"))).resolves.toBeDefined();
+    } finally {
+      await live.stop({ graceMs: 0 });
+    }
+    expect(await readdir(root)).toEqual([]);
+  } finally {
     await f.close();
   }
 });
