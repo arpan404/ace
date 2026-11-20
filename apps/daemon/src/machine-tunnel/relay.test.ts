@@ -65,7 +65,9 @@ function relayChannel() {
     sendBinary: async () => {},
     close: () => close(),
     async *frames(): AsyncGenerator<Uint8Array | { type: "ping" }> {
+      // The device sends nothing here: its frames end as the channel closes.
       await closed;
+      yield* [];
     },
     bufferedBytes: 0,
     bufferedReceiveBytes: 0,
