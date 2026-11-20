@@ -40,7 +40,7 @@ async function openTwoTabs(options: { desktop?: boolean } = {}) {
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   // The person picks the tab to work in; the daemon follows the shown tab.
   const strip = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
-  const pages = within(strip).getAllByRole("tab", { name: "Fixture page" });
+  const pages = await within(strip).findAllByRole("tab", { name: "Fixture page" });
   await userEvent.click(pages[pages.length - 1] as HTMLElement);
   await within(panel).findByRole("button", { name: "Browser options" });
   return { app, panel, browser };
