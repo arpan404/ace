@@ -84,6 +84,7 @@ fn facts(id: &str, name: &str, state: State) -> Facts {
         waiting_for: None,
         failure: None,
         paused_at_ms: None,
+        archived: false,
         uses: Uses::default(),
         spend: Spend::default(),
         network: Network::default(),
@@ -151,7 +152,7 @@ fn a_row_says_its_state_in_words() {
 }
 
 #[test]
-fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
+fn a_paused_bot_offers_resume_a_running_one_stop_and_pause_and_an_archived_one_unarchive() {
     let mut paused_waiting = facts("b_1", "Mail", Waiting);
     paused_waiting.paused_at_ms = Some(1);
     let mut paused = facts("b_2", "Post", Paused);
@@ -160,11 +161,19 @@ fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
     let idle = facts("b_4", "Notes", Idle);
     let mut serving = facts("b_5", "Site", Idle);
     serving.uses.services = 1;
-    let actions: Vec<(String, Vec<&str>)> =
-        rows(vec![paused_waiting, paused, working, idle, serving])
-            .into_iter()
-            .map(|r| (r.name, r.actions))
-            .collect();
+    let mut archived = facts("b_6", "Undone", Idle);
+    archived.archived = true;
+    let actions: Vec<(String, Vec<&str>)> = rows(vec![
+        paused_waiting,
+        paused,
+        working,
+        idle,
+        serving,
+        archived,
+    ])
+    .into_iter()
+    .map(|r| (r.name, r.actions))
+    .collect();
     assert_eq!(
         actions,
         vec![
@@ -173,6 +182,7 @@ fn a_paused_bot_offers_resume_and_a_running_one_stop_and_pause() {
             ("Post".to_owned(), vec!["resume"]),
             ("Notes".to_owned(), vec!["pause"]),
             ("Site".to_owned(), vec!["stop", "pause"]),
+            ("Undone".to_owned(), vec!["pause", "unarchive"]),
         ]
     );
 }

@@ -9449,7 +9449,7 @@ Example:
 | --- | --- | --- | --- |
 | bot | yes | string |  |
 | name | yes | string |  |
-| action | yes | ["stop","pause","resume"] |  |
+| action | yes | ["stop","pause","resume","unarchive"] |  |
 | changed | yes | boolean |  |
 | now | no | [CliRunningBot.json](schema/CliRunningBot.json) |  |
 
@@ -9457,7 +9457,7 @@ Example:
 
 ```json
 {
-  "action": "pause",
+  "action": "resume",
   "bot": "example",
   "changed": false,
   "name": "example"
@@ -10615,7 +10615,7 @@ Example:
 | network | yes | object | {"properties":{"bytes":{"type":"number"},"hosts":{"type":"array","items":{"type":"string"}},"refused":{"type":"number"}},"required":["bytes","hosts","refused"]} |
 | nextWake | no | object | {"properties":{"at":{"type":"number"},"what":{"type":"string"}},"required":["at","what"]} |
 | workers | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"doing":{"type":"string"}},"required":["id","name","doing"]}} |
-| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume"]}} |
+| actions | yes | array | {"items":{"type":"string","enum":["stop","pause","resume","unarchive"]}} |
 
 Example:
 

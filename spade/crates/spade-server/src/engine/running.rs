@@ -41,6 +41,7 @@ impl Engine {
             waiting_for: activity.waiting_for.map(str::to_owned),
             failure: activity.failure.clone(),
             paused_at_ms: self.paused_since(&agent.id),
+            archived: self.archived(&agent.id),
             uses: Uses {
                 answering: activity.answering,
                 jobs: activity.jobs,

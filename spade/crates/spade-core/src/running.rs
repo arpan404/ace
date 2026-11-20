@@ -271,6 +271,8 @@ pub struct Facts {
     /// Why its latest reply failed, while that is how the latest one ended.
     pub failure: Option<String>,
     pub paused_at_ms: Option<i64>,
+    /// Undo archived it (ADR 0197): kept and stopped, its routines paused.
+    pub archived: bool,
     pub uses: Uses,
     pub spend: Spend,
     pub network: Network,
@@ -306,13 +308,16 @@ pub struct Row {
     pub failure: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused_at_ms: Option<i64>,
+    /// Undo archived it: kept and stopped, its routines paused, until the person unarchives it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     pub uses: Uses,
     pub spend: Spend,
     pub network: Network,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_wake: Option<NextWake>,
     pub workers: Vec<Worker>,
-    /// What the person may do now: `stop`, `pause`, `resume`.
+    /// What the person may do now: `stop`, `pause`, `resume`, `unarchive`.
     pub actions: Vec<&'static str>,
 }
 
@@ -352,8 +357,8 @@ pub fn doing(
 
 /// What the person may do to a bot that reads `reads`: Stop while anything of it runs, then
 /// Resume while it is paused (whatever it reads, a paused bot waiting on the person included),
-/// else Pause.
-pub fn actions(reads: Reads, uses: &Uses, paused: bool) -> Vec<&'static str> {
+/// else Pause; and Unarchive while it is archived.
+pub fn actions(reads: Reads, uses: &Uses, paused: bool, archived: bool) -> Vec<&'static str> {
     let running = matches!(reads, Reads::NeedsYou | Reads::Working | Reads::Sleeping)
         || uses.answering
         || uses.jobs > 0
@@ -365,6 +370,9 @@ pub fn actions(reads: Reads, uses: &Uses, paused: bool) -> Vec<&'static str> {
         actions.push("stop");
     }
     actions.push(if paused { "resume" } else { "pause" });
+    if archived {
+        actions.push("unarchive");
+    }
     actions
 }
 
@@ -389,7 +397,12 @@ fn row(facts: Facts) -> Row {
         facts.waiting_for.as_deref(),
         facts.failure.as_deref(),
     );
-    let actions = actions(reads, &facts.uses, facts.paused_at_ms.is_some());
+    let actions = actions(
+        reads,
+        &facts.uses,
+        facts.paused_at_ms.is_some(),
+        facts.archived,
+    );
     Row {
         id: facts.id,
         name: facts.name,
@@ -401,6 +414,7 @@ fn row(facts: Facts) -> Row {
         doing,
         failure: facts.failure.filter(|_| reads == Reads::Failed),
         paused_at_ms: facts.paused_at_ms,
+        archived: facts.archived,
         uses: facts.uses,
         spend: facts.spend,
         network: facts.network,

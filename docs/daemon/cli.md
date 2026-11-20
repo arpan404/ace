@@ -962,6 +962,14 @@ End a pause: what came due fires once, and what waited is answered.
 
 - `BOT`: A bot's id or name
 
+### `ace bot unarchive BOT`
+
+Bring back a bot Undo archived: the routines that were on come back on.
+
+Nothing of it was deleted. Its routines that were on run again from their next time; the ones that were paused stay paused.
+
+- `BOT`: A bot's id or name
+
 ### `ace feature list`
 
 Beta features and whether each is on.

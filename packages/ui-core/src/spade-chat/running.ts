@@ -19,7 +19,7 @@ export type SpadeRunningState = "idle" | "working" | "waiting" | "sleeping" | "p
 export type SpadeRunningReads = "needs_you" | "working" | "failed" | "sleeping" | "paused" | "idle";
 
 /** What the person may do to a bot now. */
-export type SpadeRunningAction = "stop" | "pause" | "resume";
+export type SpadeRunningAction = "stop" | "pause" | "resume" | "unarchive";
 
 export interface SpadeRunningWorker {
   id: string;
@@ -41,6 +41,8 @@ export interface SpadeRunningBot {
   doing: string;
   failure: string | undefined;
   pausedAt: number | undefined;
+  /** Undo archived it (ADR 0197): kept and stopped, its routines paused, until unarchived. */
+  archived: boolean;
   uses: { answering: boolean; jobs: number; workers: number; services: number; agents: boolean };
   spend: {
     todayMicros: number;
@@ -78,6 +80,7 @@ const rowShape = z.object({
   doing: z.string().catch(""),
   failure: z.string().nullish().catch(undefined),
   paused_at_ms: z.number().nullish().catch(undefined),
+  archived: z.boolean().catch(false).default(false),
   uses: z
     .object({
       answering: z.boolean().catch(false).default(false),
@@ -126,7 +129,7 @@ const rowShape = z.object({
 });
 
 const isAction = (action: string): action is SpadeRunningAction =>
-  action === "stop" || action === "pause" || action === "resume";
+  action === "stop" || action === "pause" || action === "resume" || action === "unarchive";
 
 /** One row; undefined when it has no id. */
 export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined {
@@ -145,6 +148,7 @@ export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined 
     doing: row.doing || spadeRunningReadsWords[row.reads],
     failure: row.failure ?? undefined,
     pausedAt: row.paused_at_ms ?? undefined,
+    archived: row.archived,
     uses: row.uses,
     spend: {
       todayMicros: row.spend.today_micros,

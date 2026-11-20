@@ -115,7 +115,7 @@ export const CliRunningBot = z.object({
   network: z.object({ bytes: z.number(), hosts: z.array(z.string()), refused: z.number() }),
   nextWake: z.object({ at: z.number(), what: z.string() }).optional(),
   workers: z.array(z.object({ id: z.string(), name: z.string(), doing: z.string() })),
-  actions: z.array(z.enum(["stop", "pause", "resume"])),
+  actions: z.array(z.enum(["stop", "pause", "resume", "unarchive"])),
 });
 export type CliRunningBot = z.infer<typeof CliRunningBot>;
 
@@ -123,8 +123,11 @@ export type CliRunningBot = z.infer<typeof CliRunningBot>;
 export const CliBotAction = z.object({
   bot: z.string(),
   name: z.string(),
-  action: z.enum(["stop", "pause", "resume"]),
-  /** False when there was nothing to do: nothing ran, or it was paused or running already. */
+  action: z.enum(["stop", "pause", "resume", "unarchive"]),
+  /**
+   * False when there was nothing to do: nothing ran, it was paused or running already, or it
+   * wasn't archived.
+   */
   changed: z.boolean(),
   now: CliRunningBot.optional(),
 });

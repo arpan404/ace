@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod apps;
+mod archive;
 mod autonomy;
 mod bots;
 mod brain;

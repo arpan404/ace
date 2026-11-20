@@ -705,8 +705,9 @@ alert_line_micros, unusual}, network {sent_bytes, received_bytes, hosts, refused
   `actions` is what the person may do now (`stop`, then `pause` or `resume`). The network is
   today's, from the egress log; `alert_line_micros` is the spend alert's hourly line, `null`
   while alerts are off.
-- `POST /v1/agents/{id}/stop`, `/pause`, `/resume`: `{changed, bots}` (`changed` false when there
-  was nothing to do), `404` for no such agent.
+- `POST /v1/agents/{id}/stop`, `/pause`, `/resume`, `/unarchive`: `{changed, bots}` (`changed`
+  false when there was nothing to do), `404` for no such agent. A row is `archived: true` and
+  offers `unarchive` while Undo's archive holds it ([agents.md](agents.md)).
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
 attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,

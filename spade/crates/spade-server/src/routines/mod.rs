@@ -196,6 +196,20 @@ fn next_slot(engine: &Engine, r: &StoredRoutine) -> Result<Option<i64>, RoutineE
     Ok(schedule.next_after(engine.now_ms(), &zone(&r.time_zone)?))
 }
 
+/// Turns `r` (a routine or a heartbeat) back on from its next slot after now: nothing it missed
+/// while off catches up. Nothing changes for one that is on.
+pub(crate) fn turn_on(engine: &Engine, mut r: StoredRoutine) -> Result<(), RoutineError> {
+    if !r.paused {
+        return Ok(());
+    }
+    r.paused = false;
+    r.next_due_ms = next_slot(engine, &r)?;
+    r.updated_ms = engine.now_ms();
+    engine.store().update_routine(&r)?;
+    engine.routines_shared().wake.notify_one();
+    Ok(())
+}
+
 /// The bot's routines (not its heartbeat), oldest first.
 pub fn list(engine: &Engine, agent_id: &str) -> Result<Vec<RoutineView>, RoutineError> {
     agent_of(engine, agent_id)?;

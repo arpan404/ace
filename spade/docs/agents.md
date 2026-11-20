@@ -77,7 +77,13 @@ bot}` adds a bot to a club the caller is in. Both run, ask or are refused by the
 `PATCH /agents/{id} {may_create_bots}`), and ask whenever untrusted content is in view. The
 maker's chat stores `bot_made` or `club_added`. `POST /agents/{id}/undo-made` answers `{undone:
 "removed"}` when the made bot never acted outside itself, else `{undone: "archived"}` (stopped,
-routines paused, `archived: true`); `409` for a bot the person made.
+routines paused, `archived: true`); `409` for a bot the person made. The `archived:{id}` setting
+keeps which routines (and heartbeat) were on. `POST /agents/{id}/unarchive` (the profile's and
+Running's Unarchive, `ace bot unarchive`) takes the mark off any archived bot: the routines that
+were on come back on from their next slot, nothing they missed catches up, the rest stay paused,
+and nothing is deleted. It answers as Running's actions do, `{changed, bots}` (`changed` false
+when it wasn't archived), `404` for no such bot. Running's row says `archived: true` and offers
+`unarchive` while it is.
 
 ### Where Spade lives
 

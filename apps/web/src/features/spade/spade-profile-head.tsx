@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
+import { ProfileArchived } from "./spade-profile-archived.tsx";
 import { spadeBotRow } from "./spade-list-rows.ts";
 import { sentAvatar, useEditBot } from "./spade-profile-actions.ts";
 import { useWornPairs, type RosterBot } from "./use-spade-roster.ts";
@@ -49,6 +50,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
         <NameField bot={bot} />
       )}
       {bot.fullAccess && <p className="-mt-1.5 text-ui text-muted-foreground">Full access</p>}
+      {bot.archived && <ProfileArchived bot={bot} />}
     </div>
   );
 }
