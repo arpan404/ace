@@ -101,9 +101,9 @@ export async function moveEngine(
   if (engine === "embedded" && desktopMissing(snapshot))
     throw new Error("The desktop app isn't running on this machine, so its browser can't open.");
   const moved = await host.rehost(at, engine);
-  // Back where it was, the browser's own tabs are what a restart restores; with no browser
-  // open at all, the move's copy stays for the next open.
-  if (!moved.ok && moved.restored) host.settleMove(threadId);
+  // Back on the engine its setting names, the browser's own tabs are what a restart restores;
+  // anywhere else, or with no browser open at all, the move's copy stays for the next start.
+  if (!moved.ok && moved.restored?.backend === snapshot.backend) host.settleMove(threadId);
   if (!moved.ok)
     throw new Error(
       moved.restored
@@ -115,12 +115,20 @@ export async function moveEngine(
     await preference.write(threadId, engine);
   } catch (error) {
     // The choice wasn't kept: the browser goes back, with the move's own copy of the tabs, to
-    // the engine its setting still names.
-    if (snapshot.backend === "embedded" || snapshot.backend === "headless") {
-      const back = await host.rehost(at, snapshot.backend);
-      if (back.ok || back.restored) host.settleMove(threadId);
+    // the engine its setting still names. Only once it is there does that copy go; if it can't
+    // get back, the copy stays, so the next start opens every tab where the setting says.
+    const back =
+      snapshot.backend === "embedded" || snapshot.backend === "headless"
+        ? await host.rehost(at, snapshot.backend)
+        : undefined;
+    if (back?.ok) {
+      host.settleMove(threadId);
+      throw error;
     }
-    throw error;
+    throw new Error(
+      `${message(error).replace(/\.?$/, ".")} The browser couldn't go back to where it was either, so it stays here for now; its tabs open there again when ace next starts.`,
+      { cause: error },
+    );
   }
   host.settleMove(threadId);
   return { state: moved.state, failed: missing(snapshot, moved.state) };

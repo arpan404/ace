@@ -1110,6 +1110,7 @@ export class BrowserService {
       await current.closeBy(actor, signal);
       this.sessions.delete(threadId);
       this.options.tabStore?.clear(threadId);
+      this.settleMove(threadId);
       return;
     }
     signal?.throwIfAborted();
@@ -1122,6 +1123,7 @@ export class BrowserService {
     }
     // A closed browser starts fresh next time; a daemon restart is not a close.
     this.options.tabStore?.clear(threadId);
+    this.settleMove(threadId);
   }
   close(): Promise<void> {
     this.closing ??= (async () => {

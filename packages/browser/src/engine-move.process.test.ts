@@ -52,14 +52,20 @@ async function machine(kept: EnginePreference | undefined) {
   });
   /** While set, a setting write waits here: the move stands between its reopen and its commit. */
   let held: PromiseWithResolvers<void> | undefined;
+  /** While set, a setting write fails with this reason. */
+  let refusing: string | undefined;
   const asked: string[] = [];
   const engine = {
     write: async (threadId: string, value: EnginePreference) => {
       asked.push(value);
       await held?.promise;
+      if (refusing) throw new Error(refusing);
       writes.push(value);
       preferences.set(threadId, value);
     },
+  };
+  const refuseWrites = (reason: string) => {
+    refusing = reason;
   };
   const holdWrites = () => {
     held = Promise.withResolvers<void>();
@@ -123,6 +129,7 @@ async function machine(kept: EnginePreference | undefined) {
     journal,
     asked,
     holdWrites,
+    refuseWrites,
     preferences,
     writes,
     device,
@@ -259,6 +266,50 @@ it("a daemon that stops after the new engine saved fewer tabs, before the settin
   // Back, the session keeps the tabs itself: the move's copy is gone.
   expect(m.journal.pending("thread")).toBeUndefined();
   expect(m.writes).toEqual([]);
+});
+
+it("a move whose setting can't be kept and whose old engine won't reopen keeps its tabs for the next start", async () => {
+  const m = await machine("headless");
+  await m.load("https://one.example/", "https://two.example/");
+  // The move reaches the desktop, then its setting write fails and ace's Chrome won't reopen.
+  m.refuseWrites("Settings are read-only");
+  m.headless.failOpen("Chrome didn't start");
+
+  const reply = await m.device("phone").move("embedded");
+
+  expect(reply).toMatchObject({
+    ok: false,
+    error: expect.stringMatching(/Settings are read-only\. .*couldn't go back/),
+  });
+  // Nowhere to go back to: the browser stays on the desktop, the move's copy of the tabs kept.
+  expect(m.f.service.state("thread")).toMatchObject({ backend: "embedded", closed: false });
+  expect(m.journal.pending("thread")?.map((tab) => tab.url)).toEqual([
+    "https://one.example/",
+    "https://two.example/",
+  ]);
+  expect(m.preferences.get("thread")).toBe("headless");
+
+  // The daemon restarts: the thread's browser opens on the engine its setting names, every tab.
+  const home = await mkdtemp(join(tmpdir(), "ace-engine-double-"));
+  const restarted = new BrowserService({
+    dataDir: home,
+    headlessBackend: new TabbedHeadless(),
+    backendPreference: m.backendPreference,
+    tabStore: m.tabs,
+    moveJournal: m.journal,
+  });
+  onTestFinished(async () => {
+    await restarted.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  await restarted.open({ threadId: "thread", workspaceId: "workspace-thread" });
+
+  expect(restarted.state("thread")).toMatchObject({ backend: "headless", closed: false });
+  expect(m.pages(restarted).map((page) => page.replace(" (shown)", ""))).toEqual([
+    "https://one.example/",
+    "https://two.example/",
+  ]);
+  expect(m.journal.pending("thread")).toBeUndefined();
 });
 
 it("a move queued behind one that failed still moves the browser, its page loaded there once", async () => {
