@@ -353,7 +353,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...CoreClientMessage.options,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
-export const ServerMessage = z.discriminatedUnion("type", [
+/*
+ * Every service family's server messages, apart from the core stream. `ServerMessage` is this
+ * plus `CoreServerMessage`, and names its type through the two: inferred whole, its declaration
+ * passes the compiler's limit on how long a type it will write out (TS7056).
+ */
+const ServiceServerMessage = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
   AdmissionResult,
@@ -467,8 +472,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
   NotificationFeedResult,
   NotificationRegisterResult,
   NotificationUnregisterResult,
-  ...CoreServerMessage.options,
 ]);
+export const ServerMessage: z.ZodDiscriminatedUnion<
+  [...(typeof ServiceServerMessage)["options"], ...(typeof CoreServerMessage)["options"]],
+  "type"
+> = z.discriminatedUnion("type", [...ServiceServerMessage.options, ...CoreServerMessage.options]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export type EventBatch = Extract<ServerMessage, { type: "events" }>;
