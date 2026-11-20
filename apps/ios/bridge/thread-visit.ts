@@ -94,10 +94,9 @@ export class ThreadVisit {
     const waiting = this.#firstScreen;
     if (waiting?.epoch === this.#epoch) return waiting.shown;
     waiting?.settle();
-    let settle = () => {};
-    const shown = new Promise<void>((resolve) => (settle = resolve));
-    this.#firstScreen = { epoch: this.#epoch, shown, settle };
-    return shown;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.#firstScreen = { epoch: this.#epoch, shown: promise, settle: resolve };
+    return promise;
   }
 
   /** Native drew the first screen of `threadId` under its generation `epoch`. */

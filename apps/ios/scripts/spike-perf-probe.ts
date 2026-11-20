@@ -37,10 +37,10 @@ export class SpikePerfProbe {
       const held = this.runs.get(run);
       if (held && seq !== undefined && seq < held.seq) return Response.json({ ok: true });
       this.runs.delete(run);
-      this.runs.set(run, { seq: seq ?? (held?.seq ?? 0), text });
-      for (const run of this.runs.keys()) {
+      this.runs.set(run, { seq: seq ?? held?.seq ?? 0, text });
+      for (const oldest of this.runs.keys()) {
         if (this.runs.size <= this.keep) break;
-        this.runs.delete(run);
+        this.runs.delete(oldest);
       }
       return Response.json({ ok: true });
     }

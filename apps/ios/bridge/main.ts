@@ -95,7 +95,11 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
   /** The open thread's first screen is on show, under native's navigation generation `epoch`. */
-  z.object({ type: z.literal("thread.shown"), threadId: z.string().min(1), epoch: z.number().int() }),
+  z.object({
+    type: z.literal("thread.shown"),
+    threadId: z.string().min(1),
+    epoch: z.number().int(),
+  }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
   /** Unmetered, unconstrained network and not Low Power Mode: reading ahead may run. */
   z.object({ type: z.literal("readAhead"), allowed: z.boolean() }),
