@@ -4,7 +4,9 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 /*
  * A linked bot's package routes (ADR 0200 §3.4, spade/docs/packages.md) as the profile uses them:
  * `GET /v1/agents/{id}/package`, and `PUT …/package/effects {key, on}`, which turns one declared
- * effect on or off and refuses a key the package didn't declare, as Spade does.
+ * effect on or off and refuses a key the package didn't declare, as Spade does. A bot made from
+ * an ace template has `GET …/package/template`, the newer version offered, and `POST …/package`
+ * with that exact package moves it, keeping its switches and starting new ones off.
  */
 
 type Json = Record<string, unknown>;
@@ -28,6 +30,8 @@ export function packageRoute(
   const link = agent.package;
   if (!isJson(link)) return problem(404, "this bot isn't linked to a package");
   if (method === "GET" && rest.length === 0) return reply({ package: link });
+  if (method === "GET" && rest[0] === "template") return templateOffer(agent);
+  if (method === "POST" && rest.length === 0) return takeTemplate(agent, link, body);
   if (method !== "PUT" || rest[0] !== "effects") return problem(404, "not found");
   const key = isJson(body) ? body["key"] : undefined;
   const on = isJson(body) ? body["on"] : undefined;
@@ -38,5 +42,31 @@ export function packageRoute(
     ...link,
     effects: effects.map((effect) => (effect["key"] === key ? { ...effect, on } : effect)),
   };
+  return reply({ package: agent.package });
+}
+
+function templateOffer(agent: FakeSpadeAgent): FakeSpadeAnswer {
+  return agent.templateOffer
+    ? reply(agent.templateOffer)
+    : problem(404, "this Spade offers no newer version of its template");
+}
+
+/** Spade takes only the very template version it offers, by the usual update path. */
+function takeTemplate(agent: FakeSpadeAgent, link: Json, body: unknown): FakeSpadeAnswer {
+  const offer = agent.templateOffer;
+  const offered = offer && isJson(offer["package"]) ? offer["package"] : undefined;
+  const claimed = isJson(body) && isJson(body["package"]) ? body["package"] : undefined;
+  if (!offered || !claimed || JSON.stringify(claimed) !== JSON.stringify(offered))
+    return problem(400, "that isn't the template version this Spade offers");
+  const effects = offer && Array.isArray(offer["effects"]) ? offer["effects"] : [];
+  const { template_update: _offered, ...rest } = link;
+  agent.package = {
+    ...rest,
+    version: offered["version"],
+    hash: offered["hash"],
+    previous: { version: link["version"], hash: link["hash"] },
+    effects,
+  };
+  agent.templateOffer = undefined;
   return reply({ package: agent.package });
 }
