@@ -41,18 +41,28 @@ export interface TreeOutputs {
   readonly uploads: { names: string[]; folder: string }[];
 }
 
-/** What the Files tab keeps for its tree, across a remount. */
-interface TreeState {
-  current: string | undefined;
-  expanded: readonly string[] | undefined;
+/** What the Files tab keeps for its tree, so a remounted tree starts where the last one was. */
+interface TreeMemory {
+  read(): { current: string | undefined; expanded: readonly string[] | undefined };
+  keep(next: { current?: string; expanded?: readonly string[] }): void;
 }
 
-function TreeHost(props: { outputs: TreeOutputs; state: TreeState }) {
+function treeMemory(): TreeMemory {
+  let kept: ReturnType<TreeMemory["read"]> = { current: undefined, expanded: undefined };
+  return {
+    read: () => kept,
+    keep: (next) => {
+      kept = { ...kept, ...next };
+    },
+  };
+}
+
+function TreeHost(props: { outputs: TreeOutputs; memory: TreeMemory }) {
+  const { outputs, memory } = props;
   const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState(props.state.expanded);
-  const [current, setCurrent] = useState(props.state.current);
+  const [expanded, setExpanded] = useState(() => memory.read().expanded);
+  const [current, setCurrent] = useState(() => memory.read().current);
   const [operation, setOperation] = useState<FileOperationDialog>();
-  const { outputs, state } = props;
   useEffect(
     () => receiveComposerMentions(threadId, (mentions) => outputs.mentions.push(mentions)),
     [outputs],
@@ -64,7 +74,7 @@ function TreeHost(props: { outputs: TreeOutputs; state: TreeState }) {
         current={current}
         onOpen={(path, how) => {
           outputs.opened.push({ path, how });
-          state.current = path;
+          memory.keep({ current: path });
           setCurrent(path);
         }}
         onOperation={(asked) => {
@@ -80,7 +90,7 @@ function TreeHost(props: { outputs: TreeOutputs; state: TreeState }) {
         onQuery={setQuery}
         expanded={expanded}
         onExpanded={(folders) => {
-          state.expanded = folders;
+          memory.keep({ expanded: folders });
           setExpanded(folders);
         }}
       />
@@ -98,7 +108,7 @@ function TreeHost(props: { outputs: TreeOutputs; state: TreeState }) {
 }
 
 /** Render the cold-start thread's Files tree alone and wait for its first rows. */
-export async function renderTree(options: { current?: string } = {}) {
+export async function renderTree() {
   let now = 1_000;
   const daemon = new FakeDaemon({ clock: () => (now += 1) });
   new ScenarioPlayer(daemon, coldStartReplay()).runThrough("turn-2");
@@ -113,15 +123,16 @@ export async function renderTree(options: { current?: string } = {}) {
     uploads: [],
   };
   const queries = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } });
-  const state: TreeState = { current: options.current, expanded: undefined };
+  const memory = treeMemory();
+  const connection = fakeConnection(daemon);
   const host = (key: number) => (
-    <DaemonConnectionContext.Provider value={fakeConnection(daemon)}>
+    <DaemonConnectionContext.Provider value={connection}>
       <ClientProvider client={client}>
         <QueryClientProvider client={queries}>
           <LayoutProvider>
             <TooltipProvider>
               <ToastProvider>
-                <TreeHost key={key} outputs={outputs} state={state} />
+                <TreeHost key={key} outputs={outputs} memory={memory} />
               </ToastProvider>
             </TooltipProvider>
           </LayoutProvider>

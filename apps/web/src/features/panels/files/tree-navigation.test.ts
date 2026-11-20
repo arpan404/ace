@@ -11,7 +11,12 @@ const entry = (name: string, kind: "file" | "folder" = "file"): FolderRow => ({
   busy: false,
   ignored: false,
 });
-const rows = [entry("apps", "folder"), entry("package.json"), entry("pnpm.yaml"), entry("README.md")];
+const rows = [
+  entry("apps", "folder"),
+  entry("package.json"),
+  entry("pnpm.yaml"),
+  entry("README.md"),
+];
 
 /** Type `letters` from the row at `index`, `gap` ms apart from `start`; the rows landed on. */
 function type(typed: TypeAhead, letters: string, index: number, start: number, gap = 100) {
