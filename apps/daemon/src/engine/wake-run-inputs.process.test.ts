@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -59,4 +59,36 @@ test("a provider's own note in a woken run keeps no wake origin; the adapter's w
   expect(byText(notification)).toMatchObject({ origin: { kind: "background_completion" } });
   expect(byText(imageNote)).toBeDefined();
   expect(byText(imageNote)).not.toHaveProperty("origin");
+});
+
+test("a thread that ran ace's own notice reads done afterwards, with nothing left queued", async () => {
+  const frames = scriptFrames();
+  // The provider starts both turns for input it was given, as Claude does for a sent message.
+  const turn = { on: "send" as const, frames: [frames.frame(start, end)] };
+  const h = await harness([turn, turn], frames);
+  cleanups.push(h.close);
+  const id = await h.create();
+  await vi.waitFor(() => expect(h.store.getThread(id)?.status.state).toBe("done"));
+  // A parcel's arrival notice (ADR 0182): ace's message to the agent, not the person's.
+  const sent = h.internalCommand(
+    {
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "Parcel pcl-1 arrived" }],
+      delivery: "queue",
+      trigger: "background_completion",
+      origin: { kind: "background_completion" },
+    },
+    "parcel-arrival:pcl-1",
+  );
+  expect(sent.ok).toBe(true);
+  await h.engine.flush();
+  await vi.waitFor(() => {
+    const run = Object.values(h.store.snapshotThread(id).runs).find(
+      (candidate) => candidate.trigger === "background_completion",
+    );
+    expect(run?.state).toBe("completed");
+  });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(h.engine.queue(id).pendingCount).toBe(0);
 });
