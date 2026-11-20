@@ -28,10 +28,14 @@ import XCTest
         let moved = app.revealRow("thread.\(source).ios-moved")
         XCTAssertTrue(moved.label.contains("Moved to \(name)"), "the moved row names where its work went: \(moved.label)")
         screenshot("0-moved-row")
-        moved.press(forDuration: 1.0)
-        // A context menu's items reach XCTest by their words, not their identifiers.
+        // A context menu's items reach XCTest by their words, not their identifiers. A press the
+        // list takes as the start of a scroll opens no menu: press again.
         let openThere = app.buttons["Open on \(name)"].firstMatch
-        XCTAssertTrue(openThere.waitForExistence(timeout: 10), "the moved row's menu offers Open on \(name)")
+        for _ in 0..<3 where !openThere.exists {
+            moved.press(forDuration: 1.2)
+            _ = openThere.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(openThere.exists, "the moved row's menu offers Open on \(name)")
         screenshot("0b-moved-menu")
         // Outside the menu and its preview, beside them: the menu closes and nothing opens.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
