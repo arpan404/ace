@@ -86,7 +86,7 @@ test("a stranger's package starts with only its declared hosts on, and only what
   expect(checked(market, "Can ask you to send things in your name")).toBe("false");
   expect(checked(market, "Publishes and posts")).toBe("false");
   expect(checked(market, "Acts in pages on www.example-air.com as you")).toBe("false");
-  expect(within(market).getByText(/It isn't from ace, so only reaching the sites/)).toBeTruthy();
+  expect(within(market).getByText(/It isn't made by ace, so only reaching the sites/)).toBeTruthy();
   // A send the person turns on still asks each time.
   expect(within(market).getByText(/You send it\. You decide each time\./)).toBeTruthy();
   expect(
@@ -122,7 +122,7 @@ test("a package by ace starts with what it declares on", async () => {
     "Acts in pages on www.example-air.com as you",
   ])
     expect(checked(market, name)).toBe("true");
-  expect(within(market).queryByText(/It isn't from ace/)).toBeNull();
+  expect(within(market).queryByText(/It isn't made by ace/)).toBeNull();
 });
 
 test("an update says what changes, what stays because you changed it, and what starts off", async () => {

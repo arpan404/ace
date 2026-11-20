@@ -75,8 +75,8 @@ function EffectChoices(props: {
       <Head>What it may do</Head>
       {!props.byAce && rows.some((row) => !effectStartsOn(row, false)) && (
         <p className="mk-meta">
-          It isn't from ace, so only reaching the sites it names starts on. Turn on what you want it
-          to do.
+          It isn't made by ace, so only reaching the sites it names starts on. Turn on what you want
+          it to do.
         </p>
       )}
       {rows.map((row) => {
