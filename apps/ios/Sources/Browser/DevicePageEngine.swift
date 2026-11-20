@@ -16,12 +16,16 @@ enum DevicePageEngine {
                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    /// The loopback hosts, one pattern each: WebKit's rule lists have no alternation.
+    /// The loopback hosts, one pattern each: WebKit's rule lists have no alternation. They match
+    /// every URL whose host `isLoopbackHost` (and `@ace/ui-core`'s `isMachineLoopbackHost`)
+    /// accepts, as WebKit serializes a request's URL: the host lowercased, an IPv4 address in
+    /// dotted decimal and IPv6 compressed (`[::1]`), but a trailing dot kept (`localhost.`) and
+    /// any userinfo before the host. Both are tested against `machine-loopback-urls.json`.
     static let loopbackPatterns = [
-        "^[a-z]+://localhost[:/]",
-        "^[a-z]+://[^/:?#]+\\.localhost[:/]",
-        "^[a-z]+://127\\.[0-9]+\\.[0-9]+\\.[0-9]+[:/]",
-        "^[a-z]+://\\[::1\\][:/]",
+        "^[a-z]+://([^/?#@]*@)?localhost\\.?[:/]",
+        "^[a-z]+://([^/?#@]*@)?[^/:?#@]+\\.localhost\\.?[:/]",
+        "^[a-z]+://([^/?#@]*@)?127\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]",
+        "^[a-z]+://([^/?#@]*@)?\\[::1\\][:/]",
     ]
 
     /// Blocks every loopback request (pages, fetches, websockets, frames) unless the top-level page

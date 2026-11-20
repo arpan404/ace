@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { isMachineLoopbackHost } from "./machine-loopback.ts";
+
+const urlCases = JSON.parse(
+  readFileSync(new URL("./machine-loopback-urls.json", import.meta.url), "utf8"),
+) as { url: string; loopback: boolean }[];
 
 test.each([
   ["localhost", true],
@@ -50,4 +55,13 @@ test("hostnames a URL parses from loopback addresses go to the machine", () => {
   ])
     expect(isMachineLoopbackHost(new URL(url).hostname)).toBe(true);
   expect(isMachineLoopbackHost(new URL("https://example.com/").hostname)).toBe(false);
+});
+
+/*
+ * URLs as a browser serializes a request's, shared with the phone's WebKit rule patterns
+ * (`DevicePageEngine.loopbackPatterns`), which must name exactly these.
+ */
+test.each(urlCases)("$url goes to the machine: $loopback", ({ url, loopback }) => {
+  expect(new URL(url).href).toBe(url);
+  expect(isMachineLoopbackHost(new URL(url).hostname)).toBe(loopback);
 });

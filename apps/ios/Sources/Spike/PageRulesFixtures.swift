@@ -212,7 +212,21 @@ extension PageRulesScenario {
         redirect(303, post: true, reaches: "GET"),
         redirect(307, post: true, reaches: nil),
         redirect(307, post: false, reaches: "GET"),
+        // The other spellings of the machine's loopback a page can name, as subresources.
+        image(.publicSite, host: "localhost.", reaches: nil), image(.loopback, host: "localhost.", reaches: "GET"),
+        image(.publicSite, host: "user@localhost", reaches: nil), image(.loopback, host: "user@localhost", reaches: "GET"),
+        image(.publicSite, host: "127.0.0.1.", reaches: nil), image(.loopback, host: "127.0.0.1.", reaches: "GET"),
+        image(.publicSite, host: "LOCALHOST", reaches: nil),
+        image(.publicSite, host: "app.localhost.", reaches: nil),
+        image(.publicSite, host: "[::1]", reaches: nil),
     ]
+
+    /// An image from the machine named by `host` instead of `localhost`.
+    private static func image(_ origin: Origin, host: String, reaches: String?) -> PageRulesScenario {
+        PageRulesScenario(name: "\(label(origin)) loading an image from \(host)", origin: origin, html: { machine, _, hit in
+            "<img src='\(machine.replacingOccurrences(of: "://localhost", with: "://\(host)"))\(hit)'>"
+        }, reaches: reaches)
+    }
 
     private static func label(_ origin: Origin) -> String { origin == .publicSite ? "a public page" : "a localhost page" }
     private static func fetch(_ origin: Origin, reaches: String?) -> PageRulesScenario {

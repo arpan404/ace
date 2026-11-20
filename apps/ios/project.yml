@@ -228,6 +228,9 @@ targets:
       # The device tab's navigation rule, as @ace/ui-core's own test reads it.
       - path: ../../packages/ui-core/src/loopback-navigation-cases.json
         buildPhase: resources
+      # Which URLs are the machine's loopback, for the WebKit rule patterns.
+      - path: ../../packages/ui-core/src/machine-loopback-urls.json
+        buildPhase: resources
       # Shared, language-neutral emulator cases (see its README).
       - path: ../../fixtures/terminal-emulator
         type: folder
