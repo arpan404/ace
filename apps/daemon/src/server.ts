@@ -362,6 +362,11 @@ export async function startServer(options: ServerOptions): Promise<{
     let stopEnrollment: (() => void) | undefined;
     let cleaned = false;
     let welcomed = false;
+    /**
+     * A tunnel connection (ADR 0194) carries only its stream frames once its hello is read: from
+     * then on its JSON reaches no service, command or read, whatever the socket's scopes.
+     */
+    let tunnelOnly = false;
     const flights = { count: 0 };
     let lastActivity = auth.now();
     socket.on("message", () => {
@@ -617,6 +622,10 @@ export async function startServer(options: ServerOptions): Promise<{
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
+      if (tunnelOnly && !binary) {
+        if (isPing(data)) send({ type: "pong" });
+        return;
+      }
       let message: SocketMessage;
       try {
         if (binary) {
@@ -694,6 +703,7 @@ export async function startServer(options: ServerOptions): Promise<{
         // starts the client's keeper, and the hold is a timer released with the socket.
         if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
+        tunnelOnly = message.channel === "tunnel";
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
